@@ -1,0 +1,209 @@
+"""Recorded process identity and conservative macOS containment (C-5).
+
+Process listings containing environments are consumed in memory and discarded;
+only pid sets and start identities may become durable evidence.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import signal
+import subprocess
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+
+class InspectionError(RuntimeError):
+    """The operating system could not establish process ownership."""
+
+
+def _read(argv: list[str], *, empty_ok: bool = False) -> str:
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise InspectionError(f"{argv[0]} inspection unavailable") from exc
+    # BSD ps returns 1 when a valid selector matches no processes.
+    if result.returncode and not (
+        empty_ok and result.returncode == 1 and not result.stdout.strip()
+        and not result.stderr.strip()
+    ):
+        raise InspectionError(f"{argv[0]} inspection failed ({result.returncode})")
+    return result.stdout
+
+
+def boot_id() -> str:
+    """Return kern.boottime seconds, the identity required by C-5.3."""
+    value = _read(["sysctl", "-n", "kern.boottime"]).strip()
+    match = re.search(r"\bsec\s*=\s*(\d+)", value)
+    if match:
+        return match.group(1)
+    if value.isdecimal():
+        return value
+    raise InspectionError("kern.boottime did not contain boot seconds")
+
+
+def proc_start(pid: int) -> str | None:
+    """Read exactly ps's lstart value; an absent process returns None."""
+    if pid <= 0:
+        return None
+    return _read(["ps", "-p", str(pid), "-o", "lstart="], empty_ok=True).strip() or None
+
+
+def _stat(pid: int) -> str | None:
+    return _read(["ps", "-p", str(pid), "-o", "stat="], empty_ok=True).strip() or None
+
+
+@dataclass(frozen=True)
+class ProcessIdentity:
+    pid: int
+    boot_id: str
+    proc_start: str
+
+
+def identity(pid: int) -> ProcessIdentity | None:
+    """Capture a live, non-zombie process without command or environment data."""
+    if pid <= 0:
+        return None
+    started = proc_start(pid)
+    state = _stat(pid) if started else None
+    if not started or not state or state.startswith("Z"):
+        return None
+    return ProcessIdentity(pid, boot_id(), started)
+
+
+def same_process(pid: int, boot_id: str, proc_start: str) -> bool:
+    """C-5.3: pid reuse, a different boot and zombies never match."""
+    if not boot_id or not proc_start:
+        return False
+    try:
+        return identity(pid) == ProcessIdentity(pid, str(boot_id), proc_start)
+    except InspectionError:
+        return False
+
+
+@dataclass(frozen=True)
+class Containment:
+    group_pids: frozenset[int] = frozenset()
+    descendant_pids: frozenset[int] = frozenset()
+    marker_pids: frozenset[int] = frozenset()
+    unverifiable: bool = False
+    identities: dict[int, ProcessIdentity] = field(default_factory=dict)
+    errors: tuple[str, ...] = ()
+
+    @property
+    def live_pids(self) -> frozenset[int]:
+        return self.group_pids | self.descendant_pids | self.marker_pids
+
+    @property
+    def verified_empty(self) -> bool:
+        return not self.unverifiable and not self.live_pids
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "group_pids": sorted(self.group_pids),
+            "descendant_pids": sorted(self.descendant_pids),
+            "marker_pids": sorted(self.marker_pids),
+            "live_pids": sorted(self.live_pids),
+            "unverifiable": self.unverifiable,
+            "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
+            "errors": list(self.errors),
+        }
+
+
+def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
+                attempt_id: str) -> Containment:
+    """Collect all three C-5.5 sources; any failed inspection prevents release.
+
+    Identities describe the census, not authority to signal. In particular a
+    newly discovered escaped process must remain quarantined unless the caller
+    already recorded that process's ownership before the escape.
+    """
+    groups: set[int] = set()
+    descendants: set[int] = set()
+    markers: set[int] = set()
+    states: dict[int, str] = {}
+    errors: list[str] = []
+    try:
+        if pgid and pgid > 0:
+            group_text = _read(["ps", "-o", "pid=,stat=", "-g", str(pgid)], empty_ok=True)
+            for row in group_text.splitlines():
+                pid_text, state = row.split(None, 1)
+                if not state.startswith("Z"):
+                    groups.add(int(pid_text))
+        # There is no recorded group before setsid. The two remaining sources
+        # still enumerate the guardian and any inherited marker.
+    except (InspectionError, ValueError):
+        errors.append("group enumeration unavailable")
+    try:
+        parents: dict[int, int] = {}
+        for row in _read(["ps", "-axo", "pid=,ppid=,stat="]).splitlines():
+            pid_text, parent_text, state = row.split(None, 2)
+            pid = int(pid_text)
+            parents[pid] = int(parent_text)
+            states[pid] = state
+        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
+        found = set(roots)
+        frontier = roots
+        while frontier:
+            frontier = {pid for pid, parent in parents.items() if parent in frontier and pid not in found}
+            found.update(frontier)
+        descendants = {pid for pid in found if pid in states and not states[pid].startswith("Z")}
+    except (InspectionError, ValueError):
+        errors.append("descendant enumeration unavailable")
+    try:
+        if not attempt_id or any(char.isspace() for char in attempt_id):
+            raise ValueError("invalid attempt marker")
+        marker = re.compile(r"(?:^|\s)SUBFLEET_ATTEMPT=" + re.escape(attempt_id) + r"(?=\s|$)")
+        # Never retain or report these command/environment strings.
+        for row in _read(["ps", "-axEww", "-o", "pid=,command="]).splitlines():
+            pid_text, _, command = row.strip().partition(" ")
+            if marker.search(command):
+                pid = int(pid_text)
+                state = states.get(pid) or _stat(pid)
+                if state and not state.startswith("Z"):
+                    markers.add(pid)
+    except (InspectionError, ValueError):
+        errors.append("marker enumeration unavailable")
+    identities: dict[int, ProcessIdentity] = {}
+    for pid in groups | descendants | markers:
+        try:
+            current = identity(pid)
+            if current is not None:
+                identities[pid] = current
+            else:
+                # A process can exit between census and identity capture.
+                groups.discard(pid)
+                descendants.discard(pid)
+                markers.discard(pid)
+        except InspectionError:
+            errors.append(f"identity inspection unavailable for pid {pid}")
+    return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
+                       bool(errors), identities, tuple(errors))
+
+
+def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
+                 proc_start: str) -> bool:
+    """Signal only a recorded, still-identical group leader (C-5.4)."""
+    if pgid <= 1 or pgid == os.getpgrp() or not same_process(pgid, boot_id, proc_start):
+        return False
+    try:
+        if os.getpgid(pgid) != pgid:
+            return False
+        os.killpg(pgid, sig)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def signal_process(recorded: ProcessIdentity, sig: int | signal.Signals) -> bool:
+    """Signal a survivor only with previously recorded ownership (C-5.6)."""
+    if recorded.pid <= 1 or recorded.pid == os.getpid():
+        return False
+    if not same_process(recorded.pid, recorded.boot_id, recorded.proc_start):
+        return False
+    try:
+        os.kill(recorded.pid, sig)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False

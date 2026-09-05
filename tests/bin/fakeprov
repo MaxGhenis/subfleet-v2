@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Deterministic provider process and escaped descendant fixture (C-12.8)."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+
+def main() -> int:
+    if "--escaped-child" in sys.argv:
+        marker = os.environ.get("SUBFLEET_FAKE_MARKER")
+        if marker:
+            Path(marker).write_text(str(os.getpid()), encoding="ascii")
+        time.sleep(30)
+        return 0
+
+    scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "ok")
+    delay = float(os.environ.get("SUBFLEET_FAKE_DELAY_S", "0"))
+    # Reading stdin also exercises guardian prompt redirection.
+    prompt = sys.stdin.read()
+    if scenario == "ignore-sigterm":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    if scenario == "nested-setsid":
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--escaped-child"],
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+        )
+    print(f"fake provider ready: {scenario}", flush=True)
+    if scenario in {"ignore-sigterm", "nested-setsid"}:
+        time.sleep(delay or 30)
+    elif scenario == "slow":
+        time.sleep(delay or 1)
+    elif delay:
+        time.sleep(delay)
+
+    if scenario == "rc4-limit-with-clock":
+        print(json.dumps({"event": "rate_limit", "scope": "account",
+                          "resets_at": int(time.time()) + 3600}), file=sys.stderr, flush=True)
+        return 4
+    if scenario == "rc1-crash-after-output":
+        print("partial result before provider crash", flush=True)
+        return 1
+    if scenario == "spawn-fail":
+        # The adapter maps this scenario to a missing executable before launch.
+        raise RuntimeError("spawn-fail must be selected by FakeAdapter")
+    print("fake deliverable: " + prompt.strip(), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
