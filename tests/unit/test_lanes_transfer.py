@@ -34,6 +34,9 @@ def world(tmp_path: Path) -> dict:
     agents.mkdir(parents=True)
     for index in (1, 2):
         (home / f".codex-{index}").mkdir(parents=True)
+        (home / f".codex-{index}" / "auth.json").write_text('{"auth_mode": "chatgpt"}')
+    v1_state = tmp_path / "v1-state"
+    (v1_state / "runs").mkdir(parents=True)
     (roster / "claude-accounts.json").write_text(json.dumps({
         "_comment": "synthetic",
         "enrolled": {CLAUDE_EMAIL: f"claude-quota-{CLAUDE_EMAIL}",
@@ -53,7 +56,7 @@ def world(tmp_path: Path) -> dict:
                         Credential("claude", f"claude-quota-{CLAUDE_EMAIL}", "keychain-token"),
                         None, LaneOwner.V1, False, True))
     return {"store": store, "root": state_root, "roster": roster, "home": home,
-            "agents": agents}
+            "agents": agents, "v1_state": v1_state}
 
 
 def snapshot(paths: list[Path]) -> dict[str, tuple[int, int]]:
@@ -63,6 +66,7 @@ def snapshot(paths: list[Path]) -> dict[str, tuple[int, int]]:
 
 def transfer(world: dict, lane: str, to: str, **kwargs) -> dict:
     kwargs.setdefault("agents_dir", world["agents"])
+    kwargs.setdefault("v1_state", world["v1_state"])
     return lanes_transfer.transfer(world["store"], world["root"], lane, to,
                                    roster_dir=world["roster"], home=world["home"], **kwargs)
 
@@ -80,6 +84,20 @@ def write_agent(world: dict, label: str, *, homes: list[str] | None = None,
     path = world["agents"] / f"{label}.plist"
     path.write_bytes(plistlib.dumps(payload))
     return path
+
+
+def live_v1_run(world: dict, run_id: str, home: Path, *, finished: bool = False) -> Path:
+    """A v1 ledger entry shaped like `runs/<id>/meta.json`."""
+    meta = world["v1_state"] / "runs" / run_id / "meta.json"
+    meta.parent.mkdir(parents=True)
+    meta.write_text(json.dumps({"id": run_id, "family": "codex", "codex_home": str(home),
+                                "finished_at": "2026-09-05T10:00:00-04:00" if finished else None,
+                                "rc": 0 if finished else None}))
+    return meta
+
+
+def lane_row(world: dict, lane: str) -> dict:
+    return dict(world["store"].one("SELECT * FROM lanes WHERE lane_id=?", (lane,)))
 
 
 def owner(world: dict, lane: str) -> str:
@@ -187,43 +205,90 @@ def test_a_second_transfer_to_the_same_owner_changes_nothing(world):
 
 
 def test_a_codex_transfer_names_the_follow_up_that_enforces_it(world):
-    """v1 globs `~/.codex-1..9` (paths.codex_homes); the file alone is a record."""
+    """v1 globs `~/.codex-1..9` (paths.codex_homes); the file is a record, the relocation the lever."""
     result = transfer(world, "codex-1", "v2", confirm_v1_edit=True)
     recorded = roster_json(world, "codex-accounts.json")["transferred_to_v2"]
     assert [row["home"] for row in recorded] == [str(world["home"] / ".codex-1")]
     assert recorded[0]["account_id"] == CODEX_ACCOUNT
     follow_up = " ".join(result["follow_up"])
-    assert "SUBFLEET_CODEX_HOMES=" + str(world["home"] / ".codex-2") in follow_up
-    assert str(world["home"] / ".codex-1") not in follow_up.split("SUBFLEET_CODEX_HOMES=")[1].split()[0]
+    assert "relocated" in follow_up and "record, not a lever" in follow_up
+    assert "SUBFLEET_CODEX_HOMES=" not in follow_up
 
 
-def test_a_codex_transfer_is_refused_while_a_v1_launch_agent_can_reach_the_home(world):
-    """migration.md principle 5: never two schedulers on one account.
+def test_a_codex_transfer_relocates_the_home_so_v1_cannot_discover_it(world):
+    """migration.md principle 5, C-10.4: the rename fences every v1 caller at once, agents included."""
+    write_agent(world, "com.maxghenis.cos.subfleet")           # no exclusion, and none needed
+    src, dst = world["home"] / ".codex-1", world["root"] / "lanes" / "codex-1"
+    result = transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+    assert result["blocker"] is None and result["applied"] is True
+    assert result["home_move"] == [str(src), str(dst)]
+    assert not src.exists() and (dst / "auth.json").read_text() == '{"auth_mode": "chatgpt"}'
+    row = lane_row(world, "codex-1")
+    assert row["owner"] == "v2" and row["home"] == str(dst) and row["credential_ref"] == str(dst)
+    seeded = [r for r in lanes_json(world) if r["lane_id"] == "codex-1"][0]
+    assert seeded["owner"] == "v2" and seeded["home"] == str(dst) and seeded["credential_ref"] == str(dst)
+    # v1's discovery, as its launch agents and CLI run it, no longer sees the home.
+    scope = lanes_transfer.v1_codex_scope(world["home"], world["roster"], world["agents"])
+    assert str(src) not in scope["com.maxghenis.cos.subfleet"]
+    event = world["store"].query("SELECT data_json FROM events WHERE kind='lane.transferred'")[-1]
+    assert json.loads(event["data_json"])["home_move"] == [str(src), str(dst)]
+    assert "relocation is what fences them" in " ".join(result["follow_up"])
 
-    `codex-accounts.json` is a record v1 never reads (`paths.codex_homes` globs
-    `~/.codex-1..9`), so the only thing that stops v1 is `SUBFLEET_CODEX_HOMES` in
-    the launch agent that runs it.
-    """
-    write_agent(world, "com.maxghenis.cos.subfleet")           # no exclusion at all
+
+def test_a_codex_transfer_is_refused_while_a_v1_run_is_live_on_the_home(world):
+    """Relocating the home under a live v1 run would strand its CODEX_HOME."""
+    live_v1_run(world, "20260905-100000-live", world["home"] / ".codex-1")
+    live_v1_run(world, "20260905-090000-done", world["home"] / ".codex-1", finished=True)
     plan = lanes_transfer.plan_transfer(world["store"], world["root"], "codex-1", "v2",
                                         roster_dir=world["roster"], home=world["home"],
-                                        agents_dir=world["agents"])
-    assert plan.blocker and "com.maxghenis.cos.subfleet" in plan.blocker
-    assert "SUBFLEET_CODEX_HOMES=" + str(world["home"] / ".codex-2") in plan.blocker
+                                        agents_dir=world["agents"], v1_state=world["v1_state"])
+    assert plan.live_v1_runs == ["20260905-100000-live"]
+    assert plan.blocker and "20260905-100000-live" in plan.blocker and plan.home_move is None
     with pytest.raises(lanes_transfer.TransferError) as raised:
         transfer(world, "codex-1", "v2", confirm_v1_edit=True)
     assert raised.value.code == Exit.REFUSED
-    assert owner(world, "codex-1") == "v1"
+    assert owner(world, "codex-1") == "v1" and (world["home"] / ".codex-1").is_dir()
     assert "transferred_to_v2" not in roster_json(world, "codex-accounts.json")
-    assert not (world["root"] / "lanes.json").exists()
 
 
-def test_a_codex_transfer_proceeds_once_v1_is_fenced_out_of_the_home(world):
-    write_agent(world, "com.maxghenis.cos.subfleet",
-                homes=[str(world["home"] / ".codex-2")])
-    result = transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+def test_a_codex_transfer_is_refused_when_the_destination_exists(world):
+    (world["root"] / "lanes" / "codex-1").mkdir(parents=True)
+    with pytest.raises(lanes_transfer.TransferError) as raised:
+        transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+    assert raised.value.code == Exit.REFUSED and "already exists" in str(raised.value)
+    assert owner(world, "codex-1") == "v1"
+
+
+def test_a_dry_run_codex_transfer_moves_nothing(world):
+    result = transfer(world, "codex-1", "v2", dry_run=True)
+    assert result["home_move"] == [str(world["home"] / ".codex-1"), str(world["root"] / "lanes" / "codex-1")]
+    assert (world["home"] / ".codex-1").is_dir() and not (world["root"] / "lanes").exists()
+    assert owner(world, "codex-1") == "v1"
+
+
+def test_transferring_back_moves_the_home_to_its_original_path(world):
+    src = world["home"] / ".codex-1"
+    transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+    result = transfer(world, "codex-1", "v1", confirm_v1_edit=True)
     assert result["blocker"] is None and result["applied"] is True
-    assert owner(world, "codex-1") == "v2"
+    assert (src / "auth.json").exists() and not (world["root"] / "lanes" / "codex-1").exists()
+    row = lane_row(world, "codex-1")
+    assert row["owner"] == "v1" and row["home"] == str(src) and row["credential_ref"] == str(src)
+    assert "transferred_to_v2" not in roster_json(world, "codex-accounts.json")
+    seeded = [r for r in lanes_json(world) if r["lane_id"] == "codex-1"][0]
+    assert seeded["home"] == str(src)
+
+
+def test_transferring_back_is_refused_while_a_v2_attempt_is_live(world):
+    transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+    world["store"].add_job(job_id="20260905-100000-x", request_id="x", payload_digest="d", kind="run",
+                           state="running", workdir="/tmp/w", prompt_path="/tmp/p", sandbox="read-only")
+    world["store"].add_attempt(attempt_id="20260905-100000-x/a1", job_id="20260905-100000-x", seq=1,
+                               lane_id="codex-1", model_requested="astra", state="running")
+    with pytest.raises(lanes_transfer.TransferError) as raised:
+        transfer(world, "codex-1", "v1", confirm_v1_edit=True)
+    assert raised.value.code == Exit.REFUSED and "20260905-100000-x/a1" in str(raised.value)
+    assert owner(world, "codex-1") == "v2" and (world["root"] / "lanes" / "codex-1").is_dir()
 
 
 def test_a_launch_agent_that_does_not_run_v1_is_not_consulted(world):
@@ -231,9 +296,8 @@ def test_a_launch_agent_that_does_not_run_v1_is_not_consulted(world):
     assert transfer(world, "codex-1", "v2", confirm_v1_edit=True)["applied"] is True
 
 
-def test_giving_a_codex_account_back_to_v1_is_never_blocked(world):
-    write_agent(world, "com.maxghenis.cos.subfleet",
-                homes=[str(world["home"] / ".codex-2")])
+def test_giving_a_codex_account_back_to_v1_is_not_blocked_by_launch_agents(world):
+    write_agent(world, "com.maxghenis.cos.subfleet")
     transfer(world, "codex-1", "v2", confirm_v1_edit=True)
     result = transfer(world, "codex-1", "v1", confirm_v1_edit=True)
     assert result["blocker"] is None and owner(world, "codex-1") == "v1"

@@ -3,7 +3,10 @@
 
 Samples 100 prompt.md files deterministically from the v1 ledger (sorted run ids, evenly
 spaced), prefixes each with the canary preamble, writes them under the canary directory, and
-submits each with `sf2 run -m astra -s read-only -C <clone> -p <prompt> -n canary-NNN`.
+submits each with `sf2 run -m astra -s read-only -I -D <clone> -C <clone> -p <prompt> -n canary-NNN`:
+the isolated-review path (C-23.2, C-23.4) launches Codex with `--ephemeral --ignore-user-config
+--ignore-rules` and every MCP server, plugin, and hook disabled, so read-only is a verified
+capability restriction and not only the shell sandbox.
 Records the job ids and the clone's baseline HEAD for canary_check.py. Nothing here writes
 outside the canary directory and the v2 store.
 
@@ -13,6 +16,7 @@ outside the canary directory and the v2 store.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import subprocess
 import sys
@@ -48,13 +52,15 @@ def main() -> int:
     prompt_dir = canary / "prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=clone, capture_output=True, text=True, check=True).stdout.strip()
-    (canary / "baseline.json").write_text(json.dumps({"head": head, "count": args.count}, indent=2) + "\n")
+    since = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    (canary / "baseline.json").write_text(json.dumps({"head": head, "count": args.count, "since": since}, indent=2) + "\n")
     submitted = []
     for i, source in enumerate(chosen, 1):
         name = f"canary-{i:03d}"
         target = prompt_dir / f"{name}.md"
         target.write_text(PREAMBLE + source.read_text(errors="replace"))
-        cmd = [args.sf2, "run", "-m", "astra", "-s", "read-only", "-C", str(clone), "-p", str(target), "-n", name, "--no-wait-queue"]
+        cmd = [args.sf2, "run", "-m", "astra", "-s", "read-only", "-I", "-D", str(clone), "-C", str(clone),
+               "-p", str(target), "-n", name, "--no-wait-queue"]
         if args.dry_run:
             print(" ".join(cmd))
             continue

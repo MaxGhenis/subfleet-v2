@@ -78,6 +78,12 @@ LAUNCH_AGENTS = Path("~/Library/LaunchAgents").expanduser()
 CODEX_HOMES_ENV = "SUBFLEET_CODEX_HOMES"
 #: `paths.codex_homes()`: `[HOME / f".codex-{i}" for i in range(1, 10)]`.
 CODEX_HOME_RANGE = range(1, 10)
+#: v1's ledger: `runs/<id>/meta.json` carries `codex_home`, `finished_at`, `rc`.
+V1_STATE_DIR = Path("~/chief-of-staff/state/subfleet").expanduser()
+#: `<state root>/lanes/<lane id>/` holds a lane's provider home (C-2.2). A Codex
+#: home moves here on `--to v2` so v1's directory glob cannot find it anywhere.
+LANE_HOMES_DIR = "lanes"
+V2_LIVE_STATES = ("reserved", "starting", "running", "finalizing")
 
 
 class TransferError(Exception):
@@ -119,10 +125,13 @@ class TransferPlan:
     edits: list[RosterEdit] = field(default_factory=list)
     follow_up: list[str] = field(default_factory=list)
     blocker: str | None = None      # why v2 must not take this account yet
+    home_move: tuple[str, str] | None = None   # (from, to): the Codex home relocation
+    live_v1_runs: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
-        return self.from_owner != self.to_owner or any(edit.changed for edit in self.edits)
+        return (self.from_owner != self.to_owner or any(edit.changed for edit in self.edits)
+                or self.home_move is not None)
 
     def diff(self) -> str:
         return "".join(edit.diff() for edit in self.edits if edit.changed)
@@ -137,6 +146,8 @@ class TransferPlan:
                        "backup": str(edit.backup) if edit.backup else None}
                       for edit in self.edits],
             "follow_up": self.follow_up, "blocker": self.blocker,
+            "home_move": list(self.home_move) if self.home_move else None,
+            "live_v1_runs": list(self.live_v1_runs),
         }
 
 
@@ -248,7 +259,8 @@ def v1_codex_scope(home: Path, roster_dir: Path,
 
 # --- the v2 roster ------------------------------------------------------------
 
-def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str) -> RosterEdit:
+def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str,
+                    home: str | None = None) -> RosterEdit:
     """`<state root>/lanes.json` is the daemon's seed file (`daemon._seed_lanes`).
 
     A store rebuilt from it must come back with the ownership the transfer set,
@@ -268,13 +280,17 @@ def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str) -> Ro
     for row in rows:
         if row.get("lane_id") == lane["lane_id"]:
             row["owner"] = to_owner
+            if home is not None:
+                row["home"] = row["credential_ref"] = home
             break
     else:
         rows.append({
             "lane_id": lane["lane_id"], "provider": lane["provider"],
-            "account_key": lane["account_key"], "credential_ref": lane["credential_ref"],
+            "account_key": lane["account_key"],
+            "credential_ref": home if home is not None else lane["credential_ref"],
             "credential_kind": lane["credential_kind"],
-            "credential_epoch": lane["credential_epoch"], "home": lane["home"],
+            "credential_epoch": lane["credential_epoch"],
+            "home": home if home is not None else lane["home"],
             "owner": to_owner, "desktop": bool(lane["desktop"]),
             "enabled": bool(lane["enabled"]),
         })
@@ -342,9 +358,14 @@ def _codex_roster_edit(roster_dir: Path, lane: dict[str, Any], to_owner: str,
         raise TransferError(f"{path} does not hold a roster object", Exit.OPERATIONAL)
     lane_home = lane.get("home") or lane.get("credential_ref")
     parked = [dict(row) for row in (roster.get(TRANSFERRED_KEY) or []) if isinstance(row, dict)]
-    parked = [row for row in parked if row.get("home") != lane_home]
+    # A parked row names the lane and its original `~/.codex-<n>` path; after the
+    # relocation the lane's current home differs, so match on either key.
+    existing = [row for row in parked
+                if row.get("lane_id") == lane["lane_id"] or row.get("home") == lane_home]
+    parked = [row for row in parked if row not in existing]
     if to_owner == "v2":
-        parked.append({"home": lane_home, "account_id": lane["account_key"].split(":", 1)[-1],
+        parked.append(existing[0] if existing else
+                      {"home": lane_home, "account_id": lane["account_key"].split(":", 1)[-1],
                        "lane_id": lane["lane_id"], "at": utc_now()})
     if parked:
         roster[TRANSFERRED_KEY] = parked
@@ -356,18 +377,53 @@ def _codex_roster_edit(roster_dir: Path, lane: dict[str, Any], to_owner: str,
                  if candidate.is_dir() and str(candidate) not in parked_homes]
     follow_up = [
         "v1 discovers Codex homes by globbing ~/.codex-1..9 (paths.codex_homes); "
-        "this file is a record, not a lever.",
-        f"{CODEX_HOMES_ENV}={':'.join(remaining)} is the value v1's launch agents "
-        f"need for the exclusion of {lane_home} to bite.",
+        "this file is a record, not a lever. The lever is the home's relocation "
+        "(C-10.4).",
     ]
     return RosterEdit(path, before, _restyle(before, roster), "v1"), follow_up, remaining
+
+
+def v1_live_runs_on_home(v1_state: Path, home: str) -> list[str]:
+    """v1 run ids still live on this Codex home, read from v1's own ledger.
+
+    A v1 run is live while its `meta.json` has neither `finished_at` nor `rc`;
+    v1 writes both at the end of a run. Relocating the home under a live run
+    would strand that run's CODEX_HOME, so the transfer waits for it.
+    """
+    runs = Path(v1_state).expanduser() / "runs"
+    if not runs.is_dir():
+        return []
+    target = str(Path(home).expanduser())
+    live: list[str] = []
+    for meta_path in sorted(runs.glob("*/meta.json")):
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (OSError, ValueError):
+            continue
+        if str(meta.get("codex_home") or "") != target:
+            continue
+        if meta.get("finished_at") is None and meta.get("rc") is None:
+            live.append(meta_path.parent.name)
+    return live
+
+
+def _parked_home(roster_dir: Path, lane_id: str) -> str | None:
+    """The original `~/.codex-<n>` path the v1 roster recorded for a transferred lane."""
+    try:
+        roster = json.loads(_read_text(roster_dir / ROSTER_FILE["codex"]) or "{}")
+    except ValueError:
+        return None
+    for row in roster.get(TRANSFERRED_KEY) or []:
+        if isinstance(row, dict) and row.get("lane_id") == lane_id and row.get("home"):
+            return str(row["home"])
+    return None
 
 
 # --- planning and applying ----------------------------------------------------
 
 def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *,
                   roster_dir: Path | None = None, home: Path | None = None,
-                  agents_dir: Path | None = None) -> TransferPlan:
+                  agents_dir: Path | None = None, v1_state: Path | None = None) -> TransferPlan:
     """Build the whole edit without touching anything (C-19.1: `--dry-run` never acts)."""
     if to_owner not in ("v1", "v2"):
         raise TransferError("lanes transfer: --to must be v1 or v2")
@@ -378,28 +434,65 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
     roster_dir = Path(roster_dir) if roster_dir else V1_ROSTER_DIR
     home = Path(home) if home else Path.home()
     plan = TransferPlan(lane_id, row["provider"], row["account_key"], row["owner"], to_owner)
-    plan.edits.append(_v2_roster_edit(Path(state_root), row, to_owner))
     if row["provider"] == "claude":
+        plan.edits.append(_v2_roster_edit(Path(state_root), row, to_owner))
         plan.edits.append(_claude_roster_edit(roster_dir, row, to_owner))
-    else:
-        edit, follow_up, remaining = _codex_roster_edit(roster_dir, row, to_owner, home)
-        plan.edits.append(edit)
-        plan.follow_up.extend(follow_up)
-        if to_owner == "v2":
-            # migration.md principle 5: never two schedulers on one account. The
-            # codex-accounts.json record above is not a lever v1 reads, so v2 may
-            # take the account only once v1's own launch agents cannot reach it.
-            lane_home = str(row.get("home") or row["credential_ref"])
+        return plan
+    edit, follow_up, _remaining = _codex_roster_edit(roster_dir, row, to_owner, home)
+    plan.follow_up.extend(follow_up)
+    lane_home = str(row.get("home") or row["credential_ref"])
+    new_home: str | None = None
+    if to_owner == "v2" and row["owner"] != "v2":
+        # migration.md principle 5: never two schedulers on one account. v1 finds
+        # Codex homes by globbing ~/.codex-1..9 from every caller (CLI, gates,
+        # launch agents), and reads no roster, so the only fence that holds for
+        # all of them at once is moving the directory out of the glob (C-10.4).
+        src = Path(lane_home).expanduser()
+        dst = Path(state_root) / LANE_HOMES_DIR / lane_id
+        plan.live_v1_runs = v1_live_runs_on_home(v1_state or V1_STATE_DIR, str(src))
+        if plan.live_v1_runs:
+            plan.blocker = (f"v1 run(s) {', '.join(plan.live_v1_runs)} are live on {src}; "
+                            "wait for them or `subfleet kill` them, then run this again")
+        elif not src.is_dir():
+            plan.blocker = f"{src} is not a directory; there is no home to relocate"
+        elif dst.exists():
+            plan.blocker = f"{dst} already exists; refusing to overwrite a lane home"
+        else:
+            plan.home_move = (str(src), str(dst))
+            new_home = str(dst)
+            plan.follow_up.append(
+                f"{src} is relocated to {dst} before ownership flips; v1's glob no longer "
+                "finds it from any caller, so v1 stops dispatching on the account the moment "
+                "the rename lands.")
             reaching = sorted(label for label, homes in
                               v1_codex_scope(home, roster_dir, agents_dir).items()
-                              if lane_home in homes)
+                              if str(src) in homes)
             if reaching:
-                plan.blocker = (
-                    f"v1 still dispatches on {lane_home}: launch agent(s) "
-                    + ", ".join(reaching)
-                    + f" have no {CODEX_HOMES_ENV} excluding it. Set "
-                    + f"{CODEX_HOMES_ENV}={':'.join(remaining)} in their "
-                    + "EnvironmentVariables, reload them, and run this again")
+                plan.follow_up.append(
+                    f"launch agent(s) {', '.join(reaching)} glob without {CODEX_HOMES_ENV}; "
+                    "the relocation is what fences them, no plist edit is needed")
+    elif to_owner == "v1" and row["owner"] != "v1":
+        live = [r["attempt_id"] for r in store.query(
+            "SELECT attempt_id FROM attempts WHERE lane_id=? AND state IN (?,?,?,?)",
+            (lane_id, *V2_LIVE_STATES))]
+        original = _parked_home(roster_dir, lane_id)
+        current = Path(lane_home).expanduser()
+        if live:
+            plan.blocker = (f"v2 attempt(s) {', '.join(live)} are live on {lane_id}; wait for "
+                            "them or `sf2 kill` them, then run this again")
+        elif original and str(current) != str(Path(original).expanduser()):
+            back = Path(original).expanduser()
+            if back.exists():
+                plan.blocker = f"{back} already exists; refusing to overwrite it with the lane home"
+            elif not current.is_dir():
+                plan.blocker = f"{current} is not a directory; the lane home is missing"
+            else:
+                plan.home_move = (str(current), str(back))
+                new_home = str(back)
+                plan.follow_up.append(f"{current} is moved back to {back} after ownership "
+                                      "flips to v1; v1's glob finds it again from there.")
+    plan.edits.insert(0, _v2_roster_edit(Path(state_root), row, to_owner, home=new_home))
+    plan.edits.append(edit)
     return plan
 
 
@@ -423,6 +516,18 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
                 shutil.copy2(edit.path, edit.backup)
             _publish(edit.path, edit.after)
 
+    def move() -> None:
+        """The one rename: same volume, atomic, no copy of a credential (C-10.4)."""
+        if not plan.home_move:
+            return
+        src, dst = (Path(item) for item in plan.home_move)
+        try:
+            dst.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.rename(src, dst)
+        except OSError as exc:
+            raise TransferError(f"could not relocate {src} to {dst}: {exc}", Exit.OPERATIONAL,
+                                f"move it by hand (`mv {src} {dst}`) and run this again") from exc
+
     def flip() -> None:
         """C-10.4: ownership changes here and records an event.
 
@@ -434,10 +539,17 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
         rosters = [str(edit.path) for edit in plan.edits if edit.changed]
         data = {"from": plan.from_owner, "to": plan.to_owner,
                 "account_key": plan.account_key, "rosters": rosters,
-                "follow_up": plan.follow_up}
+                "follow_up": plan.follow_up,
+                "home_move": list(plan.home_move) if plan.home_move else None}
         if plan.from_owner != plan.to_owner:
-            with store.transaction("lane.transferred", lane_id=plan.lane_id, data=data):
+            with store.transaction("lane.transferred", lane_id=plan.lane_id, data=data) as tx:
                 store.update_lane(plan.lane_id, owner=plan.to_owner)
+                if plan.home_move:
+                    # The lane keeps its id: the credential is unchanged, only its
+                    # path moved (C-10.4). `update_lane` refuses rebinding by
+                    # design, so this one relocation writes the columns directly.
+                    tx.execute("UPDATE lanes SET home=?, credential_ref=? WHERE lane_id=?",
+                               (plan.home_move[1], plan.home_move[1], plan.lane_id))
         elif rosters:
             # One row, not the two `Store.add_event` writes (it logs its own
             # transaction as well), and no state change to wrap it in.
@@ -447,11 +559,13 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
                  json.dumps(data, sort_keys=True, separators=(",", ":"))))
 
     if plan.to_owner == "v2":
-        publish(v1_edits)       # v1 stops first: never two schedulers (principle 5)
+        publish(v1_edits)       # the record first
+        move()                  # v1 stops here: its glob no longer finds the home (principle 5)
         flip()
         publish(v2_edits)
     else:
         flip()                  # v2 stops first
+        move()                  # then v1 can find the home again
         publish(v2_edits)
         publish(v1_edits)
     return plan.as_dict()
@@ -460,12 +574,12 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
 def transfer(store: Store, state_root: Path, lane_id: str | None, to_owner: str | None, *,
              dry_run: bool = False, confirm_v1_edit: bool = False,
              roster_dir: Path | None = None, home: Path | None = None,
-             agents_dir: Path | None = None) -> dict[str, Any]:
+             agents_dir: Path | None = None, v1_state: Path | None = None) -> dict[str, Any]:
     """The daemon op behind `subfleet lanes transfer` (C-16.2 `lanes`)."""
     if not lane_id:
         raise TransferError("lanes transfer: name a lane")
     plan = plan_transfer(store, state_root, lane_id, to_owner or "", roster_dir=roster_dir,
-                         home=home, agents_dir=agents_dir)
+                         home=home, agents_dir=agents_dir, v1_state=v1_state)
     if dry_run:
         return {**plan.as_dict(), "dry_run": True, "applied": False}
     result = apply_transfer(store, plan, confirm_v1_edit=confirm_v1_edit)
