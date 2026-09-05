@@ -51,6 +51,7 @@ def main() -> int:
     parser.add_argument("--missing-start", action="store_true")
     parser.add_argument("--start-delay", type=float, default=0)
     parser.add_argument("--publication-audit", action="store_true")
+    parser.add_argument("--gate-peer", action="store_true")
     args = parser.parse_args()
     root = args.state_root
     if args.publication_audit:
@@ -60,7 +61,11 @@ def main() -> int:
     from subfleet.daemon import Daemon, DaemonUnavailable
     from tests.fake_adapter import FakeAdapter
 
-    register("codex", FakeAdapter)
+    if args.gate_peer:
+        from tests.fake.gate_peer import FakeGateAdapter
+        register("codex", FakeGateAdapter)
+    else:
+        register("codex", FakeAdapter)
 
     def hook(boundary: str, job_id: str, attempt_id: str) -> None:
         if boundary not in {args.crash_at, args.hold_at}:

@@ -183,3 +183,87 @@ def test_daemon_restart_reads_journal_and_does_not_redispatch(core, tmp_path):
     result = dispatch(core, "gate.poll", {"gate_id": first["gate_id"]})
     assert result["code"] == 0 and len(core.store.list_jobs()) == 1
     assert json.loads((directory / "gate.json").read_text())["status"] == "completed"
+
+
+def test_plan_peer_process_finalizes_through_real_daemon(daemon):
+    """C-5.2, C-17.1, C-23.8–10/43: a real guardian accepts a fixture peer via socket CLI."""
+    import os
+    import subprocess
+    import sys
+
+    daemon.start("--gate-peer")
+    plan = daemon.workdir / "plan.md"
+    plan.write_text("A process-backed agreement gate with exact revision ownership.\n")
+    repository = Path(__file__).resolve().parents[2]
+    completed = subprocess.run(
+        [sys.executable, "-m", "subfleet", "gate", "plan", str(plan), "--peer", "astra",
+         "--main-model", "fable", "--main-approve", "--expect-sha256",
+         hashlib.sha256(plan.read_bytes()).hexdigest(), "--json"],
+        cwd=repository, env={**os.environ, "SUBFLEET_HOME": str(daemon.root),
+                             "PYTHONPATH": str(repository)},
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15,
+    )
+    assert completed.returncode == 0, (completed.stdout, completed.stderr, daemon.log_text())
+    result = json.loads(completed.stdout)
+    assert result["code"] == 0
+    jobs = daemon.rows("SELECT * FROM jobs WHERE kind='gate-review'")
+    assert len(jobs) == 1 and jobs[0]["state"] == "succeeded"
+    job = jobs[0]
+    attempt, = daemon.attempts(job["job_id"])
+    assert attempt["attestation"] == "attested"
+    assert attempt["model_requested"] == attempt["model_served"] == "gpt-6-astra"
+    assert attempt["guardian_pid"] > 0 and attempt["child_pid"] > 0
+    assert attempt["guardian_pid"] != attempt["child_pid"]
+    directory = daemon.root / "jobs" / job["job_id"] / "a1"
+    assert (directory / "start.json").is_file() and (directory / "exit.json").is_file()
+    finalization = json.loads((directory / "finalization.json").read_text())
+    assert finalization["attestation"]["status"] == "attested"
+    assert "synthetic gate peer fixture evidence" in finalization["attestation"]["evidence"]
+    certificate = json.loads((daemon.root / "gates" / result["gate_id"] / "certificate.json").read_text())
+    assert certificate["artifact_revision"] == certificate["peer_verdict"]["artifact_revision"]
+    assert certificate["artifact_revision"]["sha256"] == hashlib.sha256(plan.read_bytes()).hexdigest()
+    deliverable, = daemon.rows("SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'",
+                               (attempt["attempt_id"],))
+    assert Path(deliverable["path"]).read_text().startswith("---SUBFLEET-VERDICT-BEGIN---")
+    assert daemon.rows("SELECT * FROM leases WHERE lease_key LIKE 'gate:%'") == []
+    assert daemon.rows("SELECT * FROM actions") == []
+
+
+def test_gate_fixture_child_publishes_only_its_explicit_synthetic_attestation(core, tmp_path):
+    """C-12.8, C-23.9/43: the fake child replays the real bundle without manufacturing store state."""
+    import os
+    import subprocess
+
+    from subfleet.contracts import Attestation, ExitInfo
+    from subfleet.gate.verdict import parse_verdict
+    from tests.fake.gate_peer import FakeGateAdapter
+
+    plan = tmp_path / "plan.md"
+    plan.write_text("A deterministic fixture peer.\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan)))
+    core._admit()
+    job = core.store.get_job(started["job_id"])
+    attempt, = core.store.list_attempts(job["job_id"])
+    directory = core.root / "jobs" / job["job_id"] / "a1"
+    directory.mkdir()
+    adapter = FakeGateAdapter()
+    launch = adapter.build_launch(core._spec(job), attempt["attempt_id"], directory,
+                                  core.store.get_lane(attempt["lane_id"]), {},
+                                  attempt["model_requested"], None, Path(job["prompt_path"]), None)
+    repository = Path(__file__).resolve().parents[2]
+    with open(launch.stdin_path, "rb") as stdin:
+        completed = subprocess.run(
+            launch.argv, cwd=launch.cwd, stdin=stdin, capture_output=True, timeout=3,
+            env={**os.environ, **launch.env_add, "PYTHONPATH": str(repository),
+                 "SUBFLEET_ATTEMPT": attempt["attempt_id"]},
+        )
+    assert completed.returncode == 0, completed.stderr
+    Path(launch.stdout_path).write_bytes(completed.stdout)
+    Path(launch.stderr_path).write_bytes(completed.stderr)
+    outcome = adapter.classify(directory, launch, ExitInfo(0, None, 0, None))
+    attestation = adapter.attest(directory, launch, outcome, attempt["model_requested"])
+    assert attestation.status == Attestation.ATTESTED
+    assert attestation.served_model == attempt["model_requested"]
+    revision = json.loads((Path(job["workdir"]) / "artifact.json").read_text())
+    assert parse_verdict(completed.stdout.decode(), revision)["verdict"] == "approve"
+    assert core.store.get_job(job["job_id"])["accepted_attempt_id"] is None
