@@ -267,17 +267,18 @@ def test_retirement_uses_event_order_within_one_second(world, monkeypatch):
     client.unretire(ALICE)
     assert client.state([ALICE])["sessions"][ALICE]["retired"] is None
 
-def test_the_state_op_reports_the_ledgers_own_lane_sessions(world):
-    """C-23.31: the recorded lane marker is the daemon's `attempts` rows."""
+@pytest.mark.parametrize("kind", ["dispatch", "revive"])
+def test_the_state_op_reports_the_ledgers_own_lane_sessions(world, kind):
+    """C-23.31: a resumed session is not one the daemon created as a lane."""
     service, client, _home, _store, _root, _policy, _base = world
     service.store.add_job({"job_id": "job-x", "request_id": "r-x",
-                           "payload_digest": "d", "kind": "dispatch",
+                           "payload_digest": "d", "kind": kind,
                            "workdir": "/tmp", "prompt_path": "/tmp/p.md",
                            "sandbox": "read-only"})
     service.store.add_attempt({"attempt_id": "job-x/a1", "job_id": "job-x", "seq": 1,
                                "lane_id": "codex-1", "model_requested": "m",
                                "native_session_id": LANE_RUN})
-    assert LANE_RUN in client.state()["lane_sessions"]
+    assert (LANE_RUN in client.state()["lane_sessions"]) is (kind == "dispatch")
 
 
 # --- `sessions revive` (C-23.20, C-23.55, C-6.5) ------------------------------

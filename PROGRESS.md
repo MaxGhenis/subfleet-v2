@@ -15,6 +15,9 @@
 - Removed the JSON-format-dependent event filter; retained event-id ordering
   so the last retire/unretire action wins even within one second (C-23.35).
 - Focused event tests: 4 passed, 13 deselected in 0.24s.
+- Kept revive attempts out of the daemon-created lane-session census (C-23.31).
+  A desktop session remains eligible for listing/continuation after revival;
+  ordinary dispatch attempts still mark headless sessions. Both cases pass.
 
 ## Validation environment
 

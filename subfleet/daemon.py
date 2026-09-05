@@ -705,10 +705,21 @@ class Daemon:
         return latest
 
     def _lane_session_ids(self) -> list[str]:
-        """Every session id subfleet itself launched as a headless lane (C-23.31)."""
+        """Every session id subfleet itself CREATED as a headless lane (C-23.31).
+
+        A revive's attempt records the session it continued, not one it created —
+        `resume_launch` is handed the operator's own session id. Counting those
+        would mark every revived session a lane run permanently, and C-23.31
+        makes a lane run un-nudgeable, un-listable and un-revivable: one revive
+        would retire the session from the fleet for good. Every other kind
+        launches under a `--session-id` this daemon minted, so every other kind
+        belongs here.
+        """
         return sorted({row["native_session_id"] for row in self.store.query(
-            "SELECT DISTINCT native_session_id FROM attempts "
-            "WHERE native_session_id IS NOT NULL") if row["native_session_id"]})
+            "SELECT DISTINCT a.native_session_id FROM attempts a "
+            "JOIN jobs j USING(job_id) "
+            "WHERE a.native_session_id IS NOT NULL AND j.kind<>'revive'")
+            if row["native_session_id"]})
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
         action = args.action or "state"
