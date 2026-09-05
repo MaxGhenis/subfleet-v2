@@ -8,6 +8,7 @@ against, so a wrong row fails a rule rather than quietly becoming the contract.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -30,7 +31,7 @@ BY_ID = {case["id"]: case for case in CASES}
 #: spellings — neither string exists anywhere in the v1 tree.
 PERMANENT_HEADS = {"status", "capacity", "runs", "jobs", "show", "wait", "kill",
                    "resume", "resume-codex", "notify", "ping", "run", "lanes",
-                   "why", "daemon", "doctor", "hook"}
+                   "why", "daemon", "doctor", "hook", "gate"}
 
 
 def ids(cases):
@@ -226,50 +227,29 @@ def _v2_option_map() -> dict[str, set[str]]:
 
 
 def _v1_option_map() -> dict[str, list[str]] | None:
-    """v1's own parsers, read out of a subprocess that imports the v1 package."""
-    v1_root = Path("~/chief-of-staff/subfleet").expanduser()
-    if not (v1_root / "subfleet" / "cli.py").exists():
+    """C-17.1: inspect v1 source as data; never import or invoke its commands."""
+    root = Path("~/chief-of-staff/subfleet/subfleet").expanduser()
+    if not (root / "cli.py").is_file():
         return None
-    code = _V1_PROBE % str(v1_root)
-    done = subprocess.run([sys.executable, "-P", "-c", code],
-                          capture_output=True, text=True)
-    if done.returncode != 0:
-        return None
-    return json.loads(done.stdout)
-
-
-_V1_PROBE = r'''
-import sys, argparse, json, io, contextlib
-sys.path.insert(0, "%s")
-from subfleet import cli as v1cli, delegate
-def opts(p):
-    return sorted({o for a in p._actions for o in a.option_strings})
-def walk(p, prefix=""):
-    res = {prefix or "(root)": opts(p)}
-    for a in p._actions:
-        ch = getattr(a, "choices", None)
-        if isinstance(ch, dict) and hasattr(a, "add_parser"):
-            for name, sub in ch.items():
-                res.update(walk(sub, f"{prefix}.{name}" if prefix else name))
-    return res
-parser = None
-orig = argparse.ArgumentParser.parse_args
-def grab(self, *a, **k):
-    global parser
-    if self.prog == "subfleet":
-        parser = self
-    raise SystemExit(0)
-argparse.ArgumentParser.parse_args = grab
-try:
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        v1cli.main(["status"])
-except SystemExit:
-    pass
-argparse.ArgumentParser.parse_args = orig
-res = walk(parser)
-res["run"] = opts(delegate._parser())
-print(json.dumps(res))
-'''
+    tree = ast.parse((root / "cli.py").read_text())
+    names = {"p_status": "status", "p_capacity": "capacity", "p_runs": "runs",
+             "p_runs_show": "runs.show", "p_runs_reap": "runs.reap", "p_wait": "wait",
+             "p_kill": "kill", "p_resume": "resume-codex", "p_notify": "notify", "p_enroll": "enroll"}
+    result = {name: [] for name in names.values()}
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument" and isinstance(node.func.value, ast.Name)):
+            target = names.get(node.func.value.id)
+            if target:
+                result[target].extend(arg.value for arg in node.args if isinstance(arg, ast.Constant)
+                                      and isinstance(arg.value, str) and arg.value.startswith("-"))
+    tree = ast.parse((root / "delegate.py").read_text())
+    parser = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_parser")
+    result["run"] = [arg.value for node in ast.walk(parser) if isinstance(node, ast.Call)
+                     and isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument"
+                     for arg in node.args if isinstance(arg, ast.Constant)
+                     and isinstance(arg.value, str) and arg.value.startswith("-")]
+    return result
 
 
 @pytest.mark.parametrize("argv,dropped", [
@@ -298,8 +278,6 @@ def test_a_dropped_flag_is_named_and_its_value_goes_with_it(argv, dropped):
     (["wait", "x", "--cat"], "--cat"),
     (["run", "-b", "feat", "-p", "p.md"], "-b"),
     (["run", "--reuse-out", "-o", "x", "-p", "p.md"], "--reuse-out"),
-    (["run", "--independent-review", "--review-root", "/r", "-p", "p.md"],
-     "--independent-review"),
 ])
 def test_a_flag_whose_absence_would_change_what_happens_is_refused(argv, flag):
     """C-17.3 exit 2 is invalid input. Continuing without `--dry-run` would do
@@ -331,8 +309,11 @@ def test_v1s_argparse_abbreviations_resolve_to_the_flag_they_abbreviated(
     real v1 spellings; v2 would answer them with a usage error naming nothing
     useful, which C-17.3 reserves for input that is actually invalid."""
     mapping = compat.translate(["run", typed, "-p", "p.md"], env={})
-    assert mapping.disposition == "refuse"
-    assert any(resolved in note for note in mapping.notes)
+    if resolved == "--reuse-out":
+        assert mapping.disposition == "refuse"
+        assert any(resolved in note for note in mapping.notes)
+    else:
+        assert mapping.disposition == "map"
 
 
 def test_independent_is_a_different_flag_in_each_version():
@@ -344,8 +325,9 @@ def test_independent_is_a_different_flag_in_each_version():
     assert v2_meaning.disposition == "map"
     assert "--independent" in v2_meaning.argv
     warned = compat.translate(["run", "--independent-review", "-p", "p.md"], env={})
-    assert any("--independent" in note and "C-7.3" in note
-               for note in warned.notes)
+    assert warned.disposition == "map"
+    args = cli.build_parser().parse_args(warned.argv)
+    assert args.isolated_review and not args.independent
 
 
 @pytest.mark.parametrize("argv,expected", [
@@ -449,26 +431,17 @@ def test_the_hidden_verbs_are_delegated_without_a_word_on_stderr(verb):
     assert mapping.disposition == "delegate" and mapping.notes == []
 
 
-def test_gate_is_delegated_and_its_exit_code_comes_back_unchanged():
-    """The gate's 0-to-5 codes mean things no other verb's codes mean
-    (v1 README:717-720: agreement, operational, invalid input, changes
-    requested, blocked review, failed action). Remapping them onto C-17.3
-    would tell a driving agent that a blocked review was a clean merge."""
-    mapping = compat.translate(["gate", "pr", "42", "--peer", "astra"], env={})
-    assert mapping.disposition == "delegate"
-
-    class Done:
-        returncode = 3
-
-    seen: list[list[str]] = []
-
-    def runner(argv, **kwargs):
-        seen.append(argv)
-        return Done()
-
-    code = compat.delegate(mapping.argv, runner=runner)
-    assert code == 3
-    assert seen and seen[0][1:] == ["gate", "pr", "42", "--peer", "astra"]
+@pytest.mark.parametrize("code", range(6))
+def test_gate_reaches_native_handler_with_unchanged_exit_codes(monkeypatch, code):
+    """C-17.1: gate keeps v1's 0–5 meanings while reaching the new implementation."""
+    from subfleet.gate import cli as gate_cli
+    seen = []
+    monkeypatch.setattr(gate_cli, "run", lambda args: seen.append(args) or code)
+    argv = ["gate", "pr", "42", "--peer", "astra"]
+    mapping = compat.translate(argv, env={})
+    assert mapping.disposition == "map" and mapping.notes == []
+    assert compat.dispatch(argv, env={}) == code
+    assert seen[0].gate_command == "pr"
 
 
 def test_delegation_says_so_when_the_v1_install_is_gone(monkeypatch, capsys):

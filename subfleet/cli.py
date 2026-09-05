@@ -508,6 +508,13 @@ def _validate_run(args: argparse.Namespace) -> tuple[str | None, int | None]:
         return None, fail(Exit.INVALID_INPUT,
                           "run: name the work or pin the lane",
                           "--task <task> --tier <tier>, or -m <model>, or -a/-H")
+    if getattr(args, "isolated_review", False):
+        from .gate.cli import MANAGED
+        if args.s != "read-only" or not args.review_root:
+            return None, fail(Exit.REFUSED, "run -I requires -s read-only and -D REVIEW_ROOT (C-23.2)")
+        for key in MANAGED:
+            if key in os.environ:
+                return None, fail(Exit.REFUSED, f"isolated review inherits {key} (C-23.3)", "review the managed policy before retrying")
     workdir = Path(args.C).expanduser()
     try:
         resolved = workdir.resolve()
@@ -571,6 +578,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         caller_pid=caller_pid(),
         no_preamble=bool(args.no_preamble),
         dry_run=bool(args.dry_run or args.why),
+        isolated_review=bool(getattr(args, "isolated_review", False)),
+        review_root=str(Path(args.review_root).expanduser().resolve()) if getattr(args, "review_root", None) else None,
     )
     try:
         client = _client(args)
@@ -1701,6 +1710,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.set_defaults(handler=cmd_status, json=False)
     sub = parser.add_subparsers(dest="command")
 
+    from .gate.cli import configure as configure_gate
+    configure_gate(sub.add_parser("gate", help="main/peer agreement for an exact revision"))
+
     p_status = sub.add_parser("status", help="lanes, readings, closures, running jobs")
     _add_json(p_status)
     p_status.set_defaults(handler=cmd_status)
@@ -1719,6 +1731,8 @@ def build_parser() -> argparse.ArgumentParser:
     pins.add_argument("-H", dest="H", metavar="CODEX_HOME", help="pin a Codex lane home")
     p_run.add_argument("-C", dest="C", default=os.getcwd(), metavar="DIR",
                        help="workdir (default: the current directory)")
+    p_run.add_argument("-I", "--independent-review", dest="isolated_review", action="store_true")
+    p_run.add_argument("-D", "--review-root", dest="review_root")
     p_run.add_argument("-o", dest="o", metavar="OUT", help="export the deliverable here")
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
