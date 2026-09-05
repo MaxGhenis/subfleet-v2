@@ -29,8 +29,12 @@ salvage follows C-13.1.
   `/tmp/quarantine-flakes-baseline-pytest.log`. Socket/process restrictions are
   visible among the failures; this is not a green acceptance run.
 - Existing process-unit tests: 22 passed in 0.05 s.
+- Existing combined process-unit and deterministic daemon-state tests:
+  57 passed in 0.97 s.
 - A PreToolUse hook rejected an unscoped `rg --files /tmp` command. Did not
   retry or bypass that blocked search. All refusals will be recorded in the report.
+- Final report written to `docs/lanes/reports/quarantine-flakes-OUTPUT.md`;
+  the lane remains unresolved, with no fix or new regression claimed.
 
 ## Findings (unconfirmed incident causes)
 
@@ -48,8 +52,7 @@ salvage follows C-13.1.
 
 ## Next
 
-- Commit the final report with precise blockers, test results, and investigation
-  handoff. Three consecutive green full-suite runs remain outstanding (zero green).
+- Three consecutive green full-suite runs remain outstanding (zero green).
 - Integrator: supply original kept roots or rerun in an environment permitting
   C-5.3/C-5.5 process inspection and local socket binding. Capture the outside-group
   PID's PPID, PGID, state, executable, start identity, source sets, and receipts.
