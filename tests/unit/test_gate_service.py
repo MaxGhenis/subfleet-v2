@@ -10,9 +10,10 @@ from pathlib import Path
 import pytest
 
 from subfleet import cli
+from subfleet.contracts import Decision
 from subfleet.gate.service import GateService, dispatch
 from tests.fake.test_gate_end_to_end import arguments, finish, wire
-from tests.unit.test_gate_admission import core
+from tests.unit.test_gate_admission import core, lane
 from tests.unit.test_gate_merge import BASE, HEAD, LANDING, OTHER, FakeGh
 
 
@@ -109,6 +110,38 @@ def test_replaced_round_lease_is_preserved_and_old_output_is_discarded(core, tmp
     assert result["code"] == 4
     assert core.store.one("SELECT holder FROM leases WHERE lease_key=?", (lease_key,))["holder"] == "replacement-holder"
     assert core._gate_service._load(started["gate_id"])["rounds"][-1]["verdict"] is None
+
+
+def test_continue_cannot_consume_finished_peer_with_wrong_explicit_fingerprint(core, tmp_path):
+    """C-23.8: an explicit wrong expectation is rejected before consuming finished output."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("The actual reviewed fingerprint\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan)))
+    finish(core, started)
+    args = continued(started["gate_id"], plan)
+    args.expect_sha256 = "f" * 64
+    result = dispatch(core, "gate.continue", wire(args))
+    assert result["code"] == 4
+    assert not (core.root / "gates" / started["gate_id"] / "certificate.json").exists()
+
+
+@pytest.mark.parametrize("attestation", ["mismatch", "unattested"])
+def test_fable_peer_requires_positive_attestation_at_the_service_boundary(core, tmp_path, attestation):
+    """C-23.43: a pinned Fable job's mismatch/unattested output never counts as a verdict."""
+    core.store.put_lane(lane(core.root / "claude-home", "claude"))
+    decision = Decision(("fable",), (), "claude-1", "fable", "test", "test")
+    core._pick = lambda *args, **kwargs: decision
+    plan = tmp_path / "plan.md"
+    plan.write_text("A Fable peer must actually be attested\n")
+    args = arguments(plan, "--max-rounds", "1")
+    args.peer = "fable"
+    started = dispatch(core, "gate.start", wire(args))
+    finish(core, started, attestation=attestation)
+    result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert result["code"] == 4 and attestation in result["message"]
+    state = core._gate_service._load(started["gate_id"])
+    assert state["rounds"][-1]["verdict"] is None
+    assert state["rounds"][-1]["requested_model"].startswith("claude-fable-")
 
 
 def test_acceptance_artifact_tampering_blocks_without_reusing_export(core, tmp_path):
