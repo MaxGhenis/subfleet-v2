@@ -17,16 +17,21 @@ and tested. Available for daemon integration.
   reserved baseline commit, comparing tree hashes even after provider commits.
 - Proved salvage leaves HEAD, the real index, tracked/untracked/ignored files
   unchanged and replay preserves old snapshots.
+- Reviewed daemon launch gating, containment recovery and quarantine resolution;
+  sent concrete follow-ups to the daemon implementer without changing daemon.py.
 
 ## Next
 - Integrate with daemon recovery and cancellation.
 - Re-run real process acceptance on a host that permits `ps` and `sysctl`.
 
 ## Validation and limitations
-`python3 -m pytest -q tests/unit/test_procs.py tests/unit/test_guardian.py
+`UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv sync --group dev`
+succeeded after the root lane recovered cached dependencies offline.
+
+`UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv run pytest -q
+tests/unit/test_procs.py tests/unit/test_guardian.py
 tests/unit/test_salvage.py tests/process/test_guardian_process.py`:
-34 passed, 4 skipped in 1.18 s. Real process tests explicitly skip because the
+34 passed, 4 skipped in 1.16 s. Real process tests explicitly skip because the
 host sandbox denies `ps` and `sysctl`; production inspection fails closed.
-`uv` cannot resolve dependencies (no network and inherited frozen lock mode);
-system pytest is the offline fallback. Push failed resolving github.com.
+Pushes fail resolving github.com, including both implementation commits.
 No v1 commands executed or files modified.
