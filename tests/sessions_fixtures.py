@@ -247,11 +247,13 @@ class FakeSessions:
 
     def __init__(self, *, retired: dict[str, dict] | None = None,
                  nudges: dict[str, dict] | None = None,
+                 revives: dict[str, dict] | None = None,
                  lane_sessions: Iterable[str] = (),
                  revive_holders: dict[str, str] | None = None,
                  now: datetime = NOW):
         self.retired = dict(retired or {})
         self.nudges = dict(nudges or {})
+        self.revives = dict(revives or {})
         self.lane_sessions = list(lane_sessions)
         self.revive_holders = dict(revive_holders or {})
         self.now = now
@@ -265,9 +267,11 @@ class FakeSessions:
     def state(self, session_ids: list[str] | None = None) -> dict[str, Any]:
         self.state_calls.append(session_ids)
         keys = session_ids if session_ids is not None else sorted(
-            set(self.retired) | set(self.nudges) | set(self.revive_holders))
+            set(self.retired) | set(self.nudges) | set(self.revives)
+            | set(self.revive_holders))
         return {"sessions": {key: {"retired": self.retired.get(key),
                                    "last_nudge": self.nudges.get(key),
+                                   "last_revive": self.revives.get(key),
                                    "revive_holder": self.revive_holders.get(key)}
                              for key in keys},
                 "lane_sessions": list(self.lane_sessions)}
@@ -293,6 +297,12 @@ class FakeSessions:
         self.nudges[session_id] = {"dedupe_key": dedupe_key, "kind": kind,
                                    "at": iso(self.now)}
         return {"recorded": True, "session_id": session_id, "dedupe_key": dedupe_key}
+
+    def record_revive(self, session_id: str, *, dedupe_key: str | None,
+                      detail: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.revives[session_id] = {"dedupe_key": dedupe_key, "at": iso(self.now),
+                                    **dict(detail or {})}
+        return {"session_id": session_id, "recorded": True}
 
     def retire(self, session_id: str, reason: str | None = None) -> dict[str, Any]:
         self.retired[session_id] = {"reason": reason, "at": iso(self.now)}

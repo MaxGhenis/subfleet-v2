@@ -54,6 +54,60 @@ def copies(store: Path, session_id: str) -> dict[Path, dict]:
     return found
 
 
+# --- v1's saved per-user options ---------------------------------------------
+
+def test_saved_config_restores_an_archive_without_timer_arguments(world, tmp_path):
+    """C-17.1 and plan decision 8: the timer preserves v1's archive settings."""
+    home, store, _root = world
+    fx.index_entry(store, ACCOUNT_A, ORG_A, ONE)
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    archived = archive / f"{ONE}.jsonl"
+    archived.write_text("archived transcript\n", encoding="utf-8")
+    config = home / mirror.CONFIG_NAME
+    saved = json.dumps({"archive": str(archive / "*.jsonl"), "dead_home": ORG_B})
+    config.write_text(saved, encoding="utf-8")
+
+    options = mirror.options_from(fx.policy())
+    result = engine(world).run_once(options)
+    assert result.revived == 1 and len(copies(store, ONE)) == 2
+    assert options.dead_home == ORG_B
+    assert config.read_text(encoding="utf-8") == saved, "v1's config remains read-only"
+
+
+def test_cli_exclusions_add_to_configured_exclusions(world):
+    """C-17.1: v1's --exclude adds exclusions without dropping saved ones."""
+    home, store, _root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A)
+    (home / mirror.CONFIG_NAME).write_text(json.dumps({"exclude": [ORG_A]}))
+    options = mirror.options_from(fx.policy(), exclude=(ORG_B,))
+
+    assert set(options.exclude) == {ORG_A, ORG_B}
+    assert engine(world).run_once(options).accounts == 0
+
+
+def test_explicit_empty_archive_and_dead_home_override_saved_defaults(world):
+    """C-17.1: explicit v1 flags may clear saved archive and dead-home values."""
+    home, _store, _root = world
+    (home / mirror.CONFIG_NAME).write_text(json.dumps({
+        "archive": "/fixture/archive/*.jsonl", "dead_home": ORG_B,
+        "exclude": [ORG_A]}))
+    options = mirror.options_from(fx.policy(), archive="", dead_home="", exclude=())
+    assert options.archive == "" and options.dead_home == ""
+    assert options.exclude == (ORG_A,)
+
+
+@pytest.mark.parametrize("excluded", [False, 42, "org-aaaa", {"org-aaaa": True}])
+def test_malformed_saved_exclusions_do_not_break_the_mirror(world, excluded):
+    """C-23.28: malformed saved exclusions do not prevent a pass from running."""
+    home, store, _root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A)
+    (home / mirror.CONFIG_NAME).write_text(json.dumps({"exclude": excluded}))
+    options = mirror.options_from(fx.policy())
+    assert options.exclude == ()
+    assert engine(world).run_once(options).added == 1
+
+
 # --- the copy (plan decision 8) -----------------------------------------------
 
 def test_an_openable_session_is_copied_into_every_account(world):
@@ -339,17 +393,37 @@ def test_a_failed_pass_is_stalled_and_says_why(world, monkeypatch):
     assert health["status"] == "stalled" and "last pass failed" in health["detail"]
 
 
-def test_a_second_pass_that_finds_the_lock_held_does_not_report_a_failure(world):
-    """A 60 s timer over a pass that is still running is normal, not an error."""
+@pytest.mark.parametrize("run_min, status", [(10, "running"), (45, "stalled")])
+def test_a_second_pass_that_finds_the_lock_held_touches_nothing(world, run_min, status):
+    """C-23.28: a 60 s timer over a pass that is still running fires constantly,
+    and the loser must not overwrite the running pass's record.
+
+    If it did, a pass hung for an hour would read `healthy`, which is the exact
+    reading the clause exists to prevent.
+    """
+    import fcntl
+    home, store, root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A)
     engine_under_test = engine(world)
+
+    # A pass in flight, within the grace period or already stalled.
+    (root / "sessions").mkdir(parents=True, exist_ok=True)
+    in_flight = json.dumps({
+        "pass": {"started_at": fx.iso(fx.NOW - timedelta(minutes=run_min)),
+                 "finished_at": None, "state": "running"},
+        "updated_at": fx.iso(fx.NOW - timedelta(minutes=run_min))})
+    (root / "sessions" / mirror.SIDECAR_NAME).write_text(in_flight, encoding="utf-8")
+
     held = engine_under_test._lock()                     # noqa: SLF001 - the seam
     assert held is not None
     try:
         result = engine(world).run_once(mirror.Options())
-        assert result.state == "ok"
+        assert result.state == "ok", "a contended pass is normal, not an error"
         assert "another pass holds the lock" in result.error
+        assert (root / "sessions" / mirror.SIDECAR_NAME).read_text() == in_flight
+        assert engine(world).health()["status"] == status, \
+            "the pass that is actually in flight is still the one reported"
     finally:
-        import fcntl
         fcntl.flock(held.fileno(), fcntl.LOCK_UN)
         held.close()
 

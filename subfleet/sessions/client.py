@@ -66,6 +66,16 @@ class Sessions:
             cooldown_s=cooldown_s, kind=kind, force=force,
             detail=dict(detail or {}))))
 
+    def record_revive(self, session_id: str, *, dedupe_key: str | None,
+                      detail: dict[str, Any] | None = None) -> dict[str, Any]:
+        """C-23.39: retain model substitutions for accepted submissions.
+
+        This history does not decide admission; the live revive lease does.
+        """
+        return self._call("sessions", _asdict(SessionsArgs(
+            action="revived", session_id=session_id, dedupe_key=dedupe_key,
+            detail=dict(detail or {}))))
+
     def retire(self, session_id: str, reason: str | None = None) -> dict[str, Any]:
         return self._call("sessions", _asdict(SessionsArgs(
             action="retire", session_id=session_id, reason=reason)))

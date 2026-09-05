@@ -60,6 +60,12 @@ STORE_ENV = "SUBFLEET_SESSION_STORE"
 #: Where transcripts live; shared with `transcripts.claude_dir`.
 CLAUDE_ENV = "SUBFLEET_CLAUDE_DIR"
 
+#: v1's own per-user settings, so the launchd job needed no CLI arguments:
+#: `{"dead_home": "<orgUuid>", "archive": "<recursive glob>", "exclude": [...]}`.
+#: v2's timer takes no arguments either, so it reads the same file — read-only,
+#: and every value is still overridable per call.
+CONFIG_NAME = "cc-mirror.json"
+
 SIDECAR_NAME = "mirror.json"
 FLAGS_NAME = "mirror-flags.json"
 LOCK_NAME = "mirror.lock"
@@ -172,11 +178,39 @@ class Options:
     ultracode_default: bool = True
 
 
+def load_config(path: Path | None = None) -> dict[str, Any]:
+    """v1's `~/.claude/cc-mirror.json`, read and never written.
+
+    Without it the daemon's timer — which passes no flags — would silently lose
+    the archive-restore and the dead-session home, because both are per-user
+    facts v1 kept here rather than in code.
+    """
+    return _load(path or (transcripts_dir() / CONFIG_NAME))
+
+
+def transcripts_dir() -> Path:
+    from . import transcripts
+    return transcripts.claude_dir()
+
+
 def options_from(policy: dict[str, Any], **overrides: Any) -> Options:
+    """Policy, then v1's saved defaults and caller flags; exclusions accumulate."""
     settings = policy.get("sessions", {})
+    config = load_config()
     values: dict[str, Any] = {
         "ultracode_default": bool(settings.get("mirror_ultracode_default", True))}
-    values.update({key: value for key, value in overrides.items() if value is not None})
+    if isinstance(config.get("dead_home"), str):
+        values["dead_home"] = config["dead_home"]
+    if isinstance(config.get("archive"), str):
+        values["archive"] = config["archive"]
+    configured_exclude = config.get("exclude")
+    if not isinstance(configured_exclude, list):
+        configured_exclude = []
+    excluded = tuple(item for item in configured_exclude
+                     if isinstance(item, str) and item)
+    values["exclude"] = tuple(overrides.get("exclude") or ()) + excluded
+    values.update({key: value for key, value in overrides.items()
+                   if key != "exclude" and value is not None})
     return Options(**values)
 
 
@@ -486,23 +520,30 @@ class Mirror:
     def run_once(self, options: Options | None = None) -> Pass:
         """One full mirroring pass, recorded in the sidecar as it goes (C-23.28).
 
-        The sidecar is written BEFORE the work starts, which is the whole point:
-        a pass that hangs is visible as in flight rather than as silence, and
-        `health` can tolerate it for thirty minutes instead of guessing from a
+        The lock is taken FIRST and the sidecar is written second, and the order
+        matters more than it looks. The sidecar holds one pass, and a 60 s timer
+        over a pass that is still running fires a second one constantly. If the
+        loser wrote the sidecar, it would overwrite the running pass's
+        `started_at` with its own and then stamp it finished — so a pass hung for
+        an hour would read `healthy`, which is exactly the reading C-23.28
+        exists to prevent. The loser now touches nothing.
+
+        Within the lock, the sidecar is written BEFORE the work starts: a pass
+        that hangs is then visible as in flight rather than as silence, and
+        `health` tolerates it for thirty minutes instead of guessing from a
         process listing.
         """
         options = options or Options()
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run)
-        self._record(current)
         lock = None
         try:
             lock = self._lock()
             if lock is None:
                 current.state = "ok"
-                current.finished_at = _iso(self.now())
+                current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
-                self._record(current)
-                return current
+                return current           # deliberately without touching the sidecar
+            self._record(current)
             self._pass(current, options)
             current.state = "ok"
             current.finished_at = _iso(self.now())
