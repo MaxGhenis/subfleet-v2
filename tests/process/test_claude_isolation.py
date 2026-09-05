@@ -114,7 +114,10 @@ def test_the_codex_and_openai_keys_are_irrelevant_but_recorded(tmp_path):
     to strip, and this test records which side each removal belongs to so a future
     change cannot quietly move one."""
     _adapter_, launch = _build(tmp_path, Sandbox.READ_ONLY)
-    assert set(launch.env_remove) == {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
+    assert {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"} <= set(launch.env_remove)
+    # C-23.2: memory inheritance is removed before all read-only initialization.
+    assert {"CLAUDE_MEMORY_STORES", "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+            "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"} <= set(launch.env_remove)
 
 
 def test_the_credential_reaches_the_child_and_appears_nowhere_else(tmp_path):

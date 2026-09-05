@@ -223,3 +223,41 @@ def test_changed_pr_after_blocked_preflight_can_receive_fresh_peer_approval(core
     actions = core.store.query("SELECT * FROM actions")
     assert len(actions) == 2 and len(runner.merges) == 1
     assert {action["op_key"] for action in actions} == {f"example/project:42:{head}" for head in (HEAD, OTHER)}
+
+
+def test_gate_protocol_missing_fields_are_invalid_input(core):
+    """C-16.2, C-17.1: malformed gate clients receive 2 before any state changes."""
+    for op in ("gate.start", "gate.continue"):
+        result = dispatch(core, op, {})
+        assert result["code"] == 2
+    assert core.store.list_jobs() == []
+
+
+def test_gate_protocol_dry_run_does_not_admit_or_write(core, tmp_path):
+    """C-19.1: direct socket dry-run requests cannot create gate jobs or actions."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview only\n")
+    before = core.store.list_events()
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--dry-run")))
+    assert result["code"] == 0 and result["dry_run"]
+    assert core.store.list_events() == before
+    assert core.store.list_jobs() == []
+    assert not (core.root / "gates").exists()
+
+
+def test_explicit_main_model_cannot_use_same_family_peer(core, tmp_path):
+    """C-17.1, C-23.8: complementary peer selection must match explicit main identity."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Independent opinion\n")
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "astra")))
+    assert result["code"] == 2 and "different model families" in result["message"]
+    assert core.store.list_jobs() == []
+
+
+def test_offline_reader_understands_gate_schema(core):
+    """C-3.5, C-17.5: additive gate migration remains readable by this CLI offline."""
+    from subfleet.offline import KNOWN_SCHEMA_VERSION, Offline
+    from subfleet.store import SCHEMA_VERSION
+    assert KNOWN_SCHEMA_VERSION == SCHEMA_VERSION
+    reader = Offline(core.root)
+    assert reader.list_jobs() == []

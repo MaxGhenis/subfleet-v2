@@ -21,10 +21,10 @@ from typing import Any
 
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
+from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
-KNOWN_SCHEMA_VERSION = 1          # C-3.5
 LIVE_JOB_STATES = ("queued", "running", "waiting")
 LIVE_ATTEMPT_STATES = ("reserved", "starting", "running", "finalizing")
 

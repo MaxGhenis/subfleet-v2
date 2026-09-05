@@ -30,9 +30,8 @@ Four dispositions, and the reasoning for each:
   convenience: `_record-run`, `_record-lane-run`, `_canonical-model` and the
   other hidden verbs are called BY v1's own runners through
   `$SUBFLEET_RUN_SUBFLEET` and `$DELEGATE_SUBFLEET`, so a symlink flip that
-  broke them would break every v1 run already in flight. `gate` is delegated for
-  the reason the lane brief gives — it lands in milestone 7 — and its 0-to-5
-  exit codes pass through untouched (v1 README:717-720).
+  broke them would break every v1 run already in flight. `gate` is native in v2
+  and preserves its separate 0-to-5 exit meanings (v1 README:717-720).
 
 * **refuse** — `subfleet codex`, `subfleet claude`, and `subfleet mirror` are
   the direct provider verbs the agent contract tells sessions never to call
@@ -478,7 +477,7 @@ def v1_binary(env: dict[str, str] | None = None) -> str | None:
         path = Path(candidate).expanduser()
         if path.is_file() and os.access(path, os.X_OK):
             return str(path)
-    found = shutil.which("subfleet-gate") or shutil.which("subfleet")
+    found = shutil.which("subfleet")
     if found and not _is_self(found):
         return found
     return None

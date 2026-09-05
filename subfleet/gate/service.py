@@ -14,10 +14,9 @@ import subprocess
 import threading
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 
 from ..store import utc_now
-from ..protocol import SubmitArgs
+from ..protocol import SubmitArgs, GateStartArgs, GateContinueArgs, coerce_args, ProtocolError
 from .certificate import certificate, load_state, private_dir, write_bytes, write_json
 from .errors import GateError
 from .revision import (assert_expected, assert_optional_expected, expected_revision,
@@ -455,11 +454,17 @@ def dispatch(daemon, op: str, args: dict) -> dict:
     service = daemon._gate_service
     try:
         if op == "gate.start":
-            return service.start(SimpleNamespace(**args))
+            request = coerce_args(GateStartArgs, args)
+            if request.dry_run:
+                return {**preview(request, service.root, runner=service.runner, policy=daemon.policy), "code": 0}
+            return service.start(request)
         if op == "gate.poll":
             return service.poll(args["gate_id"])
         if op == "gate.continue":
-            return service.continue_gate(SimpleNamespace(**args))
+            request = coerce_args(GateContinueArgs, args)
+            if request.dry_run:
+                return {**preview(request, service.root, runner=service.runner, policy=daemon.policy), "code": 0}
+            return service.continue_gate(request)
         raise GateError("unknown gate operation")
-    except GateError as exc:
-        return {"code": exc.code, "status": "error", "message": str(exc)}
+    except (GateError, ProtocolError) as exc:
+        return {"code": int(exc.code), "status": "error", "message": str(exc)}

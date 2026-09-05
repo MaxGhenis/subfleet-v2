@@ -16,6 +16,10 @@ Milestone 7 implementation and recovery fixes are integrated on `lane/gates`; fi
 - Independent review fixes now pass: fresh certificates, recovery source checks, empty downgrade rejection, changed-head action continuation, wrong explicit fingerprint rejection.
 - Targeted acceptance command with offline `UV_NO_SYNC=1`: 179 passed in 2.08 s.
 
+- Typed gate wire inputs and server-side dry-run prevent malformed clients from dispatching. Offline reader uses the shared schema version.
+- Compatibility: 1,536 passed in 4.44 s. Gate plus Claude isolation checks: 202 passed in 2.59 s.
+- First full suite: 118 failed, 2,865 passed, 63 skipped in 38.83 s. One memory-removal expectation fixed; remaining failures involve unavailable sockets/process inspection or default scratch paths outside the writable root.
+
 ## Next
 
 - Confirm same-operation-key action reuse cannot bind a different approved base or method.

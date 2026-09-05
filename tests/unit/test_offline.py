@@ -274,7 +274,7 @@ def test_kill_refuses_a_store_written_by_a_newer_subfleet(root, capsys):
     conn.close()
     assert cli.main(["kill", JOB]) == 1
     captured = capsys.readouterr()
-    assert "schema version 99" in captured.err and "version 1" in captured.err
+    assert "schema version 99" in captured.err and f"version {cli.KNOWN_SCHEMA_VERSION}" in captured.err
 
 
 def test_a_store_with_no_tables_is_reported_not_raised(root, capsys):
