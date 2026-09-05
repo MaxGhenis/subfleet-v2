@@ -171,6 +171,20 @@ def test_resume_launch_keeps_home_sandbox_and_guard(tmp_path, sandbox):
     assert launch.lane_id == "codex-4"
 
 
+def test_resume_keeps_native_model_instead_of_forwarding_policy_alias(tmp_path):
+    """C-1.6 C-12.3 Native resume preserves the thread model instead of sending an unresolved policy pin."""
+    home = tmp_path / "lane-home"
+    prompt = tmp_path / "continuation.md"
+    job = replace(_job(tmp_path, prompt), pinned_model="astra")
+    launch = CodexAdapter().resume_launch(
+        job, "job/a2", tmp_path / "a2", _lane(home), {"CODEX_HOME": str(home)},
+        THREAD, prompt, GUARD_OVERRIDE,
+    )
+    assert "-m" not in launch.argv
+    assert "astra" not in launch.argv
+    assert launch.argv[-3:] == ("resume", THREAD, "-")
+
+
 def test_authentication_precedes_admission_and_quota(tmp_path):
     """C-9.2 C-9.3 A revoked refresh token beats concurrent admission and quota errors."""
     launch = _events(tmp_path, {"type": "turn.failed", "error": {"message": "You've hit your usage limit."}},

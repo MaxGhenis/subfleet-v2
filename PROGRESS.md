@@ -18,10 +18,11 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - Added the missing offline probe/enrollment suite: **50 passed in 0.10 s**. Covers saved synthetic wham schema, reversed/weekly-only/unusual windows, fractions and UTC clocks, HTTP/DNS/TLS failures, API/free refusals, and account identity (C-1.4, C-9.7, C-10.2).
 - Verified byte-for-byte v1 guard parity and hardened preflight to reject non-finite timeouts, JSON-RPC errors alongside results, and trust returned for the wrong workdir. Guard suite: **35 passed in 2.83 s** (C-14.1, C-14.2).
 - Audited all 12 fixtures, verified the real success against its source rc/thread/deliverable, and added provenance/redaction plus nested-setsid lifecycle checks. Process suite: **28 passed in 0.83 s** (C-12.7, C-12.8, environment/flags portion of C-14.4).
+- Fixed native resume forwarding a short policy alias as a provider model id; resume now keeps the original thread's model (C-1.6, C-12.3). Adapter suite: **60 passed in 0.07 s**.
 
 ## Next
 
-- Finish review of restored attestation and launch behavior (C-12).
+- Bind resumed attestation to this attempt's receipt timestamps so old thread model history cannot attest a new invocation (C-12.5).
 - Run the specified acceptance suite within C-20.2 budgets; write the final report to `OUTPUT.md` unless an output path is supplied.
 - Commit every coherent step and push each commit to `origin lane/codex-adapter`.
 

@@ -317,8 +317,9 @@ class CodexAdapter(Adapter):
                       prompt_path: Path, guard_override: str | None) -> Launch | None:
         if not native_session_id or native_session_id.startswith("-"):
             raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.")
+        # Job pins are policy aliases; the native thread already holds its resolved model.
         return self._launch(job, attempt_id, attempt_dir, lane, credential_env, prompt_path,
-                            guard_override, job.pinned_model, None, native_session_id)
+                            guard_override, None, None, native_session_id)
 
     def deliverable(self, attempt_dir: Path, launch: Launch, outcome: Outcome) -> bytes | None:
         try:
