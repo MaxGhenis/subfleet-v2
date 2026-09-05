@@ -1,0 +1,8 @@
+{
+  "hook_sha256": "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db",
+  "codex_version": "codex-cli 0.153.3",
+  "reference_hook_path": "/Users/maxghenis/chief-of-staff/subfleet/bin/subfleet-guard-hook",
+  "hooks_trust_hash": "sha256:f97fa95f2f4d43e1f8d35cd92da4d7f3f1861497abd86916680e0189e0ec34b1",
+  "override": "hooks={PreToolUse=[{matcher=\"Bash|apply_patch\",hooks=[{type=\"command\",command=\"/Users/maxghenis/chief-of-staff/subfleet/bin/subfleet-guard-hook\",timeout=60,statusMessage=\"never-rules guard\"}]}],state={\"/<session-flags>/config.toml:pre_tool_use:0:0\"={trusted_hash=\"sha256:f97fa95f2f4d43e1f8d35cd92da4d7f3f1861497abd86916680e0189e0ec34b1\",enabled=true}}}",
+  "provenance": "Hook copied byte for byte from v1 bin/subfleet-guard-hook on 2026-09-05. Identity and override ported from v1 bin/subfleet-guard. Codex 0.153.3 is the lane version pin; runtime hooks/list must confirm trust before executable work. No live preflight was run to create this pin."
+}

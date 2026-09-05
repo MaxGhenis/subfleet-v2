@@ -251,6 +251,7 @@ class Launch:  # C-12.2
     stderr_path: str
     raw_stream_path: str | None
     native_session_id: str | None   # Claude --session-id chosen up front
+    lane_id: str | None = None      # C-9.6: bind classifier closures to the launching lane
 
 
 @dataclass(frozen=True)
