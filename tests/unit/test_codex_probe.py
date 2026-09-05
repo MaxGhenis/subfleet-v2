@@ -237,7 +237,7 @@ def test_enroll_prefers_account_id_to_email(tmp_path, location):
     if location == "tokens":
         raw["tokens"]["account_id"] = "account-specific"
     elif location == "id_token":
-        raw["tokens"]["access_token"] = _jwt({})
+        # Access claims have a plan but no account id; identity claims still count.
         raw["tokens"]["id_token"] = _jwt({
             "email": "probe@example.com", AUTH_CLAIMS: {"chatgpt_account_id": "account-specific"},
         })

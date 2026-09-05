@@ -20,6 +20,7 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - Audited all 12 fixtures, verified the real success against its source rc/thread/deliverable, and added provenance/redaction plus nested-setsid lifecycle checks. Process suite: **28 passed in 0.83 s** (C-12.7, C-12.8, environment/flags portion of C-14.4).
 - Fixed native resume forwarding a short policy alias as a provider model id; resume now keeps the original thread's model (C-1.6, C-12.3). Adapter suite: **60 passed in 0.07 s**.
 - Bound resumed model evidence to the guardian's recorded start/exit interval and refused attestation after spawn failure. Missing clocks and ambiguous boundary seconds return `unattested`; old/later turns cannot change the current result (C-12.5). Adapter suite: **68 passed in 0.12 s**.
+- Fixed account-claim fallback when the access token has plan claims and the ID token has the account id; enrollment still uses the account id before email (C-1.4, C-10.2). Probe suite: **50 passed in 0.10 s**.
 
 ## Next
 

@@ -108,14 +108,18 @@ def _identity(raw: dict) -> dict:
     tokens = raw.get("tokens") if isinstance(raw.get("tokens"), dict) else {}
     access = _claims(tokens.get("access_token"))
     identity = _claims(tokens.get("id_token"))
-    auth = access.get("https://api.openai.com/auth") or identity.get("https://api.openai.com/auth") or {}
+    auth = access.get("https://api.openai.com/auth")
+    id_auth = identity.get("https://api.openai.com/auth")
     if not isinstance(auth, dict):
         auth = {}
+    if not isinstance(id_auth, dict):
+        id_auth = {}
     return {
         "token": tokens.get("access_token"),
-        "account_id": tokens.get("account_id") or auth.get("account_id") or auth.get("chatgpt_account_id"),
+        "account_id": (tokens.get("account_id") or auth.get("account_id") or auth.get("chatgpt_account_id")
+                       or id_auth.get("account_id") or id_auth.get("chatgpt_account_id")),
         "email": identity.get("email") or access.get("email") or raw.get("email"),
-        "plan": auth.get("chatgpt_plan_type"),
+        "plan": auth.get("chatgpt_plan_type") or id_auth.get("chatgpt_plan_type"),
     }
 
 
