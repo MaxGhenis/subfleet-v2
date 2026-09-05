@@ -1,10 +1,52 @@
 """Replay checks using durable rows and files, without provider processes."""
 import errno
+import json
+from dataclasses import asdict, replace
+from pathlib import Path
 
 import pytest
 
 from tests.fake.test_state_contract import state_daemon, reserve, receipt_fixture
 from tests.fake_adapter import FakeAdapter
+
+
+@pytest.mark.parametrize("provider,model,scenario", [
+    ("codex", "astra", "success"), ("claude", "haiku", "success-allowed"),
+])
+def test_c8_2_real_adapter_artifacts_survive_launch_reload(state_daemon, monkeypatch, provider, model, scenario):
+    """C-8.2, C-12.2: real adapter streams and sent prompts publish after launch reload."""
+    from subfleet import daemon as module
+    from subfleet.adapters.claude import ClaudeAdapter
+    from subfleet.adapters.codex import CodexAdapter
+    from subfleet.contracts import Credential
+
+    daemon, harness = state_daemon
+    lane = daemon.store.get_lane("codex-1")
+    lane = replace(lane, lane_id=f"{provider}-real", provider=provider, account_key=f"{provider}:fixture",
+                   credential=Credential(provider, lane.credential.ref, "home"))
+    daemon.store.put_lane(lane)
+    job_id, attempt, adir = reserve(daemon, harness, pinned_model=model, pinned_lane=lane.lane_id)
+    adapter = CodexAdapter() if provider == "codex" else ClaudeAdapter(projects_dir=adir / "projects")
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    spec = daemon._spec(daemon.store.get_job(job_id))
+    launch = adapter.build_launch(spec, attempt["attempt_id"], adir, lane, {},
+                                  attempt["model_requested"], None, Path(spec.prompt_path), None)
+    saved = asdict(launch)
+    saved.pop("env_add")
+    (adir / "launch.json").write_text(json.dumps(saved))
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / provider / scenario
+    finalizing = receipt_fixture(daemon, attempt, adir, stdout=(fixture / "stdout").read_bytes())
+    assert daemon._saved_launch(attempt).notes == launch.notes
+    daemon._finalize(finalizing)
+    assert daemon.store.get_job(job_id)["state"] == "succeeded"
+    artifacts = {row["role"]: row for row in daemon.store.list_artifacts(attempt["attempt_id"])}
+    assert {"deliverable", "stdout", "stderr", "raw-stream", "launch"} <= artifacts.keys()
+    assert Path(artifacts["raw-stream"]["path"]).read_bytes() == (fixture / "stdout").read_bytes()
+    if provider == "claude":
+        assert artifacts["prompt-sent"]["path"] == launch.stdin_path
+        readings = daemon.store.query("SELECT * FROM readings")
+        assert len(readings) == 2
+        assert {row["attempt_id"] for row in readings} == {attempt["attempt_id"]}
 
 
 def test_c4_2_classification_and_attestation_are_frozen_before_acceptance(state_daemon, monkeypatch):

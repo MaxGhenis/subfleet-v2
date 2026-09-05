@@ -933,6 +933,12 @@ class Daemon:
             self._quarantine(a, census, "writers remain after exit receipt")
             return
         launch = self._saved_launch(a)
+        # Both stream-json CLIs write their raw protocol to stdout. Freeze that
+        # stream once after containment when no separate raw file was supplied.
+        if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
+            stdout = Path(launch.stdout_path)
+            if stdout.is_file():
+                self._publish("raw-stream", Path(launch.raw_stream_path), stdout.read_bytes())
         lane = self.store.get_lane(a["lane_id"])
         adapter = get_adapter(lane.provider)
         receipt = self._read_json(adir / "exit.json")
@@ -964,6 +970,9 @@ class Daemon:
         artifacts = [x for x in [deliverable,
                      self._artifact(Path(launch.stdout_path), "stdout"),
                      self._artifact(Path(launch.stderr_path), "stderr"),
+                     self._artifact(adir / "launch.json", "launch"),
+                     self._artifact(Path(launch.stdin_path), "prompt-sent")
+                     if launch.stdin_path and Path(launch.stdin_path).name == "prompt.sent.md" else None,
                      self._artifact(adir / "lane.log", "lane-log"),
                      self._artifact(Path(launch.raw_stream_path), "raw-stream") if launch.raw_stream_path else None,
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
