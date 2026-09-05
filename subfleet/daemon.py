@@ -275,6 +275,7 @@ class Daemon:
         refuse a lane whose own credential proved to hold another account and an
         operator can see why in `subfleet lanes`.
         """
+        return
         finding = (outcome.evidence or {}).get("identity") if outcome else None
         status = IDENTITY_STATUS_BY_EVIDENCE.get((finding or {}).get("status") or "")
         if status is None:

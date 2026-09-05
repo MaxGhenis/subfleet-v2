@@ -323,6 +323,9 @@ def format_status(data: dict[str, Any]) -> str:
                 flags.append("desktop")
             if not lane.get("enabled", 1):
                 flags.append("disabled")
+            # C-10.6: no percentage for this lane, and the reason beside it.
+            if lane.get("identity_status") in ("mismatch", "unverified"):
+                flags.append(f"identity-{lane['identity_status']}")
             lines.append(
                 f"{str(lane.get('lane_id') or '-'):<12.12} "
                 f"{str(lane.get('provider') or '-'):<8.8} "
@@ -1209,7 +1212,7 @@ def _format_lanes(result: dict[str, Any]) -> str:
     if not lanes:
         return "no lanes enrolled — subfleet lanes enroll <credential>"
     lines = [f"{'lane':<12} {'provider':<8} {'account':<30} {'owner':<6} "
-             f"{'desktop':<8} {'enabled':<8} plan"]
+             f"{'desktop':<8} {'enabled':<8} {'identity':<12} plan"]
     for lane in lanes:
         lines.append(
             f"{str(lane.get('lane_id') or '-'):<12.12} "
@@ -1218,6 +1221,7 @@ def _format_lanes(result: dict[str, Any]) -> str:
             f"{str(lane.get('owner') or '-'):<6.6} "
             f"{('yes' if lane.get('desktop') else 'no'):<8} "
             f"{('yes' if lane.get('enabled', True) else 'no'):<8} "
+            f"{str(lane.get('identity_status') or '-'):<12.12} "     # C-10.6
             f"{lane.get('plan') or '-'}")
     return "\n".join(lines)
 

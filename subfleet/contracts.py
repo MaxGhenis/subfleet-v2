@@ -291,7 +291,9 @@ class Launch:  # C-12.2
     """Adapter-chosen, JSON-serialisable facts about this launch that the adapter
     needs back at classification, attestation, and resume time and that no other
     parameter carries: the lane id and attempt id a `Reading` or `Closure` must be
-    stamped with, the model requested, and for Claude the transcript path expected
+    stamped with, the identity and label the lane claims (C-10.6, so a reading can
+    be checked against the credential that produced it), the model requested, and
+    for Claude the transcript path expected
     under `~/.claude/projects/` with its byte size at launch (`transcript_offset`),
     which bounds the attempt's own range inside a transcript a resume appends to
     (C-12.5, C-12.6). The daemon persists it beside the attempt and hands it back

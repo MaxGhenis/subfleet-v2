@@ -209,6 +209,11 @@ def test_a_credential_that_belongs_to_another_account_yields_no_capacity(e2e):
     lane_line, = [line for line in status.stdout.splitlines()
                   if line.startswith("claude-1 ")]
     assert "%" not in lane_line and "no reading" in lane_line
+    assert "identity-mismatch" in lane_line      # C-10.6: and why, not just silence
+    lanes = e2e.cli("lanes")
+    assert lanes.rc == 0, lanes
+    assert "mismatch" in [line for line in lanes.stdout.splitlines()
+                          if line.startswith("claude-1 ")][0]
 
     # C-11.2: not a candidate, and `why` says which rule rejected it.
     why = e2e.cli("why", "--task", "review", "--tier", "standard")
