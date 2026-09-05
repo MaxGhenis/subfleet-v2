@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -31,8 +32,9 @@ from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
     HEADLESS_MARKER, START_GRACE_S, TERM_GRACE_S, WAIT_POLL_MAX_S,
-    Attestation, Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch,
-    Outcome, OutcomeClass, Sandbox, attempt_dir,
+    Attestation, ClockSource, Closure, ClosureReason, Credential, ExitInfo,
+    JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass, Reading,
+    ReadingLabel, Sandbox, attempt_dir,
 )
 from .credentials import resolve_credential
 from .guardian import atomic_publish
@@ -112,8 +114,15 @@ class Daemon:
         except BlockingIOError:
             os.close(self._lock_fd)
             raise DaemonUnavailable("another daemon holds daemon.lock") from None
-        ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
-                 "proc_start": procs.proc_start(os.getpid()), "version": __version__}
+        self._lock_finalizer = weakref.finalize(self, os.close, self._lock_fd)
+        try:
+            ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                     "proc_start": procs.proc_start(os.getpid()), "version": __version__}
+            if not ident["proc_start"]:
+                raise procs.InspectionError("daemon identity is absent")
+        except BaseException:
+            self._lock_finalizer()
+            raise
         os.ftruncate(self._lock_fd, 0)
         os.write(self._lock_fd, json_bytes(ident))
         os.fsync(self._lock_fd)
@@ -321,6 +330,23 @@ class Daemon:
             auth = json.loads(path.read_bytes())
             if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
                 raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
+
+    @staticmethod
+    def _guard_override(adapter, lane: Lane, workdir: str) -> str | None:
+        # The Codex adapter lane exposes its binary as codex_bin. Registered
+        # fake adapters launch their Python fixtures and do not expose it.
+        binary = getattr(adapter, "codex_bin", None)
+        if lane.provider != "codex" or binary is None:
+            return None
+        try:
+            from .guard.preflight import preflight
+        except ImportError:
+            raise AdapterError("Codex guard preflight is not installed", code=7,
+                               fix="install the Codex adapter and reviewed guard files") from None
+        result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir)
+        if not result.ok or not result.override:
+            raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor")
+        return result.override
 
     def dispatch(self, op: str, args: dict) -> dict:
         if op == "submit":
@@ -590,10 +616,11 @@ class Daemon:
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
             spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
+            guard_override = self._guard_override(adapter, lane, spec.workdir)
             launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
-                                          model["id"], model.get("effort"), prompt_path, None)
+                                          model["id"], model.get("effort"), prompt_path, guard_override)
         except AdapterError as exc:
-            self._launch_failure(a, str(exc), rc=exc.code)
+            self._launch_failure(a, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
             return
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
@@ -621,7 +648,7 @@ class Daemon:
         try:
             child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True)
+                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
             self._children[a["attempt_id"]] = child
             started = procs.proc_start(child.pid)
             if not started:
@@ -871,6 +898,17 @@ class Daemon:
             return None
         return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
 
+    @staticmethod
+    def _restore_outcome(data: dict) -> Outcome:
+        data = dict(data)
+        data["cls"] = OutcomeClass(data["cls"])
+        data["readings"] = tuple(Reading(**{**row, "label": ReadingLabel(row["label"])}) for row in data.get("readings", ()))
+        if data.get("closure"):
+            closure = data["closure"]
+            data["closure"] = Closure(**{**closure, "reason": ClosureReason(closure["reason"]),
+                                         "clock_source": ClockSource(closure["clock_source"])})
+        return Outcome(**data)
+
     def _finalize(self, a: dict, *, lost: bool = False) -> None:
         job = self._job(a["job_id"])
         actual = self.store.get_attempt(a["attempt_id"])
@@ -898,10 +936,17 @@ class Daemon:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt")
             attest_status, served_model = "unattested", None
         else:
-            exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
-            outcome = adapter.classify(adir, launch, exit_info)
-            attest = adapter.attest(adir, launch, outcome, a["model_requested"])
-            attest_status, served_model = attest.status.value, attest.served_model
+            result_path = adir / "finalization.json"
+            result = self._read_json(result_path)
+            if result is None:
+                exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
+                outcome = adapter.classify(adir, launch, exit_info)
+                attest = adapter.attest(adir, launch, outcome, a["model_requested"])
+                result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest)}
+                self._publish("finalization", result_path, json_bytes(result))
+            outcome = self._restore_outcome(result["outcome"])
+            attest_status = Attestation(result["attestation"]["status"]).value
+            served_model = result["attestation"]["served_model"]
         deliverable_path = adir / "deliverable.md"
         if not deliverable_path.exists() and not lost:
             contents = adapter.deliverable(adir, launch, outcome)
@@ -1099,7 +1144,7 @@ class Daemon:
         self.store.close()
         (self.root / "daemon.sock").unlink(missing_ok=True)
         fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
-        os.close(self._lock_fd)
+        self._lock_finalizer()
         self.log.removeHandler(self._log_handler)
         self._log_handler.stream.close()
 

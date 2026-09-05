@@ -17,10 +17,18 @@ process/crash verification remains blocked by this sandbox's OS inspection polic
   immutable artifacts, terminal-plus-notice acceptance and serialized export replay.
 - Added per-job wall deadlines, transient/limit/lost retry handling, and hourly retention.
 - Created `uv.lock` from existing cached distributions and installed the project offline.
+- Review fixes now fence concurrent/stale exports, preserve first transient retries on
+  their lane, enforce waiting-job wall limits, record owned process identities, and
+  salvage a verified-dead quarantine before release.
+- Consumed the Codex lane's existing preflight API without editing shared seams or
+  guard files. Added package-root guardian launch and environment-only credential tests.
+- Finalization freezes classification/attestation before acceptance and rejects stale
+  attempt publication; regression tests cover replay and disk-full failures.
+- Retention now accounts for and safely removes selected allocated worktrees under a
+  durable removal lease. Fake scenarios survive prompt preambles and checkpoint suffixes.
 
 ## Next
-- Finish review-driven regression tests and allocated-worktree retention.
-- Verify integration hooks and rerun the exact required command.
+- Run the final exact required command and verify all test docstrings cite clauses.
 - Write final report to `OUTPUT.md`; commit and attempt the required push.
 
 ## Validation and limitations
