@@ -2,7 +2,7 @@
 
 ## State
 
-Milestone 7 implementation is integrated on `lane/gates`; focused review and full-suite verification remain. Final report: `OUTPUT.md`.
+Milestone 7 implementation and recovery fixes are integrated on `lane/gates`; final full-suite verification remains. Final report: `OUTPUT.md`.
 
 ## Done
 
@@ -13,10 +13,13 @@ Milestone 7 implementation is integrated on `lane/gates`; focused review and ful
 - Added native gate CLI/console entry, v1 compatibility cases, daemon-owned event journal/file projections, copied peer bundles, round consumption and four-round stopping.
 - Focused checks: 82 revision/verdict/replay tests; 55 merge tests; 264 related admission/adapter/store tests; 9 fake end-to-end gate tests (7.80 s).
 
+- Independent review fixes now pass: fresh certificates, recovery source checks, empty downgrade rejection, changed-head action continuation, wrong explicit fingerprint rejection.
+- Targeted acceptance command with offline `UV_NO_SYNC=1`: 179 passed in 2.08 s.
+
 ## Next
 
-- Fix independent review findings around continuation, stale certificates, and downgrade evidence.
-- Finish CLI compatibility validation and run the targeted and full suites.
+- Confirm same-operation-key action reuse cannot bind a different approved base or method.
+- Finish full-suite validation; distinguish sandbox restrictions from regressions.
 - Write committed integrator report with exact results and remaining production seams.
 
 ## Constraints and findings

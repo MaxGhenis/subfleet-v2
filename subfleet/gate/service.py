@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import re
 import subprocess
 import threading
@@ -148,6 +149,13 @@ class GateService:
         write_json(directory / "gate.json", state)
         if state.get("certificate_content"):
             write_json(directory / "certificate.json", state["certificate_content"])
+        elif (directory / "certificate.json").exists():
+            (directory / "certificate.json").unlink()
+            fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
 
     def _save(self, state, transition):
         self._journal(state, transition)
@@ -240,6 +248,9 @@ class GateService:
         spec = prepare(self.root, state, record, body, response=response,
                        prior=prior.get("verdict"), peer_account=account, exclusions=exclusions)
         record["submit_args"] = dataclasses.asdict(spec)
+        if state.get("certificate_content"):
+            prior["certificate"] = state.pop("certificate_content")
+            state.pop("certificate", None)
         state.update(status="reviewing", subject=subject)
         state.pop("blocker", None)
         rounds.append(record)
@@ -271,6 +282,11 @@ class GateService:
         record = state["rounds"][-1]
         if state["status"] != "agreed" or record["status"] != "approve":
             raise GateError("gate has no latest consensus approval", 4)
+        current, _ = capture(state, runner=self.runner)
+        if revision(current) != record["revision"]:
+            state.update(status="blocked", blocker="artifact revision changed before agreement completion")
+            self._save(state, "agreement-revision-changed")
+            return self._result(state)
         if not state.get("certificate_content"):
             state["certificate_content"] = certificate(state, record, issued_at=utc_now())
             state["certificate"] = str(self._directory(state) / "certificate.json")
@@ -324,7 +340,22 @@ class GateService:
             evidence = json.loads(attempt.get("evidence_json") or "{}")
             output = Path(record["peer_output"])
             downgrade = next((str(p) for p in (output.with_suffix(".DOWNGRADED"), output.parent / "DOWNGRADED") if p.exists()), None)
-            downgrade = downgrade or evidence.get("downgrade") or evidence.get("downgraded")
+            def downgrade_record(value):
+                if isinstance(value, dict):
+                    for key, item in value.items():
+                        if "downgrad" in key.lower() and item is not None and item is not False:
+                            return {key: item}
+                        found = downgrade_record(item)
+                        if found is not None:
+                            return found
+                elif isinstance(value, list):
+                    for item in value:
+                        found = downgrade_record(item)
+                        if found is not None:
+                            return found
+                return None
+            if downgrade is None:
+                downgrade = downgrade_record(evidence)
             try:
                 validate_attestation(attempt["attestation"], record["requested_model"],
                                      served_model=attempt["model_served"], downgrade=downgrade)
@@ -375,6 +406,11 @@ class GateService:
                 job = self.store.get_job(state["rounds"][-1].get("peer_run_id"))
                 if job and job["state"] not in _TERMINAL:
                     return self._result(state, 4, "another peer review is already running; no duplicate launched")
+                current, _ = capture(state, runner=self.runner)
+                if args.main_approve:
+                    assert_expected(revision(current), expected_revision(args, current))
+                else:
+                    assert_optional_expected(args, current, state["rounds"][-1]["revision"])
                 return self.poll(args.gate_id)
             subject, _ = capture(state, runner=self.runner)
             approved = state["rounds"][-1]["revision"] if state["rounds"] else None
@@ -390,9 +426,18 @@ class GateService:
                 return self._result(state, 0, "gate already completed; no action repeated")
             action_id = (state.get("action") or {}).get("action_id")
             if action_id:
-                assert_optional_expected(args, subject, approved)
                 from .merge import MergeActions
-                return self._action_result(state, MergeActions(self.store, runner=self.runner).reconcile(action_id))
+                expected = expected_revision(args, subject) if args.main_approve else approved
+                if expected == approved:
+                    assert_optional_expected(args, subject, approved)
+                    return self._action_result(state, MergeActions(self.store, runner=self.runner).reconcile(action_id))
+                assert_expected(revision(subject), expected)
+                settled = MergeActions(self.store, runner=self.runner).reconcile(action_id)
+                if settled["action"]["status"] not in {"blocked", "failed"}:
+                    # An unknown, queued, or mismatched landing never authorizes another action.
+                    return self._action_result(state, settled)
+                state["rounds"][-1]["action"] = state["action"]
+                state.update(action=None, status="blocked")
             if not args.main_approve:
                 raise GateError("--main-approve is required for every fresh round")
             expected = expected_revision(args, subject)

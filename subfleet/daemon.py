@@ -657,6 +657,8 @@ class Daemon:
                 self.store.release_leases(lease["holder"])
         self._recover_probes()
         self.timers.actions.recover()
+        from .gate.merge import MergeActions
+        MergeActions(self.store).recover()
         self.timers.start()
         self._recovery_complete.set()
 
