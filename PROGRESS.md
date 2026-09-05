@@ -19,6 +19,10 @@ of `ps`, `sysctl kern.boottime`, and AF_UNIX binding; no bypass attempted.
   All five finalization/replay tests pass.
 - Installed development dependencies offline from existing local caches after
   the initial PyPI DNS failure; `uv sync --offline --group dev` succeeds.
+- Audited and committed the real `subfleetd` fixture (`4b00096`), including
+  isolated Git setup, CLI readiness, and cleanup of guardians without receipts.
+- Reproduced missing effective retry exclusions in `show`; persist them in the
+  admission transaction. Limited and transient retry regression checks pass.
 
 ## Next
 

@@ -539,6 +539,9 @@ class Daemon:
                     if a["outcome_class"] == "transient":
                         transient_counts[a["lane_id"]] = transient_counts.get(a["lane_id"], 0) + 1
                 extra_exclusions += tuple(l for l, n in transient_counts.items() if n >= 2)
+                if extra_exclusions:
+                    job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                    tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision_job = job
                 if previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1:
                     decision_job = {**job, "pinned_lane": previous[-1]["lane_id"]}
