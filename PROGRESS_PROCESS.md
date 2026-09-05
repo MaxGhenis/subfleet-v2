@@ -1,8 +1,8 @@
 # Process and salvage progress
 
 ## State
-Process ownership and guardian publication implemented; salvage is implemented
-and has passed its first targeted tests.
+Process ownership, guardian publication and temporary-index salvage implemented
+and tested. Available for daemon integration.
 
 ## Done
 - Read C-4, C-5, C-8 and C-13 and shared seams, plans and specified v1 behavior.
@@ -13,10 +13,14 @@ and has passed its first targeted tests.
   gate, and temp/file-fsync/rename/directory-fsync publication.
 - Tested identity mismatches, failed census sources, zombies, signal guards,
   environment-only credentials, receipt order, gate EOF and ENOSPC publication.
+- Implemented writable branch refusal and private salvage refs rooted at the
+  reserved baseline commit, comparing tree hashes even after provider commits.
+- Proved salvage leaves HEAD, the real index, tracked/untracked/ignored files
+  unchanged and replay preserves old snapshots.
 
 ## Next
-- Commit the independently tested temporary-index salvage implementation.
 - Integrate with daemon recovery and cancellation.
+- Re-run real process acceptance on a host that permits `ps` and `sysctl`.
 
 ## Validation and limitations
 `python3 -m pytest -q tests/unit/test_procs.py tests/unit/test_guardian.py
