@@ -13,8 +13,6 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
-import pytest
-
 from subfleet.adapters.claude import ClaudeAdapter, encode_project_dir
 from subfleet.contracts import Attestation, Outcome, OutcomeClass
 from tests.conftest import NOW, exit_info, make_launch, stage_case

@@ -36,7 +36,7 @@ import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from ..contracts import (
@@ -528,6 +528,8 @@ class ClaudeAdapter(Adapter):
             self._plan_from_keychain(credential.ref)
             if credential.kind == "keychain-token" else None
         )
+        # The lane does not exist yet, so its id is empty here; the daemon stamps the
+        # id it assigns onto these readings when it inserts the lane row (C-10.1).
         readings = self.readings_from_summary(
             summary, lane_id="", model_id=ENROLL_MODEL, observed_at=iso_utc(self._now()),
         )
@@ -562,7 +564,11 @@ class ClaudeAdapter(Adapter):
             return (
                 Reading(
                     lane_id=lane_id,
-                    scope=model_id,
+                    # C-9.1: an admission-observed reading is about the model that was
+                    # refused. With no model recorded, `account` is the only honest
+                    # scope left; a reading never excludes a lane on its own (C-11.2
+                    # excludes on closures), so this cannot over-reach.
+                    scope=model_id or "account",
                     window=ADMISSION_WINDOW,
                     utilization=None,
                     resets_at=iso_from_epoch(info.resets_at),
@@ -621,6 +627,46 @@ class ClaudeAdapter(Adapter):
             summary, lane_id=lane.lane_id, model_id=model_id,
             observed_at=iso_utc(self._now()),
         )
+
+    def probe_outcome(
+        self, lane: Lane, credential_env: dict[str, str], model_id: str,
+    ) -> Outcome:
+        """C-11.4: a probe the daemon can act on, not just read.
+
+        "A `limited` result closes the scope; `ok` records `admission-observed`" needs
+        a class and a closure, not a bare list of readings, so this runs the same turn
+        and puts it through the same `classify` — one classification path, so a probe
+        and a real attempt can never disagree about the same evidence.
+        """
+        rc, stdout, stderr = self._run_turn(credential_env, model_id)
+        with tempfile.TemporaryDirectory(prefix="subfleet-claude-probe-out-") as tmp:
+            attempt_dir = Path(tmp)
+            (attempt_dir / "stream.jsonl").write_text(stdout, encoding="utf-8")
+            (attempt_dir / "stderr").write_text(stderr, encoding="utf-8")
+            summary = parse_stream(stdout)
+            session_id = summary.session_id
+            launch = Launch(
+                argv=tuple(self._turn_argv(model_id)),
+                env_add=dict(credential_env),
+                env_remove=ENV_REMOVE,
+                cwd=tmp,
+                stdin_path=None,
+                stdout_path=str(attempt_dir / "stdout"),
+                stderr_path=str(attempt_dir / "stderr"),
+                raw_stream_path=str(attempt_dir / "stream.jsonl"),
+                native_session_id=session_id,
+                notes={
+                    "lane_id": lane.lane_id,
+                    "account_key": lane.account_key,
+                    "model_id": model_id,
+                    "session_id": session_id,
+                    "probe": True,
+                },
+            )
+            return self.classify(
+                attempt_dir, launch,
+                ExitInfo(rc=rc, signal=None, wall_s=0.0, child_pid=None),
+            )
 
     # --- launch (C-12.4, C-6.7) ---------------------------------------------
 

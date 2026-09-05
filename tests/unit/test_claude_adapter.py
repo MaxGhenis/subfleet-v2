@@ -875,10 +875,10 @@ def test_the_launch_notes_are_json_serialisable_and_hold_no_secret(adapter, tmp_
     launch = _build(adapter, tmp_path, Sandbox.READ_ONLY)
     restored = json.loads(json.dumps(launch.notes))
     assert restored == launch.notes
-    assert "TOKEN" not in json.dumps(restored).upper() or "OAUTH_TOKEN" not in restored
-    assert not any(
-        isinstance(v, str) and v.startswith("sk-ant-") for v in restored.values()
-    )
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in restored
+    blob = json.dumps(restored)
+    assert "sk-ant-" not in blob
+    assert launch.env_add["CLAUDE_CODE_OAUTH_TOKEN"] not in blob
 
 
 def test_link_raw_stream_publishes_stdout_as_the_stream_without_copying(adapter, tmp_path):
@@ -909,3 +909,61 @@ def test_the_adapter_reads_stdout_when_no_stream_file_was_published(adapter, tmp
     outcome = adapter.classify(attempt_dir, launch, exit_info(0))
     assert outcome.cls is OutcomeClass.OK
     assert len(outcome.readings) == 2
+
+
+def test_probe_outcome_gives_the_router_a_class_and_a_closure(tmp_path):
+    """C-11.4 "a `limited` result closes the scope; `ok` records `admission-observed`":
+    a probe the daemon can act on runs the same turn through the same classifier, so a
+    probe and a real attempt can never disagree about the same evidence."""
+    stdout = (FIXTURES / "rejected-credits-fable" / "stdout").read_text(encoding="utf-8")
+    adapter = ClaudeAdapter(runner=_Runner(stdout=stdout, rc=1), now=lambda: NOW,
+                            projects_dir=tmp_path)
+    outcome = adapter.probe_outcome(
+        make_lane(), {"CLAUDE_CODE_OAUTH_TOKEN": "t"}, "claude-fable-5-1"
+    )
+    assert outcome.cls is OutcomeClass.LIMITED
+    assert outcome.closure.scope == "claude-fable-5-1"
+    assert outcome.closure.lane_id == "claude-1"
+    assert outcome.closure.reason is ClosureReason.CREDITS
+    assert outcome.closure.until_at == iso_from_epoch(1790812800)
+
+
+def test_probe_outcome_on_a_healthy_lane_is_ok_with_provider_readings(tmp_path):
+    """C-11.4 an admitted probe records what the server said, and closes nothing."""
+    stdout = (FIXTURES / "success-allowed" / "stdout").read_text(encoding="utf-8")
+    adapter = ClaudeAdapter(runner=_Runner(stdout=stdout, rc=0), now=lambda: NOW,
+                            projects_dir=tmp_path)
+    outcome = adapter.probe_outcome(
+        make_lane(), {"CLAUDE_CODE_OAUTH_TOKEN": "t"}, "claude-haiku-4-5-20251001"
+    )
+    assert outcome.cls is OutcomeClass.OK
+    assert outcome.closure is None
+    assert {r.window: r.utilization for r in outcome.readings} == {
+        "five_hour": 0.05, "seven_day": 0.25
+    }
+
+
+def test_probe_outcome_leaves_nothing_behind(tmp_path):
+    """C-10.2 a probe writes only into a temporary directory, and removes it."""
+    stdout = (FIXTURES / "success-allowed" / "stdout").read_text(encoding="utf-8")
+    adapter = ClaudeAdapter(runner=_Runner(stdout=stdout, rc=0), now=lambda: NOW,
+                            projects_dir=tmp_path)
+    before = sorted(p.name for p in tmp_path.iterdir())
+    adapter.probe_outcome(make_lane(), {}, "claude-haiku-4-5-20251001")
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+def test_an_admission_reading_with_no_recorded_model_scopes_to_the_account(tmp_path):
+    """C-9.1 a rejection whose requested model was not recorded still yields a reading;
+    `account` is the only honest scope left, and a reading never excludes a lane."""
+    from subfleet.adapters.claude_stream import parse_stream
+
+    adapter = ClaudeAdapter(now=lambda: NOW, projects_dir=tmp_path)
+    info = parse_stream(
+        (FIXTURES / "rejected-credits-fable" / "stdout").read_text(encoding="utf-8")
+    ).rate_limit
+    readings = adapter.readings_from_rate_limit(
+        info, lane_id="claude-1", model_id="", observed_at=iso_utc(NOW)
+    )
+    assert [r.scope for r in readings] == ["account"]
+    assert readings[0].label is ReadingLabel.ADMISSION_OBSERVED
