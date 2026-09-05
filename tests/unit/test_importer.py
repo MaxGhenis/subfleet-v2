@@ -495,6 +495,10 @@ def test_an_external_run_settles_when_v1_finalizes_it(v1):
     assert job["accepted_attempt_id"] == "20260905-100400-live/a1"
     attempt = rows(v1["root"], "SELECT * FROM attempts WHERE job_id='20260905-100400-live'")[0]
     assert attempt["state"] == "succeeded" and attempt["child_pid"] is None
+    evidence = json.loads(attempt["evidence_json"])
+    assert evidence["imported_external"] is False and evidence["settled_from_v1"] is True
+    manifest = json.loads((v1["root"] / "jobs" / "20260905-100400-live" / "manifest.json").read_text())
+    assert manifest["imported_external"] is False      # and the file agrees with the row
     assert rows(v1["root"], "SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'",
                 ("20260905-100400-live/a1",))
     assert report.stores["runs"].reasons.get("external-run-settled-from-v1") == 1

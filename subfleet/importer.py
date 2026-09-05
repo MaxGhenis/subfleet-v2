@@ -1334,10 +1334,20 @@ def _finalize_imported_run(writer: _Writer, report: StoreReport, *, meta: Mappin
             writer.store.update_job(job_id, state=job_state, rc=meta.get("rc"),
                                     finished_at=finished_at,
                                     accepted_attempt_id=attempt_id if job_state == "succeeded" else None)
-            if writer.exists("SELECT 1 FROM attempts WHERE attempt_id=?", (attempt_id,)):
+            row = writer.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+            if row is not None:
+                # The attempt stops being external the moment v1 is done with it:
+                # `imported_external` is what stops v2 acting on a live attempt
+                # (daemon.imported_external), and a settled one is nobody's to act on.
+                try:
+                    evidence = json.loads(row["evidence_json"] or "{}")
+                except (TypeError, ValueError):
+                    evidence = {}
+                evidence.update(imported_external=False, settled_from_v1=True)
                 writer.store.update_attempt(attempt_id, state=state, rc=meta.get("rc"),
                                             signal=_signal_of(meta.get("rc")),
-                                            child_pid=None, finished_at=finished_at)
+                                            child_pid=None, finished_at=finished_at,
+                                            evidence_json=json.dumps(evidence, sort_keys=True))
         _record_artifacts(writer, report, attempt_id, artifacts)
     report.imported += 1
     report.count("external-run-settled-from-v1")
