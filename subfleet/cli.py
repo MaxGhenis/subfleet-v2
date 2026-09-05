@@ -401,9 +401,37 @@ def _apply_deprecations(args: argparse.Namespace) -> None:
         args.m = replacement
 
 
+INBOX_KEEP_S = 7 * 24 * 3600
+
+
+def stage_prompt(text: str, request_id: str, root: Path) -> Path:
+    """Write inline prompt text where the daemon can read it.
+
+    `submit` carries a path, not bytes (C-16.2), so prompt text typed on the
+    command line is staged inside the state root (C-2.1) and the daemon copies
+    it to the job's own `prompt.md` (C-2.3). Stale stagings are pruned here
+    because nothing else owns this directory.
+    """
+    inbox = root / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    os.chmod(inbox, 0o700)
+    cutoff = time.time() - INBOX_KEEP_S
+    for stale in inbox.glob("*.md"):
+        try:
+            if stale.stat().st_mtime < cutoff:
+                stale.unlink()
+        except OSError:
+            pass
+    path = inbox / f"{request_id}.md"
+    handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w") as stream:
+        stream.write(text if text.endswith("\n") else text + "\n")
+    return path
+
+
 def _prompt_path(args: argparse.Namespace, request_id: str,
                  root: Path) -> tuple[str | None, int | None]:
-    """The prompt file to send, writing inline prompt text into the state root."""
+    """The prompt file to send, staging inline text when there is no `-p`."""
     if args.p:
         path = Path(args.p).expanduser()
         try:
@@ -415,18 +443,10 @@ def _prompt_path(args: argparse.Namespace, request_id: str,
     if args.prompt is None:
         return None, fail(Exit.INVALID_INPUT,
                           "run: one of -p PROMPTFILE or PROMPT_TEXT is required")
-    inbox = root / "inbox"
     try:
-        inbox.mkdir(parents=True, exist_ok=True)
-        os.chmod(inbox, 0o700)
-        path = inbox / f"{request_id}.md"
-        handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(handle, "w") as stream:
-            stream.write(args.prompt if args.prompt.endswith("\n")
-                         else args.prompt + "\n")
+        return str(stage_prompt(args.prompt, request_id, root)), None
     except OSError as exc:
         return None, fail(Exit.OPERATIONAL, f"run: cannot stage the prompt: {exc}")
-    return str(path), None
 
 
 def _validate_run(args: argparse.Namespace) -> tuple[str | None, int | None]:
@@ -960,15 +980,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, f"resume: no job {args.id!r}")
     request_id = (args.request_id or str(uuid.uuid4()))[:128]
     root = _root(args)
-    text = args.prompt or RESUME_PROMPT
-    inbox = root / "inbox"
     try:
-        inbox.mkdir(parents=True, exist_ok=True)
-        os.chmod(inbox, 0o700)
-        prompt_path = inbox / f"{request_id}.md"
-        handle = os.open(prompt_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(handle, "w") as stream:
-            stream.write(text if text.endswith("\n") else text + "\n")
+        prompt_path = stage_prompt(args.prompt or RESUME_PROMPT, request_id, root)
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"resume: cannot stage the prompt: {exc}")
     submit = protocol.SubmitArgs(

@@ -589,3 +589,20 @@ def test_a_result_whose_shape_drifted_renders_instead_of_raising(daemon, capsys)
     assert "no lanes enrolled" in capsys.readouterr().out
     assert run_cli(["runs", "show", JOB]) == 0
     assert JOB in capsys.readouterr().out
+
+
+def test_staged_prompts_are_private_and_pruned(daemon, root, workdir, capsys):
+    """C-2.1, C-2.3 inline prompt text is staged in the state root, 0600, and pruned."""
+    import time as _time
+    daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d", "hi"]) == 0
+    staged = list((root / "inbox").glob("*.md"))
+    assert len(staged) == 1
+    assert oct(staged[0].stat().st_mode)[-3:] == "600"
+    assert oct((root / "inbox").stat().st_mode)[-3:] == "700"
+    old = root / "inbox" / "ancient.md"
+    old.write_text("old\n")
+    os.utime(old, (0, _time.time() - cli.INBOX_KEEP_S - 60))
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d", "again"]) == 0
+    assert not old.exists()
+    capsys.readouterr()
