@@ -195,11 +195,17 @@ def cmd_continue(args: argparse.Namespace) -> int:
     if getattr(args, "session", None):
         named.append(args.session)
     source = getattr(args, "source", None)
+    # v1's `cmd_tickle`: with neither `--all` nor `--session`, it surveyed and
+    # sent nothing. That is not a safety flourish — it is "you named no target",
+    # and `subfleet tickle` is a command agents run to LOOK. `muster` and
+    # `revive` had no such flag and did act, so only this scope has the rule.
+    survey = (scope == "interrupted" and not named and not source
+              and not getattr(args, "all", False))
     report = nudge_module.sweep(
         sessions, policy, scope=scope, only=named,
         transcript=getattr(args, "transcript", None), source=source,
         force=bool(getattr(args, "force", False)),
-        dry_run=bool(getattr(args, "dry_run", False)),
+        dry_run=bool(getattr(args, "dry_run", False)) or survey,
         delay_s=getattr(args, "delay", None), manual=source is None,
         caller=_cli().session_id())
     # C-23.31: a request naming a headless lane run is refused with the reason.
@@ -212,6 +218,9 @@ def cmd_continue(args: argparse.Namespace) -> int:
         emit(report.to_dict())
         return int(Exit.REFUSED if named and len(lanes) == len(named) else Exit.OK)
     out(nudge_module.render(report))
+    if survey:
+        note("subfleet sessions: a survey, because no session was named "
+             "(`--all` nudges every interrupted session)")
     if named and len(lanes) == len(named):
         return fail(Exit.REFUSED,
                     "sessions continue: " + ", ".join(
@@ -496,14 +505,14 @@ def add_continue_flags(parser: argparse.ArgumentParser) -> None:
     appends the caller's remaining tokens, so each one must parse here.
     """
     parser.add_argument("sessions", nargs="*", metavar="SESSION",
-                        help="only these sessions (default: every live session)")
+                        help="only these sessions (interrupted defaults to a survey)")
     parser.add_argument("--scope", choices=SCOPE_CHOICES, default="interrupted",
                         help="interrupted (tickle), idle (muster), cold (recover)")
     parser.add_argument("--session", metavar="ID", help="one session id")
     parser.add_argument("--transcript", metavar="PATH",
                         help="transcript override, with a single --session")
     parser.add_argument("--all", action="store_true",
-                        help="every live session (the default; v1 spelling)")
+                        help="nudge every eligible live session")
     parser.add_argument("--dry-run", action="store_true",
                         help="show the verdicts, send and launch nothing")
     parser.add_argument("--force", action="store_true",

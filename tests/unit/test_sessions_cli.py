@@ -348,3 +348,40 @@ def test_the_scope_choices_match_the_module(monkeypatch):
     assert tuple(sessions_cli.SCOPE_CHOICES) == nudge.SCOPES
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(["sessions", "continue", "--scope", "nonsense"])
+
+
+def run_v1(argv: list[str], monkeypatch, **fakes):
+    """The same, for a v1 spelling: through `compat` first, as the front door does."""
+    mapping = compat.translate(argv, env={})
+    assert mapping.disposition in ("map", "note"), (argv, mapping)
+    return run(mapping.argv, monkeypatch, **fakes)
+
+
+def test_a_bare_tickle_surveys_and_sends_nothing(monkeypatch):
+    """C-17.1 preserves v1: without `--all` or `--session`, tickle printed the
+    survey and nudged nobody.
+
+    `subfleet tickle` is a command agents run to LOOK. Making it deliver would
+    turn every diagnostic into a fleet-wide nudge.
+    """
+    from subfleet.sessions import nudge as nudge_module
+    seen: list[bool] = []
+
+    def record(sessions, policy, **kwargs):
+        seen.append(kwargs["dry_run"])
+        return nudge_module.Report(scope=kwargs["scope"])
+
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(nudge_module, "sweep", record)
+
+    for argv in (["tickle"], ["tickle", "--force"]):
+        seen.clear()
+        code, out, err = run_v1(argv, monkeypatch)
+        assert code == int(Exit.OK) and seen == [True]
+        assert "a survey, because no session was named" in err
+
+    for argv in (["tickle", "--all"], ["tickle", "--session", ALICE], ["muster"]):
+        seen.clear()
+        run_v1(argv, monkeypatch)
+        assert seen == [False], argv

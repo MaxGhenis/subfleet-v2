@@ -27,6 +27,10 @@
   revives through leases, not later retries at an unchanged interruption.
 - Revive unit + fake suite: 38 passed, 5 failed in 31.63s. Remaining failures
   reach admission but probes quarantine when process enumeration is unavailable.
+- Restored v1 tickle targeting: bare tickle (even `--force`) surveys; a single
+  named manual tickle acts immediately. Hook wakes keep their delay, and muster
+  and multi-session sweeps keep their quiet window (C-17.1, C-23.34).
+- CLI and nudge unit verification: 86 passed in 0.54s.
 
 ## Validation environment
 
