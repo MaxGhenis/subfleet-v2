@@ -281,11 +281,15 @@ class GateService:
         record = state["rounds"][-1]
         if state["status"] != "agreed" or record["status"] != "approve":
             raise GateError("gate has no latest consensus approval", 4)
-        current, _ = capture(state, runner=self.runner)
-        if revision(current) != record["revision"]:
-            state.update(status="blocked", blocker="artifact revision changed before agreement completion")
-            self._save(state, "agreement-revision-changed")
-            return self._result(state)
+        # MergeActions checks the revision before a new submission and recovers
+        # existing results by operation key. A landed merge may have advanced
+        # the base while the gate's result projection was interrupted.
+        if state["on_agreement"] == "proceed":
+            current, _ = capture(state, runner=self.runner)
+            if revision(current) != record["revision"]:
+                state.update(status="blocked", blocker="artifact revision changed before agreement completion")
+                self._save(state, "agreement-revision-changed")
+                return self._result(state)
         if not state.get("certificate_content"):
             state["certificate_content"] = certificate(state, record, issued_at=utc_now())
             state["certificate"] = str(self._directory(state) / "certificate.json")
@@ -311,6 +315,10 @@ class GateService:
             state = self._load(gate_id)
             if state["status"] == "agreed":
                 return self._complete(state)
+            if state["status"] == "action_attempting":
+                from .merge import MergeActions
+                result = MergeActions(self.store, runner=self.runner).reconcile(state["action"]["action_id"])
+                return self._action_result(state, result)
             if state["status"] != "reviewing":
                 self._project(state)
                 return self._result(state)
@@ -401,6 +409,14 @@ class GateService:
         with self._lock(args.gate_id):
             state = self._load(args.gate_id)
             account, exclusions = routing(args, state["peer"])
+            approved = state["rounds"][-1]["revision"] if state["rounds"] else None
+            if state["status"] == "agreed" and state["on_agreement"] == "merge":
+                op_key = f"{approved['repository'].casefold()}:{approved['number']}:{approved['head_sha'].lower()}"
+                if self.store.one("SELECT action_id FROM actions WHERE op_key=?", (op_key,)):
+                    # The holder may have landed the merge before gate-state
+                    # publication. Recover that action against its approval.
+                    assert_optional_expected(args, state["subject"], approved)
+                    return self._complete(state)
             if state["status"] == "reviewing":
                 job = self.store.get_job(state["rounds"][-1].get("peer_run_id"))
                 if job and job["state"] not in _TERMINAL:
@@ -412,7 +428,6 @@ class GateService:
                     assert_optional_expected(args, current, state["rounds"][-1]["revision"])
                 return self.poll(args.gate_id)
             subject, _ = capture(state, runner=self.runner)
-            approved = state["rounds"][-1]["revision"] if state["rounds"] else None
             if state["status"] == "completed":
                 assert_optional_expected(args, subject, approved)
                 if state["on_agreement"] == "merge":
@@ -448,6 +463,9 @@ class GateService:
 
 
 def dispatch(daemon, op: str, args: dict) -> dict:
+    recovery = getattr(daemon, "_recovery_complete", None)
+    if recovery is not None and not recovery.is_set():
+        return {"code": 1, "status": "error", "message": "daemon recovery is in progress; retry the gate command"}
     with _INIT_LOCK:
         if not hasattr(daemon, "_gate_service"):
             daemon._gate_service = GateService(daemon)

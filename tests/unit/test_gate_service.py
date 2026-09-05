@@ -261,3 +261,103 @@ def test_offline_reader_understands_gate_schema(core):
     assert KNOWN_SCHEMA_VERSION == SCHEMA_VERSION
     reader = Offline(core.root)
     assert reader.list_jobs() == []
+
+
+def test_gate_actions_wait_for_daemon_recovery_before_mutating(core):
+    """C-19.1, C-23.13: startup reconciliation cannot race a new action holder."""
+    import threading
+    core._recovery_complete = threading.Event()
+    before = core.store.list_events()
+    result = dispatch(core, "gate.continue", {"gate_id": "existing-gate"})
+    assert result["code"] == 1 and "recovery" in result["message"]
+    assert core.store.list_events() == before
+
+
+@pytest.mark.parametrize("operation", ["gate.poll", "gate.continue"])
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_landed_merge_recovers_before_gate_result_publication(core, tmp_path, monkeypatch, operation, ambiguous):
+    """C-19.1, C-23.12–13: recover a landed holder result without checking the moving base or resubmitting."""
+    class PatchGh(FakeGh):
+        def __call__(self, command, **kwargs):
+            if command[:2] == ["git", "diff"]:
+                self.commands.append(command)
+                return subprocess.CompletedProcess(command, 0, "diff --git a/file b/file\n+change\n", "")
+            return super().__call__(command, **kwargs)
+
+    runner = PatchGh()
+    runner.timeout = ambiguous
+    runner.on_merge = runner.landed
+    core.gate_runner = runner
+    source = tmp_path / "source"
+    source.mkdir()
+    args = cli.build_parser().parse_args([
+        "gate", "pr", "42", "--peer", "astra", "--main-approve", "--expect-head", HEAD,
+        "--expect-base", BASE, "--on-agreement", "merge", "--merge-method", "squash", "-C", str(source),
+    ])
+    started = dispatch(core, "gate.start", wire(args))
+    finish(core, started)
+
+    def crash(state, result):
+        raise OSError("crash before gate result publication")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(core._gate_service, "_action_result", crash)
+        with pytest.raises(OSError, match="crash before gate result"):
+            dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert core._gate_service._load(started["gate_id"])["status"] == "agreed"
+    action = core.store.query("SELECT * FROM actions")[0]
+    assert action["state"] == ("unknown" if ambiguous else "confirmed")
+    assert runner.metadata["baseRefOid"] != BASE
+    core._gate_service = GateService(core)
+    request = ({"gate_id": started["gate_id"]} if operation == "gate.poll" else
+               wire(continued(started["gate_id"], None, "--expect-head", HEAD, "--expect-base", BASE)))
+    recovered = dispatch(core, operation, request)
+    assert recovered["code"] == 0 and recovered["status"] == "completed"
+    assert recovered["action"]["action_id"] == action["action_id"]
+    assert len(runner.merges) == 1 and len(core.store.query("SELECT * FROM actions")) == 1
+    assert core.store.get_action(action["action_id"])["state"] == action["state"]
+
+
+def test_poll_observes_completion_of_another_gates_existing_merge_action(core, tmp_path):
+    """C-19.1, C-23.13: concurrent gates share one merge and observe its holder's result."""
+    import concurrent.futures
+    import threading
+
+    class PatchGh(FakeGh):
+        def __call__(self, command, **kwargs):
+            if command[:2] == ["git", "diff"]:
+                self.commands.append(command)
+                return subprocess.CompletedProcess(command, 0, "diff --git a/file b/file\n+change\n", "")
+            return super().__call__(command, **kwargs)
+
+    runner = PatchGh()
+    merging, release = threading.Event(), threading.Event()
+
+    def pause_merge():
+        merging.set()
+        assert release.wait(5)
+
+    runner.on_merge = pause_merge
+    core.gate_runner = runner
+    source = tmp_path / "source"
+    source.mkdir()
+    args = cli.build_parser().parse_args([
+        "gate", "pr", "42", "--peer", "astra", "--main-approve", "--expect-head", HEAD,
+        "--expect-base", BASE, "--on-agreement", "merge", "--merge-method", "squash", "-C", str(source),
+    ])
+    first = dispatch(core, "gate.start", wire(args))
+    finish(core, first)
+    second = dispatch(core, "gate.start", wire(args))
+    finish(core, second)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        owner = pool.submit(dispatch, core, "gate.poll", {"gate_id": first["gate_id"]})
+        try:
+            assert merging.wait(5)
+            waiting = dispatch(core, "gate.poll", {"gate_id": second["gate_id"]})
+            assert waiting["code"] == 5 and waiting["status"] == "action_attempting"
+        finally:
+            release.set()
+        assert owner.result(timeout=5)["code"] == 0
+    observed = dispatch(core, "gate.poll", {"gate_id": second["gate_id"]})
+    assert observed["code"] == 0 and observed["status"] == "completed"
+    assert len(runner.merges) == 1 and len(core.store.query("SELECT * FROM actions")) == 1

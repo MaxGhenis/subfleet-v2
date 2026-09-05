@@ -19,10 +19,11 @@ Milestone 7 implementation and recovery fixes are integrated on `lane/gates`; fi
 - Typed gate wire inputs and server-side dry-run prevent malformed clients from dispatching. Offline reader uses the shared schema version.
 - Compatibility: 1,536 passed in 4.44 s. Gate plus Claude isolation checks: 202 passed in 2.59 s.
 - First full suite: 118 failed, 2,865 passed, 63 skipped in 38.83 s. One memory-removal expectation fixed; remaining failures involve unavailable sockets/process inspection or default scratch paths outside the writable root.
+- Confirmed operation keys reject a different approved base or merge method. Added daemon recovery fencing, native gate documentation, and a process-backed fixture peer test (skips where process identity inspection is unavailable).
+- Final independent review fixed interrupted merge-result publication and concurrent gates observing the same action. Both poll and continue recover confirmed/unknown landings without checking the moving base or resubmitting.
 
 ## Next
 
-- Confirm same-operation-key action reuse cannot bind a different approved base or method.
 - Finish full-suite validation; distinguish sandbox restrictions from regressions.
 - Write committed integrator report with exact results and remaining production seams.
 
