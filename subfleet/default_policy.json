@@ -118,5 +118,32 @@
   "alerts": {
     "realert_hours": 6,
     "expiring_capacity_daily": true
+  },
+  "sessions": {
+    "nudge_max_age_h": 8,
+    "nudge_cooldown_min": 1.5,
+    "nudge_delay_s": 8,
+    "nudge_sample_s": 3,
+    "sweep_quiet_s": 120,
+    "muster_max_age_h": 2,
+    "muster_quiet_s": 120,
+    "revive_min_age_s": 120,
+    "revive_max_batch": 8,
+    "auto_revive_desktop_owned": false,
+    "mirror_interval_s": 60,
+    "mirror_stall_min": 10,
+    "mirror_hang_min": 30,
+    "mirror_ultracode_default": true,
+    "handoff_caps": {
+      "recent_records": 40,
+      "recent": 48000,
+      "tool_result": 5000,
+      "tool_results_total": 16000,
+      "tool_input": 4000,
+      "tool_inputs_total": 12000,
+      "original_task": 24000,
+      "progress": 32000,
+      "repository": 16000
+    }
   }
 }

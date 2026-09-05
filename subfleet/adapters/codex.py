@@ -445,7 +445,10 @@ class CodexAdapter(Adapter):
 
     def resume_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                       credential_env: dict[str, str], native_session_id: str,
-                      prompt_path: Path, guard_override: str | None) -> Launch | None:
+                      prompt_path: Path, guard_override: str | None,
+                      model_id: str | None = None) -> Launch | None:
+        # `model_id` is accepted for the base signature and ignored: a Codex
+        # thread already holds its resolved model (see below).
         if not native_session_id or native_session_id.startswith("-"):
             raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.")
         # Job pins are policy aliases; the native thread already holds its resolved model.

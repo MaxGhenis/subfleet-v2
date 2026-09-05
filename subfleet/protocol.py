@@ -18,6 +18,7 @@ PROTOCOL_VERSION = 1
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
+    "sessions",
 )
 
 
@@ -168,6 +169,39 @@ class PingArgs:
     """`ping` (v1 `notify`): push or park a message in a session inbox."""
     text: str
     session_id: str | None = None
+
+
+@dataclass
+class SessionsArgs:
+    """`sessions` (C-23.33, C-23.35, C-23.55): the sessions kit's store seam.
+
+    The kit reads Claude Code's transcripts and registry itself, and it decides
+    eligibility against the transcript as it reads it (C-23.34). What it cannot
+    do is write the store — the daemon owns that (C-3.4) — so the three durable
+    facts it needs live behind this one op:
+
+    * `state` reads back, for each named session, the operator's retirement flag
+      (C-23.35), the last recorded nudge (C-23.33's dedupe and cooldown), and
+      whether a revive lease is held (C-23.55), plus the lane session ids the
+      ledger knows so a headless run is never treated as a session (C-23.31).
+    * `nudged` is the reservation: it re-checks the dedupe key and the cooldown
+      inside one transaction and records the nudge, so two sweeps racing each
+      other cannot both send. Delivery stays with `ping`.
+    * `retire` and `unretire` set and clear the durable retirement flag.
+
+    Additive: an older daemon ignores the op and answers "unknown op", which the
+    client reports as a daemon too old for this verb rather than as a silent
+    success.
+    """
+
+    action: str = "state"                                 # state|nudged|retire|unretire
+    session_id: str | None = None                         # nudged|retire|unretire
+    session_ids: list[str] = field(default_factory=list)  # state
+    dedupe_key: str | None = None                         # C-23.33's interruption point
+    cooldown_s: float | None = None                       # C-23.33's per-session cooldown
+    kind: str = "nudge"                                   # nudge|muster, for the record
+    reason: str | None = None                             # retire
+    detail: dict[str, Any] = field(default_factory=dict)  # recorded verbatim on the event
 
 
 # --- Encoding -----------------------------------------------------------------

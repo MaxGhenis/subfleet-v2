@@ -242,10 +242,22 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
 
 
 def probe_required(decision: Decision, job: Any) -> bool:
-    """C-11.4: probe the requested model before expensive unmeasured work."""
+    """C-11.4: probe the requested model before expensive unmeasured work.
+
+    C-23.20 makes a revive stricter than expensive: it admits a lane only on a
+    `provider` reading taken in the same pass, so a stored reading — even a
+    fresh one inside `reading_ttl_s` — never qualifies the lane on its own. The
+    2026-08-25 observation is the reason: three lanes the ledger called healthy
+    were out of Fable, and a revive that lands on one burns the window with no
+    reader. `_prepare_route` converges after one probe because the approved pair
+    short-circuits the loop.
+    """
     job = _row(job)
-    expensive = job.get("sandbox") == "workspace-write" or job.get("tier") == "hard"
-    if not decision.chosen_lane or not expensive:
+    if not decision.chosen_lane:
+        return False
+    if job.get("kind") == "revive":
+        return True
+    if not (job.get("sandbox") == "workspace-write" or job.get("tier") == "hard"):
         return False
     evaluation = next(row for row in decision.evaluations if row["model"] == decision.chosen_model)
     return not evaluation["candidate_details"][decision.chosen_lane]["measured"]

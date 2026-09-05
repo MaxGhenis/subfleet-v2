@@ -19,6 +19,45 @@ from .contracts import (
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
+#: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
+#: forward from v1 `handoff.py`'s module constants so a ported brief is the same
+#: size it always was. `recent_records` is a count of main-chain entries, not
+#: characters; it bounds the scan, and the character caps bound the result.
+HANDOFF_CAPS: dict[str, int] = {
+    "recent_records": 40,
+    "recent": 48_000,
+    "tool_result": 5_000,
+    "tool_results_total": 16_000,
+    "tool_input": 4_000,
+    "tool_inputs_total": 12_000,
+    "original_task": 24_000,
+    "progress": 32_000,
+    "repository": 16_000,
+}
+
+#: `sessions.*` (C-6.4): the sessions kit's caps, all of them policy data rather
+#: than constants, because a restart storm or a slow host is a tuning problem.
+#: `auto_revive_desktop_owned` is plan decision 7 and defaults to OFF: a lease in
+#: subfleet's store binds only launches subfleet makes, so it cannot make a
+#: headless revive exclusive against a desktop restart that lands between the
+#: census and the launch (the 2026-09-04 twin). Handoff is the default recovery.
+SESSION_DEFAULTS: dict[str, Any] = {
+    "nudge_max_age_h": 8,            # C-23.33's age cap on the interruption
+    "nudge_cooldown_min": 1.5,       # C-23.33's per-session cooldown (v1: 90 s)
+    "nudge_delay_s": 8,              # the inbox binds a moment after SessionStart
+    "nudge_sample_s": 3,             # C-23.34's liveness sample before delivery
+    "sweep_quiet_s": 120,            # C-23.34: a hand-started sweep waits longer
+    "muster_max_age_h": 2,           # the roll-call window
+    "muster_quiet_s": 120,
+    "revive_min_age_s": 120,         # below this the app may still restart it
+    "revive_max_batch": 8,
+    "auto_revive_desktop_owned": False,
+    "mirror_interval_s": 60,         # C-23.28, plan decision 8
+    "mirror_stall_min": 10,
+    "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
+    "mirror_ultracode_default": True,
+}
+
 
 def policy_hash(path: str | Path) -> str:
     """C-11.1: hash the policy file's exact bytes."""
@@ -166,7 +205,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("reset_credits.min_interval_min", "must be a positive number of minutes")
 
     for section, defaults in (("timers", {"probe_interval_s": 300, "keepalive_interval_s": 18300}),
-                              ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True})):
+                              ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True}),
+                              ("sessions", SESSION_DEFAULTS)):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
             fail(section, "must be an object")
@@ -180,6 +220,18 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                   or not math.isfinite(item) or item <= 0):
                 fail(f"{section}.{key}", "must be a positive finite number")
         value[section] = settings
+
+    # `sessions.handoff_caps` is the one nested section: every handoff section is
+    # bounded by an explicit character cap (C-23.36), and a cap of zero or a
+    # non-number would silently produce an unbounded or empty brief.
+    supplied_caps = value["sessions"].get("handoff_caps", {})
+    if not isinstance(supplied_caps, dict):
+        fail("sessions.handoff_caps", "must be an object of per-section character caps")
+    caps = {**HANDOFF_CAPS, **supplied_caps}
+    for key, item in caps.items():
+        if (not isinstance(item, int) or isinstance(item, bool) or item <= 0):
+            fail(f"sessions.handoff_caps.{key}", "must be a positive whole number of characters")
+    value["sessions"]["handoff_caps"] = caps
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()
