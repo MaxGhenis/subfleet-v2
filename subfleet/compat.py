@@ -34,11 +34,13 @@ Four dispositions, and the reasoning for each:
   the reason the lane brief gives — it lands in milestone 7 — and its 0-to-5
   exit codes pass through untouched (v1 README:717-720).
 
-* **refuse** — `subfleet codex`, `subfleet claude`, and `subfleet mirror` are
-  the direct provider verbs the agent contract tells sessions never to call
-  (`~/.claude/CLAUDE.md` "Model routing"; v1's PreToolUse guard denies them
-  inside a session). v2 refuses them at the CLI with exit 7, whose C-17.3
-  meaning is "refused (message names the rule and the fix)".
+* **refuse** — `subfleet codex` and `subfleet claude` are the direct provider
+  verbs the agent contract tells sessions never to call (`~/.claude/CLAUDE.md`
+  "Model routing"; v1's PreToolUse guard denies them inside a session). v2
+  refuses them at the CLI with exit 7, whose C-17.3 meaning is "refused (message
+  names the rule and the fix)". `subfleet mirror` was refused for the same
+  reason until milestone 6 built the sessions kit; it is now a PERMANENT
+  spelling of `sessions mirror`, because v2 owns the mirror (C-23.28).
 
 Environment variables are read, mapped, and noted, never silently reinterpreted.
 The one real mapping is the `CARPOOL_*` → `SUBFLEET_*` aliasing that v1 performs
@@ -126,6 +128,22 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("daemon",): ["daemon"],
     ("doctor",): ["doctor"],
     ("hook",): ["hook"],
+    # The sessions kit (milestone 6). C-17.1 makes `sessions` and `handoff`
+    # first-class and permanent, and plan amendment 1 makes every v1 spelling
+    # permanent — so `tickle`, `muster`, `revive` and `mirror` are mapped, not
+    # noted: an agent that has been told to run `subfleet tickle --all` since
+    # August should not start reading a deprecation line every morning.
+    #
+    # These are argv PREFIXES and the caller's remaining tokens are appended, so
+    # every flag v1's three sweeps accepted is registered on `sessions continue`
+    # (see `sessions/cli.py:add_continue_flags`), and the ones v2 has no use for
+    # are in `V1_ONLY_FLAGS` below rather than silently dropped.
+    ("sessions",): ["sessions"],
+    ("handoff",): ["handoff"],
+    ("tickle",): ["sessions", "continue", "--scope", "interrupted"],
+    ("muster",): ["sessions", "continue", "--scope", "idle"],
+    ("revive",): ["sessions", "continue", "--scope", "cold"],
+    ("mirror",): ["sessions", "mirror"],
 }
 
 #: Deprecated v1 spellings: accepted, rewritten, and noted exactly once.
@@ -172,8 +190,6 @@ REFUSED: dict[str, str] = {
               "ledger, the lane accounting, and the cancellation tree; v1's "
               "guard let `-d` through because v1's runner re-exec'd under "
               "setsid, and v2 has no such runner",
-    "mirror": "`subfleet mirror` is v1's desktop-session mirror; it is not a "
-              "dispatch path and v2 does not own it",
 }
 
 #: v1 verbs v2 has not built yet, delegated to the v1 binary with one note.
@@ -181,7 +197,6 @@ REFUSED: dict[str, str] = {
 DELEGATED: dict[str, str] = {
     "gate": "gates land in milestone 7; v1 runs this one and its 0-to-5 exit "
             "codes come back unchanged",
-    "sessions": "the sessions kit is a later milestone",
     "pick": "lane picking belongs to whichever side owns the lane "
             "(`subfleet lanes list` shows the owner)",
     "login": "lane credentials stay with v1 until `lanes transfer --to v2`",
@@ -190,10 +205,6 @@ DELEGATED: dict[str, str] = {
     "watch": "the watchdog is v1's",
     "keepalive": "keepalive is v1's",
     "brief": "the morning brief is v1's",
-    "handoff": "handoff is a later milestone",
-    "tickle": "tickle is a later milestone",
-    "muster": "muster is a later milestone",
-    "revive": "revive is a later milestone",
 }
 
 #: v1's hidden verbs. Delegated like the rest but SILENTLY: every one of these
@@ -298,6 +309,19 @@ V1_ONLY_FLAGS: dict[str, dict[str, V1Flag]] = {
             "independent-review mode yet",
             takes_value=True),
     },
+    "revive": {
+        "--no-fallback": _drop(
+            "v1 walked a model chain (SUBFLEET_REVIVE_MODELS) and `--no-fallback` "
+            "stopped it after the first; v2 pins never fall back (C-11.2), so "
+            "`--model M` already means M or nothing, and without it a revive "
+            "keeps the session's own recorded tier (C-23.39)"),
+    },
+    "mirror": {
+        "--version": _refuse(
+            "v1's mirror was a separate binary with its own version string; v2's "
+            "mirror is part of subfleet and running it anyway would perform a "
+            "sidebar pass you asked to identify \u2014 `subfleet -V`"),
+    },
 }
 
 #: `notify` reaches `ping`, `capacity` reaches `status`, and `jobs`/`show` reach
@@ -310,7 +334,8 @@ FLAG_TABLE_ALIASES = {"capacity": "status", "jobs": "runs", "show": "runs show",
 #: can leave v2's own options alone.
 FLAG_TABLE_V2_PATH = {"status": "status", "runs reap": "runs.reap",
                       "wait": "wait", "kill": "kill", "notify": "ping",
-                      "run": "run"}
+                      "run": "run", "revive": "sessions.continue",
+                      "mirror": "sessions.mirror"}
 
 
 def _flag_table(argv: Sequence[str]) -> tuple[str, dict[str, V1Flag]]:
@@ -532,8 +557,20 @@ def verb_paths() -> set[str]:
 
 
 def _target_path(argv: Sequence[str]) -> str:
-    """The dotted path a table target names, ignoring its flags."""
-    return ".".join(item for item in argv if not item.startswith("-"))
+    """The dotted path a table target names: its leading run of verb tokens.
+
+    Everything from the first flag onward belongs to the flags — a target like
+    `sessions continue --scope interrupted` names the verb `sessions.continue`,
+    and `interrupted` is `--scope`'s value, not a third sub-verb. Skipping only
+    the flags themselves would read it as `sessions.continue.interrupted` and
+    report a perfectly reachable verb as missing.
+    """
+    path = []
+    for item in argv:
+        if item.startswith("-"):
+            break
+        path.append(item)
+    return ".".join(path)
 
 
 #: `_verb_of` for an argv that argparse answers by printing help and exiting 0.
@@ -562,7 +599,8 @@ def _verb_of(argv: Sequence[str]) -> str:
     except SystemExit as exc:
         return HELP if int(exc.code or 0) == 0 else ""
     parts = [getattr(args, "command", None) or "status"]
-    for attr in ("runs_command", "lanes_command", "daemon_command"):
+    for attr in ("runs_command", "lanes_command", "daemon_command",
+                 "sessions_command"):
         value = getattr(args, attr, None)
         if value:
             parts.append(value)

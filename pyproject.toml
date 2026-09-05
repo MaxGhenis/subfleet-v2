@@ -14,6 +14,10 @@ dependencies = []
 subfleet = "subfleet.compat:dispatch"
 subfleetd = "subfleet.daemon:main"
 subfleet-guardian = "subfleet.guardian:main"
+# The sessions kit is a second entry point in the same repo (plan B decision 3):
+# `subfleet sessions` and `subfleet handoff` dispatch to it, and it can also be
+# run directly by a launchd job or a hook without going through the verb table.
+subfleet-sessions = "subfleet.sessions.cli:main"
 
 [build-system]
 requires = ["hatchling"]

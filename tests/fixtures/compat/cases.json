@@ -2279,17 +2279,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77",
      "--to",
      "astra"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2308,17 +2308,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50",
      "--to",
      "astra"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2339,7 +2339,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "8f2c1d90-4a7b-4f31-9c22-0d5b6e7a1234",
@@ -2348,10 +2348,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2374,7 +2374,7 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
@@ -2383,10 +2383,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2409,7 +2409,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
@@ -2418,10 +2418,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2442,17 +2442,17 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
      "--to",
      "opus"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2473,7 +2473,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
@@ -2482,10 +2482,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2504,17 +2504,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
      "--to",
      "sol"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2537,7 +2537,7 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
@@ -2546,10 +2546,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3274,12 +3274,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 7,
-    "rule": "mirror",
-    "note_count": 2,
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3296,12 +3299,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 7,
-    "rule": "mirror",
-    "note_count": 2,
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--dry-run"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3318,12 +3325,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 7,
-    "rule": "mirror",
-    "note_count": 2,
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--list"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3342,12 +3353,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 7,
-    "rule": "mirror",
-    "note_count": 2,
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--quiet"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3363,14 +3378,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "muster"
+     "sessions",
+     "continue",
+     "--scope",
+     "idle"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:muster",
-    "note_count": 1,
+    "rule": "permanent:muster",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3387,15 +3405,18 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "muster",
+     "sessions",
+     "continue",
+     "--scope",
+     "idle",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:muster",
-    "note_count": 1,
+    "rule": "permanent:muster",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5221,14 +5242,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "revive"
+     "sessions",
+     "continue",
+     "--scope",
+     "cold"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:revive",
-    "note_count": 1,
+    "rule": "permanent:revive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5245,15 +5269,18 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "revive",
+     "sessions",
+     "continue",
+     "--scope",
+     "cold",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:revive",
-    "note_count": 1,
+    "rule": "permanent:revive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5276,18 +5303,20 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "note",
     "argv": [
-     "revive",
+     "sessions",
+     "continue",
+     "--scope",
+     "cold",
      "--model",
      "claude-opus-5",
      "--max",
-     "3",
-     "--no-fallback"
+     "3"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:revive",
+    "rule": "permanent:revive",
     "note_count": 1,
     "env": {}
    }
@@ -12215,14 +12244,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "sessions"
     ],
-    "verb": "",
+    "verb": "sessions",
     "exit_code": null,
-    "rule": "delegate:sessions",
-    "note_count": 1,
+    "rule": "permanent:sessions",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12239,15 +12268,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "sessions",
      "--all"
     ],
-    "verb": "",
+    "verb": "sessions",
     "exit_code": null,
-    "rule": "delegate:sessions",
-    "note_count": 1,
+    "rule": "permanent:sessions",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12265,14 +12294,14 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "sessions"
     ],
-    "verb": "",
+    "verb": "sessions",
     "exit_code": null,
-    "rule": "delegate:sessions",
-    "note_count": 1,
+    "rule": "permanent:sessions",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12289,15 +12318,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "sessions",
      "--json"
     ],
-    "verb": "",
+    "verb": "sessions",
     "exit_code": null,
-    "rule": "delegate:sessions",
-    "note_count": 1,
+    "rule": "permanent:sessions",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12627,14 +12656,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle"
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12653,15 +12685,18 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--all"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12679,16 +12714,19 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--all",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12705,15 +12743,18 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--json"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12767,17 +12808,20 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--session",
      "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77",
      "--force"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12798,19 +12842,22 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--session",
      "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77",
      "--transcript",
      "/Users/maxghenis/.claude/projects/-repo/3f9c1a2e.jsonl",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12860,17 +12907,20 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--session",
      "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -13418,6 +13468,116 @@
     "verb": "why",
     "exit_code": null,
     "rule": "permanent:why",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
+   "id": "tickle-dry-run",
+   "cite": "~/.claude/skills/tickle/SKILL.md:42",
+   "also_cited": [
+    "chief-of-staff/subfleet/subfleet/cli.py:1467"
+   ],
+   "v1_line": "Diagnostics when something looks off: `subfleet tickle --dry-run` (survey",
+   "v1_meaning": "The /tickle skill's diagnostic form: survey every live session's turn state and print the verdicts without nudging anything.",
+   "argv": [
+    "tickle",
+    "--dry-run"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
+     "--dry-run"
+    ],
+    "verb": "sessions.continue",
+    "exit_code": null,
+    "rule": "permanent:tickle",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "mirror-no-flag-sync",
+   "cite": "chief-of-staff/subfleet/bin/subfleet-mirror:141",
+   "also_cited": [],
+   "v1_line": "ap.add_argument(\"--no-flag-sync\", action=\"store_true\", help=\"skip syncing isArchived/isStarred/title across accounts\")",
+   "v1_meaning": "Runs the copy/repair steps but skips propagating isArchived, isStarred and the title across per-account copies; in v1 this also silently stopped the state sidecar being rewritten, which is what made the sidecar the heartbeat.",
+   "argv": [
+    "mirror",
+    "--no-flag-sync"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--no-flag-sync"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "mirror-prune-dead-home",
+   "cite": "chief-of-staff/subfleet/bin/subfleet-mirror:132",
+   "also_cited": [
+    "chief-of-staff/subfleet/bin/subfleet-mirror:134"
+   ],
+   "v1_line": "ap.add_argument(\"--prune\", action=\"store_true\", ...) / ap.add_argument(\"--dead-home\", default=None, metavar=\"ORG\", ...)",
+   "v1_meaning": "Removes copies of transcript-pruned (dead) sessions from every account except the --dead-home org; off by default because the Claude app prunes them itself on load.",
+   "argv": [
+    "mirror",
+    "--prune",
+    "--dead-home",
+    "1c4f0b2a-9d3e-4a5b-8c7d-6e5f4a3b2c1d"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--prune",
+     "--dead-home",
+     "1c4f0b2a-9d3e-4a5b-8c7d-6e5f4a3b2c1d"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "mirror-version",
+   "cite": "chief-of-staff/subfleet/bin/subfleet-mirror:147",
+   "also_cited": [],
+   "v1_line": "ap.add_argument(\"--version\", action=\"version\", version=\"subfleet mirror %s\" % __version__)",
+   "v1_meaning": "Prints the standalone mirror tool's own version (5.0) and exits without performing a pass.",
+   "argv": [
+    "mirror",
+    "--version"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "refuse",
+    "argv": [],
+    "verb": "",
+    "exit_code": 2,
+    "rule": "mirror:v1-only-flag",
     "note_count": 1,
     "env": {}
    }

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -30,7 +31,12 @@ BY_ID = {case["id"]: case for case in CASES}
 #: spellings — neither string exists anywhere in the v1 tree.
 PERMANENT_HEADS = {"status", "capacity", "runs", "jobs", "show", "wait", "kill",
                    "resume", "resume-codex", "notify", "ping", "run", "lanes",
-                   "why", "daemon", "doctor", "hook"}
+                   "why", "daemon", "doctor", "hook",
+                   # milestone 6: the sessions kit. `sessions` and `handoff` are
+                   # first-class in C-17.1; `tickle`, `muster`, `revive` and
+                   # `mirror` are v1 spellings amendment 1 keeps, mapped onto
+                   # `sessions continue --scope ...` and `sessions mirror`.
+                   "sessions", "handoff", "tickle", "muster", "revive", "mirror"}
 
 
 def ids(cases):
@@ -157,7 +163,7 @@ def test_the_permanent_aliases_rewrite_silently(argv, expected):
 
 # --- the front-door refusal ---------------------------------------------------
 
-@pytest.mark.parametrize("verb", ["codex", "claude", "mirror"])
+@pytest.mark.parametrize("verb", ["codex", "claude"])
 def test_the_direct_provider_verbs_are_refused_with_the_front_door(verb):
     """C-17.3 exit 7 is "refused (message names the rule and the fix)"; the
     agent contract's own rule is `subfleet run`, and the message says so."""
@@ -195,7 +201,16 @@ def test_no_v1_flag_is_unaccounted_for():
     pairs = {"status": "status", "capacity": "status", "runs": "runs",
              "runs.show": "runs.show", "runs.reap": "runs.reap", "wait": "wait",
              "kill": "kill", "resume-codex": "resume", "notify": "ping",
-             "run": "run", "enroll": "lanes.enroll"}
+             "run": "run", "enroll": "lanes.enroll",
+             # milestone 6. v1's three sweeps land on one v2 verb, so every flag
+             # they accept has to be registered there (or decided about in
+             # V1_ONLY_FLAGS). `mirror` is absent from this map on purpose: v1's
+             # `subfleet mirror` is an `add_help=False` REMAINDER passthrough to
+             # `bin/subfleet-mirror`, so its flags are not in v1's argparse tree
+             # at all and are diffed by the test below instead.
+             "sessions": "sessions", "tickle": "sessions.continue",
+             "muster": "sessions.continue", "revive": "sessions.continue",
+             "handoff": "handoff"}
     unaccounted: list[str] = []
     for v1_path, v2_path in pairs.items():
         if v1_path not in v1:
@@ -210,6 +225,29 @@ def test_no_v1_flag_is_unaccounted_for():
     assert unaccounted == [], (
         "v1 accepts these and neither v2's parser nor compat.V1_ONLY_FLAGS has "
         f"a decision about them: {unaccounted}")
+
+
+def test_no_v1_mirror_flag_is_unaccounted_for():
+    """C-17.2 for the one v1 verb whose flags are not in v1's argparse tree.
+
+    `subfleet mirror` was an `add_help=False` REMAINDER passthrough that exec'd
+    `bin/subfleet-mirror` (v1 `cli.py:1599-1606`), so the diff `_v1_option_map`
+    performs cannot see its options. They are harvested from the script's own
+    `add_argument` lines instead, and each one must be on `sessions mirror` or
+    in `V1_ONLY_FLAGS["mirror"]`.
+    """
+    script = Path("~/chief-of-staff/subfleet/bin/subfleet-mirror").expanduser()
+    if not script.exists():
+        pytest.skip("the v1 install is not present on this machine")
+    options = set(re.findall(r'add_argument\(\s*"(--[a-z-]+)"', script.read_text()))
+    assert options, "the harvest found no flags; the script's shape changed"
+    v2 = _v2_option_map().get("sessions.mirror", set())
+    table = compat.V1_ONLY_FLAGS.get("mirror", {})
+    unaccounted = sorted(option for option in options
+                         if option not in v2 and option not in table)
+    assert unaccounted == [], (
+        "v1's mirror accepts these and neither `sessions mirror` nor "
+        f"compat.V1_ONLY_FLAGS has a decision about them: {unaccounted}")
 
 
 def _v2_option_map() -> dict[str, set[str]]:
