@@ -60,6 +60,12 @@ STORE_ENV = "SUBFLEET_SESSION_STORE"
 #: Where transcripts live; shared with `transcripts.claude_dir`.
 CLAUDE_ENV = "SUBFLEET_CLAUDE_DIR"
 
+#: v1's own per-user settings, so the launchd job needed no CLI arguments:
+#: `{"dead_home": "<orgUuid>", "archive": "<recursive glob>", "exclude": [...]}`.
+#: v2's timer takes no arguments either, so it reads the same file — read-only,
+#: and every value is still overridable per call.
+CONFIG_NAME = "cc-mirror.json"
+
 SIDECAR_NAME = "mirror.json"
 FLAGS_NAME = "mirror-flags.json"
 LOCK_NAME = "mirror.lock"
@@ -172,11 +178,39 @@ class Options:
     ultracode_default: bool = True
 
 
+def load_config(path: Path | None = None) -> dict[str, Any]:
+    """v1's `~/.claude/cc-mirror.json`, read and never written.
+
+    Without it the daemon's timer — which passes no flags — would silently lose
+    the archive-restore and the dead-session home, because both are per-user
+    facts v1 kept here rather than in code.
+    """
+    return _load(path or (transcripts_dir() / CONFIG_NAME))
+
+
+def transcripts_dir() -> Path:
+    from . import transcripts
+    return transcripts.claude_dir()
+
+
 def options_from(policy: dict[str, Any], **overrides: Any) -> Options:
+    """Policy, then v1's saved defaults and caller flags; exclusions accumulate."""
     settings = policy.get("sessions", {})
+    config = load_config()
     values: dict[str, Any] = {
         "ultracode_default": bool(settings.get("mirror_ultracode_default", True))}
-    values.update({key: value for key, value in overrides.items() if value is not None})
+    if isinstance(config.get("dead_home"), str):
+        values["dead_home"] = config["dead_home"]
+    if isinstance(config.get("archive"), str):
+        values["archive"] = config["archive"]
+    configured_exclude = config.get("exclude")
+    if not isinstance(configured_exclude, list):
+        configured_exclude = []
+    excluded = tuple(item for item in configured_exclude
+                     if isinstance(item, str) and item)
+    values["exclude"] = tuple(overrides.get("exclude") or ()) + excluded
+    values.update({key: value for key, value in overrides.items()
+                   if key != "exclude" and value is not None})
     return Options(**values)
 
 

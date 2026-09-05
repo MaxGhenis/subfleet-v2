@@ -40,6 +40,9 @@
   for tiny valid section caps (C-23.36); credential scrubbing remains covered.
 - Kept mirror lock acquisition before sidecar writes: a contending pass preserves
   both running and stalled health (C-23.28). Mirror tests: 33 passed in 1.70s.
+- Kept read-only v1 mirror configuration defaults. Replaced salvage's filtering
+  of explicit empty flags and its replacement of saved exclusions: v1 honors
+  empty archive/dead-home overrides and combines configured/CLI exclusions.
 
 ## Validation environment
 
@@ -54,6 +57,5 @@
 
 ## Next
 
-- Commit the reviewed CLI, nudge, handoff and mirror behaviors.
-- Commit corrected behaviors separately, updating this file with each step.
+- All reviewed behaviors are committed in separate steps.
 - Run the complete suite and commit the final report.

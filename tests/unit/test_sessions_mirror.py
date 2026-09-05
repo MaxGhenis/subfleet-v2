@@ -54,6 +54,60 @@ def copies(store: Path, session_id: str) -> dict[Path, dict]:
     return found
 
 
+# --- v1's saved per-user options ---------------------------------------------
+
+def test_saved_config_restores_an_archive_without_timer_arguments(world, tmp_path):
+    """C-17.1 and plan decision 8: the timer preserves v1's archive settings."""
+    home, store, _root = world
+    fx.index_entry(store, ACCOUNT_A, ORG_A, ONE)
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    archived = archive / f"{ONE}.jsonl"
+    archived.write_text("archived transcript\n", encoding="utf-8")
+    config = home / mirror.CONFIG_NAME
+    saved = json.dumps({"archive": str(archive / "*.jsonl"), "dead_home": ORG_B})
+    config.write_text(saved, encoding="utf-8")
+
+    options = mirror.options_from(fx.policy())
+    result = engine(world).run_once(options)
+    assert result.revived == 1 and len(copies(store, ONE)) == 2
+    assert options.dead_home == ORG_B
+    assert config.read_text(encoding="utf-8") == saved, "v1's config remains read-only"
+
+
+def test_cli_exclusions_add_to_configured_exclusions(world):
+    """C-17.1: v1's --exclude adds exclusions without dropping saved ones."""
+    home, store, _root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A)
+    (home / mirror.CONFIG_NAME).write_text(json.dumps({"exclude": [ORG_A]}))
+    options = mirror.options_from(fx.policy(), exclude=(ORG_B,))
+
+    assert set(options.exclude) == {ORG_A, ORG_B}
+    assert engine(world).run_once(options).accounts == 0
+
+
+def test_explicit_empty_archive_and_dead_home_override_saved_defaults(world):
+    """C-17.1: explicit v1 flags may clear saved archive and dead-home values."""
+    home, _store, _root = world
+    (home / mirror.CONFIG_NAME).write_text(json.dumps({
+        "archive": "/fixture/archive/*.jsonl", "dead_home": ORG_B,
+        "exclude": [ORG_A]}))
+    options = mirror.options_from(fx.policy(), archive="", dead_home="", exclude=())
+    assert options.archive == "" and options.dead_home == ""
+    assert options.exclude == (ORG_A,)
+
+
+@pytest.mark.parametrize("excluded", [False, 42, "org-aaaa", {"org-aaaa": True}])
+def test_malformed_saved_exclusions_do_not_break_the_mirror(world, excluded):
+    """C-23.28: malformed saved exclusions do not prevent a pass from running."""
+    home, store, _root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A)
+    (home / mirror.CONFIG_NAME).write_text(json.dumps({"exclude": excluded}))
+    options = mirror.options_from(fx.policy())
+    assert options.exclude == ()
+    assert engine(world).run_once(options).added == 1
+
+
 # --- the copy (plan decision 8) -----------------------------------------------
 
 def test_an_openable_session_is_copied_into_every_account(world):
