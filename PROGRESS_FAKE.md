@@ -21,13 +21,19 @@ sandbox refuses `ps` and `sysctl`; production identity checks are unchanged.
 - Added deterministic daemon submission, cancellation, notice atomicity,
   singleton-lock, and malformed socket tests without launching providers.
 - `python3 -m pytest -q tests/fake`: **16 passed, 28 skipped in 0.31s**.
-- The required `uv run` command is currently blocked by `UV_FROZEN=1` and the
-  missing `uv.lock`; `.venv` currently has no pytest. The available system Python
-  has pytest 8.4.2 and was used for the recorded test run.
+- Initial required `uv run` attempt was blocked by `UV_FROZEN=1` and missing
+  `uv.lock`; the root agent then completed dependency setup from local cache.
+- Added state coverage for one-slot reservation, reserved/starting/running
+  recovery, cancellation ordering, acceptance-and-notice rollback, immutable
+  deliverables, export replay, and ENOSPC at prompt/manifest/deliverable/export.
+- Added recorded-signal tests for escalation and quarantine; fsync/rename syscall
+  audit; concurrent export and stale-owner fencing; limited/transient retry and
+  wall limit coverage.
+- `UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv run pytest -q tests/fake`:
+  **39 passed, 28 skipped in 0.92s**, within C-20.2's 60-second fake budget.
 
 ## Next
 
-- Integrate deterministic admission/finalization tests with the control loop.
 - Re-run all real process tests when an execution environment permits the
   contract's macOS process inspection commands.
-- Run the fake suite within the C-20.2 60-second budget and report results.
+- Integrator reviews the committed fake acceptance suite alongside core code.
