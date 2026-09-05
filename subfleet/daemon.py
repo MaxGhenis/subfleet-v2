@@ -408,11 +408,29 @@ class Daemon:
                 decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop_account=capacity.read_desktop_account()))
             return {"decision": decision, "text": render.why(decision) if decision else "No decision recorded."}
         if op.startswith("notice."):
-            a = protocol.coerce_args(protocol.NoticeArgs, args)
+            a = protocol.coerce_args(
+                protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
+                args)
             if op == "notice.ack":
                 with self.store.transaction("notice.acknowledged") as tx:
                     for notice_id in a.notice_ids:
                         tx.execute("UPDATE notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=? AND state!='acknowledged'", (utcnow(), notice_id, a.session_id))
+            if op == "notice.mark":
+                # C-15.3's non-terminal states, for the delivery layers that are
+                # not an acknowledgement: `offered` (a transport accepted the
+                # bytes) and `surfaced` (a hook printed it). Neither may overwrite
+                # `acknowledged`, which is terminal.
+                if a.state not in ("offered", "surfaced", "acknowledged"):
+                    raise protocol.ProtocolError(f"unknown notice state {a.state!r}")
+                stamp = utcnow()
+                with self.store.transaction("notice." + a.state) as tx:
+                    for notice_id in a.notice_ids:
+                        tx.execute(
+                            "UPDATE notices SET state=?,transport=COALESCE(?,transport),"
+                            "offered_at=COALESCE(offered_at,?),"
+                            "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
+                            "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
+                            (a.state, a.transport, stamp, a.state, stamp, notice_id, a.session_id))
             return {"notices": self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))}
         if op == "ping":
             return {"pong": True, "version": __version__, "session_id": args.get("session_id"), "text": args.get("text", "")}

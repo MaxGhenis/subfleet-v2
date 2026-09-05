@@ -11,7 +11,8 @@
   subfleet lanes [list|probe|enroll|hold|release|transfer]
   subfleet why <id> | --task T --tier X
   subfleet daemon [start|stop|status|logs|install]
-  subfleet doctor [--live]
+  subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
+  subfleet hook <event>         a Claude Code hook entry point (JSON on stdin)
   subfleet ping [--session ID] TEXT                              (alias: notify)
 
 The verb spellings are v1's and are permanent (plan amendment 1). Stdout carries
@@ -1519,7 +1520,47 @@ def _plist(root: Path) -> bytes:
     }, sort_keys=True)
 
 
+def cmd_daemon_install_hooks(args: argparse.Namespace) -> int:
+    """`daemon install --hooks`: the three Claude Code hook entries (C-15.2).
+
+    The diff is printed first, always — with `--dry-run` instead of writing and
+    without it before writing. `~/.claude/settings.json` is a file the user
+    edits by hand and that v1's own hooks live in, so no version of this command
+    changes it silently, and v1's entries are reported but never rewritten.
+    """
+    from . import hooks
+    report = hooks.plan()
+    if not report.get("ok"):
+        return fail(Exit.OPERATIONAL,
+                    f"daemon install --hooks: {report['path']}: {report['error']}",
+                    f"fix or move {report['path']} and try again")
+    v1 = report.get("v1_entries") or {}
+    if v1:
+        note(f"{PROG} daemon install --hooks: v1 bin/subfleet-hook entries for "
+             f"{', '.join(sorted(v1))} are left in place (v1 still owns the "
+             f"PreToolUse front-door guard)")
+    if not report["changed_events"]:
+        note(f"{PROG} daemon install --hooks: {report['path']} already matches; "
+             f"nothing to write")
+        return int(Exit.OK)
+    sys.stdout.write(report["diff"])
+    if args.dry_run:
+        note(f"{PROG} daemon install --hooks --dry-run: would write "
+             f"{report['path']} ({', '.join(report['changed_events'])})")
+        return int(Exit.OK)
+    written = hooks.apply()
+    if not written.get("written"):
+        return fail(Exit.OPERATIONAL,
+                    f"daemon install --hooks: {written.get('error', 'nothing written')}")
+    out(written["path"])
+    note(f"{PROG} daemon install --hooks: wrote {written['path']}"
+         + (f" (backup {written['backup']})" if written.get("backup") else ""))
+    return int(Exit.OK)
+
+
 def cmd_daemon_install(args: argparse.Namespace) -> int:
+    if getattr(args, "hooks", False):
+        return cmd_daemon_install_hooks(args)
     root = _root(args)
     already_running = _daemon_alive(Client(root))
     plist = _plist(root)
@@ -1567,127 +1608,44 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     }[args.daemon_command or "status"](args)
 
 
-# --- doctor (offline) ---------------------------------------------------------
+# --- hook (C-15.2) ------------------------------------------------------------
 
-def _version(binary: str) -> tuple[str, str | None]:
-    path = shutil.which(binary)
-    if path is None:
-        return "fail", None
-    try:
-        done = subprocess.run([path, "--version"], capture_output=True,
-                              text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return "warn", f"{path}: {exc}"
-    text = (done.stdout or done.stderr).strip().splitlines()
-    return ("ok" if done.returncode == 0 else "warn",
-            f"{path}: {text[0] if text else '(no output)'}")
+def cmd_hook(args: argparse.Namespace) -> int:
+    """`subfleet hook <event>`: one Claude Code hook invocation, JSON on stdin.
+
+    The exit codes here are the harness's, not C-17.3's: this verb is not called
+    by a person, it is called by Claude Code, which reads 0 and 2 as "nothing to
+    say" and "show this to Claude" (`docs/reference/claude-hooks.md` section 3).
+    `subfleet/hooks.py` documents which event gets which and why.
+    """
+    from . import hooks
+    return hooks.run(args.event, root=_root(args))
 
 
-def _path_matches(binary: str) -> list[str]:
-    seen, found = set(), []
-    for entry in (os.environ.get("PATH") or "").split(os.pathsep):
-        if not entry or entry in seen:
-            continue
-        seen.add(entry)
-        candidate = Path(entry) / binary
-        if candidate.exists() and os.access(candidate, os.X_OK):
-            found.append(str(candidate))
-    return found
-
-
-def _module_check(name: str) -> dict[str, Any]:
-    try:
-        __import__(f"subfleet.{name}")
-    except ImportError as exc:
-        return {"check": f"subfleet.{name}", "status": "warn",
-                "detail": f"not importable yet ({exc}); the verbs that need it "
-                          f"degrade rather than fail"}
-    return {"check": f"subfleet.{name}", "status": "ok", "detail": "importable"}
-
+# --- doctor (C-17.1) ----------------------------------------------------------
 
 def doctor_checks(root: Path, *,
+                  live: bool = False,
                   claude_settings: Path | None = None) -> list[dict[str, Any]]:
-    checks: list[dict[str, Any]] = []
-    for binary in ("claude", "codex", "uv"):
-        status, detail = _version(binary)
-        checks.append({"check": f"{binary} --version", "status": status,
-                       "detail": detail or f"{binary} is not on PATH"})
-    for binary in ("claude", "codex"):
-        matches = _path_matches(binary)
-        checks.append({
-            "check": f"PATH shadows for {binary}",
-            "status": "ok" if len(matches) <= 1 else "warn",
-            "detail": (matches[0] if len(matches) == 1 else
-                       ("not on PATH" if not matches else
-                        f"{len(matches)} on PATH, first wins: {' , '.join(matches)}")),
-        })
-    present = [name for name in ("state.sqlite3", "policy.json", "lanes.json",
-                                 "jobs", "lanes", "worktrees", LOG_NAME)
-               if (root / name).exists()]
-    checks.append({"check": "state root layout",
-                   "status": "ok" if root.exists() else "warn",
-                   "detail": f"{root}: " + (", ".join(present) if present
-                                            else "empty (the daemon has not run yet)")})
-    client = Client(root)
-    encoded = len(str(client.socket_path).encode())
-    checks.append({
-        "check": "socket path fits AF_UNIX",
-        "status": "ok" if encoded <= AF_UNIX_PATH_MAX else "fail",
-        "detail": (f"{encoded} bytes" if encoded <= AF_UNIX_PATH_MAX else
-                   f"{client.socket_path} is {encoded} bytes; the kernel caps a "
-                   f"unix socket path near {AF_UNIX_PATH_MAX}, so no daemon can "
-                   f"ever listen there — set SUBFLEET_HOME to a shorter path"),
-    })
-    sock, lock = client.socket_path.exists(), client.lock_info()
-    alive, reason = client.lock_report()
-    if not sock and lock is None:
-        agree = ("ok", "no socket and no lock: no daemon")
-    elif sock and lock is not None and alive is not False:
-        agree = ("ok", f"socket and lock agree (pid {lock.get('pid')}): {reason}")
-    elif sock and alive is False:
-        agree = ("fail", f"a socket is present but the lock is stale: {reason} "
-                         f"— {START_DAEMON}")
-    elif sock and lock is None:
-        agree = ("warn", "socket present with no lock file")
-    else:
-        agree = ("fail", f"lock for pid {(lock or {}).get('pid')} with no socket "
-                         f"— {START_DAEMON}")
-    checks.append({"check": "daemon.sock and daemon.lock agree",
-                   "status": agree[0], "detail": agree[1]})
-    settings = (claude_settings if claude_settings is not None
-                else Path("~/.claude/settings.json").expanduser())
-    try:
-        text = settings.read_text()
-        hooked = any(marker in text for marker in
-                     ("never-rules", "never_rules", "subfleet-guard"))
-        checks.append({"check": "never-rules hook in ~/.claude/settings.json",
-                       "status": "ok" if hooked else "warn",
-                       "detail": ("present" if hooked else
-                                  f"no never-rules hook in {settings} (C-14.3)")})
-    except OSError as exc:
-        checks.append({"check": "never-rules hook in ~/.claude/settings.json",
-                       "status": "warn", "detail": f"{settings}: {exc}"})
-    checks.append(_module_check("store"))
-    checks.append(_module_check("procs"))
-    return checks
+    """The one check table, owned by `subfleet/doctor.py`.
+
+    Each row is `{check, status, detail, fix}` with `status` one of `pass`,
+    `fail`, `unknown` — `unknown` meaning the check could not look, which is
+    never reported as a pass and never decides the exit code.
+    """
+    from . import doctor
+    return doctor.checks(root, live=live, settings=claude_settings)
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    if args.live:
-        note(f"{PROG} doctor --live: not implemented "
-             f"(the live probes land with the adapter lanes)")
-        return int(Exit.OK)
-    checks = doctor_checks(_root(args))
+    from . import doctor
+    checks = doctor_checks(_root(args), live=args.live)
     if args.json:
         for check in checks:
             emit(check)
     else:
-        width = max(len(check["check"]) for check in checks)
-        for check in checks:
-            out(f"{check['status'].upper():<5} {check['check']:<{width}}  "
-                f"{check['detail']}")
-    return int(Exit.OPERATIONAL) if any(c["status"] == "fail" for c in checks) \
-        else int(Exit.OK)
+        out(doctor.render(checks))
+    return doctor.exit_code(checks)
 
 
 # --- parser (C-17.1, C-17.2) --------------------------------------------------
@@ -1857,11 +1815,20 @@ def build_parser() -> argparse.ArgumentParser:
     d_logs.add_argument("-f", "--follow", action="store_true")
     d_install = daemon_sub.add_parser("install")
     d_install.add_argument("--dry-run", action="store_true",
-                           help="print the plist instead of writing and loading it")
+                           help="print instead of writing (the plist, or with "
+                                "--hooks the settings diff)")
+    d_install.add_argument("--hooks", action="store_true",
+                           help="install the three Claude Code hook entries into "
+                                "~/.claude/settings.json instead of the plist "
+                                "(prints the diff first, always)")
+
+    p_hook = sub.add_parser("hook", help=argparse.SUPPRESS)
+    p_hook.add_argument("event", help="SessionStart | UserPromptSubmit | PostToolUse")
+    p_hook.set_defaults(handler=cmd_hook)
 
     p_doctor = sub.add_parser("doctor", help="offline checks of the local install")
     p_doctor.add_argument("--live", action="store_true",
-                          help="also probe the providers (not implemented yet)")
+                          help="also ping the daemon (C-16.2)")
     _add_json(p_doctor)
     p_doctor.set_defaults(handler=cmd_doctor)
 

@@ -17,7 +17,7 @@ PROTOCOL_VERSION = 1
 
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
-    "notice.pending", "notice.ack", "ping", "daemon.status",
+    "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
 )
 
 
@@ -127,6 +127,22 @@ class WhyArgs:
 class NoticeArgs:
     session_id: str
     notice_ids: list[int] = field(default_factory=list)   # for ack
+
+
+@dataclass
+class NoticeMarkArgs:
+    """`notice.mark` (C-15.3): the non-terminal halves of the delivery ladder.
+
+    A separate shape from `NoticeArgs` on purpose. The CLI builds its
+    `notice.ack` payload by `asdict`-ing `NoticeArgs`, so a field added there
+    would appear on `notice.ack`'s wire line and change an op that already
+    ships. `notice.mark` is new, so it carries the new fields.
+    """
+
+    session_id: str
+    notice_ids: list[int] = field(default_factory=list)
+    state: str = "surfaced"                               # or `offered`
+    transport: str | None = None                          # how it was delivered
 
 
 @dataclass
