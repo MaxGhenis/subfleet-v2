@@ -283,3 +283,33 @@ def test_enroll_missing_identity_fails_with_actionable_fix(tmp_path):
         _adapter({}).enroll(Credential("codex", str(home), "home"))
     assert caught.value.code == 7
     assert caught.value.fix
+
+
+@pytest.mark.parametrize("error", [
+    {"code": "organization_deactivated"},
+    {"message": "This organisation is blocked"},
+    {"message": "organization_id is disabled"},
+])
+def test_explicit_organization_block_on_403_is_auth_dead(tmp_path, error):
+    """C-9.3 C-23.44: explicit organization-block evidence disables a lane even on HTTP 403."""
+    home = _home(tmp_path)
+    before = (home / "auth.json").read_bytes()
+    adapter = CodexAdapter(opener=lambda request, timeout: (403, json.dumps({"error": error}).encode()))
+    verdict = adapter.probe_status(_lane(home), {})
+    assert verdict["status"] == "auth-dead"
+    assert verdict["readings"] == ()
+    assert (home / "auth.json").read_bytes() == before
+
+
+def test_organization_block_takes_precedence_over_expired_access_token(tmp_path):
+    """C-9.2 C-9.3 C-23.47: explicit organization denial cannot be healed as ordinary expiry."""
+    raw = _auth()
+    raw["tokens"]["access_token"] = _jwt({"exp": 1})
+    adapter = CodexAdapter(opener=lambda request, timeout: (401, b'{"error":{"code":"organization_deactivated"}}'))
+    assert adapter.probe_status(_lane(_home(tmp_path, raw)), {})["status"] == "auth-dead"
+
+
+def test_unexplained_403_is_not_authentication_death(tmp_path):
+    """C-9.3: HTTP 403 without explicit authentication evidence does not disable the lane."""
+    adapter = CodexAdapter(opener=lambda request, timeout: (403, b'{"error":{"code":"forbidden"}}'))
+    assert adapter.probe_status(_lane(_home(tmp_path)), {})["status"] == "http-error"

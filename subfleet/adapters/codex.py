@@ -7,6 +7,7 @@ import math
 import re
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterator
@@ -21,6 +22,9 @@ from ..contracts import (
 )
 
 WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+WHAM_RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+WHAM_RESET_CREDITS_CONSUME_URL = WHAM_RESET_CREDITS_URL + "/consume"
+RESET_CREDIT_URLS = frozenset({WHAM_RESET_CREDITS_URL, WHAM_RESET_CREDITS_CONSUME_URL})
 USER_AGENT = "subfleet/2 (codex_cli_rs compatible)"
 AUTH_RE = re.compile(
     r"refresh[ _-]token.{0,60}revoked|"
@@ -280,8 +284,127 @@ class CodexAdapter(Adapter):
         return LaneInfo(f"codex:{account}", plan, str(home), self._readings(payload, ""))
 
     def probe(self, lane: Lane, credential_env: dict[str, str]) -> tuple[Reading, ...]:
+        return self.probe_status(lane, credential_env)["readings"]
+
+    def probe_status(self, lane: Lane, credential_env: dict[str, str]) -> dict:
+        """C-9.3, C-23.47: retain one usage verdict without refreshing auth."""
         home = Path(lane.home or credential_env.get("CODEX_HOME") or lane.credential.ref).expanduser()
-        return self._readings(self._payload(_read_auth(home)), lane.lane_id)
+        raw = _read_auth(home)
+        identity = _identity(raw)
+        base = {"readings": (), "checked_at": _iso(self._now()),
+                "credential_epoch": raw.get("last_refresh"),
+                "account_key": "codex:" + str(identity["account_id"] or identity["email"]) if identity["account_id"] or identity["email"] else None,
+                "email": identity["email"], "plan_type": identity["plan"]}
+        if _api_key(raw) or not identity["token"]:
+            return {**base, "status": "no-auth"}
+        result = self._request(raw, WHAM_USAGE_URL)
+        if result["status"] != "ok":
+            status = "network-error" if result["status"] == "timeout" else result["status"]
+            error = str(result.get("error_code", "")).lower()
+            message = str(result.get("detail", "")).lower()
+            if "revok" in error or "refresh token was revoked" in message:
+                status = "revoked"
+            elif re.search(r"(?:organi[sz]ation|organization_id).{0,60}(?:blocked|disabled|deactivated)",
+                           error + " " + message, re.I):
+                status = "auth-dead"
+            elif result.get("http_status") == 401:
+                expires = _claims(identity["token"]).get("exp")
+                if "expir" in error or "expir" in message or (
+                    isinstance(expires, (int, float)) and not isinstance(expires, bool)
+                    and expires <= self._now().timestamp()
+                ):
+                    status = "expired-token"
+                else:
+                    status = "auth-dead"
+            return {**base, **result, "status": status}
+        payload = result["payload"]
+        limits = payload.get("rate_limit")
+        limits = limits if isinstance(limits, dict) else {}
+        counts = payload.get("rate_limit_reset_credits")
+        counts = counts if isinstance(counts, dict) else {}
+        def count(key):
+            value = counts.get(key)
+            return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+        return {**base, "status": "limited" if limits.get("limit_reached") is True else "ok",
+                "allowed": limits.get("allowed"), "limit_reached": limits.get("limit_reached"),
+                "readings": self._readings(payload, lane.lane_id),
+                "reset_credits": {"available": count("available_count"),
+                                  "applicable": count("applicable_available_count")}}
+
+    def _request(self, raw: dict, url: str, *, payload: dict | None = None,
+                 timeout: float | None = None) -> dict:
+        """Subscription-only GET or a persisted reset intent; never refresh auth."""
+        if url not in RESET_CREDIT_URLS and url != WHAM_USAGE_URL:
+            raise ValueError("endpoint is not allowlisted")
+        identity = _identity(raw)
+        if _api_key(raw) or not identity["token"]:
+            return {"status": "no-auth"}
+        headers = {"Authorization": f"Bearer {identity['token']}",
+                   "chatgpt-account-id": identity["account_id"] or "",
+                   "User-Agent": USER_AGENT, "Accept": "application/json"}
+        data = None if payload is None else json.dumps(payload).encode()
+        if data is not None:
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, headers=headers)
+        timeout = self.timeout if timeout is None else timeout
+        try:
+            if self._opener:
+                status, body = self._opener(request, timeout)
+            else:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    status, body = response.status, response.read()
+        except urllib.error.HTTPError as exc:
+            status, body = exc.code, exc.read()
+        except (TimeoutError, OSError, urllib.error.URLError) as exc:
+            timed_out = isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError)
+            return {"status": "timeout" if timed_out else "network-error", "error_type": type(exc).__name__}
+        try:
+            decoded = json.loads(body)
+            if not isinstance(decoded, dict):
+                raise ValueError("expected object")
+        except (UnicodeError, ValueError):
+            decoded = {}
+            if 200 <= status < 300:
+                return {"status": "invalid-response", "error_type": "ValueError"}
+        if not 200 <= status < 300:
+            error = decoded.get("error")
+            error = error if isinstance(error, dict) else {}
+            return {"status": "network-error" if status >= 500 else "http-error",
+                    "http_status": status, "error_code": error.get("code"),
+                    "detail": error.get("message", f"HTTP {status}")}
+        return {"status": "ok", "payload": decoded}
+
+    def list_reset_credits(self, lane: Lane, credential_env: dict[str, str] | None = None,
+                           *, timeout: float | None = None) -> dict:
+        """C-23.7: this entitlement endpoint lists gifted credits only."""
+        result = self._request(_read_auth(Path(lane.home or lane.credential.ref).expanduser()),
+                               WHAM_RESET_CREDITS_URL, timeout=timeout)
+        if result["status"] != "ok":
+            return result
+        credits = result["payload"].get("credits", [])
+        return {"status": "ok", "credits": [credit for credit in credits
+                if isinstance(credit, dict) and credit.get("reset_type") == "codex_rate_limits"
+                and credit.get("status") == "available" and isinstance(credit.get("id"), str)
+                and credit["id"] and credit.get("source") not in ("purchase", "purchased", "paid")
+                and credit.get("gifted") is not False] if isinstance(credits, list) else []}
+
+    def consume_reset_credit(self, lane: Lane, credit: dict, redeem_request_id: str,
+                             credential_env: dict[str, str] | None = None,
+                             *, timeout: float | None = None) -> dict:
+        """C-23.7, C-23.16: consume one concrete gift using the durable UUID4."""
+        request_id = uuid.UUID(redeem_request_id)
+        if request_id.version != 4 or str(request_id) != redeem_request_id:
+            raise ValueError("redeem_request_id must be a UUID4")
+        if (credit.get("reset_type") != "codex_rate_limits" or credit.get("status") != "available"
+                or not isinstance(credit.get("id"), str) or not credit["id"]
+                or credit.get("source") in ("purchase", "purchased", "paid") or credit.get("gifted") is False):
+            raise ValueError("a concrete available gifted entitlement is required")
+        result = self._request(_read_auth(Path(lane.home or lane.credential.ref).expanduser()),
+                               WHAM_RESET_CREDITS_CONSUME_URL, timeout=timeout,
+                               payload={"credit_id": credit["id"], "redeem_request_id": redeem_request_id})
+        if result["status"] != "ok":
+            return result
+        return {**result["payload"], "status": "ok", "redeem_request_id": redeem_request_id}
 
     def _launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                 credential_env: dict[str, str], prompt_path: Path, guard_override: str | None,
