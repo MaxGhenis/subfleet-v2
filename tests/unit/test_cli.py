@@ -666,3 +666,31 @@ def test_a_failed_acknowledgement_does_not_change_the_show(daemon, monkeypatch, 
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
     assert run_cli(["runs", "show", JOB]) == 0
     assert JOB in capsys.readouterr().out
+
+
+def test_wait_summary_names_the_deliverable(daemon, root, capsys):
+    """C-17.4 the wait summary points at the artifact `runs show --out` prints."""
+    daemon({"wait": lambda request: {"jobs": {JOB: {
+        "job_id": JOB, "state": "succeeded", "rc": 0, "model": "astra",
+        "lane_id": "codex-1",
+        "artifacts": [{"role": "deliverable", "path": str(root / "d.md")}]}}}})
+    assert run_cli(["wait", JOB]) == 0
+    assert f"out={root / 'd.md'}" in capsys.readouterr().err
+
+
+def test_ping_joins_unquoted_words(daemon, monkeypatch, capsys):
+    """C-17.1 `ping TEXT` takes the rest of the line as the message."""
+    server = daemon({"ping": lambda request: {"delivered": True}})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+    assert run_cli(["ping", "the", "build", "is", "green"]) == 0
+    assert server.args("ping")["text"] == "the build is green"
+    capsys.readouterr()
+
+
+def test_reap_blames_the_store_not_the_daemon_when_the_daemon_is_up(daemon, capsys):
+    """C-17.3 an unreadable store while the daemon runs is operational, not 69."""
+    daemon({"daemon.status": lambda request: {"version": "2.0.0a0"}})
+    assert run_cli(["runs", "reap"]) == 1
+    captured = capsys.readouterr()
+    assert "the daemon is running but its store is not readable" in captured.err
+    assert "subfleet daemon start" not in captured.err

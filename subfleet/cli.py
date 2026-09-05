@@ -626,7 +626,8 @@ def _wait_summary(job: dict[str, Any]) -> str:
     label = state if state != "FAILED" or not isinstance(rc, int) else f"FAILED rc={rc}"
     duration = "-" if not isinstance(row["duration_s"], (int, float)) \
         else f"{float(row['duration_s']):.0f}s"
-    target = job.get("out_path") or job.get("deliverable_path") or "-"
+    target = (job.get("out_path") or _artifact_path(job, "deliverable")
+              or job.get("deliverable_path") or "-")
     return (f"{PROG} wait: {row['id']} {label} · {row['model'] or '-'} · "
             f"lane={row['lane'] or '-'} · {duration} · out={target}")
 
@@ -895,9 +896,20 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
     the command that finalizes them rather than editing rows behind the daemon.
     """
     checker, source = _same_process()
+    daemon_up = True
+    try:
+        _client(args).call("daemon.status", {})
+    except (DaemonUnavailable, ProtocolError):
+        daemon_up = False
+    except DaemonError:
+        pass                              # it answered, so it is there
     try:
         rows = _offline(args).list_jobs(running=True, last=500)
     except OfflineUnavailable as exc:
+        if daemon_up:
+            return fail(Exit.OPERATIONAL,
+                        f"runs reap: the daemon is running but its store is not "
+                        f"readable from here: {exc}")
         return _daemon_down(exc)
     orphans: list[dict[str, Any]] = []
     for row in rows:
@@ -911,11 +923,6 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
             orphans.append({"job_id": row.get("job_id"), "state": row.get("state"),
                             "attempt_id": row.get("attempt_id"), "pid": None,
                             "verdict": "no runner recorded yet"})
-    daemon_up = True
-    try:
-        _client(args).call("daemon.status", {})
-    except (DaemonUnavailable, DaemonError, ProtocolError):
-        daemon_up = False
     if args.json:
         for orphan in orphans:
             emit(orphan)
@@ -1127,7 +1134,7 @@ def cmd_ping(args: argparse.Namespace) -> int:
     if not target:
         return fail(Exit.INVALID_INPUT,
                     "ping: --session ID is required outside a Claude session")
-    text = args.text if args.text is not None else sys.stdin.read()
+    text = " ".join(args.text) if args.text else sys.stdin.read()
     try:
         result = _client(args).call(
             "ping", _asdict(protocol.PingArgs(text=text, session_id=target)))
@@ -1662,7 +1669,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_ping = sub.add_parser("ping", help="push a message into a session inbox")
     p_ping.add_argument("--session", metavar="ID")
-    p_ping.add_argument("text", nargs="?")
+    p_ping.add_argument("text", nargs="*", help="the message (quoting optional)")
     _add_json(p_ping)
     p_ping.set_defaults(handler=cmd_ping)
     return parser
