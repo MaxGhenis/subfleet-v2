@@ -2,7 +2,7 @@
 
 ## State
 
-Milestone 7 implementation and recovery fixes are integrated on `lane/gates`; final full-suite verification remains. Final report: `OUTPUT.md`.
+Milestone 7 implementation and final review are complete on `lane/gates`. Local gate/compatibility checks pass; production acceptance still needs Codex ephemeral provenance and unrestricted full-suite validation. Final report: `OUTPUT.md`.
 
 ## Done
 
@@ -21,11 +21,14 @@ Milestone 7 implementation and recovery fixes are integrated on `lane/gates`; fi
 - First full suite: 118 failed, 2,865 passed, 63 skipped in 38.83 s. One memory-removal expectation fixed; remaining failures involve unavailable sockets/process inspection or default scratch paths outside the writable root.
 - Confirmed operation keys reject a different approved base or merge method. Added daemon recovery fencing, native gate documentation, and a process-backed fixture peer test (skips where process identity inspection is unavailable).
 - Final independent review fixed interrupted merge-result publication and concurrent gates observing the same action. Both poll and continue recover confirmed/unknown landings without checking the moving base or resubmitting.
+- Final gate acceptance target: 194 passed, 1 skipped in 4.51 s. Final compatibility: 1,536 passed in 6.85 s. Every gate test function carries a clause docstring.
+- Final full suite: 2,881 passed, 117 failed, 64 skipped in 75.43 s. Independent failure review found 105 socket restrictions, five denied scratch writes, and seven process-inspection restrictions; no remaining implementation regression identified.
+- Final report written to `OUTPUT.md`; implementation documentation in `docs/gates.md`. No real GitHub command, v1 command, or git push executed.
 
 ## Next
 
-- Finish full-suite validation; distinguish sandbox restrictions from regressions.
-- Write committed integrator report with exact results and remaining production seams.
+- Integrator: re-run normal sync, process integration, and full suite outside the sandbox.
+- Integrator: provide authentic served-model provenance for isolated Codex ephemeral reviews; review schema/admission seams across lanes.
 
 ## Constraints and findings
 
