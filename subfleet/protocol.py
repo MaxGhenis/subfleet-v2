@@ -18,6 +18,7 @@ PROTOCOL_VERSION = 1
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
+    "gate.start", "gate.poll", "gate.continue",
 )
 
 
@@ -83,6 +84,9 @@ class SubmitArgs:
     max_attempts: int | None = None
     max_wall_s: int | None = None
     max_tokens_observed: int | None = None
+    isolated_review: bool = False
+    review_root: str | None = None
+    round_lease: str | None = None
 
 
 @dataclass

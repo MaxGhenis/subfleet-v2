@@ -253,6 +253,27 @@ class Daemon:
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
                     raise ValueError("workdir must be a directory")
+                review_root = None
+                if args.isolated_review:
+                    from .adapters.isolation import validate_isolated_review
+                    validate_isolated_review(sandbox, args.review_root)
+                    review_root = str(Path(args.review_root).expanduser().resolve(strict=True))
+                    if not Path(review_root).is_dir():
+                        raise ValueError("review_root must be a directory")
+                elif args.review_root:
+                    raise ValueError("review_root requires isolated_review (-I)")
+                if args.kind == "gate-review":
+                    import re
+                    if not args.pinned_model or not args.isolated_review:
+                        raise ValueError("gate-review requires a pinned model and isolated_review")
+                    if not isinstance(args.round_lease, str) or not re.fullmatch(
+                            r"gate:[A-Za-z0-9][A-Za-z0-9._-]{0,127}:round:[1-9][0-9]*", args.round_lease):
+                        raise ValueError("gate-review requires gate:<gate id>:round:<n> round_lease")
+                    if self.root not in workdir.parents or git_head(workdir) is not None:
+                        raise AdapterError("gate review cwd must be a neutral directory under the state root",
+                                           fix="allocate the peer cwd under SUBFLEET_HOME outside any repository")
+                elif args.round_lease:
+                    raise ValueError("round_lease is reserved for gate-review jobs")
                 if any(workdir == p or p in workdir.parents for p in (Path("/tmp"), Path("/private/tmp"))) and not args.allow_tmp:
                     raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir")
                 prompt = Path(args.prompt_path).expanduser().read_bytes()
@@ -296,7 +317,9 @@ class Daemon:
                 digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
                     task=args.task, tier=args.tier, pinned_model=model, pinned_lane=args.pinned_lane,
                     sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
-                    allow_desktop=args.allow_desktop, policy_hash=self.policy_digest)
+                    allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
+                    isolated_review=args.isolated_review, review_root=review_root,
+                    round_lease=args.round_lease)
             except (OSError, ValueError, TypeError) as exc:
                 raise protocol.ProtocolError(str(exc)) from exc
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
@@ -315,6 +338,7 @@ class Daemon:
                           pinned_model=model, prompt_path=str(jobdir / "prompt.md"),
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
                           max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow())
+            values["review_root"] = review_root
             if args.dry_run:
                 return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values, desktop_account=capacity.read_desktop_account()))}
             self._validate_conflicts(values)
@@ -336,6 +360,17 @@ class Daemon:
             return {"job_id": job_id, "request_id": args.request_id, "created": True}
 
     def _validate_conflicts(self, job: dict) -> None:
+        if job.get("round_lease"):
+            prefix = job["round_lease"].rsplit(":", 1)[0] + ":"
+            lease = self.store.one("SELECT holder FROM leases WHERE substr(lease_key,1,?)=?",
+                                   (len(prefix), prefix))
+            active = self.store.one(
+                "SELECT job_id FROM jobs WHERE substr(round_lease,1,?)=? AND job_id!=? "
+                "AND state IN ('queued','waiting','running')",
+                (len(prefix), prefix, job["job_id"]))
+            if (lease and lease["holder"] != f"gate-round:{job['job_id']}") or active:
+                raise AdapterError("gate already has a reserved peer round",
+                                   fix="wait for or explicitly abandon the existing gate round")
         if job.get("parent_job_id"):
             parent = self._job(job["parent_job_id"])
             if parent["cancel_requested_at"] and not job.get("independent"):
@@ -390,6 +425,9 @@ class Daemon:
         return result.override
 
     def dispatch(self, op: str, args: dict) -> dict:
+        if op in ("gate.start", "gate.poll", "gate.continue"):
+            from .gate.service import dispatch
+            return dispatch(self, op, args)
         if op == "submit":
             return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
         if op == "list":
@@ -1023,6 +1061,8 @@ class Daemon:
                 while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane_id}:slot:{slot}",)).fetchone():
                     slot += 1
                 leases = [(f"lane:{lane_id}:slot:{slot}", aid)]
+                if job.get("round_lease"):
+                    leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
                 if job["out_path"]:
                     leases.append((f"out:{job['out_path']}", job["job_id"]))
                 if job["sandbox"] == "workspace-write":
@@ -1090,7 +1130,7 @@ class Daemon:
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
             spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
-            guard_override = self._guard_override(adapter, lane, spec.workdir)
+            guard_override = None if spec.isolated_review else self._guard_override(adapter, lane, spec.workdir)
             launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
                                           model["id"], model.get("effort"), prompt_path, guard_override)
         except AdapterError as exc:
@@ -1578,7 +1618,7 @@ class Daemon:
                         continue
                     # Submission filesystem work and long polls have separate
                     # pools; ordinary read/cancel operations stay responsive.
-                    pool = self.workers if req.op == "submit" else self.waiters if req.op == "wait" else self.requests
+                    pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
                     pending = [f for f in pending if not f.done()]
                     pending.append(pool.submit(self._respond, conn, write_lock, req))
         except OSError:

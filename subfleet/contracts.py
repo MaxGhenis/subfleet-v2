@@ -242,6 +242,9 @@ class JobSpec:
     max_attempts: int = DEFAULT_CAPS["max_attempts"]
     max_wall_s: int = DEFAULT_CAPS["max_wall_s"]
     max_tokens_observed: int | None = None
+    isolated_review: bool = False
+    review_root: str | None = None
+    round_lease: str | None = None
 
 
 @dataclass(frozen=True)
