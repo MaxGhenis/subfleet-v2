@@ -1,0 +1,38 @@
+{
+  "case": "limit-no-clock",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "Synthetic. Minimal limit phrasing from v1's classifier vocabulary with every clock removed, to exercise the guessed-closure branch.",
+  "requested_model": "claude-opus-5",
+  "session_id": "33333333-3333-4333-8333-333333333333",
+  "class": "limited",
+  "detail_contains": "usage limit",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "no rate_limit_event",
+    "quota": "result text"
+  },
+  "closure": {
+    "scope": "account",
+    "reason": "provider-limit",
+    "clock_source": "guessed",
+    "until_at_offset_s": 3600,
+    "source_event": "result-text"
+  },
+  "readings": [],
+  "deliverable": "You've hit your usage limit.",
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

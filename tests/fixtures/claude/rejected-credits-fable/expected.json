@@ -1,0 +1,53 @@
+{
+  "case": "rejected-credits-fable",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "rate_limit_info and the result text verbatim from experiment-0 (max@policyengine.org, --model claude-fable-5-1, rc=1, is_error true). system/init and the result envelope around them are assembled.",
+  "account": "max@policyengine.org",
+  "requested_model": "claude-fable-5-1",
+  "session_id": "fa8e5306-d775-4435-bd42-29f1396af991",
+  "class": "limited",
+  "detail_contains": "credits_required",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "rate_limit_event.status=rejected",
+    "quota": "errorCode=credits_required"
+  },
+  "closure": {
+    "scope": "claude-fable-5-1",
+    "reason": "credits",
+    "clock_source": "reported",
+    "until_at_epoch": 1790812800,
+    "source_event": "rate_limit_event"
+  },
+  "readings": [
+    {
+      "scope": "claude-fable-5-1",
+      "window": "admission",
+      "utilization": null,
+      "resets_at_epoch": 1790812800,
+      "label": "admission-observed",
+      "source": "rate_limit_event"
+    }
+  ],
+  "overage": {
+    "overage_status": null,
+    "overage_disabled_reason": "out_of_credits",
+    "is_using_overage": false
+  },
+  "deliverable": "You're out of usage credits. Switch to another model, or manage usage credits at claude.ai/settings/usage, to continue.",
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 1,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

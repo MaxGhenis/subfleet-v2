@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""A fake `claude` for the tests (C-12.8).
+
+It replays one fixture under `tests/fixtures/claude/<scenario>/`: the fixture's
+`stdout` to stdout, its `stderr` to stderr, and its `rc` as the exit status. It
+never reaches the network and never reads a credential.
+
+Environment:
+
+    SUBFLEET_FAKE_SCENARIO      the fixture directory name (required)
+    SUBFLEET_FAKE_FIXTURES      fixture root (default: ../fixtures/claude beside this file)
+    SUBFLEET_FAKE_DELAY_S       seconds to sleep before writing anything
+    CLAUDE_FAKE_PROJECTS_DIR    when set, write the fixture's `transcript.jsonl`
+                                to <dir>/<encoded cwd>/<--session-id>.jsonl, so
+                                attestation and deliverable tests run offline
+    SUBFLEET_FAKE_ENV_REPORT    when set, write a JSON report of which environment
+                                variables were *present* (never their values) plus
+                                argv and cwd, so an isolation test can prove no API
+                                key reached the child (C-14.4)
+    SUBFLEET_FAKE_STDIN_REPORT  when set, write the bytes read from stdin there, so
+                                a test can prove which prompt was actually sent
+
+Unknown flags are accepted and ignored: the point is to replay a fixture for
+whatever argv the adapter built, not to re-implement Claude Code.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+# Kept in step with subfleet.adapters.claude.encode_project_dir; duplicated rather
+# than imported so the fake stays a standalone executable on PATH.
+ENCODED = ("/", ".", "_")
+
+# Recorded by presence only. A value is never read, printed, or written.
+WATCHED_ENV = (
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CODEX_API_KEY",
+    "OPENAI_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CONFIG_DIR",
+    "SUBFLEET_ATTEMPT",
+    "SUBFLEET_JOB",
+)
+
+
+def encode_project_dir(workdir: str) -> str:
+    text = str(workdir)
+    for char in ENCODED:
+        text = text.replace(char, "-")
+    return text
+
+
+def flag_value(argv: list[str], name: str) -> str | None:
+    for index, item in enumerate(argv):
+        if item == name and index + 1 < len(argv):
+            return argv[index + 1]
+        if item.startswith(f"{name}="):
+            return item.split("=", 1)[1]
+    return None
+
+
+def fixtures_root() -> Path:
+    override = os.environ.get("SUBFLEET_FAKE_FIXTURES")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / "fixtures" / "claude"
+
+
+def read_bytes(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return b""
+
+
+def main(argv: list[str]) -> int:
+    scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO")
+    if not scenario:
+        sys.stderr.write("fake claude: SUBFLEET_FAKE_SCENARIO is not set\n")
+        return 2
+    case = fixtures_root() / scenario
+    if not case.is_dir():
+        sys.stderr.write(f"fake claude: no fixture {scenario} under {fixtures_root()}\n")
+        return 2
+
+    report_path = os.environ.get("SUBFLEET_FAKE_ENV_REPORT")
+    if report_path:
+        Path(report_path).write_text(
+            json.dumps(
+                {
+                    "argv": argv,
+                    "cwd": os.getcwd(),
+                    # Presence, never values.
+                    "env_present": {
+                        name: (name in os.environ) for name in WATCHED_ENV
+                    },
+                    "env_keys": sorted(os.environ),
+                },
+                indent=1,
+            ),
+            encoding="utf-8",
+        )
+
+    stdin_report = os.environ.get("SUBFLEET_FAKE_STDIN_REPORT")
+    if stdin_report:
+        try:
+            data = sys.stdin.buffer.read()
+        except (OSError, ValueError):
+            data = b""
+        Path(stdin_report).write_bytes(data)
+
+    delay = os.environ.get("SUBFLEET_FAKE_DELAY_S")
+    if delay:
+        try:
+            time.sleep(float(delay))
+        except ValueError:
+            pass
+
+    session_id = flag_value(argv, "--session-id") or flag_value(argv, "--resume")
+    projects = os.environ.get("CLAUDE_FAKE_PROJECTS_DIR")
+    transcript_src = case / "transcript.jsonl"
+    if projects and session_id and transcript_src.is_file():
+        target_dir = Path(projects) / encode_project_dir(os.getcwd())
+        target_dir.mkdir(parents=True, exist_ok=True)
+        rows = []
+        for line in transcript_src.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                row["sessionId"] = session_id
+                row["cwd"] = os.getcwd()
+            rows.append(row)
+        with (target_dir / f"{session_id}.jsonl").open("a", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+
+    stdout = read_bytes(case / "stdout")
+    if session_id:
+        # The fixture's own session id is replaced so a caller-chosen --session-id
+        # threads through the stream the way the real CLI's would.
+        fixture_sid = None
+        for line in stdout.decode("utf-8", "replace").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and isinstance(row.get("session_id"), str):
+                fixture_sid = row["session_id"]
+                break
+        if fixture_sid:
+            stdout = stdout.replace(fixture_sid.encode(), session_id.encode())
+
+    sys.stdout.buffer.write(stdout)
+    sys.stdout.buffer.flush()
+    sys.stderr.buffer.write(read_bytes(case / "stderr"))
+    sys.stderr.buffer.flush()
+
+    try:
+        return int((case / "rc").read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

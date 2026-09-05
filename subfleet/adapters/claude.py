@@ -1,0 +1,1462 @@
+"""The Claude provider adapter (C-12.4 to C-12.6, C-9.8, C-10.2).
+
+This adapter makes Claude lane capacity knowable. Every headless `claude -p` run
+emits a `rate_limit_event` carrying the account's `unifiedWindows`, and that event
+— not a cached table, not a token estimate — is the sensor. Everything else here
+exists to get that event, to say honestly what it means, and to prove which model
+actually served the turn.
+
+Three rules hold throughout:
+
+* **Fractions, never percentages.** A `Reading` carries `utilization` exactly as
+  the server sent it, in [0, 1] (and legitimately above 1 when usage runs past a
+  window's cap). Nothing in this module multiplies by 100 or formats a `%`;
+  rendering belongs to the routing lane, and it must find nothing else to render.
+* **Never a false positive.** Attestation returns `attested` only when every
+  assistant message inside the attempt's own transcript range names the requested
+  model. Ambiguity — no transcript, two transcripts, an unreadable one, no
+  assistant turn — is `unattested`.
+* **The credential is a value only inside a child's environment.** It is resolved
+  in a private helper, placed in `Launch.env_add`, and never logged, never put in
+  argv, never written to an artifact (C-10.5).
+
+Classification order is authentication, then admission, then quota (C-9.2), with
+one thing ahead of all three: the host CLI's own version gate. A CLI too old for a
+model is the host's fault, never the lane's, and cooling a healthy lane for it
+would be a lie about capacity.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import tempfile
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Callable
+from zoneinfo import ZoneInfo
+
+from ..contracts import (
+    GUESSED_CLOSURE_S, HEADLESS_MARKER, Attestation, AttestationResult, ClockSource, Closure,
+    ClosureReason, Credential, ExitInfo, JobSpec, Lane, LaneInfo, Launch, Outcome, OutcomeClass,
+    Reading, ReadingLabel, Sandbox,
+)
+from .base import Adapter, AdapterError
+from .claude_stream import (
+    AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
+    parse_stream,
+)
+
+# --- constants ---------------------------------------------------------------
+
+PROVIDER = "claude"
+
+#: The enrolment / probe turn (C-10.2), exactly as experiment-0 ran it.
+ENROLL_MODEL = "claude-haiku-4-5-20251001"
+ENROLL_PROMPT = "Reply with exactly: ok"
+ENROLL_TIMEOUT_S = 180
+
+#: The keychain item name pattern v1 established and v2 keeps (C-10.1).
+KEYCHAIN_PREFIX = "claude-quota-"
+
+#: `Reading.source` for anything the stream sensor produced.
+SOURCE_RATE_LIMIT_EVENT = "rate_limit_event"
+
+#: `Reading.window` for an `admission-observed` reading. Admission is not a quota
+#: window: the reading says "this model was admitted (or refused) on this lane
+#: just now", and carries no utilization at all (C-9.1, C-9.8).
+ADMISSION_WINDOW = "admission"
+
+#: Read-only tool surface, as v1 `bin/subfleet-claude` builds it.
+READ_ONLY_TOOLS_BASE = "Read,Glob,Grep"
+READ_ONLY_TOOLS_WEB = "Read,Glob,Grep,WebSearch,WebFetch"
+EMPTY_MCP_CONFIG = '{"mcpServers":{}}'
+
+#: Removed from the child's environment: a lane bills the subscription through the
+#: pinned OAuth token, never the API meter (C-12.4).
+ENV_REMOVE: tuple[str, ...] = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+HEADLESS_BLOCK = f"""{HEADLESS_MARKER}
+## HEADLESS EXECUTION (binding — read before anything else)
+You are running as a headless `claude -p` session: there are NO task notifications,
+NO background-task completions, and NO later turns. The moment you say "standing by"
+or "waiting on notifications" that message becomes your final output and every piece
+of background work is orphaned. Therefore:
+- NEVER use run_in_background, Monitor, or any "wait for a notification" pattern. Run
+  every command synchronously (foreground, with an adequate timeout) and read its
+  result in the same step.
+- Resume from your own journal (PROGRESS.md and the workspace's current state,
+  including any staged or uncommitted work) rather than resetting it.
+- Your FINAL message must be the completed deliverable, never a status update.
+"""
+
+
+# --- small shared helpers ----------------------------------------------------
+
+
+def iso_utc(when: datetime) -> str:
+    """C-1.7: ISO 8601 UTC with a `Z` suffix and second precision."""
+    return when.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
+def iso_from_epoch(epoch: int | float | None) -> str | None:
+    """Provider epoch seconds to the store's timestamp form (C-1.7)."""
+    if epoch is None:
+        return None
+    try:
+        return iso_utc(datetime.fromtimestamp(float(epoch), tz=timezone.utc))
+    except (ValueError, OSError, OverflowError):
+        return None
+
+
+def encode_project_dir(workdir: str | Path) -> str:
+    """Claude Code's `~/.claude/projects/` directory name for a working directory.
+
+    Each of `/`, `.` and `_` becomes `-`; case is preserved. Verified 2026-09-05
+    against live transcripts: `/Users/maxghenis/PolicyEngine/_buildo-runtime/out/
+    candidate-26/continuation-v2` is stored under
+    `-Users-maxghenis-PolicyEngine--buildo-runtime-out-candidate-26-continuation-v2`,
+    and no directory among the 3,210 present contains an underscore.
+    """
+    text = str(workdir)
+    for char in ("/", ".", "_"):
+        text = text.replace(char, "-")
+    return text
+
+
+_RESET_CLOCK_RE = re.compile(
+    r"(\d{1,2}):(\d{2})\s*([ap])\.?m\.?(?:\s*\(([A-Za-z_]+/[A-Za-z_]+)\))?",
+    re.IGNORECASE,
+)
+
+
+def parse_reset_clock(text: str, event_time: datetime) -> datetime | None:
+    """`resets 6:40pm (America/New_York)` to an absolute instant (ported from v1
+    `subfleet/util.py`): the same day as the event in the stated zone, else the
+    local zone, rolled forward a day when that clock already passed."""
+    match = _RESET_CLOCK_RE.search(text)
+    if not match:
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2))
+    if hour > 12 or minute > 59:
+        return None
+    meridiem, zone_name = match.group(3).lower(), match.group(4)
+    if hour == 12:
+        hour = 0
+    if meridiem == "p":
+        hour += 12
+    try:
+        zone = ZoneInfo(zone_name) if zone_name else None
+    except Exception:
+        zone = None
+    local_event = event_time.astimezone(zone) if zone else event_time.astimezone()
+    reset = local_event.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if reset < local_event:
+        reset += timedelta(days=1)
+    return reset
+
+
+_EPOCH_LIMIT_RE = re.compile(r"usage limit reached\|(\d{9,11})", re.IGNORECASE)
+
+# The host CLI refuses a model newer than itself. Both wordings are real: the first
+# is quoted in v1 `bin/subfleet-claude` from Claude Code 2.1.228, the second is the
+# current copy in the installed 2.1.260 string table.
+CLI_TOO_OLD_RE = re.compile(
+    r"does not support this model|Update Claude Code to use this model"
+    r"|is older than the minimum version required by your organization",
+    re.IGNORECASE,
+)
+
+# An explicit organisation block: the account exists and still cannot serve lanes.
+ORG_BLOCK_RE = re.compile(
+    r"organization has disabled Claude subscription access"
+    r"|organization has disabled|subscription access for Claude Code"
+    r"|does not have access to Claude",
+    re.IGNORECASE,
+)
+
+# Credential-shaped signatures. On their own these are NOT enough: C-9.3 requires a
+# 401 from a usage endpoint, an organisation block, or a revoked refresh token, and
+# a limit-looking phrase alongside a successful `system/init` is `limited`.
+AUTH_SIGNATURE_RE = re.compile(
+    r"\b401\b|unauthoriz|authentication_error|authentication failed"
+    r"|oauth token|token (?:has )?(?:been )?(?:revoked|expired)"
+    r"|refresh token was revoked|invalid[ _-]?api[ _-]?key|not logged in|please run /login",
+    re.IGNORECASE,
+)
+
+# A model-scoped exhaustion: the account still serves other models.
+CREDITS_RE = re.compile(
+    r"out of usage credits|monthly spend limit|out of extra usage"
+    r"|requires usage credits|usage credit limit",
+    re.IGNORECASE,
+)
+
+# An account-scoped window limit.
+LIMIT_RE = re.compile(
+    r"hit your limit|reached your limit|usage limit|session limit|weekly limit"
+    r"|5-hour limit|subscription limit|limit reached",
+    re.IGNORECASE,
+)
+
+# Sentences that contain limit vocabulary while denying a limit. Removed before the
+# limit patterns run, so a throttled server never cools a healthy lane. The first is
+# verbatim from the Claude Code 2.1.260 string table.
+NON_LIMIT_PHRASES = (
+    "(not your usage limit)",
+    "not your usage limit",
+)
+
+TRANSIENT_RE = re.compile(
+    r"\b5\d\d\b|\b429\b|too many requests|overload|at capacity|temporarily"
+    r"|disconnect|connection|ECONN\w*|ETIMEDOUT|timed ?out|internal server error"
+    r"|service unavailable|stream (?:closed|ended|interrupted)|socket hang up",
+    re.IGNORECASE,
+)
+
+# Never a lane fault, never a retry: the model declined.
+REFUSAL_STOP_REASON = "refusal"
+
+
+def _scrub_non_limit(text: str) -> str:
+    for phrase in NON_LIMIT_PHRASES:
+        text = re.sub(re.escape(phrase), " ", text, flags=re.IGNORECASE)
+    return text
+
+
+def _first_line_containing(corpus: str, match: re.Match[str]) -> str:
+    """The line the match landed on, trimmed, so a `detail` names its own evidence."""
+    start = corpus.rfind("\n", 0, match.start()) + 1
+    end = corpus.find("\n", match.end())
+    line = corpus[start : end if end != -1 else len(corpus)].strip()
+    return line[:300] if line else match.group(0)
+
+
+def model_matches_requested(served: str | None, requested: str | None) -> bool:
+    """v1's `model_matches_requested`, ported.
+
+    A served id matches when it is the requested id, when it is the requested id
+    with a dated or versioned suffix, or — when the request used a short alias
+    (`opus`, `fable`) — when it is that alias with the `claude-` prefix and any
+    suffix. Anything else is a mismatch; `None` never matches.
+    """
+    if not served or not requested:
+        return False
+    if served == requested:
+        return True
+    if served.startswith(f"{requested}-"):
+        return True
+    if requested in ("fable", "opus", "sonnet", "haiku"):
+        return served in (requested, f"claude-{requested}") or served.startswith(
+            f"claude-{requested}-"
+        )
+    return False
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Temp file in the destination directory, fsync, rename, fsync the directory
+    (C-8.1). The prompt actually sent is an artifact; a torn one is not acceptable."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    dir_fd = os.open(str(path.parent), os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+def apply_headless_block(prompt: str) -> str:
+    """C-6.7: prepend the headless block unless the prompt already carries the marker.
+
+    `prompt.md` is never touched; this produces the bytes written to
+    `prompt.sent.md`, which is the launch's `stdin_path`.
+    """
+    if HEADLESS_MARKER in prompt:
+        return prompt
+    return f"{HEADLESS_BLOCK}\n{prompt}"
+
+
+# --- the adapter -------------------------------------------------------------
+
+
+class ClaudeAdapter(Adapter):
+    """Claude Code, driven headless on one enrolled subscription lane."""
+
+    provider = PROVIDER
+
+    def __init__(
+        self,
+        *,
+        claude_bin: str = "claude",
+        runner: Callable[..., Any] = subprocess.run,
+        now: Callable[[], datetime] | None = None,
+        new_session_id: Callable[[], str] | None = None,
+        projects_dir: str | Path | None = None,
+        security_bin: str = "security",
+    ) -> None:
+        self.claude_bin = claude_bin
+        self._runner = runner
+        self._now = now or (lambda: datetime.now(timezone.utc))
+        self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
+        self._projects_dir = Path(projects_dir) if projects_dir else None
+        self._security_bin = security_bin
+
+    # --- credentials (C-10.5) ------------------------------------------------
+
+    def _resolve_keychain_token(self, ref: str) -> str:
+        """One targeted keychain item read. The value is returned to the caller and
+        never logged, never stored, never placed in argv."""
+        try:
+            done = self._runner(
+                [self._security_bin, "find-generic-password", "-s", ref, "-w"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise AdapterError(
+                f"claude: could not read the keychain item {ref}: {exc}",
+                code=5,
+                fix=f"agent-secret get {ref}",
+            ) from exc
+        if getattr(done, "returncode", 1) != 0:
+            raise AdapterError(
+                f"claude: no keychain token for {ref}",
+                code=5,
+                fix=(
+                    "claude setup-token while signed into the lane account, then store "
+                    f"it as the keychain item {ref}"
+                ),
+            )
+        payload = (done.stdout or "").strip()
+        if not payload:
+            raise AdapterError(
+                f"claude: the keychain item {ref} is empty", code=5,
+                fix=f"re-enrol the lane: claude setup-token, then store it as {ref}",
+            )
+        # v1 stores Claude Code's own OAuth blob under one item name and a bare
+        # setup-token under the per-lane `claude-quota-<email>` item. Accept both.
+        if payload.startswith("{"):
+            try:
+                blob = json.loads(payload)
+            except ValueError:
+                return payload
+            oauth = blob.get("claudeAiOauth") if isinstance(blob, dict) else None
+            if isinstance(oauth, dict) and oauth.get("accessToken"):
+                return str(oauth["accessToken"])
+        return payload
+
+    def _plan_from_keychain(self, ref: str) -> str | None:
+        """The subscription tier, when the stored blob carries one. Best effort:
+        a bare setup-token says nothing about the plan."""
+        try:
+            done = self._runner(
+                [self._security_bin, "find-generic-password", "-s", ref, "-w"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if getattr(done, "returncode", 1) != 0:
+            return None
+        payload = (done.stdout or "").strip()
+        if not payload.startswith("{"):
+            return None
+        try:
+            blob = json.loads(payload)
+        except ValueError:
+            return None
+        oauth = blob.get("claudeAiOauth") if isinstance(blob, dict) else None
+        if isinstance(oauth, dict):
+            value = oauth.get("subscriptionType")
+            return str(value) if value else None
+        return None
+
+    def credential_env(self, credential: Credential) -> dict[str, str]:
+        """The environment addition that authenticates one lane (C-12.4).
+
+        The daemon normally builds this itself and hands it to `build_launch`; the
+        adapter needs its own copy for `enroll`, which receives only the reference.
+        """
+        if credential.kind == "home":
+            return {"CLAUDE_CONFIG_DIR": str(Path(credential.ref).expanduser())}
+        if credential.kind == "keychain-token":
+            return {"CLAUDE_CODE_OAUTH_TOKEN": self._resolve_keychain_token(credential.ref)}
+        raise AdapterError(
+            f"claude: unknown credential kind {credential.kind!r}",
+            code=7,
+            fix="a Claude lane is either kind 'keychain-token' or kind 'home'",
+        )
+
+    @staticmethod
+    def account_from_reference(credential: Credential) -> str | None:
+        """`claude-quota-<email>` yields the email; a home yields nothing (C-1.4)."""
+        if credential.kind == "keychain-token" and credential.ref.startswith(KEYCHAIN_PREFIX):
+            return credential.ref[len(KEYCHAIN_PREFIX):] or None
+        return None
+
+    @staticmethod
+    def account_from_home(home: str | Path) -> str | None:
+        """The account a Claude config directory is signed into, when it says so.
+
+        `~/.claude.json` carries `oauthAccount.emailAddress` (C-10.3 reads the same
+        file to find the desktop login). A keychain-token lane has no such file of
+        its own, so it has nothing to verify against.
+        """
+        path = Path(home).expanduser() / ".claude.json"
+        try:
+            blob = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        account = blob.get("oauthAccount") if isinstance(blob, dict) else None
+        if isinstance(account, dict):
+            email = account.get("emailAddress") or account.get("email")
+            return str(email) if email else None
+        return None
+
+    # --- the enrolment / probe turn -----------------------------------------
+
+    def _turn_argv(self, model_id: str) -> list[str]:
+        return [
+            self.claude_bin, "-p", ENROLL_PROMPT,
+            "--model", model_id,
+            "--output-format", "stream-json",
+            "--verbose",
+            "--max-turns", "1",
+        ]
+
+    def _run_turn(self, env_add: dict[str, str], model_id: str,
+                  timeout: int = ENROLL_TIMEOUT_S) -> tuple[int, str, str]:
+        """One Haiku-sized turn under a lane credential, in a throwaway directory.
+
+        Nothing is written anywhere but that directory by us; Claude Code keeps its
+        own session transcript under its config directory, which is the provider's
+        state and not ours to place.
+        """
+        env = {k: v for k, v in os.environ.items() if k not in ENV_REMOVE}
+        env.update(env_add)
+        with tempfile.TemporaryDirectory(prefix="subfleet-claude-probe-") as workdir:
+            try:
+                done = self._runner(
+                    self._turn_argv(model_id),
+                    cwd=workdir, env=env, capture_output=True, text=True,
+                    timeout=timeout, stdin=subprocess.DEVNULL,
+                )
+            except subprocess.TimeoutExpired as exc:
+                return 124, _decode(getattr(exc, "output", "")), (
+                    f"claude: probe timed out after {timeout}s"
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                return 127, "", f"claude: could not run {self.claude_bin}: {exc}"
+        return (
+            int(getattr(done, "returncode", 1) or 0),
+            _decode(getattr(done, "stdout", "")),
+            _decode(getattr(done, "stderr", "")),
+        )
+
+    def enroll(self, credential: Credential) -> LaneInfo:
+        """C-10.2: one Haiku turn under the credential, then read the sensor.
+
+        Refuses with exit 5 when `system/init` never arrives: without it the
+        credential never authenticated, whatever else the output says (C-9.3).
+        """
+        if credential.provider != PROVIDER:
+            raise AdapterError(
+                f"claude: credential is for provider {credential.provider!r}", code=2,
+                fix="enrol a Claude credential with the Claude adapter",
+            )
+        env_add = self.credential_env(credential)
+        rc, stdout, stderr = self._run_turn(env_add, ENROLL_MODEL)
+        summary = parse_stream(stdout)
+        corpus = f"{stderr}\n{chr(10).join(summary.texts())}"
+
+        if not summary.has_init:
+            detail = _first_auth_phrase(corpus) or f"rc {rc}, no system/init in the stream"
+            raise AdapterError(
+                f"claude: the credential did not authenticate ({detail})",
+                code=5,
+                fix=(
+                    "claude setup-token while signed into the lane account, then store it "
+                    f"as the keychain item {credential.ref}"
+                ),
+            )
+        if ORG_BLOCK_RE.search(corpus):
+            raise AdapterError(
+                "claude: the organisation has disabled Claude Code subscription access "
+                "for this account",
+                code=5,
+                fix="ask the account's admin to enable Claude Code access",
+            )
+
+        home = env_add.get("CLAUDE_CONFIG_DIR")
+        account = self.account_from_reference(credential)
+        observed = self.account_from_home(home) if home else None
+        if account and observed and account.lower() != observed.lower():
+            raise AdapterError(
+                f"claude: the credential reference names {account} but the home is signed "
+                f"into {observed}",
+                code=7,
+                fix="rebind the lane to the account its credential really holds (C-1.3)",
+            )
+        account = account or observed
+        if not account:
+            raise AdapterError(
+                f"claude: cannot determine the account for credential {credential.ref!r}",
+                code=2,
+                fix=(
+                    "name the keychain item claude-quota-<email>, or point the lane at a "
+                    "home whose .claude.json carries oauthAccount.emailAddress"
+                ),
+            )
+
+        plan = (
+            self._plan_from_keychain(credential.ref)
+            if credential.kind == "keychain-token" else None
+        )
+        # The lane does not exist yet, so its id is empty here; the daemon stamps the
+        # id it assigns onto these readings when it inserts the lane row (C-10.1).
+        readings = self.readings_from_summary(
+            summary, lane_id="", model_id=ENROLL_MODEL, observed_at=iso_utc(self._now()),
+        )
+        return LaneInfo(
+            account_key=f"{PROVIDER}:{account}", plan=plan, home=home, readings=readings,
+        )
+
+    # --- readings (C-9.1, C-9.8) --------------------------------------------
+
+    def readings_from_rate_limit(
+        self, info: RateLimitInfo | None, *, lane_id: str, model_id: str,
+        observed_at: str, attempt_id: str | None = None,
+    ) -> tuple[Reading, ...]:
+        """C-9.8, exactly.
+
+        `status: allowed` (and `allowed_warning`) yields one `provider` reading per
+        `unifiedWindows` entry, scope `account`, `utilization` as the fraction the
+        server sent and `resetsAt` converted to ISO 8601 UTC.
+
+        `status: rejected` yields no utilization reading at all — only an
+        `admission-observed` rejection for the requested model, carrying the event's
+        `resetsAt` as its clock. A rejection's window numbers describe the window that
+        did the refusing, and reporting them as headroom would be a lie; they are kept
+        in the outcome's evidence instead.
+
+        `overageStatus` is parsed (in `claude_stream`) and never read here: it is not
+        admission evidence.
+        """
+        if info is None or info.status is None:
+            return ()
+        if info.rejected:
+            return (
+                Reading(
+                    lane_id=lane_id,
+                    # C-9.1: an admission-observed reading is about the model that was
+                    # refused. With no model recorded, `account` is the only honest
+                    # scope left; a reading never excludes a lane on its own (C-11.2
+                    # excludes on closures), so this cannot over-reach.
+                    scope=model_id or "account",
+                    window=ADMISSION_WINDOW,
+                    utilization=None,
+                    resets_at=iso_from_epoch(info.resets_at),
+                    label=ReadingLabel.ADMISSION_OBSERVED,
+                    source=SOURCE_RATE_LIMIT_EVENT,
+                    observed_at=observed_at,
+                    attempt_id=attempt_id,
+                ),
+            )
+        if not info.allowed:
+            return ()
+        readings = []
+        for window in sorted(info.windows):
+            value = info.windows[window]
+            if value.utilization is None:
+                continue
+            readings.append(
+                Reading(
+                    lane_id=lane_id,
+                    scope="account",
+                    window=window,
+                    utilization=value.utilization,
+                    resets_at=iso_from_epoch(value.resets_at),
+                    label=ReadingLabel.PROVIDER,
+                    source=SOURCE_RATE_LIMIT_EVENT,
+                    observed_at=observed_at,
+                    attempt_id=attempt_id,
+                )
+            )
+        return tuple(readings)
+
+    def readings_from_summary(
+        self, summary: StreamSummary, *, lane_id: str, model_id: str,
+        observed_at: str, attempt_id: str | None = None,
+    ) -> tuple[Reading, ...]:
+        return self.readings_from_rate_limit(
+            summary.rate_limit, lane_id=lane_id, model_id=model_id,
+            observed_at=observed_at, attempt_id=attempt_id,
+        )
+
+    def probe(self, lane: Lane, credential_env: dict[str, str]) -> tuple[Reading, ...]:
+        """C-9.1, C-11.4: one Haiku turn on the lane, read the sensor, return
+        readings. An unusable credential returns nothing rather than raising: the
+        daemon's classifier, not the prober, decides a lane is dead."""
+        return self.probe_with_model(lane, credential_env, ENROLL_MODEL)
+
+    def probe_with_model(
+        self, lane: Lane, credential_env: dict[str, str], model_id: str,
+    ) -> tuple[Reading, ...]:
+        """The same probe pinned to the model a job actually wants (C-11.4): before
+        expensive work goes to an unmeasured lane, ask about *that* model, because a
+        model-scoped exhaustion is invisible to a Haiku turn."""
+        _rc, stdout, _stderr = self._run_turn(credential_env, model_id)
+        summary = parse_stream(stdout)
+        return self.readings_from_summary(
+            summary, lane_id=lane.lane_id, model_id=model_id,
+            observed_at=iso_utc(self._now()),
+        )
+
+    def probe_outcome(
+        self, lane: Lane, credential_env: dict[str, str], model_id: str,
+    ) -> Outcome:
+        """C-11.4: a probe the daemon can act on, not just read.
+
+        "A `limited` result closes the scope; `ok` records `admission-observed`" needs
+        a class and a closure, not a bare list of readings, so this runs the same turn
+        and puts it through the same `classify` — one classification path, so a probe
+        and a real attempt can never disagree about the same evidence.
+        """
+        rc, stdout, stderr = self._run_turn(credential_env, model_id)
+        with tempfile.TemporaryDirectory(prefix="subfleet-claude-probe-out-") as tmp:
+            attempt_dir = Path(tmp)
+            (attempt_dir / "stream.jsonl").write_text(stdout, encoding="utf-8")
+            (attempt_dir / "stderr").write_text(stderr, encoding="utf-8")
+            summary = parse_stream(stdout)
+            session_id = summary.session_id
+            launch = Launch(
+                argv=tuple(self._turn_argv(model_id)),
+                env_add=dict(credential_env),
+                env_remove=ENV_REMOVE,
+                cwd=tmp,
+                stdin_path=None,
+                stdout_path=str(attempt_dir / "stdout"),
+                stderr_path=str(attempt_dir / "stderr"),
+                raw_stream_path=str(attempt_dir / "stream.jsonl"),
+                native_session_id=session_id,
+                notes={
+                    "lane_id": lane.lane_id,
+                    "account_key": lane.account_key,
+                    "model_id": model_id,
+                    "session_id": session_id,
+                    "probe": True,
+                },
+            )
+            return self.classify(
+                attempt_dir, launch,
+                ExitInfo(rc=rc, signal=None, wall_s=0.0, child_pid=None),
+            )
+
+    # --- launch (C-12.4, C-6.7) ---------------------------------------------
+
+    @staticmethod
+    def permission_args(
+        sandbox: Sandbox | str, *, isolated: bool = False, review_root: str | None = None,
+    ) -> tuple[str, ...]:
+        """`PERM_ARGS` exactly as v1 `bin/subfleet-claude` builds them, in v1's order.
+
+        `workspace-write` takes the bypass flag. `read-only` fails closed even when
+        the operator's own settings default to `bypassPermissions`: plan mode plus a
+        named tool surface, with settings sources, Chrome, MCP and slash commands all
+        removed so nothing settings-driven can reintroduce a writing tool. An isolated
+        review drops web access and gains the review root.
+        """
+        value = sandbox.value if isinstance(sandbox, Sandbox) else str(sandbox)
+        if value == Sandbox.WORKSPACE_WRITE.value:
+            return ("--dangerously-skip-permissions",)
+        tools = READ_ONLY_TOOLS_BASE if isolated else READ_ONLY_TOOLS_WEB
+        args = [
+            "--permission-mode", "plan",
+            "--tools", tools,
+            "--allowedTools", tools,
+            "--setting-sources", "",
+            "--safe-mode",
+            "--no-chrome",
+            "--strict-mcp-config",
+            "--mcp-config", EMPTY_MCP_CONFIG,
+            "--disable-slash-commands",
+        ]
+        if isolated and review_root:
+            args += ["--add-dir", review_root]
+        return tuple(args)
+
+    def expected_transcript_path(
+        self, workdir: str | Path, session_id: str, credential_env: dict[str, str],
+    ) -> Path:
+        """`<config dir>/projects/<encoded workdir>/<session id>.jsonl`."""
+        return (
+            self._config_projects_dir(credential_env)
+            / encode_project_dir(Path(workdir).resolve() if Path(workdir).exists()
+                                 else workdir)
+            / f"{session_id}.jsonl"
+        )
+
+    def _config_projects_dir(self, credential_env: dict[str, str] | None = None) -> Path:
+        if self._projects_dir is not None:
+            return self._projects_dir
+        config = (credential_env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get(
+            "CLAUDE_CONFIG_DIR"
+        )
+        base = Path(config).expanduser() if config else Path.home() / ".claude"
+        return base / "projects"
+
+    def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:
+        prompt = self.read_text(prompt_path)
+        sent = attempt_dir / "prompt.sent.md"
+        _atomic_write_text(sent, apply_headless_block(prompt))
+        return sent
+
+    def _launch_notes(
+        self, *, lane: Lane, attempt_id: str, model_id: str, session_id: str,
+        workdir: str, transcript: Path, sandbox: str, resumed_from: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            offset = transcript.stat().st_size
+        except OSError:
+            offset = 0
+        notes: dict[str, Any] = {
+            "lane_id": lane.lane_id,
+            "account_key": lane.account_key,
+            "attempt_id": attempt_id,
+            "model_id": model_id,
+            "session_id": session_id,
+            "workdir": workdir,
+            "sandbox": sandbox,
+            "transcript_path": str(transcript),
+            "transcript_offset": offset,
+            "projects_dir": str(transcript.parent.parent),
+        }
+        if resumed_from:
+            notes["resumed_from"] = resumed_from
+        return notes
+
+    def build_launch(
+        self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
+        credential_env: dict[str, str], model_id: str, effort: str | None,
+        prompt_path: Path, guard_override: str | None,
+    ) -> Launch:
+        """C-12.4 and C-6.7.
+
+        `guard_override` is accepted and unused: a Claude launch relies on the global
+        never-rules hook in `~/.claude/settings.json`, and `doctor` reports when that
+        hook is missing (C-14.3). There is no per-launch hook injection to make.
+        """
+        attempt_dir = Path(attempt_dir)
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        session_id = self._new_session_id()
+        sandbox = job.sandbox.value if isinstance(job.sandbox, Sandbox) else str(job.sandbox)
+
+        argv: list[str] = [
+            self.claude_bin, "-p",
+            "--model", model_id,
+            "--session-id", session_id,
+            "--output-format", "stream-json",
+            "--verbose",
+        ]
+        if effort:
+            argv += ["--effort", effort]
+        argv += list(self.permission_args(sandbox))
+
+        stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
+        transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
+        return Launch(
+            argv=tuple(argv),
+            env_add=dict(credential_env),
+            env_remove=ENV_REMOVE,
+            cwd=str(job.workdir),
+            stdin_path=str(stdin_path),
+            stdout_path=str(attempt_dir / "stdout"),
+            stderr_path=str(attempt_dir / "stderr"),
+            raw_stream_path=str(attempt_dir / "stream.jsonl"),
+            native_session_id=session_id,
+            notes=self._launch_notes(
+                lane=lane, attempt_id=attempt_id, model_id=model_id,
+                session_id=session_id, workdir=str(job.workdir), transcript=transcript,
+                sandbox=sandbox,
+            ),
+        )
+
+    def resume_launch(
+        self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
+        credential_env: dict[str, str], native_session_id: str,
+        prompt_path: Path, guard_override: str | None, model_id: str | None = None,
+    ) -> Launch | None:
+        """`claude -p --resume <session id>` on the same lane, same model, same
+        permission flags. `--session-id` is not passed: `--resume` names the session.
+
+        `model_id` is keyword-optional because the base signature has none; an attempt
+        never changes model (C-4.6), so the daemon passes the attempt's model and the
+        fallbacks are the job's pin, then the session's own recorded model.
+        """
+        attempt_dir = Path(attempt_dir)
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        model = model_id or job.pinned_model
+        sandbox = job.sandbox.value if isinstance(job.sandbox, Sandbox) else str(job.sandbox)
+
+        argv: list[str] = [self.claude_bin, "-p", "--resume", native_session_id]
+        if model:
+            argv += ["--model", model]
+        argv += ["--output-format", "stream-json", "--verbose"]
+        argv += list(self.permission_args(sandbox))
+
+        stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
+        transcript = self.expected_transcript_path(
+            job.workdir, native_session_id, credential_env
+        )
+        return Launch(
+            argv=tuple(argv),
+            env_add=dict(credential_env),
+            env_remove=ENV_REMOVE,
+            cwd=str(job.workdir),
+            stdin_path=str(stdin_path),
+            stdout_path=str(attempt_dir / "stdout"),
+            stderr_path=str(attempt_dir / "stderr"),
+            raw_stream_path=str(attempt_dir / "stream.jsonl"),
+            native_session_id=native_session_id,
+            notes=self._launch_notes(
+                lane=lane, attempt_id=attempt_id, model_id=model or "",
+                session_id=native_session_id, workdir=str(job.workdir),
+                transcript=transcript, sandbox=sandbox, resumed_from=native_session_id,
+            ),
+        )
+
+    # --- reading an attempt's artifacts --------------------------------------
+
+    def raw_stream_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
+        """The attempt's stream.
+
+        `--output-format stream-json` puts the stream on stdout, so `stream.jsonl` and
+        `stdout` are the same bytes; whichever the daemon actually produced is read,
+        the dedicated stream file first.
+        """
+        attempt_dir = Path(attempt_dir)
+        candidates: list[Path] = []
+        if launch is not None and launch.raw_stream_path:
+            candidates.append(Path(launch.raw_stream_path))
+        candidates.append(attempt_dir / "stream.jsonl")
+        if launch is not None and launch.stdout_path:
+            candidates.append(Path(launch.stdout_path))
+        candidates.append(attempt_dir / "stdout")
+        for path in candidates:
+            text = self.read_text(path)
+            if text.strip():
+                return text
+        return ""
+
+    def stderr_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
+        attempt_dir = Path(attempt_dir)
+        if launch is not None and launch.stderr_path:
+            text = self.read_text(Path(launch.stderr_path))
+            if text:
+                return text
+        return self.read_text(attempt_dir / "stderr")
+
+    # --- classification (C-9.2 to C-9.5, C-9.8) ------------------------------
+
+    def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:
+        """Authentication, then admission, then quota — with the host CLI's version
+        gate ahead of all three (C-9.2).
+
+        The raw rc and signal ride along with every class (C-9.2), and the readings the
+        `rate_limit_event` yielded are attached whatever the class: a limited lane's
+        capacity is exactly what the router most needs to know.
+        """
+        attempt_dir = Path(attempt_dir)
+        notes = dict(launch.notes) if launch is not None else {}
+        lane_id = str(notes.get("lane_id", ""))
+        attempt = notes.get("attempt_id")
+        model_id = str(notes.get("model_id") or "")
+        now = self._now()
+        observed_at = iso_utc(now)
+
+        stream_text = self.raw_stream_text(attempt_dir, launch)
+        stderr = self.stderr_text(attempt_dir, launch)
+        summary = parse_stream(stream_text)
+        info = summary.rate_limit
+
+        readings = self.readings_from_rate_limit(
+            info, lane_id=lane_id, model_id=model_id, observed_at=observed_at,
+            attempt_id=attempt if isinstance(attempt, str) else None,
+        )
+        session_id = (
+            summary.session_id
+            or (launch.native_session_id if launch is not None else None)
+        )
+        transcript = self._find_transcript(notes, session_id)
+        served_model = _single_served_model(summary)
+
+        corpus = "\n".join([stderr, *summary.texts()])
+        scrubbed = _scrub_non_limit(corpus)
+
+        evidence: dict[str, Any] = {
+            "rc": exit_info.rc,
+            "signal": exit_info.signal,
+            "stream_lines": summary.lines_total,
+            "stream_bad_lines": summary.bad_lines,
+            "stream_truncated_tail": summary.truncated_tail,
+            "system_init": summary.has_init,
+            "error_kinds": list(summary.error_kinds),
+            "unknown_event_types": list(summary.unknown_types),
+        }
+        if exit_info.spawn_error:
+            evidence["spawn_error"] = exit_info.spawn_error
+        if info is not None:
+            evidence["rate_limit"] = {
+                "status": info.status,
+                "rate_limit_type": info.rate_limit_type,
+                "resets_at": iso_from_epoch(info.resets_at),
+                "error_code": info.error_code,
+                # Parsed independently and never treated as admission evidence (C-9.8).
+                "overage_status": info.overage_status,
+                "overage_disabled_reason": info.overage_disabled_reason,
+                "is_using_overage": info.is_using_overage,
+                "windows": {
+                    key: {
+                        "utilization": window.utilization,
+                        "resets_at": iso_from_epoch(window.resets_at),
+                    }
+                    for key, window in sorted(info.windows.items())
+                },
+            }
+
+        def finish(cls: OutcomeClass, detail: str, *, closure: Closure | None = None,
+                   **more: Any) -> Outcome:
+            evidence.update(more)
+            return Outcome(
+                cls=cls, detail=detail, evidence=evidence, readings=readings,
+                closure=closure, native_session_id=session_id,
+                transcript_path=str(transcript) if transcript else None,
+                served_model=served_model,
+            )
+
+        # 0. The host CLI, not the lane. Cooling a healthy lane for this would be a
+        #    lie about capacity, and rotating lanes cannot help (C-9.2 keeps the rc).
+        match = CLI_TOO_OLD_RE.search(corpus)
+        if match:
+            return finish(
+                OutcomeClass.CLI_TOO_OLD,
+                f"cli-too-old: {_first_line_containing(corpus, match)}",
+                answered={"cli": "version gate in the provider's own output"},
+            )
+
+        # 1. Authentication (C-9.3).
+        match = ORG_BLOCK_RE.search(corpus)
+        if match:
+            return finish(
+                OutcomeClass.AUTH_DEAD,
+                f"auth-dead: {_first_line_containing(corpus, match)}",
+                answered={"auth": "explicit organisation block"},
+            )
+        auth_kind = next(
+            (kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None
+        )
+        if auth_kind is not None:
+            return finish(
+                OutcomeClass.AUTH_DEAD,
+                f"auth-dead: the provider reported error {auth_kind}",
+                answered={"auth": f"provider error kind {auth_kind}"},
+            )
+        auth_signature = AUTH_SIGNATURE_RE.search(corpus)
+        auth_false_positive: str | None = None
+        if auth_signature is not None:
+            if not summary.has_init:
+                return finish(
+                    OutcomeClass.AUTH_DEAD,
+                    f"auth-dead: {_first_line_containing(corpus, auth_signature)}",
+                    answered={"auth": "no system/init and a credential failure signature"},
+                )
+            # C-9.3: the credential authenticated. Something else answered 401.
+            auth_false_positive = auth_signature.group(0)
+            evidence["auth_signature_false_positive"] = auth_false_positive
+
+        # 2. Admission (C-9.8): the server's own verdict on this request.
+        if info is not None and info.rejected:
+            reported = iso_from_epoch(info.resets_at)
+            until, clock_source = _closure_clock(reported, now)
+            if info.error_code == "credits_required":
+                scope, reason = (model_id or "account"), ClosureReason.CREDITS
+                detail = (
+                    f"limited: rate_limit_event status=rejected errorCode=credits_required "
+                    f"for {scope}"
+                )
+            else:
+                scope, reason = "account", ClosureReason.PROVIDER_LIMIT
+                window = info.rate_limit_type or "account"
+                detail = (
+                    f"limited: rate_limit_event status=rejected rateLimitType={window}"
+                )
+            return finish(
+                OutcomeClass.LIMITED, detail,
+                closure=Closure(
+                    lane_id=lane_id, scope=scope, until_at=until, reason=reason,
+                    clock_source=clock_source, source_event=SOURCE_RATE_LIMIT_EVENT,
+                ),
+                answered={
+                    "auth": "system/init" if summary.has_init else "not observed",
+                    "admission": f"rate_limit_event.status={info.status}",
+                },
+            )
+
+        # 3. Quota in words. The event may have been emitted before the refusal, or
+        #    never: the text is then the only clock we have.
+        match = CREDITS_RE.search(scrubbed)
+        if match:
+            line = _first_line_containing(scrubbed, match)
+            until, clock_source = _closure_clock(
+                _clock_from_text(scrubbed, now), now
+            )
+            scope = model_id or "account"
+            return finish(
+                OutcomeClass.LIMITED,
+                f"limited: {line}",
+                closure=Closure(
+                    lane_id=lane_id, scope=scope, until_at=until,
+                    reason=ClosureReason.CREDITS, clock_source=clock_source,
+                    source_event="result-text",
+                ),
+                answered={
+                    "auth": "system/init" if summary.has_init else "not observed",
+                    "admission": (
+                        f"rate_limit_event.status={info.status}" if info else
+                        "no rate_limit_event"
+                    ),
+                    "quota": "model-scoped credit exhaustion in the provider's text",
+                },
+            )
+        match = LIMIT_RE.search(scrubbed)
+        if match:
+            line = _first_line_containing(scrubbed, match)
+            until, clock_source = _closure_clock(_clock_from_text(scrubbed, now), now)
+            return finish(
+                OutcomeClass.LIMITED,
+                f"limited: {line}",
+                closure=Closure(
+                    lane_id=lane_id, scope="account", until_at=until,
+                    reason=ClosureReason.PROVIDER_LIMIT, clock_source=clock_source,
+                    source_event="result-text",
+                ),
+                answered={
+                    "auth": "system/init" if summary.has_init else "not observed",
+                    "admission": (
+                        f"rate_limit_event.status={info.status}" if info else
+                        "no rate_limit_event"
+                    ),
+                    "quota": "account-scoped window limit in the provider's text",
+                },
+            )
+
+        # 4. The model declined. Not a lane fault and never a retry (C-4.5).
+        if _refused(summary):
+            return finish(
+                OutcomeClass.CONTENT_FILTER,
+                "content-filter: the turn ended with stop_reason refusal",
+                answered={"content": "stop_reason=refusal"},
+            )
+
+        # 5. Success, and the one shape that looks like success and is not (C-12.6).
+        text = self._final_text(summary, transcript, notes, session_id)
+        if exit_info.rc == 0 and summary.result is not None and not summary.result.is_error:
+            if text.strip():
+                sensed = (
+                    ", ".join(sorted(info.windows)) if info and info.windows else "none"
+                )
+                return finish(
+                    OutcomeClass.OK,
+                    f"ok: {len(text.encode('utf-8'))} bytes delivered; "
+                    f"rate_limit_event windows: {sensed}",
+                    answered={
+                        "auth": "system/init",
+                        "admission": (
+                            f"rate_limit_event.status={info.status}" if info else
+                            "no rate_limit_event"
+                        ),
+                    },
+                )
+            return finish(
+                OutcomeClass.UNKNOWN,
+                "unknown: empty deliverable with rc 0",
+                answered={"deliverable": "empty with rc 0 (C-12.6)"},
+            )
+
+        # 6. Retryable (C-9.5). Never writes a closure.
+        transient_kind = next(
+            (kind for kind in summary.error_kinds if kind in TRANSIENT_ERROR_KINDS), None
+        )
+        if auth_false_positive is not None:
+            return finish(
+                OutcomeClass.TRANSIENT,
+                f"transient: auth signature {auth_false_positive!r} with system/init "
+                f"present — the credential authenticated (C-9.3)",
+                answered={"auth": "system/init present; the 401 was not the lane's"},
+            )
+        match = TRANSIENT_RE.search(corpus)
+        if transient_kind is not None or match is not None:
+            # Name both the provider's own error kind and the text it came with: one
+            # says what class of failure it was, the other says what actually happened.
+            parts = []
+            if transient_kind is not None:
+                parts.append(f"provider error kind {transient_kind}")
+            if match is not None:
+                parts.append(_first_line_containing(corpus, match))
+            reason = "; ".join(parts)
+            return finish(
+                OutcomeClass.TRANSIENT, f"transient: {reason}",
+                answered={"transient": reason},
+            )
+        if summary.truncated_tail and summary.result is None:
+            return finish(
+                OutcomeClass.TRANSIENT,
+                "transient: the stream ended mid-line with no result event",
+                answered={"transient": "truncated stream"},
+            )
+
+        # 7. No evidence answered anything. The rc rides along (C-9.2).
+        spawn = f" ({exit_info.spawn_error})" if exit_info.spawn_error else ""
+        return finish(
+            OutcomeClass.UNKNOWN,
+            f"unknown: rc {exit_info.rc}{spawn}, no classifying evidence",
+        )
+
+    # --- attestation (C-12.5) ------------------------------------------------
+
+    def _candidate_transcripts(
+        self, notes: dict[str, Any], session_id: str | None,
+    ) -> list[Path]:
+        """Every transcript that could be this session's. Primary transcripts live
+        exactly one project directory below `projects/`; nothing walks a worktree."""
+        if not session_id:
+            return []
+        roots: list[Path] = []
+        recorded = notes.get("projects_dir")
+        if isinstance(recorded, str) and recorded:
+            roots.append(Path(recorded))
+        roots.append(self._config_projects_dir())
+        found: dict[str, Path] = {}
+        for root in roots:
+            for pattern in (f"{session_id}.jsonl", f"*/{session_id}.jsonl"):
+                try:
+                    for path in root.glob(pattern):
+                        if path.is_file():
+                            found[str(path.resolve())] = path
+                except OSError:
+                    continue
+        return sorted(found.values(), key=str)
+
+    def _find_transcript(
+        self, notes: dict[str, Any], session_id: str | None,
+    ) -> Path | None:
+        candidates = self._candidate_transcripts(notes, session_id)
+        return candidates[0] if len(candidates) == 1 else None
+
+    def _assistant_rows(
+        self, transcript: Path, session_id: str | None, offset: int,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Assistant rows of this session that lie after the attempt's start offset.
+
+        The offset is the transcript's size when the attempt launched, so a resumed
+        session's earlier turns are excluded: an attempt is attested and delivered
+        from its own range, never from a predecessor's (C-12.5, C-12.6).
+        """
+        try:
+            with transcript.open("rb") as handle:
+                if offset > 0:
+                    size = transcript.stat().st_size
+                    start = min(offset, size)
+                    if start > 0:
+                        handle.seek(start - 1)
+                        if handle.read(1) != b"\n":
+                            handle.readline()   # discard a partial line
+                    else:
+                        handle.seek(0)
+                data = handle.read()
+        except OSError as exc:
+            return [], f"transcript unreadable: {exc}"
+        rows: list[dict[str, Any]] = []
+        for line in data.decode("utf-8", "replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(row, dict) or row.get("type") != "assistant":
+                continue
+            if session_id and row.get("sessionId") not in (None, session_id):
+                continue
+            rows.append(row)
+        return rows, None
+
+    def attest(
+        self, attempt_dir: Path, launch: Launch, outcome: Outcome, model_id: str,
+    ) -> AttestationResult:
+        """C-12.5. Never a false positive: every path that cannot see the whole truth
+        returns `unattested` and says in `evidence` why."""
+        notes = dict(launch.notes) if launch is not None else {}
+        session_id = (
+            (launch.native_session_id if launch is not None else None)
+            or outcome.native_session_id
+        )
+        if not session_id:
+            return AttestationResult(
+                Attestation.UNATTESTED, None, "no session id was recorded for the attempt"
+            )
+        candidates = self._candidate_transcripts(notes, session_id)
+        if not candidates:
+            return AttestationResult(
+                Attestation.UNATTESTED, None,
+                f"no transcript found for session {session_id}",
+            )
+        if len(candidates) > 1:
+            listed = ", ".join(str(path) for path in candidates)
+            return AttestationResult(
+                Attestation.UNATTESTED, None,
+                f"ambiguous session transcript: {len(candidates)} files match "
+                f"{session_id}.jsonl ({listed})",
+            )
+        transcript = candidates[0]
+        offset = notes.get("transcript_offset")
+        rows, error = self._assistant_rows(
+            transcript, session_id, int(offset) if isinstance(offset, int) else 0
+        )
+        if error:
+            return AttestationResult(Attestation.UNATTESTED, None, error)
+
+        served: list[str] = []
+        for row in rows:
+            message = row.get("message")
+            model = message.get("model") if isinstance(message, dict) else None
+            if isinstance(model, str) and model:
+                served.append(model)
+        if not served:
+            return AttestationResult(
+                Attestation.UNATTESTED, None,
+                f"no assistant turn with a model field in {transcript} after byte "
+                f"{offset or 0}",
+            )
+        mismatch = next(
+            (m for m in served if not model_matches_requested(m, model_id)), None
+        )
+        if mismatch is not None:
+            return AttestationResult(
+                Attestation.MISMATCH, mismatch,
+                f"requested {model_id}; {transcript} records assistant models "
+                f"{', '.join(dict.fromkeys(served))}",
+            )
+        return AttestationResult(
+            Attestation.ATTESTED, served[-1],
+            f"{len(served)} assistant turn(s) in {transcript} all served by {model_id}",
+        )
+
+    # --- deliverable (C-12.6) ------------------------------------------------
+
+    def _transcript_final_text(
+        self, transcript: Path | None, session_id: str | None, offset: int,
+    ) -> str:
+        if transcript is None:
+            return ""
+        rows, error = self._assistant_rows(transcript, session_id, offset)
+        if error:
+            return ""
+        for row in reversed(rows):
+            text = message_text(row.get("message"))
+            if text:
+                return text
+        return ""
+
+    def _final_text(
+        self, summary: StreamSummary, transcript: Path | None,
+        notes: dict[str, Any], session_id: str | None,
+    ) -> str:
+        """v1's `prefer_transcript_text` rule.
+
+        The JSON envelope's `result` is a *rendering* of the final message; the
+        transcript holds the message's text blocks verbatim. On 2026-09-04 a 64,613 B
+        envelope lost 1,912 interior characters while every frame header stayed intact.
+        So: when the transcript's final assistant text is longer than the envelope's
+        and differs from it, the transcript's bytes win.
+        """
+        envelope = summary.final_text
+        offset = notes.get("transcript_offset")
+        transcript_text = self._transcript_final_text(
+            transcript, session_id, int(offset) if isinstance(offset, int) else 0
+        )
+        if transcript_text and len(transcript_text.encode("utf-8")) > len(
+            envelope.encode("utf-8")
+        ) and transcript_text != envelope:
+            return transcript_text
+        return envelope
+
+    def deliverable(
+        self, attempt_dir: Path, launch: Launch, outcome: Outcome,
+    ) -> bytes | None:
+        """C-12.6: the attempt's own final assistant text, transcript first."""
+        notes = dict(launch.notes) if launch is not None else {}
+        summary = parse_stream(self.raw_stream_text(Path(attempt_dir), launch))
+        session_id = (
+            summary.session_id
+            or (launch.native_session_id if launch is not None else None)
+            or outcome.native_session_id
+        )
+        transcript = (
+            Path(outcome.transcript_path) if outcome.transcript_path
+            else self._find_transcript(notes, session_id)
+        )
+        text = self._final_text(summary, transcript, notes, session_id)
+        return text.encode("utf-8") if text.strip() else None
+
+
+# --- module-private helpers --------------------------------------------------
+
+
+def _decode(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return value or ""
+
+
+def _first_auth_phrase(corpus: str) -> str | None:
+    match = AUTH_SIGNATURE_RE.search(corpus) or ORG_BLOCK_RE.search(corpus)
+    return _first_line_containing(corpus, match) if match else None
+
+
+def _closure_clock(
+    reported: str | datetime | None, now: datetime,
+) -> tuple[str, ClockSource]:
+    """C-9.4: the provider's reset clock when it reported one, else now + 3600 s
+    marked `guessed`. A reported clock already in the past is still reported — the
+    daemon expires it by clock (C-9.6) rather than inventing a longer one."""
+    if isinstance(reported, datetime):
+        return iso_utc(reported), ClockSource.REPORTED
+    if isinstance(reported, str) and reported:
+        return reported, ClockSource.REPORTED
+    return iso_utc(now + timedelta(seconds=GUESSED_CLOSURE_S)), ClockSource.GUESSED
+
+
+def _clock_from_text(text: str, now: datetime) -> datetime | None:
+    """A reset clock the provider stated in prose, in either form it uses."""
+    match = _EPOCH_LIMIT_RE.search(text)
+    if match:
+        try:
+            return datetime.fromtimestamp(int(match.group(1)), tz=timezone.utc)
+        except (ValueError, OSError, OverflowError):
+            return None
+    return parse_reset_clock(text, now)
+
+
+def _single_served_model(summary: StreamSummary) -> str | None:
+    models = tuple(dict.fromkeys(summary.assistant_models))
+    return models[0] if len(models) == 1 else None
+
+
+def _refused(summary: StreamSummary) -> bool:
+    if summary.result is not None and summary.result.stop_reason == REFUSAL_STOP_REASON:
+        return True
+    return any(m.stop_reason == REFUSAL_STOP_REASON for m in summary.assistants)
+
+
+def link_raw_stream(attempt_dir: Path, launch: Launch) -> Path | None:
+    """Publish the attempt's stdout as its raw stream.
+
+    `--output-format stream-json` writes the stream to stdout, so there is no second
+    descriptor to redirect: `stdout` and `stream.jsonl` are the same bytes. The daemon
+    may call this at finalization to give the stream its own artifact role (C-8.2); a
+    hard link is used so the bytes are not copied, with a copy as the fallback across
+    filesystems. Everything in this adapter reads either file, so calling it is
+    optional.
+    """
+    if launch is None or not launch.raw_stream_path:
+        return None
+    stream = Path(launch.raw_stream_path)
+    stdout = Path(launch.stdout_path) if launch.stdout_path else Path(attempt_dir) / "stdout"
+    if stream.exists() or not stdout.exists():
+        return stream if stream.exists() else None
+    try:
+        os.link(stdout, stream)
+    except OSError:
+        try:
+            stream.write_bytes(stdout.read_bytes())
+        except OSError:
+            return None
+    return stream
+
+
+def reconstruct_v1_argv(
+    claude_bin: str, model: str, session_id: str, sandbox: str, *,
+    isolated: bool = False, review_root: str | None = None,
+    output_format: str = "stream-json", verbose: bool = True,
+) -> tuple[str, ...]:
+    """v1 `bin/subfleet-claude`'s launch line, rebuilt here from its own source.
+
+    v1 runs, at `bin/subfleet-claude:806-811`:
+
+        "$CLAUDE_BIN" -p --model "$MODEL" --session-id "$SID" \\
+            --output-format json ${PERM_ARGS[@]+"${PERM_ARGS[@]}"}
+
+    v2 differs in exactly two documented places: the output format is `stream-json`
+    (C-12.4, so the `rate_limit_event` is readable) and `--verbose` accompanies it.
+    `PERM_ARGS` is reproduced verbatim, in v1's order. The parity test compares this
+    against `ClaudeAdapter.build_launch`, so a drift in either fails loudly.
+    """
+    argv = [claude_bin, "-p", "--model", model, "--session-id", session_id,
+            "--output-format", output_format]
+    if verbose:
+        argv.append("--verbose")
+    if sandbox == Sandbox.WORKSPACE_WRITE.value:
+        argv.append("--dangerously-skip-permissions")
+    else:
+        tools = READ_ONLY_TOOLS_BASE if isolated else READ_ONLY_TOOLS_WEB
+        argv += [
+            "--permission-mode", "plan",
+            "--tools", tools,
+            "--allowedTools", tools,
+            "--setting-sources", "",
+            "--safe-mode",
+            "--no-chrome",
+            "--strict-mcp-config",
+            "--mcp-config", EMPTY_MCP_CONFIG,
+            "--disable-slash-commands",
+        ]
+        if isolated and review_root:
+            argv += ["--add-dir", review_root]
+    return tuple(argv)
+
+
+__all__ = [
+    "ClaudeAdapter",
+    "ENROLL_MODEL",
+    "ENROLL_PROMPT",
+    "ENV_REMOVE",
+    "KEYCHAIN_PREFIX",
+    "HEADLESS_BLOCK",
+    "ADMISSION_WINDOW",
+    "SOURCE_RATE_LIMIT_EVENT",
+    "apply_headless_block",
+    "encode_project_dir",
+    "iso_from_epoch",
+    "iso_utc",
+    "link_raw_stream",
+    "model_matches_requested",
+    "parse_reset_clock",
+    "reconstruct_v1_argv",
+]

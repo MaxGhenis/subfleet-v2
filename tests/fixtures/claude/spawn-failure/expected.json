@@ -1,0 +1,32 @@
+{
+  "case": "spawn-failure",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 127,
+  "synthetic": true,
+  "provenance": "Synthetic. The guardian writes rc 127 with a spawn_error when the provider binary cannot be executed (C-5.2); the stderr line is the shell's own wording.",
+  "requested_model": "claude-opus-5",
+  "session_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  "class": "unknown",
+  "detail_contains": "127",
+  "evidence": {
+    "auth": "no system/init",
+    "admission": "not reached",
+    "quota": "not reached"
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": null,
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": false,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": null,
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

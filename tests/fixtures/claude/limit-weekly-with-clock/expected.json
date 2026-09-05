@@ -1,0 +1,51 @@
+{
+  "case": "limit-weekly-with-clock",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "Synthetic. The rate_limit_info follows the shape and field set of the experiment-0 payloads and the rate_limit_info validator embedded in Claude Code 2.1.260 (rateLimitType 'seven_day', unifiedWindows with a spent weekly window). No live weekly rejection was captured.",
+  "requested_model": "claude-opus-5",
+  "session_id": "22222222-2222-4222-8222-222222222222",
+  "class": "limited",
+  "detail_contains": "rejected",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "rate_limit_event.status=rejected",
+    "quota": "rate_limit_event.resetsAt"
+  },
+  "closure": {
+    "scope": "account",
+    "reason": "provider-limit",
+    "clock_source": "reported",
+    "until_at_epoch": 1789056000,
+    "source_event": "rate_limit_event"
+  },
+  "readings": [
+    {
+      "scope": "claude-opus-5",
+      "window": "admission",
+      "utilization": null,
+      "resets_at_epoch": 1789056000,
+      "label": "admission-observed",
+      "source": "rate_limit_event"
+    }
+  ],
+  "windows_in_evidence": {
+    "five_hour": 0.61,
+    "seven_day": 1.0
+  },
+  "deliverable": "You've hit your weekly limit.",
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 1,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

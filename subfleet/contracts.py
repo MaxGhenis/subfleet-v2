@@ -252,6 +252,15 @@ class Launch:  # C-12.2
     raw_stream_path: str | None
     native_session_id: str | None   # Claude --session-id chosen up front
     lane_id: str | None = None      # C-9.6: bind classifier closures to the launching lane
+    notes: dict[str, Any] = field(default_factory=dict)
+    """Adapter-chosen, JSON-serialisable facts about this launch that the adapter
+    needs back at classification, attestation, and resume time and that no other
+    parameter carries: the lane id and attempt id a `Reading` or `Closure` must be
+    stamped with, the model requested, and for Claude the transcript path expected
+    under `~/.claude/projects/` with its byte size at launch (`transcript_offset`),
+    which bounds the attempt's own range inside a transcript a resume appends to
+    (C-12.5, C-12.6). The daemon persists it beside the attempt and hands it back
+    unchanged; it never holds a secret."""
 
 
 @dataclass(frozen=True)
