@@ -36,6 +36,8 @@
 - Kept JSON revive refusals at exit 7, matching text output (C-17.3/C-17.4).
 - Kept v1's 64 MB handoff workdir lookup so long tool-result/sidechain tails do
   not lose the recorded cwd. Handoff unit verification: 60 passed in 2.48s.
+- Kept hard handoff truncation bounds and corrected separator/fallback accounting
+  for tiny valid section caps (C-23.36); credential scrubbing remains covered.
 
 ## Validation environment
 

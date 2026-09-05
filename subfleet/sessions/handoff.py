@@ -173,15 +173,33 @@ def scrub_secrets(text: str) -> tuple[str, int]:
     return text, total
 
 
+#: What a section becomes when the budget left for it is smaller than the marker
+#: that would explain the truncation. Carried in full so a reader knows the
+#: excerpt stops here rather than that the work did.
+ELIDED = "… [omitted] …"
+
+
 def truncate(text: str, limit: int) -> str:
-    """C-23.36: bound a section, keeping its head and its tail and saying so."""
+    """C-23.36: bound a section, keeping its head and its tail and saying so.
+
+    The bound is hard. v1 computed `usable = max(0, limit - len(marker))` and
+    then sliced `text[-(usable - head):]`, which for `usable == 0` is
+    `text[-0:]` — the WHOLE string. So a section whose remaining allowance was
+    smaller than the marker came back complete, and the caller's budget
+    accounting then subtracted a number far larger than it had. A tool result
+    landing on the last few characters of `recent` could carry the entire file.
+    """
     text = text.strip()
     if len(text) <= limit:
         return text
     marker = f"\n… [{len(text) - limit:,} characters omitted] …\n"
-    usable = max(0, limit - len(marker))
+    usable = limit - len(marker)
+    if usable <= 0:
+        # No room to explain the truncation: say only that there was one.
+        return ELIDED[:limit] if limit < len(ELIDED) else ELIDED
     head = int(usable * 0.6)
-    return text[:head].rstrip() + marker + text[-(usable - head):].lstrip()
+    tail = usable - head
+    return text[:head].rstrip() + marker + (text[-tail:].lstrip() if tail else "")
 
 
 def clean(text: str, limit: int) -> tuple[str, int]:
@@ -392,7 +410,10 @@ def recent_excerpt(path: Path, first_uuid: str | None,
     remaining = caps["recent"]
     budgets = {"input": caps["tool_inputs_total"], "result": caps["tool_results_total"]}
     for text, redactions, tool_kind in reversed(segments):
-        allowance = min(remaining, budgets[tool_kind]) if tool_kind else remaining
+        separator = 2 if chosen else 0
+        allowance = remaining - separator
+        if tool_kind:
+            allowance = min(allowance, budgets[tool_kind])
         if allowance <= 0:
             continue
         selected = truncate(text, allowance)
@@ -400,7 +421,7 @@ def recent_excerpt(path: Path, first_uuid: str | None,
             continue
         chosen.append((selected, redactions, tool_kind))
         consumed = len(selected)
-        remaining -= consumed
+        remaining -= consumed + separator
         if tool_kind:
             budgets[tool_kind] -= consumed
         if remaining <= 0:
@@ -572,6 +593,9 @@ def build_brief(session_id: str, transcript: Path, cwd: Path, source_cwd: str | 
     """The brief itself (C-23.14, C-23.36). Sections in v1's order."""
     original, first_uuid, redactions = first_task(transcript, caps["original_task"])
     recent, recent_redactions = recent_excerpt(transcript, first_uuid, caps)
+    if not recent:
+        recent = truncate("No additional text or safe tool-result context was available.",
+                          caps["recent"])
     redactions += recent_redactions
 
     progress_path = cwd / "PROGRESS.md"
@@ -579,7 +603,7 @@ def build_brief(session_id: str, transcript: Path, cwd: Path, source_cwd: str | 
         progress, count = clean(_read_bounded(progress_path), caps["progress"])
         redactions += count
     else:
-        progress = "Not present."
+        progress = truncate("Not present.", caps["progress"])
 
     repository, count = repository_context(cwd, caps["repository"])
     redactions += count
@@ -606,7 +630,7 @@ when necessary and never expose credentials.
 
 ## Recent main-chain excerpt
 
-{recent or "No additional text or safe tool-result context was available."}
+{recent}
 
 ## PROGRESS.md
 
