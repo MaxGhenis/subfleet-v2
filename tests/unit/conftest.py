@@ -128,8 +128,12 @@ def workdir(tmp_path) -> Path:
     tmp_path, and falls back into the checkout if that ever lands under /tmp.
     """
     path = tmp_path / "repo"
+    fallback = None
     if str(path.resolve()).startswith(REFUSED_WORKDIR_PREFIXES):
-        path = Path(tempfile.mkdtemp(prefix="sfwork-",
-                                     dir=str(Path(__file__).resolve().parents[2])))
+        fallback = Path(tempfile.mkdtemp(prefix="sfwork-",
+                                         dir=str(Path(__file__).resolve().parents[2])))
+        path = fallback
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    yield path
+    if fallback is not None:
+        shutil.rmtree(fallback, ignore_errors=True)

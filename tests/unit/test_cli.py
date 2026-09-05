@@ -139,15 +139,29 @@ def test_run_inside_a_claude_session_is_detached_and_prints_the_hint(
     captured = capsys.readouterr()
     assert captured.out.strip() == JOB                    # C-17.4 stdout is the contract
     hint = captured.err.splitlines()
-    assert any(line.startswith("  out: ") for line in hint)
-    assert any(line.startswith("  log: ") for line in hint)
+    out_line = next(line for line in hint if line.startswith("  out: "))
+    log_line = next(line for line in hint if line.startswith("  log: "))
+    assert out_line.endswith(f"{root}/jobs/{JOB}/a1/deliverable.md")
+    assert log_line.endswith(f"{root}/jobs/{JOB}/a1/lane.log")
     assert any(f"done → subfleet wait {JOB}" in line for line in hint)
-    assert any(line.startswith("  status: subfleet runs --mine") for line in hint)
+    assert any(line == f"  status: subfleet runs --mine · details: subfleet runs "
+               f"show {JOB} · cancel: subfleet kill {JOB}" for line in hint)
     args = server.args("submit")
     assert args["task"] == "build" and args["tier"] == "standard"
     assert args["caller_session"] == "sess-9"
     assert args["kind"] == "dispatch"
     assert Path(args["prompt_path"]).read_text() == "do the thing\n"
+
+
+def test_the_hint_names_the_o_path_when_one_was_given(daemon, monkeypatch, capsys,
+                                                     root, workdir):
+    """C-17.6 the hint's out path is the caller's -o when there is one."""
+    daemon({"submit": submit_ok})
+    monkeypatch.setenv("CLAUDECODE", "1")
+    target = workdir / "answer.md"
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-o", str(target),
+                    "hi"]) == 0
+    assert f"  out: {target}" in capsys.readouterr().err.splitlines()
 
 
 def test_run_prints_the_request_id_back_and_generates_a_uuid4(daemon, capsys, root, workdir):
@@ -232,7 +246,7 @@ def test_run_dry_run_prints_the_decision_and_dispatches_nothing(daemon, capsys, 
 
 
 def test_run_prompt_file_is_sent_by_path(daemon, root, capsys, workdir):
-    """C-6.1 `-p PROMPTFILE` sends the resolved path, not the bytes."""
+    """C-17.2, C-16.2 `-p PROMPTFILE` puts the resolved path in SubmitArgs."""
     server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
     prompt = workdir / "prompt.md"
     prompt.write_text("from a file\n")
@@ -327,17 +341,13 @@ def test_wait_timeout_exits_124(daemon, capsys):
     assert "timeout" in capsys.readouterr().err
 
 
-def test_wait_lost_is_125_and_cancelled_is_130(daemon, capsys):
-    """C-17.3 a lost job exits 125 and a cancelled job exits 130."""
-    daemon({"wait": lambda request: terminal("lost")})
-    assert run_cli(["wait", JOB]) == 125
-    capsys.readouterr()
-
-
-def test_wait_cancelled_is_130(daemon, capsys):
-    """C-17.3 a cancelled job exits 130."""
-    daemon({"wait": lambda request: terminal("cancelled")})
-    assert run_cli(["wait", JOB]) == 130
+@pytest.mark.parametrize("state,expected", [("lost", 125), ("cancelled", 130),
+                                            ("succeeded", 0)])
+def test_wait_maps_each_terminal_state(daemon, capsys, state, expected):
+    """C-17.3 a lost job exits 125, a cancelled one 130, a succeeded one 0."""
+    daemon({"wait": lambda request: terminal(state, rc=0 if state == "succeeded"
+                                             else None)})
+    assert run_cli(["wait", JOB]) == expected
     capsys.readouterr()
 
 
@@ -728,3 +738,95 @@ def test_last_zero_means_no_limit_on_both_sides(daemon, capsys):
     assert run_cli(["runs", "--last", "0"]) == 0
     assert server.args("list")["last"] is None
     capsys.readouterr()
+
+
+def test_wait_keeps_polling_until_the_job_is_terminal(daemon, capsys):
+    """C-15.4 `wait` loops the server-side long poll; one poll is not enough."""
+    calls: list[int] = []
+
+    def poll(request):
+        calls.append(1)
+        if len(calls) < 3:
+            return {"timeout": True}
+        return terminal("failed", rc=5)
+
+    server = daemon({"wait": poll})
+    assert run_cli(["wait", JOB]) == 5
+    assert len(calls) == 3
+    assert [op for op in server.ops() if op == "wait"] == ["wait"] * 3
+    capsys.readouterr()
+
+
+def test_wait_re_asks_for_a_job_that_is_still_running(daemon, capsys):
+    """C-15.4 a non-terminal state in a poll answer keeps the job pending."""
+    calls: list[int] = []
+
+    def poll(request):
+        calls.append(1)
+        state = "running" if len(calls) < 2 else "succeeded"
+        return {"jobs": {JOB: {"job_id": JOB, "state": state, "rc": 0}}}
+
+    daemon({"wait": poll})
+    assert run_cli(["wait", JOB]) == 0
+    assert len(calls) == 2
+    capsys.readouterr()
+
+
+def test_wait_over_several_jobs_returns_the_worst_code(daemon, capsys):
+    """C-17.3 `wait a b c` returns the worst of the mapped codes."""
+    other, third = "20260905-120001-two", "20260905-120002-three"
+    daemon({"wait": lambda request: {"jobs": {
+        JOB: {"job_id": JOB, "state": "succeeded", "rc": 0},
+        other: {"job_id": other, "state": "failed", "rc": 3},
+        third: {"job_id": third, "state": "cancelled"}}}})
+    assert run_cli(["wait", JOB, other, third]) == 130
+    summaries = capsys.readouterr().err
+    assert all(job in summaries for job in (JOB, other, third))
+
+
+def test_wait_partial_timeout_reports_each_job(daemon, capsys):
+    """C-17.3 a job still running at the deadline is 124 beside its finished peers."""
+    other = "20260905-120001-two"
+    daemon({"wait": lambda request: {"jobs": {
+        JOB: {"job_id": JOB, "state": "succeeded", "rc": 0},
+        other: {"job_id": other, "state": "running"}}}})
+    assert run_cli(["wait", JOB, other, "--timeout", "1"]) == 124
+    captured = capsys.readouterr().err
+    assert f"{other} still running" in captured and f"{JOB} SUCCEEDED" in captured
+
+
+def test_kill_over_several_jobs_returns_the_worst_code(daemon, capsys):
+    """C-17.3 `kill a b` reports each job and returns the worst code."""
+    other = "20260905-120001-two"
+
+    def killer(request):
+        if request.args["job_id"] == other:
+            return protocol.fail(request.id, Exit.INVALID_INPUT, "no such job")
+        return {"status": "cancel requested"}
+
+    server = daemon({"kill": killer})
+    assert run_cli(["kill", JOB, other]) == 2
+    assert [r.args["job_id"] for r in server.requests if r.op == "kill"] == [JOB, other]
+    captured = capsys.readouterr()
+    assert f"{JOB} cancel requested" in captured.out
+    assert "no such job" in captured.err
+
+
+def test_run_wait_inside_a_claude_session_still_blocks(daemon, monkeypatch, capsys,
+                                                       workdir):
+    """C-17.6 `--wait` inside a session keeps the job detached but waits inline."""
+    calls: list[int] = []
+
+    def poll(request):
+        calls.append(1)
+        return terminal("failed", rc=6)
+
+    daemon({"submit": submit_ok, "wait": poll})
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "--wait", "hi"]) == 6
+    assert calls == [1]
+    captured = capsys.readouterr()
+    assert captured.out.strip() == JOB
+    assert "waiting inline" in captured.err
+    assert "--attach waits inline" in captured.err

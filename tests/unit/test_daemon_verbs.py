@@ -112,11 +112,17 @@ def test_daemon_start_waits_for_the_socket_then_status_and_stop(stub, root, caps
 
 
 def test_daemon_start_runs_in_its_own_session(stub, root, capsys):
-    """C-5.1 the daemon leads its own session so the caller's exit cannot take it."""
+    """C-17.1 `daemon start` launches subfleetd detached in its own session.
+
+    Leading its own session is what makes the daemon outlive the shell that
+    started it, so the check is `getsid(pid) == pid`, not merely a different
+    process group.
+    """
     assert cli.main(["daemon", "start"]) == 0
     capsys.readouterr()
     pid = json.loads((root / "daemon.lock").read_text())["pid"]
-    assert os.getpgid(pid) != os.getpgid(0)
+    assert os.getsid(pid) == pid
+    assert os.getsid(pid) != os.getsid(0)
     assert cli.main(["daemon", "stop"]) == 0
     capsys.readouterr()
 
@@ -169,12 +175,14 @@ def test_daemon_logs_tails_the_log(root, capsys):
     assert capsys.readouterr().out.splitlines() == ["line 97", "line 98", "line 99"]
     (root / "daemon.log").unlink()
     assert cli.main(["daemon", "logs"]) == 1
-    assert "no " in capsys.readouterr().err
+    assert f"daemon logs: no {root / 'daemon.log'}" in capsys.readouterr().err
 
 
 def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, capsys):
     """C-17.1 `daemon install --dry-run` prints the plist and writes nothing."""
     monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(tmp_path / "subfleetd"))
+    target = tmp_path / "com.subfleet.daemon.plist"
+    monkeypatch.setattr(cli, "PLIST_PATH", str(target))
     assert cli.main(["daemon", "install", "--dry-run"]) == 0
     captured = capsys.readouterr()
     plist = plistlib.loads(captured.out.encode())
@@ -185,7 +193,7 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
     assert plist["EnvironmentVariables"]["SUBFLEET_HOME"] == str(root)
     assert plist["StandardOutPath"] == str(root / "daemon.log")
     assert "would write" in captured.err
-    assert not Path(cli.PLIST_PATH).expanduser().exists() or True   # never written here
+    assert not target.exists()          # --dry-run writes nothing and loads nothing
 
 
 def test_the_state_root_comes_from_subfleet_home(root, monkeypatch):
@@ -196,8 +204,13 @@ def test_the_state_root_comes_from_subfleet_home(root, monkeypatch):
     assert state_root() == Path("~/.subfleet").expanduser()
 
 
-def test_doctor_reports_the_layout_and_a_stale_socket(root, capsys):
-    """C-14.3 `doctor` is offline and names a socket the lock disagrees with."""
+def test_doctor_reports_the_layout_and_a_stale_socket(root, capsys, monkeypatch):
+    """C-17.1 `doctor` reports the state root layout and a socket the lock denies.
+
+    The provider versions are stubbed so the test measures this lane's logic and
+    not whether the machine running it happens to have claude and codex on PATH.
+    """
+    monkeypatch.setattr(cli, "_version", lambda binary: ("ok", f"stub {binary}"))
     assert cli.main(["doctor"]) == 0
     text = capsys.readouterr().out
     assert "state root layout" in text and "daemon.sock and daemon.lock agree" in text
@@ -208,8 +221,9 @@ def test_doctor_reports_the_layout_and_a_stale_socket(root, capsys):
     assert "stale socket" in capsys.readouterr().out
 
 
-def test_doctor_json_emits_one_object_per_check(root, capsys):
+def test_doctor_json_emits_one_object_per_check(root, capsys, monkeypatch):
     """C-17.4 `doctor --json` emits JSON objects only."""
+    monkeypatch.setattr(cli, "_version", lambda binary: ("ok", f"stub {binary}"))
     assert cli.main(["doctor", "--json"]) == 0
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
     checks = [json.loads(line) for line in lines]
@@ -225,3 +239,24 @@ def test_doctor_live_is_not_implemented_yet(root, capsys):
     """C-17.1 `doctor --live` is reserved for the adapter lanes."""
     assert cli.main(["doctor", "--live"]) == 0
     assert "not implemented" in capsys.readouterr().err
+
+
+def test_doctor_names_a_missing_never_rules_hook(root, capsys, monkeypatch):
+    """C-14.3 doctor reports whether ~/.claude/settings.json carries the hook."""
+    monkeypatch.setattr(cli, "_version", lambda binary: ("ok", f"stub {binary}"))
+    settings = root / "settings.json"
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": []}}))
+    rows = {check["check"]: check
+            for check in cli.doctor_checks(root, claude_settings=settings)}
+    hook = rows["never-rules hook in ~/.claude/settings.json"]
+    assert hook["status"] == "warn" and "C-14.3" in hook["detail"]
+    settings.write_text(json.dumps(
+        {"hooks": {"PreToolUse": [{"command": "guard-never-rules.sh"}]}}))
+    rows = {check["check"]: check
+            for check in cli.doctor_checks(root, claude_settings=settings)}
+    assert rows["never-rules hook in ~/.claude/settings.json"]["status"] == "ok"
+    settings.unlink()
+    rows = {check["check"]: check
+            for check in cli.doctor_checks(root, claude_settings=settings)}
+    assert rows["never-rules hook in ~/.claude/settings.json"]["status"] == "warn"
+    capsys.readouterr()

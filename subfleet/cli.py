@@ -1445,7 +1445,8 @@ def _module_check(name: str) -> dict[str, Any]:
     return {"check": f"subfleet.{name}", "status": "ok", "detail": "importable"}
 
 
-def doctor_checks(root: Path) -> list[dict[str, Any]]:
+def doctor_checks(root: Path, *,
+                  claude_settings: Path | None = None) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     for binary in ("claude", "codex", "uv"):
         status, detail = _version(binary)
@@ -1484,7 +1485,8 @@ def doctor_checks(root: Path) -> list[dict[str, Any]]:
                          f"— {START_DAEMON}")
     checks.append({"check": "daemon.sock and daemon.lock agree",
                    "status": agree[0], "detail": agree[1]})
-    settings = Path("~/.claude/settings.json").expanduser()
+    settings = (claude_settings if claude_settings is not None
+                else Path("~/.claude/settings.json").expanduser())
     try:
         text = settings.read_text()
         hooked = any(marker in text for marker in

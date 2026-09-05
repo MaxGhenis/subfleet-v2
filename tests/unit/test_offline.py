@@ -257,7 +257,8 @@ def test_reap_names_the_orphans_without_writing(store, capsys):
     assert cli.main(["runs", "reap"]) == 0
     captured = capsys.readouterr()
     assert JOB in captured.out and "runner is gone" in captured.out
-    assert "identity checked with subfleet.client" in captured.err
+    assert ("identity checked with subfleet.procs" in captured.err
+            or "identity checked with subfleet.client" in captured.err)
     assert cli.main(["runs", "reap", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["job_id"] == JOB and payload["pid"] == 999999
@@ -379,3 +380,17 @@ def test_reads_say_so_when_the_store_is_newer(root, capsys):
     for argv in (["runs"], ["status"], ["runs", "show", JOB]):
         assert cli.main(argv) == 0, argv
         assert "schema version 7" in capsys.readouterr().err, argv
+
+
+def test_reap_prefers_the_core_lanes_identity_check_when_it_lands(store, capsys,
+                                                                  monkeypatch):
+    """C-5.3 `runs reap` uses subfleet.procs.same_process once that module exists."""
+    import sys
+    import types
+    module = types.ModuleType("subfleet.procs")
+    module.same_process = lambda pid, boot, start: False
+    monkeypatch.setitem(sys.modules, "subfleet.procs", module)
+    assert cli.main(["runs", "reap"]) == 0
+    captured = capsys.readouterr()
+    assert "identity checked with subfleet.procs" in captured.err
+    assert JOB in captured.out
