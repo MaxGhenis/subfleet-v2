@@ -597,7 +597,7 @@ class Daemon:
             with self.store.transaction(NUDGE_EVENT, data={"session_id": args.session_id}) as tx:
                 previous = self._session_events((NUDGE_EVENT,), {args.session_id}).get(
                     f"{NUDGE_EVENT}:{args.session_id}")
-                if previous:
+                if previous and not args.force:
                     if args.dedupe_key and previous.get("dedupe_key") == args.dedupe_key:
                         return {"recorded": False, "session_id": args.session_id,
                                 "reason": "already nudged at this interruption point",
@@ -611,7 +611,8 @@ class Daemon:
                                                f"(cooldown {int(float(cooldown))}s)"),
                                     "last_nudge": previous}
                 data = {"session_id": args.session_id, "dedupe_key": args.dedupe_key,
-                        "kind": args.kind, **args.detail}
+                        "kind": args.kind, **({"forced": True} if args.force else {}),
+                        **args.detail}
                 tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                            (utcnow(), NUDGE_EVENT, json.dumps(data, sort_keys=True)))
             return {"recorded": True, "session_id": args.session_id,

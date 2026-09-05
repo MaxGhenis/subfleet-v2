@@ -1,0 +1,416 @@
+"""What a handoff may carry, and how it is dispatched: C-23.14, C-23.36, C-23.54.
+
+Every test names the clause it proves (C-20.5). `sessions_fixtures.FAKE_SECRET`
+is a token shaped like the ones the scrub list catches and is not, and has never
+been, a key; no test here reads a real credential from anywhere.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from subfleet.contracts import Sandbox
+from subfleet.sessions import handoff
+from tests import sessions_fixtures as fx
+
+SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
+CODE = "def total(rows):\n    return sum(row.amount for row in rows)\n"
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch) -> Path:
+    return fx.claude_home(tmp_path, monkeypatch)
+
+
+@pytest.fixture
+def policy():
+    return fx.policy()
+
+
+@pytest.fixture
+def repo(tmp_path) -> Path:
+    """A real git worktree, because the brief's last section runs git."""
+    path = tmp_path / "repo"
+    path.mkdir()
+    for argv in (["init", "-q", "-b", "work"], ["config", "user.email", "t@example.com"],
+                 ["config", "user.name", "T"]):
+        subprocess.run(["git", "-C", str(path), *argv], check=True,
+                       capture_output=True)
+    (path / "README.md").write_text("hi\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(path), "commit", "-qm", "first"], check=True,
+                   capture_output=True)
+    return path
+
+
+def build(home, repo, entries, policy, *, caps=None):
+    path = fx.transcript(home, SESSION, entries)
+    return handoff.build_brief(SESSION, path, repo, str(repo),
+                               caps or policy["sessions"]["handoff_caps"])
+
+
+def conversation(*extra):
+    return [fx.typed_prompt("Port the ledger importer to v2.", uuid="p0",
+                            at=fx.ago(3600)),
+            *extra,
+            fx.assistant_text("done for now", uuid="last", at=fx.ago(60))]
+
+
+# --- the scrub list (C-23.14) -------------------------------------------------
+
+def test_handoff_scrubs_credentials_and_binary_but_keeps_code(home, repo, policy):
+    """C-23.14: private keys, JWTs, prefixed tokens and `Bearer` values are
+    replaced and encoded binary is omitted, while ordinary code, commands and
+    tool output are retained verbatim.
+
+    Ledger row 208. A lossy rewrite destroys the continuity the brief exists to
+    carry, so the rule is a scalpel, not a shredder.
+    """
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJlLXZhbHVl"
+    noisy = (f"export ANTHROPIC_API_KEY={fx.FAKE_SECRET}\n"
+             f"curl -H 'Authorization: Bearer {jwt}' https://example.test/v1\n"
+             f"{CODE}"
+             f"payload = 'data:image/png;base64,{'A' * 200}'\n")
+    brief = build(home, repo, conversation(
+        fx.assistant_tool_use(uuid="a1", at=fx.ago(600),
+                              tool_input={"command": "cat notes.md"}),
+        fx.user_tool_result(noisy, uuid="r1", at=fx.ago(500))), policy)
+
+    assert fx.FAKE_SECRET not in brief.text
+    assert jwt not in brief.text
+    assert "BASE64" in brief.text and "A" * 200 not in brief.text
+    assert "[REDACTED]" in brief.text
+    assert CODE.strip() in brief.text, "ordinary code is retained verbatim"
+    assert "curl -H" in brief.text, "the command survives; only its value does not"
+    assert "cat notes.md" in brief.text, "an ordinary tool input is context"
+    assert brief.redactions >= 3
+
+
+def test_a_private_key_block_is_replaced_whole(home, repo, policy):
+    """C-23.14: a PEM block is one value, not a run of lines to redact."""
+    pem = ("-----BEGIN OPENSSH PRIVATE KEY-----\n"
+           + "b3BlbnNzaC1rZXktdjEAAAAA\n" * 4
+           + "-----END OPENSSH PRIVATE KEY-----")
+    brief = build(home, repo, conversation(
+        fx.assistant_tool_use(uuid="a1", at=fx.ago(600),
+                              tool_input={"command": "cat id_ed25519"}),
+        fx.user_tool_result(pem, uuid="r1", at=fx.ago(500))), policy)
+    assert "PRIVATE KEY REDACTED" in brief.text
+    assert "b3BlbnNzaC1rZXktdjEAAAAA" not in brief.text
+
+
+def test_a_long_unbroken_encoded_run_is_omitted_before_it_is_capped(home, repo, policy):
+    """C-23.14: encoded binary is omitted, and that runs before the caps.
+
+    A 5000-character unbroken base64-alphabet run is a payload whatever the
+    section cap says, so it never reaches truncation — which is why the caps
+    test above uses prose.
+    """
+    text, count = handoff.scrub_secrets("A" * 5000)
+    assert text == "[BASE64 OMITTED]" and count == 1
+    kept, _count = handoff.scrub_secrets("word " * 1000)
+    assert kept.startswith("word word"), "prose with spaces is not a payload"
+
+
+def test_binary_tool_output_is_omitted_rather_than_pasted(home, repo, policy):
+    """C-23.14: encoded binary is omitted; a brief is context, not a payload."""
+    brief = build(home, repo, conversation(
+        fx.assistant_tool_use(uuid="a1", at=fx.ago(600),
+                              tool_input={"command": "cat logo.png"}),
+        fx.user_tool_result("\x00\x01\x02\x03" * 200, uuid="r1", at=fx.ago(500))),
+        policy)
+    assert handoff.OMITTED_BINARY in brief.text
+    assert "\x00" not in brief.text
+
+
+def test_a_system_reminder_never_reaches_the_brief(home, repo, policy):
+    """The harness's own injected text is not the session's conversation."""
+    brief = build(home, repo, conversation(
+        fx.user_text("<system-reminder>do not mention this</system-reminder> keep me",
+                     uuid="u1", at=fx.ago(600))), policy)
+    assert "system-reminder" not in brief.text
+    assert "keep me" in brief.text
+
+
+# --- suppression by pattern (C-23.14) -----------------------------------------
+
+@pytest.mark.parametrize("command", [
+    "agent-secret get claude-quota-max@axiom.org",
+    "security find-generic-password -s subfleet -w",
+    "printenv | grep TOKEN",
+    "cat ~/.codex/auth.json",
+    "cat .env.production",
+], ids=["agent-secret", "keychain", "printenv", "auth-json", "dotenv"])
+def test_handoff_suppresses_credential_reading_tool_results(home, repo, policy, command):
+    """C-23.14: the result of a credential-reading tool call is omitted by
+    pattern rather than redacted, so a secret never reaches the excerpt even
+    unredacted.
+
+    Ledger row 209. Suppression beats redaction here because the value a
+    keychain read returns has no shape a regex can rely on.
+    """
+    assert handoff.sensitive_tool_call("Bash", {"command": command}), command
+    brief = build(home, repo, conversation(
+        fx.assistant_tool_use(uuid="a1", at=fx.ago(600),
+                              tool_input={"command": command}),
+        fx.user_tool_result("hunter2-the-actual-value", uuid="r1", at=fx.ago(500))),
+        policy)
+    assert "hunter2-the-actual-value" not in brief.text
+    assert handoff.OMITTED_SENSITIVE in brief.text
+    assert handoff.OMITTED_SENSITIVE_INPUT in brief.text
+    assert command not in brief.text, "the input is omitted too, not just the result"
+
+
+def test_an_ordinary_command_is_not_suppressed(home, repo, policy):
+    """C-23.14: the retention half. Suppressing everything is not safety."""
+    assert handoff.sensitive_tool_call("Bash", {"command": "git log --oneline -5"}) is False
+    brief = build(home, repo, conversation(
+        fx.assistant_tool_use(uuid="a1", at=fx.ago(600),
+                              tool_input={"command": "git log --oneline -5"}),
+        fx.user_tool_result("abc1234 first commit", uuid="r1", at=fx.ago(500))), policy)
+    assert "git log --oneline -5" in brief.text
+    assert "abc1234 first commit" in brief.text
+
+
+def test_a_result_whose_input_fell_outside_the_excerpt_is_omitted(home, repo, policy):
+    """C-23.14: unknown sensitivity means omitted; the excerpt is bounded, and a
+    result whose call it cannot see could be anything."""
+    brief = build(home, repo, conversation(
+        fx.user_tool_result("some output", uuid="r1", at=fx.ago(500),
+                            tool_id="never-seen")), policy)
+    assert handoff.OMITTED_UNMATCHED in brief.text
+    assert "some output" not in brief.text
+
+
+def test_a_tool_named_for_the_keychain_is_suppressed_whatever_its_input(home):
+    """C-23.14: the name is evidence too, not only the command line."""
+    assert handoff.sensitive_tool_call("keychain_read", {"item": "anything"}) is True
+    assert handoff.sensitive_tool_call("mcp__agent-secret__get", {}) is True
+
+
+# --- the caps and the source (C-23.36) ----------------------------------------
+
+def test_handoff_sections_capped_and_source_transcript_path_recorded(home, repo, policy):
+    """C-23.36: every section is bounded by an explicit per-section character
+    cap, and the handoff records the absolute path of the source transcript,
+    which stays the durable record.
+
+    Ledger row 210.
+    """
+    caps = {**policy["sessions"]["handoff_caps"], "original_task": 200,
+            "recent": 400, "tool_result": 120, "progress": 150}
+    # Ordinary prose, not one unbroken alphanumeric run: that would be caught as
+    # encoded binary first (see the test below) and never reach the cap.
+    task = "port the ledger importer to v2 " * 200
+    output = "row imported ok\n" * 400
+    (repo / "PROGRESS.md").write_text("done so far: the manifest\n" * 300,
+                                      encoding="utf-8")
+    path = fx.transcript(home, SESSION, [
+        fx.typed_prompt(task, uuid="p0", at=fx.ago(3600)),
+        fx.assistant_tool_use(uuid="a1", at=fx.ago(600),
+                              tool_input={"command": "cat big"}),
+        fx.user_tool_result(output, uuid="r1", at=fx.ago(500)),
+        fx.assistant_text("done", uuid="last", at=fx.ago(60))])
+    brief = handoff.build_brief(SESSION, path, repo, str(repo), caps)
+
+    assert "characters omitted" in brief.text, "truncation is marked, not silent"
+    assert task not in brief.text
+    assert output not in brief.text
+    assert brief.text.count("row imported ok") < 400
+    # The source stays authoritative and is named by absolute path.
+    assert f"Source transcript: {path}" in brief.text
+    assert Path(brief.transcript).is_absolute()
+    assert brief.transcript == str(path)
+
+
+def test_every_named_section_is_present_and_in_order(home, repo, policy):
+    """C-23.36: the brief's shape is the contract a receiving agent reads."""
+    brief = build(home, repo, conversation(), policy)
+    order = ["# Cross-agent handoff", "## Original task",
+             "## Recent main-chain excerpt", "## PROGRESS.md", "## Repository state"]
+    positions = [brief.text.index(heading) for heading in order]
+    assert positions == sorted(positions)
+    assert "Source session: " + SESSION in brief.text
+    assert f"Target cwd: {repo}" in brief.text
+
+
+def test_the_repository_section_reports_the_real_worktree(home, repo, policy):
+    """C-23.36: the brief points at state a receiving agent can verify."""
+    brief = build(home, repo, conversation(), policy)
+    assert "### Status" in brief.text and "### Recent commits" in brief.text
+    assert "first" in brief.text, "the commit subject is real git output"
+
+
+def test_a_directory_that_is_not_a_worktree_says_so(home, tmp_path, policy):
+    """C-23.36: a brief never invents repository state it could not read."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    path = fx.transcript(home, SESSION, conversation())
+    brief = handoff.build_brief(SESSION, path, plain, str(plain),
+                                policy["sessions"]["handoff_caps"])
+    assert "Not a Git worktree." in brief.text
+
+
+def test_the_apps_stubs_and_subfleets_own_nudges_are_not_the_original_task(home, repo, policy):
+    """C-23.36: the first REAL human turn is the task, not the app's bookkeeping."""
+    from subfleet.sessions import transcripts
+    entries = [*fx.resume_stub(at=fx.ago(4000)),
+               fx.user_text(transcripts.MARKER + " continue", uuid="n", at=fx.ago(3900)),
+               fx.typed_prompt("the actual instruction", uuid="p0", at=fx.ago(3600)),
+               fx.assistant_text("on it", uuid="last", at=fx.ago(60))]
+    brief = build(home, repo, entries, policy)
+    assert brief.original == "the actual instruction"
+
+
+def test_a_transcript_with_no_human_turn_is_a_user_facing_error(home, repo, policy):
+    """C-17.3: exit 2 is invalid input, and the message names the transcript."""
+    path = fx.transcript(home, SESSION, [
+        fx.assistant_text("orphaned", uuid="a", at=fx.ago(60))])
+    with pytest.raises(handoff.HandoffError) as raised:
+        handoff.build_brief(SESSION, path, repo, str(repo),
+                            policy["sessions"]["handoff_caps"])
+    assert str(path) in str(raised.value)
+    assert handoff.HandoffError.code == 2
+
+
+# --- the dispatch (C-23.54) ---------------------------------------------------
+
+def test_the_handoff_is_submitted_with_the_caller_session_recorded(home, repo, policy,
+                                                                   tmp_path):
+    """C-23.54: every provider launch is a `subfleet run` submission, including
+    subfleet's own, so the handoff inherits routing, the guard, salvage, the
+    ledger and notices — and the caller's session is recorded so the completion
+    notice comes back to the session that asked.
+    """
+    fx.transcript(home, SESSION, conversation())
+    staged = tmp_path / "prompt.md"
+    daemon = fx.FakeSessions()
+    result = handoff.handoff(
+        daemon, policy, session_id=SESSION, last=False, model="astra",
+        stage_prompt=lambda text: (staged.write_text(text, encoding="utf-8"), staged)[1],
+        workdir=repo, caller_session="caller-1", caller_pid=4242)
+    assert result.job_id == "job-1"
+    args = daemon.submits[0]
+    assert args.kind == "handoff"
+    assert args.pinned_model == "astra"
+    assert args.caller_session == "caller-1" and args.caller_pid == 4242
+    assert args.workdir == str(repo)
+    assert args.name == f"handoff-{SESSION[:8]}"
+    assert Path(args.prompt_path).read_text(encoding="utf-8") == result.brief.text
+
+
+def test_the_sandbox_comes_from_the_tasks_policy_permission(policy):
+    """C-6.5: a writable job carries consequences a text classifier should not
+    choose, so a handoff with no `--task` is read-only.
+
+    v1 derived the class from the instruction text; v2 keeps the `permissions`
+    map and drops the guess.
+    """
+    assert handoff.sandbox_for(policy, None) == Sandbox.READ_ONLY.value
+    assert handoff.sandbox_for(policy, "build") == Sandbox.WORKSPACE_WRITE.value
+    assert handoff.sandbox_for(policy, "review") == Sandbox.READ_ONLY.value
+    assert handoff.sandbox_for(policy, "build", "read-only") == "read-only"
+
+
+def test_a_dry_run_prints_the_brief_and_dispatches_nothing(home, repo, policy):
+    """C-17.4: the brief is the thing to inspect before it is sent anywhere."""
+    fx.transcript(home, SESSION, conversation())
+    daemon = fx.FakeSessions()
+    result = handoff.handoff(daemon, policy, session_id=SESSION, last=False,
+                             model="opus", stage_prompt=lambda text: Path("/dev/null"),
+                             workdir=repo, dry_run=True)
+    assert daemon.submits == []
+    assert result.job_id is None
+    assert "# Cross-agent handoff" in result.brief.text
+
+
+# --- choosing the source ------------------------------------------------------
+
+def test_exactly_one_of_a_session_id_and_last_is_required(home):
+    """v1's rule, kept: naming both is a mistake, naming neither is a mistake."""
+    for session_id, last in ((SESSION, True), (None, False)):
+        with pytest.raises(handoff.HandoffError, match="exactly one"):
+            handoff.resolve_source(session_id, last)
+
+
+def test_a_session_id_must_be_a_canonical_uuid(home):
+    """v1's rule, kept: a truncated id would silently resolve to nothing.
+
+    Case is not part of it — `uuid.UUID` and the transcript filename agree on
+    lowercase, so an uppercase id resolves. The forms this rejects are the ones
+    that parse as a UUID and are not the filename: braces, `urn:uuid:`, and the
+    dashless 32-hex spelling.
+    """
+    with pytest.raises(handoff.HandoffError, match="invalid Claude session id"):
+        handoff.resolve_source("3f9c1a2e", False)
+    for spelling in (f"{{{SESSION}}}", f"urn:uuid:{SESSION}", SESSION.replace("-", "")):
+        with pytest.raises(handoff.HandoffError, match="canonical UUID"):
+            handoff.resolve_source(spelling, False)
+    assert handoff.canonical_session_id(SESSION.upper()) == SESSION
+
+
+def test_last_prefers_the_callers_own_session(home):
+    """`--last` means "this session" when there is one to mean."""
+    fx.transcript(home, SESSION, conversation())
+    other = "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50"
+    fx.transcript(home, other, conversation(), cwd="/Users/fixture/other")
+    found, _path = handoff.resolve_source(None, True, current=SESSION)
+    assert found == SESSION
+
+
+def test_last_falls_back_to_the_newest_durable_transcript(home):
+    """`--last` outside a session: the newest real turn wins, then the mtime."""
+    fx.transcript(home, SESSION, [
+        fx.typed_prompt("older", uuid="p", at=fx.ago(9000)),
+        fx.assistant_text("done", uuid="a", at=fx.ago(8000))])
+    newer = "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50"
+    fx.transcript(home, newer, conversation(), cwd="/Users/fixture/other")
+    found, _path = handoff.resolve_source(None, True, current=None)
+    assert found == newer
+
+
+def test_a_missing_transcript_is_a_user_facing_error(home):
+    """C-17.3: exit 2, and the message names the session it could not find."""
+    with pytest.raises(handoff.HandoffError, match="transcript not found"):
+        handoff.resolve_source(SESSION, False)
+
+
+def test_a_workdir_that_is_not_a_directory_is_refused(home, tmp_path):
+    """C-23.54: the job's workdir is real before it is submitted, not after."""
+    path = fx.transcript(home, SESSION, conversation())
+    with pytest.raises(handoff.HandoffError, match="not a directory"):
+        handoff.resolve_workdir(path, tmp_path / "nope")
+
+
+# --- the scrubber, exercised directly -----------------------------------------
+
+def test_the_scrubber_counts_what_it_replaced(home):
+    """C-23.36: the brief states its own redaction count, so a reader can tell."""
+    text, count = handoff.scrub_secrets(f"key={fx.FAKE_SECRET} and nothing else")
+    assert fx.FAKE_SECRET not in text and count >= 1
+
+
+def test_the_scrubber_leaves_ordinary_prose_and_numbers_alone(home):
+    """C-23.14's retention half, at the value level."""
+    ordinary = "The importer processed 1284 rows in 3.2s; see docs/migration.md."
+    text, count = handoff.scrub_secrets(ordinary)
+    assert (text, count) == (ordinary, 0)
+
+
+def test_a_url_password_is_replaced_but_the_url_survives(home):
+    """C-23.14: the connection string is context; the password is not."""
+    text, count = handoff.scrub_secrets("psql postgres://app:s3cr3tpw@db.test/main")
+    assert "s3cr3tpw" not in text and "postgres://app:" in text and "@db.test/main" in text
+    assert count == 1
+
+
+def test_truncation_keeps_the_head_and_the_tail(home):
+    """C-23.36: a truncated section still shows how the work started and ended."""
+    body = "START" + "m" * 5000 + "END"
+    cut = handoff.truncate(body, 200)
+    assert cut.startswith("START") and cut.endswith("END")
+    assert len(cut) <= 200 and "characters omitted" in cut

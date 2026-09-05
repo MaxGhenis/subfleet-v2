@@ -200,6 +200,7 @@ class SessionsArgs:
     dedupe_key: str | None = None                         # C-23.33's interruption point
     cooldown_s: float | None = None                       # C-23.33's per-session cooldown
     kind: str = "nudge"                                   # nudge|muster, for the record
+    force: bool = False                                   # the operator named this session
     reason: str | None = None                             # retire
     detail: dict[str, Any] = field(default_factory=dict)  # recorded verbatim on the event
 

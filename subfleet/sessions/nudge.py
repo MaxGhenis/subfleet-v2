@@ -269,6 +269,12 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
     limits = caps(policy)
     wanted = {value for value in only if value}
     report = Report(scope=scope)
+    if not force and not enabled():
+        # v1's kill switch. `--force` is a person naming one session, and a
+        # person who typed the command outranks the switch they set this morning.
+        report.outcomes.append(Outcome(session_id="", scope=scope,
+                                       reason=f"disabled ({TICKLE_ENV}=off)"))
+        return report
 
     # One `state` call, before the registry is read: with no ids it answers for
     # every session that carries a retirement or nudge record, which is exactly
@@ -345,7 +351,7 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
 
         record = sessions.record_nudge(
             item.session_id, dedupe_key=outcome.state.dedupe_key,
-            cooldown_s=None if force else limits["cooldown_s"],
+            cooldown_s=None if force else limits["cooldown_s"], force=force,
             kind="muster" if scope == "idle" else "nudge",
             detail={"turn_uuid": outcome.state.last_uuid,
                     "restart_stubs": outcome.state.restart_stubs,

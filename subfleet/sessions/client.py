@@ -50,6 +50,7 @@ class Sessions:
 
     def record_nudge(self, session_id: str, *, dedupe_key: str | None,
                      cooldown_s: float | None, kind: str = "nudge",
+                     force: bool = False,
                      detail: dict[str, Any] | None = None) -> dict[str, Any]:
         """Reserve the nudge before delivering it.
 
@@ -62,7 +63,8 @@ class Sessions:
         """
         return self._call("sessions", _asdict(SessionsArgs(
             action="nudged", session_id=session_id, dedupe_key=dedupe_key,
-            cooldown_s=cooldown_s, kind=kind, detail=dict(detail or {}))))
+            cooldown_s=cooldown_s, kind=kind, force=force,
+            detail=dict(detail or {}))))
 
     def retire(self, session_id: str, reason: str | None = None) -> dict[str, Any]:
         return self._call("sessions", _asdict(SessionsArgs(
