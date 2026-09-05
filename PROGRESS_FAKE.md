@@ -30,7 +30,9 @@ sandbox refuses `ps` and `sysctl`; production identity checks are unchanged.
   audit; concurrent export and stale-owner fencing; limited/transient retry and
   wall limit coverage.
 - `UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv run pytest -q tests/fake`:
-  **39 passed, 28 skipped in 0.92s**, within C-20.2's 60-second fake budget.
+  **39 passed, 28 skipped in 0.81s** on the final run. Full process-inclusive
+  C-20.2 timing remains to be measured outside the restricted sandbox.
+- Wrote the final fake-lane report to `tests/fake/REPORT.md`.
 
 ## Next
 
