@@ -14,13 +14,14 @@ Brief: `docs/lanes/cutover-compat.md`. Branch `lane/cutover-compat`.
 | `daemon install --hooks [--dry-run]` | done |
 | `subfleet/notify_push.py` (layer 4) | done |
 | `subfleet/doctor.py` + `cmd_doctor` rewired, `--live` | done |
-| `tests/unit/test_compat.py` (1393) | done |
+| Entry points (`pyproject.toml`, `subfleet/__main__.py`) through compat | done |
+| `tests/unit/test_compat.py` (1461) | done |
 | `tests/unit/test_hooks.py` (44) | done |
 | `tests/unit/test_doctor.py` (31) | done |
 | `tests/unit/test_notify_push.py` (31, beyond the brief) | done |
 
-`uv run pytest -q tests/unit` — 2166 passed, ~28 s. The three files the lane's
-acceptance names run in about 4 s together.
+`uv run pytest -q tests/ --ignore=tests/live` — 2356 passed, 62 s. The three
+files the lane's acceptance names run in about 4 s together.
 
 ## What is here
 
@@ -71,7 +72,11 @@ acceptance names run in about 4 s together.
 9. **`jobs` and top-level `show` are not v1 spellings.** Neither string appears
    anywhere in the v1 tree. They are aliases C-17.1 introduces, so they cannot
    break a v1 command — only add one.
-10. **`PYTHONPATH` on this machine points at the v1 checkout**, which outranks
+10. **The console script pointed at `cli.main`, and `python -m subfleet` did
+    not exist at all** — so the compatibility layer was unreachable at runtime
+    and the hook command `daemon install --hooks` writes would not have run.
+    Both are wired and pinned by tests.
+11. **`PYTHONPATH` on this machine points at the v1 checkout**, which outranks
     site-packages and an editable install's `.pth`, so a v2 console script in a
     v2 virtualenv imports v1's package and prints v1's verb table.
     `doctor.check_pythonpath` reports it; `check_symlink` recognises v1 by its
