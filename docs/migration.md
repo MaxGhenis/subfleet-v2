@@ -74,3 +74,26 @@ In this order: stop v2 admissions; stop the daemon's timers; restore the v1 hook
 ## Store upgrade (v2 to v2)
 
 Stop admission; drain or re-adopt attempts; `VACUUM INTO '<state root>/backups/state-<utc>.sqlite3'`; apply additive migrations; `PRAGMA integrity_check`; resume. A CLI newer than the daemon refuses to write and prints both versions (C-3.5).
+
+## Dry run against the real v1 state, 2026-09-05 16:21 EDT
+
+`SUBFLEET_HOME=~/.subfleet-dryrun uv run python -m subfleet.importer --dry-run`, read-only toward v1, 0.7 s. Counts are what a real pass would write.
+
+| Store | Seen | Imported | Skipped and why |
+|---|---|---|---|
+| roster | 23 | 23 | 3 accounts noted as not enrolled in v1 |
+| runs | 500 | 500 | 2,233 artifact references; 9 live v1 runs imported as external, never adopted; some rows carry no model recorded by v1 |
+| notices | 1,119 | 203 | 916 name runs no longer in the 500-run ledger (17 pending, 186 surfaced imported) |
+| outbox | 6 | 6 | all six acknowledged |
+| capacity-live-cache | 14 | 6 | 8 rows are learned percentages, not live readings, and never become quota |
+| claude-oauth-raw | 3 | 3 | two payload windows without a manifest row left alone (`extra_usage`, `nimbus_quill`) |
+| cooldowns | 34 | 17 | 15 expired; 2 name an account with no lane; all 17 imported carry `clock_source: guessed` |
+| keepalive | 14 | 14 | |
+| reset-policy | 3 | 3 | |
+| salt | 1 | 1 | |
+| alerts, sessions kit | 0 | 0 | staged for milestones 5 and 6 by the manifest |
+| gates | 0 | 0 | retained until milestone 7 |
+
+Not in the manifest, left alone: `~/.local/state/delegate/cooldowns.json.bak-2026-09-04`. Nothing under `~/chief-of-staff` changed.
+
+Open from this run: the two OAuth payload windows (`extra_usage`, `nimbus_quill`) need a manifest decision (import as readings with their own scope, or drop); the 916 orphaned notices are v1's own retention gap and stay out.
