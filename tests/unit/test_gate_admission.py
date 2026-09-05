@@ -12,7 +12,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.adapters.claude import ClaudeAdapter
 from subfleet.adapters.codex import CodexAdapter
 from subfleet.adapters.isolation import CODEX_DISABLED_FEATURES, MANAGED_ENV, codex_args
-from subfleet.contracts import Credential, Decision, JobSpec, Lane, LaneOwner, Sandbox
+from subfleet.contracts import Attestation, Credential, Decision, JobSpec, Lane, LaneOwner, Outcome, OutcomeClass, Sandbox
 from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
@@ -141,12 +141,30 @@ def test_codex_prepares_fresh_lane_isolation_for_each_attempt(tmp_path):
                                      lane(home), {}, "gpt-6-astra", "high",
                                      Path(spec.prompt_path), "hooks=ignored")
         assert {"--ephemeral", "--ignore-user-config", "--ignore-rules"} <= set(launch.argv)
+        assert "--skip-git-repo-check" in launch.argv
         assert all(f"features.{feature}=false" in launch.argv for feature in CODEX_DISABLED_FEATURES)
         assert f"mcp_servers.home{index}.enabled=false" in launch.argv
         assert "hooks=ignored" not in launch.argv
         assert "--add-dir" not in launch.argv  # Codex's option grants writes.
         assert "never-record-this" not in repr(launch)
     assert [Path(call["home"]).name for call in calls] == ["home1", "home2"]
+
+
+def test_ephemeral_codex_header_and_requested_model_are_not_attestation(tmp_path):
+    """C-23.2, C-23.43: absent ephemeral evidence cannot be replaced by the startup model echo."""
+    adapter = CodexAdapter()
+    adapter.isolation_inspector = lambda *args, **kwargs: metadata()
+    spec = job(tmp_path)
+    attempt = tmp_path / "a1"
+    launch = adapter.build_launch(spec, "job/a1", attempt, lane(tmp_path / "home"), {},
+                                  "gpt-6-astra", "high", Path(spec.prompt_path), None)
+    (attempt / "stderr").write_text("model: gpt-6-astra\nsession id: peer-thread\n")
+    (attempt / "stream.jsonl").write_text(json.dumps({"type": "thread.started",
+                                                      "thread_id": "peer-thread"}) + "\n")
+    outcome = Outcome(OutcomeClass.OK, "complete", native_session_id="peer-thread")
+    result = adapter.attest(attempt, launch, outcome, "gpt-6-astra")
+    assert result.status == Attestation.UNATTESTED and result.served_model is None
+    assert "--ephemeral" in result.evidence and "cannot attest" in result.evidence
 
 
 @pytest.mark.parametrize("source", ["system", "project"])

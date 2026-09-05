@@ -421,6 +421,7 @@ class CodexAdapter(Adapter):
             from .isolation import codex_args, validate_isolated_review
             env = {**os.environ, **credential_env}
             validate_isolated_review(sandbox, job.review_root, env)
+            argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
                                inspector=getattr(self, "isolation_inspector", None))
         if model_id:
@@ -594,7 +595,11 @@ class CodexAdapter(Adapter):
                     models.append(payload["model"])
             matches.append((path, models))
         if len(matches) != 1 or not matches[0][1]:
-            return AttestationResult(Attestation.UNATTESTED, None, "Expected exactly one matching rollout with model evidence")
+            evidence = "Expected exactly one matching rollout with model evidence"
+            if "--ephemeral" in launch.argv:
+                evidence = ("Isolated --ephemeral Codex produced no unique persisted served-model evidence; "
+                            "requested model and startup header cannot attest a peer verdict")
+            return AttestationResult(Attestation.UNATTESTED, None, evidence)
         path, models = matches[0]
         served = next((model for model in models if model != model_id), models[-1])
         return AttestationResult(Attestation.ATTESTED if served == model_id else Attestation.MISMATCH,
