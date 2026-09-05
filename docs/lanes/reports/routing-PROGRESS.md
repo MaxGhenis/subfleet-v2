@@ -1,7 +1,7 @@
 # Routing lane progress
 
 ## State
-Milestone 3 routing implementation complete on `lane/routing`; final report being published.
+Milestone 3 routing implementation complete and committed on `lane/routing`; final report published in `OUTPUT.md`.
 
 ## Done
 - Confirmed the routing worktree and clean starting tree.
@@ -21,7 +21,7 @@ Milestone 3 routing implementation complete on `lane/routing`; final report bein
 ## Next
 - Integrator: rerun the full suite with process inspection and Unix sockets available, including real guardian probe and socket/CLI routing cases.
 - Integrator: adopt the richer `why.text` / `daemon.status.status` renderings in the CLI when that lane is integrated.
-- Publish the final committed report as `OUTPUT.md`.
+- Integrator: use `OUTPUT.md` for final commands, measurements, coverage, and seams.
 
 ## Seams and assumptions
 - Keep the existing Decision dataclass and schema; additional scheduling facts belong in evaluation JSON.
