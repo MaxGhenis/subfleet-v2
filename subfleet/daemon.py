@@ -1204,9 +1204,14 @@ class Daemon:
 
         Terminal, not queued. A revive that waits for its twin to finish would
         launch a second continuation the moment the first ended, which is the
-        2026-09-04 twin with a delay. rc 7 is the refusal code (C-17.3).
+        2026-09-04 twin with a delay.
+
+        `failed` with rc 7 rather than `cancelled`: nobody asked to cancel it,
+        and `exit_for_job` reports a cancelled job as 130 whatever its rc, which
+        would hide the refusal C-17.3 numbers 7. Submit refuses the ordinary
+        case; this path is the submit/admission race, and it says the same thing.
         """
-        tx.execute("UPDATE jobs SET state='cancelled',rc=7,wait_reason=NULL,"
+        tx.execute("UPDATE jobs SET state='failed',rc=7,wait_reason=NULL,"
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))
         tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))

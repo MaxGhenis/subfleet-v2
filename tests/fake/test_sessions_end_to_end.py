@@ -372,6 +372,38 @@ def test_revive_census_refreshed_and_skips_running_twin(world):
     assert len(service.store.query("SELECT * FROM jobs WHERE kind='revive'")) == 1
 
 
+def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world):
+    """C-23.55: "a session that already holds it is skipped rather than launched
+    again" — and skipped means terminal, not patient.
+
+    Submit refuses the ordinary second revive; this is the race it cannot see,
+    where the lease appears between the submission and the admission. Waiting
+    for the other revive to end would launch the twin the moment it did.
+    """
+    service, client, home, store_dir, root, policy, base = world
+    repo = workdir(base)
+    cold_desktop_session(home, store_dir, repo)
+    result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                  opt_in=True, model="astra", now=fx.NOW)
+    assert result.admitted is True
+
+    # The race: another revive of the same session takes the lease first.
+    assert service.store.acquire_lease(revive_lease_key(ALICE), "another-revive")
+    service._admit()                                    # noqa: SLF001 - one pass
+
+    job = service.store.get_job(result.job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    assert job["finished_at"], "terminal, so admission never looks at it again"
+    assert service.store.list_attempts(result.job_id) == [], "nothing was launched"
+    assert service.store.one("SELECT holder FROM leases WHERE lease_key=?",
+                             (revive_lease_key(ALICE),))["holder"] == "another-revive"
+    notice = service.store.query("SELECT * FROM notices WHERE job_id=?",
+                                 (result.job_id,))[0]
+    assert "already has a live revive" in notice["text"]
+    assert "another-revive" in notice["text"]
+    assert notice["session_id"] == ALICE
+
+
 def test_the_lease_is_session_scoped_and_released_with_the_job(world):
     """C-23.55 and C-6.3: the key names the session, the holder is the job, and
     every existing holder-keyed release site frees it."""
