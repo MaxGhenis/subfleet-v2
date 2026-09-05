@@ -453,10 +453,18 @@ def repository_context(cwd: Path, cap: int) -> tuple[str, int]:
     return clean("\n\n".join(sections), cap)
 
 
-def latest_metadata(path: Path) -> tuple[str | None, str | None]:
-    """The last main-chain entry's timestamp and cwd."""
+def latest_metadata(path: Path, *,
+                    max_bytes: int = LAST_SCAN_BYTES) -> tuple[str | None, str | None]:
+    """The last main-chain entry's timestamp and cwd.
+
+    `max_bytes` is 2 MB for ranking `--last`, where a transcript with nothing in
+    its tail simply ranks low. Resolving the WORKDIR is different: a session
+    whose last 2 MB happen to be sidechain and tool-result rows has a cwd, and
+    v1 scanned the whole file (64 MB) to find it rather than telling the caller
+    to pass `-C`. `resolve_workdir` asks for that.
+    """
     stamp = cwd = None
-    for line in transcripts.lines_reversed(path, chunk=64 * 1024, max_bytes=LAST_SCAN_BYTES):
+    for line in transcripts.lines_reversed(path, chunk=64 * 1024, max_bytes=max_bytes):
         entry = _parse(line)
         if not transcripts.is_main(entry):
             continue
@@ -527,7 +535,7 @@ def resolve_source(session_id: str | None, last: bool, *,
 
 
 def resolve_workdir(path: Path, override: str | Path | None) -> tuple[Path, str | None]:
-    _stamp, source_cwd = latest_metadata(path)
+    _stamp, source_cwd = latest_metadata(path, max_bytes=FULL_SCAN_BYTES)
     chosen = (Path(override).expanduser() if override is not None
               else Path(source_cwd).expanduser() if source_cwd else None)
     if chosen is None:

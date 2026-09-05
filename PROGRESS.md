@@ -34,6 +34,8 @@
 - Kept explicit `--max 0` as zero cold recoveries for both revive and handoff,
   instead of replacing zero with the policy default (C-17.1).
 - Kept JSON revive refusals at exit 7, matching text output (C-17.3/C-17.4).
+- Kept v1's 64 MB handoff workdir lookup so long tool-result/sidechain tails do
+  not lose the recorded cwd. Handoff unit verification: 60 passed in 2.48s.
 
 ## Validation environment
 

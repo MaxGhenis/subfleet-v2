@@ -493,3 +493,21 @@ def test_truncation_keeps_the_head_and_the_tail(home):
     cut = handoff.truncate(body, 200)
     assert cut.startswith("START") and cut.endswith("END")
     assert len(cut) <= 200 and "characters omitted" in cut
+
+
+@pytest.mark.parametrize("tail_kind", ["sidechain", "tool-result"])
+def test_workdir_uses_recorded_cwd_beyond_the_recent_tail(home, repo, tail_kind):
+    """C-23.54 and v1 handoff compatibility: long tails do not lose the workdir."""
+    task = fx.typed_prompt("continue the work", uuid="p0", at=fx.ago(3600))
+    task["cwd"] = str(repo)
+    padding = "tool output " * (handoff.LAST_SCAN_BYTES // 12 + 1000)
+    if tail_kind == "sidechain":
+        tail = fx.assistant_text(padding, uuid="a1", at=fx.ago(60))
+        tail["isSidechain"] = True
+    else:
+        tail = fx.user_tool_result(padding, uuid="r1", at=fx.ago(60))
+        tail.pop("cwd")
+    path = fx.transcript(home, SESSION, [task, tail], cwd=str(repo))
+
+    assert path.stat().st_size > handoff.LAST_SCAN_BYTES
+    assert handoff.resolve_workdir(path, None) == (repo.resolve(), str(repo))
