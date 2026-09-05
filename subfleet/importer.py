@@ -210,8 +210,11 @@ class ImportReport:
         row = MANIFEST_BY_KEY[key]
         if key not in self.stores:
             disposition = row.disposition
-            if row.disposition == "import" and row.milestone > self.milestone:
-                disposition = f"staged-milestone-{row.milestone}"
+            if row.milestone > self.milestone:
+                # The manifest's own words: an `import` row later than this pass
+                # is staged, a `retain` row is retained until its milestone.
+                disposition = (f"staged-milestone-{row.milestone}" if row.disposition == "import"
+                               else f"{row.disposition}-until-milestone-{row.milestone}")
             self.stores[key] = StoreReport(key, disposition, row.destination)
         return self.stores[key]
 
@@ -438,8 +441,18 @@ class _Writer:
             self.store._update(table, key, identity, dict(values))
 
     def event(self, kind: str, *, data: Mapping[str, Any] | None = None, **keys: Any) -> None:
-        if self.writable:
-            self.store.add_event(kind, data=dict(data or {}), **keys)
+        """Append one `events` row inside the caller's transaction (C-3.2).
+
+        `Store.add_event` opens its own transaction, which then logs a second row
+        of the same kind; an import that writes thousands of `tickle` rows needs
+        exactly one row per fact.
+        """
+        if not self.writable:
+            return
+        self.store.conn.execute(
+            "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
+            (utc_now(), kind, keys.get("job_id"), keys.get("attempt_id"), keys.get("lane_id"),
+             json.dumps(dict(data or {}), sort_keys=True, separators=(",", ":"))))
 
 
 # --- cursors (migration.md principle 4) ---------------------------------------
@@ -992,7 +1005,11 @@ def _run_is_live(meta: Mapping[str, Any]) -> tuple[bool, str | None]:
 def _run_state(meta: Mapping[str, Any], live: bool) -> str:
     """Manifest row `S/runs/`: "state from rc (0 succeeded, 4 or 5 failed,
     -9/143/killed interrupted, never finalized lost)". Any other non-zero rc is
-    a failure by the same rule."""
+    a failure by the same rule.
+
+    This is the attempt's state (C-4.2). `interrupted` is not a job state, so the
+    job takes `_job_state` of it.
+    """
     if live:
         return "running"
     rc = meta.get("rc")
@@ -1003,6 +1020,15 @@ def _run_state(meta: Mapping[str, Any], live: bool) -> str:
     if rc in KILLED_RCS:
         return "interrupted"
     return "failed"
+
+
+def _job_state(attempt_state: str) -> str:
+    """C-4.1 has no `interrupted`: a job whose only attempt was killed is `failed`.
+
+    `cancelled` is not used, because v1's rc says the run was killed and not who
+    killed it, and a v2 `cancelled` job means a cancel request v2 recorded (C-7).
+    """
+    return "failed" if attempt_state == "interrupted" else attempt_state
 
 
 def _signal_of(rc: Any) -> int | None:
@@ -1115,13 +1141,14 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
         if live and live_reason:
             report.count(live_reason)
         state = _run_state(meta, live)
+        job_state = _job_state(state)
         attempt_id = f"{job_id}/a1"                                   # C-1.2
         existing = writer.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
         if existing is not None:
             if not str(existing["request_id"]).startswith("v1:"):
                 report.skip("job-id-taken-by-a-v2-job")
                 continue
-            if existing["state"] == state:
+            if existing["state"] == job_state:
                 report.skip("already-imported")
                 if live:
                     still_open.append(name)
@@ -1154,14 +1181,14 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
             writer.insert("jobs", {
                 "job_id": job_id, "request_id": request_id,
                 "payload_digest": _run_digest(meta, prompt_digest[0] if prompt_digest else None),
-                "kind": "dispatch", "state": state, "task": task, "tier": tier,
+                "kind": "dispatch", "state": job_state, "task": task, "tier": tier,
                 "workdir": str(meta.get("workdir") or ""),
                 "workdir_head": meta.get("git_head_before"),
                 "prompt_path": str(prompt), "out_path": meta.get("out_path") or meta.get("original_out_path"),
                 "sandbox": sandbox, "exclusions": "[]", "allow_desktop": 0,
                 "caller_session": caller.get("session_id"), "caller_pid": caller.get("pid"),
                 "policy_hash": None, "rc": meta.get("rc"),
-                "accepted_attempt_id": attempt_id if state == "succeeded" else None,
+                "accepted_attempt_id": attempt_id if job_state == "succeeded" else None,
                 "created_at": started_at, "started_at": started_at,
                 "finished_at": _utc(meta.get("finished_at")),
             }, kind="job.imported")
@@ -1205,9 +1232,10 @@ def _finalize_imported_run(writer: _Writer, report: StoreReport, *, meta: Mappin
     finished_at = _utc(meta.get("finished_at")) or now
     with writer.transaction("import.run-finalized", job_id=job_id):
         if writer.writable:
-            writer.store.update_job(job_id, state=state, rc=meta.get("rc"),
+            job_state = _job_state(state)
+            writer.store.update_job(job_id, state=job_state, rc=meta.get("rc"),
                                     finished_at=finished_at,
-                                    accepted_attempt_id=attempt_id if state == "succeeded" else None)
+                                    accepted_attempt_id=attempt_id if job_state == "succeeded" else None)
             if writer.exists("SELECT 1 FROM attempts WHERE attempt_id=?", (attempt_id,)):
                 writer.store.update_attempt(attempt_id, state=state, rc=meta.get("rc"),
                                             signal=_signal_of(meta.get("rc")),
