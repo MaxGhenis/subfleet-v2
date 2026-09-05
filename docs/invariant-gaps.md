@@ -1043,3 +1043,165 @@ Three rows, two clauses.
   not be writable, so a C-6.5 test passes on the incident. v2's lease rows (C-6.3) replace v1's pass
   lock, and taking the lease inside the admitting transaction is what makes the stale-census race
   impossible rather than unlikely.
+
+## Conflicts
+
+Nine places where a proposal changes something the contract or `plan.md` already says, and two
+where the contract and the plan already disagree with each other in a way these proposals depend
+on. Each gives both texts and a recommendation. None of them is resolved here: section 23 is a
+proposal until the integrator folds it in, and every one of these is the integrator's call.
+
+<a id="c-1"></a>
+### C-1 — `-I` and `-D` against C-17.2's flag list (P-23.2, P-23.3)
+
+- **C-17.2** enumerates `run`'s flags — "`--task`, `--tier`, `-m`, `-a EMAIL`, `-H CODEX_HOME`,
+  `-C DIR`, `-p PROMPTFILE`, `-o OUT`, `-n NAME`, `-s SANDBOX`, `-x EMAIL` (repeatable),
+  `--allow-desktop`, `--allow-tmp`, `--in-place`, `--independent`, `--parent JOB`, `--request-id ID`,
+  `--wait`/`--attach`, `-d`/`--detach`, `--json`, `--dry-run`, `--why`, `--no-preamble`" — plus three
+  deprecated flags. There is no `-I` and no `-D`.
+- **P-23.2 and P-23.3** describe a mode reached by `-I` with `-D`, because ledger rows 29, 30, 45,
+  46, and 47 all govern it and all five are `keep`.
+- **Recommendation:** add `-I` and `-D <review root>` to C-17.2 in the same commit that folds in
+  P-23.2 and P-23.3. The alternative — dropping the mode — is a sixth verdict change against the
+  ledger and belongs in `docs/invariants.md`'s Dropped section with a reason, not in a flag list by
+  omission. Note that the five rows are the only place isolated review is specified at all: if the
+  mode goes, the gate lane loses the mechanism P-23.10 relies on for running a peer read-only outside
+  the repository.
+
+<a id="c-2"></a>
+### C-2 — P-23.3 adds to C-6.5's refusal list
+
+- **C-6.5** reads "Refusals are exit 7 with the fix named:" and then enumerates six. It is written as
+  a closed list.
+- **P-23.3** adds two: an inherited managed-settings variable, and a Codex home with managed
+  requirements or a nonempty system or project config layer.
+- **Recommendation:** fold P-23.3's refusals into C-6.5 rather than keeping them as a separate
+  clause, so the exit-7 list stays one list. The same is true of any later refusal: C-6.5 is more
+  useful as the index of refusals than as a sample of them.
+
+<a id="c-3"></a>
+### C-3 — P-23.5 widens C-14.2's preflight scope
+
+- **C-14.2** — "Before the first executable Codex job, `doctor` and the daemon run the trust
+  preflight". One preflight, once.
+- **P-23.5** — a verdict is good only for the version, home, override, and seeded-config fingerprint
+  it was taken under, so a re-picked lane with a different home is verified again.
+- **Recommendation:** replace C-14.2's "the first executable Codex job" with "the first executable
+  Codex job on each lane home", and let P-23.5 state the key. Ledger row 41 is a `keep` and its
+  failure mode — launching unguarded on a rotated lane — is the one C-14.2 exists to prevent, so the
+  narrower reading is very likely an accident of drafting rather than a decision.
+
+<a id="c-4"></a>
+### C-4 — where the preflight's scratch home lives (P-23.23)
+
+- **C-2.1** — "Nothing is written outside [`$SUBFLEET_HOME`] except: job workdirs and worktrees the
+  caller named or the daemon allocated under `$HOME`, salvage refs inside the job's git repository,
+  and the `-o` export path."
+- **Code on this branch** — `subfleet/guard/preflight.py:210` creates the scratch home with
+  `tempfile.TemporaryDirectory(prefix="subfleet-guard-preflight-")`, which resolves under `TMPDIR`,
+  outside the state root and not one of C-2.1's three exceptions.
+- **P-23.23** puts the scratch home under `$SUBFLEET_HOME`.
+- **Recommendation:** move the scratch home under `$SUBFLEET_HOME` rather than add a fourth exception
+  to C-2.1. C-2.4 already refuses a `/tmp` workdir at submission, so a guard component probing from
+  `/tmp` is the one part of the system exempt from the rule the rest of it enforces. This is a
+  one-line change in `preflight.py` and belongs to whichever lane owns that file, not to this one.
+
+<a id="c-5"></a>
+### C-5 — a guard check verb C-17.1 does not have (P-23.24)
+
+- **C-17.1** enumerates the verbs and their aliases. There is no guard verb.
+- **P-23.24** requires a guard check that never writes the denial log, from ledger row 56.
+- **Recommendation:** spell it `doctor --guard-check <payload>` rather than a new top-level verb.
+  `doctor` already owns the guard preflight under C-14.2, the check is diagnostic, and amendment 1
+  makes v1 *verb* spellings permanent — `subfleet-guard check` was a separate binary in v1, not a
+  `subfleet` verb, so nothing is owed the old spelling.
+
+<a id="c-6"></a>
+### C-6 — the hook installer writes outside the state root (P-23.25)
+
+- **C-2.1** names three exceptions and `~/.claude/settings.json` is none of them.
+- **P-23.25** governs how that file is edited, and C-14.3 already assumes the global Claude hook
+  exists in it ("a Claude launch relies on the global hook and `doctor` reports if it is missing from
+  `~/.claude/settings.json`").
+- **Recommendation:** add a fourth exception to C-2.1 for `~/.claude/settings.json`, written only by
+  an explicit `daemon install` or hook install, never by a job or a timer. C-14.3 already reads the
+  file, so the contract has half-adopted it; leaving the write unstated means the milestone-4
+  installer will land in violation of C-2.1 and the violation will be discovered by a test rather
+  than by a decision.
+
+<a id="c-7"></a>
+### C-7 — stranded lanes against C-11.3's Claude comparator (P-23.37)
+
+- **C-11.3** — "Claude comparator: eligible by the same floor on the worst window; ordered by
+  worst-window headroom descending, then in-flight ascending, then lane id."
+- **P-23.37** — model-stranded lanes sort ahead of unstranded ones, and C-11.3's order applies within
+  each group.
+- **This is a contradiction, not an omission.** A model-stranded lane's worst window is by definition
+  exhausted, so "worst-window headroom descending" ranks it last — exactly inverted from ledger row
+  108, which is a `keep` and is Max's rule of 2026-08-26.
+- **Recommendation:** amend C-11.3's Claude comparator to sort on the stranded term first.
+  `plan.md` amendment 14 already records that v1's own sort "puts `not fable_stranded` before
+  `active`", so the plan of record knows about the term and the contract lost it in condensation. The
+  eligibility floor is unaffected: a stranded lane is eligible only for models it can still serve,
+  which the closure scope already decides.
+
+<a id="c-8"></a>
+### C-8 — redemption order runs opposite to routing order (P-23.38)
+
+- **C-11.3** — Codex lanes are "ordered by `seven_day` reset ascending (soonest first), then lane
+  id. In-flight counts never reorder Codex lanes."
+- **P-23.38** — redemption candidates are ordered by weekly reset *furthest out* first, then *fewest
+  in-flight*, then lane number.
+- **Not a contradiction once the scope is stated**, which is why P-23.38 says so in its own text: the
+  two orders answer different questions. Routing asks which lane recovers soonest; redemption asks
+  which lane a reset buys the most window on.
+- **Recommendation:** keep both, and keep P-23.38's second sentence when folding it in. Without that
+  sentence the two clauses read as a defect, and someone will "fix" one of them.
+
+<a id="c-9"></a>
+### C-9 — two kinds of shadowing (P-23.46)
+
+- **C-10.3** — "A lane whose account is the desktop app's current login (`~/.claude.json`
+  `oauthAccount`, re-read each probe cycle) is `desktop` and is never a candidate unless the job has
+  `allow_desktop`."
+- **P-23.46** — a shadowed lane's dispatch order is unchanged by the shadow, and only redemption
+  prefers away from it.
+- These are different facts about different providers wearing one word. C-10.3's `desktop` is the
+  Claude desktop login and it bars candidacy; ledger rows 138 and 163 are the Codex app shadow and it
+  must not.
+- **Recommendation:** keep two names. Reserve `desktop` for C-10.3's Claude login and call the Codex
+  one `app_shadowed`, or the first reader will conclude one of the two clauses is wrong. The
+  disposition already flags the collision on row 138.
+
+<a id="c-10"></a>
+### C-10 — C-17.1's verb list against plan amendment 1 (P-23.31, P-23.35, P-23.53, P-23.54)
+
+This one is not caused by a proposal; it is a disagreement the proposals run into.
+
+- **Amendment 1** — "Every v1 verb spelling that appears in the README or in any agent's CLAUDE.md is
+  permanent, not transitional: `run`, `runs [...]`, `runs show <id> [...]`, `runs reap`, `wait`,
+  `kill`, `status`, `capacity`, `resume-codex`, `handoff`, `gate`, `notify`, `enroll`."
+- **C-17.1** lists `subfleet`, `status`, `run`, `runs`, `runs show`, `runs reap`, `wait`, `kill`,
+  `resume`, `lanes [...]`, `why`, `daemon`, `doctor`, `ping`, with `jobs`, `show`, `capacity`,
+  `notify`, and `resume-codex` as aliases. **`handoff` and `gate` are absent**, and `enroll` survives
+  only as `lanes enroll`. Ledger row 76 also cites a `subfleet sessions` listing, which appears in
+  neither list.
+- The contract's own preamble says "Where this file and `plan.md` disagree, this file wins", so as
+  written C-17.1 deletes two verbs amendment 1 calls permanent.
+- **Recommendation:** add `handoff`, `gate`, and `sessions` to C-17.1 when section 23 lands, since
+  P-23.31, P-23.35, P-23.36, P-23.53, and P-23.54 all describe behaviour reached through them. If the
+  integrator instead means to route them through subcommands, amendment 1 needs correcting in the
+  same commit — the plan says the sentence "keeps working unchanged" is "literally true", and it is
+  not.
+
+<a id="c-11"></a>
+### C-11 — a disabled lane against C-18.1's probe cycle (P-23.44, P-23.47)
+
+- **C-18.1** — "Probe cycle every `probe_interval_s` (300) per lane, one probe per idle lane per
+  window".
+- **P-23.44** and **P-23.47** stop probing a lane entirely: an `auth-dead` lane until re-enrolment, a
+  revoked-token lane until its credential epoch changes.
+- A disabled lane is arguably not an "idle lane", so this may be a reading rather than a conflict.
+- **Recommendation:** when C-18.1 is expanded for milestone 5, say "one probe per idle, enabled,
+  unlatched lane per window" explicitly. Ledger row 175 exists because v1 pinged dead tokens on a
+  timer for weeks, so the exclusion is worth stating rather than inferring.
