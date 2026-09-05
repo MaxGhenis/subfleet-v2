@@ -13,6 +13,7 @@ from typing import Callable, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .base import Adapter, AdapterError
+from ..guardian import atomic_publish
 from ..contracts import (
     Attestation, AttestationResult, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, GUESSED_CLOSURE_S, JobSpec, Lane, LaneInfo, Launch, Outcome,
@@ -306,8 +307,11 @@ class CodexAdapter(Adapter):
         env["CODEX_HOME"] = str(Path(home).expanduser())
         env["SUBFLEET_ATTEMPT"] = attempt_id
         env["SUBFLEET_JOB"] = attempt_id.rsplit("/", 1)[0]
+        attempt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        sent_path = attempt_dir / "prompt.sent.md"
+        atomic_publish(sent_path, prompt_path.read_bytes())
         return Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
-                      str(prompt_path), str(attempt_dir / "stdout"), str(attempt_dir / "stderr"),
+                      str(sent_path), str(attempt_dir / "stdout"), str(attempt_dir / "stderr"),
                       str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id)
 
     def build_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,

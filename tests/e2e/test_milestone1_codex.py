@@ -35,7 +35,7 @@ def git(e2e, workdir, *argv):
 
 
 def test_success_exports_by_rename_and_exposes_notices_and_artifacts(e2e):
-    """C-8.1–C-8.3, C-12.5, C-15.1, C-17.1, C-17.4: one accepted CLI deliverable."""
+    """C-6.7, C-8.1–C-8.3, C-12.5, C-15.1, C-17.1, C-17.4: one accepted CLI deliverable."""
     old_contents = b"previous published deliverable\n"
     e2e.out.write_bytes(old_contents)
     e2e.start()
@@ -58,19 +58,22 @@ def test_success_exports_by_rename_and_exposes_notices_and_artifacts(e2e):
     assert listed.rc == 0 and identity in listed.stdout, listed
     shown = e2e.show(identity)
     assert shown["job"]["state"] == "succeeded"
+    assert Path(shown["job"]["prompt_path"]).read_bytes() == e2e.prompt.read_bytes()
     attempt, = shown["attempts"]
     assert attempt["attempt_id"] == shown["job"]["accepted_attempt_id"]
     assert attempt["outcome_class"] == "ok" and attempt["rc"] == 0
     # This replay has no Codex rollout; it must expose uncertainty honestly.
     assert attempt["attestation"] == "unattested"
     artifacts = {artifact["role"]: artifact for artifact in shown["artifacts"]}
-    assert {"deliverable", "stdout", "stderr", "raw-stream", "launch", "export"} <= artifacts.keys()
+    assert {"deliverable", "stdout", "stderr", "raw-stream", "launch", "export", "prompt-sent"} <= artifacts.keys()
     deliverable = Path(artifacts["deliverable"]["path"])
     assert deliverable.read_bytes() == expected == e2e.out.read_bytes()
     assert artifacts["deliverable"]["bytes"] == len(expected)
     assert artifacts["deliverable"]["sha256"] == hashlib.sha256(expected).hexdigest()
     assert Path(artifacts["raw-stream"]["path"]).read_bytes() == (FIXTURE / "stdout").read_bytes()
     launch = json.loads(Path(artifacts["launch"]["path"]).read_text())
+    assert launch["stdin_path"] == artifacts["prompt-sent"]["path"]
+    assert Path(launch["stdin_path"]).read_bytes() == e2e.prompt.read_bytes()
     assert launch["argv"][:3] == ["codex", "exec", "--json"]
     assert launch["argv"][launch["argv"].index("-m") + 1] == "gpt-6-astra"
     output = e2e.cli("runs", "show", identity, "--out")

@@ -28,7 +28,7 @@ def submitted(result):
 
 
 def test_allowed_readings_percentages_and_raw_stream(e2e):
-    """C-1.7, C-8.2, C-9.1, C-9.8, C-12.4–C-12.6: real Claude evidence persists."""
+    """C-1.7, C-6.7, C-8.2, C-9.1, C-9.8, C-12.4–C-12.6: real Claude evidence persists."""
     scenario = "success-allowed"
     want = expected(scenario)
     e2e.start(scenario=scenario)
@@ -37,6 +37,7 @@ def test_allowed_readings_percentages_and_raw_stream(e2e):
     job_id = submitted(result)
     shown = e2e.show(job_id)
     assert shown["job"]["state"] == "succeeded"
+    assert Path(shown["job"]["prompt_path"]).read_bytes() == e2e.prompt.read_bytes()
     attempt, = shown["attempts"]
     assert attempt["lane_id"] == "claude-1"
     assert attempt["attestation"] == "attested"
@@ -77,6 +78,10 @@ def test_allowed_readings_percentages_and_raw_stream(e2e):
     assert notes["transcript_path"] == attempt["transcript_path"]
     assert notes["transcript_offset"] == 0
     assert launch["stdin_path"] == artifacts["prompt-sent"]["path"]
+    sent = Path(launch["stdin_path"]).read_bytes()
+    assert sent.count(b"<!-- subfleet:headless -->") == 1
+    assert sent.endswith(e2e.prompt.read_bytes())
+    assert sent == (e2e.root / "claude-stdin.md").read_bytes()
 
 
 def test_credits_rejection_closes_model_and_retry_explains_exclusion(e2e):

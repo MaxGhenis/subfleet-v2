@@ -246,10 +246,6 @@ class Daemon:
                     raise ValueError("pinned lane and model providers disagree")
                 if lane:
                     self._validate_home(lane)
-                if provider == "claude" and HEADLESS_MARKER.encode() not in prompt.splitlines():
-                    prompt = HEADLESS_PREAMBLE.encode() + prompt
-                if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
-                    prompt = WRITE_PREAMBLE.encode() + prompt
                 caps = self.policy["caps"]
                 max_attempts = args.max_attempts if args.max_attempts is not None else caps["max_attempts"]
                 max_wall_s = args.max_wall_s if args.max_wall_s is not None else caps["max_wall_s"]
@@ -284,7 +280,12 @@ class Daemon:
             self._validate_conflicts(values)
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
-            self._publish("manifest", jobdir / "manifest.json", json_bytes({"job": values}))
+            manifest = {"job": values}
+            if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
+                prepared_path = jobdir / "prompt.prepared.md"
+                self._publish("prompt-prepared", prepared_path, WRITE_PREAMBLE.encode() + prompt)
+                manifest["prepared_prompt_path"] = str(prepared_path)
+            self._publish("manifest", jobdir / "manifest.json", json_bytes(manifest))
             with self.store.transaction("job.submitted", job_id=job_id) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
@@ -613,11 +614,15 @@ class Daemon:
         evidence = json.loads(a["evidence_json"] or "{}")
         model = self.policy["models"][evidence["model_short"]]
         prompt_path = Path(job["prompt_path"])
+        prepared_path = prompt_path.with_name("prompt.prepared.md")
+        if prepared_path.is_file():
+            prompt_path = prepared_path
         if a["seq"] > 1 and job["sandbox"] == "workspace-write":
             refs = self.store.query("SELECT path FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=? AND role='salvage' ORDER BY seq", (job["job_id"],))
             suffix = f"\n\nContinue from checkpoint {evidence.get('baseline_commit')}. Preserved snapshots: {', '.join(r['path'] for r in refs) or 'none'}.\n"
+            prompt = prompt_path.read_bytes() + suffix.encode()
             prompt_path = adir / "prompt.md"
-            self._publish("prompt", prompt_path, Path(job["prompt_path"]).read_bytes() + suffix.encode())
+            self._publish("prompt", prompt_path, prompt)
         try:
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
