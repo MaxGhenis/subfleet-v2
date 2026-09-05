@@ -58,6 +58,16 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
             add(f"codex-app-shadow:{home}", "warn", f"codex: app shares {home}'s account",
                 f"The app and {home} share {email}. Automatic reset credits prefer unshadowed lanes. "
                 f"If the credential is revoked, run: {_login(lane)}", home=home, once=True, recover=False)
+        if provider == "codex":
+            weekly = [row for row in lane.get("readings", ()) if row.get("window") == "seven_day"
+                      and row.get("scope") == "account" and row.get("label") == "provider"]
+            for reading in weekly:
+                utilization, reset_at = reading.get("utilization"), reading.get("resets_at")
+                if (_number(utilization) and 0 <= utilization < 1 and reset_at
+                        and timedelta(0) < instant(reset_at) - at <= timedelta(days=1)):
+                    add(f"codex-capacity-expiring:{home}", "warn", f"codex: unused capacity resets in {home}",
+                        f"{home} has provider-observed unused weekly capacity that resets at {reset_at}. "
+                        "Queue Codex work before that reset; inspect with subfleet status.", home=home, daily=True)
         for closure in lane.get("closures", ()):
             if closure.get("reason") == "auth-dead":
                 continue
@@ -155,7 +165,8 @@ class Alerts:
                     for lane in snapshot.get("lanes", ()) if lane.get("provider") == "codex"
                     and lane.get("probed", True)]
         statuses = [status for status in statuses if status is not None]
-        if offline or snapshot.get("offline") or statuses and all(status == "network-error" for status in statuses):
+        inferred_offline = bool(statuses) and all(status == "network-error" for status in statuses)
+        if offline or snapshot.get("offline", inferred_offline):
             self.store.add_event("monitoring.offline", data={"observed_at": timestamp(at)})
             return {"conditions": [], "alerts_sent": [], "recovered": [], "offline": True}
 

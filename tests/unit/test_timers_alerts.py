@@ -163,3 +163,25 @@ def test_scoped_closure_never_exposes_unmeasured_percentage():
     conditions = evaluate_conditions(view, now=NOW)
     notice = next(condition for condition in conditions if "scoped-limit" in condition["key"])
     assert "%" not in json.dumps(notice)
+
+
+def test_expiring_observed_weekly_capacity_alerts_daily_per_home(alerts):
+    """C-9.1, C-18.1: measured unused weekly capacity expiring within 24h alerts daily for each home."""
+    monitor, delivered, _ = alerts
+    weekly = {"scope": "account", "window": "seven_day", "utilization": 0.25,
+              "resets_at": (NOW + timedelta(hours=23)).isoformat(), "label": "provider"}
+    view = snapshot(lane(readings=[weekly]), lane("two", readings=[weekly]),
+                    lane("unknown", readings=[{**weekly, "label": "admission-observed"}]),
+                    lane("stale", readings=[{**weekly, "label": "stale-provider"}]))
+    result = monitor.evaluate(view, now=NOW)
+    assert sorted(result["alerts_sent"]) == ["codex-capacity-expiring:/homes/one", "codex-capacity-expiring:/homes/two"]
+    assert not monitor.evaluate(view, now=NOW + timedelta(hours=6))["alerts_sent"]
+    assert all("provider-observed unused" in notice["body"] for notice in delivered)
+
+
+def test_cycle_offline_verdict_overrides_old_lane_network_error(alerts):
+    """C-23.27: an explicit current-cycle online verdict overrides persisted errors from earlier probes."""
+    monitor, delivered, _ = alerts
+    view = snapshot(lane(verdict="auth-dead", probe_status="network-error"), offline=False)
+    assert monitor.evaluate(view, now=NOW)["alerts_sent"] == ["codex-revoked:/homes/one"]
+    assert delivered

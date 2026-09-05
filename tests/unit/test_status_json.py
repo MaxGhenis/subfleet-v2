@@ -85,9 +85,18 @@ def test_identity_status_and_post_heal_verdict_preserved():
 @pytest.mark.parametrize("counts, total", [([2, 3], 5), ([2, None], None), ([0, 0], 0)])
 def test_fleet_credit_total_unknown_if_any_count_unreadable(counts, total):
     """C-23.18: a partial fleet credit count never masquerades as a complete total."""
-    lanes = [lane(lane_id=f"codex-{i}", reset_credits_remaining=count) for i, count in enumerate(counts)]
+    lanes = [lane(lane_id=f"codex-{i}", account_key=f"codex:{i}", reset_credits_remaining=count) for i, count in enumerate(counts)]
     result = build_status(build_view(lanes, now=NOW))
     assert result["codex"]["fleet"]["reset_credits_remaining"] == total
+
+
+def test_probe_credit_counts_include_disabled_unknown_and_deduplicate_accounts():
+    """C-23.18, C-23.45: adapter counts are complete only across all canonical accounts, including disabled lanes."""
+    lanes = [lane(probe={"reset_credits": {"available": 2}}),
+             lane(lane_id="duplicate", duplicate_of="/homes/codex-1", reset_credits={"available": 2})]
+    assert build_status(build_view(lanes, now=NOW))["codex"]["fleet"]["reset_credits_remaining"] == 2
+    lanes.append(lane(lane_id="disabled", account_key="codex:disabled", enabled=False))
+    assert build_status(build_view(lanes, now=NOW))["codex"]["fleet"]["reset_credits_remaining"] is None
 
 
 def test_empty_roster_and_model_scope_cannot_supply_account_percentage():

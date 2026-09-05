@@ -50,7 +50,7 @@ def dispatchable(lane: Mapping[str, Any]) -> bool:
         return False
     if "dispatchable" in lane:
         return bool(lane["dispatchable"])
-    return (lane_verdict(lane) in {"ok", "provider", "stale-provider", "admission-observed"}
+    return (lane_verdict(lane) in {"ok", "ready", "provider", "stale-provider", "admission-observed"}
             and not any(row.get("scope") == "account" for row in lane.get("closures", ())))
 
 
@@ -97,10 +97,13 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
                                        else "provider" if numeric else verdict)
             codex_windows["stale"] = any(row["stale"] for row in numeric)
             codex_windows["as_of"] = max((row["as_of"] for row in numeric if row["as_of"]), default=None)
+            counts = lane.get("reset_credits") or (lane.get("probe") or {}).get("reset_credits") or {}
+            credit_count = lane.get("reset_credits_remaining", counts.get("available"))
             codex.append({**common, "home": lane.get("home") or lane.get("credential_ref") or lane["lane_id"],
                           "email": email, "windows": codex_windows, "duplicate_of": lane.get("duplicate_of"),
+                          "account_key": lane.get("account_key", lane["lane_id"]),
                           "app_shadowed": bool(lane.get("app_shadowed", False)),
-                          "reset_credits_remaining": lane.get("reset_credits_remaining")})
+                          "reset_credits_remaining": credit_count})
         elif lane["provider"] == "claude":
             probe: dict[str, Any] = {"status": verdict}
             live: dict[str, Any] = {"source": verdict, "stale": False}
@@ -121,8 +124,9 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     available = [lane for lane in codex if lane["dispatchable"]]
     reset_times = [window["reset_at"] for lane in codex for key, window in lane["windows"].items()
                    if key in {"five_hour", "seven_day"} and window.get("reset_at")]
-    credit_counts = [lane["reset_credits_remaining"] for lane in codex]
-    credits = (sum(credit_counts) if all(isinstance(count, int) and not isinstance(count, bool) and count >= 0
+    accounts = {lane["account_key"]: lane for lane in codex if not lane.get("duplicate_of")}
+    credit_counts = [lane["reset_credits_remaining"] for lane in accounts.values()]
+    credits = (sum(credit_counts) if credit_counts and all(isinstance(count, int) and not isinstance(count, bool) and count >= 0
                                        for count in credit_counts) else None)
     return {"generated_at": timestamp(now or snapshot.get("now")), "offline": bool(snapshot.get("offline", False)),
             "codex": {"homes": codex, "fleet": {"total_homes": len(codex), "dispatchable_now": len(available),
