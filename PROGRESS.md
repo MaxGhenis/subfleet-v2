@@ -38,6 +38,8 @@
   not lose the recorded cwd. Handoff unit verification: 60 passed in 2.48s.
 - Kept hard handoff truncation bounds and corrected separator/fallback accounting
   for tiny valid section caps (C-23.36); credential scrubbing remains covered.
+- Kept mirror lock acquisition before sidecar writes: a contending pass preserves
+  both running and stalled health (C-23.28). Mirror tests: 33 passed in 1.70s.
 
 ## Validation environment
 

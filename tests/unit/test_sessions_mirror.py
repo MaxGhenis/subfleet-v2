@@ -339,17 +339,37 @@ def test_a_failed_pass_is_stalled_and_says_why(world, monkeypatch):
     assert health["status"] == "stalled" and "last pass failed" in health["detail"]
 
 
-def test_a_second_pass_that_finds_the_lock_held_does_not_report_a_failure(world):
-    """A 60 s timer over a pass that is still running is normal, not an error."""
+@pytest.mark.parametrize("run_min, status", [(10, "running"), (45, "stalled")])
+def test_a_second_pass_that_finds_the_lock_held_touches_nothing(world, run_min, status):
+    """C-23.28: a 60 s timer over a pass that is still running fires constantly,
+    and the loser must not overwrite the running pass's record.
+
+    If it did, a pass hung for an hour would read `healthy`, which is the exact
+    reading the clause exists to prevent.
+    """
+    import fcntl
+    home, store, root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A)
     engine_under_test = engine(world)
+
+    # A pass in flight, within the grace period or already stalled.
+    (root / "sessions").mkdir(parents=True, exist_ok=True)
+    in_flight = json.dumps({
+        "pass": {"started_at": fx.iso(fx.NOW - timedelta(minutes=run_min)),
+                 "finished_at": None, "state": "running"},
+        "updated_at": fx.iso(fx.NOW - timedelta(minutes=run_min))})
+    (root / "sessions" / mirror.SIDECAR_NAME).write_text(in_flight, encoding="utf-8")
+
     held = engine_under_test._lock()                     # noqa: SLF001 - the seam
     assert held is not None
     try:
         result = engine(world).run_once(mirror.Options())
-        assert result.state == "ok"
+        assert result.state == "ok", "a contended pass is normal, not an error"
         assert "another pass holds the lock" in result.error
+        assert (root / "sessions" / mirror.SIDECAR_NAME).read_text() == in_flight
+        assert engine(world).health()["status"] == status, \
+            "the pass that is actually in flight is still the one reported"
     finally:
-        import fcntl
         fcntl.flock(held.fileno(), fcntl.LOCK_UN)
         held.close()
 

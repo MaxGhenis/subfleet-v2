@@ -486,23 +486,30 @@ class Mirror:
     def run_once(self, options: Options | None = None) -> Pass:
         """One full mirroring pass, recorded in the sidecar as it goes (C-23.28).
 
-        The sidecar is written BEFORE the work starts, which is the whole point:
-        a pass that hangs is visible as in flight rather than as silence, and
-        `health` can tolerate it for thirty minutes instead of guessing from a
+        The lock is taken FIRST and the sidecar is written second, and the order
+        matters more than it looks. The sidecar holds one pass, and a 60 s timer
+        over a pass that is still running fires a second one constantly. If the
+        loser wrote the sidecar, it would overwrite the running pass's
+        `started_at` with its own and then stamp it finished — so a pass hung for
+        an hour would read `healthy`, which is exactly the reading C-23.28
+        exists to prevent. The loser now touches nothing.
+
+        Within the lock, the sidecar is written BEFORE the work starts: a pass
+        that hangs is then visible as in flight rather than as silence, and
+        `health` tolerates it for thirty minutes instead of guessing from a
         process listing.
         """
         options = options or Options()
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run)
-        self._record(current)
         lock = None
         try:
             lock = self._lock()
             if lock is None:
                 current.state = "ok"
-                current.finished_at = _iso(self.now())
+                current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
-                self._record(current)
-                return current
+                return current           # deliberately without touching the sidecar
+            self._record(current)
             self._pass(current, options)
             current.state = "ok"
             current.finished_at = _iso(self.now())
