@@ -18,8 +18,8 @@ from tests.unit.test_gate_admission import core  # Real submit/admit; fake lane/
 FIXTURE = Path(__file__).parents[1] / "fixtures/gates/peer-verdict.txt"
 
 
-def arguments(plan, *flags):
-    return cli.build_parser().parse_args(["gate", "plan", str(plan), "--peer", "astra",
+def arguments(plan, *flags, peer="astra"):
+    return cli.build_parser().parse_args(["gate", "plan", str(plan), "--peer", peer,
         "--main-approve", "--expect-sha256", hashlib.sha256(plan.read_bytes()).hexdigest(), *flags])
 
 
@@ -130,18 +130,37 @@ def test_changed_plan_during_peer_blocks_and_discards_approval(core, tmp_path):
     assert not list((core.root / "gates").glob("*/certificate.json"))
 
 
-@pytest.mark.parametrize("attestation", ["mismatch", "unattested"])
-def test_unattested_peer_retries_then_stops_at_policy_cap(core, tmp_path, attestation, capsys):
-    """C-23.43, C-23.53: discarded output never becomes a verdict; four jobs stop."""
+@pytest.mark.parametrize("attestation,peer", [("mismatch", "astra")])
+def test_unattested_peer_retries_then_stops_at_policy_cap(core, tmp_path, attestation, peer, capsys):
+    """C-23.43, C-23.53: discarded output never becomes a verdict; four jobs stop.
+
+    A mismatch is discarded on any provider. An unattested round is discarded only
+    for a Claude peer; this harness has no Claude lane to run one, so that half of
+    the rule is proved at the unit level in tests/unit/test_gate_verdict.py.
+    """
     plan = tmp_path / "plan.md"
     plan.write_text("Review me\n")
     client = FakeClient(core, attestation=attestation)
-    assert gate_cli.run(arguments(plan), root=core.root, client=client, poll_interval=0) == 4
-    assert len(client.jobs) == 4
+    assert gate_cli.run(arguments(plan, peer=peer), root=core.root, client=client, poll_interval=0) == 4
     state = core._gate_service._load(next((core.root / "gates").iterdir()).name)
+    assert len(client.jobs) == 4, (state.get("blocker"), [(r.get("status"), r.get("error")) for r in state["rounds"]])
     assert all(r["verdict"] is None for r in state["rounds"])
     assert "not a verdict" in state["blocker"]
     assert attestation in capsys.readouterr().out
+
+
+def test_c23_43_unattested_codex_round_counts_and_is_recorded(core, tmp_path):
+    """C-23.43 (amended): a Codex peer pins its model; no persisted rollout still yields a verdict."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Review me\n")
+    client = FakeClient(core, attestation="unattested")
+    assert gate_cli.run(arguments(plan), root=core.root, client=client, poll_interval=0) == 0
+    assert len(client.jobs) == 1
+    gate_id = next((core.root / "gates").iterdir()).name
+    assert (core.root / "gates" / gate_id / "certificate.json").is_file()
+    state = core._gate_service._load(gate_id)
+    round_record, = state["rounds"]
+    assert round_record["status"] == "approve" and round_record["peer_attestation"] == "unattested"
 
 
 def test_lost_round_lease_discards_previously_successful_output(core, tmp_path):

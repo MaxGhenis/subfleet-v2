@@ -94,3 +94,18 @@ def test_attestation_accepts_adapter_result_for_pinned_model():
     result = AttestationResult(Attestation.ATTESTED, "claude-fable-5-1", "transcript")
     validate_attestation(result, "claude-fable-5-1")
     validate_attestation("attested", "gpt-6", served_model="gpt-6")
+
+
+def test_c23_43_codex_round_without_persisted_rollout_still_counts():
+    """C-23.43 (amended): a Codex peer pins its model at launch; an unattested round counts and is recorded."""
+    from subfleet.gate.verdict import validate_attestation
+    validate_attestation({"status": "unattested", "served_model": None}, "gpt-6-astra")
+
+
+def test_c23_43_codex_mismatch_and_claude_unattested_are_not_verdicts():
+    """C-23.43: a mismatch is never a verdict, and a Claude round must be positively attested."""
+    from subfleet.gate.verdict import validate_attestation
+    with pytest.raises(GateError):
+        validate_attestation({"status": "mismatch", "served_model": "gpt-5.6-terra"}, "gpt-6-astra")
+    with pytest.raises(GateError):
+        validate_attestation({"status": "unattested", "served_model": None}, "claude-fable-5-1")

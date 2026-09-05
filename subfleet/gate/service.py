@@ -334,6 +334,7 @@ class GateService:
         record = state["rounds"][-1]
         expected = record["revision"]
         error, verdict, retry = None, None, False
+        attempt = None  # bound only once the peer job is accepted
         try:
             subject, _ = capture(state, runner=self.runner)
             if revision(subject) != expected:
@@ -386,7 +387,11 @@ class GateService:
                 error, verdict, retry = "gate review lease is no longer held; abandoned output is not a verdict", None, False
                 self.store.add_event("gate.round-discarded", data={"gate_id": state["id"], "reason": error})
             record.update(finished_at=utc_now(), peer_returncode=job.get("rc") if job else None,
-                          verdict=verdict, status="blocked" if error else verdict["verdict"], error=error)
+                          verdict=verdict, status="blocked" if error else verdict["verdict"], error=error,
+                          # C-23.43: the round record notes the attestation a verdict was
+                          # accepted under (an unattested Codex round is legitimate).
+                          peer_attestation=attempt.get("attestation") if attempt else None,
+                          peer_model_served=attempt.get("model_served") if attempt else None)
             if error or (verdict and verdict["verdict"] == "blocked"):
                 state.update(status="blocked", blocker=error or verdict["summary"])
             elif verdict["verdict"] == "approve":

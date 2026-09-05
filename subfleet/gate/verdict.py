@@ -87,8 +87,17 @@ def validate_attestation(
     status = getattr(status, "value", status)
     if downgrade is not None and downgrade is not False:
         raise GateError("peer carries a downgrade record; not a verdict", 4)
+    if status == "mismatch":
+        raise GateError("peer attestation is mismatch; not a verdict", 4)
     if status != "attested":
-        raise GateError(f"peer attestation is {status or 'unattested'}; not a verdict", 4)
+        # C-23.43 as amended: a Claude round must be positively attested, because
+        # the provider can silently serve another model. A Codex round pins its
+        # model at launch and the CLI has no such fallback; when no rollout was
+        # persisted (Codex 0.153.3 does not keep one for an isolated ephemeral
+        # run) the round counts and the certificate records it as unattested.
+        if requested_model.startswith("claude-"):
+            raise GateError(f"peer attestation is {status or 'unattested'}; not a verdict", 4)
+        return
     matches = served_model == requested_model or (
         requested_model.startswith("claude-") and isinstance(served_model, str)
         and served_model.startswith(requested_model + "-")
