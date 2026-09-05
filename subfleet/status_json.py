@@ -86,6 +86,10 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
             common["identity_status"] = lane["identity_status"]
         email = lane.get("email") or str(lane.get("account_key", "unknown")).partition(":")[2] or lane.get("account_key", "unknown")
         if lane["provider"] == "codex":
+            if verdict == "auth-dead":
+                # Swift's existing auth warning recognizes auth-revoked; keep
+                # the daemon's stronger outcome alongside that display alias.
+                common.update(verdict="auth-revoked", outcome="auth-dead")
             # v1 primary/secondary are compatibility aliases of duration keys;
             # provider slot order is never an authority (C-9.7).
             codex_windows = dict(windows)

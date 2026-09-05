@@ -104,3 +104,11 @@ def test_empty_roster_and_model_scope_cannot_supply_account_percentage():
     assert build_status({"lanes": [], "now": NOW})["codex"]["fleet"]["total_homes"] == 0
     view = build_view([lane()], [reading(scope="gpt-6-astra")], now=NOW)
     assert "used_percent" not in json.dumps(build_status(view))
+
+
+def test_auth_dead_uses_existing_menu_warning_alias_without_losing_outcome():
+    """C-18.1, C-23.44: disabled auth-dead lanes retain their class and activate Swift's existing credential warning."""
+    row = build_status(build_view([lane(enabled=False, verdict="auth-dead")], now=NOW))["codex"]["homes"][0]
+    assert row["verdict"] == "auth-revoked"
+    assert row["outcome"] == "auth-dead"
+    assert not row["dispatchable"]
