@@ -183,6 +183,24 @@ class ResetCredits:
         return {json.loads(row["data_json"]).get("action_id") for row in self.store.query(
             "SELECT data_json FROM events WHERE kind='action.reconciled'")}
 
+    def _belongs_to_lane(self, action: dict, lane_id: str) -> bool:
+        """C-1.4, C-19.1: imported home/account subjects retain account authority."""
+        lane = self.store.get_lane(lane_id)
+        if lane is None:
+            return action["subject"] == lane_id
+        request = json.loads(action.get("request_json") or "{}")
+        account = request.get("account_key")
+        if account is not None and account != lane.account_key:
+            return False
+        if request.get("lane_id") == lane_id or account == lane.account_key:
+            return True
+        if action["subject"] in (lane_id, lane.account_key):
+            return True
+        # A home can be rebound to another account; its operation key must
+        # still identify this account before an imported action can reopen it.
+        return (action["subject"] == lane.home and
+                action["op_key"].startswith(lane.account_key + ":"))
+
     def evaluate(self, snapshot: dict, *, now: str | datetime | None = None,
                  cancel: threading.Event | None = None, deadline: float | None = None) -> dict:
         """C-18.1, C-23.16–18, C-23.38, C-23.46: at most one credit per pass."""
@@ -314,7 +332,7 @@ class ResetCredits:
         observed = _time(probe.get("checked_at") or instant)
         reconciled, result = self._reconciled(), None
         for action in self._history():
-            if action["subject"] != lane_id or action["action_id"] in reconciled or action["state"] not in ("unknown", "confirmed"):
+            if not self._belongs_to_lane(action, lane_id) or action["action_id"] in reconciled or action["state"] not in ("unknown", "confirmed"):
                 continue
             if observed < _time(action["updated_at"]):
                 continue
@@ -331,7 +349,7 @@ class ResetCredits:
         instant = _time(now or datetime.now(timezone.utc))
         reconciled = self._reconciled()
         for action in reversed(self._history()):
-            if action["subject"] != lane_id or action["state"] != "confirmed" or action["action_id"] in reconciled:
+            if not self._belongs_to_lane(action, lane_id) or action["state"] != "confirmed" or action["action_id"] in reconciled:
                 continue
             confirmed = _time(action["updated_at"])
             if confirmed + timedelta(days=7) <= instant:

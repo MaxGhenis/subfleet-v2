@@ -321,6 +321,32 @@ def test_lagging_usage_cannot_spend_another_gift_on_a_confirmed_open_lane(store,
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
 
 
+@pytest.mark.parametrize("binding", ["account", "home", "request-account", "request-lane"])
+def test_imported_account_or_home_subject_reopens_and_reconciles_the_correct_lane(store, tmp_path, binding):
+    """C-19.1 C-23.17: imported confirmed actions retain account authority across subject formats."""
+    target = lane(store, tmp_path)
+    subject = target.account_key if binding == "account" else target.home if binding == "home" else "imported"
+    request = {"account_key": target.account_key} if binding == "request-account" else (
+        {"lane_id": target.lane_id} if binding == "request-lane" else {})
+    store.add_action(action_id="imported", kind="reset-credit", op_key=target.account_key + ":gift-old",
+                     subject=subject, request_json=json.dumps(request), state="confirmed",
+                     created_at=STAMP, updated_at=STAMP)
+    resets = component(store, HTTP())
+    assert resets.confirmed_override(target.lane_id, now=NOW)["action_id"] == "imported"
+    settled = resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False}, now=NOW)
+    assert settled["action_id"] == "imported"
+    assert resets.confirmed_override(target.lane_id, now=NOW) is None
+    assert store.get_action("imported")["state"] == "confirmed"
+
+
+def test_imported_home_cannot_reopen_another_account_after_home_rebinding(store, tmp_path):
+    """C-1.4 C-23.17: a home path alone cannot transfer a prior account's reset authority."""
+    target = lane(store, tmp_path)
+    store.add_action(action_id="imported", kind="reset-credit", op_key="codex:another:gift-old",
+                     subject=target.home, state="confirmed", created_at=STAMP, updated_at=STAMP)
+    assert component(store, HTTP()).confirmed_override(target.lane_id, now=NOW) is None
+
+
 def test_cancelled_evaluation_makes_no_request(store, tmp_path):
     """C-16.4: a cancelled timer creates no new remote action."""
     lane(store, tmp_path)
