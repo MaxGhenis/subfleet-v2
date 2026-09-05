@@ -1798,6 +1798,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--v1-state", default=str(V1_STATE))
     parser.add_argument("--delegate-state", default=str(DELEGATE_STATE))
     parser.add_argument("--roster-dir", default=str(V1_ROSTER_DIR))
+    parser.add_argument("--home", default=None,
+                        help="where ~/.codex-<n> and ~/.claude.json live (default: $HOME)")
     parser.add_argument("--milestone", type=int, default=DEFAULT_MILESTONE)
     parser.add_argument("--runs-limit", type=int, default=None,
                         help="import at most this many run directories this pass")
@@ -1808,7 +1810,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = import_v1(args.state_root, v1_state=args.v1_state,
                            delegate_state=args.delegate_state, roster_dir=args.roster_dir,
-                           dry_run=args.dry_run, milestone=args.milestone,
+                           home=args.home, dry_run=args.dry_run, milestone=args.milestone,
                            runs_limit=args.runs_limit)
     except ImportRefused as refusal:
         print(f"subfleet import: {refusal}", file=sys.stderr)
