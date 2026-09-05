@@ -550,7 +550,9 @@ class Daemon:
 
     def _retention(self):
         try:
-            maintenance(self.store, self.root)
+            maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+            with self.store.transaction("service-notice.retention") as tx:
+                tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
         except Exception as exc:
             self.timers.mark("retention", error=type(exc).__name__, next_due=after(3600))
             raise
@@ -754,7 +756,11 @@ class Daemon:
             child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                      pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
+            while not started and child.poll() is None and time.monotonic() < identity_deadline:
+                time.sleep(.01)
+                started = procs.proc_start(child.pid)
             if not started:
                 raise procs.InspectionError("probe guardian identity is absent")
             record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
@@ -789,7 +795,8 @@ class Daemon:
         if record.get("timer_kind"):
             sent = (self._read_json(Path(record["directory"]) / "request.json") or {}).get("requested_at")
             if sent:
-                self.store.add_event("timer.request", lane_id=record["lane_id"], data={"requested_at": sent})
+                self.store.add_event("timer.request", lane_id=record["lane_id"], data={"requested_at": sent, "rc": outcome.evidence.get("rc"),
+                                                                      "native_session_id": outcome.native_session_id})
             if record["timer_kind"] == "keepalive" and sent and outcome.cls == OutcomeClass.OK:
                 self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
                                               ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
@@ -801,6 +808,9 @@ class Daemon:
         with self.store.transaction("probe.completed", job_id=record["job_id"], lane_id=record["lane_id"],
                                     data={"model": record["model_id"], "class": outcome.cls.value,
                                           "evidence": outcome.evidence}) as tx:
+            if outcome.cls == OutcomeClass.AUTH_DEAD:
+                self.store.update_lane(record["lane_id"], enabled=0)
+                self.timers.record_auth_dead(record["lane_id"])
             for reading in outcome.readings:
                 self.store.add_reading(dataclasses.replace(reading, attempt_id=None))
             if outcome.closure:
@@ -1410,6 +1420,9 @@ class Daemon:
                         outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
+            if outcome.cls == OutcomeClass.AUTH_DEAD:
+                self.store.update_lane(a["lane_id"], enabled=0)
+                self.timers.record_auth_dead(a["lane_id"])
             for reading in outcome.readings:
                 self.store.add_reading(reading)
             if outcome.closure:

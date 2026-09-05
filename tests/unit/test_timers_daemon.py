@@ -1,0 +1,44 @@
+"""Timer migration and integration seams (C-3, C-18.1)."""
+from datetime import datetime, timedelta, timezone
+import json
+from pathlib import Path
+
+from subfleet.contracts import Credential, Lane, LaneOwner, Reading, ReadingLabel
+from subfleet.store import SCHEMA_VERSION, Store
+from subfleet.timers import Timers, iso
+
+
+def test_existing_store_adds_jobless_notice_schema_without_losing_history(tmp_path):
+    """C-3.1 C-3.2 C-18.1: schema v2 adds timer notice rows and retains original events."""
+    path = tmp_path / 'state.sqlite3'
+    with Store(path) as store:
+        marker = store.add_event('imported.history', data={'value': 17})
+        with store.transaction() as tx:
+            tx.execute('DROP TABLE service_notices')
+            tx.execute('UPDATE schema_version SET version=1')
+    with Store(path) as store:
+        assert store.one('SELECT MAX(version) version FROM schema_version')['version'] == SCHEMA_VERSION
+        assert store.one('SELECT data_json FROM events WHERE event_id=?', (marker,))
+        assert store.query('SELECT * FROM service_notices') == []
+
+
+def test_foreign_usage_never_releases_original_accounts_closure_or_credit_count(tmp_path):
+    """C-1.3 C-9.6 C-23.45: a changed home identity cannot become the bound account's usage."""
+    policy = json.loads(Path('subfleet/default_policy.json').read_text())
+    policy['reset_credits']['enabled'] = False
+    now = datetime.now(timezone.utc)
+    with Store(tmp_path / 'state.sqlite3') as store:
+        lane = Lane('codex-1', 'codex', 'codex:original', Credential('codex', str(tmp_path), 'home'), str(tmp_path), LaneOwner.V2, False)
+        store.put_lane(lane)
+        timer = Timers(store, tmp_path, policy, now=lambda: now)
+        try:
+            timer._persist(lane, {'status':'ok', 'account_key':'codex:foreign', 'limit_reached':False,
+                'checked_at':iso(now), 'reset_credits':{'available':10},
+                'readings':(Reading(lane.lane_id,'account','seven_day',.01,iso(now+timedelta(days=5)), ReadingLabel.PROVIDER,'wham',iso(now)),)})
+            view = timer.snapshot()['lanes'][0]
+            assert not store.get_lane(lane.lane_id).enabled
+            assert view['account_key'] == 'codex:original' and view['identity_status'] == 'mismatch'
+            assert view['reset_credits_remaining'] is None
+            assert not any(r['utilization'] is not None for r in store.list_readings(lane.lane_id))
+        finally:
+            timer.stop()

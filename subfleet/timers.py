@@ -58,6 +58,12 @@ class Timers:
         self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts', 'retention')}
         self.metadata = self._latest('timer.verdict')
+        self.balances = self._latest('reset-credit.balance')
+        self._cycle_error = None
+        for row in store.query("SELECT data_json FROM events WHERE kind='timer.run' ORDER BY event_id"):
+            data = json.loads(row['data_json'])
+            if data.get('timer') in self._status and data.get('last_run'):
+                self._status[data['timer']].update({k: data.get(k) for k in ('last_run', 'next_due', 'last_error_type')})
 
     def _latest(self, kind):
         result = {}
@@ -86,6 +92,7 @@ class Timers:
             self._status[name].update(last_run=iso(self.now()), last_error_type=error)
             if next_due is not None:
                 self._status[name]['next_due'] = next_due
+            self.store.add_event('timer.run', data={'timer': name, **self._status[name]})
 
     def tick(self):
         with self._lock:
@@ -105,6 +112,8 @@ class Timers:
         error = None
         try:
             getattr(self, name + '_cycle')()
+            if name == 'probe':
+                error = self._cycle_error
         except Exception as exc:
             error = type(exc).__name__
             self.store.add_event('timer.error', data={'timer': name, 'error_type': error})
@@ -118,6 +127,11 @@ class Timers:
         self._cycles.shutdown(wait=True, cancel_futures=True)
         self._lanes.shutdown(wait=True, cancel_futures=True)
 
+    def record_auth_dead(self, lane_id):
+        meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
+        self.store.add_event('timer.verdict', lane_id=lane_id, data=meta)
+        self.metadata[lane_id] = meta
+
     def _epoch(self, lane):
         try:
             raw = json.loads((Path(lane.home or lane.credential.ref).expanduser() / 'auth.json').read_bytes())
@@ -130,6 +144,12 @@ class Timers:
         rows = self.store.query('SELECT * FROM lanes ORDER BY created_at,rowid')
         seen = {}
         for row in rows:
+            if row['enabled'] and self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason='auth-dead' AND released_at IS NULL", (row['lane_id'],)):
+                self.store.update_lane(row['lane_id'], enabled=0)
+                row['enabled'] = False
+                data = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
+                self.store.add_event('timer.verdict', lane_id=row['lane_id'], data=data)
+                self.metadata[row['lane_id']] = data
             if not row['enabled']:
                 continue
             first = seen.setdefault(row['account_key'], row)
@@ -263,13 +283,21 @@ class Timers:
         status = probe.get('status', 'unknown')
         outcome = probe.get('outcome')
         readings = tuple(Reading(**r) if isinstance(r, dict) else r for r in probe.get('readings', ()))
-        meta = {k: v for k, v in probe.items() if k not in ('readings', 'outcome')}
+        meta = {k: v for k, v in probe.items() if k not in ('readings', 'outcome', 'account_key', 'detail')}
+        actual_account = probe.get('account_key')
+        if actual_account and actual_account != lane.account_key:
+            readings = ()
+            meta['identity_status'] = 'mismatch'
+            meta['observed_account_key'] = actual_account
+            status = 'identity-mismatch'
+            meta['reset_credits'] = {'available': None, 'applicable': None}
         meta['probe_status'] = status
         meta['verdict'] = {'ok': 'ok', 'auth-dead': 'auth-dead', 'revoked': 'auth-revoked',
                            'expired-token': 'auth-suspect'}.get(status, status)
-        self.actions.settle_by_usage(lane.lane_id, probe, now=self.now())
+        if status != 'identity-mismatch':
+            self.actions.settle_by_usage(lane.lane_id, probe, now=self.now())
         with self.store.transaction('timer.probe', lane_id=lane.lane_id):
-            if status == 'auth-dead':
+            if status in ('auth-dead', 'identity-mismatch'):
                 self.store.update_lane(lane.lane_id, enabled=0)
             for reading in readings:
                 self.store.add_reading(replace(reading, attempt_id=None))
@@ -292,14 +320,26 @@ class Timers:
         self.metadata[lane.lane_id] = meta
 
     def snapshot(self):
-        view = capacity.from_store(self.store, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
+        with self.store.transaction('timer.snapshot'):
+            view = capacity.from_store(self.store, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
         for row in view['lanes']:
             row.update(self.metadata.get(row['lane_id'], {}))
             row['app_shadowed'] = row.get('app_shadowed', False) or row['account_key'] == getattr(self, '_app_account', None)
             row['probe'] = dict(self.metadata.get(row['lane_id'], {}), status=row.get('probe_status', 'unknown'))
             row['probe']['readings'] = row['readings']
-            row['reset_credits_remaining'] = (row.get('reset_credits') or {}).get('available_count')
-            row['dispatchable'] = bool(row['enabled'] and row['owner'] == 'v2' and not row['desktop'] and
+            row['reset_credits_remaining'] = (row.get('reset_credits') or {}).get('available')
+            override = self.actions.confirmed_override(row['lane_id'], now=self.now())
+            if override:
+                balance = self.balances.get(row['lane_id'], {})
+                if balance.get('action_id') == override['action_id']:
+                    current, remaining = row['reset_credits_remaining'], balance.get('remaining')
+                    row['reset_credits_remaining'] = min(current, remaining) if isinstance(current, int) and isinstance(remaining, int) else None
+                row['reset_override'] = override
+                row['verdict'] = 'admission-observed'
+            measured = [r for r in row['readings'] if capacity.fresh_provider(r, now=self.now(),
+                        reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))]
+            headroom_ok = override or not any(r['utilization'] >= 1 - self.policy.get('headroom_floor', .15) for r in measured if r['scope'] == 'account')
+            row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not row['desktop'] and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['in_flight'] < self.policy.get('caps', {}).get('max_in_flight_per_lane', 2))
         return view
@@ -307,6 +347,7 @@ class Timers:
     def probe_cycle(self):
         if self.cancel.is_set():
             return
+        self._cycle_error = None
         self._identities()
         futures = [self._lanes.submit(self._probe_lane, lane) for lane in self.store.list_lanes()
                    if lane.enabled and lane.owner == 'v2']
@@ -324,18 +365,25 @@ class Timers:
             for holder, quarantined in self._probe_holders.values():
                 self._release(holder, quarantined=quarantined)
             self._probe_holders.clear()
+        self._cycle_error = next((p['error_type'] for _, p in results if p.get('error_type')), None)
         codex = [p for lane, p in results if lane.provider == 'codex']
         offline = bool(codex) and all(p.get('status') == 'network-error' for p in codex)
         snapshot = self.snapshot()
         if not offline:
             result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
                                            deadline=time.monotonic() + 60)
-            self.mark('reset_credits')
+            self.mark('reset_credits', error=result.get('error_type'), next_due=self.status()['probe']['next_due'])
+            if result.get('status') == 'confirmed':
+                row = next(row for row in snapshot['lanes'] if row['lane_id'] == result['lane_id'])
+                count = row.get('reset_credits_remaining')
+                balance = {'action_id': result['action_id'], 'remaining': max(0, count - 1) if isinstance(count, int) else None}
+                self.store.add_event('reset-credit.balance', lane_id=row['lane_id'], data=balance)
+                self.balances[row['lane_id']] = balance
             snapshot = self.snapshot()
             snapshot['reset_policy'] = result
         snapshot['offline'] = offline
         self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
-        self.mark('alerts')
+        self.mark('alerts', next_due=self.status()['probe']['next_due'])
         from .status_json import write_status
         write_status(self.root, snapshot, now=self.now())
         self.store.add_event('timer.cycle', data={'offline': offline, 'at': iso(self.now()),
@@ -379,6 +427,7 @@ class Timers:
             with self.store.transaction('timer.keepalive', lane_id=lane.lane_id):
                 if outcome.cls == OutcomeClass.AUTH_DEAD:
                     self.store.update_lane(lane.lane_id, enabled=0)
+                    self.record_auth_dead(lane.lane_id)
                 if sent and (outcome.cls == OutcomeClass.OK or outcome.native_session_id):
                     self.store.add_reading(Reading(lane.lane_id, self.policy['models']['haiku']['id'], 'admission',
                         None, None, ReadingLabel.ADMISSION_OBSERVED, 'keepalive', sent))
