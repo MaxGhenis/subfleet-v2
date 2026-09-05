@@ -580,3 +580,174 @@ P-23.40 under provenance/attestation.
   to a timer, so a C-16.4 test passes while a keepalive pass fans out without limit. v1 wrote its
   pass state under a flock; v2 drops the flock for store transactions (C-3.2), so only the two caps
   survive as numbers.
+
+## session-continuity
+
+Fourteen rows, seven clauses.
+
+### P-23.30 — which registry row speaks for a session
+
+> **P-23.30** When the session registry holds more than one row for a session, the row used is the
+> one whose recorded pid is live, then the one whose socket is present, then the newest by start
+> time. The rows not chosen are ignored, not deleted.
+
+- **Ledger rows:** 72 (`keep`, session-continuity)
+- **Milestone:** 4
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/notices.py`
+- **Rationale:** row 72's rationale is that "restarts leave stale `<pid>.json` rows" — after a
+  restart the newest row is not always the live one, and delivering to the wrong row loses the
+  notice silently. C-15.2 names the delivery layers in reliability order and C-15.3 the notice
+  states; neither says which row a layer addresses, so a test of either passes while every notice
+  goes to a dead pid.
+
+### P-23.31 — a headless lane run is not a session
+
+> **P-23.31** A headless lane run is never a `ping` or notice target, never appears in a session
+> listing unless lanes are explicitly included, and is never revived or continued. A request naming
+> one is refused with the reason.
+
+- **Ledger rows:** 76 (`keep`, session-continuity), 187 (`keep`, session-continuity)
+- **Milestone:** 4 for notices, 6 for the listing and revive
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/notices.py`, `subfleet/sessions/tickle.py`
+- **Rationale:** both rows are the same category error with two dated incidents. Row 76: "2026-09-04:
+  the Sol to Astra routing broadcast turned two finished lanes' outputs into 'Acknowledged'" — a
+  fleet notice reached three running lanes and overwrote their deliverables. Row 187: "2026-09-04:
+  the sweep revived five dead `claude -p` lanes, burning windows with no reader". C-15.4 states the
+  prohibition for `wait` alone ("`wait` never wakes headless lanes and never targets a lane
+  session"), so a C-15.4 test passes while `ping`, the notice push, the session listing, and revive
+  all treat a lane as a session.
+
+### P-23.32 — the importer never rewrites what it imported
+
+> **P-23.32** An imported v1 record is never rewritten. A legacy Codex run whose thread id was not
+> recorded resolves its resume identity in memory, from the saved `err.log` and the rollout name, at
+> the moment a resume needs it.
+
+- **Ledger rows:** 95 (`keep`, session-continuity)
+- **Milestone:** 8 (cutover)
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/importer.py`
+- **Rationale:** row 95's rationale is that "older entries lacked the fields" — backfilling them
+  would edit history to match a schema that did not exist when the run happened, and a wrong backfill
+  is indistinguishable from a real record. v2 records the thread id at launch (C-12.3), so only
+  imported rows need the lazy path, and no clause covers the importer.
+
+### P-23.33 — when a session may be nudged
+
+> **P-23.33** A nudge is sent only for a `SessionStart` whose source is `startup` or `resume`, never
+> `compact` or `clear`, and only when the interruption is younger than `nudge_max_age_s` (8 h). A
+> session is nudged at most once per interruption point and no more often than `nudge_cooldown_s`
+> allows; both are `policy.json` caps under C-6.4.
+
+- **Ledger rows:** 179 (`keep`, session-continuity), 180 (`keep`, session-continuity), 181 (`keep`, session-continuity)
+- **Milestone:** 6
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/sessions/tickle.py`
+- **Rationale:** three eligibility rules for one action. Row 179's rationale is that "compaction is
+  not a restart", row 180's that "an abandoned turn is not resumed because a tab reopened", and row
+  181's is "restart storms". C-15.2 mentions `SessionStart` only as a layer that surfaces pending
+  notices, never as a trigger that sends a session new work, so no test fails when every compaction
+  wakes every session.
+
+### P-23.34 — the worker decides against the transcript it can see
+
+> **P-23.34** The hook records the wake and decides nothing: dedupe, cooldown, and eligibility are
+> re-decided by the worker against the transcript as it reads after the nudge delay. A session whose
+> last real turn changed during the delay is skipped, and a sweep started by hand requires a longer
+> quiet window than a `SessionStart` wake. The transcript reader recognises the app's synthetic
+> resume stub and judges the turn beneath it.
+
+- **Ledger rows:** 182 (`keep`, session-continuity), 183 (`keep`, session-continuity), 184 (`keep`, session-continuity), 185 (`keep`, session-continuity)
+- **Milestone:** 6, with the hook half in milestone 4's `subfleet/hooks.py`
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/sessions/tickle.py`
+- **Rationale:** four rows about one race — the transcript at hook time is not the transcript at
+  nudge time. Row 185's incident is dated: "2026-08-24: the stub lands about 0.7 s after the hook, so
+  'already nudged' blocked a fresh restart". Row 184's is "observed four times in one session on
+  2026-08-23". Row 182 skips when "the CLI's own `--resume` or a typed '.' already continued", and
+  row 183 adds quiet for manual sweeps because "outside SessionStart an 'interrupted' tail can be a
+  long tool call". Nothing in the contract describes the tickle path, so no test fails on any of the
+  four.
+
+### P-23.35 — which sessions revive admits
+
+> **P-23.35** Revive admits only a session whose recorded permission mode is `bypassPermissions` and
+> whose retirement flag is unset. Retirement is a durable session flag set by the operator; a retired
+> session is absent from every session listing and is never a revive candidate until the operator
+> clears it.
+
+- **Ledger rows:** 188 (`keep`, session-continuity), 191 (`keep`, session-continuity)
+- **Milestone:** 6
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/sessions/tickle.py`
+- **Rationale:** two candidate filters on the same list. Row 188's rationale is that "a headless run
+  would deny its own tools" — reviving a session that will refuse every tool call spends a window to
+  produce nothing. Row 191's is "operator control over resurrection". No clause covers revive.
+
+### P-23.36 — a handoff is bounded and points at its source
+
+> **P-23.36** Every section of a handoff is bounded by an explicit character cap recorded beside the
+> excerpt, and a section that was truncated says so. The handoff records the absolute path of the
+> source transcript, which stays the durable record.
+
+- **Ledger rows:** 210 (`keep`, session-continuity)
+- **Milestone:** 6
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/sessions/handoff.py`
+- **Rationale:** row 210's rationale is "unbounded context and lossy DB rewrites" — a handoff that
+  tries to carry everything carries nothing usable, and one that replaces the transcript loses what
+  it dropped. v1's caps are per section and explicit (`subfleet/handoff.py:29-44`). No clause covers
+  handoffs.
+
+## routing-policy
+
+Three rows, three clauses.
+
+### P-23.37 — stranded capacity is spent first
+
+> **P-23.37** A lane under an unexpired closure scoped to a model above the one the job needs, with
+> no `account` closure and a free slot, is model-stranded. The Claude comparator orders
+> model-stranded lanes ahead of unstranded ones and then applies C-11.3's order within each group.
+
+- **Ledger rows:** 108 (`keep`, routing-policy)
+- **Milestone:** 3
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/policy.py`
+- **Rationale:** row 108's rationale is Max's, 2026-08-26: "stranded capacity versus shared windows".
+  A lane that can no longer serve Fable can still serve Sonnet, and its Fable window is already lost;
+  spending an unstranded lane on Sonnet work strands a second window for nothing. C-11.3's Claude
+  comparator has no stranded term, and because a stranded lane's worst window is by definition
+  exhausted, headroom ordering ranks it last — the exact opposite of the rule — so C-11.3 does not
+  merely omit the row, it contradicts it. See [Conflicts](#c-7).
+
+### P-23.38 — which lane a reset credit is spent on
+
+> **P-23.38** Reset-credit redemption orders candidate lanes by weekly reset furthest out first, then
+> fewest in-flight attempts, then lowest lane number. This ordering governs redemption only; C-11.3
+> continues to order routing candidates.
+
+- **Ledger rows:** 162 (`keep`, routing-policy)
+- **Milestone:** 5
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/actions.py`
+- **Rationale:** row 162's rationale is "Max's rule, 2026-08-22". C-18.1 adopts "v1's rule set" for
+  reset credits by reference and never states it, so nothing fails when the order is inverted. The
+  order is deliberately the opposite of C-11.3's routing order, and in-flight count is a key here
+  where C-11.3 forbids it as one — both because the question is different: routing asks which lane
+  recovers soonest, redemption asks which lane a reset buys the most from. See [Conflicts](#c-8).
+
+### P-23.39 — revive keeps the session's own tier
+
+> **P-23.39** Revive launches on the tier recorded in the session's registry row. A different tier is
+> used only when the operator passes `--model`, and the substitution is recorded.
+
+- **Ledger rows:** 186 (`keep`, routing-policy)
+- **Milestone:** 6
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/sessions/tickle.py`
+- **Rationale:** row 186's rationale is Max's, 2026-08-26: "a fable-grade session on Opus is worse
+  than a parked one" — a revive that silently changes model resumes someone else's work in the
+  session's name. The tier comes from the session record, not from a `policy.json` chain, so C-11.2's
+  chain walk does not reach it.
