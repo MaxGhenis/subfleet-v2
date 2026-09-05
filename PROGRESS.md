@@ -8,7 +8,7 @@ Brief: `docs/lanes/cutover-compat.md`. Branch `lane/cutover-compat`.
 |---|---|
 | Read the contract, plan, v2 seams, v1 surface | done |
 | `docs/reference/claude-hooks.md` (fetched + binary check) | done |
-| Compatibility case harvest → `tests/fixtures/compat/cases.json` | done (375 cases) |
+| Compatibility case harvest → `tests/fixtures/compat/cases.json` | done (389 cases) |
 | `subfleet/compat.py` | done |
 | `subfleet/hooks.py` + the `subfleet hook <event>` verb | done |
 | `daemon install --hooks [--dry-run]` | done |
