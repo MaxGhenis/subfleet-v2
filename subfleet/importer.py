@@ -1330,10 +1330,16 @@ def import_notices(writer: _Writer, report: StoreReport, *, v1_state: Path,
     if not directory.is_dir():
         report.skip("absent")
         return cursor
-    consumed: dict[str, int] = {str(key): int(value) for key, value in (cursor.get("files") or {}).items()}
+    # `{name: {"lines": n, "retry": [offset]}}`; an older cursor held a bare count.
+    files: dict[str, dict[str, Any]] = {}
+    for key, value in (cursor.get("files") or {}).items():
+        files[str(key)] = ({"lines": int(value), "retry": []} if isinstance(value, int)
+                           else {"lines": int(value.get("lines") or 0),
+                                 "retry": [int(item) for item in (value.get("retry") or [])]})
     for path in sorted(directory.glob("*.jsonl")):
         session_id = path.stem
-        start = consumed.get(path.name, 0)
+        state = files.get(path.name, {"lines": 0, "retry": []})
+        start = state["lines"]
         try:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
@@ -1341,7 +1347,13 @@ def import_notices(writer: _Writer, report: StoreReport, *, v1_state: Path,
             continue
         if len(lines) < start:
             start = 0                       # the file was rewritten; dedupe protects us
-        for offset, line in enumerate(lines[start:], start=start):
+        # An entry whose run was not in the ledger yet is retried next pass, so a
+        # run imported later still gets its notice (migration.md principle 4).
+        todo = sorted({*range(start, len(lines)),
+                       *(offset for offset in state["retry"] if offset < len(lines))})
+        retry: list[int] = []
+        for offset in todo:
+            line = lines[offset]
             report.seen += 1
             if not line.strip():
                 report.skip("blank-line")
@@ -1358,21 +1370,22 @@ def import_notices(writer: _Writer, report: StoreReport, *, v1_state: Path,
                 continue
             if not writer.exists("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)):
                 report.skip("unknown-job")
+                retry.append(offset)
                 continue
             created_at = _utc(entry.get("ts")) or _utc(entry.get("surfaced_at")) or utc_now()
-            state = "surfaced" if entry.get("surfaced") else "pending"
+            notice_state = "surfaced" if entry.get("surfaced") else "pending"
             if writer.exists("SELECT 1 FROM notices WHERE job_id=? AND session_id=? AND created_at=?",
                              (job_id, session_id, created_at)):
                 report.skip("already-imported")
                 continue
             writer.insert("notices", {
-                "job_id": job_id, "session_id": session_id, "text": text, "state": state,
-                "transport": None, "created_at": created_at,
+                "job_id": job_id, "session_id": session_id, "text": text,
+                "state": notice_state, "transport": None, "created_at": created_at,
             }, kind="notice.imported")
             report.imported += 1
-            report.count(f"state-{state}")
-        consumed[path.name] = len(lines)
-    return {"files": consumed}
+            report.count(f"state-{notice_state}")
+        files[path.name] = {"lines": len(lines), "retry": retry}
+    return {"files": files}
 
 
 # --- S/outbox.sqlite3 ---------------------------------------------------------

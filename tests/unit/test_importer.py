@@ -153,6 +153,8 @@ def v1(tmp_path: Path) -> dict:
          "text": "run limited", "ts": offset_now(-20), "push": {"delivered": False}},
         {"run_id": "20260101-000000-forgotten", "rc": 0, "surfaced": False,
          "text": "older than the ledger", "ts": offset_now(-10)},
+        {"run_id": "20260905-101000-late", "rc": 0, "surfaced": False,
+         "text": "its run reaches the ledger on a later pass", "ts": offset_now(-5)},
     ]) + "\n", encoding="utf-8")
 
     outbox = sqlite3.connect(state / "outbox.sqlite3")
@@ -299,7 +301,9 @@ def test_every_store_keeps_a_cursor_in_events(v1):
     assert {"runs", "notices", "outbox", "capacity-live-cache", "claude-oauth-raw",
             "keepalive", "reset-policy", "cooldowns"} <= set(cursors)
     assert cursors["runs"]["last_id"] == "20260905-100600-nolane"
-    assert cursors["notices"][f"files"][f"{SESSION}.jsonl"] == 3
+    assert cursors["notices"]["files"][f"{SESSION}.jsonl"]["lines"] == 4
+    # The two entries whose runs are not in the ledger are kept for retry.
+    assert cursors["notices"]["files"][f"{SESSION}.jsonl"]["retry"] == [2, 3]
     assert cursors["outbox"]["last_sequence"] == 3
 
 
@@ -630,6 +634,24 @@ def test_notices_are_pending_or_surfaced_with_the_session_from_the_file_name(v1)
 
 def test_a_notice_for_a_run_outside_the_ledger_is_reported(v1):
     report = run_import(v1)
+    assert report.stores["notices"].reasons.get("unknown-job") == 2
+
+
+def test_a_notice_lands_once_its_run_is_imported(v1):
+    """The cursor keeps an unresolved line for the next pass (principle 4)."""
+    late = "20260905-101000-late"
+    run_import(v1)
+    assert not rows(v1["root"], "SELECT * FROM notices WHERE job_id=?", (late,))
+    directory = v1["runs"] / late
+    directory.mkdir()
+    write_json(directory / "meta.json",
+               run_meta(late, rc=0, lane=str(v1["home"] / ".codex-1"),
+                        codex_home=str(v1["home"] / ".codex-1")))
+    (directory / "prompt.md").write_text("late\n", encoding="utf-8")
+    report = run_import(v1)
+    assert report.stores["notices"].imported == 1
+    assert rows(v1["root"], "SELECT * FROM notices WHERE job_id=?", (late,))
+    # The one whose run is older than the retained ledger stays on the retry list.
     assert report.stores["notices"].reasons.get("unknown-job") == 1
 
 
