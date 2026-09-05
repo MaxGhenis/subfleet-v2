@@ -33,11 +33,24 @@ class FakeAdapter(Adapter):
                      prompt_path: Path, guard_override: str | None) -> Launch:
         settings: dict = {}
         try:
-            parsed = json.loads(prompt_path.read_text())
-            if isinstance(parsed, dict):
-                settings = parsed
-        except (ValueError, OSError):
-            pass
+            prompt = prompt_path.read_text()
+        except OSError:
+            prompt = ""
+        # The daemon may prepend write/headless instructions and append a retry
+        # checkpoint. Only a JSON object starting on its own line carries fake
+        # settings; arbitrary braces in an ordinary prompt remain prompt text.
+        decoder = json.JSONDecoder()
+        offset = 0
+        for line in prompt.splitlines(keepends=True):
+            if line.lstrip().startswith("{"):
+                try:
+                    parsed, _ = decoder.raw_decode(prompt[offset:].lstrip())
+                    if isinstance(parsed, dict) and set(parsed) & {"scenario", "delay_s", "marker"}:
+                        settings = parsed
+                        break
+                except ValueError:
+                    pass
+            offset += len(line)
         env_add = {**credential_env, "SUBFLEET_LANE": lane.lane_id}
         for key, variable in (("scenario", "SUBFLEET_FAKE_SCENARIO"),
                               ("delay_s", "SUBFLEET_FAKE_DELAY_S"),

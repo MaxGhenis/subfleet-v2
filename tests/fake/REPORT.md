@@ -3,7 +3,8 @@
 - `tests/bin/fakeprov`: deterministic success, delay, reported-limit, crash,
   escaped-session, ignored-SIGTERM, and missing-executable scenarios.
 - `tests/fake_adapter.py`: injectable adapter matching the shared interface,
-  preserving stdout bytes and the reported limit clock.
+  preserving stdout bytes, the reported limit clock, and scenarios around
+  prompt preambles and retry checkpoint suffixes.
 - `tests/fake/conftest.py`: isolated daemon subprocess/socket harness with
   read-only SQLite observation and capability-gated real process tests.
 - `tests/fake/run_daemon.py`: fake daemon launcher with crash/hold hooks and
@@ -21,7 +22,7 @@
 
 `UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv run pytest -q tests/fake`
 
-39 passed, 28 skipped in 0.81 seconds. The passing tests use no production
+50 passed, 29 skipped in 1.12 seconds. The passing tests use no production
 process-identity substitution: only explicitly scoped deterministic fixtures
 stub process inspection and record signals instead of sending them.
 
@@ -34,11 +35,12 @@ This lists the exercised portions, not blanket acceptance of every listed clause
 
 ## Clauses not covered and why
 
-The 28 real daemon process cases are implemented but skipped: this managed
+The 29 real daemon process cases are implemented but skipped: this managed
 execution sandbox refuses the contract's `ps` and `sysctl` inspection commands.
 Actual guardian/client/daemon survival, SIGKILL recovery, ignored-SIGTERM
 escalation, escaped-session quarantine, and salvage crash recovery therefore
-remain unverified on this host. C-20.2's full process-inclusive fake timing must
+remain unverified on this host, including the new writable kill-and-salvage
+acceptance case. C-20.2's full process-inclusive fake timing must
 also be measured when those cases can run. No restriction was bypassed.
 
 ## Seam changes

@@ -130,6 +130,51 @@ def test_c5_6_kill_escalates_ignored_sigterm_and_records_killed_by(daemon):
                            (job_id, attempt["attempt_id"]))
 
 
+def test_c5_6_c13_1_writable_kill_salvages_dirty_workspace_after_verified_containment(daemon):
+    """C-5.6, C-13.1 kill verifies containment and salvages dirty writable work without changing HEAD or index."""
+    from subfleet.procs import containment
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=daemon.workdir, capture_output=True,
+                              text=True, check=True).stdout.strip()
+
+    git("init", "-b", "feature/kill-salvage")
+    tracked = daemon.workdir / "tracked.txt"
+    tracked.write_text("baseline\n")
+    git("add", "tracked.txt")
+    git("-c", "user.name=Fake", "-c", "user.email=fake@example.test", "commit", "-m", "baseline")
+    baseline = git("rev-parse", "HEAD")
+    index = daemon.workdir / ".git" / "index"
+    original_index = index.read_bytes()
+    daemon.start()
+    job_id = daemon.submit("ignore-sigterm", sandbox="workspace-write", in_place=True)
+    daemon.attempt_state(job_id, "running")
+    stdout = daemon.root / "jobs" / job_id / "a1" / "stdout"
+    daemon.until(lambda: stdout.exists() and "ready: ignore-sigterm" in stdout.read_text())
+    tracked.write_text("retained tracked change\n")
+    untracked = daemon.workdir / "untracked.txt"
+    untracked.write_text("retained untracked change\n")
+    daemon.call("kill", job_id=job_id)
+    assert daemon.finished(job_id)["state"] == "cancelled"
+    attempt = daemon.attempts(job_id)[0]
+    assert attempt["state"] == "interrupted" and attempt["killed_by"]
+    assert containment(attempt["pgid"], attempt["guardian_pid"], attempt["child_pid"],
+                       attempt["attempt_id"]).verified_empty
+    saved = daemon.rows("SELECT * FROM artifacts WHERE attempt_id=? AND role='salvage'",
+                         (attempt["attempt_id"],))
+    assert len(saved) == 1
+    ref = saved[0]["path"]
+    assert ref.startswith("refs/subfleet-salvage/")
+    assert git("rev-parse", ref + "^") == baseline
+    assert git("show", ref + ":tracked.txt") == "retained tracked change"
+    assert git("show", ref + ":untracked.txt") == "retained untracked change"
+    assert git("rev-parse", "HEAD") == baseline
+    assert index.read_bytes() == original_index
+    assert tracked.read_text() == "retained tracked change\n"
+    assert untracked.read_text() == "retained untracked change\n"
+    assert not daemon.rows("SELECT * FROM leases WHERE holder IN (?,?)", (job_id, attempt["attempt_id"]))
+
+
 def test_c5_5_nested_setsid_quarantines_and_force_release_records_override(daemon):
     """C-5.5, C-5.6, C-5.7 escaped writers quarantine; force-release preserves override evidence."""
     daemon.start()

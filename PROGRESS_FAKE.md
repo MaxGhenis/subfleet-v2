@@ -30,8 +30,12 @@ sandbox refuses `ps` and `sysctl`; production identity checks are unchanged.
   audit; concurrent export and stale-owner fencing; limited/transient retry and
   wall limit coverage.
 - `UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv run pytest -q tests/fake`:
-  **39 passed, 28 skipped in 0.81s** on the final run. Full process-inclusive
+  **50 passed, 29 skipped in 1.12s** on the final run. Full process-inclusive
   C-20.2 timing remains to be measured outside the restricted sandbox.
+- Fixed fake scenario extraction around write/headless preambles and retry
+  checkpoint suffixes, with single-line/multiline settings regression cases.
+- Added physical writable-kill acceptance proving dirty tracked/untracked bytes
+  survive in a salvage ref after verified containment, with HEAD/index preserved.
 - Wrote the final fake-lane report to `tests/fake/REPORT.md`.
 
 ## Next
