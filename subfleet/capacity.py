@@ -53,6 +53,28 @@ def read_desktop_account(path: str | Path | None = None) -> str | None:
         return None
 
 
+def cached_desktop_identity(path: str | Path | None = None) -> dict[str, Any]:
+    """C-10.3: the whole cached login, for `doctor` to compare against a profile.
+
+    `~/.claude.json` carries the desktop app's own idea of who it is signed in
+    as. It is a hint: the file is written by the app and can name an account the
+    credential beside it does not hold — the 2026-09-05 incident exactly. Only
+    `doctor` reads more of it than the email, and only to report a disagreement.
+    """
+    try:
+        value = json.loads((Path(path) if path is not None
+                            else Path.home() / ".claude.json").read_text())
+        account = value.get("oauthAccount") if isinstance(value, dict) else None
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    if not isinstance(account, dict):
+        return {}
+    return {"email": account.get("emailAddress"),
+            "account_uuid": account.get("accountUuid"),
+            "org_uuid": account.get("organizationUuid"),
+            "organization": account.get("organizationName")}
+
+
 def _account_matches(lane: Mapping[str, Any], account: str) -> bool:
     identity = str(lane.get("account_key", "")).casefold()
     account = account.casefold()

@@ -236,10 +236,16 @@ def test_doctor_json_emits_one_object_per_check(root, capsys, monkeypatch):
     assert all(check["status"] in {"ok", "warn", "fail"} for check in checks)
 
 
-def test_doctor_live_is_not_implemented_yet(root, capsys):
-    """C-17.1 `doctor --live` is reserved for the adapter lanes."""
+def test_doctor_live_runs_the_offline_checks_and_the_identity_comparison(root, capsys):
+    """C-17.1, C-10.3 `doctor --live` adds the checks that need a credential.
+
+    With no desktop login readable it says so rather than failing: an unverified
+    desktop identity is a warning, and lanes fall back to matching its label.
+    """
     assert cli.main(["doctor", "--live"]) == 0
-    assert "not implemented" in capsys.readouterr().err
+    printed = capsys.readouterr().out
+    assert "cached ~/.claude.json agrees with the desktop credential" in printed
+    assert "claude --version" in printed        # the offline checks still run
 
 
 def test_doctor_names_a_missing_never_rules_hook(root, capsys, monkeypatch):

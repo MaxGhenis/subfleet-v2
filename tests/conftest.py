@@ -167,9 +167,21 @@ def no_network(monkeypatch):
 @pytest.fixture(autouse=True)
 def no_desktop_login(monkeypatch):
     """`~/.claude.json` belongs to whoever runs the tests, and the desktop app's
-    keychain item is their real credential. No test reads either by accident
-    (C-10.3, C-10.5): a test about desktop identity says which login it means."""
-    monkeypatch.setattr("subfleet.capacity.read_desktop_account", lambda path=None: None)
+    keychain item holds their real credential. No test reads either by accident
+    (C-10.3, C-10.5): a test about desktop identity says which login it means,
+    by passing a path or a prober of its own."""
+    from subfleet import capacity
+    from subfleet.adapters.claude import ClaudeAdapter, PROFILE_UNAVAILABLE, ProfileResult
+
+    # Only the default path — the one that means "this machine's own login" — is
+    # blanked. A test that names a file still reads that file.
+    account, identity = capacity.read_desktop_account, capacity.cached_desktop_identity
+    monkeypatch.setattr("subfleet.capacity.read_desktop_account",
+                        lambda path=None: None if path is None else account(path))
+    monkeypatch.setattr("subfleet.capacity.cached_desktop_identity",
+                        lambda path=None: {} if path is None else identity(path))
+    monkeypatch.setattr(ClaudeAdapter, "probe_desktop_profile",
+                        lambda self: ProfileResult(PROFILE_UNAVAILABLE, detail="no desktop in tests"))
 
 
 def profile_body(email: str = LANE_EMAIL, account_uuid: str = LANE_ACCOUNT_UUID,

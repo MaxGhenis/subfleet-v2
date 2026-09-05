@@ -32,9 +32,9 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
-from . import protocol
+from . import capacity, protocol
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -1667,17 +1667,127 @@ def doctor_checks(root: Path, *,
     except OSError as exc:
         checks.append({"check": "never-rules hook in ~/.claude/settings.json",
                        "status": "warn", "detail": f"{settings}: {exc}"})
+    checks.append(_identity_roster_check(root))
     checks.append(_module_check("store"))
     checks.append(_module_check("procs"))
     return checks
 
 
+def _lane_rows(root: Path) -> list[dict[str, Any]] | None:
+    """Lane rows without a daemon, or None when the store cannot be read."""
+    try:
+        return Offline(root).lanes()
+    except (OfflineUnavailable, SchemaTooNew, OSError, ValueError):
+        return None
+
+
+def _identity_roster_check(root: Path) -> dict[str, Any]:
+    """C-10.7, C-23.45: at most one enabled lane may hold an account.
+
+    Identity, not email, is what joins two credentials to one account: a desktop
+    credential and an enrolled inference token are distinct lanes even when their
+    labels match, and two lanes that share an identity are double-counting one
+    account's quota.
+    """
+    check = "one identity per enabled lane"
+    lanes = _lane_rows(root)
+    if lanes is None:
+        return {"check": check, "status": "ok",
+                "detail": "no readable store yet (the daemon has not run here)"}
+    shared: dict[str, list[str]] = {}
+    for lane in lanes:
+        identity = lane.get("identity")
+        if identity and lane.get("enabled", 1):
+            shared.setdefault(str(identity), []).append(str(lane.get("lane_id")))
+    clashes = {identity: ids for identity, ids in shared.items() if len(ids) > 1}
+    mismatched = [str(lane.get("lane_id")) for lane in lanes
+                  if lane.get("identity_status") == "mismatch"]
+    if clashes:
+        detail = "; ".join(f"{identity} is held by {', '.join(sorted(ids))}"
+                           for identity, ids in sorted(clashes.items()))
+        return {"check": check, "status": "fail",
+                "detail": f"{detail} — disable all but one: "
+                          f"{PROG} lanes transfer <lane> --to v1 (C-10.7)"}
+    bound = sum(1 for lane in lanes if lane.get("identity"))
+    unbound = [str(lane.get("lane_id")) for lane in lanes
+               if lane.get("provider") == "claude" and not lane.get("identity")
+               and not lane.get("label")]
+    detail = f"{bound} bound, {len(lanes)} lanes"
+    if mismatched:
+        return {"check": check, "status": "warn",
+                "detail": f"{detail}; not a candidate until re-enrolled: "
+                          f"{', '.join(sorted(mismatched))} — "
+                          f"{PROG} lanes enroll <credential> (C-10.6)"}
+    if unbound:
+        return {"check": check, "status": "warn",
+                "detail": f"{detail}; no identity recorded, so no reading of "
+                          f"theirs is capacity: {', '.join(sorted(unbound))} — "
+                          f"{PROG} lanes enroll <credential> (C-10.6)"}
+    return {"check": check, "status": "ok", "detail": detail}
+
+
+# --- doctor --live: the checks that need the credential and the network -------
+
+def live_checks(root: Path, *, claude_json: Path | None = None,
+                profile: Callable[[], Any] | None = None) -> list[dict[str, Any]]:
+    """C-10.3: does the cached desktop login agree with the credential itself?
+
+    `~/.claude.json` says who the desktop app believes it is signed in as; the
+    profile endpoint, asked with the desktop app's own keychain item, says who
+    that credential actually belongs to. On 2026-09-05 those two disagreed and
+    v1 believed the file, attributing one account's usage to another. This check
+    exists to make that disagreement visible in words before it is believed.
+    """
+    checks: list[dict[str, Any]] = []
+    cached = capacity.cached_desktop_identity(claude_json)
+    cached_pair = (f"{cached.get('account_uuid')}:{cached.get('org_uuid')}"
+                   if cached.get("account_uuid") and cached.get("org_uuid") else None)
+    if profile is None:
+        from .adapters.claude import ClaudeAdapter
+        profile = ClaudeAdapter().probe_desktop_profile
+    try:
+        answer = profile()
+    except Exception as exc:                     # noqa: BLE001 — a doctor never raises
+        answer = None
+        detail = f"the desktop credential could not be read ({type(exc).__name__})"
+    else:
+        detail = None
+    observed = getattr(answer, "identity", None)
+    observed_email = getattr(answer, "email", None)
+    status_name = getattr(answer, "status", None)
+    check = "cached ~/.claude.json agrees with the desktop credential"
+    if detail is not None:
+        row = {"status": "warn", "detail": f"{detail} — unverified; "
+                                           f"{PROG} doctor --live again once it is readable"}
+    elif observed is None:
+        row = {"status": "warn",
+               "detail": f"the profile endpoint did not answer ({status_name}); the "
+                         f"cached login {cached.get('email') or 'unknown'} is "
+                         f"unverified — lanes fall back to matching that label "
+                         f"(C-10.3); retry when it answers"}
+    elif not cached:
+        row = {"status": "warn",
+               "detail": f"no cached oauthAccount to compare; the desktop "
+                         f"credential belongs to {observed_email} ({observed})"}
+    elif cached_pair == observed:
+        row = {"status": "ok",
+               "detail": f"both say {observed_email or cached.get('email')} ({observed})"}
+    else:
+        row = {"status": "fail",
+               "detail": f"they disagree: ~/.claude.json says "
+                         f"{cached.get('email')} ({cached_pair or 'no uuids'}) but the "
+                         f"credential itself belongs to {observed_email} ({observed}) "
+                         f"— trust the credential, and re-enrol any lane recorded "
+                         f"under the cached identity: {PROG} lanes enroll "
+                         f"claude-quota-{observed_email or '<email>'} (C-10.3, C-10.6)"}
+    checks.append({"check": check, **row})
+    return checks
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
-    if args.live:
-        note(f"{PROG} doctor --live: not implemented "
-             f"(the live probes land with the adapter lanes)")
-        return int(Exit.OK)
     checks = doctor_checks(_root(args))
+    if args.live:
+        checks += live_checks(_root(args))
     if args.json:
         for check in checks:
             emit(check)

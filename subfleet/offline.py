@@ -298,6 +298,14 @@ class Offline:
 
     # --- status (C-17.1) -----------------------------------------------------
 
+    def lanes(self) -> list[dict[str, Any]]:
+        """The lane roster alone (C-17.5), for checks that need no job history."""
+        with self.reading() as conn:
+            if "lanes" not in self._tables(conn):
+                return []
+            return [dict(row) for row in conn.execute(
+                "SELECT * FROM lanes ORDER BY lane_id")]
+
     def status(self) -> dict[str, Any]:
         with self.reading() as conn:
             tables = self._tables(conn)
