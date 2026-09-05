@@ -263,6 +263,7 @@ def test_c4_2_state_starting_uses_receipt_or_verified_empty_retry(state_daemon, 
             "proc_start": "unit-test-start", "started_at": daemon_module.utcnow(),
         }))
         monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: True)
+        monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
     else:
         daemon._starting_deadlines[attempt["attempt_id"]] = time.monotonic() - 1
     daemon._process_attempt(attempt["attempt_id"])
@@ -442,6 +443,7 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
                    Containment()])
     monkeypatch.setattr(daemon, "_contain", lambda attempt: next(census))
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: True)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
     signals = []
     monkeypatch.setattr(daemon_module.procs, "signal_group",
                         lambda pgid, sig, **identity: signals.append(("group", pgid, sig)))
