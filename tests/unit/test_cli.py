@@ -572,3 +572,20 @@ def test_boot_id_is_read_once(monkeypatch):
     assert client_module.boot_id() == "1788531275"
     assert client_module.boot_id() == "1788531275"
     assert len(reads) == 1
+
+
+def test_a_result_whose_shape_drifted_renders_instead_of_raising(daemon, capsys):
+    """C-16.2 unknown fields are ignored; a drifting shape must not raise."""
+    daemon({"list": lambda request: {"jobs": ["not a row", {"job_id": JOB,
+                                                            "state": "running"}]},
+            "daemon.status": lambda request: {"lanes": "not a list",
+                                              "readings": None, "running": 7},
+            "show": lambda request: {"job_id": JOB, "state": "succeeded",
+                                     "artifacts": "not a list",
+                                     "attempts": {"seq": 1, "state": "succeeded"}}})
+    assert run_cli(["runs"]) == 0
+    assert JOB in capsys.readouterr().out
+    assert run_cli(["status"]) == 0
+    assert "no lanes enrolled" in capsys.readouterr().out
+    assert run_cli(["runs", "show", JOB]) == 0
+    assert JOB in capsys.readouterr().out

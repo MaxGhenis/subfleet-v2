@@ -179,6 +179,19 @@ def _first(row: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def rows_of(value: Any) -> list[dict[str, Any]]:
+    """Only the dict rows of whatever the daemon sent.
+
+    The daemon is built by another lane; a result whose shape drifts should
+    render as much as it can rather than raise inside a formatter.
+    """
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
 def job_row(row: dict[str, Any]) -> dict[str, Any]:
     """One ledger row, however the daemon or the store spelled its keys."""
     attempt = row.get("attempt") if isinstance(row.get("attempt"), dict) else {}
@@ -207,9 +220,9 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
     The rc column keeps v1's contract: pollers read a bare state word for a job
     that has not finished and an integer for one that has.
     """
-    if not rows:
+    normalised = [job_row(row) for row in rows_of(rows)]
+    if not normalised:
         return "no recorded jobs"
-    normalised = [job_row(row) for row in rows]
     id_width = max(24, *(len(str(row["id"] or "-")) for row in normalised))
     lines = [
         f"{'id':<{id_width}} {'family':<7} {'model':<16} {'lane':<12} "
@@ -247,10 +260,10 @@ def _percent(value: Any) -> str:
 def format_status(data: dict[str, Any]) -> str:
     """Lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = []
-    lanes = data.get("lanes") or []
-    readings = data.get("readings") or []
-    closures = data.get("closures") or []
-    running = data.get("running") or data.get("jobs") or []
+    lanes = rows_of(data.get("lanes"))
+    readings = rows_of(data.get("readings"))
+    closures = rows_of(data.get("closures"))
+    running = rows_of(data.get("running") or data.get("jobs"))
     by_lane: dict[str, list[dict[str, Any]]] = {}
     for reading in readings:
         by_lane.setdefault(reading.get("lane_id"), []).append(reading)
@@ -551,10 +564,10 @@ def _format_decision(decision: dict[str, Any]) -> str:
     if not isinstance(decision, dict):
         return json.dumps(decision, default=str)
     lines = [f"chain: {' → '.join(decision.get('chain') or []) or '-'}"]
-    for evaluation in decision.get("evaluations") or []:
+    for evaluation in rows_of(decision.get("evaluations")):
         lines.append(f"  {evaluation.get('model')}: "
                      f"{evaluation.get('reason') or evaluation.get('result') or ''}")
-        for rejected in evaluation.get("rejected") or []:
+        for rejected in rows_of(evaluation.get("rejected")):
             lines.append(f"    - {rejected.get('lane_id')}: {rejected.get('reason')}")
     lines.append(f"chosen: {decision.get('chosen_model') or '-'} on "
                  f"{decision.get('chosen_lane') or '-'} — {decision.get('reason') or '-'}")
@@ -694,7 +707,7 @@ def cmd_runs(args: argparse.Namespace) -> int:
         client = _client(args)
         result = client.call("list", _asdict(protocol.ListArgs(
             mine=mine, running=bool(args.running), last=args.last)))
-        rows = result.get("jobs") or result.get("rows") or []
+        rows = rows_of(result.get("jobs") or result.get("rows"))
     except DaemonUnavailable:
         offline = True
         try:
@@ -718,8 +731,8 @@ def cmd_runs(args: argparse.Namespace) -> int:
 
 
 def _artifact_path(job: dict[str, Any], role: str) -> str | None:
-    for artifact in job.get("artifacts") or []:
-        if isinstance(artifact, dict) and artifact.get("role") == role:
+    for artifact in rows_of(job.get("artifacts")):
+        if artifact.get("role") == role:
             return artifact.get("path")
     return job.get(f"{role}_path")
 
@@ -761,7 +774,7 @@ def _format_job(job: dict[str, Any]) -> str:
         value = job.get(key)
         if value not in (None, ""):
             lines.append(f"{label:<8} {value}")
-    attempts = job.get("attempts") or []
+    attempts = rows_of(job.get("attempts"))
     if attempts:
         lines.append("attempts")
         for attempt in attempts:
@@ -773,14 +786,13 @@ def _format_job(job: dict[str, Any]) -> str:
                    if attempt.get("outcome_class") else "")
                 + (f" quarantine={attempt.get('quarantine_reason')}"
                    if attempt.get("quarantine_reason") else ""))
-    artifacts = job.get("artifacts") or []
+    artifacts = rows_of(job.get("artifacts"))
     if artifacts:
         lines.append("artifacts")
         for artifact in artifacts:
             lines.append(f"  {str(artifact.get('role') or '-'):<12} "
                          f"{artifact.get('path')} ({artifact.get('bytes')} bytes)")
-    notices = job.get("notices") or []
-    for notice in notices:
+    for notice in rows_of(job.get("notices")):
         lines.append(f"notice   [{notice.get('state')}] {notice.get('text')}")
     return "\n".join(lines)
 
@@ -995,9 +1007,9 @@ def cmd_resume(args: argparse.Namespace) -> int:
 # --- lanes, why, ping ---------------------------------------------------------
 
 def _format_lanes(result: dict[str, Any]) -> str:
-    lanes = result.get("lanes")
-    if lanes is None:
+    if result.get("lanes") is None:
         return json.dumps(result, indent=1, sort_keys=True, default=str)
+    lanes = rows_of(result.get("lanes"))
     if not lanes:
         return "no lanes enrolled — subfleet lanes enroll <credential>"
     lines = [f"{'lane':<12} {'provider':<8} {'account':<30} {'owner':<6} "
