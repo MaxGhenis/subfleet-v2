@@ -278,3 +278,12 @@ def test_show_out_with_no_deliverable_is_an_operational_error(root, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no deliverable recorded" in captured.err
+
+
+def test_offline_kill_will_not_resolve_a_quarantine(store, capsys):
+    """C-5.7, C-3.4 --confirm-dead and --force-release need the daemon's writes."""
+    for flag in ("--confirm-dead", "--force-release"):
+        assert cli.main(["kill", JOB, flag]) == 69
+        captured = capsys.readouterr()
+        assert "only the daemon" in captured.err
+        assert "subfleet daemon start" in captured.err

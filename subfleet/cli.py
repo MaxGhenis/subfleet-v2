@@ -931,7 +931,16 @@ def cmd_kill(args: argparse.Namespace) -> int:
                 out(f"{job_id} {result.get('status') or result.get('action') or 'cancel requested'}")
                 if result.get("detail"):
                     note(f"  {result['detail']}")
-        except DaemonUnavailable:
+        except DaemonUnavailable as exc:
+            if args.confirm_dead or args.force_release:
+                # Both resolutions release leases and record an event, and only
+                # the daemon writes rows (C-3.4, C-5.7).
+                worst = max(worst, fail(
+                    Exit.DAEMON_UNAVAILABLE,
+                    f"kill: --{'confirm-dead' if args.confirm_dead else 'force-release'}"
+                    f" releases leases and records an event, which only the daemon"
+                    f" does ({exc})", START_DAEMON))
+                continue
             try:
                 result = _offline(args).kill(job_id)
             except OfflineUnavailable as exc:
