@@ -391,7 +391,9 @@ class Daemon:
                 return {"decision": json.loads(row["decision_json"]) if row else None}
             return {"decision": dataclasses.asdict(self._pick({**dataclasses.asdict(a), "exclusions": json.dumps(a.exclusions)}))}
         if op.startswith("notice."):
-            a = protocol.coerce_args(protocol.NoticeArgs, args)
+            a = protocol.coerce_args(
+                protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
+                args)
             if op == "notice.ack":
                 with self.store.transaction("notice.acknowledged") as tx:
                     for notice_id in a.notice_ids:
