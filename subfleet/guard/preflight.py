@@ -210,7 +210,7 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             raise ValueError("preflight Codex home must be an existing directory")
         override = override_string(hook)
         hooks_hash = hooks_trust_hash(hook)
-        with tempfile.TemporaryDirectory(prefix="subfleet-guard-preflight-") as scratch:
+        with tempfile.TemporaryDirectory(prefix="subfleet-guard-preflight-", dir=_scratch_root()) as scratch:
             scratch_home = Path(scratch) / "home"
             scratch_home.mkdir(mode=0o700)
             if source_home is not None:
@@ -244,3 +244,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
         return PreflightResult(False, 7, f"Guard preflight refused: {exc}", _FIX,
                                version=version, hooks_hash=hooks_hash)
+
+def _scratch_root() -> str:
+    """C-2.1, C-23.23: the preflight scratch home lives under the state root, never /tmp."""
+    root = os.path.join(os.path.expanduser(os.environ.get("SUBFLEET_HOME", "~/.subfleet")), "tmp")
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    return root

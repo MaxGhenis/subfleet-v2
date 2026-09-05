@@ -28,6 +28,8 @@ worded around.
   invariant is violated. Where code already on this branch implements the row, the rationale says
   so — code without a clause is not accepted.
 
+> Folded into `docs/acceptance-contract.md` as section 23 on 2026-09-05 13:50 EDT: every `P-23.n` below is now clause `C-23.n`. This file stays as the provenance record (ledger rows, rationale, incidents) and the conflict list with the integrator's dispositions.
+
 ## Contents
 
 | class | rows | clauses |
@@ -1058,6 +1060,8 @@ Nine places where a proposal changes something the contract or `plan.md` already
 where the contract and the plan already disagree with each other in a way these proposals depend
 on. Each gives both texts and a recommendation. None of them is resolved here: section 23 is a
 proposal until the integrator folds it in, and every one of these is the integrator's call.
+
+> **Dispositions (integrator, 2026-09-05 13:55 EDT):** all eleven resolved as recommended and applied to the contract in the same commit that folded section 23 in; see "Changes in version 2" at the top of `docs/acceptance-contract.md`.
 
 <a id="c-1"></a>
 ### C-1 — `-I` and `-D` against C-17.2's flag list (P-23.2, P-23.3)
