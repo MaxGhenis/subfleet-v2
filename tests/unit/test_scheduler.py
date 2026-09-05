@@ -119,7 +119,7 @@ def test_codex_in_flight_never_reorders_equal_weekly_resets(policy):
     assert evaluate(policy, snapshot, job(pinned_model="astra")).chosen_lane == "codex-1"
 
 
-@pytest.mark.parametrize("utilization", [.85, .9, 1])
+@pytest.mark.parametrize("utilization", [.85, .9, 1, 1.47])
 def test_codex_any_window_at_or_above_floor_is_ineligible_even_with_soon_reset(policy, utilization):
     """C-11.3: all provider windows must be strictly below the utilization threshold."""
     snapshot = view([lane("codex-1"), lane("codex-2")],
