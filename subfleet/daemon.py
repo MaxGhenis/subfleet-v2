@@ -37,6 +37,7 @@ from .contracts import (
 from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .policy import load_policy, policy_hash, pick
+from .retention import maintenance
 from .salvage import git_head, salvage, validate_writable_workdir
 from .store import Store
 
@@ -97,6 +98,10 @@ class Daemon:
         self._launches: dict[str, Launch] = {}
         self._children: dict[str, subprocess.Popen] = {}
         self._starting_deadlines: dict[str, float] = {}
+        self._pending_launches: set[str] = set()
+        self._export_locks: dict[str, threading.Lock] = {}
+        self._census_next: dict[str, float] = {}
+        self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
         self._closed = False
@@ -230,6 +235,8 @@ class Daemon:
                 provider = self.policy["models"][task_model]["provider"]
                 if lane and lane.provider != provider:
                     raise ValueError("pinned lane and model providers disagree")
+                if lane:
+                    self._validate_home(lane)
                 if provider == "claude" and HEADLESS_MARKER.encode() not in prompt.splitlines():
                     prompt = HEADLESS_PREAMBLE.encode() + prompt
                 if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
@@ -304,6 +311,16 @@ class Daemon:
             if self.store.one(f"SELECT job_id FROM jobs WHERE {column}=? AND state NOT IN "
                               f"('succeeded','failed','cancelled','lost'){writable}", (value,)):
                 raise AdapterError(f"{column} is held by a live job", fix=fix)
+
+    @staticmethod
+    def _validate_home(lane: Lane) -> None:
+        if lane.provider != "codex" or lane.credential.kind != "home":
+            return
+        path = Path(lane.credential.ref).expanduser() / "auth.json"
+        if path.is_file():
+            auth = json.loads(path.read_bytes())
+            if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
+                raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
 
     def dispatch(self, op: str, args: dict) -> dict:
         if op == "submit":
@@ -431,6 +448,557 @@ class Daemon:
                     self._busy.discard(key)
                 self._notify()
         future.add_done_callback(done)
+
+    def _control(self) -> None:
+        # Recovery uses the same idempotent workers as normal execution. A
+        # reserved row absent from this process's launch set was never granted
+        # permission to run by this daemon instance.
+        while not self.stopping.is_set():
+            try:
+                for a in self.store.query("SELECT * FROM attempts WHERE state IN ('reserved','starting','running','finalizing')"):
+                    self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"])
+                for j in self.store.query("SELECT * FROM jobs WHERE accepted_attempt_id IS NOT NULL"):
+                    if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):
+                        self._schedule("export:" + j["job_id"], self._export, j["job_id"])
+                self._schedule("admission", self._admit)
+                if time.monotonic() - self._last_maintenance >= 3600:
+                    self._last_maintenance = time.monotonic()
+                    self._schedule("retention", maintenance, self.store, self.root)
+            except Exception as exc:
+                self.log.error("control iteration failed: %s", type(exc).__name__)
+            self.stopping.wait(self.tick_s)
+
+    def _workspace(self, job: dict) -> tuple[str, str | None, str | None]:
+        workdir = job.get("worktree") or job["workdir"]
+        if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
+            workdir = str(self.root / "worktrees" / job["job_id"])
+            if not Path(workdir).exists():
+                result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
+                                        capture_output=True, timeout=30)
+                if result.returncode:
+                    raise AdapterError("could not allocate worktree", fix="check repository and state-root permissions")
+            os.chmod(workdir, 0o700)
+        head = git_head(workdir)
+        baseline = None
+        if head:
+            result = subprocess.run(["git", "-C", workdir, "rev-parse", f"{head}^{{tree}}"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                baseline = result.stdout.strip()
+        return workdir, head, baseline
+
+    def _admit(self) -> None:
+        for job in self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid"):
+            if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
+                self.kill(protocol.KillArgs(job["job_id"]))
+                continue
+            if job["wait_reason"] in ("approval", "uncertain") or (job["next_check_at"] and job["next_check_at"] > utcnow()):
+                continue
+            if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
+                continue
+            try:
+                workspace, head, baseline = self._workspace(job)
+            except (OSError, subprocess.SubprocessError, AdapterError):
+                self._fail_queued(job, "workspace preparation failed")
+                continue
+            with self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+                job = self._job(job["job_id"])
+                if job["cancel_requested_at"] or job["state"] in TERMINAL:
+                    continue
+                previous = self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (job["job_id"],))
+                extra_exclusions = tuple(a["lane_id"] for a in previous if a["outcome_class"] == "limited")
+                # A transient gets one same-lane retry. Subsequent attempts move
+                # on; a pinned lane has no next candidate.
+                transient_counts: dict[str, int] = {}
+                for a in previous:
+                    if a["outcome_class"] == "transient":
+                        transient_counts[a["lane_id"]] = transient_counts.get(a["lane_id"], 0) + 1
+                extra_exclusions += tuple(l for l, n in transient_counts.items() if n >= 2)
+                decision_job = job
+                if previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1:
+                    decision_job = {**job, "pinned_lane": previous[-1]["lane_id"]}
+                decision = self._pick(decision_job, extra_exclusions=extra_exclusions)
+                live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
+                if not decision.chosen_lane or live >= self.policy["caps"]["max_active_attempts"]:
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (after(1), job["job_id"]))
+                    continue
+                seq = len(previous) + 1
+                aid = ids.attempt_id(job["job_id"], seq)
+                lane_id = decision.chosen_lane
+                slot = 0
+                while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane_id}:slot:{slot}",)).fetchone():
+                    slot += 1
+                leases = [(f"lane:{lane_id}:slot:{slot}", aid)]
+                if job["out_path"]:
+                    leases.append((f"out:{job['out_path']}", job["job_id"]))
+                if job["sandbox"] == "workspace-write":
+                    leases.append((f"worktree:{workspace}", job["job_id"]))
+                    if job["caller_session"]:
+                        leases.append((f"session:{job['caller_session']}", job["job_id"]))
+                conflict = any((r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder for key, holder in leases)
+                if conflict:
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (after(1), job["job_id"]))
+                    continue
+                for key, holder in leases:
+                    tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
+                tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
+                           (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
+                            json.dumps({"baseline_commit": head, "model_short": decision.chosen_model}), utcnow()))
+                tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
+                           (job["job_id"], aid, utcnow(), self.policy_digest, json.dumps(dataclasses.asdict(decision))))
+                tx.execute("UPDATE jobs SET state='running',wait_reason=NULL,next_check_at=NULL,worktree=?,started_at=COALESCE(started_at,?) WHERE job_id=?",
+                           (workspace if job["sandbox"] == "workspace-write" else None, utcnow(), job["job_id"]))
+                with self._busy_lock:
+                    self._busy.add(aid)
+            try:
+                self._boundary("reserved", job["job_id"], aid)
+                self._pending_launches.add(aid)
+            finally:
+                with self._busy_lock:
+                    self._busy.discard(aid)
+            self._notify()
+
+    def _fail_queued(self, job: dict, detail: str) -> None:
+        with self.store.transaction("job.failed", job_id=job["job_id"]) as tx:
+            job = self._job(job["job_id"])
+            if job["state"] in TERMINAL:
+                return
+            state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("failed", 1)
+            tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), job["job_id"]))
+            tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
+            self._notice(tx, job, "unknown", rc, None, detail)
+        self._notify()
+
+    def _launch(self, a: dict) -> None:
+        job = self._job(a["job_id"])
+        self._pending_launches.discard(a["attempt_id"])
+        if job["cancel_requested_at"]:
+            self._unlaunched(a, "cancelled-before-launch")
+            return
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        adir.mkdir(mode=0o700, exist_ok=True)
+        lane = self.store.get_lane(a["lane_id"])
+        adapter = get_adapter(lane.provider)
+        evidence = json.loads(a["evidence_json"] or "{}")
+        model = self.policy["models"][evidence["model_short"]]
+        prompt_path = Path(job["prompt_path"])
+        if a["seq"] > 1 and job["sandbox"] == "workspace-write":
+            refs = self.store.query("SELECT path FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=? AND role='salvage' ORDER BY seq", (job["job_id"],))
+            suffix = f"\n\nContinue from checkpoint {evidence.get('baseline_commit')}. Preserved snapshots: {', '.join(r['path'] for r in refs) or 'none'}.\n"
+            prompt_path = adir / "prompt.md"
+            self._publish("prompt", prompt_path, Path(job["prompt_path"]).read_bytes() + suffix.encode())
+        try:
+            self._validate_home(lane)
+            credential_env = resolve_credential(lane.credential)
+            spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
+            launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
+                                          model["id"], model.get("effort"), prompt_path, None)
+        except AdapterError as exc:
+            self._launch_failure(a, str(exc), rc=exc.code)
+            return
+        self._launches[a["attempt_id"]] = launch
+        safe_launch = dataclasses.asdict(launch)
+        safe_launch.pop("env_add")
+        self._publish("launch", adir / "launch.json", json_bytes(safe_launch))
+        self._publish("lane-log", adir / "lane.log", b"")
+        env = dict(os.environ)
+        env.update(launch.env_add)
+        for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+            env.pop(key, None)
+        env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"])
+        # The package path is explicit: provider cwd is deliberately unrelated
+        # to the daemon's installation or test checkout.
+        package_root = str(Path(__file__).resolve().parent.parent)
+        env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        read_fd, write_fd = os.pipe()
+        command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(adir),
+                   "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
+                   "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]
+        if launch.stdin_path:
+            command += ["--stdin-path", launch.stdin_path]
+        if self.guardian_start_delay_s:
+            command += ["--start-delay-s", str(self.guardian_start_delay_s)]
+        command += ["--", *launch.argv]
+        try:
+            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     pass_fds=(read_fd,), close_fds=True)
+            self._children[a["attempt_id"]] = child
+            started = procs.proc_start(child.pid)
+            if not started:
+                raise procs.InspectionError("guardian identity is absent")
+            boot = procs.boot_id()
+            with self.store.transaction("attempt.starting", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+                tx.execute("UPDATE attempts SET state='starting',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,native_session_id=? WHERE attempt_id=? AND state='reserved'",
+                           (child.pid, child.pid, boot, started, launch.native_session_id, a["attempt_id"]))
+            os.write(write_fd, b"1")
+        except (OSError, procs.InspectionError):
+            # Closing the gate guarantees an unrecorded guardian cannot launch.
+            os.close(write_fd)
+            write_fd = -1
+            self._unlaunched(a, "guardian-identity-unavailable")
+            return
+        finally:
+            os.close(read_fd)
+            if write_fd >= 0:
+                os.close(write_fd)
+        self._starting_deadlines[a["attempt_id"]] = time.monotonic() + self.start_grace_s
+        self._boundary("starting", a["job_id"], a["attempt_id"])
+
+    def _launch_failure(self, a: dict, detail: str, *, rc: int = 127) -> None:
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        adir.mkdir(mode=0o700, exist_ok=True)
+        self._publish("exit", adir / "exit.json", json_bytes({"rc": rc, "signal": None, "wall_s": 0, "child_pid": None,
+                      "finished_at": utcnow(), "spawn_error": detail}))
+        self._begin_finalizing(a, self._read_json(adir / "exit.json"))
+
+    @staticmethod
+    def _read_json(path: Path) -> dict | None:
+        try:
+            return json.loads(path.read_bytes())
+        except FileNotFoundError:
+            return None
+
+    def _process_attempt(self, aid: str) -> None:
+        a = self.store.get_attempt(aid)
+        if not a or a["state"] not in LIVE:
+            return
+        child = self._children.get(aid)
+        if child and child.poll() is not None:
+            self._children.pop(aid, None)
+        if a["state"] == "reserved":
+            if aid in self._pending_launches:
+                self._launch(a)
+            else:
+                self._unlaunched(a, "reserved-no-launch")
+            return
+        job = self._job(a["job_id"])
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        if a["state"] == "finalizing":
+            self._finalize(a)
+            return
+        start = self._read_json(adir / "start.json")
+        receipt = self._read_json(adir / "exit.json")
+        if start and a["state"] == "starting":
+            with self.store.transaction("attempt.running", job_id=a["job_id"], attempt_id=aid) as tx:
+                tx.execute("UPDATE attempts SET state='running',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,started_at=? WHERE attempt_id=? AND state='starting'",
+                           (start["guardian_pid"], start["pgid"], start["boot_id"], start["proc_start"], start["started_at"], aid))
+            self._starting_deadlines.pop(aid, None)
+            self._boundary("running", a["job_id"], aid)
+            a = self.store.get_attempt(aid)
+        if receipt:
+            self._begin_finalizing(a, receipt)
+            return
+        if job["cancel_requested_at"] or age(job["started_at"]) >= job["max_wall_s"]:
+            if not job["cancel_requested_at"]:
+                with self.store.transaction("job.wall_limit", job_id=job["job_id"]) as tx:
+                    tx.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=? AND cancel_requested_at IS NULL", (utcnow(), job["job_id"]))
+                    tx.execute("UPDATE attempts SET killed_by='max_wall_s' WHERE attempt_id=?", (aid,))
+                a = self.store.get_attempt(aid)
+            self._kill_attempt(a)
+            return
+        if a["state"] == "starting":
+            deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
+            if time.monotonic() < deadline:
+                return
+            census = self._contain(a)
+            if census.verified_empty:
+                self._unlaunched(a, "starting-no-receipt")
+            else:
+                self._quarantine(a, census, "start grace expired without a receipt")
+            return
+        if a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+            if time.monotonic() >= self._census_next.get(aid, 0):
+                self._record_owned(a)
+                self._census_next[aid] = time.monotonic() + .5
+            return  # Re-adopted solely by receipt identity, not parentage.
+        census = self._contain(a)
+        if not census.verified_empty:
+            self._kill_attempt(a, lost=True)
+        else:
+            self._lost(a)
+
+    def _contain(self, a: dict):
+        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"])
+
+    def _record_owned(self, a: dict) -> None:
+        census = self._contain(a)
+        if not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+            return
+        evidence = json.loads(a["evidence_json"] or "{}")
+        before = dict(evidence.get("owned_identities", {}))
+        owned = dict(before)
+        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items() if pid in census.group_pids})
+        if owned != before:
+            evidence["owned_identities"] = owned
+            with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
+
+    def _unlaunched(self, a: dict, detail: str) -> None:
+        with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
+            job = self._job(a["job_id"])
+            cancel = bool(job["cancel_requested_at"])
+            tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,finished_at=? WHERE attempt_id=?",
+                       ("interrupted" if cancel else "failed", detail, utcnow(), a["attempt_id"]))
+            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["attempt_id"], job["job_id"]))
+            retry = not cancel and a["seq"] < job["max_attempts"]
+            state = "queued" if retry else "cancelled" if cancel else "failed"
+            rc = None if retry else 130 if cancel else 1
+            tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
+            if not retry:
+                self._notice(tx, job, "unknown", rc, None, detail)
+        self._notify()
+
+    def _begin_finalizing(self, a: dict, receipt: dict) -> None:
+        with self.store.transaction("attempt.finalizing", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            tx.execute("UPDATE attempts SET state='finalizing',rc=?,signal=?,child_pid=?,finished_at=? WHERE attempt_id=? AND state IN ('reserved','starting','running')",
+                       (receipt["rc"], receipt.get("signal"), receipt.get("child_pid"), receipt.get("finished_at", utcnow()), a["attempt_id"]))
+        self._boundary("finalizing", a["job_id"], a["attempt_id"])
+        self._notify()
+
+    def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
+        census = self._contain(a)
+        evidence = json.loads(a["evidence_json"] or "{}")
+        # Only group members observed while the recorded leader is still ours
+        # may become additional signal targets. Escaped/new marker pids remain
+        # evidence for quarantine, never authority inferred from a PID alone.
+        owned = {int(pid): procs.ProcessIdentity(**value) for pid, value in evidence.get("owned_identities", {}).items()}
+        leader_live = a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
+        if leader_live:
+            owned.update({pid: ident for pid, ident in census.identities.items() if pid in census.group_pids})
+        evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
+        with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
+        if a.get("pgid"):
+            procs.signal_group(a["pgid"], signal.SIGTERM, boot_id=a["boot_id"], proc_start=a["proc_start"])
+        deadline = time.monotonic() + self.term_grace_s
+        while not census.verified_empty and time.monotonic() < deadline:
+            if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
+                return
+            census = self._contain(a)
+        escalated = not census.verified_empty
+        if escalated and a.get("pgid"):
+            procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"], proc_start=a["proc_start"])
+        census = self._contain(a)
+        for pid in census.live_pids:
+            if pid in owned:
+                procs.signal_process(owned[pid], signal.SIGKILL)
+        # Give exited children a chance to be reaped; zombies are already absent
+        # from the census. No SQLite transaction is open while waiting.
+        self.stopping.wait(.05)
+        census = self._contain(a)
+        if not census.verified_empty:
+            self._quarantine(a, census, "termination could not verify containment")
+            return
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        receipt = self._read_json(adir / "exit.json")
+        if lost and receipt is None:
+            self._lost(a)
+            return
+        if receipt is None:
+            sig = signal.SIGKILL if escalated else signal.SIGTERM
+            receipt = {"rc": -int(sig), "signal": int(sig), "child_pid": a["child_pid"],
+                       "wall_s": age(a["started_at"]), "finished_at": utcnow(), "killed_by": a.get("killed_by") or "operator"}
+            self._publish("exit", adir / "exit.json", json_bytes(receipt))
+        self._begin_finalizing(a, receipt)
+
+    def _quarantine(self, a: dict, census, reason: str) -> None:
+        detail = json.dumps({"reason": reason, **census.to_dict()}, sort_keys=True)
+        with self.store.transaction("attempt.quarantined", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"containment": census.to_dict()}) as tx:
+            job = self._job(a["job_id"])
+            tx.execute("UPDATE attempts SET state='quarantined',quarantine_reason=?,finished_at=? WHERE attempt_id=?", (detail, utcnow(), a["attempt_id"]))
+            tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
+            state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("lost", 125)
+            tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
+            self._notice(tx, job, "unknown", a.get("rc"), None, "quarantined: " + detail)
+        self._notify()
+
+    def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
+        census = self._contain(a)
+        if not args.force_release and not census.verified_empty:
+            with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
+                tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
+            return
+        artifacts = []
+        if census.verified_empty:
+            artifacts, _ = self._salvage(self._job(a["job_id"]), a)
+        with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release}) as tx:
+            for artifact in artifacts:
+                self.store.add_artifact(a["attempt_id"], **artifact)
+            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))
+            tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
+        self._notify()
+
+    def _lost(self, a: dict) -> None:
+        self._finalize(a, lost=True)
+
+    def _saved_launch(self, a: dict) -> Launch:
+        if a["attempt_id"] in self._launches:
+            return self._launches[a["attempt_id"]]
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        value = self._read_json(adir / "launch.json")
+        if value:
+            value.update(env_add={"SUBFLEET_LANE": a["lane_id"]}, argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
+            return Launch(**value)
+        job = self._job(a["job_id"])
+        return Launch((), {}, (), job.get("worktree") or job["workdir"], job["prompt_path"], str(adir / "stdout"), str(adir / "stderr"), None, None)
+
+    def _salvage(self, job: dict, a: dict) -> tuple[list[dict], str | None]:
+        if job["sandbox"] != "workspace-write":
+            return [], None
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        receipt_path = adir / "salvage.json"
+        receipt = self._read_json(receipt_path)
+        if receipt is None:
+            baseline = json.loads(a["evidence_json"] or "{}").get("baseline_commit") or job["workdir_head"]
+            result = salvage(job.get("worktree") or job["workdir"], baseline, a["seq"],
+                             writable=True, state="finalizing", timestamp=a["reserved_at"])
+            receipt = {"result": dataclasses.asdict(result) if result else None,
+                       "checkpoint": git_head(job.get("worktree") or job["workdir"])}
+            self._publish("salvage", receipt_path, json_bytes(receipt))
+            self._boundary("salvage", job["job_id"], a["attempt_id"])
+        result = receipt["result"]
+        if not result:
+            return [], receipt["checkpoint"]
+        ref = result.get("ref") or result.get("ref_name")
+        commit = result.get("commit") or result.get("commit_sha")
+        return [{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}], receipt["checkpoint"]
+
+    @staticmethod
+    def _artifact(path: Path, role: str) -> dict | None:
+        try:
+            contents = path.read_bytes()
+        except FileNotFoundError:
+            return None
+        return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
+
+    def _finalize(self, a: dict, *, lost: bool = False) -> None:
+        job = self._job(a["job_id"])
+        actual = self.store.get_attempt(a["attempt_id"])
+        current = self.store.one("SELECT MAX(seq) n FROM attempts WHERE job_id=?", (a["job_id"],))["n"]
+        if job["state"] in TERMINAL or job["accepted_attempt_id"] or current != a["seq"] or actual["state"] not in ("starting", "running", "finalizing"):
+            return
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        adir.mkdir(mode=0o700, exist_ok=True)
+        census = self._contain(a)
+        if not census.verified_empty:
+            # A receipt is written just before guardian exit; allow that small
+            # interval without mistaking the guardian itself for an escape.
+            if not census.unverifiable and census.live_pids <= {a.get("guardian_pid")}:
+                return
+            self._quarantine(a, census, "writers remain after exit receipt")
+            return
+        launch = self._saved_launch(a)
+        lane = self.store.get_lane(a["lane_id"])
+        adapter = get_adapter(lane.provider)
+        receipt = self._read_json(adir / "exit.json")
+        if not receipt:
+            lost = True
+        rc = None if lost else receipt["rc"]
+        if lost:
+            outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt")
+            attest_status, served_model = "unattested", None
+        else:
+            exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
+            outcome = adapter.classify(adir, launch, exit_info)
+            attest = adapter.attest(adir, launch, outcome, a["model_requested"])
+            attest_status, served_model = attest.status.value, attest.served_model
+        deliverable_path = adir / "deliverable.md"
+        if not deliverable_path.exists() and not lost:
+            contents = adapter.deliverable(adir, launch, outcome)
+            self._publish("deliverable", deliverable_path, contents or b"")
+        deliverable = self._artifact(deliverable_path, "deliverable")
+        if outcome.cls == OutcomeClass.OK and (not deliverable or not deliverable["bytes"]):
+            outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
+        artifacts = [x for x in [deliverable,
+                     self._artifact(Path(launch.stdout_path), "stdout"),
+                     self._artifact(Path(launch.stderr_path), "stderr"),
+                     self._artifact(adir / "lane.log", "lane-log"),
+                     self._artifact(Path(launch.raw_stream_path), "raw-stream") if launch.raw_stream_path else None,
+                     self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
+        salvage_artifacts, checkpoint = self._salvage(job, a)
+        artifacts.extend(salvage_artifacts)
+        with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            job = self._job(a["job_id"])
+            current = tx.execute("SELECT MAX(seq) FROM attempts WHERE job_id=?", (job["job_id"],)).fetchone()[0]
+            actual = self.store.get_attempt(a["attempt_id"])
+            eligible_states = ("starting", "running", "finalizing") if lost else ("finalizing",)
+            if current != a["seq"] or actual["state"] not in eligible_states or job["accepted_attempt_id"] or job["state"] in TERMINAL:
+                return
+            cancel = bool(job["cancel_requested_at"])
+            ok = not lost and rc == 0 and outcome.cls == OutcomeClass.OK
+            previous_transient = tx.execute("SELECT count(*) FROM attempts WHERE job_id=? AND lane_id=? AND outcome_class='transient' AND attempt_id!=?", (job["job_id"], a["lane_id"], a["attempt_id"])).fetchone()[0]
+            retry = (not cancel and a["seq"] < job["max_attempts"] and
+                     ((lost and job["sandbox"] == "read-only") or
+                      (outcome.cls == OutcomeClass.LIMITED and not job["pinned_lane"]) or
+                      (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient))))
+            attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
+            job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
+            evidence = json.loads(a["evidence_json"] or "{}")
+            evidence.update(classification=outcome.evidence, checkpoint=checkpoint)
+            tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
+                       (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
+                        outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
+            for artifact in artifacts:
+                self.store.add_artifact(a["attempt_id"], **artifact)
+            for reading in outcome.readings:
+                self.store.add_reading(reading)
+            if outcome.closure:
+                self.store.add_closure(outcome.closure)
+            tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
+            job_rc = 130 if cancel else None if retry else 125 if lost else rc
+            accepted = a["attempt_id"] if ok and not cancel else None
+            next_check = after(60 if outcome.cls == OutcomeClass.TRANSIENT else 0) if retry else None
+            tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
+                       (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
+            if not retry:
+                if not accepted:
+                    tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job["job_id"], a["attempt_id"]))
+                uncertainty = f"; {attest_status}" if attest_status != "attested" else ""
+                self._notice(tx, job, outcome.cls.value, rc, str(deliverable_path) if deliverable else None, outcome.detail + uncertainty)
+        if not retry:
+            self._boundary("terminal", a["job_id"], a["attempt_id"])
+            self._boundary("notice", a["job_id"], a["attempt_id"])
+        if accepted:
+            self._export(job["job_id"])
+        self._notify()
+
+    def _export(self, job_id: str) -> None:
+        with self._busy_lock:
+            lock = self._export_locks.setdefault(job_id, threading.Lock())
+        with lock:
+            self._export_locked(job_id)
+
+    def _export_locked(self, job_id: str) -> None:
+        job = self._job(job_id)
+        if not job["accepted_attempt_id"]:
+            return
+        if job["out_path"]:
+            lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (f"out:{job['out_path']}",))
+            if not lease or lease["holder"] != job_id:
+                return  # A replay cannot overwrite a newer owner's output.
+        a = self.store.get_attempt(job["accepted_attempt_id"])
+        artifact = self.store.one("SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'", (a["attempt_id"],))
+        export_error = None
+        exported = None
+        if job["out_path"] and not self.store.one("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'", (a["attempt_id"],)):
+            try:
+                contents = Path(artifact["path"]).read_bytes()
+                destination = Path(job["out_path"])
+                if hashlib.sha256(contents).hexdigest() != artifact["sha256"]:
+                    raise OSError("accepted deliverable digest changed")
+                self._publish("export", destination, contents)
+                self._boundary("export", job_id, a["attempt_id"])
+                exported = {"role": "export", "path": str(destination), "sha256": artifact["sha256"], "bytes": artifact["bytes"]}
+            except OSError as exc:
+                export_error = f"export failed: {type(exc).__name__} (errno={exc.errno})"
+        with self.store.transaction("job.export_failed" if export_error else "job.exported", job_id=job_id, attempt_id=a["attempt_id"]) as tx:
+            if exported:
+                self.store.add_artifact(a["attempt_id"], **exported)
+            if export_error:
+                tx.execute("UPDATE jobs SET export_error=? WHERE job_id=?", (export_error, job_id))
+                tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + export_error, job_id))
+            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, a["attempt_id"]))
+        self._notify()
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request) -> None:
         try:
