@@ -1581,11 +1581,25 @@ class Daemon:
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
-        if a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+        alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
+        if alive == "alive":
             if time.monotonic() >= self._census_next.get(aid, 0):
                 self._record_owned(a)
                 self._census_next[aid] = time.monotonic() + .5
             return  # Re-adopted solely by receipt identity, not parentage.
+        if alive == "unknown":
+            # ps failed or timed out (load, or an inspection outage). A guardian
+            # that cannot be inspected is neither dead nor an escape; nothing is
+            # decided from it this tick (C-4.2, C-5.5).
+            self.log.debug("guardian liveness of %s unknown this tick", aid)
+            return
+        # The guardian writes exit.json and then exits, so a receipt can appear
+        # between the read above and the liveness check: a dead guardian with a
+        # receipt is the normal end of an attempt, not a loss (C-4.2).
+        receipt = self._read_json(adir / "exit.json")
+        if receipt:
+            self._begin_finalizing(a, receipt)
+            return
         census = self._contain(a)
         if not census.verified_empty:
             self._kill_attempt(a, lost=True)
@@ -1816,8 +1830,12 @@ class Daemon:
         lane = self.store.get_lane(a["lane_id"])
         adapter = get_adapter(lane.provider)
         receipt = self._read_json(adir / "exit.json")
-        if not receipt:
-            lost = True
+        # The receipt on disk decides, not the verdict the caller reached before
+        # reading it: a guardian found dead a moment after it published exit.json
+        # completed its attempt (C-4.2). Only a missing receipt is a loss.
+        lost = receipt is None
+        if receipt and actual["state"] != "finalizing":
+            self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt")

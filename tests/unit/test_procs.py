@@ -227,3 +227,16 @@ def test_containment_zombie_group_member_is_not_live(monkeypatch):
     """C-5.5 a zombie in the recorded group is already reaped for containment purposes."""
     census(monkeypatch, parents="42 1 42 Z\n43 42 42 Z\n")
     assert procs.containment(42, 42, 43, "job/a1").verified_empty
+
+
+def test_liveness_has_three_answers_and_unknown_never_means_dead(monkeypatch):
+    """C-5.3, C-4.2 an inspection failure is "unknown"; only same_process collapses it to False."""
+    census(monkeypatch)
+    assert procs.liveness(42, "100", "Sat Sep  5 10:00:00 2026") == "alive"
+    assert procs.liveness(42, "100", "Fri Sep  4 09:00:00 2026") == "dead"
+    assert procs.liveness(42, "99", "Sat Sep  5 10:00:00 2026") == "dead"
+    assert procs.liveness(0, "100", "Sat Sep  5 10:00:00 2026") == "dead"
+    assert procs.liveness(42, None, None) == "dead"
+    census(monkeypatch, fail="ps")
+    assert procs.liveness(42, "100", "Sat Sep  5 10:00:00 2026") == "unknown"
+    assert procs.same_process(42, "100", "Sat Sep  5 10:00:00 2026") is False

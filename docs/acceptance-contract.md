@@ -11,6 +11,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 - Identity binding, from the v1 incident of 2026-09-05: C-1.4, C-10.3, and new C-10.6 and C-10.7. A Claude account is identified by the profile endpoint using the same credential that yields its usage, never by `~/.claude.json`.
 - C-9.8 names the literal `admission` window (13:00 EDT).
 - C-5.1 and C-5.5 add `SUBFLEET_ROOT=<state root>` as the second half of the containment marker (14:55 EDT).
+- C-4.2 `running` row: an uninspectable guardian decides nothing; a dead guardian's receipt is re-read before containment; a receipt present at finalization wins over an earlier `lost` verdict (17:20 EDT).
 - C-5.5, C-5.6, C-5.9: the group and the descendant walk come from one process-table snapshot that also records each live pid's parent, group, and state; bounded settle windows after SIGKILL (`kill_settle_s`) and after the exit receipt (`exit_settle_s`) before an attempt is quarantined (17:05 EDT).
 
 ## 1. Identifiers and vocabulary
@@ -47,7 +48,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 |---|---|---|
 | `reserved` | Lane lease, output lease, and any worktree lease taken; attempt row inserted | Release leases, mark attempt `failed` with class `unknown` and detail `reserved-no-launch`; the job may retry |
 | `starting` | Guardian spawned; no `start.json` yet | If `start.json` exists, treat as `running`; else wait `start_grace_s` (10) then run containment (C-5.5) on the guardian pid; if empty, release and retry; if not verifiable, `quarantined` |
-| `running` | `start.json` read: pid, pgid, boot id, proc start recorded | If `exit.json` exists, move to `finalizing`; else if the guardian is alive by (pid, boot id, proc start), re-adopt; else run containment; empty means `lost`, else kill survivors and re-check, else `quarantined` |
+| `running` | `start.json` read: pid, pgid, boot id, proc start recorded | If `exit.json` exists, move to `finalizing`; else if the guardian is alive by (pid, boot id, proc start), re-adopt; if its identity cannot be inspected, leave the attempt for the next tick; if it is dead, read `exit.json` once more (the guardian writes the receipt and then exits, so a receipt can appear between the first read and the liveness check) and move to `finalizing` when it is there; else run containment; empty means `lost`, else kill survivors and re-check, else `quarantined`. A receipt present at finalization always wins over a `lost` verdict reached before it was read (incident: 2026-09-05, under a load average above 45 a job whose provider had exited 0 was recorded `lost` with its receipt on disk) |
 | `finalizing` | `exit.json` read; classification, salvage, export, notice pending | Re-run finalization idempotently; every step checks for its own completed output before acting; a census that is not verified empty waits out `exit_settle_s` (C-5.9) before quarantining |
 | `succeeded`, `failed`, `interrupted`, `lost`, `cancelled`, `quarantined` | Terminal | None; `quarantined` needs an operator action (C-5.7) |
 

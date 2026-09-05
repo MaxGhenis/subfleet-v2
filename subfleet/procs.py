@@ -105,6 +105,23 @@ def identity(pid: int) -> ProcessIdentity | None:
     return ProcessIdentity(pid, boot_id(), started)
 
 
+def liveness(pid: int | None, boot_id: str | None, proc_start: str | None) -> str:
+    """C-5.3 with three answers: "alive" (the recorded identity), "dead" (absent,
+    a zombie, or a different process at that pid), or "unknown" (inspection
+    failed). A caller that would act on death must treat "unknown" as no
+    evidence at all and look again later; only `same_process`, which gates
+    signals, collapses "unknown" into "not the same" (C-5.4)."""
+    if not pid or pid <= 0 or not boot_id or not proc_start:
+        return "dead"
+    try:
+        current = identity(pid)
+    except InspectionError:
+        return "unknown"
+    if current is None:
+        return "dead"
+    return "alive" if current == ProcessIdentity(pid, str(boot_id), proc_start) else "dead"
+
+
 def same_process(pid: int, boot_id: str, proc_start: str) -> bool:
     """C-5.3: pid reuse, a different boot and zombies never match."""
     if not boot_id or not proc_start:

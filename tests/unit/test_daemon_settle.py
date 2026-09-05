@@ -1,15 +1,23 @@
-"""C-5.6 and C-5.9: a census the kernel is still draining is re-read, not quarantined."""
+"""C-4.2, C-5.6, C-5.9: what the daemon decides when the process table is still moving.
+
+A census the kernel is still draining is re-read, not quarantined; a guardian that
+cannot be inspected decides nothing; a receipt on disk always beats a stale lost verdict."""
 
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from subfleet import daemon as daemon_module
-from subfleet.contracts import Credential, Lane, LaneOwner, attempt_dir
+from subfleet.contracts import (
+    Attestation, AttestationResult, Credential, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
+    attempt_dir,
+)
 from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
 from subfleet.procs import Containment, ProcessIdentity
@@ -39,6 +47,13 @@ def daemon(tmp_path, monkeypatch):
     core.stopping = threading.Event()
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s = .05, .3, .3
     core._exit_settle = {}
+    core._children, core._pending_launches, core._starting_deadlines, core._census_next = {}, set(), {}, {}
+    core._launches, core._export_locks = {}, {}
+    core.log = logging.getLogger("subfleet.test")
+    core._salvage = lambda job, a: ([], None)
+    core._record_identity = lambda *args: None
+    core._export = lambda job_id: None
+    core.timers = SimpleNamespace(record_auth_dead=lambda *args: None)
     core._notify = lambda: None
     core._boundary = lambda *args: None
     core._publish = lambda role, path, contents: atomic_publish(path, contents)
@@ -127,3 +142,98 @@ def test_c5_9_exit_receipt_census_waits_out_exit_settle_before_quarantining(daem
     assert a["state"] == "quarantined"
     assert json.loads(a["quarantine_reason"])["reason"] == "writers remain after exit receipt"
     assert ATTEMPT not in daemon._exit_settle
+
+
+class StubAdapter:
+    """Classifies every exit as ok; the daemon's own logic is what is under test."""
+
+    def classify(self, adir, launch, exit_info):
+        return Outcome(OutcomeClass.OK, "ok")
+
+    def attest(self, adir, launch, outcome, model):
+        return AttestationResult(Attestation.UNATTESTED, None, "stub")
+
+    def deliverable(self, adir, launch, outcome):
+        return b"done\n"
+
+
+def receipt_path(core):
+    return attempt_dir(core.root, JOB, 1) / "exit.json"
+
+
+def publish_receipt(core, rc=0):
+    atomic_publish(receipt_path(core), json.dumps({"rc": rc, "signal": None, "finished_at": "2026-09-05T14:01:00Z",
+                                                   "wall_s": .026, "child_pid": 4243}).encode())
+
+
+def with_launch(core, monkeypatch):
+    adir = attempt_dir(core.root, JOB, 1)
+    (adir / "stdout").write_text("hello\n")
+    core._launches[ATTEMPT] = Launch(argv=("fake",), env_add={}, env_remove=(), cwd=str(core.root),
+                                     stdin_path=None, stdout_path=str(adir / "stdout"),
+                                     stderr_path=str(adir / "stderr"), raw_stream_path=None,
+                                     native_session_id=None, lane_id="codex-1")
+    monkeypatch.setattr(daemon_module, "get_adapter", lambda provider: StubAdapter())
+
+
+def never_census(a):
+    raise AssertionError("the census must not run on this path")
+
+
+def test_c4_2_receipt_on_disk_wins_over_a_stale_lost_verdict(daemon, monkeypatch):
+    """C-4.2 a guardian found dead right after publishing exit.json completed its attempt, not lost it."""
+    with_launch(daemon, monkeypatch)
+    publish_receipt(daemon, rc=0)
+    daemon._contain = lambda a: EMPTY
+    daemon._lost(attempt(daemon))      # what the tick calls for a dead guardian and an empty census
+    a = attempt(daemon)
+    assert a["state"] == "succeeded", a
+    assert a["rc"] == 0 and a["outcome_class"] == "ok"
+    assert a["outcome_detail"] != "guardian lost without exit receipt"
+    job = daemon.store.get_job(JOB)
+    assert job["state"] == "succeeded" and job["accepted_attempt_id"] == ATTEMPT
+    assert (attempt_dir(daemon.root, JOB, 1) / "deliverable.md").read_bytes() == b"done\n"
+
+
+def test_c4_2_missing_receipt_is_still_a_loss(daemon, monkeypatch):
+    """C-4.2 without a receipt the dead-guardian path records the loss as before."""
+    with_launch(daemon, monkeypatch)
+    daemon._contain = lambda a: EMPTY
+    daemon._lost(attempt(daemon))
+    a = attempt(daemon)
+    assert a["state"] == "lost" and a["outcome_detail"] == "guardian lost without exit receipt"
+    # A lost read-only attempt is retried (C-4.2), so the job waits for its next attempt.
+    assert daemon.store.get_job(JOB)["state"] == "waiting"
+
+
+def test_c4_2_dead_guardian_with_a_late_receipt_finalizes_instead_of_lost(daemon, monkeypatch):
+    """C-4.2 the tick re-reads exit.json after finding the guardian dead: the receipt landed in between."""
+    def dead_after_publishing(pid, boot_id, proc_start):
+        publish_receipt(daemon, rc=0)     # the guardian wrote and exited during the liveness check
+        return "dead"
+    monkeypatch.setattr(daemon_module.procs, "liveness", dead_after_publishing)
+    daemon._contain = never_census
+    daemon._process_attempt(ATTEMPT)
+    a = attempt(daemon)
+    assert a["state"] == "finalizing" and a["rc"] == 0
+    assert "attempt.finalizing" in [row["kind"] for row in daemon.store.list_events(JOB)]
+
+
+def test_c4_2_uninspectable_guardian_decides_nothing_this_tick(daemon, monkeypatch):
+    """C-4.2, C-5.5 a failed liveness inspection is not death: no census, no loss, no kill."""
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "unknown")
+    daemon._contain = never_census
+    before = len(daemon.store.list_events(JOB))
+    daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "running"
+    assert len(daemon.store.list_events(JOB)) == before
+
+
+def test_c4_2_dead_guardian_without_receipt_runs_containment(daemon, monkeypatch):
+    """C-4.2 only a dead guardian with no receipt reaches containment; an empty census is a loss."""
+    with_launch(daemon, monkeypatch)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+    calls = []
+    daemon._contain = lambda a: calls.append(1) or EMPTY
+    daemon._process_attempt(ATTEMPT)
+    assert calls and attempt(daemon)["state"] == "lost"
