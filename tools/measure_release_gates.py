@@ -87,7 +87,23 @@ def main() -> int:
         rows.append(("store fill", f"{args.jobs} jobs to terminal", f"{time.perf_counter() - fill_start:.1f} s"))
 
         status_samples = [timed(lambda: e2e.cli("status")) for _ in range(args.calls)]
-        rows.append(("cached status p95", "under 100 ms", f"{p95(status_samples):.0f} ms"))
+        rows.append(("cached status p95 (CLI, end to end)", "under 100 ms", f"{p95(status_samples):.0f} ms"))
+
+        # The same verb without a Python interpreter start: one in-process client,
+        # the three socket calls `subfleet status` makes, timed as one round trip.
+        from subfleet import protocol
+        from subfleet.client import Client
+        client = Client(root)
+        def status_round_trip() -> None:
+            client.call("daemon.status", {})
+            client.call("lanes", protocol.LanesArgs().__dict__)
+            client.call("readings", protocol.ReadingsArgs().__dict__)
+        socket_samples = [timed(status_round_trip) for _ in range(args.calls)]
+        rows.append(("cached status p95 (socket round trip, no interpreter start)", "under 100 ms",
+                     f"{p95(socket_samples):.0f} ms"))
+        interpreter = [timed(lambda: subprocess.run([sys.executable, "-c", "import subfleet.cli"],
+                                                    cwd=REPO, check=True)) for _ in range(20)]
+        rows.append(("interpreter start plus CLI import (reference)", "n/a", f"{p95(interpreter):.0f} ms p95"))
 
         submit_samples = [timed(lambda: e2e.cli(*e2e.run_args("astra", "-n", f"probe{i}")))
                           for i in range(args.calls)]
