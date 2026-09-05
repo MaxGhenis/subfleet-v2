@@ -372,9 +372,10 @@ def identity_pair(account_uuid: str | None, org_uuid: str | None) -> str | None:
 class IdentityCheck:
     """One answer to "does this credential belong to the lane it is bound to?"
 
-    `status` is `None` for a lane that records neither an identity nor a label:
-    such a lane makes no claim, nothing can contradict it, and no profile request
-    is made for it. Every other lane is checked on every reading it produces.
+    Every Claude lane is checked on every reading it produces. A lane that has
+    recorded no identity and no label is `unverified` without a request being
+    made: there is nothing an answer could be compared against (C-10.6).
+    `status` is `None` only for a provider that has no identity binding at all.
     """
 
     status: IdentityStatus | None
@@ -620,22 +621,31 @@ class ClaudeAdapter(Adapter):
                        credential_env: Mapping[str, str] | None) -> IdentityCheck:
         """C-10.6: compare the lane's recorded identity with the credential's own.
 
-        * A lane with neither identity nor label claims nothing, so nothing is
-          asked and nothing can be contradicted.
-        * `no-scope` keeps the lane working on the identity recorded at
-          enrolment; its readings carry `identity-enrolled`.
-        * Anything the endpoint could not answer is `identity-unverified`, and an
-          answer that names another account is `identity-mismatch`. Neither
-          stores capacity.
-        * A lane that has only a label — a setup token enrolled without profile
-          scope — is compared on that label, the only claim it has.
+        "A usage reading is recorded only when the profile identity equals the
+        lane's recorded identity" is a necessary condition, so a lane that has
+        recorded nothing can never satisfy it: it is `identity-unverified`, and
+        no request is made, because there is nothing an answer could be compared
+        against. Re-enrolment is what binds such a lane (C-23.44).
+
+        With something to compare against:
+
+        * `no-scope` is C-10.6's setup-token carve-out and applies only to a lane
+          that never recorded an identity — a lane that has one and now cannot
+          answer has had its credential changed under it, which is the incident's
+          own shape, and is `identity-unverified`.
+        * An answer naming another account is `identity-mismatch`; anything the
+          endpoint could not answer is `identity-unverified`. Neither is capacity.
+        * A lane holding only a label is judged on that label, the one claim it
+          has, and the identity it observes is returned so the caller can bind it
+          (C-1.4) and judge the next cycle on uuids rather than on an email.
         """
         checked_at = iso_utc(self._now())
         if not identity and not label:
-            return IdentityCheck(None, None, None, None, None, None, None, checked_at)
+            return IdentityCheck(IdentityStatus.UNVERIFIED, None, None, None, None,
+                                 None, None, checked_at)
         profile = self.probe_profile(credential_env or {})
         observed = profile.identity
-        if profile.status == PROFILE_NO_SCOPE:
+        if profile.status == PROFILE_NO_SCOPE and not identity:
             status = IdentityStatus.ENROLLED
         elif profile.status != PROFILE_OK:
             status = IdentityStatus.UNVERIFIED
@@ -643,7 +653,7 @@ class ClaudeAdapter(Adapter):
             status = (IdentityStatus.VERIFIED if observed == identity
                       else IdentityStatus.MISMATCH)
         elif profile.email and label and profile.email.casefold() == label.casefold():
-            status = IdentityStatus.ENROLLED
+            status = IdentityStatus.VERIFIED
         else:
             status = IdentityStatus.MISMATCH
         return IdentityCheck(status, profile.status, identity or label, observed,

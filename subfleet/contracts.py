@@ -149,6 +149,12 @@ IDENTITY_EVIDENCE: dict[IdentityStatus, str] = {
     IdentityStatus.UNVERIFIED: "identity-unverified",
 }
 
+#: The same map read the other way, for whoever reads an adapter's evidence and
+#: has to put a status back on the lane row.
+IDENTITY_STATUS_BY_EVIDENCE: dict[str, IdentityStatus] = {
+    value: key for key, value in IDENTITY_EVIDENCE.items()
+}
+
 
 # --- Exit codes (C-17.3) -----------------------------------------------------
 

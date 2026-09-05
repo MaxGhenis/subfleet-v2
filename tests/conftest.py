@@ -27,9 +27,20 @@ FAKE_CLAUDE = TESTS / "bin" / "claude"
 #: so a "reported" clock is always in the future and a "guessed" one is unambiguous.
 NOW = datetime(2026, 9, 5, 11, 30, 0, tzinfo=timezone.utc)
 
+#: The identity every fixture lane is bound to (C-10.6). Synthetic: no real
+#: account's uuids belong in a test fixture, and the one real triple this lane
+#: uses is the incident's own, under tests/fixtures/claude/identity/.
+LANE_ACCOUNT_UUID = "9f2a1e64-1111-4000-8000-000000000001"
+LANE_ORG_UUID = "9f2a1e64-2222-4000-8000-0000000000a1"
+LANE_IDENTITY = f"{LANE_ACCOUNT_UUID}:{LANE_ORG_UUID}"
+LANE_EMAIL = "max@axiom.org"
+
 
 def case_names() -> list[str]:
-    return sorted(p.name for p in FIXTURES.iterdir() if p.is_dir())
+    """Every provider-run fixture: a directory with an `expected.json` beside its
+    stream. `identity/` holds profile-endpoint answers, not runs, and is not one."""
+    return sorted(p.name for p in FIXTURES.iterdir()
+                  if p.is_dir() and (p / "expected.json").is_file())
 
 
 def load_expected(case: str) -> dict:
@@ -62,7 +73,10 @@ def stage_transcript(case: str, projects_dir: Path, session_id: str,
     return target
 
 
-def make_lane(lane_id: str = "claude-1", account: str = "max@axiom.org") -> Lane:
+def make_lane(lane_id: str = "claude-1", account: str = LANE_EMAIL, *,
+              identity: str | None = LANE_IDENTITY, label: str | None = None) -> Lane:
+    """A bound Claude lane (C-10.6). `identity=None` gives a lane that records
+    nothing, which C-10.6 can only call unverified."""
     return Lane(
         lane_id=lane_id,
         provider="claude",
@@ -72,6 +86,8 @@ def make_lane(lane_id: str = "claude-1", account: str = "max@axiom.org") -> Lane
         home=None,
         owner=LaneOwner.V2,
         desktop=False,
+        identity=identity,
+        label=label if label is not None else account,
     )
 
 
@@ -97,11 +113,15 @@ def make_launch(attempt_dir: Path, *, session_id: str, model_id: str,
                 lane_id: str = "claude-1", attempt_id: str = "job-1/a1",
                 projects_dir: Path | None = None,
                 transcript_offset: int = 0,
+                identity: str | None = LANE_IDENTITY,
+                label: str | None = LANE_EMAIL,
                 workdir: str = "/Users/maxghenis/subfleet-v2") -> Launch:
     """A Launch shaped exactly as `build_launch` produces one, without spawning."""
     notes = {
         "lane_id": lane_id,
         "account_key": "claude:max@axiom.org",
+        "identity": identity,      # C-10.6
+        "label": label,
         "attempt_id": attempt_id,
         "model_id": model_id,
         "session_id": session_id,
@@ -134,19 +154,26 @@ def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     """The profile endpoint (C-10.6) is the one network call subfleet makes, and
-    no test may make it. A test that needs a profile answer injects an opener,
-    so an accidental request fails loudly here instead of quietly becoming an
-    `unavailable` result that would mask the very check under test."""
-    def refuse(request, timeout=None):
-        url = getattr(request, "full_url", request)
-        raise AssertionError(f"a test tried to reach {url}; inject a profile opener")
+    no test may make it.
 
-    monkeypatch.setattr("subfleet.adapters.claude._urlopen", refuse)
+    The stand-in answers for the fixture lane `make_lane` builds, so an ordinary
+    adapter test sees a verified identity without knowing this exists. A test
+    about identity passes `profile_opener(...)` to the adapter it builds, which
+    takes precedence, and asserts on what it chose.
+    """
+    monkeypatch.setattr("subfleet.adapters.claude._urlopen", profile_opener())
 
 
-def profile_body(email: str = "max@axiom.org",
-                 account_uuid: str = "1c216ab2-a95f-4554-a2be-36dbc6731133",
-                 org_uuid: str = "fc628aae-6967-4171-9bd0-ba0b04cc388a") -> bytes:
+@pytest.fixture(autouse=True)
+def no_desktop_login(monkeypatch):
+    """`~/.claude.json` belongs to whoever runs the tests, and the desktop app's
+    keychain item is their real credential. No test reads either by accident
+    (C-10.3, C-10.5): a test about desktop identity says which login it means."""
+    monkeypatch.setattr("subfleet.capacity.read_desktop_account", lambda path=None: None)
+
+
+def profile_body(email: str = LANE_EMAIL, account_uuid: str = LANE_ACCOUNT_UUID,
+                 org_uuid: str = LANE_ORG_UUID) -> bytes:
     """A profile payload shaped as Claude Code's own profile loader reads it."""
     return json.dumps({"account": {"email": email, "uuid": account_uuid},
                        "organization": {"uuid": org_uuid}}).encode("utf-8")

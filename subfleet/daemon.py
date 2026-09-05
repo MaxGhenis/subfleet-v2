@@ -32,10 +32,10 @@ from . import capacity, ids, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
-    HEADLESS_MARKER, START_GRACE_S, TERM_GRACE_S, WAIT_POLL_MAX_S,
-    Attestation, ClockSource, Closure, ClosureReason, Credential, ExitInfo,
-    JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass, Reading,
-    ReadingLabel, Sandbox, attempt_dir,
+    HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, START_GRACE_S, TERM_GRACE_S,
+    WAIT_POLL_MAX_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
+    ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
+    Reading, ReadingLabel, Sandbox, attempt_dir,
 )
 from .credentials import resolve_credential
 from .guardian import atomic_publish
@@ -43,6 +43,9 @@ from .policy import load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import git_head, salvage, validate_writable_workdir
 from .store import Store
+
+#: "not asked yet", distinct from "asked, and there was no answer".
+_UNSET = object()
 
 TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 LIVE = ("reserved", "starting", "running", "finalizing")
@@ -86,13 +89,19 @@ class Daemon:
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  guardian_start_delay_s: float = 0,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
-                 publish_hook: Callable[[str, Path], None] | None = None):
+                 publish_hook: Callable[[str, Path], None] | None = None,
+                 desktop_prober: Callable[[], Any] | None = None):
         self.root = Path(state_root).expanduser().resolve()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.guardian_start_delay_s = guardian_start_delay_s
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
+        # C-10.3: who asks the desktop app's own credential who it is. `None`
+        # means the Claude adapter's keychain reader; a harness that must not
+        # touch a real login passes its own, and one that returns nothing keeps
+        # every recorded desktop flag exactly as it was.
+        self.desktop_prober = desktop_prober
         self.stopping = threading.Event()
         self.changed = threading.Condition()
         self._submit_lock = threading.Lock()
@@ -146,6 +155,8 @@ class Daemon:
         self.readers = ThreadPoolExecutor(max_workers=32, thread_name_prefix="subfleet-socket")
         self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
         self._control_thread: threading.Thread | None = None
+        # C-10.3: the desktop profile answer, at most one per reading window.
+        self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
 
     def _seed_lanes(self) -> None:
         path = self.root / "lanes.json"
@@ -165,7 +176,8 @@ class Daemon:
                 row["lane_id"], row["provider"], row["account_key"], Credential(**credential),
                 row.get("home"), LaneOwner(row.get("owner", "v2")),
                 bool(row.get("desktop", False)), bool(row.get("enabled", True)),
-            ))
+                row.get("identity"), row.get("label"),   # C-10.6
+            ), identity_status=row.get("identity_status"))
 
     def _boundary(self, name: str, job_id: str, attempt_id: str | None = None) -> None:
         if self.crash_hook:
@@ -193,11 +205,11 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _capacity_view(self, desktop_account=None):
+    def _capacity_view(self, desktop=None):
         view = capacity.build_view(
             self.store.lane_rows(), self.store.list_readings(), self.store.list_closures(),
             self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
-            reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop_account=desktop_account)
+            reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
         # Probe reservations are explicit leases, not invented in-flight attempt
         # counts. A recovered probe keeps its lane unavailable until containment.
         leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
@@ -208,13 +220,104 @@ class Daemon:
                 lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
         return view
 
-    def _pick(self, job: dict, *, extra_exclusions: tuple[str, ...] = (), desktop_account=None):
+    def _desktop_identity(self) -> capacity.DesktopIdentity:
+        """C-10.3: who the Claude desktop app is, asked of its own credential.
+
+        The profile endpoint is asked at most once per reading window, and only
+        when a desktop login is actually recorded for this `HOME` or one was
+        verified here before: an install with no desktop app never reaches for a
+        keychain item it has no reason to read. `~/.claude.json` rides along as
+        the hint C-10.3 calls it, never as the authority, and the last verified
+        identity is kept in the store so an unanswerable profile still has
+        something to compare a lane's label against. With no Claude lane enrolled
+        there is nothing for a desktop identity to decide, and none is asked for.
+        """
+        hint = capacity.read_desktop_account()
+        last = capacity.last_desktop_identity(self.store.query(
+            "SELECT * FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 1",
+            (capacity.DESKTOP_IDENTITY_EVENT,))) or {}
+        desktop = capacity.desktop_identity(self._desktop_profile(hint or last),
+                                            cached_label=hint, last_label=last.get("label"))
+        if desktop.verified and (last.get("identity") != desktop.identity
+                                 or last.get("label") != desktop.label):
+            self.store.add_event(capacity.DESKTOP_IDENTITY_EVENT,
+                                 data={"identity": desktop.identity, "label": desktop.label,
+                                       "observed_at": utcnow()})
+        self._desktop_cache = (time.monotonic(), desktop)
+        return desktop
+
+    def _desktop_profile(self, wanted: Any) -> Any:
+        """The desktop credential's profile, asked at most once per window.
+
+        Only the network answer is cached: `~/.claude.json` is re-read every
+        cycle, so an operator switching the desktop app's login is seen at once
+        (C-10.3) even while the profile answer is still warm.
+        """
+        window = self.policy["caps"]["reading_ttl_s"]
+        cached_at, cached = self._desktop_cache
+        if cached is not _UNSET and time.monotonic() - cached_at <= window:
+            return cached
+        profile = None
+        if wanted and self.store.one("SELECT 1 FROM lanes WHERE provider='claude' LIMIT 1"):
+            try:
+                probe = self.desktop_prober
+                if probe is None:
+                    probe = getattr(get_adapter("claude"), "probe_desktop_profile", None)
+                profile = probe() if probe is not None else None
+            except (AdapterError, OSError, subprocess.SubprocessError) as exc:
+                self.log.debug("desktop profile unavailable: %s", type(exc).__name__)
+        self._desktop_cache = (time.monotonic(), profile)
+        return profile
+
+    def _record_identity(self, lane_id: str, outcome: Outcome | None) -> None:
+        """C-10.6: keep the adapter's identity finding on the lane row.
+
+        The adapter decides; the daemon only remembers, so the scheduler can
+        refuse a lane whose own credential proved to hold another account and an
+        operator can see why in `subfleet lanes`.
+        """
+        finding = (outcome.evidence or {}).get("identity") if outcome else None
+        status = IDENTITY_STATUS_BY_EVIDENCE.get((finding or {}).get("status") or "")
+        if status is None:
+            return
+        row = self.store.one("SELECT identity,label,identity_status FROM lanes WHERE lane_id=?",
+                             (lane_id,))
+        if row is None or row["identity_status"] == IdentityStatus.MISMATCH.value:
+            # C-10.6: a lane whose credential proved to hold another account is
+            # not a candidate "until an operator re-enrols it". No later probe
+            # clears that, however the endpoint answers next time; only
+            # enrolment does, and C-1.3 gives that a new lane id.
+            return
+        values: dict[str, Any] = {}
+        if row["identity_status"] != status.value:
+            values["identity_status"] = status.value
+        observed = (finding or {}).get("identity") or {}
+        pair = (f"{observed['account_uuid']}:{observed['org_uuid']}"
+                if observed.get("account_uuid") and observed.get("org_uuid") else None)
+        if status is IdentityStatus.VERIFIED and pair and not row["identity"]:
+            # C-1.4: a lane that carried only a label learns the identity its own
+            # credential reported, once, so the next cycle compares uuids.
+            values["identity"] = pair
+            if observed.get("email") and not row["label"]:
+                values["label"] = observed["email"]
+        if values:
+            self.store.update_lane(lane_id, **values)
+
+    @staticmethod
+    def _identity_binds(outcome: Outcome | None) -> bool:
+        """C-10.6: may this outcome's evidence become capacity for its lane?"""
+        finding = (outcome.evidence or {}).get("identity") if outcome else None
+        status = IDENTITY_STATUS_BY_EVIDENCE.get((finding or {}).get("status") or "")
+        return status not in (IdentityStatus.MISMATCH, IdentityStatus.UNVERIFIED)
+
+    def _pick(self, job: dict, *, extra_exclusions: tuple[str, ...] = (), desktop=None):
         # C-6.3, C-11: one pure evaluation uses the same transaction's attempt
-        # rows as reservation. Desktop file I/O happens before entering it.
+        # rows as reservation. Desktop file I/O and the desktop profile request
+        # happen before entering it (C-3.3, C-10.3).
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        return scheduler.evaluate(self.policy, self._capacity_view(desktop_account),
+        return scheduler.evaluate(self.policy, self._capacity_view(desktop),
                                   {**job, "exclusions": tuple(exclusions) + extra_exclusions,
                                    "policy_hash": self.policy_digest})
 
@@ -290,7 +393,7 @@ class Daemon:
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
                           max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow())
             if args.dry_run:
-                return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values, desktop_account=capacity.read_desktop_account()))}
+                return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values, desktop=self._desktop_identity()))}
             self._validate_conflicts(values)
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
@@ -393,10 +496,10 @@ class Daemon:
         if op == "kill":
             return self.kill(protocol.coerce_args(protocol.KillArgs, args))
         if op == "lanes":
-            return {"lanes": self._capacity_view(capacity.read_desktop_account())["lanes"],
+            return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
-            view = self._capacity_view(capacity.read_desktop_account())
+            view = self._capacity_view(self._desktop_identity())
             return {"readings": view["readings"], "closures": view["closures"], "status": render.status(view)}
         if op == "why":
             a = protocol.coerce_args(protocol.WhyArgs, args)
@@ -405,7 +508,7 @@ class Daemon:
                 row = self.store.one("SELECT decision_json FROM decisions WHERE job_id=? ORDER BY decision_id DESC LIMIT 1", (a.job_id,))
                 decision = json.loads(row["decision_json"]) if row else None
             else:
-                decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop_account=capacity.read_desktop_account()))
+                decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
             return {"decision": decision, "text": render.why(decision) if decision else "No decision recorded."}
         if op.startswith("notice."):
             a = protocol.coerce_args(protocol.NoticeArgs, args)
@@ -417,7 +520,7 @@ class Daemon:
         if op == "ping":
             return {"pong": True, "version": __version__, "session_id": args.get("session_id"), "text": args.get("text", "")}
         if op == "daemon.status":
-            view = self._capacity_view(capacity.read_desktop_account())
+            view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"]}
         raise protocol.ProtocolError(f"unknown op {op}")
@@ -695,11 +798,14 @@ class Daemon:
         with self.store.transaction("probe.completed", job_id=record["job_id"], lane_id=record["lane_id"],
                                     data={"model": record["model_id"], "class": outcome.cls.value,
                                           "evidence": outcome.evidence}) as tx:
+            self._record_identity(record["lane_id"], outcome)
             for reading in outcome.readings:
                 self.store.add_reading(dataclasses.replace(reading, attempt_id=None))
             if outcome.closure:
                 self.store.add_closure(outcome.closure)
-            if outcome.cls == OutcomeClass.OK:
+            if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
+                # C-9.1, C-10.6: "this model was admitted on this lane" is a claim
+                # about the lane, and it is only true if the credential is its own.
                 self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
                                               ReadingLabel.ADMISSION_OBSERVED, "probe", utcnow()))
             record.update(state="completed", outcome=dataclasses.asdict(outcome))
@@ -720,7 +826,7 @@ class Daemon:
                 continue
             outcome = Outcome(OutcomeClass.UNKNOWN, "probe recovered without an exit receipt")
             if receipt and (value := self._read_json(Path(record["directory"]) / "launch.json")):
-                value.update(env_add={"SUBFLEET_LANE": record["lane_id"]},
+                value.update(env_add=self._relaunch_env(record["lane_id"]),
                              argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
                 adapter = get_adapter(self.store.get_lane(record["lane_id"]).provider)
                 outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
@@ -750,11 +856,11 @@ class Daemon:
         # a gated guardian prevent a restart from launching a duplicate probe.
         approved = set()
         for _ in range(len(self.store.list_lanes()) * len(self.policy["models"]) + 1):
-            desktop = capacity.read_desktop_account()
+            desktop = self._desktop_identity()
             current = self._job(job["job_id"])
             if current["cancel_requested_at"] or current["state"] in TERMINAL:
                 return None, desktop
-            decision = self._pick(decision_job, extra_exclusions=exclusions, desktop_account=desktop)
+            decision = self._pick(decision_job, extra_exclusions=exclusions, desktop=desktop)
             pair = (decision.chosen_lane, decision.chosen_model)
             if not scheduler.probe_required(decision, job) or pair in approved:
                 return approved, desktop
@@ -784,7 +890,7 @@ class Daemon:
 
     def _admit(self) -> None:
         self._recover_probes()
-        desktop_account = capacity.read_desktop_account()
+        desktop_account = self._desktop_identity()
         queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
         blocked_tiers = set()
         for job in scheduler.ordered_jobs(self.policy, queued):
@@ -829,7 +935,7 @@ class Daemon:
                 if extra_exclusions:
                     job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
-                decision = self._pick(decision_job, extra_exclusions=extra_exclusions, desktop_account=desktop_account)
+                decision = self._pick(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
                 if not decision.chosen_lane or live >= self.policy["caps"]["max_active_attempts"]:
                     blocked_tiers.add(tier)
@@ -1164,13 +1270,33 @@ class Daemon:
     def _lost(self, a: dict) -> None:
         self._finalize(a, lost=True)
 
+    def _relaunch_env(self, lane_id: str) -> dict[str, str]:
+        """C-10.5, C-10.6: the credential a launch rebuilt after a restart needs.
+
+        `launch.json` never holds a secret, so a launch read back from disk has
+        none — and the identity check must ask the profile endpoint with exactly
+        the credential that produced the reading. It is resolved again from the
+        lane's own reference, kept in memory, and written nowhere. A credential
+        that cannot be resolved leaves the check unverified, which is the honest
+        answer: nobody can say whose that reading was.
+        """
+        env = {"SUBFLEET_LANE": lane_id}
+        lane = self.store.get_lane(lane_id)
+        if lane is None:
+            return env
+        try:
+            env.update(resolve_credential(lane.credential))
+        except (AdapterError, OSError, subprocess.SubprocessError) as exc:
+            self.log.debug("credential unavailable for %s: %s", lane_id, type(exc).__name__)
+        return env
+
     def _saved_launch(self, a: dict) -> Launch:
         if a["attempt_id"] in self._launches:
             return self._launches[a["attempt_id"]]
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         value = self._read_json(adir / "launch.json")
         if value:
-            value.update(env_add={"SUBFLEET_LANE": a["lane_id"]}, argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
+            value.update(env_add=self._relaunch_env(a["lane_id"]), argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
             return Launch(**value)
         job = self._job(a["job_id"])
         return Launch((), {}, (), job.get("worktree") or job["workdir"], job["prompt_path"], str(adir / "stdout"), str(adir / "stderr"), None, None)
@@ -1302,6 +1428,7 @@ class Daemon:
                         outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
+            self._record_identity(a["lane_id"], outcome)   # C-10.6
             for reading in outcome.readings:
                 self.store.add_reading(reading)
             if outcome.closure:

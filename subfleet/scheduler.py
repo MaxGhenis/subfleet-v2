@@ -12,7 +12,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .capacity import fresh_provider
+from .capacity import fresh_provider, identity_blocked
 from .contracts import DEFAULT_CAPS, HEADROOM_FLOOR, Decision, Exit
 from .policy import PolicyError, resolve_model
 
@@ -33,9 +33,16 @@ def _iso(value: datetime) -> str:
 
 
 def _identities(lane: Mapping[str, Any]) -> set[str]:
+    """Every name `-a` and `-x` may use for one lane (C-11.2, C-17.2).
+
+    `label` is here because C-1.4 makes a verified Claude lane's account key a
+    pair of uuids: without it an operator's `-a max@example.org` would stop
+    resolving the moment a lane is re-enrolled with its identity bound.
+    """
     account = str(lane.get("account_key") or "")
     return {str(value) for value in (lane.get("lane_id"), account,
-            account.partition(":")[2], lane.get("email"), lane.get("home")) if value}
+            account.partition(":")[2], lane.get("label"), lane.get("email"),
+            lane.get("home")) if value}
 
 
 def resolve_lane(lanes: Iterable[Any], pin: str) -> dict[str, Any] | None:
@@ -191,6 +198,10 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                 reasons.append("owner-v1")
             if not lane.get("enabled", True):
                 reasons.append("disabled")
+            if identity_blocked(lane):
+                # C-10.6: the profile endpoint said this credential holds another
+                # account. Its usage is not this lane's, so neither is its capacity.
+                reasons.append("identity-mismatch")
             reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in scoped_closures
                            if row["lane_id"] == identity)
             lane_measured = any(row["lane_id"] == identity and fresh_provider(

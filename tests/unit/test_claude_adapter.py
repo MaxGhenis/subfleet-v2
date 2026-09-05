@@ -27,8 +27,8 @@ from subfleet.contracts import (
     Credential, OutcomeClass, ReadingLabel, Sandbox,
 )
 from tests.conftest import (
-    FIXTURES, NOW, case_names, exit_info, load_expected, make_job, make_lane,
-    make_launch, profile_opener, stage_case, stage_transcript,
+    FIXTURES, LANE_IDENTITY, NOW, case_names, exit_info, load_expected, make_job,
+    make_lane, make_launch, profile_opener, stage_case, stage_transcript,
 )
 
 
@@ -693,8 +693,8 @@ def test_enroll_runs_one_haiku_turn_and_reads_the_sensor(tmp_path):
     )
     # C-1.4: the key is the identity the profile endpoint returned for this very
     # credential (C-10.6); the email rides along as a label and never as a key.
-    assert lane_info.account_key == ("claude:1c216ab2-a95f-4554-a2be-36dbc6731133"
-                                     ":fc628aae-6967-4171-9bd0-ba0b04cc388a")
+    assert lane_info.account_key == f"claude:{LANE_IDENTITY}"
+    assert lane_info.identity == LANE_IDENTITY
     assert lane_info.label == "max@axiom.org"
     assert lane_info.identity_status == "verified"
     assert {r.window: r.utilization for r in lane_info.readings} == {

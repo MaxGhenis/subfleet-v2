@@ -1,0 +1,10 @@
+{
+  "account": {
+    "email": "max@axiom.org",
+    "uuid": "1c216ab2-a95f-4554-a2be-36dbc6731133"
+  },
+  "organization": {
+    "uuid": "fc628aae-6967-4171-9bd0-ba0b04cc388a",
+    "name": "Axiom"
+  }
+}

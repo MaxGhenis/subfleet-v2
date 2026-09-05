@@ -18,6 +18,7 @@ from typing import NamedTuple
 
 import pytest
 
+from tests.fake.profile import derived_identity as claude_identity
 
 REPO = Path(__file__).resolve().parents[2]
 TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
@@ -35,10 +36,15 @@ if Path(sys.argv[0]).name == "subfleetd":
     import time
     from subfleet.daemon import Daemon
     from tests.fake.run_daemon import audit_publication
+    from tests.fake import profile as fake_profile
     root = Path(os.environ["SUBFLEET_HOME"])
     audit_publication(root / "publication.jsonl")
+    # C-10.6: the profile endpoint answers from a fixture, never the network.
+    # C-10.3: no desktop credential exists in a test HOME, and none is read.
+    fake_profile.install()
     original_init = Daemon.__init__
     def observed_init(self, *args, **kwargs):
+        kwargs.setdefault("desktop_prober", lambda: None)
         boundary = os.environ.get("SUBFLEET_E2E_HOLD_AT")
         if boundary:
             def hold(name, job_id, attempt_id):
@@ -121,9 +127,16 @@ class E2E:
                 {"lane_id": f"codex-{number}", "provider": "codex",
                  "account_key": f"codex:fake-{number}", "credential_kind": "home",
                  "credential_ref": str(home), "home": str(home), "owner": "v2"},
+                # C-1.4, C-10.6: a Claude lane records the identity its own
+                # credential reports; the fake profile endpoint agrees, unless a
+                # test sets SUBFLEET_FAKE_PROFILE to make one credential lie.
                 {"lane_id": f"claude-{number}", "provider": "claude",
-                 "account_key": f"claude:fake-{number}", "credential_kind": "env",
-                 "credential_ref": f"E2E_CLAUDE_TOKEN_{number}", "owner": "v2"},
+                 "account_key": f"claude:{claude_identity(number)[0]}",
+                 "credential_kind": "env", "owner": "v2",
+                 "credential_ref": f"E2E_CLAUDE_TOKEN_{number}",
+                 "identity": claude_identity(number)[0],
+                 "label": claude_identity(number)[1],
+                 "identity_status": "verified"},
             ])
         (self.root / "lanes.json").write_text(json.dumps(lanes))
 

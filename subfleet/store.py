@@ -223,7 +223,8 @@ class Store:
                 learned = {key: values[key] for key in ("identity", "label")
                            if values[key] and not existing.get(key)}
                 self.update_lane(lane.lane_id, owner=lane.owner, desktop=int(lane.desktop),
-                                 enabled=int(lane.enabled), plan=plan, **learned,
+                                 enabled=int(lane.enabled), plan=plan, clear_mismatch=True,
+                                 **learned,
                                  **({"identity_status": values["identity_status"]}
                                     if values["identity_status"] else {}))
             else:
@@ -231,13 +232,19 @@ class Store:
 
     add_lane = put_lane
 
-    def update_lane(self, lane_id: str, **values: Any) -> None:
+    def update_lane(self, lane_id: str, *, clear_mismatch: bool = False, **values: Any) -> None:
         # `identity_status` is the one identity column that moves: every probe
         # cycle re-asks the profile endpoint (C-10.6). `identity` and `label` are
-        # part of the binding and are only ever learned once, by put_lane.
+        # part of the binding and are only ever learned once.
         if set(values) - {"owner", "desktop", "enabled", "plan",
                           "identity", "label", "identity_status"}:
             raise ValueError("lane binding is immutable")
+        if values.get("identity_status") and not clear_mismatch:
+            current = self.one("SELECT identity_status FROM lanes WHERE lane_id=?", (lane_id,))
+            if (current and current["identity_status"] == "mismatch"
+                    and values["identity_status"] != "mismatch"):
+                # C-10.6: only an operator re-enrolling the lane releases it.
+                raise ValueError("a mismatched lane is released only by re-enrolment")
         self._update("lanes", "lane_id", lane_id, {**values, "updated_at": utc_now()})
 
     def get_lane(self, lane_id: str) -> Lane | None:

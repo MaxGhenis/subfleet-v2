@@ -58,9 +58,13 @@ def main() -> int:
 
     from subfleet.adapters.registry import register
     from subfleet.daemon import Daemon, DaemonUnavailable
+    from tests.fake import profile as fake_profile
     from tests.fake_adapter import FakeAdapter
 
     register("codex", FakeAdapter)
+    # C-10.6, C-10.3: the profile endpoint is a fixture and the desktop app's
+    # keychain item is never read — this harness runs under a real HOME.
+    fake_profile.install()
 
     def hook(boundary: str, job_id: str, attempt_id: str) -> None:
         if boundary not in {args.crash_at, args.hold_at}:

@@ -1,0 +1,10 @@
+{
+  "account": {
+    "email": "max@rulesatlas.org",
+    "uuid": "d0d0d0d0-1111-4000-8000-0000000ac1a5"
+  },
+  "organization": {
+    "uuid": "d0d0d0d0-2222-4000-8000-00000000f5a1",
+    "name": "RulesAtlas"
+  }
+}
