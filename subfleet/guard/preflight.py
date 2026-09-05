@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -170,8 +171,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
     version = None
     hooks_hash = None
     try:
-        if timeout_s <= 0:
-            raise ValueError("preflight timeout must be positive")
+        if not math.isfinite(timeout_s) or timeout_s <= 0:
+            raise ValueError("preflight timeout must be finite and positive")
         hook = Path(hook_path) if hook_path is not None else HOOK_PATH
         hook = hook.resolve(strict=True)
         trust = json.loads((Path(trust_path) if trust_path is not None else TRUST_PATH).read_text())
@@ -217,9 +218,13 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                         (scratch_home / name).chmod(0o600)
             response = _hooks_list(executable, home=scratch_home, workdir=cwd,
                                    override=override, env=env, timeout_s=timeout_s)
+        if "error" in response:
+            raise ValueError("Codex hooks/list returned a JSON-RPC error")
         data = response.get("result", {}).get("data", [])
         if len(data) != 1 or not isinstance(data[0], dict):
             raise ValueError("Codex hooks/list did not return exactly one workdir result")
+        if data[0].get("cwd") != str(cwd):
+            raise ValueError("Codex hooks/list returned trust for a different workdir")
         entries = [entry for entry in data[0].get("hooks", [])
                    if isinstance(entry, dict) and entry.get("key") == HOOK_KEY]
         if len(entries) != 1:

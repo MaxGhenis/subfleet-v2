@@ -69,6 +69,10 @@ for line in sys.stdin:
              "warnings": ["fixture warning"] if mode == "warning" else [],
              "errors": ["fixture error"] if mode == "error" else []}]
     response = {"id": 2, "result": {"data": data}}
+    if mode == "wrong-cwd":
+        data[0]["cwd"] = str(Path(os.getcwd()) / "another-workdir")
+    if mode == "rpc-error-with-result":
+        response["error"] = {"message": "incomplete result"}
     if mode == "rpc-error":
         response = {"id": 2, "error": {"message": "unknown method"}}
     print(json.dumps(response), flush=True)
@@ -198,7 +202,8 @@ def test_preflight_refuses_new_cli_version(fake_codex, monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["hash-mismatch", "untrusted", "disabled", "missing",
-                                  "duplicate", "error", "rpc-error", "dies"])
+                                  "duplicate", "error", "rpc-error", "dies",
+                                  "wrong-cwd", "rpc-error-with-result"])
 def test_preflight_refuses_unverified_runtime_trust(fake_codex, monkeypatch, mode):
     """C-14.2 runtime hooks/list must confirm exactly one enabled trusted hash."""
     fake, _ = fake_codex
@@ -206,6 +211,16 @@ def test_preflight_refuses_unverified_runtime_trust(fake_codex, monkeypatch, mod
     result = guard.preflight(fake)
     assert not result.ok and result.code == 7 and result.fix
     assert result.override is None
+
+
+@pytest.mark.parametrize("timeout_s", [0, -1, float("nan"), float("inf")])
+def test_preflight_refuses_unbounded_timeout(fake_codex, timeout_s):
+    """C-14.2, C-20.2 refuse invalid deadlines before spawning a trust probe."""
+    fake, report = fake_codex
+    result = guard.preflight(fake, timeout_s=timeout_s)
+    assert not result.ok and result.code == 7 and result.fix
+    assert "finite and positive" in result.message
+    assert not report.exists()
 
 
 def test_preflight_bounds_and_reaps_hung_probe(fake_codex, monkeypatch):

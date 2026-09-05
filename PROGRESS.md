@@ -16,11 +16,11 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - Re-read C-6.7: Claude owns its headless prepend; the Codex prompt remains unchanged.
 - Fixed six classifier regressions (C-9.2–C-9.6): subscription upgrade URLs, observation timestamps mistaken for reset clocks, explicit reset time zones, account scope precedence, structured credit codes, and access-token errors outside usage endpoints. Adapter suite: **59 passed in 0.10 s**; all six new tests failed before the fixes.
 - Added the missing offline probe/enrollment suite: **50 passed in 0.10 s**. Covers saved synthetic wham schema, reversed/weekly-only/unusual windows, fractions and UTC clocks, HTTP/DNS/TLS failures, API/free refusals, and account identity (C-1.4, C-9.7, C-10.2).
+- Verified byte-for-byte v1 guard parity and hardened preflight to reject non-finite timeouts, JSON-RPC errors alongside results, and trust returned for the wrong workdir. Guard suite: **35 passed in 2.83 s** (C-14.1, C-14.2).
 
 ## Next
 
 - Finish review of restored attestation and launch behavior (C-12).
-- Independently check copied guard and preflight against v1 (C-14).
 - Audit existing fixture provenance, fake replay, and isolation evidence.
 - Run the specified acceptance suite within C-20.2 budgets; write the final report to `OUTPUT.md` unless an output path is supplied.
 - Commit every coherent step and push each commit to `origin lane/codex-adapter`.
