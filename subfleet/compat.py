@@ -138,6 +138,17 @@ RENAMED: dict[tuple[str, ...], tuple[list[str], str]] = {
                  "`doctor` row"),
 }
 
+#: `hooks uninstall` removes v1's OWN entries from ~/.claude/settings.json
+#: (v1 `hooks.py:166` walks every event and drops each command containing
+#: `subfleet-hook`). That is v1 tidying up after itself, which is exactly right
+#: during the shadow period and is not something v2 can do on its behalf — so it
+#: is delegated whole rather than rewritten into a v2 verb. Without this row the
+#: `("hooks",)` rule above would quietly turn an uninstall into a `doctor` run.
+DELEGATED_PAIRS: dict[tuple[str, ...], str] = {
+    ("hooks", "uninstall"): "`hooks uninstall` removes v1's own hook entries; "
+                            "v1 owns them, so v1 removes them",
+}
+
 #: Direct provider verbs. The agent contract says never to call these from a
 #: session and v1's PreToolUse guard denies them; v2 refuses them outright.
 REFUSED: dict[str, str] = {
@@ -176,29 +187,200 @@ DELEGATED: dict[str, str] = {
 HIDDEN = ("_session-hook", "_tickle", "_canonical-model", "_api-lane-check",
           "_record-lane-run", "_record-run", "_record-codex-cooldown")
 
-#: `subfleet run` flags v1's `delegate.py:_parser()` accepts and C-17.2 has no
-#: equivalent for. Each changes where output lands or what the lane may do, so
-#: dropping one silently would change the meaning of a working command. They are
-#: refused by name with the v2 thing to use instead.
-RUN_ONLY_V1: dict[str, str] = {
-    "-b": "v1 passed `-b BRANCH` to the runner; v2 gives every job its own "
-          "worktree (C-13) — use `-C DIR`, or `--in-place` to write where the "
-          "caller stands",
-    "--reuse-out": "v1's `--reuse-out` dispatched onto an `-o` path a live run "
-                   "was still writing; v2 exports per job (C-8) and has no "
-                   "such override",
-    "--independent-review": "a hidden v1 flag that passed `-I -D <root>` to the "
-                            "runner; v2 has no independent-review mode yet",
-    "--review-root": "a hidden v1 flag that named `--independent-review`'s "
-                     "root; v2 has no independent-review mode yet",
+@dataclass(frozen=True)
+class V1Flag:
+    """A flag v1 accepted and v2's parser has no name for.
+
+    `action` is `drop` when v2 does the same thing or a safer thing without it,
+    and `refuse` when continuing without it would do something the caller did
+    not ask for. `takes_value` says whether the following token belongs to it,
+    so a dropped flag does not leave its argument behind as a stray positional.
+    """
+
+    action: str                                         # drop | refuse
+    takes_value: bool
+    why: str
+
+
+def _drop(why: str, *, takes_value: bool = False) -> V1Flag:
+    return V1Flag("drop", takes_value, why)
+
+
+def _refuse(why: str, *, takes_value: bool = False) -> V1Flag:
+    return V1Flag("refuse", takes_value, why)
+
+
+#: Keyed by the v1 verb path as typed. Built by diffing v1's own parsers
+#: (`cli.py`'s subparsers and `delegate.py:_parser()`) against
+#: `cli.build_parser()`, not by reading either help text — `tests/unit/
+#: test_compat.py::test_no_v1_flag_is_unaccounted_for` redoes that diff and
+#: fails if v1 ever grows a flag this table has not decided about.
+V1_ONLY_FLAGS: dict[str, dict[str, V1Flag]] = {
+    "status": {
+        "--cached": _drop(
+            "v1 read the last watchdog snapshot; v2's `status` reads the daemon, "
+            "and reads the store read-only when no daemon is listening (C-17.5), "
+            "so it is never a network call and never stale by a whole cycle"),
+    },
+    "runs reap": {
+        "--dry-run": _refuse(
+            "v1 listed what reaping would finalise without writing; v2's `runs "
+            "reap` has no preview, and running it anyway would perform the "
+            "reconciliation you asked to preview — `subfleet runs --running` "
+            "lists the same jobs"),
+        "--grace": _drop(
+            "v1 waited this many seconds (default 60) before finalising an "
+            "orphan; v2 decides by process identity rather than by elapsed time "
+            "(C-5.3), so there is nothing for a grace period to buy",
+            takes_value=True),
+    },
+    "wait": {
+        "--cat": _refuse(
+            "v1 printed each finished run's output on stdout after waiting; v2's "
+            "`wait` puts nothing but the contract on stdout (C-17.4), so "
+            "dropping it would silently empty a `subfleet wait x --cat > file` "
+            "— use `subfleet runs show <id> --out`"),
+        "--interval": _drop(
+            "v1 polled every N seconds (default 2); v2's `wait` is a server-side "
+            "long poll (C-15.4), so there is no interval to set",
+            takes_value=True),
+    },
+    "kill": {
+        "--grace": _drop(
+            "v1 waited this many seconds (default 10) between SIGTERM and "
+            "SIGKILL; v2's containment owns that escalation (C-5) and reports "
+            "what it did rather than taking the number from the caller",
+            takes_value=True),
+    },
+    "notify": {
+        "--force": _drop(
+            "v1 delivered even to a lane session, overwriting its captured "
+            "deliverable; v2 never addresses a lane session and has no override "
+            "for it (C-15.2 layer 4)"),
+        "--mode": _drop(
+            "v1 declared a permission class on the envelope; v2 resolves the "
+            "recipient's own mode from its transcript",
+            takes_value=True),
+    },
+    "run": {
+        "-b": _refuse(
+            "v1 passed `-b BRANCH` straight to the runner; v2 gives every job "
+            "its own worktree (C-13) — use `-C DIR`, or `--in-place` to write "
+            "where the caller stands",
+            takes_value=True),
+        "--reuse-out": _refuse(
+            "v1's only way onto an `-o` path a LIVE run was still writing; v2 "
+            "exports per job (C-8) and has no such override"),
+        "--independent-review": _refuse(
+            "a hidden v1 flag that passed `-I -D <root>` to the runner; v2 has "
+            "no independent-review mode yet. Beware: `--independent` on its own "
+            "was an argparse abbreviation of THIS flag in v1 and is a real and "
+            "different v2 flag (C-7.3, a parent's cancel does not cancel this "
+            "child), so the two spellings must not be confused"),
+        "--review-root": _refuse(
+            "a hidden v1 flag naming `--independent-review`'s root; v2 has no "
+            "independent-review mode yet",
+            takes_value=True),
+    },
 }
 
-#: Status flags v1 accepted that v2's `status` does not.
-STATUS_ONLY_V1: dict[str, str] = {
-    "--cached": "v1's `status --cached` read the last watchdog snapshot; v2's "
-                "`status` reads the daemon, and reads the store read-only when "
-                "no daemon is listening (C-17.5), so it is never a network call",
-}
+#: `notify` reaches `ping`, `capacity` reaches `status`, and `jobs`/`show` reach
+#: `runs`; the flag table is keyed by what the caller typed, so these spellings
+#: share their target's row.
+FLAG_TABLE_ALIASES = {"capacity": "status", "jobs": "runs", "show": "runs show",
+                      "ping": "notify", "resume-codex": "resume"}
+
+#: Where each flag-table key lands in v2's parser, so the abbreviation matcher
+#: can leave v2's own options alone.
+FLAG_TABLE_V2_PATH = {"status": "status", "runs reap": "runs.reap",
+                      "wait": "wait", "kill": "kill", "notify": "ping",
+                      "run": "run"}
+
+
+def _flag_table(argv: Sequence[str]) -> tuple[str, dict[str, V1Flag]]:
+    """(the key that matched, its flags) for the longest verb path that has one."""
+    for width in (2, 1):
+        key = " ".join(argv[:width])
+        key = FLAG_TABLE_ALIASES.get(key, key)
+        if key in V1_ONLY_FLAGS:
+            return key, V1_ONLY_FLAGS[key]
+    return "", {}
+
+
+def v2_options(path: str) -> set[str]:
+    """Every option string v2 accepts at `path`, plus the root parser's own."""
+    from . import cli
+
+    def walk(parser: Any, prefix: str) -> dict[str, set[str]]:
+        found = {prefix or "(root)": {option for action in parser._actions  # noqa: SLF001
+                                      for option in action.option_strings}}
+        for action in parser._actions:                  # noqa: SLF001 - our parser
+            choices = getattr(action, "choices", None)
+            if isinstance(choices, dict) and hasattr(action, "add_parser"):
+                for name, sub in choices.items():
+                    found.update(walk(sub, f"{prefix}.{name}" if prefix else name))
+        return found
+
+    table = walk(cli.build_parser(), "")
+    return table.get(path, set()) | table.get("(root)", set())
+
+
+def _resolve(token: str, flags: dict[str, V1Flag], protected: set[str]) -> str | None:
+    """Which v1-only flag `token` names, honouring argparse's prefix matching.
+
+    v1's parsers accept any unambiguous abbreviation, so `--independent-rev` and
+    `--reuse` were both real v1 spellings. v2's parser would reject them with a
+    usage error that names nothing useful, so they resolve here to the flag they
+    abbreviated and get that flag's message instead.
+
+    `protected` is v2's own option set for this verb, and nothing in it is ever
+    resolved to a v1 flag. `--independent` is the case that makes this matter:
+    in v1 it was an unambiguous abbreviation of the hidden `--independent-review`
+    and in v2 it is a real flag of its own (C-7.3). v2 is the version being run,
+    so v2's meaning wins, and the message on `--independent-review` says so.
+    """
+    bare = token.split("=", 1)[0]
+    if bare in protected:
+        return None
+    if bare in flags:
+        return bare
+    if not bare.startswith("--") or len(bare) <= 2:
+        return None
+    matches = [name for name in flags
+               if name.startswith("--") and name.startswith(bare)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def scan_flags(argv: Sequence[str]) -> tuple[list[str], list[str], list[str]]:
+    """(argv without the dropped flags, notes, refusals) for one invocation."""
+    key, flags = _flag_table(argv)
+    if not flags:
+        return list(argv), [], []
+    protected = v2_options(FLAG_TABLE_V2_PATH.get(key, key)) - set(flags)
+    kept: list[str] = []
+    notes: list[str] = []
+    refusals: list[str] = []
+    skip = False
+    for index, token in enumerate(argv):
+        if skip:
+            skip = False
+            continue
+        name = (_resolve(token, flags, protected)
+                if index and token.startswith("-") else None)
+        if name is None:
+            kept.append(token)
+            continue
+        flag = flags[name]
+        spelled = "" if "=" in token else (
+            f" {argv[index + 1]}" if flag.takes_value and index + 1 < len(argv) else "")
+        if flag.takes_value and "=" not in token:
+            skip = index + 1 < len(argv)
+        line = f"{PROG} {key}: {name} {flag.why}"
+        if flag.action == "refuse":
+            refusals.append(line)
+        else:
+            notes.append(f"{line} — `{token}{spelled}` is dropped")
+    return kept, notes, refusals
 
 
 # --- environment --------------------------------------------------------------
@@ -328,18 +510,31 @@ def _target_path(argv: Sequence[str]) -> str:
     return ".".join(item for item in argv if not item.startswith("-"))
 
 
+#: `_verb_of` for an argv that argparse answers by printing help and exiting 0.
+#: Distinguished from `""` — a usage error — because the difference is the whole
+#: question the case table asks: did a command that worked stop working?
+HELP = "(help)"
+
+
 def _verb_of(argv: Sequence[str]) -> str:
     """The dotted v2 verb path an argv resolves to, or "" if the parser refuses.
 
     Asked of the real parser rather than inferred, so the table cannot drift
     away from `cli.build_parser` without `self_check` noticing.
     """
+    import contextlib
+    import io
+
     from . import cli
     parser = cli.build_parser()
     try:
-        args = parser.parse_args(cli.rewrite_aliases(list(argv)))
-    except SystemExit:
-        return ""
+        # A probe, not a parse: argparse writes usage to stderr and help to
+        # stdout on its way out, and neither belongs in a caller's output.
+        with contextlib.redirect_stderr(io.StringIO()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            args = parser.parse_args(cli.rewrite_aliases(list(argv)))
+    except SystemExit as exc:
+        return HELP if int(exc.code or 0) == 0 else ""
     parts = [getattr(args, "command", None) or "status"]
     for attr in ("runs_command", "lanes_command", "daemon_command"):
         value = getattr(args, attr, None)
@@ -353,11 +548,9 @@ def _refusal(verb: str, why: str) -> Mapping:
                    notes=[f"{PROG}: {why}", f"  fix: {FRONT_DOOR}"])
 
 
-def _run_flag_refusal(flags: list[str]) -> Mapping:
-    notes = [f"{PROG} run: {flag} is a v1 flag with no v2 equivalent — "
-             f"{RUN_ONLY_V1[flag]}" for flag in flags]
+def _flag_refusal(rule: str, refusals: list[str]) -> Mapping:
     return Mapping(disposition="refuse", exit_code=int(Exit.INVALID_INPUT),
-                   rule="run:v1-only-flag", notes=notes)
+                   rule=rule, notes=refusals)
 
 
 def translate(argv: Sequence[str], env: dict[str, str] | None = None) -> Mapping:
@@ -380,60 +573,68 @@ def translate(argv: Sequence[str], env: dict[str, str] | None = None) -> Mapping
         return finish(Mapping("map", list(argv), rule="passthrough"))
     if head.startswith("-"):
         # v1 prepends `status` to any argv whose first token is not a known verb
-        # (`cli.py:1588`); v2's `rewrite_aliases` does the same for a flag.
-        return finish(Mapping("map", ["status", *argv], rule="flag-first"))
+        # (`cli.py:1588`); v2's `rewrite_aliases` does the same for a flag. The
+        # flags are then read against `status`, which is what makes a bare
+        # `subfleet --cached` — a real v1 spelling — keep working.
+        kept, flag_notes, refusals = scan_flags(["status", *argv])
+        if refusals:
+            return finish(_flag_refusal("status:v1-only-flag", refusals))
+        return finish(Mapping("note" if flag_notes else "map", kept,
+                              rule="flag-first", notes=flag_notes))
 
     if head in REFUSED:
         return finish(_refusal(head, REFUSED[head]))
     if head in HIDDEN:
         return finish(Mapping("delegate", list(argv), rule=f"hidden:{head}"))
+
+    two = tuple(argv[:2])
+    one = (head,)
+    if two in DELEGATED_PAIRS:
+        return finish(Mapping(
+            "delegate", list(argv), rule=f"delegate:{' '.join(two)}",
+            notes=[f"{PROG}: {DELEGATED_PAIRS[two]}; running v1's"]))
     if head in DELEGATED:
         return finish(Mapping(
             "delegate", list(argv), rule=f"delegate:{head}",
             notes=[f"{PROG}: `{head}` is not a v2 verb yet — {DELEGATED[head]}; "
                    f"running v1's"]))
 
-    two = tuple(argv[:2])
-    one = (head,)
+    # `run --status` was never a dispatch: it printed v1's lane table and then
+    # re-exec'd `pick codex` (v1 `delegate.py:378`). It is rewritten before the
+    # flag scan so its other flags are read against `status`, not `run`.
+    if head == "run" and "--status" in argv[1:]:
+        rest = [item for item in argv[1:] if item != "--status"]
+        return finish(Mapping(
+            "note", ["status", *[item for item in rest if item == "--json"]],
+            rule="run:--status",
+            notes=[f"{PROG} run --status was v1's lane table; that is "
+                   f"`subfleet status` (accepted through milestone 8)"]))
+
+    kept, flag_notes, refusals = scan_flags(argv)
+    if refusals:
+        key, _flags = _flag_table(argv)
+        return finish(_flag_refusal(f"{key or head}:v1-only-flag", refusals))
+
     if two in RENAMED:
         to, why = RENAMED[two]
-        return finish(Mapping("note", [*to, *argv[2:]], rule=f"renamed:{' '.join(two)}",
-                              notes=[f"{PROG}: {why} (accepted through milestone 8)"]))
+        return finish(Mapping("note", [*to, *kept[2:]],
+                              rule=f"renamed:{' '.join(two)}",
+                              notes=[f"{PROG}: {why} (accepted through milestone 8)",
+                                     *flag_notes]))
     if one in RENAMED and two not in PERMANENT:
         to, why = RENAMED[one]
-        return finish(Mapping("note", [*to, *argv[1:]], rule=f"renamed:{head}",
-                              notes=[f"{PROG}: {why} (accepted through milestone 8)"]))
-
-    if head == "run":
-        offenders = [flag for flag in RUN_ONLY_V1
-                     if flag in argv[1:] or any(item.startswith(flag + "=")
-                                                for item in argv[1:])]
-        if offenders:
-            return finish(_run_flag_refusal(sorted(offenders)))
-        if "--status" in argv[1:]:
-            rest = [item for item in argv[1:] if item != "--status"]
-            return finish(Mapping(
-                "note", ["status", *[item for item in rest if item == "--json"]],
-                rule="run:--status",
-                notes=[f"{PROG} run --status was v1's lane table; that is "
-                       f"`subfleet status` (accepted through milestone 8)"]))
-        return finish(Mapping("map", list(argv), rule="run"))
-
-    if head in ("status", "capacity"):
-        offenders = [flag for flag in STATUS_ONLY_V1 if flag in argv[1:]]
-        if offenders:
-            rest = [item for item in argv[1:] if item not in STATUS_ONLY_V1]
-            return finish(Mapping(
-                "note", [*PERMANENT[one], *rest], rule=f"{head}:--cached",
-                notes=[f"{PROG} {head}: {flag} is dropped — "
-                       f"{STATUS_ONLY_V1[flag]}" for flag in offenders]))
+        return finish(Mapping("note", [*to, *kept[1:]], rule=f"renamed:{head}",
+                              notes=[f"{PROG}: {why} (accepted through milestone 8)",
+                                     *flag_notes]))
 
     if two in PERMANENT:
-        return finish(Mapping("map", [*PERMANENT[two], *argv[2:]],
-                              rule=f"permanent:{' '.join(two)}"))
+        return finish(Mapping("note" if flag_notes else "map",
+                              [*PERMANENT[two], *kept[2:]],
+                              rule=f"permanent:{' '.join(two)}", notes=flag_notes))
     if one in PERMANENT:
-        return finish(Mapping("map", [*PERMANENT[one], *argv[1:]],
-                              rule=f"permanent:{head}"))
+        return finish(Mapping("note" if flag_notes else "map",
+                              [*PERMANENT[one], *kept[1:]],
+                              rule=f"permanent:{head}", notes=flag_notes))
 
     # An unknown first token. v1 prepended `status` and let argparse fail with
     # its own message; v2 hands it to the v2 parser, which does the same. Either
@@ -510,9 +711,10 @@ def self_check() -> dict[str, Any]:
             unreachable.append(f"{' '.join(tokens)} -> {' '.join(target)}")
     return {
         "rules": len(PERMANENT) + len(RENAMED) + len(REFUSED) + len(DELEGATED)
-        + len(HIDDEN) + len(RUN_ONLY_V1) + len(STATUS_ONLY_V1),
+        + len(DELEGATED_PAIRS) + len(HIDDEN)
+        + sum(len(flags) for flags in V1_ONLY_FLAGS.values()),
         "verbs": len(PERMANENT) + len(RENAMED) + len(REFUSED) + len(DELEGATED)
-        + len(HIDDEN),
+        + len(DELEGATED_PAIRS) + len(HIDDEN),
         "env": len(NOTED_ENV) + len(CARPOOL_EXTRA),
         "unreachable": unreachable,
     }
