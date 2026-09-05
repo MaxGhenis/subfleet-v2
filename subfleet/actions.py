@@ -215,7 +215,8 @@ class ResetCredits:
                 return {**result, "status": "not-triggered", "weekly_headroom_pct": headroom}
             result.update(trigger_reason=trigger, weekly_headroom_pct=headroom)
             candidates = sorted([row for row in rows if (row.get("probe") or {}).get("limit_reached") is True
-                                 and (row.get("probe") or {}).get("status") in ("ok", "limited")], key=_order)
+                                 and (row.get("probe") or {}).get("status") in ("ok", "limited")
+                                 and self.confirmed_override(row["lane_id"], now=instant) is None], key=_order)
             # Shadowing excludes while ANY eligible unshadowed lane has a concrete gift.
             def shadowed(row):
                 return bool(row.get("app_shadowed") or row.get("shadowed_by_app"))

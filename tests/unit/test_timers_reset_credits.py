@@ -310,6 +310,17 @@ def test_confirmed_override_ends_after_provider_propagation(store, tmp_path):
     assert resets.confirmed_override(target.lane_id, now=NOW + timedelta(minutes=5)) is None
 
 
+def test_lagging_usage_cannot_spend_another_gift_on_a_confirmed_open_lane(store, tmp_path):
+    """C-23.17: an authoritative confirmed consume protects the lane while old usage propagates."""
+    lane(store, tmp_path)
+    http = HTTP(credits=[GIFT, dict(GIFT, id="gift-2")])
+    resets = component(store, http)
+    view = snapshot(store)
+    assert resets.evaluate(view, now=NOW)["status"] == "confirmed"
+    assert resets.evaluate(view, now=NOW + timedelta(minutes=31))["status"] == "no-concrete-credit"
+    assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
+
+
 def test_cancelled_evaluation_makes_no_request(store, tmp_path):
     """C-16.4: a cancelled timer creates no new remote action."""
     lane(store, tmp_path)
