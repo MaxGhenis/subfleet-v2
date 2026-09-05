@@ -429,8 +429,15 @@ def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir)
          "version": "2.0.0a0"}))
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
     captured = capsys.readouterr()
-    assert "no longer running" in captured.err
+    assert "is stale" in captured.err
+    assert "the machine booted at" in captured.err     # a reboot ended that pid
     assert "subfleet daemon start" in captured.err
+    from subfleet.client import boot_id
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 999999, "boot_id": boot_id(),
+         "proc_start": "Mon Jan  1 00:00:00 2001"}))
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
+    assert "no live process with pid 999999" in capsys.readouterr().err
 
 
 def test_daemon_down_run_exits_69_and_names_the_fix(root, capsys, workdir):
@@ -564,8 +571,8 @@ def test_the_identity_check_runs_once_per_client(root, monkeypatch):
     from subfleet import client as client_module
     (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
     calls: list[int] = []
-    monkeypatch.setattr(client_module, "same_process",
-                        lambda *a, **k: calls.append(1) or None)
+    monkeypatch.setattr(client_module, "identity_report",
+                        lambda *a, **k: calls.append(1) or (None, "stubbed"))
     probe = client_module.Client(root)
     for _ in range(4):
         probe.check_available()
@@ -1068,3 +1075,18 @@ def test_a_lane_id_that_is_not_a_string_still_renders(capsys):
                       "utilization": 0.5, "label": "provider"}]})
     assert "50%" in table
     capsys.readouterr()
+
+
+def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
+    """C-5.3 a start time that differs is reported with why, not just as dead.
+
+    The recorded value is rendered by whoever wrote it, so a mismatch is either
+    a reused pid or two sides rendering `lstart` in different locales; the
+    message has to let a reader tell those apart.
+    """
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": os.getpid(), "proc_start": "Sat Jan  1 00:00:00 2000"}))
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
+    captured = capsys.readouterr().err
+    assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in captured
+    assert "LC_ALL=C and TZ=UTC" in captured

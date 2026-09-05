@@ -8,9 +8,11 @@ Liveness has two sources of truth. The socket answering is the strong one. The
 weak one is `daemon.lock`, whose recorded identity the CLI treats as no daemon
 when the recorded process is provably gone (C-5.8): a stale socket file left by
 a killed daemon otherwise looks like a daemon that is merely slow. The identity
-check is `ps -p <pid> -o lstart=` against the recorded `proc_start` and
-`sysctl -n kern.boottime` against the recorded `boot_id` (C-5.3). It is kept
-small and local here so the CLI does not import the daemon-side `procs` module.
+check is `ps -p <pid> -o state=,lstart=` against the recorded `proc_start` and
+`sysctl -n kern.boottime` against the recorded `boot_id` (C-5.3); it is pinned to
+`LC_ALL=C` and `TZ=UTC` because `lstart` is rendered in the reader's locale and
+whoever recorded the value rendered it in theirs. It is kept small and local here
+so the CLI does not import the daemon-side `procs` module.
 """
 
 from __future__ import annotations
@@ -132,28 +134,42 @@ def proc_start(pid: int) -> str | None:
     return started
 
 
-def same_process(pid: int | None, recorded_boot: str | None,
-                 recorded_start: str | None) -> bool | None:
-    """Tri-state identity check (C-5.3).
+def identity_report(pid: int | None, recorded_boot: str | None,
+                    recorded_start: str | None) -> tuple[bool | None, str]:
+    """The identity verdict of C-5.3 with the reason it was reached.
 
     True: the recorded process is running. False: it is provably gone (no such
     pid, a different start time, or a reboot since the record). None: the check
     could not be made, which is never treated as death.
     """
     if not pid:
-        return None
+        return None, "no pid was recorded"
     if recorded_boot:
         current = boot_id()
-        if current is not None and str(current) != str(recorded_boot):
-            return False
+        if current is None:
+            pass                         # cannot read boot time; fall through
+        elif str(current) != str(recorded_boot):
+            return False, (f"the machine booted at {current}, not at "
+                           f"{recorded_boot} as recorded, so pid {pid} is gone")
     start = proc_start(int(pid))
     if start is None:
-        return None
+        return None, f"ps could not report on pid {pid}"
     if start == "":
-        return False
+        return False, f"there is no live process with pid {pid}"
     if not recorded_start:
-        return None                      # alive, but identity unconfirmed
-    return " ".join(str(recorded_start).split()) == start
+        return None, f"pid {pid} is alive but no start time was recorded"
+    if " ".join(str(recorded_start).split()) == start:
+        return True, f"pid {pid} started at {start}, as recorded"
+    return False, (f"pid {pid} started at {start!r}, not {recorded_start!r} as "
+                   f"recorded — either the pid was reused, or the two sides "
+                   f"rendered the start time differently (C-5.3 wants "
+                   f"LC_ALL=C and TZ=UTC on both)")
+
+
+def same_process(pid: int | None, recorded_boot: str | None,
+                 recorded_start: str | None) -> bool | None:
+    """Tri-state identity check (C-5.3); see `identity_report` for the reason."""
+    return identity_report(pid, recorded_boot, recorded_start)[0]
 
 
 def _read_line(conn: socket.socket, deadline_at: float) -> bytes:
@@ -222,17 +238,21 @@ class Client:
             return None
         return data if isinstance(data, dict) else None
 
-    def lock_holder_alive(self) -> bool | None:
-        """Tri-state liveness of the recorded lock holder (C-5.8)."""
+    def lock_report(self) -> tuple[bool | None, str]:
+        """Liveness of the recorded lock holder, with the reason (C-5.8)."""
         info = self.lock_info()
         if info is None:
-            return None
+            return None, f"there is no {self.lock_path}"
         pid = info.get("pid")
         try:
             pid = int(pid)
         except (TypeError, ValueError):
-            return None
-        return same_process(pid, info.get("boot_id"), info.get("proc_start"))
+            return None, f"{self.lock_path} records no usable pid"
+        return identity_report(pid, info.get("boot_id"), info.get("proc_start"))
+
+    def lock_holder_alive(self) -> bool | None:
+        """Tri-state liveness of the recorded lock holder (C-5.8)."""
+        return self.lock_report()[0]
 
     def check_available(self) -> None:
         """Raise `DaemonUnavailable` when the lock says the daemon is dead.
@@ -243,10 +263,9 @@ class Client:
         """
         if self._checked:
             return
-        if self.lock_holder_alive() is False:
-            info = self.lock_info() or {}
-            raise DaemonUnavailable(
-                f"daemon.lock records pid {info.get('pid')} which is no longer running")
+        alive, reason = self.lock_report()
+        if alive is False:
+            raise DaemonUnavailable(f"{self.lock_path} is stale: {reason}")
         self._checked = True
 
     # --- the wire ------------------------------------------------------------

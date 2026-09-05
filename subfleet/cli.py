@@ -1636,13 +1636,13 @@ def doctor_checks(root: Path, *,
                    f"ever listen there — set SUBFLEET_HOME to a shorter path"),
     })
     sock, lock = client.socket_path.exists(), client.lock_info()
-    alive = client.lock_holder_alive()
+    alive, reason = client.lock_report()
     if not sock and lock is None:
         agree = ("ok", "no socket and no lock: no daemon")
     elif sock and lock is not None and alive is not False:
-        agree = ("ok", f"socket and lock agree (pid {lock.get('pid')})")
+        agree = ("ok", f"socket and lock agree (pid {lock.get('pid')}): {reason}")
     elif sock and alive is False:
-        agree = ("fail", f"stale socket: the lock holder pid {lock.get('pid')} is gone "
+        agree = ("fail", f"a socket is present but the lock is stale: {reason} "
                          f"— {START_DAEMON}")
     elif sock and lock is None:
         agree = ("warn", "socket present with no lock file")

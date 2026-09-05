@@ -219,7 +219,7 @@ def test_doctor_reports_the_layout_and_a_stale_socket(root, capsys, monkeypatch)
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
     assert cli.main(["doctor"]) == 1
-    assert "stale socket" in capsys.readouterr().out
+    assert "the lock is stale" in capsys.readouterr().out
 
 
 def test_doctor_json_emits_one_object_per_check(root, capsys, monkeypatch):
