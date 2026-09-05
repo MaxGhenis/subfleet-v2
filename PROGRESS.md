@@ -4,43 +4,47 @@ State, done, next. Updated with every commit on `lane/cli`.
 
 ## State
 
-The command-line client is built and green: `subfleet/client.py`, `subfleet/offline.py`,
-`subfleet/cli.py`, and three unit modules (106 tests, 5.4 s). Remaining work is the
-adversarial review pass and the integrator report.
+The command-line client is built and green: 123 tests in 6.9 s
+(`uv run pytest -q tests/unit/`). An adversarial multi-agent review over the three
+modules and the tests is running; its confirmed findings are the last work item.
 
 ## Done
 
 - Read the contract sections 1, 2, 5.8, 6.1, 7.1, 15.4, 16, 17; `protocol.py`;
   `contracts.py`; `store_schema.sql`; v1 `cli.py`, `delegate.py:700-760`, `README.md:1-120`.
 - `subfleet/client.py`: one request line, one response line (C-16.1); `DaemonUnavailable`
-  to exit 69; a `daemon.lock` with a provably dead identity is no daemon (C-5.8, C-5.3).
+  to exit 69; a `daemon.lock` with a provably dead identity is no daemon (C-5.8, C-5.3);
+  the identity check costs one `ps` per process.
 - `subfleet/offline.py`: read-only store for `runs`, `runs show`, `status`, `kill`
-  (C-17.5, C-3.4); offline `kill` signals only a verified pgid (C-5.3, C-5.4).
+  (C-17.5, C-3.4); offline `kill` signals only a verified pgid (C-5.3, C-5.4) and
+  refuses a newer schema (C-3.5) or a quarantine resolution (C-5.7).
 - `subfleet/cli.py`: every verb and alias (C-17.1), the `run` flags (C-17.2), the one
   exit-code table (C-17.3), stdout/stderr and `--json` (C-17.4), offline mode (C-17.5),
-  the detached default and four-line hint (C-17.6), `daemon start|stop|status|logs|install`,
-  offline `doctor`.
+  the detached default and four-line hint (C-17.6), notice acknowledgement (C-15.3),
+  the long poll (C-15.4), `daemon start|stop|status|logs|install`, offline `doctor`.
 - `subfleet/protocol.py`: additive `LanesArgs`, `ReadingsArgs`, `PingArgs`.
-- `tests/unit/{conftest,test_cli,test_offline,test_daemon_verbs}.py`.
+- `tests/unit/{conftest,test_cli,test_offline,test_daemon_verbs}.py`: a fake daemon on a
+  temp socket, a store built from `store_schema.sql`, and a stub `subfleetd`.
 
 ## Next
 
-1. Adversarial review of the three modules; fix what it confirms.
+1. Fold in the confirmed findings from the adversarial review.
 2. Final integrator report.
 
 ## Decisions and deviations (carried into the final report)
 
 - `runs reap` is a read-only reconciliation report: C-16.2 has no `reap` op and C-3.4
   reserves writes for the daemon, so it names the orphans and who finalizes them.
-- Inline prompt text is staged at `$SUBFLEET_HOME/inbox/<request id>.md`; C-2.2 does
-  not list `inbox/`, so the clause needs the directory added or `SubmitArgs` needs a
-  `prompt_text` field.
-- `resume` is `submit` with `kind: "resume"` and `parent_job_id` set; there is no
-  `resume` op in C-16.2.
+- Inline prompt text is staged at `$SUBFLEET_HOME/inbox/<request id>.md` (0700/0600,
+  pruned after a week); C-2.2 does not list `inbox/`.
+- `resume` is `submit` with `kind: "resume"` and `parent_job_id` set; C-16.2 has no
+  `resume` op.
 - `run` requires `--task/--tier` or a `-m`/`-a`/`-H` pin; v1 classified from prompt
   content, and v2 routing is policy data, so silent classification was dropped.
 - `run --json` while waiting inline prints the dispatch object at once and the terminal
   state as a second object; C-17.4 allows one JSON object per line.
+- `--json` output is JSON Lines throughout (v1 printed an indented array).
+- `kill --wait` returns the job's terminal code, so cancelling returns 130 (C-17.3).
 
 ## Incidents
 
