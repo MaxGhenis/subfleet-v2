@@ -653,12 +653,8 @@ class Daemon:
             # ps can miss a pid for a few milliseconds after fork, and it is
             # slow under load; retry briefly while the guardian is alive. The
             # gate byte is not written until identity is recorded (C-5.2, C-5.3).
-            started = None
-            for _ in range(20):
-                started = procs.proc_start_retry(child.pid, alive=lambda: child.poll() is None)  # C-5.3: one ps pass can miss a fresh pid under load
-                if started or child.poll() is not None:
-                    break
-                time.sleep(0.1)
+            started = procs.proc_start_retry(child.pid, tries=8, delay_s=0.25,
+                                             alive=lambda: child.poll() is None)
             if not started:
                 rc = child.poll()
                 raise procs.InspectionError(

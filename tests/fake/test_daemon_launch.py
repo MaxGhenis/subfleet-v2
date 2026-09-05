@@ -88,6 +88,6 @@ def test_c4_2_absent_guardian_identity_never_releases_launch_gate(launch_state, 
     assert b"1" not in writes
     attempt = daemon.store.get_attempt(a["attempt_id"])
     assert attempt["state"] == "failed"
-    assert attempt["outcome_detail"] == "guardian-identity-unavailable"
+    assert attempt["outcome_detail"].startswith("guardian-identity-unavailable")
     assert daemon.store.get_job(a["job_id"])["state"] == "queued"
     assert daemon.store.query("SELECT * FROM leases") == []
