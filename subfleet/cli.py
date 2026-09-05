@@ -1184,9 +1184,11 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon stop: SIGTERM to {pid} failed: {exc}")
     note(f"{PROG} daemon: SIGTERM sent to pid {pid}")
+    # Wait on the identity we signalled, not on daemon.lock: a daemon that
+    # cleans up removes the lock, and a missing lock is not evidence of an exit.
     deadline = time.monotonic() + 15.0
     while time.monotonic() < deadline:
-        if Client(root).lock_holder_alive() is False:
+        if same_process(int(pid), info.get("boot_id"), info.get("proc_start")) is False:
             note(f"{PROG} daemon: stopped")
             return int(Exit.OK)
         time.sleep(0.1)
