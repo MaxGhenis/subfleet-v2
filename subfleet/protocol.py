@@ -129,6 +129,29 @@ class NoticeArgs:
     notice_ids: list[int] = field(default_factory=list)   # for ack
 
 
+@dataclass
+class LanesArgs:
+    """`lanes` sub-actions (C-17.1). Additive: the CLI needs stable key names."""
+    action: str = "list"
+    lane_id: str | None = None
+    credential: str | None = None
+    until: str | None = None
+    owner: str | None = None            # for transfer: "v1" | "v2"
+
+
+@dataclass
+class ReadingsArgs:
+    lane_id: str | None = None
+    scope: str | None = None
+
+
+@dataclass
+class PingArgs:
+    """`ping` (v1 `notify`): push or park a message in a session inbox."""
+    text: str
+    session_id: str | None = None
+
+
 # --- Encoding -----------------------------------------------------------------
 
 def encode(obj: Any) -> bytes:
