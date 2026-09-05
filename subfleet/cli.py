@@ -68,6 +68,7 @@ SANDBOX_CHOICES = tuple(item.value for item in Sandbox)
 LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer")
 
 AF_UNIX_PATH_MAX = 103          # sun_path is 104 bytes including the NUL
+WAIT_BACKOFF_MAX_S = 5.0        # cap on the pause after an immediate long poll
 PLIST_LABEL = "com.subfleet.daemon"
 PLIST_PATH = "~/Library/LaunchAgents/com.subfleet.daemon.plist"
 
@@ -297,7 +298,7 @@ def format_status(data: dict[str, Any]) -> str:
     running = rows_of(data.get("running") or data.get("jobs"))
     by_lane: dict[str, list[dict[str, Any]]] = {}
     for reading in readings:
-        by_lane.setdefault(reading.get("lane_id"), []).append(reading)
+        by_lane.setdefault(str(reading.get("lane_id")), []).append(reading)
         reading["label"] = age_adjusted_label(reading.get("label"),
                                               reading.get("observed_at"))
 
@@ -308,7 +309,7 @@ def format_status(data: dict[str, Any]) -> str:
                      f"{'flight':>6}  windows")
         for lane in lanes:
             marks = []
-            for reading in sorted(by_lane.get(lane.get("lane_id"), []),
+            for reading in sorted(by_lane.get(str(lane.get("lane_id")), []),
                                   key=lambda r: str(r.get("window"))):
                 label = reading.get("label")
                 stale = " stale" if label == "stale-provider" else ""
@@ -684,9 +685,15 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
               last: bool = False, quiet: bool = False) -> int:
     """Loop the daemon's long poll until terminal or `--timeout` (C-15.4)."""
     started = time.monotonic()
-    pending = {str(job_id) for job_id in ids}
+    requested = {str(job_id) for job_id in ids}
+    pending = set(requested)
     finished: dict[str, dict[str, Any]] = {}
     timed_out = False
+    # Only a resolver (`--mine`, `--last`) may widen the set; otherwise a daemon
+    # that mentions another job must not change what this call blocks on or
+    # what it exits with (C-17.3).
+    adopting = bool(mine) or bool(last) or not requested
+    idle_polls = 0
     try:
         client = _client(args, timeout=WAIT_POLL_MAX_S + 15)
         while True:
@@ -710,20 +717,31 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     timed_out = True
                     break
                 raise
-            jobs = _jobs_from_wait(result)
+            jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
+                    if adopting or job_id in requested}
+            progress = False
             for job_id, job in jobs.items():
                 if job.get("state") in TERMINAL_STATES:
+                    if job_id not in finished:
+                        progress = True
                     finished[job_id] = job
                     pending.discard(job_id)
-                else:
+                elif job_id not in pending:
                     pending.add(job_id)
+                    progress = True
             if not pending and (finished or jobs):
                 break
             if not pending and not finished and not result.get("timeout"):
                 note(f"{PROG} wait: nothing to wait for")
                 return int(Exit.OK)
+            idle_polls = 0 if progress else idle_polls + 1
             if time.monotonic() - before < 0.2:
-                time.sleep(0.2 if remaining is None else min(0.2, max(0.0, remaining)))
+                # A daemon whose long poll returns at once must not be polled
+                # five times a second; back off instead (C-15.4, C-16.4).
+                pause = min(WAIT_BACKOFF_MAX_S, 0.2 * (2 ** min(idle_polls, 5)))
+                if remaining is not None:
+                    pause = min(pause, max(0.0, remaining))
+                time.sleep(pause)
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
     except DaemonError as exc:
@@ -1100,6 +1118,27 @@ RESUME_PROMPT = ("Reinspect the workspace and continue the work from where the "
                  "previous attempt stopped.")
 
 
+def _source_lane(source: dict[str, Any]) -> str | None:
+    """The lane that owns the source job's provider-side thread (C-12.1).
+
+    A resume is only a resume on the lane that holds the thread or session, and
+    the lane id may reach the CLI on the job row, on the accepted attempt, or on
+    the last attempt, depending on what the daemon put in `show`.
+    """
+    accepted = source.get("accepted_attempt_id")
+    attempts = rows_of(source.get("attempts"))
+    for attempt in attempts:
+        if accepted and attempt.get("attempt_id") == accepted and attempt.get("lane_id"):
+            return attempt["lane_id"]
+    direct = _first(source, "pinned_lane", "lane_id", "lane")
+    if direct:
+        return str(direct)
+    for attempt in reversed(attempts):
+        if attempt.get("lane_id"):
+            return attempt["lane_id"]
+    return None
+
+
 def cmd_resume(args: argparse.Namespace) -> int:
     """Continue a job on the lane that owns its provider-side thread."""
     try:
@@ -1125,7 +1164,11 @@ def cmd_resume(args: argparse.Namespace) -> int:
         workdir=source.get("workdir") or os.getcwd(),
         prompt_path=str(prompt_path),
         sandbox=source.get("sandbox") or Sandbox.READ_ONLY.value,
-        pinned_lane=source.get("lane_id") or source.get("lane"),
+        task=source.get("task"),
+        tier=source.get("tier"),
+        pinned_model=source.get("pinned_model"),
+        exclusions=list(source.get("exclusions") or []),
+        pinned_lane=_source_lane(source),
         out_path=str(Path(args.output).expanduser().absolute()) if args.output
                  else source.get("out_path"),
         name=source.get("name"),

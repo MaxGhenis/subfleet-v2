@@ -991,3 +991,80 @@ def test_the_offline_banner_is_prose_on_stderr(root, capsys):
     assert run_cli(["status"]) == 0
     captured = capsys.readouterr()
     assert "offline" in captured.err and "offline" not in captured.out
+
+
+def test_wait_ignores_jobs_the_caller_did_not_ask_about(daemon, capsys):
+    """C-17.3 a daemon that names another job cannot change this call's exit code."""
+    other = "20260905-999999-not-mine"
+    daemon({"wait": lambda request: {"jobs": {
+        JOB: {"job_id": JOB, "state": "succeeded", "rc": 0},
+        other: {"job_id": other, "state": "failed", "rc": 7}}}})
+    assert run_cli(["wait", JOB]) == 0
+    captured = capsys.readouterr().err
+    assert JOB in captured and other not in captured
+
+
+def test_wait_mine_does_adopt_what_the_daemon_names(daemon, monkeypatch, capsys):
+    """C-17.1 `--mine` is a resolver: the daemon decides which jobs are in scope."""
+    other = "20260905-999999-mine-too"
+    daemon({"wait": lambda request: {"jobs": {
+        other: {"job_id": other, "state": "failed", "rc": 7}}}})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+    assert run_cli(["wait", "--mine"]) == 7
+    assert other in capsys.readouterr().err
+
+
+def test_wait_backs_off_when_the_long_poll_returns_at_once(daemon, capsys):
+    """C-15.4, C-16.4 an immediate long poll must not become a five-per-second loop."""
+    import time as _time
+    calls: list[float] = []
+
+    def poll(request):
+        calls.append(_time.monotonic())
+        return {"timeout": True}
+
+    daemon({"wait": poll})
+    assert run_cli(["wait", JOB, "--timeout", "2"]) == 124
+    assert len(calls) <= 6, f"{len(calls)} polls in two seconds"
+    gaps = [b - a for a, b in zip(calls, calls[1:])]
+    assert gaps == sorted(gaps)              # each pause is at least the last
+    capsys.readouterr()
+
+
+def test_resume_carries_the_source_routing_and_its_lane(daemon, root, capsys):
+    """C-6.1, C-12.1 a resume keeps the source job's routing and its own lane."""
+    server = daemon({
+        "show": lambda request: {
+            "job_id": JOB, "workdir": str(root), "sandbox": "workspace-write",
+            "task": "build", "tier": "hard", "pinned_model": "astra",
+            "exclusions": ["a@b.c"], "accepted_attempt_id": f"{JOB}/a2",
+            "attempts": [{"attempt_id": f"{JOB}/a1", "lane_id": "codex-1"},
+                         {"attempt_id": f"{JOB}/a2", "lane_id": "codex-9"}]},
+        "submit": submit_ok})
+    assert run_cli(["resume", JOB]) == 0
+    args = server.args("submit")
+    assert args["pinned_lane"] == "codex-9"          # the accepted attempt's lane
+    assert args["task"] == "build" and args["tier"] == "hard"
+    assert args["pinned_model"] == "astra" and args["exclusions"] == ["a@b.c"]
+    assert args["sandbox"] == "workspace-write"
+    capsys.readouterr()
+
+
+def test_resume_falls_back_to_the_job_rows_lane(daemon, root, capsys):
+    """C-12.1 the lane may arrive on the job row instead of an attempt."""
+    server = daemon({"show": lambda request: {"job_id": JOB, "workdir": str(root),
+                                              "lane_id": "claude-3"},
+                     "submit": submit_ok})
+    assert run_cli(["resume", JOB]) == 0
+    assert server.args("submit")["pinned_lane"] == "claude-3"
+    capsys.readouterr()
+
+
+def test_a_lane_id_that_is_not_a_string_still_renders(capsys):
+    """C-16.2 a daemon field of the wrong type must not be used as a raw dict key."""
+    table = cli.format_status({
+        "lanes": [{"lane_id": ["odd"], "provider": "codex"}],
+        "readings": [{"lane_id": ["odd"], "window": "five_hour",
+                      "utilization": 0.5, "label": "provider"}]})
+    assert "50%" in table
+    capsys.readouterr()
