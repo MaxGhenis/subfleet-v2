@@ -431,13 +431,14 @@ def test_workspace_write_takes_the_bypass_flag(adapter, tmp_path):
 
 
 def test_launch_carries_the_credential_only_in_env_add(adapter, tmp_path):
-    """C-10.5, C-12.4 the credential value appears in `env_add` and nowhere else, and
+    """C-10.5, C-12.4, C-23.2 the credential value appears in `env_add` and nowhere else, and
     `ANTHROPIC_API_KEY` is removed from the child's environment."""
     launch = _build(adapter, tmp_path, Sandbox.READ_ONLY)
     assert launch.env_add == {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-REDACTED"}
     assert "ANTHROPIC_API_KEY" in launch.env_remove
     assert "ANTHROPIC_AUTH_TOKEN" in launch.env_remove
-    assert ENV_REMOVE == launch.env_remove
+    assert set(ENV_REMOVE) <= set(launch.env_remove)
+    assert "CLAUDE_MEMORY_STORES" in launch.env_remove
     blob = json.dumps([launch.argv, launch.notes, launch.cwd, launch.stdin_path])
     assert "sk-ant-oat01-REDACTED" not in blob
 

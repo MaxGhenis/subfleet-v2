@@ -8,4 +8,6 @@ This tree is the from-scratch rebuild. The v1 tree at `~/chief-of-staff/subfleet
 - Binding contract for implementation: `docs/acceptance-contract.md`. Every module is built against it; every acceptance test names the clause it proves.
 - Inputs: `docs/plan-a.md`, `docs/plan-b-rev4.md`, `docs/comparison.md`, `docs/reports/`.
 
+Native exact-revision agreement gates: [usage and integration notes](docs/gates.md).
+
 Python 3.12+, standard library only. `uv sync --group dev && uv run pytest`.

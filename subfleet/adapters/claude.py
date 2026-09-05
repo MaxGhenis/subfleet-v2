@@ -776,14 +776,20 @@ class ClaudeAdapter(Adapter):
         ]
         if effort:
             argv += ["--effort", effort]
-        argv += list(self.permission_args(sandbox))
+        if job.isolated_review:
+            from .isolation import validate_isolated_review
+            validate_isolated_review(sandbox, job.review_root, {**os.environ, **credential_env})
+        argv += list(self.permission_args(sandbox, isolated=job.isolated_review,
+                                         review_root=job.review_root))
+        from .isolation import claude_env_remove
+        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
         return Launch(
             argv=tuple(argv),
             env_add=dict(credential_env),
-            env_remove=ENV_REMOVE,
+            env_remove=env_remove,
             cwd=str(job.workdir),
             stdin_path=str(stdin_path),
             stdout_path=str(attempt_dir / "stdout"),
@@ -818,7 +824,12 @@ class ClaudeAdapter(Adapter):
         if model:
             argv += ["--model", model]
         argv += ["--output-format", "stream-json", "--verbose"]
+        if job.isolated_review:
+            raise AdapterError("isolated review cannot resume a contextual Claude session",
+                               fix="submit a fresh isolated review job")
         argv += list(self.permission_args(sandbox))
+        from .isolation import claude_env_remove
+        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(
@@ -827,7 +838,7 @@ class ClaudeAdapter(Adapter):
         return Launch(
             argv=tuple(argv),
             env_add=dict(credential_env),
-            env_remove=ENV_REMOVE,
+            env_remove=env_remove,
             cwd=str(job.workdir),
             stdin_path=str(stdin_path),
             stdout_path=str(attempt_dir / "stdout"),

@@ -20,7 +20,7 @@ from typing import Any
 
 from .contracts import Closure, Credential, Decision, Lane, LaneOwner, Reading
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 Row = dict[str, Any]
 
 
@@ -64,7 +64,13 @@ class Store:
                 self.connection.execute("PRAGMA synchronous=FULL")
                 schema = Path(__file__).with_name("store_schema.sql").read_text()
                 self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
-                if not version or version < 2:
+                if version and version < 3:
+                    columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
+                    for name, declaration in (("isolated_review", "INTEGER NOT NULL DEFAULT 0"),
+                                              ("review_root", "TEXT"), ("round_lease", "TEXT")):
+                        if name not in columns:
+                            self.connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {declaration}")
+                if not version or version < SCHEMA_VERSION:
                     self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utc_now()))
                     self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                                             (utc_now(), "schema.applied", _json({"version": SCHEMA_VERSION})))

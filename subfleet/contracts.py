@@ -144,6 +144,7 @@ class Exit(enum.IntEnum):
 # --- Defaults (C-6.4, C-9, C-11.3, C-18.1) -----------------------------------
 
 DEFAULT_CAPS: dict[str, int] = {
+    "gate_max_rounds": 4,
     "max_active_attempts": 4,
     "max_in_flight_per_lane": 2,
     "max_in_flight_unmeasured": 1,
@@ -242,6 +243,9 @@ class JobSpec:
     max_attempts: int = DEFAULT_CAPS["max_attempts"]
     max_wall_s: int = DEFAULT_CAPS["max_wall_s"]
     max_tokens_observed: int | None = None
+    isolated_review: bool = False
+    review_root: str | None = None
+    round_lease: str | None = None
 
 
 @dataclass(frozen=True)

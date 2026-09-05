@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import math
+import os
 import re
 import urllib.error
 import urllib.request
@@ -416,12 +417,19 @@ class CodexAdapter(Adapter):
         if not home or (credential_env.get("CODEX_HOME") and Path(credential_env["CODEX_HOME"]).expanduser().resolve() != Path(home).expanduser().resolve()):
             raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.")
         argv = [self.codex_bin, "exec", "--json"]
+        if job.isolated_review:
+            from .isolation import codex_args, validate_isolated_review
+            env = {**os.environ, **credential_env}
+            validate_isolated_review(sandbox, job.review_root, env)
+            argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
+            argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
+                               inspector=getattr(self, "isolation_inspector", None))
         if model_id:
             argv += ["-m", model_id]
         if effort:
             argv += ["-c", f"model_reasoning_effort={effort}"]
         argv += ["--sandbox", sandbox.value]
-        if guard_override:
+        if guard_override and not job.isolated_review:
             argv += ["-c", guard_override if guard_override.startswith("hooks=") else f"hooks={guard_override}"]
         argv += ["--output-last-message", str(attempt_dir / "last.md")]
         if session_id:
@@ -446,6 +454,9 @@ class CodexAdapter(Adapter):
     def resume_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                       credential_env: dict[str, str], native_session_id: str,
                       prompt_path: Path, guard_override: str | None) -> Launch | None:
+        if job.isolated_review:
+            raise AdapterError("isolated review cannot resume a contextual Codex thread",
+                               fix="submit a fresh isolated review job")
         if not native_session_id or native_session_id.startswith("-"):
             raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.")
         # Job pins are policy aliases; the native thread already holds its resolved model.
@@ -584,7 +595,11 @@ class CodexAdapter(Adapter):
                     models.append(payload["model"])
             matches.append((path, models))
         if len(matches) != 1 or not matches[0][1]:
-            return AttestationResult(Attestation.UNATTESTED, None, "Expected exactly one matching rollout with model evidence")
+            evidence = "Expected exactly one matching rollout with model evidence"
+            if "--ephemeral" in launch.argv:
+                evidence = ("Isolated --ephemeral Codex produced no unique persisted served-model evidence; "
+                            "requested model and startup header cannot attest a peer verdict")
+            return AttestationResult(Attestation.UNATTESTED, None, evidence)
         path, models = matches[0]
         served = next((model for model in models if model != model_id), models[-1])
         return AttestationResult(Attestation.ATTESTED if served == model_id else Attestation.MISMATCH,

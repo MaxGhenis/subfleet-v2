@@ -1,0 +1,98 @@
+# PlanGraph portfolio rebuild
+
+Revision 1 · 5 September 2026 · implementation authorization: Max's request to write the plan, research existing tools, obtain Fable's review, then build.
+
+## Outcome
+
+Axiom and Public Interface will become two views of one versioned institutional model. A person is employed and paid once, shared work consumes that person's capacity once, and every view and export reads the same projection. The application will lead with the consequences of a scenario: missed targets, unstaffed work, capacity constraints, and changes in monthly costs. The graph will explain those consequences.
+
+This is a new portfolio contract inside the existing small TypeScript package, with a controlled application migration. It preserves the existing proposal and frozen-document workflows. It is not a rewrite of GrantKit, an optimal scheduling claim, or an authorization to replace sent budgets with new payroll estimates.
+
+## Research and reuse decision
+
+Read the companion [scheduling research](oss-scheduling.md), [prior Fable research](prior-research.md), and [GrantKit boundary](grantkit-boundary.md). Fable's September 3 recommendation was a TypeScript engine informed by TaskJuggler. Its initial novelty claim was corrected: TaskJuggler already provides scenarios, shared resources, effort scheduling, and completion-linked accounting.
+
+- Keep React, React Flow and the current TypeScript/Bun/Vite stack. React Flow provides graph interaction; node layout is a separate concern. Keep existing dependencies unless a demonstrated requirement warrants another. Do not copy paid React Flow Pro examples. [React Flow source](https://github.com/xyflow/xyflow), [layout choices](https://reactflow.dev/learn/layouting/layouting).
+- Reference TaskJuggler's leaf resources, responsible-versus-allocated distinction, scenario identity and booked-versus-planned work. Its Ruby/DSL adapter would still leave the institutional and payroll models to build. Do not claim custom scheduling is novel. [TaskJuggler internals](https://taskjuggler.org/manual/TaskJuggler_Internals.html).
+- Keep optimization behind the projection boundary. OR-Tools and Airbus Discrete Optimization already address advanced resource constraints, skills, modes and objectives. Adopt one if representative fixtures demonstrate a need beyond a transparent monthly heuristic. Neither becomes a production dependency in this build. [OR-Tools RCPSP](https://github.com/google/or-tools/blob/v9.15/examples/python/rcpsp_sat.py), [Airbus library](https://github.com/airbus/discrete-optimization).
+- Reference OpenProject's separate work and people timelines, resource requests, skills and availability. Its budgets are project-local; adopting the full application would add a second system of record and substantial integration. Do not assume every advertised feature is in its Community edition. [Resource management](https://www.openproject.org/docs/user-guide/resource-management/), [budgets](https://www.openproject.org/docs/user-guide/budgets/).
+- ChronoGraph is a real MIT TypeScript computational graph with transactions and branching, underlying commercial Bryntum scheduling products. Full recomputation is simpler for our roughly hundred-item monthly portfolio. Reference its input/derived-value separation; reconsider only after profiling. [Source and scope](https://github.com/bryntum/chronograph).
+- ProjectLibre is a useful conventional desktop Gantt/resource-leveling reference, not an embeddable institutional ledger. Its cloud product is a separate offering. [Official desktop description](https://projectlibre.com/projectlibre-desktop/).
+- Preserve GrantKit menu/rates/selection compilation, funding-stack checks and proposal artifacts. The new projection owns employment cash costs and explicit funding events; it does not silently reinterpret proposal quote prices. [GrantKit model](https://docs.grantkit.io/budget-model/).
+
+## Contract
+
+Add `plangraph/portfolio` without breaking existing root and Node exports. Its public function is `project(portfolio, scenarioId, asOfMonth): Projection`. Input and output are serializable JSON. YAML parses to the same validated contract. Schema version is `plangraph-portfolio/v1`; projection declares its schema, algorithm version, source revision, scenario and as-of month. Inputs remain immutable. Reject malformed numbers, duplicate IDs, missing references, cyclic dependencies and unknown scenarios before computing.
+
+The monthly calendar uses integer month indices and exclusive end dates. Resource identity is a stable string, independent of array order. Resources have a home program, planned or existing employment status, start/end, bounded productive FTE and effective-dated monthly cost/capacity records. Pools only group resource IDs. They add no capacity. A demand names eligible resource IDs, optional required skills, FTE and its source components. No automatic CEO fallback exists. Accountability is an owner label/reference distinct from execution allocation.
+
+Work has a stable ID, program, source references, earliest start, optional target finish, dependencies and explicit scheduling mode:
+
+1. Fixed reservations: known standing commitments or explicitly pinned windows. Reserve these first and report infeasible load rather than silently moving them. Pinned plans are not labeled measured actuals.
+2. Duration work: fixed elapsed duration with monthly demand profiles, shifted as a unit until all execution demands fit.
+3. Effort work: total FTE-months with explicit minimum/maximum staffing and eligibility; allocate available capacity across months until effort is complete. No implicit conversion of every legacy duration into effort.
+4. Milestones/rollups: zero effort, depend on named work or milestones; show targets independently of projected dates. Unmapped claims have an explicit unresolved reason and no invented completion.
+
+Actual start/completion/bookings require evidence references. Preserve actual bookings before as-of and do not reschedule completed work. Moving as-of forward cannot turn an expired forecast into an actual. Planned work with no actual start cannot begin before as-of. Imported legacy 'underway' flags retain their stated pinned planning windows with a migration warning when exact execution evidence is absent.
+
+Scenarios are stored with the input, keyed by ID. Overrides address stable resource/work/funding IDs. They can change future planned hire dates, remove future hires, change effort assumptions and include/exclude funding. A funding receipt delay is distinct from an employment-date change. Reject attempts to erase or postpone an employee already in place as of the projection, rather than silently rewriting history. Existing principal IDs are shared across Axiom and the family.
+
+## Scheduling and explanations
+
+Use a deterministic serial scheduling heuristic: fixed/actual reservations first, then dependency-ready items sorted by explicit priority, earliest date and ID. Respect every execution demand, including bounded founders. Report unscheduled work with the exhausted eligible resources or unresolved predecessor, not a fake date at the horizon. Keep any in-horizon allocation of effort work that continues beyond the horizon; distinguish partial from complete. Explain selected dates with dependencies, capacity constraints, earliest dates and retained fixed commitments. Retain coincident blockers when encountered. Explanations state what this heuristic did, not that no feasible schedule exists.
+
+The engine is generic. Axiom-specific pay, funders, milestone interpretation and portfolio composition live in the application adapter. Do not port the old owner-only/unlimited-fallback exception into the new contract.
+
+## Monthly economics
+
+Compute payroll directly from dated per-person costs, regardless of workload. The app adapter uses the existing salary loading functions, January raises, actual founder-pay schedules and hire/exit boundaries. Fixed costs have explicit windows. Resource-linked overhead follows the scenario's active roster month by month. Marketing's 18-month window ends when the proposal says it ends; no annual smearing into later months.
+
+Represent amounts as integer USD cents at the monthly event boundary, with one documented rounding rule. Sum rounded ledger entries for reports. Keep four concepts separate: expense, funding coverage, commitment and cash receipt. Coverage is restricted to explicit resource/cost targets and windows and cannot exceed eligible costs; overcoverage remains visible as a finding. A commitment or quote is never a cash receipt. Cash is computed only when an opening balance and receipt assumptions are explicitly provided; otherwise output unknown cash, not zero or a fake self-balancing runway. Financial completeness is declared by program so assumed family staffing costs do not become a certified institutional budget.
+
+GrantKit compiled proposals and current registry snapshots remain quote references. Ballmer's residual ask is an ask, not new cash. Frozen proposals retain their exact source amounts, dates and status. New monthly planning totals may differ; a reconciliation report names the calculation/window changes rather than asserting numerical parity.
+
+## Axiom and Public Interface migration
+
+Compose before scheduling. Expand Axiom's real roster to individual IDs such as `axiom:enc:0`; preserve existing MTS instance identities and funder attribution. The family no longer creates a second 21-person Axiom team or extra principals. Its PolicyEngine team and new program leads remain explicitly assumed resources until actual roster records exist. Preserve the user's consolidated-MTS policy as the default eligibility set; the schema permits specialist eligibility without inventing restrictions for current staff.
+
+Include every existing detailed Axiom work item and every non-Axiom family item. Convert coarse family Axiom nodes to zero-effort milestones referencing detailed Axiom work where the claim is actually equivalent. Maintain an explicit mapping table with a reason and source for every node. Encoding/certification count floors, multi-country claims or other gates without a defensible detailed-work mapping are unresolved milestones. Their dependents visibly wait on missing planning/evidence, instead of substituting a vaguely related task. This exposes source gaps without double-booking a parallel Axiom roadmap.
+
+Represent batch handoffs as ordinary milestones. Add a sourced intermediate corpus batch only if the source identifies its scope and timing; otherwise record the proposed decomposition as an open modeling decision. Do not make Microcosm's 2028 target look achievable by inventing an earlier batch.
+
+Migrate the existing Axiom hire/proposal scenarios and the two family stress cases into one scenario set. All capacity-enforced forecasts share one baseline. Retain an explicitly labeled source-plan comparison where needed, but never present unlevelled dates as feasible. Full-family and Axiom views filter output after projection. View filters cannot create capacity, change allocations, or remove shared costs from the canonical export.
+
+## Application
+
+Visual thesis: a calm planning workspace, with readable dense rows, a restrained accent and clear differences between target, forecast and unresolved work. No decorative hero. Content order: scenario/as-of controls, explanation of what changed, milestone table, timeline/graph, people and monthly costs. The selected item's inspector gives sources, effort components, actual carriers and blockers.
+
+Use one shared portfolio component for Axiom and Public Interface views. Keep the surrounding proposal, roster and historical workflows available and clearly identify legacy estimate surfaces. New planning views use the new projection only. Include a keyboard-accessible table alternative to the graph, stable selection, program filtering, honest temporal bar widths, and discoverable unscheduled items. Scenario/as-of/view state belongs in the URL. An overview is a view, not another calculation.
+
+JSON, CSV and a standalone workbook export are generated from this projection. They include revision/scenario/as-of, resource-month ledgers, milestones, sources and findings. Browser downloads and CLI output must agree. Keep proposal workbook exports separate and preserve their regression checks.
+
+## Delivery sequence and review gate
+
+1. Complete this plan, primary-source research and actual Fable review. Resolve actionable plan findings and record the accepted plan hash before implementing runtime changes.
+2. Create isolated worktrees from freshly fetched `origin/main`. PlanGraph main is an ancestor of existing `review-fixes`; incorporate that prerequisite on the new branch. Merge the open Public Interface branch into the new dashboard branch. Preserve existing worktrees, untracked files and open PRs.
+3. Establish the schema and projection types first. Implement engine scheduling/validation/economics with bounded fixtures. In parallel after the contract is stable, build the application adapter and shared UI.
+4. Add real multi-scenario acceptance fixtures and projection exports; reconcile known corrected monthly costs and document unresolved source claims.
+5. Run package tests/typechecks/build/packed-package consumption and dashboard tests/typechecks/build. Exercise the real UI locally at desktop and narrow widths, scenario controls, keyboard selection, no-lead and funding-delay results, and downloads. Run the existing proposal/workbook checks without repricing frozen artifacts.
+6. Obtain independent code review, fix actionable findings and rerun affected checks. Deliver clean reviewable branches/commits and a local preview. Production deployment and merging existing PRs are separate decisions; this build does not require them.
+
+## Required acceptance cases
+
+- Duplicate identities, missing references, cycles, NaN/infinity, negative money, invalid month/capacity and unknown scenario fail validation with paths.
+- The same person used by two programs never exceeds capacity in movable work; fixed overloads are explicit. Pools and rollups add no payroll or effort.
+- Priority is applied among ready siblings; fixed reservations are booked before ordinary work. Input order does not affect results.
+- Hiring later cannot create founder capacity or move an existing employee. No-program-leads visibly creates lost capacity/unresolved work instead of leaving all dates unchanged through an unlimited CEO.
+- Actual completions and bookings remain unchanged across scenarios/as-of; historical forecasts are not fabricated into actuals.
+- Fixed duration and effort-driven work differ under additional staffing; partial/out-of-horizon work and blockers are exported.
+- January salary events, a midyear hire, an exit, scenario-dependent office/tooling and an 18-month marketing window reconcile to an independently calculated monthly fixture.
+- Coverage/commitment never increments cash. Unknown balances/receipt schedules produce unknown cash. Restricted coverage cannot fund unrelated costs or silently overcover them.
+- All detailed Axiom and non-Axiom family items are accounted for; all replaced family Axiom nodes have reviewed mapping or an explicit unresolved reason. Canonical Axiom MTS counts match the real 17-instance roster, including scenario-specific individual drops/delays.
+- Axiom and family filters show identical dates and allocations for the same canonical item. UI, CLI and exports agree on the same projection.
+- Source components retain mixed provenance. Graph positions/durations and inspector values use selected-scenario data.
+- Legacy package behavior and frozen proposal exports retain regression coverage. Financial differences from the old planning totals have a written explanation.
+
+## Limits explicitly outside this build
+
+No daily work calendar, automatic staff-skill inference, stochastic forecast, optimal staffing recommendation, operational timesheet system, multiuser database editor, real-time upstream actuals sync, or new grant accounting system. No claim of verified institutional cash runway while inputs are absent. These are documented limits, not silently simulated capabilities. Future solver adoption must start with representative fixtures, a measured benefit and a licensing/runtime decision.

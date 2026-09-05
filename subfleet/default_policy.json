@@ -104,7 +104,8 @@
     "max_tokens_observed": null,
     "keepalive_workers": 4,
     "keepalive_timeout_s": 60,
-    "probe_timeout_s": 60
+    "probe_timeout_s": 60,
+    "gate_max_rounds": 4
   },
   "reset_credits": {
     "enabled": true,

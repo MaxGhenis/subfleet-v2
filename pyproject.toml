@@ -12,6 +12,7 @@ dependencies = []
 # `cli.main` sees a v2 argv (C-17.1, plan.md amendment 1). `cli.main` itself is
 # unchanged and is still what the tests call directly.
 subfleet = "subfleet.compat:dispatch"
+subfleet-gate = "subfleet.gate.cli:main"
 subfleetd = "subfleet.daemon:main"
 subfleet-guardian = "subfleet.guardian:main"
 

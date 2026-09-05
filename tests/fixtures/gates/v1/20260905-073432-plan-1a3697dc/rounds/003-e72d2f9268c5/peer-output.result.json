@@ -1,0 +1,110 @@
+{
+  "api_error_status": null,
+  "duration_api_ms": 221413,
+  "duration_ms": 220515,
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "fast_mode_state": "off",
+  "first_content_frame_ms": 2412,
+  "is_error": false,
+  "modelUsage": {
+    "claude-fable-5-1": {
+      "cacheCreationInputTokens": 91287,
+      "cacheReadInputTokens": 290584,
+      "canonicalModel": "claude-fable-5-1",
+      "contextWindow": 1000000,
+      "costBasis": "list",
+      "costUSD": 2.762726,
+      "inputTokens": 194,
+      "maxOutputTokens": 64000,
+      "outputTokens": 17248,
+      "provider": "firstParty",
+      "thinkingTokens": 12586,
+      "webSearchRequests": 0
+    },
+    "claude-haiku-4-5-20251001": {
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0,
+      "canonicalModel": "claude-haiku-4-5",
+      "contextWindow": 200000,
+      "costBasis": "list",
+      "costUSD": 0.004627,
+      "inputTokens": 4547,
+      "maxOutputTokens": 32000,
+      "outputTokens": 16,
+      "provider": "firstParty",
+      "thinkingTokens": 0,
+      "webSearchRequests": 0
+    }
+  },
+  "num_turns": 27,
+  "permission_denials": [],
+  "queued_turn_count": 0,
+  "result": "Verification is essentially complete. I confirmed the 34-item closure against the family YAML, the priority overrides and circles in plan-data.ts and staffing-map.ts, the alias configuration, and the legacy escalation path. I'm now composing the verdict.\n\n---SUBFLEET-VERDICT-BEGIN---\n{\n  \"artifact_revision\": {\n    \"bytes\": 33223,\n    \"kind\": \"plan\",\n    \"sha256\": \"a74f2723d73fdf24bc075feba5c7844c6a21bce2c22cde525529509edfae46db\"\n  },\n  \"findings\": [\n    {\n      \"description\": \"Monthly cost rules for the assumed family resources are unspecified. The six PE placeholders, three program leads and steward-ops carry an already-loaded `loadedAnnual` with a 3% basis-A escalation in public-interface.yaml:34-104, while the adapter rules (line 48, 148, 169) describe base-salary loading with 5% January raises for Axiom seats. State, in the resource mapping and economics fixtures, whether these placeholders are priced from the family loadedAnnual without reloading, which escalation rate and step month apply, and that they are excluded from the Axiom program's declared financial completeness, and add one fixture vector so the family monthly-cost view is a verified output rather than an implied one.\",\n      \"location\": \"artifact.snapshot:48,56,120,169 (Monthly economics; Resource mapping pe-team/leads rows; Exact monetary arithmetic)\",\n      \"severity\": \"low\"\n    },\n    {\n      \"description\": \"The merged band list omits the family `spine` circle. Its 22 items (17 ax-*, pe-migrate, bf-spec, bf-safety, bf-finbot, bf-85) all end up as zero-effort aliases or unresolved milestones under the dispositions, so no band affects scheduling, but the plan should say so explicitly and define the valid local-priority range the band validator enforces (e.g. [-1, 999]) so the composed-input fixture and validator have a defined expectation for family items.\",\n      \"location\": \"artifact.snapshot:161 (Revision 3 priority bands)\",\n      \"severity\": \"low\"\n    }\n  ],\n  \"notes\": [\n    \"Independently recomputed the transitive source-gap closure from public-interface.yaml predecessors with the 24 direct unresolved items: the result is exactly the 34 IDs listed at line 164; pe-function, ch-*, mc-local/mc-firms, pe-scorecard/worldmodel, th-registry/launch/1000/10k, pi-name/form/governance/metaharness/institutes and co-counsel remain unblocked.\",\n    \"Confirmed all items demanding or owned by `axiom-lead` (seven ax-* items, bf-spec, pi-transfer) are in the unresolved set, so the ambiguous-group treatment at line 173 allocates no capacity or work.\",\n    \"Confirmed x4a and fb1 are both in the `finbot` circle (staffing-map.ts:689,706), so the retained -1 overrides sit in band 0 and the encoding band*1000+priority preserves the existing order; existing engine sort is circle index, priority, earliest, id (schedule.ts:142-149).\",\n    \"The BigInt half-up formula (2n+d)/(2d) and the telescoping fixed-total allocation are correct and total-preserving; the 2027 $300k fixture (400,066.50/12 = 33,338.875) is an exact half-cent tie, so the fixture already exercises the tie case. Legacy loadedAt (plan-data.ts:75) escalates without intermediate rounding, so exact rational arithmetic reproduces the intended model.\",\n    \"node_modules/plangraph in the roadmap-portfolio worktree has no dist, which is why the src aliases exist; tsconfig.scripts.json extends tsconfig.json so removing the root path there covers Bun scripts as well. The packed-tarball approach with prepack build resolves this.\",\n    \"Per-item classification of the twelve Axiom standing items as fixed ongoing versus movable ongoing is left to the mapping artifact; the rule at lines 134 and 167 is adequate but the artifact should record each choice with its underway/evidence basis.\",\n    \"Round-2 findings 1 through 7 are addressed with concrete rules and required fixtures; no high or medium issue remains. Companion files proposed-dispositions.json, milestone-mapping.md, scheduling-fixtures.md and economics-fixtures.md were re-read and are consistent with the Revision 3 text.\"\n  ],\n  \"schema_version\": 1,\n  \"summary\": \"Revision 3 resolves all seven round-2 findings: the 34-item source-gap closure is correct and now pinned, the merged priority bands are explicit and consistent with the existing overrides, ongoing/effort semantics are stated with fixtures, exact integer/rational arithmetic is specified, the alias removal covers Vite and both tsconfigs, the axiom-lead conflict is recorded without allocating work, and the missing fixtures are required. Two low-severity specification gaps remain: pricing/escalation rules for the assumed family resources are not stated or fixtured, and the family spine circle is absent from the band list. Changes requested; both are short specification edits with no design impact.\",\n  \"verdict\": \"changes_requested\"\n}\n---SUBFLEET-VERDICT-END---",
+  "session_id": "023d2fad-5030-4f98-8182-c0a4d9c91a18",
+  "stop_reason": "end_turn",
+  "subagent_stats": {
+    "by_type": {},
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "system": 0,
+      "user": 0
+    },
+    "max_depth": 0,
+    "refused": {
+      "budget": 0,
+      "concurrency_limit": 0,
+      "depth_limit": 0
+    },
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "spawned": 0,
+    "spawned_by_subagents": 0,
+    "started_in_background": 0
+  },
+  "subtype": "success",
+  "terminal_reason": "completed",
+  "time_to_request_ms": 100,
+  "total_cost_usd": 2.767353,
+  "ttft_ms": 3187,
+  "ttft_stream_ms": 1442,
+  "type": "result",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 91287,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "cache_creation_input_tokens": 91287,
+    "cache_read_input_tokens": 290584,
+    "inference_geo": "not_available",
+    "input_tokens": 194,
+    "iterations": [
+      {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 4324,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 4324,
+        "cache_read_input_tokens": 89763,
+        "input_tokens": 32,
+        "output_tokens": 6708,
+        "type": "message"
+      }
+    ],
+    "output_tokens": 17248,
+    "output_tokens_details": {
+      "thinking_tokens": 12586
+    },
+    "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  },
+  "uuid": "d32d7a34-4aa0-413c-9ac4-418dc3de9651"
+}

@@ -1023,15 +1023,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1051,7 +1051,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "continue",
@@ -1060,11 +1060,11 @@
      "--expect-sha256",
      "1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1088,7 +1088,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "continue",
@@ -1101,11 +1101,11 @@
      "--response",
      "response.md"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1129,7 +1129,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "continue",
@@ -1142,11 +1142,11 @@
      "--exclude-account",
      "other@example.com"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1168,7 +1168,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "continue",
@@ -1179,11 +1179,11 @@
      "--expect-sha256",
      "1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1203,7 +1203,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "continue",
@@ -1212,11 +1212,11 @@
      "0",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1238,7 +1238,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "continue",
@@ -1249,11 +1249,11 @@
      "--response",
      "response.md"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1273,7 +1273,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "continue",
@@ -1282,11 +1282,11 @@
      "--expect-head",
      "b2c3d4e5f60718293a4b5c6d7e8f90123456789a"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1308,7 +1308,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "continue",
@@ -1319,11 +1319,11 @@
      "--response",
      "/repo/response.md"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1345,7 +1345,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1356,11 +1356,11 @@
      "--expect-sha256",
      "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1382,7 +1382,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1393,11 +1393,11 @@
      "--expect-sha256",
      "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1417,7 +1417,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1426,11 +1426,11 @@
      "fable",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1452,7 +1452,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1463,11 +1463,11 @@
      "--expect-sha256",
      "9f1c0f6b2a7d4e8c1b5a3d9e7f2c4b6a8d0e1f3a5c7b9d1e3f5a7c9b1d3e5f70"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1489,7 +1489,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1500,11 +1500,11 @@
      "--expect-sha256",
      "9f1c0f6b2a7d4e8c1b5a3d9e7f2c4b6a8d0e1f3a5c7b9d1e3f5a7c9b1d3e5f70"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1530,7 +1530,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1545,11 +1545,11 @@
      "--expect-sha256",
      "9f1c0f6b2a7d4e8c1b5a3d9e7f2c4b6a8d0e1f3a5c7b9d1e3f5a7c9b1d3e5f70"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1571,7 +1571,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1582,11 +1582,11 @@
      "--expect-sha256",
      "9f1c0f6b2a7d4e8c1b5a3d9e7f2c4b6a8d0e1f3a5c7b9d1e3f5a7c9b1d3e5f70"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1608,7 +1608,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1619,11 +1619,11 @@
      "--expect-sha256",
      "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1645,7 +1645,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "plan",
@@ -1656,11 +1656,11 @@
      "--expect-sha256",
      "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1688,7 +1688,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -1705,11 +1705,11 @@
      "--merge-method",
      "squash"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1730,7 +1730,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -1740,11 +1740,11 @@
      "--dry-run",
      "--json"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1770,7 +1770,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -1785,11 +1785,11 @@
      "3",
      "--json"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1817,7 +1817,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -1834,11 +1834,11 @@
      "--merge-method",
      "squash"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1858,7 +1858,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -1867,11 +1867,11 @@
      "astra",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1895,7 +1895,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -1908,11 +1908,11 @@
      "--expect-base",
      "0f1e2d3c4b5a69788796a5b4c3d2e1f001234567"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1934,7 +1934,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -1945,11 +1945,11 @@
      "--expect-head",
      "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -1973,7 +1973,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -1986,11 +1986,11 @@
      "--expect-base",
      "0f1e2d3c4b5a69788796a5b4c3d2e1f001234567"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -2010,7 +2010,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -2019,11 +2019,11 @@
      "fable",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -2051,7 +2051,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -2068,11 +2068,11 @@
      "--merge-method",
      "squash"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -2098,7 +2098,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -2113,11 +2113,11 @@
      "--expect-base",
      "0a7f3e2c9d1b48a6f5c2e0d7b9a4c6e8f1d3b5a2"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -2145,7 +2145,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -2162,11 +2162,11 @@
      "--merge-method",
      "merge"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -2190,7 +2190,7 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -2201,11 +2201,11 @@
      "--expect-head",
      "4c1d9a7e3b52f08d6a1c4e9b7d2f5a8c0e3b6d91"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -2225,7 +2225,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "gate",
      "pr",
@@ -2234,11 +2234,11 @@
      "astra",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "gate",
     "exit_code": null,
-    "rule": "delegate:gate",
-    "note_count": 1,
-    "env": {}
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -6827,13 +6827,20 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 2,
-    "rule": "run:v1-only-flag",
-    "note_count": 2,
-    "env": {}
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--independent-rev",
+     "--review-root",
+     "/repo",
+     "-p",
+     "p.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -6864,8 +6871,8 @@
     "verb": "",
     "exit_code": 2,
     "rule": "run:v1-only-flag",
-    "note_count": 3,
-    "env": {}
+    "env": {},
+    "note_count": 1
    }
   },
   {
@@ -6893,13 +6900,28 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 2,
-    "rule": "run:v1-only-flag",
-    "note_count": 2,
-    "env": {}
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--independent-review",
+     "--review-root",
+     "/repo",
+     "-s",
+     "read-only",
+     "-m",
+     "astra",
+     "-C",
+     "/repo",
+     "-p",
+     "review-brief.md",
+     "-o",
+     "/repo/peer-review.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -6925,13 +6947,26 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 2,
-    "rule": "run:v1-only-flag",
-    "note_count": 2,
-    "env": {}
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--independent-review",
+     "--review-root",
+     "/repo",
+     "-s",
+     "workspace-write",
+     "-C",
+     "/repo",
+     "-p",
+     "prompt.md",
+     "-o",
+     "out.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -6955,13 +6990,24 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 2,
-    "rule": "run:v1-only-flag",
-    "note_count": 2,
-    "env": {}
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--independent-review",
+     "--review-root",
+     "/repo",
+     "--task",
+     "review",
+     "--tier",
+     "standard",
+     "-p",
+     "prompt.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -6987,13 +7033,26 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 2,
-    "rule": "run:v1-only-flag",
-    "note_count": 1,
-    "env": {}
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--independent",
+     "--review-root",
+     "/repo",
+     "-s",
+     "read-only",
+     "-C",
+     "/repo",
+     "-p",
+     "review-brief.md",
+     "-o",
+     "/repo/peer-review.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -8326,13 +8385,25 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 2,
-    "rule": "run:v1-only-flag",
-    "note_count": 1,
-    "env": {}
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--review-root",
+     "/repo",
+     "-s",
+     "read-only",
+     "-C",
+     "/repo",
+     "-p",
+     "prompt.md",
+     "-o",
+     "out.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "env": {},
+    "note_count": 0
    }
   },
   {
@@ -13420,6 +13491,400 @@
     "rule": "permanent:why",
     "note_count": 1,
     "env": {}
+   }
+  },
+  {
+   "id": "gates-v2-claude-plan",
+   "cite": "~/.claude/CLAUDE.md:71",
+   "also_cited": [],
+   "v1_line": "subfleet gate plan plan.md --peer astra --main-approve --expect-sha256 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "plan",
+    "plan.md",
+    "--peer",
+    "astra",
+    "--main-approve",
+    "--expect-sha256",
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "plan",
+     "plan.md",
+     "--peer",
+     "astra",
+     "--main-approve",
+     "--expect-sha256",
+     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-claude-pr-merge",
+   "cite": "~/.claude/CLAUDE.md:72",
+   "also_cited": [],
+   "v1_line": "subfleet gate pr 42 --peer astra --main-approve --expect-head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --expect-base bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --on-agreement merge --merge-method merge",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "pr",
+    "42",
+    "--peer",
+    "astra",
+    "--main-approve",
+    "--expect-head",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "--expect-base",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "--on-agreement",
+    "merge",
+    "--merge-method",
+    "merge"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "pr",
+     "42",
+     "--peer",
+     "astra",
+     "--main-approve",
+     "--expect-head",
+     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "--expect-base",
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "--on-agreement",
+     "merge",
+     "--merge-method",
+     "merge"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-claude-pr-squash",
+   "cite": "~/.claude/CLAUDE.md:72",
+   "also_cited": [],
+   "v1_line": "subfleet gate pr 42 --peer astra --main-approve --expect-head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --expect-base bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --on-agreement merge --merge-method squash",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "pr",
+    "42",
+    "--peer",
+    "astra",
+    "--main-approve",
+    "--expect-head",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "--expect-base",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "--on-agreement",
+    "merge",
+    "--merge-method",
+    "squash"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "pr",
+     "42",
+     "--peer",
+     "astra",
+     "--main-approve",
+     "--expect-head",
+     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "--expect-base",
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "--on-agreement",
+     "merge",
+     "--merge-method",
+     "squash"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-readme-dry",
+   "cite": "chief-of-staff/subfleet/README.md:641",
+   "also_cited": [],
+   "v1_line": "subfleet gate plan plan.md --peer fable --dry-run",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "plan",
+    "plan.md",
+    "--peer",
+    "fable",
+    "--dry-run"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "plan",
+     "plan.md",
+     "--peer",
+     "fable",
+     "--dry-run"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-readme-continue-plan",
+   "cite": "chief-of-staff/subfleet/README.md:645",
+   "also_cited": [],
+   "v1_line": "subfleet gate continue sample --main-approve --expect-sha256 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "continue",
+    "sample",
+    "--main-approve",
+    "--expect-sha256",
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "continue",
+     "sample",
+     "--main-approve",
+     "--expect-sha256",
+     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-readme-continue-pr-response",
+   "cite": "chief-of-staff/subfleet/README.md:652",
+   "also_cited": [],
+   "v1_line": "subfleet gate continue sample --main-approve --expect-head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --expect-base bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --response response.md",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "continue",
+    "sample",
+    "--main-approve",
+    "--expect-head",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "--expect-base",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "--response",
+    "response.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "continue",
+     "sample",
+     "--main-approve",
+     "--expect-head",
+     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "--expect-base",
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "--response",
+     "response.md"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-readme-continue-policy-cap",
+   "cite": "chief-of-staff/subfleet/README.md:697",
+   "also_cited": [],
+   "v1_line": "subfleet gate continue sample --max-rounds 0 --main-approve --expect-sha256 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "continue",
+    "sample",
+    "--max-rounds",
+    "0",
+    "--main-approve",
+    "--expect-sha256",
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "continue",
+     "sample",
+     "--max-rounds",
+     "0",
+     "--main-approve",
+     "--expect-sha256",
+     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-readme-peer-account",
+   "cite": "chief-of-staff/subfleet/README.md:664",
+   "also_cited": [],
+   "v1_line": "subfleet gate plan plan.md --peer fable --peer-account review@example.org --exclude-account busy@example.org --main-approve --expect-sha256 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "plan",
+    "plan.md",
+    "--peer",
+    "fable",
+    "--peer-account",
+    "review@example.org",
+    "--exclude-account",
+    "busy@example.org",
+    "--main-approve",
+    "--expect-sha256",
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "plan",
+     "plan.md",
+     "--peer",
+     "fable",
+     "--peer-account",
+     "review@example.org",
+     "--exclude-account",
+     "busy@example.org",
+     "--main-approve",
+     "--expect-sha256",
+     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-readme-sol-alias",
+   "cite": "chief-of-staff/subfleet/README.md:634",
+   "also_cited": [],
+   "v1_line": "subfleet gate plan plan.md --peer sol --dry-run",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "plan",
+    "plan.md",
+    "--peer",
+    "sol",
+    "--dry-run"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "plan",
+     "plan.md",
+     "--peer",
+     "sol",
+     "--dry-run"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
+   }
+  },
+  {
+   "id": "gates-v2-claude-continue-response",
+   "cite": "~/.claude/CLAUDE.md:73",
+   "also_cited": [],
+   "v1_line": "subfleet gate continue sample --main-approve --expect-sha256 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc --response response.md",
+   "v1_meaning": "Exact-revision agreement gate, native v2 with permanent v1 syntax and exit codes.",
+   "argv": [
+    "gate",
+    "continue",
+    "sample",
+    "--main-approve",
+    "--expect-sha256",
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "--response",
+    "response.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "gate",
+     "continue",
+     "sample",
+     "--main-approve",
+     "--expect-sha256",
+     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "--response",
+     "response.md"
+    ],
+    "verb": "gate",
+    "exit_code": null,
+    "rule": "permanent:gate",
+    "env": {},
+    "note_count": 0
    }
   }
  ]

@@ -30,9 +30,8 @@ Four dispositions, and the reasoning for each:
   convenience: `_record-run`, `_record-lane-run`, `_canonical-model` and the
   other hidden verbs are called BY v1's own runners through
   `$SUBFLEET_RUN_SUBFLEET` and `$DELEGATE_SUBFLEET`, so a symlink flip that
-  broke them would break every v1 run already in flight. `gate` is delegated for
-  the reason the lane brief gives — it lands in milestone 7 — and its 0-to-5
-  exit codes pass through untouched (v1 README:717-720).
+  broke them would break every v1 run already in flight. `gate` is native in v2
+  and preserves its separate 0-to-5 exit meanings (v1 README:717-720).
 
 * **refuse** — `subfleet codex`, `subfleet claude`, and `subfleet mirror` are
   the direct provider verbs the agent contract tells sessions never to call
@@ -107,6 +106,7 @@ class Mapping:
 #: C-17.1's own additions, not v1 spellings — v1 has no `jobs` anywhere and
 #: `show` only as `runs show` — so they cannot break a v1 command, only add one.
 PERMANENT: dict[tuple[str, ...], list[str]] = {
+    ("gate",): ["gate"],
     ("status",): ["status"],
     ("capacity",): ["status"],
     ("runs",): ["runs"],
@@ -179,8 +179,6 @@ REFUSED: dict[str, str] = {
 #: v1 verbs v2 has not built yet, delegated to the v1 binary with one note.
 #: The value is the sentence the note carries after "not a v2 verb yet".
 DELEGATED: dict[str, str] = {
-    "gate": "gates land in milestone 7; v1 runs this one and its 0-to-5 exit "
-            "codes come back unchanged",
     "sessions": "the sessions kit is a later milestone",
     "pick": "lane picking belongs to whichever side owns the lane "
             "(`subfleet lanes list` shows the owner)",
@@ -287,22 +285,10 @@ V1_ONLY_FLAGS: dict[str, dict[str, V1Flag]] = {
         "--reuse-out": _refuse(
             "v1's only way onto an `-o` path a LIVE run was still writing; v2 "
             "exports per job (C-8) and has no such override"),
-        "--independent-review": _refuse(
-            "a hidden v1 flag that passed `-I -D <root>` to the runner; v2 has "
-            "no independent-review mode yet. Beware: `--independent` on its own "
-            "was an argparse abbreviation of THIS flag in v1 and is a real and "
-            "different v2 flag (C-7.3, a parent's cancel does not cancel this "
-            "child), so the two spellings must not be confused"),
-        "--review-root": _refuse(
-            "a hidden v1 flag naming `--independent-review`'s root; v2 has no "
-            "independent-review mode yet",
-            takes_value=True),
+
     },
 }
 
-#: `notify` reaches `ping`, `capacity` reaches `status`, and `jobs`/`show` reach
-#: `runs`; the flag table is keyed by what the caller typed, so these spellings
-#: share their target's row.
 FLAG_TABLE_ALIASES = {"capacity": "status", "jobs": "runs", "show": "runs show",
                       "ping": "notify", "resume-codex": "resume"}
 
@@ -491,7 +477,7 @@ def v1_binary(env: dict[str, str] | None = None) -> str | None:
         path = Path(candidate).expanduser()
         if path.is_file() and os.access(path, os.X_OK):
             return str(path)
-    found = shutil.which("subfleet-gate") or shutil.which("subfleet")
+    found = shutil.which("subfleet")
     if found and not _is_self(found):
         return found
     return None

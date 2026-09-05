@@ -18,6 +18,7 @@ PROTOCOL_VERSION = 1
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
+    "gate.start", "gate.poll", "gate.continue",
 )
 
 
@@ -83,6 +84,46 @@ class SubmitArgs:
     max_attempts: int | None = None
     max_wall_s: int | None = None
     max_tokens_observed: int | None = None
+    isolated_review: bool = False
+    review_root: str | None = None
+    round_lease: str | None = None
+
+
+@dataclass
+class GateStartArgs:
+    """C-17.1/C-23.8: caller-approved exact revision for a new gate."""
+    gate_command: str
+    target: str
+    peer: str
+    main_approve: bool = False
+    expect_head: str | None = None
+    expect_base: str | None = None
+    expect_sha256: str | None = None
+    workdir: str | None = None
+    brief: str | None = None
+    peer_account: str | None = None
+    exclude_account: list[str] = field(default_factory=list)
+    max_rounds: int | None = None
+    on_agreement: str = "proceed"
+    merge_method: str | None = "merge"
+    main_model: str | None = None
+    dry_run: bool = False
+
+
+@dataclass
+class GateContinueArgs:
+    """C-17.1/C-23.8: fresh main approval or reconciliation of an existing gate."""
+    gate_id: str
+    main_approve: bool = False
+    expect_head: str | None = None
+    expect_base: str | None = None
+    expect_sha256: str | None = None
+    response: str | None = None
+    peer_account: str | None = None
+    exclude_account: list[str] = field(default_factory=list)
+    max_rounds: int | None = None
+    dry_run: bool = False
+    gate_command: str = "continue"
 
 
 @dataclass

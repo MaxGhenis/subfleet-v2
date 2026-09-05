@@ -1,0 +1,804 @@
+diff --git a/README.md b/README.md
+index 9756dfa80..c54735e66 100644
+--- a/README.md
++++ b/README.md
+@@ -203,6 +203,20 @@ The report also includes a `schema_version`, left/right engine names, concept
+ tolerances and priorities, and `mismatches_by_kind` so downstream apps can render
+ the same report without duplicating comparison logic.
+ 
++Comparison mappings define the requested output surface, independently of which
++values the engines return. A missing value on either or both sides remains a
++mismatch; a summed target requires every component, including explicit zeroes.
++Duplicate or unpaired result IDs and non-finite values raise `ValueError` instead
++of producing a partial agreement report. The report accumulator also checks that
++each submitted case and each requested output appears exactly once, including
++case IDs across streaming batches. The CLI scopes value validation to `Case.outputs`
++before comparing, so unrequested values cannot invalidate a case. Direct comparator
++callers can supply the same scope through `outputs_by_case`; otherwise their selected
++mappings define the requested surface. An empty comparison is not a successful case.
++The CLI reports these validation failures and does not write the incomplete report.
++This validates
++comparison completeness, not the independence or authority of either engine.
++
+ TAXSIM and PRD are exposed as package adapters rather than separate comparison
+ systems. The TAXSIM adapter projects thin `Case` objects to TAXSIM rows from
+ period, geography, age, relation, and earned-income facts, while still accepting
+diff --git a/axiom_oracles/cli.py b/axiom_oracles/cli.py
+index 910c71728..d26480d80 100644
+--- a/axiom_oracles/cli.py
++++ b/axiom_oracles/cli.py
+@@ -808,13 +808,21 @@ def compare(
+                         left_results if left == "axiom" else right_results,
+                         concept_ids,
+                     )
+-                accumulator.add_batch(
+-                    accumulator_cases,
+-                    _filter_comparisons_for_case_outputs(
++                try:
++                    accumulator.add_batch(
+                         accumulator_cases,
+-                        comparator.compare(left_results, right_results),
+-                    ),
+-                )
++                        comparator.compare(
++                            left_results,
++                            right_results,
++                            outputs_by_case={
++                                case.case_id: case.outputs for case in accumulator_cases
++                            },
++                        ),
++                    )
++                except ValueError as exc:
++                    raise click.ClickException(
++                        f"Invalid comparison results: {exc}"
++                    ) from exc
+ 
+             if not accumulator.case_count:
+                 raise click.ClickException(
+diff --git a/axiom_oracles/comparison/comparator.py b/axiom_oracles/comparison/comparator.py
+index 6aaa02620..c1272ec49 100644
+--- a/axiom_oracles/comparison/comparator.py
++++ b/axiom_oracles/comparison/comparator.py
+@@ -1,7 +1,9 @@
+ from __future__ import annotations
+ 
++from collections import Counter
++from collections.abc import Mapping, Sequence
+ from dataclasses import dataclass, field
+-from math import isclose
++from math import isclose, isfinite
+ 
+ from .mappings import ProgramMapping
+ from ..core.results import EngineResult, Value
+@@ -39,7 +41,7 @@ class HouseholdComparison:
+     @property
+     def match_rate(self) -> float:
+         if not self.comparisons:
+-            return 100
++            return 0
+         return self.match_count / len(self.comparisons) * 100
+ 
+     def mismatches(self) -> list[VariableComparison]:
+@@ -48,31 +50,60 @@ class HouseholdComparison:
+ 
+ class Comparator:
+     def __init__(self, mappings: list[ProgramMapping]):
++        require_unique_ids([mapping.concept_id for mapping in mappings], "mapping concepts")
+         self.mappings = mappings
+ 
+     def compare(
+         self,
+         left_results: list[EngineResult],
+         right_results: list[EngineResult],
++        *,
++        outputs_by_case: Mapping[int | str, Sequence[str]] | None = None,
+     ) -> list[HouseholdComparison]:
++        """Compare selected mappings, optionally scoped to each case's outputs."""
++        left_ids = [result.household_id for result in left_results]
++        right_ids = [result.household_id for result in right_results]
++        require_unique_ids(left_ids, "left result household IDs")
++        require_unique_ids(right_ids, "right result household IDs")
++        require_same_ids(left_ids, right_ids, "right result household IDs")
++        if outputs_by_case is not None:
++            require_same_ids(list(outputs_by_case), left_ids, "result household IDs")
+         right_by_id = {result.household_id: result for result in right_results}
+         comparisons: list[HouseholdComparison] = []
+ 
+         for left in left_results:
+-            right = right_by_id.get(left.household_id)
+-            if right is None:
+-                continue
++            right = right_by_id[left.household_id]
+ 
+-            variable_comparisons = [
+-                self.compare_mapping(mapping, left, right)
++            mappings = [
++                mapping
+                 for mapping in self.mappings
+                 if self._has_engine_target(mapping, left.engine)
+                 and self._has_engine_target(mapping, right.engine)
+-                and (
+-                    self._has_mapping_value(mapping, left)
+-                    or self._has_mapping_value(mapping, right)
+-                )
+             ]
++            if outputs_by_case is not None:
++                requested = outputs_by_case[left.household_id]
++                require_unique_ids(requested, "requested output concepts")
++                unsupported = set(requested) - {
++                    mapping.concept_id for mapping in mappings
++                }
++                if unsupported:
++                    raise ValueError(
++                        f"Unmapped requested outputs for case {left.household_id!r}: "
++                        f"{sorted(unsupported)!r}"
++                    )
++                mappings = [
++                    mapping
++                    for mapping in mappings
++                    if mapping.concept_id in requested
++                ]
++            variable_comparisons = [
++                self.compare_mapping(mapping, left, right) for mapping in mappings
++            ]
++            if not variable_comparisons:
++                raise ValueError(
++                    f"No comparable mappings for household {left.household_id!r} "
++                    f"between {left.engine!r} and {right.engine!r}"
++                )
+             comparisons.append(
+                 HouseholdComparison(
+                     household_id=left.household_id,
+@@ -95,6 +126,16 @@ class Comparator:
+         left_value = self._mapped_value(mapping, left)
+         right_value = self._mapped_value(mapping, right)
+ 
++        for result, value in ((left, left_value), (right, right_value)):
++            if value is not None and (
++                mapping.comparison == "amount" or isinstance(value, (float, int))
++            ):
++                if not isfinite(self._to_number(value)):
++                    raise ValueError(
++                        f"Non-finite {mapping.concept_id!r} value from "
++                        f"{result.engine!r} for household {result.household_id!r}"
++                    )
++
+         if mapping.comparison == "amount":
+             if left_value is None or right_value is None:
+                 difference = None
+@@ -103,6 +144,11 @@ class Comparator:
+                 left_number = self._to_number(left_value)
+                 right_number = self._to_number(right_value)
+                 difference = left_number - right_number
++                if not isfinite(difference):
++                    raise ValueError(
++                        f"Non-finite difference for {mapping.concept_id!r} "
++                        f"in household {left.household_id!r}"
++                    )
+                 matches = isclose(
+                     left_number,
+                     right_number,
+@@ -128,20 +174,25 @@ class Comparator:
+             description=mapping.description,
+         )
+ 
+-    def _has_mapping_value(self, mapping: ProgramMapping, result: EngineResult) -> bool:
+-        key = self._mapping_key(mapping, result.engine)
+-        if key is None:
+-            return False
+-        if isinstance(key, list):
+-            return any(item in result.values for item in key)
+-        return key in result.values
+-
+     def _mapped_value(self, mapping: ProgramMapping, result: EngineResult) -> Value:
+         key = self._mapping_key(mapping, result.engine)
+         if isinstance(key, list):
+-            if not any(item in result.values for item in key):
++            numbers: list[float | None] = []
++            for item in key:
++                value = result.get(item)
++                if value is None:
++                    numbers.append(None)
++                    continue
++                number = self._to_number(value)
++                if not isfinite(number):
++                    raise ValueError(
++                        f"Non-finite component {item!r} from {result.engine!r} "
++                        f"for household {result.household_id!r}"
++                    )
++                numbers.append(number)
++            if not key or any(number is None for number in numbers):
+                 return None
+-            return sum(self._to_number(result.get(item, 0)) for item in key)
++            return sum(number for number in numbers if number is not None)
+         if key is None:
+             return None
+         return result.get(key)
+@@ -161,3 +212,22 @@ class Comparator:
+         if isinstance(value, bool):
+             return float(value)
+         return float(value)
++
++
++def require_unique_ids(ids: Sequence[int | str], label: str) -> None:
++    duplicates = [key for key, count in Counter(ids).items() if count > 1]
++    if duplicates:
++        raise ValueError(f"Duplicate {label}: {duplicates[:10]!r}")
++
++
++def require_same_ids(
++    expected: Sequence[int | str], actual: Sequence[int | str], label: str
++) -> None:
++    expected_set, actual_set = set(expected), set(actual)
++    missing = expected_set - actual_set
++    extra = actual_set - expected_set
++    if missing or extra:
++        raise ValueError(
++            f"Invalid {label}: missing {sorted(missing, key=repr)[:10]!r}; "
++            f"unexpected {sorted(extra, key=repr)[:10]!r}"
++        )
+diff --git a/axiom_oracles/comparison/report.py b/axiom_oracles/comparison/report.py
+index 40529405f..849dbdeb5 100644
+--- a/axiom_oracles/comparison/report.py
++++ b/axiom_oracles/comparison/report.py
+@@ -5,7 +5,12 @@ import json
+ from pathlib import Path
+ from typing import Any
+ 
+-from .comparator import HouseholdComparison, VariableComparison
++from .comparator import (
++    HouseholdComparison,
++    VariableComparison,
++    require_same_ids,
++    require_unique_ids,
++)
+ from .mappings import ProgramMapping
+ from ..core.case import Case, Concepts
+ from ..core.geography import GeographyScope
+@@ -90,6 +95,9 @@ class ComparisonReportAccumulator:
+         self.locales = set(locales)
+         self.scope = scope
+         self.mappings = list(mappings)
++        require_unique_ids(
++            [mapping.concept_id for mapping in self.mappings], "mapping concepts"
++        )
+         self._mappings_by_id = {
+             mapping.concept_id: mapping for mapping in self.mappings
+         }
+@@ -111,6 +119,7 @@ class ComparisonReportAccumulator:
+         self._error_rows: list[dict] = []
+         self._left_engine: str | None = None
+         self._right_engine: str | None = None
++        self._seen_case_ids: set[int | str] = set()
+ 
+     @property
+     def case_count(self) -> int:
+@@ -121,11 +130,59 @@ class ComparisonReportAccumulator:
+         cases: list[Case],
+         comparisons: list[HouseholdComparison],
+     ) -> None:
++        # Validate before mutating counters or appending rows: a partial batch
++        # must never replace the submitted-case denominator with its survivors.
++        case_ids = [case.case_id for case in cases]
++        comparison_ids = [item.household_id for item in comparisons]
++        require_unique_ids(case_ids, "submitted case IDs")
++        require_unique_ids(comparison_ids, "comparison household IDs")
++        require_same_ids(case_ids, comparison_ids, "comparison household IDs")
++        repeated = self._seen_case_ids.intersection(case_ids)
++        if repeated:
++            raise ValueError(
++                f"Case IDs repeated across batches: {sorted(repeated, key=repr)[:10]!r}"
++            )
+         cases_by_id = {case.case_id: case for case in cases}
++        engine_pair = (
++            (self._left_engine, self._right_engine)
++            if self._left_engine is not None
++            else _engine_pair(comparisons)
++        )
++        for item in comparisons:
++            if (item.left_engine, item.right_engine) != engine_pair:
++                raise ValueError("Comparison engine pair changed within the report")
++            if not item.comparisons:
++                raise ValueError(
++                    f"No output comparisons for submitted case {item.household_id!r}"
++                )
++            actual_outputs = [value.variable for value in item.comparisons]
++            require_unique_ids(actual_outputs, "compared output concepts")
++            case = cases_by_id[item.household_id]
++            available_outputs = [
++                mapping.concept_id
++                for mapping in self.mappings
++                if mapping.target_for_engine(item.left_engine)
++                and mapping.target_for_engine(item.right_engine)
++            ]
++            expected_outputs = list(case.outputs) if case.outputs else available_outputs
++            unsupported = set(expected_outputs) - set(available_outputs)
++            if unsupported:
++                raise ValueError(
++                    f"Unmapped requested outputs for case {item.household_id!r}: "
++                    f"{sorted(unsupported)!r}"
++                )
++            require_unique_ids(expected_outputs, "requested output concepts")
++            require_same_ids(
++                expected_outputs,
++                actual_outputs,
++                f"output concepts for case {item.household_id!r}",
++            )
++
++        self._seen_case_ids.update(case_ids)
+         if self._left_engine is None and comparisons:
+             self._left_engine, self._right_engine = _engine_pair(comparisons)
+ 
+-        self._case_count += len(comparisons)
++        self._case_count += len(cases)
+         self._match_count += sum(item.match_count for item in comparisons)
+         self._mismatch_count += sum(item.mismatch_count for item in comparisons)
+ 
+diff --git a/scripts/run_comparison.py b/scripts/run_comparison.py
+index 9bc4c1d84..b9c530eaf 100755
+--- a/scripts/run_comparison.py
++++ b/scripts/run_comparison.py
+@@ -23,6 +23,7 @@ import sys
+ import tempfile
+ import time
+ from collections import Counter
++from dataclasses import replace
+ from datetime import datetime, timezone
+ from pathlib import Path
+ 
+@@ -2310,6 +2311,10 @@ def _run_gettsim_synthetic_compare(runner: dict, output: Path) -> None:
+     selected_concepts = set(params.get("concepts") or ()) or {
+         output_id for case in cases for output_id in case.outputs
+     }
++    if params.get("concepts"):
++        cases = [
++            replace(case, outputs=tuple(params["concepts"])) for case in cases
++        ]
+     mappings = comparable_mappings(
+         "euromod",
+         "gettsim",
+diff --git a/tests/test_comparison_completeness.py b/tests/test_comparison_completeness.py
+new file mode 100644
+index 000000000..631aad516
+--- /dev/null
++++ b/tests/test_comparison_completeness.py
+@@ -0,0 +1,371 @@
++from dataclasses import replace
++import json
++
++import pytest
++from click.testing import CliRunner
++
++from axiom_oracles.comparison.comparator import Comparator, HouseholdComparison
++from axiom_oracles.comparison.mappings import ProgramMapping
++from axiom_oracles.comparison.report import (
++    ComparisonReportAccumulator,
++    build_comparison_report,
++)
++from axiom_oracles.core.case import Case
++from axiom_oracles.core.results import EngineResult
++
++
++MAPPING = ProgramMapping(
++    standard="test:amount",
++    description="Fixture amount",
++    category="fixture",
++    comparison="amount",
++    targets={"axiom": "amount", "policyengine": "amount"},
++)
++
++
++def result(side, case_id, values=None):
++    return EngineResult(side, case_id, {"amount": 10} if values is None else values)
++
++
++def comparison(case_id):
++    return Comparator([MAPPING]).compare(
++        [result("axiom", case_id)], [result("policyengine", case_id)]
++    )[0]
++
++
++def accumulator(**kwargs):
++    return ComparisonReportAccumulator(
++        suite_name="completeness",
++        population="fixture",
++        locales=set(),
++        scope=None,
++        mappings=[MAPPING],
++        **kwargs,
++    )
++
++
++@pytest.mark.parametrize(
++    "left_ids,right_ids,reason",
++    [
++        ([1, 1], [1], "Duplicate left"),
++        ([1], [1, 1], "Duplicate right"),
++        ([1, 2], [1], "missing \\[2\\]"),
++        ([1], [1, 2], "unexpected \\[2\\]"),
++        ([1], [], "missing \\[1\\]"),
++        ([], [1], "unexpected \\[1\\]"),
++        ([1, 2], [3, 4], "Invalid right"),
++    ],
++)
++def test_result_ids_must_form_a_bijection(left_ids, right_ids, reason):
++    with pytest.raises(ValueError, match=reason):
++        Comparator([MAPPING]).compare(
++            [result("axiom", key) for key in left_ids],
++            [result("policyengine", key) for key in right_ids],
++        )
++
++
++def test_result_order_is_irrelevant_but_ids_are_not_coerced():
++    rows = Comparator([MAPPING]).compare(
++        [result("axiom", 1), result("axiom", "1")],
++        [result("policyengine", "1"), result("policyengine", 1)],
++    )
++    assert [row.household_id for row in rows] == [1, "1"]
++    assert all(row.match_rate == 100 for row in rows)
++
++
++def test_both_missing_outputs_remain_in_the_report_denominator():
++    other = replace(
++        MAPPING,
++        standard="test:other",
++        targets={"axiom": "other", "policyengine": "other"},
++    )
++    rows = Comparator([MAPPING, other]).compare(
++        [result("axiom", 1)], [result("policyengine", 1)]
++    )
++    report = build_comparison_report(
++        suite_name="completeness",
++        population="fixture",
++        locales=set(),
++        scope=None,
++        cases=[Case(case_id=1, period="2026")],
++        mappings=[MAPPING, other],
++        comparisons=rows,
++    )
++    assert rows[0].match_rate == 50
++    assert report["case_count"] == 1
++    assert report["summary"]["comparison_count"] == 2
++    assert report["summary"]["match_count"] == 1
++    assert report["summary"]["mismatch_count"] == 1
++    assert report["mismatches"][0]["kind"] == "missing_both"
++
++
++@pytest.mark.parametrize("values", [{"a": 10}, {"a": 10, "b": None}, {}])
++def test_sum_mapping_requires_every_component(values):
++    mapping = replace(MAPPING, targets={"axiom": ["a", "b"], "policyengine": "amount"})
++    [row] = Comparator([mapping]).compare(
++        [result("axiom", 1, values)], [result("policyengine", 1)]
++    )
++    assert row.comparisons[0].left_value is None
++    assert row.mismatch_count == 1
++
++
++def test_zero_sum_components_are_present_values():
++    mapping = replace(MAPPING, targets={"axiom": ["a", "b"], "policyengine": "amount"})
++    [row] = Comparator([mapping]).compare(
++        [result("axiom", 1, {"a": 10, "b": 0})], [result("policyengine", 1)]
++    )
++    assert row.match_rate == 100
++
++
++@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
++def test_missing_sum_component_does_not_hide_another_non_finite_component(value):
++    mapping = replace(MAPPING, targets={"axiom": ["a", "b"], "policyengine": "amount"})
++    with pytest.raises(ValueError, match="Non-finite component 'a'"):
++        Comparator([mapping]).compare(
++            [result("axiom", 1, {"a": value})], [result("policyengine", 1)]
++        )
++
++
++@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
++@pytest.mark.parametrize("kind", ["amount", "eligibility"])
++@pytest.mark.parametrize("side", ["left", "right"])
++def test_non_finite_values_are_explicit_errors(value, kind, side):
++    values = {"amount": value}
++    left = result("axiom", 1, values if side == "left" else {})
++    right = result("policyengine", 1, values if side == "right" else {})
++    with pytest.raises(ValueError, match="Non-finite"):
++        Comparator([replace(MAPPING, comparison=kind)]).compare([left], [right])
++
++
++def test_empty_comparison_is_not_perfect_agreement():
++    assert HouseholdComparison(1, "axiom", "policyengine").match_rate == 0
++    with pytest.raises(ValueError, match="No comparable mappings"):
++        Comparator([]).compare([result("axiom", 1)], [result("policyengine", 1)])
++
++
++def test_empty_report_is_inspectable_but_has_no_agreement():
++    acc = accumulator()
++    acc.add_batch([], [])
++    report = acc.to_dict()
++    direct_report = build_comparison_report(
++        suite_name="completeness",
++        population="fixture",
++        locales=set(),
++        scope=None,
++        cases=[],
++        mappings=[MAPPING],
++        comparisons=[],
++    )
++    assert report == direct_report
++    assert report["case_count"] == 0
++    assert report["summary"]["comparison_count"] == 0
++    assert report["summary"]["weighted"]["match_rate"] == 0
++
++
++def test_duplicate_mapping_concepts_are_rejected():
++    with pytest.raises(ValueError, match="Duplicate mapping concepts"):
++        Comparator([MAPPING, MAPPING])
++
++
++def test_finite_inputs_with_an_overflowing_difference_are_rejected():
++    with pytest.raises(ValueError, match="Non-finite difference"):
++        Comparator([MAPPING]).compare(
++            [result("axiom", 1, {"amount": 1e308})],
++            [result("policyengine", 1, {"amount": -1e308})],
++        )
++
++
++@pytest.mark.parametrize(
++    "case_ids,comparison_ids,reason",
++    [
++        ([1, 2], [1], "missing \\[2\\]"),  # both engines dropped a submitted case
++        ([1], [1, 2], "unexpected \\[2\\]"),
++        ([1, 1], [1], "Duplicate submitted"),
++        ([1], [1, 1], "Duplicate comparison"),
++    ],
++)
++def test_report_rejects_incomplete_or_duplicate_batches_without_mutation(
++    case_ids, comparison_ids, reason, tmp_path
++):
++    path = tmp_path / "cases.jsonl"
++    acc = accumulator(case_rows_path=path)
++    before = acc.to_dict()
++    with pytest.raises(ValueError, match=reason):
++        acc.add_batch(
++            [Case(case_id=key, period="2026") for key in case_ids],
++            [comparison(key) for key in comparison_ids],
++        )
++    assert acc.to_dict() == before
++    assert path.read_text() == ""
++
++
++def test_streaming_report_rejects_repeated_ids_across_batches(tmp_path):
++    path = tmp_path / "cases.jsonl"
++    acc = accumulator(case_rows_path=path)
++    cases, rows = [Case(case_id=1, period="2026")], [comparison(1)]
++    acc.add_batch(cases, rows)
++    before, stored = acc.to_dict(), path.read_text()
++    with pytest.raises(ValueError, match="repeated across batches"):
++        acc.add_batch(cases, rows)
++    assert acc.to_dict() == before
++    assert path.read_text() == stored
++
++
++def test_streaming_report_rejects_an_engine_pair_change_without_mutation():
++    acc = accumulator()
++    acc.add_batch([Case(case_id=1, period="2026")], [comparison(1)])
++    before = acc.to_dict()
++    with pytest.raises(ValueError, match="engine pair changed"):
++        acc.add_batch(
++            [Case(case_id=2, period="2026")],
++            [replace(comparison(2), right_engine="different-oracle")],
++        )
++    assert acc.to_dict() == before
++
++
++@pytest.mark.parametrize("defect", ["missing", "extra", "duplicate", "empty"])
++def test_report_requires_every_requested_output_exactly_once(defect):
++    row = comparison(1)
++    cases = [Case(case_id=1, period="2026", outputs=("test:amount",))]
++    if defect == "missing":
++        cases = [replace(cases[0], outputs=("test:amount", "test:other"))]
++    elif defect == "extra":
++        row = replace(
++            row,
++            comparisons=[
++                *row.comparisons,
++                replace(row.comparisons[0], variable="extra"),
++            ],
++        )
++    elif defect == "duplicate":
++        row = replace(row, comparisons=row.comparisons * 2)
++    else:
++        row = replace(row, comparisons=[])
++    with pytest.raises(ValueError):
++        accumulator().add_batch(cases, [row])
++
++
++@pytest.mark.parametrize(
++    "unrequested", [None, float("nan"), float("inf"), -float("inf")]
++)
++def test_case_specific_requested_outputs_preserve_their_explicit_scope(unrequested):
++    other = replace(
++        MAPPING,
++        standard="test:other",
++        targets={"axiom": "other", "policyengine": "other"},
++    )
++    cases = [
++        Case(case_id=1, period="2026", outputs=("test:amount",)),
++        Case(case_id=2, period="2026", outputs=("test:other",)),
++    ]
++    rows = Comparator([MAPPING, other]).compare(
++        [
++            result("axiom", 1, {"amount": 10, "other": unrequested}),
++            result("axiom", 2, {"amount": unrequested, "other": 20}),
++        ],
++        [
++            result("policyengine", 1, {"amount": 10, "other": unrequested}),
++            result("policyengine", 2, {"amount": unrequested, "other": 20}),
++        ],
++        outputs_by_case={case.case_id: case.outputs for case in cases},
++    )
++    report = build_comparison_report(
++        suite_name="scoped",
++        population="fixture",
++        locales=set(),
++        scope=None,
++        cases=cases,
++        mappings=[MAPPING, other],
++        comparisons=rows,
++    )
++    assert report["case_count"] == 2
++    assert report["summary"]["comparison_count"] == 2
++    assert report["summary"]["match_count"] == 2
++
++
++@pytest.mark.parametrize(
++    "outputs_by_case,reason",
++    [
++        ({}, "unexpected \\[1\\]"),
++        ({1: ("test:amount",), 2: ("test:amount",)}, "missing \\[2\\]"),
++        ({1: ()}, "No comparable mappings"),
++        ({1: ("test:amount", "test:amount")}, "Duplicate requested"),
++        ({1: ("test:other",)}, "Unmapped requested"),
++    ],
++)
++def test_case_output_contract_is_checked_before_values(outputs_by_case, reason):
++    with pytest.raises(ValueError, match=reason):
++        Comparator([MAPPING]).compare(
++            [result("axiom", 1, {"amount": float("nan")})],
++            [result("policyengine", 1)],
++            outputs_by_case=outputs_by_case,
++        )
++
++
++@pytest.mark.parametrize("scenario", ["missing_case", "unrequested_non_finite"])
++def test_cli_validates_case_coverage_and_requested_values(
++    scenario, monkeypatch, tmp_path
++):
++    import importlib
++
++    cli_module = importlib.import_module("axiom_oracles.cli")
++    cases = [
++        Case(case_id=1, period="2026", outputs=("test:amount",)),
++        Case(case_id=2, period="2026", outputs=("test:amount",)),
++    ]
++    other = replace(
++        MAPPING,
++        standard="test:other",
++        targets={"axiom": "other", "policyengine": "other"},
++    )
++    monkeypatch.setattr(cli_module, "_load_population_cases", lambda **kwargs: cases)
++    monkeypatch.setattr(
++        cli_module, "_echo_resolved_axiom_composition", lambda *args: None
++    )
++    monkeypatch.setattr(
++        cli_module, "comparable_mappings", lambda *args, **kwargs: [MAPPING, other]
++    )
++    monkeypatch.setattr(
++        cli_module, "_prepare_cases_for_engines", lambda batch, *args, **kwargs: batch
++    )
++
++    class Runner:
++        def __init__(self, engine):
++            self.engine = engine
++
++        def run_cases(self, batch, variables):
++            ids = (
++                [1]
++                if scenario == "missing_case" and self.engine == "policyengine"
++                else [1, 2]
++            )
++            return [
++                result(self.engine, key, {"amount": 10, "other": float("nan")})
++                for key in ids
++            ]
++
++    monkeypatch.setattr(
++        cli_module, "_build_runner", lambda engine, *args, **kwargs: Runner(engine)
++    )
++    output = tmp_path / "report.json"
++    run = CliRunner().invoke(
++        cli_module.cli,
++        [
++            "compare",
++            "axiom",
++            "policyengine",
++            "--output",
++            str(output),
++        ],
++    )
++    if scenario == "missing_case":
++        assert run.exit_code == 1, run.output
++        assert "Invalid comparison results" in run.output
++        assert "missing [2]" in run.output
++        assert not output.exists()
++    else:
++        assert run.exit_code == 0, run.output
++        report = json.loads(output.read_text())
++        assert report["case_count"] == 2
++        assert report["summary"]["comparison_count"] == 2
++        assert report["summary"]["match_count"] == 2
+diff --git a/tests/test_run_comparison.py b/tests/test_run_comparison.py
+index 1f4ad6d09..8f5e73a22 100644
+--- a/tests/test_run_comparison.py
++++ b/tests/test_run_comparison.py
+@@ -375,10 +375,14 @@ def test_gettsim_synthetic_runner_registered_and_reemits_committed_report(
+     assert output.read_text() == committed.read_text()
+ 
+ 
+-def test_gettsim_synthetic_runner_compares_requested_sample(monkeypatch, tmp_path):
++@pytest.mark.parametrize("concept_subset", [False, True])
++def test_gettsim_synthetic_runner_compares_requested_sample(
++    concept_subset, monkeypatch, tmp_path
++):
+     from axiom_oracles.adapters.euromod import EuromodPlatformRunner
+     from axiom_oracles.adapters.gettsim import GettsimRunner
+     from axiom_oracles.core.results import EngineResult
++    from axiom_oracles.suites.de_worker import DE_WORKER_OUTPUTS
+ 
+     run_comparison = load_run_comparison_module()
+     monkeypatch.setenv("EUROMOD_PYTHON", "/fake/euromod-python")
+@@ -391,7 +395,7 @@ def test_gettsim_synthetic_runner_compares_requested_sample(monkeypatch, tmp_pat
+     def fake_euromod_run(self, cases, variables):
+         assert len(cases) == 1
+         assert self.extra_columns == ("drgn1",)
+-        assert set(variables) == {
++        expected_variables = {"tsceehl_s"} if concept_subset else {
+             "tsceehl_s",
+             "tsceepi_s",
+             "tsceeui_s",
+@@ -399,6 +403,7 @@ def test_gettsim_synthetic_runner_compares_requested_sample(monkeypatch, tmp_pat
+             "tin_s",
+             "bch00_s",
+         }
++        assert set(variables) == expected_variables
+         return [
+             EngineResult(
+                 engine="euromod",
+@@ -429,21 +434,22 @@ def test_gettsim_synthetic_runner_compares_requested_sample(monkeypatch, tmp_pat
+     )
+ 
+     output = tmp_path / "report.json"
++    parameters = {
++        "suite": "de-worker-dual-oracle",
++        "sample_size": 1,
++        "euromod_extra_columns": ["drgn1"],
++    }
++    if concept_subset:
++        parameters["concepts"] = [DE_WORKER_OUTPUTS[0]]
+     run_comparison._run_gettsim_synthetic_compare(
+-        {
+-            "parameters": {
+-                "suite": "de-worker-dual-oracle",
+-                "sample_size": 1,
+-                "euromod_extra_columns": ["drgn1"],
+-            }
+-        },
++        {"parameters": parameters},
+         output,
+     )
+ 
+     report = json.loads(output.read_text())
+     assert report["engines"] == {"left": "euromod", "right": "gettsim"}
+     assert report["case_count"] == 1
+-    assert report["summary"]["comparison_count"] == 6
++    assert report["summary"]["comparison_count"] == (1 if concept_subset else 6)
+     assert report["summary"]["mismatch_count"] == 0
+     assert report["summary"]["error_count"] == 0
+     assert report["engine_metadata"]["euromod"]["extra_columns"] == ["drgn1"]
