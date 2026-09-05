@@ -2,8 +2,9 @@
 
 ## State
 
-Fake provider and socket acceptance harness are implemented; daemon integration
-is pending the concurrent daemon implementation.
+Fake provider and socket acceptance harness are implemented. Deterministic state
+tests pass. Real process tests are capability-skipped because this managed
+sandbox refuses `ps` and `sysctl`; production identity checks are unchanged.
 
 ## Done
 
@@ -17,8 +18,16 @@ is pending the concurrent daemon implementation.
   containment, export, notice, singleton, and malformed request acceptance tests.
 - Added the C-20.3 crash matrix covering reserved, starting, running, finalizing,
   terminal, notice, export, and salvage boundaries.
+- Added deterministic daemon submission, cancellation, notice atomicity,
+  singleton-lock, and malformed socket tests without launching providers.
+- `python3 -m pytest -q tests/fake`: **16 passed, 28 skipped in 0.31s**.
+- The required `uv run` command is currently blocked by `UV_FROZEN=1` and the
+  missing `uv.lock`; `.venv` currently has no pytest. The available system Python
+  has pytest 8.4.2 and was used for the recorded test run.
 
 ## Next
 
-- Integrate with daemon implementation and resolve any contract failures.
+- Integrate deterministic admission/finalization tests with the control loop.
+- Re-run all real process tests when an execution environment permits the
+  contract's macOS process inspection commands.
 - Run the fake suite within the C-20.2 60-second budget and report results.

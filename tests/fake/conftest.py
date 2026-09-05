@@ -24,7 +24,7 @@ TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 
 class Harness:
     def __init__(self, root: Path):
-        self.root = root
+        self.root = root = root.resolve()
         self.workdir = root / "work"
         self.workdir.mkdir()
         self.process: subprocess.Popen | None = None
@@ -166,8 +166,19 @@ class Harness:
             stream.close()
 
 
+@pytest.fixture(scope="session")
+def process_inspection_available():
+    from subfleet.procs import InspectionError, boot_id, proc_start
+    try:
+        boot_id()
+        if not proc_start(os.getpid()):
+            pytest.skip("C-5.3 requires process identity; ps returned no current process")
+    except InspectionError as exc:
+        pytest.skip(f"C-5.3 real daemon tests require permitted sysctl/ps inspection: {exc}")
+
+
 @pytest.fixture
-def daemon():
+def daemon(process_inspection_available):
     # AF_UNIX on macOS has a 104-byte path limit; pytest's default temp path is longer.
     with tempfile.TemporaryDirectory(prefix="sf-", dir="/tmp") as directory:
         harness = Harness(Path(directory))

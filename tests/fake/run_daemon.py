@@ -57,7 +57,7 @@ def main() -> int:
         audit_publication(root / "publication.jsonl")
 
     from subfleet.adapters.registry import register
-    from subfleet.daemon import Daemon
+    from subfleet.daemon import Daemon, DaemonUnavailable
     from tests.fake_adapter import FakeAdapter
 
     register("codex", FakeAdapter)
@@ -79,8 +79,13 @@ def main() -> int:
                 os.kill(guardian, signal.SIGKILL)
             os.kill(os.getpid(), signal.SIGKILL)
 
-    daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,
-                    guardian_start_delay_s=args.start_delay, crash_hook=hook)
+    try:
+        daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,
+                        guardian_start_delay_s=args.start_delay, crash_hook=hook)
+    except DaemonUnavailable:
+        return 69
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: daemon.stopping.set())
     try:
         daemon.serve_forever()
     finally:
