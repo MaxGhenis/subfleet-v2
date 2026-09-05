@@ -177,6 +177,15 @@ def _scope_of(args: argparse.Namespace) -> str:
 @_guard
 def cmd_continue(args: argparse.Namespace) -> int:
     scope = _scope_of(args)
+    if getattr(args, "handoff", False):
+        if scope != "cold":
+            return fail(Exit.INVALID_INPUT,
+                        "sessions continue: --handoff applies to --scope cold",
+                        "a live session is nudged, not handed off")
+        if not getattr(args, "target", None):
+            return fail(Exit.INVALID_INPUT,
+                        "sessions continue: --handoff needs --to <model>",
+                        "one of " + ", ".join(HANDOFF_TARGETS))
     if scope == "cold":
         return _continue_cold(args)
     sessions = _sessions(args)
@@ -199,11 +208,15 @@ def cmd_continue(args: argparse.Namespace) -> int:
 
 
 def _continue_cold(args: argparse.Namespace) -> int:
-    """C-23.35 and plan decision 7: a cold sweep recovers, it does not resurrect.
+    """Plan decision 7: a cold sweep recovers, it does not resurrect.
 
-    Without `--revive` this lists what a handoff would recover and says so; the
-    default recovery of a cold session is an explicit handoff, because a lease
-    subfleet takes cannot exclude a desktop restart.
+    Recovery of a cold session is an *explicit* handoff, because a lease
+    subfleet takes cannot exclude a desktop restart. So a bare
+    `--scope cold` decides nothing and dispatches nothing: it lists what is
+    recoverable and says which of the two recoveries applies. `--revive`
+    launches headless continuations; `--handoff --to <model>` dispatches a brief
+    per candidate instead. Neither is the default, because both spend a lane and
+    both write somebody else's worktree.
     """
     sessions = _sessions(args)
     policy = _policy(args)
@@ -211,6 +224,8 @@ def _continue_cold(args: argparse.Namespace) -> int:
     if getattr(args, "session", None):
         named.append(args.session)
     candidates = revive_module.cold_candidates(sessions, policy, only=named)
+    if getattr(args, "handoff", False):
+        return _continue_cold_by_handoff(args, sessions, policy, candidates)
     opt_in = bool(getattr(args, "revive", False))
     batch = int(getattr(args, "max", None)
                 or policy.get("sessions", {}).get("revive_max_batch", 8))
@@ -242,6 +257,49 @@ def _continue_cold(args: argparse.Namespace) -> int:
         note("subfleet sessions: automatic revival of desktop-owned sessions is off "
              "(sessions.auto_revive_desktop_owned)")
         note(f"  fix: {revive_module.OPT_IN_FIX}")
+    return int(Exit.OK)
+
+
+def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
+                              candidates) -> int:
+    """`--scope cold --handoff --to <model>`: one brief per cold session.
+
+    The recovery plan decision 7 calls the default, made explicit. Each brief is
+    an ordinary submission (C-23.54) whose completion notice comes back to the
+    caller, so the operator sees them in `subfleet runs --mine`.
+    """
+    cli = _cli()
+    batch = int(getattr(args, "max", None)
+                or policy.get("sessions", {}).get("revive_max_batch", 8))
+    rows: list[dict[str, Any]] = []
+    for candidate in candidates[:batch]:
+        if candidate.lane or candidate.retired:
+            rows.append({"session_id": candidate.session_id, "job_id": None,
+                         "reason": ("headless lane run" if candidate.lane
+                                    else "retired by the operator")})
+            continue
+        request_id = str(uuid.uuid4())
+        result = handoff_module.handoff(
+            sessions, policy, session_id=candidate.session_id, last=False,
+            model=args.target, stage_prompt=_stage(args, request_id),
+            workdir=candidate.cwd, task=getattr(args, "task", None),
+            tier=getattr(args, "tier", None), caller_session=cli.session_id(),
+            caller_pid=cli.caller_pid(), request_id=request_id,
+            dry_run=bool(getattr(args, "dry_run", False)))
+        rows.append({"session_id": candidate.session_id, "job_id": result.job_id,
+                     "reason": f"handed off to {args.target}",
+                     "redactions": result.brief.redactions,
+                     "transcript": result.brief.transcript})
+    dropped = max(0, len(candidates) - batch)
+    if args.json:
+        emit({"scope": "cold", "handoff": args.target, "sessions": rows,
+              "not_attempted": dropped})
+        return int(Exit.OK)
+    for row in rows:
+        out(f"  {row['job_id'] or '-':<24} {row['session_id'][:8]}  {row['reason']}")
+    if dropped:
+        note(f"subfleet sessions: {dropped} more cold sessions were not attempted "
+             f"(--max {batch})")
     return int(Exit.OK)
 
 
@@ -445,6 +503,15 @@ def add_continue_flags(parser: argparse.ArgumentParser) -> None:
                              "the session's own recorded tier (C-23.39)")
     parser.add_argument("--max", type=int, default=None, metavar="N",
                         help="with --scope cold: cap concurrent revives")
+    parser.add_argument("--handoff", action="store_true",
+                        help="with --scope cold: dispatch a continuity brief per "
+                             "session instead of reviving (needs --to)")
+    parser.add_argument("--to", dest="target", choices=HANDOFF_TARGETS,
+                        help="with --handoff: the model to continue the work on")
+    parser.add_argument("--task", choices=TASK_CHOICES,
+                        help="with --handoff: what kind of work this is")
+    parser.add_argument("--tier", choices=TIER_CHOICES,
+                        help="with --handoff: the minimum capability for --task")
     parser.add_argument("--source", metavar="SOURCE",
                         help="the SessionStart source that woke this sweep "
                              "(startup|resume|compact|clear); passing one marks "

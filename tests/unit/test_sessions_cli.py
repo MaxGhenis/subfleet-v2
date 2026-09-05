@@ -242,6 +242,73 @@ def test_a_daemon_that_is_older_than_the_op_says_so(monkeypatch, tmp_path):
     assert "daemon stop" in err
 
 
+# --- the cold sweep's two recoveries (plan decision 7) ------------------------
+
+def test_a_cold_sweep_dispatches_nothing_without_an_explicit_recovery(monkeypatch,
+                                                                      tmp_path):
+    """Plan decision 7: recovery of a cold session is an EXPLICIT handoff, so a
+    bare `--scope cold` lists and refuses rather than spending a lane."""
+    from subfleet.sessions import revive as revive_module
+    held = revive_module.Attempted(session_id=ALICE, admitted=False,
+                                   reason="the desktop app owns this session",
+                                   fix=revive_module.OPT_IN_FIX)
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "cold_candidates",
+                        lambda *a, **k: [revive_module.Candidate(session_id=ALICE)])
+    monkeypatch.setattr(revive_module, "revive", lambda *a, **k: held)
+    code, out, err = run(["sessions", "continue", "--scope", "cold"], monkeypatch)
+    assert code == int(Exit.OK)
+    assert "held" in out and ALICE[:8] in out
+    assert "automatic revival of desktop-owned sessions is off" in err
+    assert revive_module.OPT_IN_FIX in err
+
+
+def test_the_cold_sweep_can_hand_off_instead_of_reviving(monkeypatch):
+    """Plan decision 7's other recovery, made explicit: `--handoff --to <model>`
+    dispatches a continuity brief per cold session (C-23.54)."""
+    from subfleet.sessions import handoff as handoff_module
+    from subfleet.sessions import revive as revive_module
+    dispatched: list[str] = []
+
+    def fake_handoff(sessions, policy, *, session_id, **kwargs):
+        dispatched.append(session_id)
+        brief = handoff_module.Brief(text="", original="", session_id=session_id,
+                                     transcript="/t.jsonl", workdir="/repo",
+                                     source_cwd="/repo", redactions=2)
+        return handoff_module.Dispatched(brief=brief, job_id="job-1")
+
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "cold_candidates",
+                        lambda *a, **k: [revive_module.Candidate(session_id=ALICE,
+                                                                 cwd="/repo")])
+    monkeypatch.setattr(handoff_module, "handoff", fake_handoff)
+    code, out, err = run(["sessions", "continue", "--scope", "cold", "--handoff",
+                          "--to", "astra"], monkeypatch)
+    assert code == int(Exit.OK)
+    assert dispatched == [ALICE]
+    assert "job-1" in out and "handed off to astra" in out
+
+
+def test_handoff_on_the_wrong_scope_is_invalid_input(monkeypatch):
+    """A live session is nudged, not handed off; saying so beats guessing."""
+    code, out, err = run(["sessions", "continue", "--scope", "interrupted",
+                          "--handoff", "--to", "astra"], monkeypatch)
+    assert code == int(Exit.INVALID_INPUT)
+    assert "--handoff applies to --scope cold" in err
+
+
+def test_handoff_without_a_target_is_invalid_input(monkeypatch):
+    """C-17.3: exit 2 naming the missing flag, not a traceback."""
+    code, out, err = run(["sessions", "continue", "--scope", "cold", "--handoff"],
+                         monkeypatch)
+    assert code == int(Exit.INVALID_INPUT)
+    assert "--handoff needs --to <model>" in err
+
+
 # --- the help text stays honest ------------------------------------------------
 
 def test_the_scope_choices_match_the_module(monkeypatch):
