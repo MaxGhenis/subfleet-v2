@@ -181,3 +181,17 @@ def test_a_read_only_handle_on_an_unmigrated_store_still_reads_lanes(version_1_s
     finally:
         store.close()
     assert columns(version_1_store) == columns(version_1_store)   # nothing was written
+
+
+def test_an_unknown_identity_status_is_refused_in_words_at_the_seam(version_1_store):
+    """C-10.6 a hand-edited `lanes.json` that names a status nobody defined fails
+    with the four that exist, rather than with a SQL constraint."""
+    with Store(version_1_store) as store:
+        lane = store.get_lane("claude-1")
+        with pytest.raises(ValueError, match="verified, enrolled, mismatch, unverified"):
+            store.put_lane(Lane("claude-2", "claude", "claude:other",
+                                Credential("claude", "claude-quota-other", "keychain-token"),
+                                None, LaneOwner.V2, False, True, "a:1", "other@example.test"),
+                           identity_status="probably-fine")
+        assert store.get_lane("claude-2") is None
+        assert lane.lane_id == "claude-1"

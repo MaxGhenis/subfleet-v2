@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .contracts import Closure, Credential, Decision, Lane, LaneOwner, Reading
+from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 
 SCHEMA_VERSION = 2
 Row = dict[str, Any]
@@ -200,6 +200,15 @@ class Store:
 
     def put_lane(self, lane: Lane, *, plan: str | None = None,
                  identity_status: str | None = None) -> None:
+        if identity_status is not None:
+            # C-10.6: four statuses and no fifth. Named here as well as in the
+            # schema so a hand-edited roster fails with words, not a constraint.
+            try:
+                IdentityStatus(str(identity_status))
+            except ValueError:
+                allowed = ", ".join(status.value for status in IdentityStatus)
+                raise ValueError(
+                    f"identity_status {identity_status!r} is not one of {allowed}") from None
         values = {"lane_id": lane.lane_id, "provider": lane.provider, "account_key": lane.account_key,
                   "credential_ref": lane.credential.ref, "credential_kind": lane.credential.kind,
                   "credential_epoch": lane.credential.epoch, "home": lane.home, "owner": lane.owner,
