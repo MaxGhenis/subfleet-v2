@@ -10,6 +10,7 @@ recycled.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -22,8 +23,21 @@ from .client import same_process
 from .contracts import Exit, JobState
 
 STORE_NAME = "state.sqlite3"
+KNOWN_SCHEMA_VERSION = 1          # C-3.5
 LIVE_JOB_STATES = ("queued", "running", "waiting")
 LIVE_ATTEMPT_STATES = ("reserved", "starting", "running", "finalizing")
+
+
+class SchemaTooNew(Exception):
+    """The store was written by a newer subfleet than this one (C-3.5)."""
+
+    code = Exit.OPERATIONAL
+
+    def __init__(self, found: int, known: int = KNOWN_SCHEMA_VERSION):
+        super().__init__(f"the store is at schema version {found}; this CLI knows "
+                         f"version {known}")
+        self.found, self.known = found, known
+        self.fix = "upgrade subfleet, or let the daemon that wrote it act"
 
 
 class OfflineUnavailable(Exception):
@@ -64,6 +78,18 @@ class Offline:
     @property
     def store_path(self) -> Path:
         return self.root / STORE_NAME
+
+    @contextlib.contextmanager
+    def reading(self):
+        """A read-only connection that is always closed, with clean failures."""
+        conn = self.connect()
+        try:
+            yield conn
+        except sqlite3.Error as exc:
+            raise OfflineUnavailable(
+                f"cannot read {self.store_path}: {exc}") from exc
+        finally:
+            conn.close()
 
     def connect(self) -> sqlite3.Connection:
         if not self.store_path.exists():
@@ -139,12 +165,12 @@ class Offline:
         if last and last > 0:
             sql += " LIMIT ?"
             params.append(int(last))
-        with self.connect() as conn:
+        with self.reading() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [self._job_dict(row) for row in rows]
 
     def show_job(self, job_id: str) -> dict[str, Any]:
-        with self.connect() as conn:
+        with self.reading() as conn:
             row = conn.execute(self._JOB_SELECT + " WHERE j.job_id = ?",
                                (job_id,)).fetchone()
             if row is None:
@@ -191,7 +217,7 @@ class Offline:
     # --- status (C-17.1) -----------------------------------------------------
 
     def status(self) -> dict[str, Any]:
-        with self.connect() as conn:
+        with self.reading() as conn:
             tables = self._tables(conn)
             lanes = [dict(row) for row in conn.execute(
                 "SELECT * FROM lanes ORDER BY lane_id")] if "lanes" in tables else []
@@ -235,6 +261,10 @@ class Offline:
         touched a process; everything else is a refusal that names its reason,
         because the store is read-only here and a recycled pid cannot be undone.
         """
+        with self.reading() as conn:
+            version = self.schema_version(conn)
+        if isinstance(version, int) and version > KNOWN_SCHEMA_VERSION:
+            raise SchemaTooNew(version)
         job = self.show_job(job_id)
         state = job.get("state")
         if state in {s.value for s in JobState if s.terminal}:

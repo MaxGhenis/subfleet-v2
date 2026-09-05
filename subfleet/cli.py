@@ -44,7 +44,7 @@ from .client import (
     state_root,
 )
 from .contracts import JobState, Sandbox, WAIT_POLL_MAX_S, Exit
-from .offline import Offline, OfflineUnavailable
+from .offline import Offline, OfflineUnavailable, SchemaTooNew
 from .protocol import ProtocolError
 
 PROG = "subfleet"
@@ -149,7 +149,7 @@ def launch_mode(args: argparse.Namespace,
 
 # --- exit-code mapping (C-17.3) ----------------------------------------------
 
-def exit_for_job(job: dict[str, Any]) -> int:
+def exit_for_job(job: dict[str, Any], *, quiet: bool = False) -> int:
     """The job's rc mapped onto the one exit-code table (C-17.3)."""
     state = job.get("state")
     if state == JobState.CANCELLED.value:
@@ -163,7 +163,9 @@ def exit_for_job(job: dict[str, Any]) -> int:
         return int(Exit.OPERATIONAL)
     if rc in EXIT_CODES:
         return rc
-    note(f"{PROG}: {job.get('job_id') or job.get('id')} failed with provider rc {rc}")
+    if not quiet:
+        note(f"{PROG}: {job.get('job_id') or job.get('id')} "
+             f"failed with provider rc {rc}")
     return int(Exit.OPERATIONAL)
 
 
@@ -637,15 +639,16 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
         return fail(exc.code, str(exc))
 
     worst = int(Exit.OK)
+    as_json = quiet or bool(getattr(args, "json", False))
     for job_id, job in sorted(finished.items()):
-        if quiet or getattr(args, "json", False):
+        if as_json:
             emit(job)
         else:
             note(_wait_summary(job))
-        worst = max(worst, exit_for_job(job))
+        worst = max(worst, exit_for_job(job, quiet=as_json))
     for job_id in sorted(pending):
         elapsed = time.monotonic() - started
-        if getattr(args, "json", False):
+        if as_json:
             emit({"job_id": job_id, "state": "running", "timeout": True,
                   "waited_s": round(elapsed, 1)})
         else:
@@ -721,20 +724,22 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
     return job.get(f"{role}_path")
 
 
-def _cat(label: str, path: str | None, *, header: bool) -> None:
+def _cat(label: str, path: str | None, *, header: bool) -> int:
+    """Copy one artifact to stdout; a missing one is an operational error."""
     if not path:
         note(f"{PROG} runs show: no {label} recorded")
-        return
+        return int(Exit.OPERATIONAL)
     try:
         text = Path(path).read_text(errors="replace")
     except OSError as exc:
         note(f"{PROG} runs show: cannot read {label} at {path}: {exc}")
-        return
+        return int(Exit.OPERATIONAL)
     if header:
         note(f"--- {label}: {path} ---")
     sys.stdout.write(text)
     if text and not text.endswith("\n"):
         out()
+    return int(Exit.OK)
 
 
 def _format_job(job: dict[str, Any]) -> str:
@@ -772,8 +777,8 @@ def _format_job(job: dict[str, Any]) -> str:
     if artifacts:
         lines.append("artifacts")
         for artifact in artifacts:
-            lines.append(f"  {artifact.get('role'):<12} {artifact.get('path')} "
-                         f"({artifact.get('bytes')} bytes)")
+            lines.append(f"  {str(artifact.get('role') or '-'):<12} "
+                         f"{artifact.get('path')} ({artifact.get('bytes')} bytes)")
     notices = job.get("notices") or []
     for notice in notices:
         lines.append(f"notice   [{notice.get('state')}] {notice.get('text')}")
@@ -802,13 +807,16 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     if args.out or args.err:
         both = args.out and args.err
+        worst = int(Exit.OK)
         if args.out:
-            _cat("deliverable",
-                 _artifact_path(job, "deliverable") or job.get("out_path"),
-                 header=both)
+            worst = max(worst, _cat(
+                "deliverable",
+                _artifact_path(job, "deliverable") or job.get("out_path"),
+                header=both))
         if args.err:
-            _cat("stderr", _artifact_path(job, "stderr"), header=both)
-        return int(Exit.OK)
+            worst = max(worst, _cat("stderr", _artifact_path(job, "stderr"),
+                                    header=both))
+        return worst
     out(_format_job(job))
     return int(Exit.OK)
 
@@ -896,6 +904,9 @@ def cmd_kill(args: argparse.Namespace) -> int:
                 result = _offline(args).kill(job_id)
             except OfflineUnavailable as exc:
                 worst = max(worst, _daemon_down(exc))
+                continue
+            except SchemaTooNew as exc:
+                worst = max(worst, fail(exc.code, f"kill: {exc}", exc.fix))
                 continue
             except LookupError as exc:
                 worst = max(worst, fail(Exit.INVALID_INPUT, f"kill: {exc}"))
@@ -1640,6 +1651,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         except OSError:
             pass
         return int(Exit.OK)
+    except OSError as exc:
+        return fail(Exit.OPERATIONAL, str(exc))
 
 
 if __name__ == "__main__":                              # pragma: no cover

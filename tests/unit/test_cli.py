@@ -535,3 +535,40 @@ def test_status_falls_back_to_the_other_ops_when_daemon_status_is_thin(daemon, c
     assert run_cli(["status"]) == 0
     assert set(server.ops()) == {"daemon.status", "lanes", "readings", "list"}
     assert "no lanes enrolled" in capsys.readouterr().out
+
+
+def test_json_wait_output_stays_prose_free_on_a_provider_rc(daemon, capsys, workdir):
+    """C-17.4 a provider rc outside the table maps to 1 without prose under --json."""
+    daemon({"submit": submit_ok,
+            "wait": lambda request: terminal("failed", rc=42)})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "--json", "hi"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out.splitlines()[-1])["rc"] == 42
+    assert run_cli(["wait", JOB]) == 1
+    assert "provider rc 42" in capsys.readouterr().err
+
+
+def test_the_identity_check_runs_once_per_client(root, monkeypatch):
+    """C-5.8 the lock identity check costs one ps per process, not one per call."""
+    from subfleet import client as client_module
+    (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
+    calls: list[int] = []
+    monkeypatch.setattr(client_module, "same_process",
+                        lambda *a, **k: calls.append(1) or None)
+    probe = client_module.Client(root)
+    for _ in range(4):
+        probe.check_available()
+    assert len(calls) == 1
+
+
+def test_boot_id_is_read_once(monkeypatch):
+    """C-5.3 boot time cannot change under a running process, so it is read once."""
+    from subfleet import client as client_module
+    monkeypatch.setattr(client_module, "_BOOT_ID", [])
+    reads: list[int] = []
+    monkeypatch.setattr(client_module, "_read_boot_id",
+                        lambda: reads.append(1) or "1788531275")
+    assert client_module.boot_id() == "1788531275"
+    assert client_module.boot_id() == "1788531275"
+    assert len(reads) == 1

@@ -69,8 +69,19 @@ def _run(argv: list[str], timeout: float = 5.0) -> tuple[int, str]:
     return done.returncode, done.stdout
 
 
+_BOOT_ID: list[str | None] = []          # boot time cannot change under us
+
+
 def boot_id() -> str | None:
     """`kern.boottime` seconds as a string, or None when it cannot be read."""
+    if _BOOT_ID:
+        return _BOOT_ID[0]
+    value = _read_boot_id()
+    _BOOT_ID.append(value)
+    return value
+
+
+def _read_boot_id() -> str | None:
     rc, out = _run(["sysctl", "-n", "kern.boottime"])
     if rc != 0 or not out.strip():
         return None
@@ -120,6 +131,7 @@ class Client:
                  timeout: float = DEFAULT_TIMEOUT_S):
         self.root = Path(root).expanduser() if root is not None else state_root()
         self.timeout = timeout
+        self._checked = False
 
     # --- paths ---------------------------------------------------------------
 
@@ -162,11 +174,19 @@ class Client:
         return same_process(pid, info.get("boot_id"), info.get("proc_start"))
 
     def check_available(self) -> None:
-        """Raise `DaemonUnavailable` when the lock says the daemon is dead."""
+        """Raise `DaemonUnavailable` when the lock says the daemon is dead.
+
+        Checked once per client: the check costs a `ps` and a `sysctl`, and a
+        daemon that dies mid-conversation shows up as a refused connection
+        anyway, which is the stronger signal.
+        """
+        if self._checked:
+            return
         if self.lock_holder_alive() is False:
             info = self.lock_info() or {}
             raise DaemonUnavailable(
                 f"daemon.lock records pid {info.get('pid')} which is no longer running")
+        self._checked = True
 
     # --- the wire ------------------------------------------------------------
 

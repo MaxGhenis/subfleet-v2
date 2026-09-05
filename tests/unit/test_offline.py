@@ -249,3 +249,32 @@ def test_reap_names_the_orphans_without_writing(store, capsys):
     assert cli.main(["runs", "reap", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["job_id"] == JOB and payload["pid"] == 999999
+
+
+def test_kill_refuses_a_store_written_by_a_newer_subfleet(root, capsys):
+    """C-3.5 a store at a newer schema version is refused with both versions."""
+    path = build_store(root)
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (99, ?)",
+                 (NOW,))
+    conn.commit()
+    conn.close()
+    assert cli.main(["kill", JOB]) == 1
+    captured = capsys.readouterr()
+    assert "schema version 99" in captured.err and "version 1" in captured.err
+
+
+def test_a_store_with_no_tables_is_reported_not_raised(root, capsys):
+    """C-17.3 an unreadable store is an exit code, never a traceback."""
+    (root / "state.sqlite3").write_bytes(b"not a database at all")
+    assert cli.main(["runs"]) == 69
+    assert "cannot read" in capsys.readouterr().err
+
+
+def test_show_out_with_no_deliverable_is_an_operational_error(root, capsys):
+    """C-17.4 `--out` that prints nothing must not claim success."""
+    build_store(root)
+    assert cli.main(["runs", "show", JOB, "--out"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no deliverable recorded" in captured.err
