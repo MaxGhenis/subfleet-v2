@@ -284,6 +284,8 @@ class ResetCredits:
                 listed = _bounded(lambda adapter=adapter, lane=lane, timeout=timeout:
                                   adapter.list_reset_credits(lane, {}, timeout=timeout), cancel,
                                   min(deadline, time.monotonic() + timeout), guard)
+                if listed.get("error_type"):
+                    result["error_type"] = listed["error_type"]
                 gifts = gifted_credits(listed)
                 unshadowed_has_gifts = unshadowed_has_gifts or (not shadowed(row) and bool(gifts))
                 if row["lane_id"] not in candidate_ids and gifts:
@@ -323,6 +325,8 @@ class ResetCredits:
             consumed = _bounded(lambda: adapter.consume_reset_credit(lane, credit, request["redeem_request_id"],
                                 {}, timeout=timeout), cancel, min(deadline, time.monotonic() + timeout),
                                 self._http_slots[lane.lane_id])
+            if consumed.get("error_type"):
+                result["error_type"] = consumed["error_type"]
             windows = consumed.get("windows_reset")
             confirmed = consumed.get("status") == "ok" and consumed.get("code") == "reset" and (
                 isinstance(windows, int) and not isinstance(windows, bool) and windows > 0)

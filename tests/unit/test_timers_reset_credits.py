@@ -140,6 +140,7 @@ def test_timeout_is_unknown_until_usage_read_without_overwriting_result(store, t
     result = resets.evaluate(view, now=NOW)
     original = store.get_action(result["action_id"])
     assert result["status"] == "unknown"
+    assert result["error_type"] == "TimeoutError"
     assert resets.evaluate(view, now=NOW + timedelta(hours=1))["status"] == "unsettled-action"
     assert resets.settle_by_usage(target.lane_id, {"status": "limited", "limit_reached": True}, now=NOW) is None
     settled = resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False,
