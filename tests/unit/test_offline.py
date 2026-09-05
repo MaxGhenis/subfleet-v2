@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import cli
-from subfleet.offline import Offline, OfflineUnavailable
+from subfleet.offline import Offline
 
 SCHEMA = Path(__file__).resolve().parents[2] / "subfleet" / "store_schema.sql"
 JOB = "20260905-120000-demo"

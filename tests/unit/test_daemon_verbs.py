@@ -10,13 +10,12 @@ import os
 import plistlib
 import signal
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
 from subfleet import cli
-from subfleet.client import Client, boot_id, proc_start
+from subfleet.client import Client
 
 REPO = str(Path(__file__).resolve().parents[2])
 

@@ -31,7 +31,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from . import protocol
 from .client import (
