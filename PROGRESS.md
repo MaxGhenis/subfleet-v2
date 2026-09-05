@@ -4,6 +4,8 @@
 
 - Working on `lane/sessions-review` from `38a7a9a`, offline; commits only, no push.
 - Salvage applied cleanly; all eight reported failures reproduced and explained.
+- Review implementation complete and committed; fully green validation is blocked
+  by the same sandbox restrictions that affect the unmodified baseline.
 - Final report: `docs/lanes/reports/sessions-review-OUTPUT.md`.
 
 ## Done
@@ -48,7 +50,13 @@
   tests: 62 passed in 3.85s.
 - First full suite: 3260 passed, 131 failed, 66 skipped, 1 error in 74.14s.
 - Unmodified `38a7a9a` reproduces probe no-attempt and socket-bind failures:
-  1 failed, 1 error in 0.69s. Full baseline failure-set comparison is running.
+  1 failed, 1 error in 0.69s.
+- Final requested sessions run: 256 passed, 5 failed, 1 error in 35.40s.
+- Final full suite: 3262 passed, 131 failed, 66 skipped, 1 error in 73.66s.
+- Full unmodified baseline: 3232 passed, 131 failed, 66 skipped, 1 error in
+  75.20s. All 132 failure/error node IDs match exactly; this lane adds 30 passing
+  tests and no failures. Existing environment-dependent tests remain intact.
+- Final report written to `docs/lanes/reports/sessions-review-OUTPUT.md`.
 
 ## Validation environment
 
@@ -63,5 +71,7 @@
 
 ## Next
 
-- Rerun the requested sessions and full suites after the final tiny-cap fix.
-- Compare full baseline failures and commit the final report.
+- Integrator: rerun both required suites with permitted socket/process inspection
+  and confirm a fully green result before merging/pushing.
+- Integrator: consider the separate submission/audit RPC limitation documented
+  in the final report. No contract edit was needed for this review.
