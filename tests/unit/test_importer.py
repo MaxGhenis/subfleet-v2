@@ -378,6 +378,22 @@ def test_an_api_key_home_is_refused(v1):
     assert not rows(v1["root"], "SELECT * FROM lanes WHERE home LIKE '%.codex-9'")
 
 
+def test_a_lane_id_survives_the_roster_growing(v1):
+    """C-1.3: lane ids are stable; a new v1 account never renames an existing lane."""
+    run_import(v1)
+    before = {row["account_key"]: row["lane_id"]
+              for row in rows(v1["root"], "SELECT * FROM lanes")}
+    roster = json.loads((v1["roster"] / "claude-accounts.json").read_text())
+    roster["accounts"].insert(0, "max@new-account.example")     # v1 prepends an account
+    roster["enrolled"]["max@new-account.example"] = "claude-quota-max@new-account.example"
+    write_json(v1["roster"] / "claude-accounts.json", roster)
+    run_import(v1)
+    after = {row["account_key"]: row["lane_id"]
+             for row in rows(v1["root"], "SELECT * FROM lanes")}
+    assert {key: value for key, value in after.items() if key in before} == before
+    assert after["claude:max@new-account.example"] not in before.values()
+
+
 def test_reimport_never_takes_an_account_back_from_v2(v1):
     """C-10.4, principle 1: ownership changes only by `lanes transfer`."""
     run_import(v1)

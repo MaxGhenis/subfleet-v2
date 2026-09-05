@@ -571,13 +571,25 @@ def import_roster(writer: _Writer, report: StoreReport, *, roster_dir: Path, hom
     enrolled = roster.get("enrolled") if isinstance(roster.get("enrolled"), dict) else {}
     listed = [str(email) for email in (roster.get("accounts") or []) if isinstance(email, str)]
     order = list(dict.fromkeys(listed + list(enrolled)))
-    for index, email in enumerate(order, start=1):
+    def next_claude_id() -> str:
+        """C-1.3: `claude-<n>`, the first free n.
+
+        Not the account's position in the roster: v1 inserts and removes entries,
+        and an index that shifted would either rename a lane that already exists
+        or collide with one, and a lane id is stable for the life of its binding.
+        """
+        index = 1
+        while f"claude-{index}" in existing:
+            index += 1
+        return f"claude-{index}"
+
+    for email in order:
         key = email.strip().lower()
         # C-10.1: the credential reference is a keychain item name, `claude-quota-<email>`
         # as v1. An account with no setup token has no item yet; the lane records
         # the name v1 would use and stays disabled until enrolment (C-10.2).
         reference = enrolled.get(email) or f"claude-quota-{key}"
-        enrol(f"claude-{index}", "claude", f"claude:{key}", str(reference), "keychain-token",
+        enrol(next_claude_id(), "claude", f"claude:{key}", str(reference), "keychain-token",
               None, key == desktop_account, email in enrolled,
               None if email in enrolled else "not-enrolled-in-v1")
 
@@ -1225,6 +1237,8 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
             writer.insert("attempts", {
                 "attempt_id": attempt_id, "job_id": job_id, "seq": 1, "lane_id": lane_id,
                 "model_requested": requested or served or "unknown", "model_served": served,
+                # `model_requested` is NOT NULL; a v1 run that recorded neither a
+                # requested nor a served model is reported below, never invented.
                 "attestation": "unattested", "state": state,
                 "child_pid": meta.get("pid") if live else None,
                 "native_session_id": meta.get("session_id") or meta.get("codex_thread_id"),
@@ -1243,6 +1257,8 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
         report.imported += 1
         if defaulted:
             report.count("sandbox-defaulted-to-read-only")
+        if not (requested or served):
+            report.count("no-model-recorded-by-v1")
         if live:
             still_open.append(name)
             report.count("imported-external-never-adopted")
