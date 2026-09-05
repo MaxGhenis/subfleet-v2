@@ -1213,7 +1213,7 @@ that now covers it. Fifty-five clauses over ninety-two rows.
 
 | row | invariant | class | clause | milestone |
 |---|---|---|---|---|
-| 8 | Delete only an owned prompt whose basename is `delegate-prompt-*.md` and which is the exa… | safety-guard | [P-23.1](#p-231--a-caller's-files-are-read-only-to-subfleet) | 1 |
+| 8 | Delete only an owned prompt whose basename is `delegate-prompt-*.md` and which is the exa… | safety-guard | [P-23.1](#p-231--a-callers-files-are-read-only-to-subfleet) | 1 |
 | 19 | Bound retries for delayed transcript persistence to a small default (4 tries, 1 s backoff… | provenance/attestation | [P-23.40](#p-2340--finding-the-transcript-attestation-reads) | 2 |
 | 26 | Resolve the Claude binary through an explicit override, then `~/.local/bin/claude`, then… | ops-hygiene | [P-23.21](#p-2321--how-a-provider-binary-is-found) | 2 |
 | 29 | Require `-s read-only` and `-D` for `-I`, expose sources through `--add-dir`, and allow o… | safety-guard | [P-23.2](#p-232--an-isolated-review-inherits-no-context-and-holds-no-hosted-capability) | 1 for the CLI and Codex halves, 2 for the Claude environment |
@@ -1239,7 +1239,7 @@ that now covers it. Fifty-five clauses over ninety-two rows.
 | 75 | Emit exactly one envelope per notice and neutralize a closing tag appearing inside the body. | UX-contract | [P-23.49](#p-2349--one-envelope-per-notice) | 4 |
 | 76 | Refuse a lane session as a notify target and hide lane sessions from `subfleet sessions`… | session-continuity | [P-23.31](#p-2331--a-headless-lane-run-is-not-a-session) | 4 for notices, 6 for the listing and revive |
 | 79 | Skip the push while an inline `--attach` waiter is still alive, and fall through if that… | UX-contract | [P-23.50](#p-2350--the-push-waits-behind-a-live-waiter) | 4 |
-| 80 | Prune surfaced notices older than 14 days. | ops-hygiene | [P-23.26](#p-2326--secondary-records-are-pruned-by-age-never-by-a-caller's-window) | 2 for the scan cache, 4 for notices |
+| 80 | Prune surfaced notices older than 14 days. | ops-hygiene | [P-23.26](#p-2326--secondary-records-are-pruned-by-age-never-by-a-callers-window) | 2 for the scan cache, 4 for notices |
 | 89 | Never let an in-flight run age out of `subfleet runs`; `last` bounds only finished rows. | UX-contract | [P-23.51](#p-2351--a-running-job-never-falls-off-the-list) | 1 |
 | 95 | Resolve historical Codex resume identity lazily from the saved `err.log` and rollout name… | session-continuity | [P-23.32](#p-2332--the-importer-never-rewrites-what-it-imported) | 8 (cutover) |
 | 108 | Spend Fable-exhausted lanes first for non-Fable work. | routing-policy | [P-23.37](#p-2337--stranded-capacity-is-spent-first) | 3 |
@@ -1249,7 +1249,7 @@ that now covers it. Fifty-five clauses over ninety-two rows.
 | 136 | Detect the same account bound in two homes, mark the non-canonical duplicate, and alert c… | identity | [P-23.45](#p-2345--one-account-one-enabled-lane) | 2 for detection, 5 for the alert |
 | 138 | Treat app shadowing as metadata that does not change dispatch order but excludes a lane f… | identity | [P-23.46](#p-2346--what-shadowing-changes-and-what-it-does-not) | 5 |
 | 139 | Never write any auth store and never refresh a token in-process. | identity | [P-23.47](#p-2347--the-auth-store-belongs-to-the-provider-cli) | 2 for the prohibition, 5 for the heal and the latch |
-| 141 | Prune a Codex scan-cache entry only when its file is gone or is a week stale, never becau… | ops-hygiene | [P-23.26](#p-2326--secondary-records-are-pruned-by-age-never-by-a-caller's-window) | 2 for the scan cache, 4 for notices |
+| 141 | Prune a Codex scan-cache entry only when its file is gone or is a week stale, never becau… | ops-hygiene | [P-23.26](#p-2326--secondary-records-are-pruned-by-age-never-by-a-callers-window) | 2 for the scan cache, 4 for notices |
 | 149 | Never auto-login, and name the exact heal command in every alert. | UX-contract | [P-23.52](#p-2352--what-an-alert-says-and-when-a-recovery-is-one) | 5 |
 | 150 | Allow exactly one automatic heal, a tiny `codex exec` turn that lets the CLI refresh and… | identity | [P-23.47](#p-2347--the-auth-store-belongs-to-the-provider-cli) | 2 for the prohibition, 5 for the heal and the latch |
 | 151 | Latch `refresh token was revoked` until `auth.json` changes, and probe no further. | identity | [P-23.47](#p-2347--the-auth-store-belongs-to-the-provider-cli) | 2 for the prohibition, 5 for the heal and the latch |
@@ -1280,7 +1280,7 @@ that now covers it. Fifty-five clauses over ninety-two rows.
 | 183 | Require additional transcript quiet before a manual sweep nudges a session. | session-continuity | [P-23.34](#p-2334--the-worker-decides-against-the-transcript-it-can-see) | 6, with the hook half in milestone 4's `subfleet/hooks.py` |
 | 184 | Recognize the app's synthetic resume stub and judge the turn underneath it. | session-continuity | [P-23.34](#p-2334--the-worker-decides-against-the-transcript-it-can-see) | 6, with the hook half in milestone 4's `subfleet/hooks.py` |
 | 185 | Defer the hook's dedupe and cooldown verdicts to the worker, which re-decides against the… | session-continuity | [P-23.34](#p-2334--the-worker-decides-against-the-transcript-it-can-see) | 6, with the hook half in milestone 4's `subfleet/hooks.py` |
-| 186 | Make cross-tier revive an explicit choice: without `--model`, revive on the session's own… | routing-policy | [P-23.39](#p-2339--revive-keeps-the-session's-own-tier) | 6 |
+| 186 | Make cross-tier revive an explicit choice: without `--model`, revive on the session's own… | routing-policy | [P-23.39](#p-2339--revive-keeps-the-sessions-own-tier) | 6 |
 | 187 | Never revive a headless lane run as a continuation. | session-continuity | [P-23.31](#p-2331--a-headless-lane-run-is-not-a-session) | 4 for notices, 6 for the listing and revive |
 | 188 | Revive only sessions whose recorded permission mode is `bypassPermissions`. | session-continuity | [P-23.35](#p-2335--which-sessions-revive-admits) | 6 |
 | 189 | Probe a lane live before reviving rather than trusting the lane ledger's estimates. | capacity-truth | [P-23.20](#p-2320--revive-measures-the-lane-it-is-about-to-use) | 6 |
@@ -1298,7 +1298,7 @@ that now covers it. Fifty-five clauses over ninety-two rows.
 | 202 | Merge with `--match-head-commit` pinned to the approved head. | safety-guard | [P-23.11](#p-2311--what-a-merge-requires-before-it-is-attempted) | 7 |
 | 203 | Verify the landing against the immutable merge commit's parents, not the moving base tip. | safety-guard | [P-23.12](#p-2312--how-a-landing-is-verified) | 7 |
 | 204 | Report a post-merge mismatch as a mismatch; never retry and never auto-revert. | safety-guard | [P-23.12](#p-2312--how-a-landing-is-verified) | 7 |
-| 206 | Let only the currently reserved action publish its result, and never overwrite a completion. | safety-guard | [P-23.13](#p-2313--only-the-holder-publishes-an-action's-result) | 5 for `reset-credit`, 7 for `merge` |
+| 206 | Let only the currently reserved action publish its result, and never overwrite a completion. | safety-guard | [P-23.13](#p-2313--only-the-holder-publishes-an-actions-result) | 5 for `reset-credit`, 7 for `merge` |
 | 207 | Support merge and squash only, and refuse to verify a rebased landing. | safety-guard | [P-23.12](#p-2312--how-a-landing-is-verified) | 7 |
 | 208 | Scrub credentials and encoded binary from a handoff while retaining ordinary code, comman… | safety-guard | [P-23.14](#p-2314--what-a-handoff-may-carry) | 6 |
 | 209 | Suppress the results of credential-reading tool calls (`agent-secret get`, keychain reads… | safety-guard | [P-23.14](#p-2314--what-a-handoff-may-carry) | 6 |
