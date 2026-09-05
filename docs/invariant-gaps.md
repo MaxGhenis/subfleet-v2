@@ -412,3 +412,171 @@ Eleven rows, six clauses.
   *unmeasured* lane; a revive is usually neither, and the lanes in the incident were measured but
   stale, so a C-11.4 test passes on exactly the case that failed. C-9.1 removed estimates from the
   label set, which is the other half of the fix and is already contracted.
+
+## ops-hygiene
+
+Fifteen rows, nine clauses. Row 218 is the sixteenth `ops-hygiene` gap row and is covered by
+P-23.40 under provenance/attestation.
+
+### P-23.21 — how a provider binary is found
+
+> **P-23.21** A provider binary is resolved before launch as: the `SUBFLEET_CLAUDE_BIN` or
+> `SUBFLEET_CODEX_BIN` override, then `~/.local/bin/<name>`, then `PATH`, then the provider's known
+> install paths. The resolved absolute path goes into the launch argv, is recorded on the attempt,
+> and is printed by `doctor`.
+
+- **Ledger rows:** 26 (`keep`, ops-hygiene), 158 (`keep`, ops-hygiene)
+- **Milestone:** 2
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/adapters/claude.py`, `subfleet/adapters/codex.py`
+- **Rationale:** the same failure on both providers. Row 26's incident is 2026-09-02, when "launchd
+  PATH puts `/opt/homebrew/bin` first" and a Homebrew cask frozen at 2.1.87 shadowed the real CLI;
+  row 158's is 2026-08-13, when "the auto-heal raised FileNotFoundError for a week" because
+  "launchd's PATH lacks `~/bin`" and `.codex-3` latched failed. No clause states provider-binary
+  resolution at all: C-12.3 and C-12.4 begin at `codex` and `claude` as bare names. Under a daemon
+  that launchd starts, that bare name is the whole bug. v1's override variables were
+  `CLAUDE_LANE_CLAUDE` and `$SUBFLEET_CODEX_BIN`; row 219 collapses the prefixes to `SUBFLEET_*`,
+  which is why the clause names the new spellings.
+
+### P-23.22 — accounting never changes an outcome
+
+> **P-23.22** Usage accounting runs synchronously inside finalization, before the notice is written,
+> and never changes a job's class, rc, deliverable, or state. A hook failure or a parse failure
+> records an `events` row and finalization continues, exactly as a failed export does under C-8.3.
+
+- **Ledger rows:** 35 (`keep`, ops-hygiene), 129 (`keep`, ops-hygiene)
+- **Milestone:** 1 for the finalization ordering, 2 for the parser
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/daemon.py`
+- **Rationale:** row 35's rationale is that "retries would overwrite err/raw before parsing" — the
+  hazard per-attempt directories (C-2.3) remove — and row 129's is the "monitoring sidecar rule". The
+  nearest clauses are C-8.4, which puts probe and keepalive results in `readings` and `events` rather
+  than `jobs`, and C-8.3, which states the same containment for the `-o` export; neither mentions
+  accounting, so a test of either passes while a JSON parse error fails an otherwise successful job.
+
+### P-23.23 — how the guard preflight probes
+
+> **P-23.23** The guard preflight never writes a lane's provider home: it seeds a scratch home under
+> `$SUBFLEET_HOME` with copies of the lane home's `config.toml` and `hooks.json`, copies no
+> credential or session store, and probes there. The probe carries a deadline: it fails at once if
+> the app-server exits without answering, and at the deadline it SIGTERMs the probe's process group,
+> waits, then SIGKILLs it.
+
+- **Ledger rows:** 50 (`keep`, ops-hygiene), 53 (`keep`, ops-hygiene)
+- **Milestone:** 1
+- **Acceptance owner:** process
+- **v2 module:** `subfleet/guard/preflight.py`
+- **Rationale:** row 50's incident is dated: "the first preflight (2026-08-18 23:53) rewrote
+  `~/.codex-5/config.toml` via personality migration" — the check corrupted the thing it checked.
+  Row 53's is that "the npm launcher forwards TERM; a KILL would orphan the binary". C-14.2 states
+  the preflight's inputs (version, hash, override) and nothing about how it runs, and C-2.1 bars
+  writes only outside `$SUBFLEET_HOME`, which leaves a lane home under `lanes/<lane id>/` (C-2.2)
+  writable. C-5.6 is the escalation shape the second sentence reuses, but C-5.6 governs an attempt's
+  recorded process group, not a probe the daemon spawns, so it does not cover the row. Both halves
+  are implemented on this branch (`subfleet/guard/preflight.py:210-219` for the scratch home,
+  `:94-106` and `:134-142` for the deadline) — see [Conflicts](#c-4) for where that code puts the
+  scratch home.
+
+### P-23.24 — a guard check writes nothing
+
+> **P-23.24** The guard check verb evaluates a payload against the copied hook and prints the
+> verdict without writing the hook's denial log, the preflight's cache, or any other guard
+> telemetry.
+
+- **Ledger rows:** 56 (`keep`, ops-hygiene)
+- **Milestone:** 8 (guard parity)
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/guard/preflight.py`
+- **Rationale:** row 56's rationale is that "manual checks must not pollute telemetry" — a denial log
+  that records rehearsals cannot be read as a record of what agents actually attempted. C-19.1's
+  last sentence is the analogue ("`status`, `why`, and `--dry-run` never create or advance an
+  action") but it is scoped to actions, and C-17.1's verb list has no guard check verb at all, so no
+  test fails when the check logs. See [Conflicts](#c-5) for the verb.
+
+### P-23.25 — installing a hook into a shared settings file
+
+> **P-23.25** Before changing `~/.claude/settings.json` the installer writes a timestamped backup
+> beside it, and the change preserves every key the installer does not own. A second install of the
+> same version makes no further change and writes no further backup.
+
+- **Ledger rows:** 70 (`keep`, ops-hygiene)
+- **Milestone:** 4
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/hooks.py`
+- **Rationale:** row 70's rationale is that "settings.json is shared with the user" — an installer
+  that rewrites it wholesale destroys configuration subfleet never owned. C-2.1 does not permit the
+  write at all: `~/.claude/settings.json` is outside `$SUBFLEET_HOME` and is none of its three
+  exceptions, so the milestone-4 hook installer needs C-2.1 amended before it needs this clause. See
+  [Conflicts](#c-6).
+
+### P-23.26 — secondary records are pruned by age, never by a caller's window
+
+> **P-23.26** The maintenance pass deletes notices in state `surfaced` or `acknowledged` whose row is
+> older than 14 days, and never prunes a `pending` or `offered` notice by age. A provider scan-cache
+> entry is dropped only when its file no longer exists or its record is more than seven days old; a
+> narrower scan window never evicts an entry.
+
+- **Ledger rows:** 80 (`keep`, ops-hygiene), 141 (`keep`, ops-hygiene)
+- **Milestone:** 2 for the scan cache, 4 for notices
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/retention.py`, `subfleet/adapters/codex.py`
+- **Rationale:** both rows are age-based pruning of a sidecar store, the C-8.4 analogue for records
+  C-8.4 does not reach. Row 80's rationale is "file growth"; row 141's is that "narrower callers
+  would force rescans" — an eviction rule keyed on the current call's window makes every scan pay
+  for the last caller's narrowness. C-8.4 covers job retention and protects unread notices from *job*
+  pruning; it neither prunes notices nor knows the scan cache exists, so a C-8.4 test passes while
+  notices accumulate forever and the cache thrashes. C-10.3 makes `~/.codex` observed and never a
+  lane, which is the home this cache is usually built over.
+
+### P-23.27 — one monitoring cycle, one verdict
+
+> **P-23.27** A cycle heals before it persists: `status.json`, the readings the cycle writes, its
+> alert conditions, and its history all see post-heal verdicts. At most one refresh probe runs per
+> provider home per cycle, and two probes of the same home are at least twenty minutes apart. A
+> cycle in which every provider probe failed with a network error is recorded `offline` and emits no
+> alert of any kind, including scoped-limit conditions.
+
+- **Ledger rows:** 152 (`keep`, ops-hygiene), 153 (`keep`, ops-hygiene), 154 (`keep`, ops-hygiene)
+- **Milestone:** 5
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/timers.py`, `subfleet/alerts.py`
+- **Rationale:** three rules of the same cycle. Row 153's rationale is "mixed-state reporting" — a
+  snapshot half taken before the heal and half after describes a fleet that never existed. Row 152's
+  is that "back-to-back manual runs would hammer a dead lane", and row 154's is that "offline must
+  not cry wolf". C-18.1 gives the probe cycle's cadence (`probe_interval_s` 300, one probe per idle
+  lane per window) and the alert cadence (on transition, at most every 6 h while persisting), but the
+  heal probe is not the probe cycle and C-18.1 states no ordering within a cycle and no offline
+  suppression, so a C-18.1 test passes on all three failures. The ledger records a caveat on row 154:
+  v1 lets non-silent scoped-limit conditions past its own offline check, so the v2 test asserts a
+  wholly silent cycle, which is why the clause says "of any kind".
+
+### P-23.28 — mirror health is a state file, not a quiet log
+
+> **P-23.28** Mirror health is judged from the mirror's per-pass state sidecar, never from log
+> recency: a pass the sidecar records as in flight is healthy until thirty minutes after its
+> recorded start, and only then is the mirror `stalled`.
+
+- **Ledger rows:** 159 (`keep`, ops-hygiene)
+- **Milestone:** 6
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/sessions/mirror.py`
+- **Rationale:** row 159's incident is "2026-08-19 07:08 false 'stalled' from the quiet log; an
+  8.5-minute pass observed 2026-08-18" — the health signal was log writes, so a pass that was working
+  quietly looked dead, and the cutoff has to exceed a real long pass. No clause mentions the mirror.
+
+### P-23.29 — a keepalive pass is bounded
+
+> **P-23.29** A keepalive pass runs at most `keepalive_workers` (4) lanes concurrently with a
+> per-lane deadline of `keepalive_timeout_s` (60), both `policy.json` caps under C-6.4. A lane that
+> exceeds its deadline is recorded as timed out and is not retried inside the same pass.
+
+- **Ledger rows:** 177 (`keep`, ops-hygiene)
+- **Milestone:** 5
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/keepalive.py`
+- **Rationale:** row 177's rationale is "bounded concurrency for a launchd job" — an unbounded pass
+  over fourteen lanes is fourteen simultaneous provider calls from a timer nobody is watching. C-16.4
+  gives queued workers with deadlines, but it is scoped to the daemon's socket request handlers, not
+  to a timer, so a C-16.4 test passes while a keepalive pass fans out without limit. v1 wrote its
+  pass state under a flock; v2 drops the flock for store transactions (C-3.2), so only the two caps
+  survive as numbers.
