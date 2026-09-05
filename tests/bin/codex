@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import tomllib
 
 
 ENV_KEYS = (
@@ -67,8 +68,28 @@ def nested_grandchild() -> int:
 
 
 def main() -> int:
+    # Metadata requests made by the real guard preflight, before any exec.
+    if sys.argv[1:] == ["--version"]:
+        print("codex-cli 0.153.3")
+        return 0
+    if sys.argv[1:2] == ["app-server"]:
+        override = next(arg for arg in sys.argv if arg.startswith("hooks="))
+        hooks = tomllib.loads(override)["hooks"]
+        key, state = next(iter(hooks["state"].items()))
+        for line in sys.stdin:
+            request = json.loads(line)
+            if request.get("method") == "initialize":
+                print(json.dumps({"id": request["id"], "result": {}}), flush=True)
+            elif request.get("method") == "hooks/list":
+                print(json.dumps({"id": request["id"], "result": {"data": [{
+                    "cwd": request["params"]["cwds"][0], "errors": [], "hooks": [{
+                        "key": key, "enabled": state["enabled"],
+                        "trustStatus": "trusted", "currentHash": state["trusted_hash"],
+                    }],
+                }]}}), flush=True)
+        return 0
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "success")
-    fixture_name = "success" if scenario == "nested-setsid" else scenario
+    fixture_name = "success" if scenario in {"slow", "nested-setsid"} else scenario
     fixture_root = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
     fixture = fixture_root / fixture_name
     if Path(fixture_name).name != fixture_name or not fixture.is_dir():
@@ -88,7 +109,12 @@ def main() -> int:
     if diagnostics_path:
         Path(diagnostics_path).write_text(json.dumps(diagnostics) + "\n")
 
+    if os.environ.get("SUBFLEET_FAKE_DIRTY") == "1":
+        Path("fake-dirty.txt").write_text("unfinished provider work\n")
+
     delay = max(0.0, float(os.environ.get("SUBFLEET_FAKE_DELAY_S", "0")))
+    if scenario == "slow":
+        delay = delay or 1.0
     if scenario == "nested-setsid":
         delay = max(delay, 30.0)
     if delay:

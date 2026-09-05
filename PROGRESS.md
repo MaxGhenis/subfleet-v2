@@ -28,10 +28,12 @@ of `ps`, `sysctl kern.boottime`, and AF_UNIX binding; no bypass attempted.
   retain prelaunch errors and include the latest attempt in terminal wait results.
 - Reproduced rc 1 leaking through for provider limits, dead authentication, and
   old CLIs; map terminal job codes to C-17.3 while retaining raw attempt rc.
+- Extended the Codex executable fake with metadata RPCs, a delayed `slow` alias,
+  and opt-in dirty-worktree bytes for salvage. Its version and `hooks/list`
+  replies pass the real guard preflight using the unchanged reviewed TRUST.
 
 ## Next
 
-- Finish and audit the real-daemon fixture and Codex acceptance module.
-- Fix retry exclusion persistence and CLI error/result propagation separately.
+- Run the final focused regressions, audit clause docstrings, and record skips.
 - Run `uv run pytest -q tests/e2e`, record timing and limitations, and write
   `docs/lanes/reports/e2e-OUTPUT.md`.
