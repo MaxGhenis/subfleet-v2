@@ -1052,6 +1052,47 @@
    }
   },
   {
+   "id": "gate-continue-20260905-0001-gate-main-approve-3",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1401",
+   "also_cited": [],
+   "v1_line": "subfleet gate continue 20260905-0001-gate --main-approve --expect-sha256 9f1c0f6b2a7d4e8c1b5a3d9e7f2c4b6a8d0e1f3a5c7b9d1e3f5a7c9b1d3e5f70 --peer-account max@example.com --exclude-account other@example.com",
+   "v1_meaning": "the routing pins README:664-667 says to repeat on every continuation",
+   "argv": [
+    "gate",
+    "continue",
+    "20260905-0001-gate",
+    "--main-approve",
+    "--expect-sha256",
+    "9f1c0f6b2a7d4e8c1b5a3d9e7f2c4b6a8d0e1f3a5c7b9d1e3f5a7c9b1d3e5f70",
+    "--peer-account",
+    "max@example.com",
+    "--exclude-account",
+    "other@example.com"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "gate",
+     "continue",
+     "20260905-0001-gate",
+     "--main-approve",
+     "--expect-sha256",
+     "9f1c0f6b2a7d4e8c1b5a3d9e7f2c4b6a8d0e1f3a5c7b9d1e3f5a7c9b1d3e5f70",
+     "--peer-account",
+     "max@example.com",
+     "--exclude-account",
+     "other@example.com"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "delegate:gate",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
    "id": "gate-continue-20260905-0001-gate-max-rounds",
    "cite": "README.md:697",
    "also_cited": [],
@@ -1080,6 +1121,39 @@
      "--main-approve",
      "--expect-sha256",
      "1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "delegate:gate",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
+   "id": "gate-continue-20260905-0001-gate-max-rounds-2",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1410",
+   "also_cited": [],
+   "v1_line": "subfleet gate continue 20260905-0001-gate --max-rounds 0 --dry-run",
+   "v1_meaning": "README:696-699: --dry-run previews the cap removal without applying it",
+   "argv": [
+    "gate",
+    "continue",
+    "20260905-0001-gate",
+    "--max-rounds",
+    "0",
+    "--dry-run"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "gate",
+     "continue",
+     "20260905-0001-gate",
+     "--max-rounds",
+     "0",
+     "--dry-run"
     ],
     "verb": "",
     "exit_code": null,
@@ -1981,6 +2055,55 @@
      "4c1d9a7e3b52f08d6a1c4e9b7d2f5a8c0e3b6d91",
      "--expect-base",
      "0a7f3e2c9d1b48a6f5c2e0d7b9a4c6e8f1d3b5a2"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "delegate:gate",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
+   "id": "gate-pr-42-peer-9",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1385",
+   "also_cited": [],
+   "v1_line": "subfleet gate pr 42 --peer astra --main-approve --expect-head 4c1d9a7e3b52f08d6a1c4e9b7d2f5a8c0e3b6d91 --expect-base 0a7f3e2c9d1b48a6f5c2e0d7b9a4c6e8f1d3b5a2 --on-agreement merge --merge-method merge",
+   "v1_meaning": "README:678: merge and squash are supported, rebase is not",
+   "argv": [
+    "gate",
+    "pr",
+    "42",
+    "--peer",
+    "astra",
+    "--main-approve",
+    "--expect-head",
+    "4c1d9a7e3b52f08d6a1c4e9b7d2f5a8c0e3b6d91",
+    "--expect-base",
+    "0a7f3e2c9d1b48a6f5c2e0d7b9a4c6e8f1d3b5a2",
+    "--on-agreement",
+    "merge",
+    "--merge-method",
+    "merge"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "gate",
+     "pr",
+     "42",
+     "--peer",
+     "astra",
+     "--main-approve",
+     "--expect-head",
+     "4c1d9a7e3b52f08d6a1c4e9b7d2f5a8c0e3b6d91",
+     "--expect-base",
+     "0a7f3e2c9d1b48a6f5c2e0d7b9a4c6e8f1d3b5a2",
+     "--on-agreement",
+     "merge",
+     "--merge-method",
+     "merge"
     ],
     "verb": "",
     "exit_code": null,
@@ -3552,6 +3675,37 @@
    }
   },
   {
+   "id": "notify-session-3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01-mode-3",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1420",
+   "also_cited": [],
+   "v1_line": "subfleet notify --session 3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01 --mode prompting the review is ready",
+   "v1_meaning": "the third --mode value; each declares a different class on the envelope",
+   "argv": [
+    "notify",
+    "--session",
+    "3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01",
+    "--mode",
+    "prompting",
+    "the review is ready"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "note",
+    "argv": [
+     "ping",
+     "--session",
+     "3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01",
+     "the review is ready"
+    ],
+    "verb": "ping",
+    "exit_code": null,
+    "rule": "permanent:notify",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
    "id": "notify-session-3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01-the-review-is-ready-in-repo-",
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:1411",
    "also_cited": [],
@@ -3691,6 +3845,29 @@
    }
   },
   {
+   "id": "pick",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1480",
+   "also_cited": [],
+   "v1_line": "subfleet pick",
+   "v1_meaning": "family is nargs=? with default codex, so bare `pick` means `pick codex`",
+   "argv": [
+    "pick"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "pick"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "delegate:pick",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
    "id": "pick-claude",
    "cite": "README.md:176",
    "also_cited": [
@@ -3753,7 +3930,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:1481",
    "also_cited": [],
    "v1_line": "p_pick.add_argument(\"--min-headroom\", type=float, default=None, help=\"minimum headroom %% to qualify (default 5; claude gates EVERY window)\")",
-   "v1_meaning": "--min-headroom type=float default None (filled per family: claude.DEFAULT_MIN_HEADROOM or snapshot.DEFAULT_MIN_HEADROOM), --handicap type=float default 10.0 penalises the active desktop login, --no-handicap disables that protection, --exclude is a hidden repeatable email filter (help=SUPPRESS).",
+   "v1_meaning": "--min-headroom type=float default None (filled per family: claude.DEFAULT_MIN_HEADROOM or snapshot.DEFAULT_MIN_HEADROOM), --handicap type=float default 10.0 penalises the active desktop login, --no-handicap disables that protection, --exclude is a hidden repeatable email filter (help=SUPPRESS). (v1 pick defines only the long --exclude, cli.py:1495)",
    "argv": [
     "pick",
     "claude",
@@ -3762,11 +3939,11 @@
     "--handicap",
     "0",
     "--no-handicap",
-    "-x",
+    "--exclude",
     "max@example.com"
    ],
    "env": {},
-   "v1_parses": false,
+   "v1_parses": true,
    "expect": {
     "disposition": "delegate",
     "argv": [
@@ -3777,7 +3954,7 @@
      "--handicap",
      "0",
      "--no-handicap",
-     "-x",
+     "--exclude",
      "max@example.com"
     ],
     "verb": "",
@@ -4145,6 +4322,59 @@
    }
   },
   {
+   "id": "record-run-phase-adopt-run-id-env-subfleet-run-id",
+   "cite": "~/chief-of-staff/subfleet/bin/subfleet-claude:399",
+   "also_cited": [],
+   "v1_line": "subfleet _record-run --phase adopt --run-id 20260905-120000-demo --pid 41234 --out /repo/out.md --err /repo/err.log --lane-log /repo/lane.log --lane max@example.com",
+   "v1_meaning": "subfleet-claude sends --lane-log unconditionally on adopt",
+   "argv": [
+    "_record-run",
+    "--phase",
+    "adopt",
+    "--run-id",
+    "20260905-120000-demo",
+    "--pid",
+    "41234",
+    "--out",
+    "/repo/out.md",
+    "--err",
+    "/repo/err.log",
+    "--lane-log",
+    "/repo/lane.log",
+    "--lane",
+    "max@example.com"
+   ],
+   "env": {
+    "SUBFLEET_RUN_ID": "20260905-120000-demo"
+   },
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "_record-run",
+     "--phase",
+     "adopt",
+     "--run-id",
+     "20260905-120000-demo",
+     "--pid",
+     "41234",
+     "--out",
+     "/repo/out.md",
+     "--err",
+     "/repo/err.log",
+     "--lane-log",
+     "/repo/lane.log",
+     "--lane",
+     "max@example.com"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "hidden:_record-run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
    "id": "record-run-phase-finish-run-id",
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:1568",
    "also_cited": [],
@@ -4242,6 +4472,77 @@
      "max@example.com",
      "--pid",
      "41234"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "hidden:_record-run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "record-run-phase-start-family-2",
+   "cite": "~/chief-of-staff/subfleet/bin/subfleet-codex:196",
+   "also_cited": [],
+   "v1_line": "subfleet _record-run --phase start --family codex --model gpt-6-astra --lane /Users/maxghenis/.codex-3 --workdir /repo --prompt /repo/prompt.md --out /repo/out.md --err /repo/err.log --original-out /repo/caller-out.md --pid 41234 --launcher subfleet codex --lane-log /repo/lane.log",
+   "v1_meaning": "the start-phase record both runners build; --original-out, --launcher and --lane-log are appended on every dispatch",
+   "argv": [
+    "_record-run",
+    "--phase",
+    "start",
+    "--family",
+    "codex",
+    "--model",
+    "gpt-6-astra",
+    "--lane",
+    "/Users/maxghenis/.codex-3",
+    "--workdir",
+    "/repo",
+    "--prompt",
+    "/repo/prompt.md",
+    "--out",
+    "/repo/out.md",
+    "--err",
+    "/repo/err.log",
+    "--original-out",
+    "/repo/caller-out.md",
+    "--pid",
+    "41234",
+    "--launcher",
+    "subfleet codex",
+    "--lane-log",
+    "/repo/lane.log"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "_record-run",
+     "--phase",
+     "start",
+     "--family",
+     "codex",
+     "--model",
+     "gpt-6-astra",
+     "--lane",
+     "/Users/maxghenis/.codex-3",
+     "--workdir",
+     "/repo",
+     "--prompt",
+     "/repo/prompt.md",
+     "--out",
+     "/repo/out.md",
+     "--err",
+     "/repo/err.log",
+     "--original-out",
+     "/repo/caller-out.md",
+     "--pid",
+     "41234",
+     "--launcher",
+     "subfleet codex",
+     "--lane-log",
+     "/repo/lane.log"
     ],
     "verb": "",
     "exit_code": null,
@@ -4705,6 +5006,37 @@
      "20260905-120000-demo",
      "-o",
      "/repo/out.md"
+    ],
+    "verb": "resume",
+    "exit_code": null,
+    "rule": "permanent:resume-codex",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "resume-codex-20260905-120000-demo-x-output",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1335",
+   "also_cited": [],
+   "v1_line": "subfleet resume-codex 20260905-120000-demo - --output /repo/out2.md",
+   "v1_meaning": "--output is the long form of -o; `-` is the prompt-from-stdin positional",
+   "argv": [
+    "resume-codex",
+    "20260905-120000-demo",
+    "-",
+    "--output",
+    "/repo/out2.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "resume",
+     "20260905-120000-demo",
+     "-",
+     "--output",
+     "/repo/out2.md"
     ],
     "verb": "resume",
     "exit_code": null,
@@ -10203,6 +10535,49 @@
    }
   },
   {
+   "id": "run-task-strategy-tier",
+   "cite": "~/chief-of-staff/subfleet/subfleet/delegate.py:76",
+   "also_cited": [],
+   "v1_line": "subfleet run --task strategy --tier standard -C /repo -p prompt.md -o out.md",
+   "v1_meaning": "strategy is one of the eight --task choices and one of the three Fable-floor tasks",
+   "argv": [
+    "run",
+    "--task",
+    "strategy",
+    "--tier",
+    "standard",
+    "-C",
+    "/repo",
+    "-p",
+    "prompt.md",
+    "-o",
+    "out.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--task",
+     "strategy",
+     "--tier",
+     "standard",
+     "-C",
+     "/repo",
+     "-p",
+     "prompt.md",
+     "-o",
+     "out.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
    "id": "run-task-sweep-tier",
    "cite": "~/.claude/CLAUDE.md:50",
    "also_cited": [],
@@ -11928,6 +12303,39 @@
    }
   },
   {
+   "id": "tickle-session-3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77-transcript",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1473",
+   "also_cited": [],
+   "v1_line": "subfleet tickle --session 3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77 --transcript /Users/maxghenis/.claude/projects/-repo/3f9c1a2e.jsonl --dry-run",
+   "v1_meaning": "--transcript overrides the path when notify.transcript_path cannot resolve one",
+   "argv": [
+    "tickle",
+    "--session",
+    "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77",
+    "--transcript",
+    "/Users/maxghenis/.claude/projects/-repo/3f9c1a2e.jsonl",
+    "--dry-run"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "tickle",
+     "--session",
+     "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77",
+     "--transcript",
+     "/Users/maxghenis/.claude/projects/-repo/3f9c1a2e.jsonl",
+     "--dry-run"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "delegate:tickle",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
    "id": "tickle-session-6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50-delay",
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:1427",
    "also_cited": [],
@@ -12387,6 +12795,35 @@
     "exit_code": null,
     "rule": "permanent:wait",
     "note_count": 1,
+    "env": {}
+   }
+  },
+  {
+   "id": "wait-mine-last-env-claude-code-session-id",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:748",
+   "also_cited": [],
+   "v1_line": "subfleet wait --mine --last",
+   "v1_meaning": "--mine scopes --last: latest_run_id is this session's newest only with both",
+   "argv": [
+    "wait",
+    "--mine",
+    "--last"
+   ],
+   "env": {
+    "CLAUDE_CODE_SESSION_ID": "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50"
+   },
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "wait",
+     "--mine",
+     "--last"
+    ],
+    "verb": "wait",
+    "exit_code": null,
+    "rule": "permanent:wait",
+    "note_count": 0,
     "env": {}
    }
   },

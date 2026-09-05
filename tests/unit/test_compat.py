@@ -24,7 +24,9 @@ BY_ID = {case["id"]: case for case in CASES}
 
 #: plan.md amendment 1: every v1 verb spelling is permanent. A permanent verb
 #: never carries a deprecation note, because a note on a spelling the contract
-#: promises to keep trains agents to change commands that work.
+#: promises to keep trains agents to change commands that work. `jobs` and a
+#: top-level `show` are in this set as C-17.1's own additions rather than as v1
+#: spellings — neither string exists anywhere in the v1 tree.
 PERMANENT_HEADS = {"status", "capacity", "runs", "jobs", "show", "wait", "kill",
                    "resume", "resume-codex", "notify", "ping", "run", "lanes",
                    "why", "daemon", "doctor", "hook"}

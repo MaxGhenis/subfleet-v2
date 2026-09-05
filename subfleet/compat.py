@@ -7,12 +7,15 @@ table and the C-17.3 exit codes, and nothing here changes either.
 
 Four dispositions, and the reasoning for each:
 
-* **map** — the spelling is v1's and is PERMANENT (plan.md amendment 1: "every
-  v1 verb spelling is permanent"). `runs`, `runs show`, `runs reap`, `jobs`,
-  `show`, `status`, `capacity`, `wait`, `kill`, `notify`, `resume-codex`, `run`,
-  and a bare `subfleet` are all in this class. A permanent spelling gets NO
-  stderr note, ever — a note on a spelling the contract promises to keep is
-  noise that trains agents to change working commands.
+* **map** — the spelling is permanent (plan.md amendment 1: "every v1 verb
+  spelling is permanent"). `runs`, `runs show`, `runs reap`, `status`,
+  `capacity`, `wait`, `kill`, `notify`, `resume-codex`, `run`, and a bare
+  `subfleet` are v1 spellings; `jobs` and a top-level `show` are NOT — neither
+  string appears anywhere in the v1 tree, and v1 answers both with a usage
+  error, because C-17.1 introduces them as v2 aliases. Either way the class is
+  the same: a permanent spelling gets NO stderr note, ever, since a note on a
+  spelling the contract promises to keep is noise that trains agents to change
+  working commands.
 
 * **note** — the spelling is accepted but deprecated, so exactly one line goes
   to stderr naming the replacement (C-17.2). `enroll`, `hooks install`,
@@ -97,18 +100,20 @@ class Mapping:
 # `note` is the single stderr line for a deprecated spelling; `None` means the
 # spelling is permanent and gets no note.
 
-#: Permanent v1 spellings that reach a v2 verb unchanged or through the aliases
+#: Permanent spellings that reach a v2 verb unchanged or through the aliases
 #: `cli.rewrite_aliases` already applies (C-17.1). Listed here so `self_check`
 #: can prove each one still reaches a handler, and so a future edit to
-#: `cli.ALIASES` cannot quietly drop one.
+#: `cli.ALIASES` cannot quietly drop one. `jobs` and `show` are marked: they are
+#: C-17.1's own additions, not v1 spellings — v1 has no `jobs` anywhere and
+#: `show` only as `runs show` — so they cannot break a v1 command, only add one.
 PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("status",): ["status"],
     ("capacity",): ["status"],
     ("runs",): ["runs"],
     ("runs", "show"): ["runs", "show"],
     ("runs", "reap"): ["runs", "reap"],
-    ("jobs",): ["runs"],
-    ("show",): ["runs", "show"],
+    ("jobs",): ["runs"],                                # C-17.1, not v1
+    ("show",): ["runs", "show"],                        # C-17.1, not v1
     ("wait",): ["wait"],
     ("kill",): ["kill"],
     ("resume",): ["resume"],
