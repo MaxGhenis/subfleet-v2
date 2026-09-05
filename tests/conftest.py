@@ -131,6 +131,40 @@ def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -
                     spawn_error=spawn_error)
 
 
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """The profile endpoint (C-10.6) is the one network call subfleet makes, and
+    no test may make it. A test that needs a profile answer injects an opener,
+    so an accidental request fails loudly here instead of quietly becoming an
+    `unavailable` result that would mask the very check under test."""
+    def refuse(request, timeout=None):
+        url = getattr(request, "full_url", request)
+        raise AssertionError(f"a test tried to reach {url}; inject a profile opener")
+
+    monkeypatch.setattr("subfleet.adapters.claude._urlopen", refuse)
+
+
+def profile_body(email: str = "max@axiom.org",
+                 account_uuid: str = "1c216ab2-a95f-4554-a2be-36dbc6731133",
+                 org_uuid: str = "fc628aae-6967-4171-9bd0-ba0b04cc388a") -> bytes:
+    """A profile payload shaped as Claude Code's own profile loader reads it."""
+    return json.dumps({"account": {"email": email, "uuid": account_uuid},
+                       "organization": {"uuid": org_uuid}}).encode("utf-8")
+
+
+def profile_opener(status: int = 200, body: bytes | None = None, *,
+                   error: Exception | None = None, seen: list | None = None):
+    """An injectable `(status, body)` opener, recording the URLs it was asked for."""
+    def opener(request, timeout):
+        if seen is not None:
+            seen.append((request.full_url, request.headers.get("Authorization"), timeout))
+        if error is not None:
+            raise error
+        return status, (profile_body() if body is None else body)
+
+    return opener
+
+
 @pytest.fixture
 def frozen_now() -> datetime:
     return NOW

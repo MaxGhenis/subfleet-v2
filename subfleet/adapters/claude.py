@@ -28,21 +28,27 @@ would be a lie about capacity.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from ..contracts import (
-    GUESSED_CLOSURE_S, HEADLESS_MARKER, Attestation, AttestationResult, ClockSource, Closure,
-    ClosureReason, Credential, ExitInfo, JobSpec, Lane, LaneInfo, Launch, Outcome, OutcomeClass,
-    Reading, ReadingLabel, Sandbox,
+    GUESSED_CLOSURE_S, HEADLESS_MARKER, IDENTITY_EVIDENCE, READING_TTL_S, Attestation,
+    AttestationResult, ClockSource, Closure, ClosureReason, Credential, ExitInfo,
+    IdentityStatus, JobSpec, Lane, LaneInfo, Launch, Outcome, OutcomeClass, Reading,
+    ReadingLabel, Sandbox,
 )
 from .base import Adapter, AdapterError
 from .claude_stream import (
@@ -61,6 +67,22 @@ ENROLL_TIMEOUT_S = 180
 
 #: The keychain item name pattern v1 established and v2 keeps (C-10.1).
 KEYCHAIN_PREFIX = "claude-quota-"
+
+#: C-10.6: the one endpoint that can say whose credential this is. Claude Code's
+#: own profile loader reads `account.{email,uuid}` and `organization.uuid` here.
+OAUTH_PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
+PROFILE_TIMEOUT_S = 15.0
+PROFILE_MAX_BYTES = 1 << 20
+
+#: The keychain item the Claude desktop app keeps its own login in — the same item
+#: v1's `claude.keychain_credentials` reads, and read-only here (C-10.3).
+DESKTOP_KEYCHAIN_REF = "Claude Code-credentials"
+
+#: `ProfileResult.status`. Exactly four, so every caller can be exhaustive.
+PROFILE_OK = "ok"                    # 200 with an account and an organization
+PROFILE_NO_SCOPE = "no-scope"        # 403: a setup token, which cannot ask
+PROFILE_UNAVAILABLE = "unavailable"  # network, timeout, 5xx, or any other status
+PROFILE_INVALID = "invalid"          # 200 without the fields that name an account
 
 #: `Reading.source` for anything the stream sensor produced.
 SOURCE_RATE_LIMIT_EVENT = "rate_limit_event"
@@ -294,6 +316,100 @@ def apply_headless_block(prompt: str) -> str:
     return f"{HEADLESS_BLOCK}\n{prompt}"
 
 
+# --- identity (C-1.4, C-10.3, C-10.6, C-10.7) --------------------------------
+
+
+def _urlopen(request: urllib.request.Request, timeout: float) -> tuple[int, bytes]:
+    """The one place this module reaches the network; replaced whole in tests.
+
+    Returns `(status, body)` so an opener can be a two-line function. A response
+    body is capped: a profile is a few hundred bytes and nothing here should be
+    able to spend memory on an unexpected reply.
+    """
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 (fixed https URL)
+        return int(response.status), response.read(PROFILE_MAX_BYTES)
+
+
+@dataclass(frozen=True)
+class ProfileResult:
+    """What `https://api.anthropic.com/api/oauth/profile` said about a credential.
+
+    Never carries the token, and never carries an exception's text: a urllib
+    exception can quote the request headers, and those hold the bearer (C-10.5).
+    """
+
+    status: str
+    email: str | None = None
+    account_uuid: str | None = None
+    org_uuid: str | None = None
+    detail: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == PROFILE_OK
+
+    @property
+    def identity(self) -> str | None:
+        """C-1.4, C-10.6: `<account_uuid>:<org_uuid>`, or nothing at all."""
+        if not self.ok or not self.account_uuid or not self.org_uuid:
+            return None
+        return f"{self.account_uuid}:{self.org_uuid}"
+
+    @property
+    def triple(self) -> dict[str, str | None]:
+        """The identity as the incident record wrote it (email, account, org)."""
+        return {"email": self.email, "account_uuid": self.account_uuid,
+                "org_uuid": self.org_uuid}
+
+
+def identity_pair(account_uuid: str | None, org_uuid: str | None) -> str | None:
+    if not account_uuid or not org_uuid:
+        return None
+    return f"{account_uuid}:{org_uuid}"
+
+
+@dataclass(frozen=True)
+class IdentityCheck:
+    """One answer to "does this credential belong to the lane it is bound to?"
+
+    `status` is `None` for a lane that records neither an identity nor a label:
+    such a lane makes no claim, nothing can contradict it, and no profile request
+    is made for it. Every other lane is checked on every reading it produces.
+    """
+
+    status: IdentityStatus | None
+    profile_status: str | None
+    expected: str | None
+    observed: str | None
+    observed_email: str | None
+    observed_account_uuid: str | None
+    observed_org_uuid: str | None
+    checked_at: str
+
+    @property
+    def checked(self) -> bool:
+        return self.status is not None
+
+    @property
+    def binds(self) -> bool:
+        """C-10.6: may the readings this run produced be stored as capacity?"""
+        return self.status in (None, IdentityStatus.VERIFIED, IdentityStatus.ENROLLED)
+
+    def evidence(self) -> dict[str, Any] | None:
+        """The record C-10.6 keeps instead of a reading, in the clause's words."""
+        if self.status is None:
+            return None
+        return {
+            "status": IDENTITY_EVIDENCE[self.status],
+            "profile_status": self.profile_status,
+            "checked_at": self.checked_at,
+            "expected": self.expected,
+            "identity": {"email": self.observed_email,
+                         "account_uuid": self.observed_account_uuid,
+                         "org_uuid": self.observed_org_uuid},
+        }
+
+
 # --- the adapter -------------------------------------------------------------
 
 
@@ -311,6 +427,8 @@ class ClaudeAdapter(Adapter):
         new_session_id: Callable[[], str] | None = None,
         projects_dir: str | Path | None = None,
         security_bin: str = "security",
+        profile_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
+        reading_ttl_s: int = READING_TTL_S,
     ) -> None:
         self.claude_bin = claude_bin
         self._runner = runner
@@ -318,6 +436,12 @@ class ClaudeAdapter(Adapter):
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
         self._security_bin = security_bin
+        self._profile_opener = profile_opener
+        self._reading_ttl_s = reading_ttl_s
+        # C-10.6: one profile request per credential per reading window, so the
+        # identity beside a reading was fetched in the same probe cycle. Keyed by
+        # a digest of the token: the cache never holds the credential itself.
+        self._profile_cache: dict[str, tuple[datetime, ProfileResult]] = {}
 
     # --- credentials (C-10.5) ------------------------------------------------
 
@@ -402,6 +526,152 @@ class ClaudeAdapter(Adapter):
             code=7,
             fix="a Claude lane is either kind 'keychain-token' or kind 'home'",
         )
+
+    # --- identity (C-1.4, C-10.6) --------------------------------------------
+
+    @staticmethod
+    def _bearer(credential_env: Mapping[str, str] | None) -> str | None:
+        """The token a profile request must carry, from the lane's own credential.
+
+        A keychain or environment lane already has it under
+        `CLAUDE_CODE_OAUTH_TOKEN`; a home lane keeps it in the config directory's
+        own `.credentials.json`, which is the provider CLI's store and is only
+        ever read here (C-23.47). Returns None rather than raising: an
+        unanswerable profile is `unavailable`, not a crash.
+        """
+        token = (credential_env or {}).get("CLAUDE_CODE_OAUTH_TOKEN")
+        if isinstance(token, str) and token.strip():
+            return token.strip()
+        home = (credential_env or {}).get("CLAUDE_CONFIG_DIR")
+        if not home:
+            return None
+        try:
+            blob = json.loads(
+                (Path(home).expanduser() / ".credentials.json").read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            return None
+        oauth = blob.get("claudeAiOauth") if isinstance(blob, dict) else None
+        value = oauth.get("accessToken") if isinstance(oauth, dict) else None
+        return str(value) if isinstance(value, str) and value.strip() else None
+
+    def _fetch_profile(self, token: str) -> ProfileResult:
+        """One GET, standard library only, 15 s, and nothing logged (C-10.5)."""
+        request = urllib.request.Request(OAUTH_PROFILE_URL, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Cache-Control": "no-cache",
+        })
+        opener = self._profile_opener or _urlopen
+        try:
+            status, body = opener(request, PROFILE_TIMEOUT_S)
+        except urllib.error.HTTPError as error:
+            status, body = int(error.code), b""
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            # Deliberately only the exception's type: its text can quote the
+            # request headers, and those hold the bearer.
+            return ProfileResult(PROFILE_UNAVAILABLE, detail=type(error).__name__)
+        if status == 403:
+            # C-9.3: expected scope on a setup token, and never auth evidence.
+            return ProfileResult(PROFILE_NO_SCOPE, detail="http-403")
+        if status != 200:
+            # 401 included: C-9.3 reserves `auth-dead` for a 401 from a usage
+            # endpoint, and this is not one. An unanswered profile is unverified.
+            return ProfileResult(PROFILE_UNAVAILABLE, detail=f"http-{status}")
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            return ProfileResult(PROFILE_INVALID, detail="unparseable body")
+        account = payload.get("account") if isinstance(payload, dict) else None
+        organization = payload.get("organization") if isinstance(payload, dict) else None
+        values = [
+            (account or {}).get("email") if isinstance(account, dict) else None,
+            (account or {}).get("uuid") if isinstance(account, dict) else None,
+            (organization or {}).get("uuid") if isinstance(organization, dict) else None,
+        ]
+        if not all(isinstance(value, str) and value.strip() for value in values):
+            return ProfileResult(PROFILE_INVALID, detail="no account and organization")
+        email, account_uuid, org_uuid = (str(value).strip() for value in values)
+        return ProfileResult(PROFILE_OK, email=email, account_uuid=account_uuid,
+                             org_uuid=org_uuid)
+
+    def probe_profile(self, credential_env: Mapping[str, str] | None,
+                      *, refresh: bool = False) -> ProfileResult:
+        """C-10.6: who does this credential belong to, right now?
+
+        Cached per credential for `READING_TTL_S`, so the probe cycle that reads a
+        lane's usage and the identity check beside it are one question asked once.
+        """
+        token = self._bearer(credential_env)
+        if not token:
+            return ProfileResult(PROFILE_UNAVAILABLE, detail="no-token")
+        key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        now = self._now()
+        cached = self._profile_cache.get(key)
+        if cached is not None and not refresh:
+            when, result = cached
+            if 0 <= (now - when).total_seconds() <= self._reading_ttl_s:
+                return result
+        result = self._fetch_profile(token)
+        self._profile_cache[key] = (now, result)
+        return result
+
+    def identity_check(self, identity: str | None, label: str | None,
+                       credential_env: Mapping[str, str] | None) -> IdentityCheck:
+        """C-10.6: compare the lane's recorded identity with the credential's own.
+
+        * A lane with neither identity nor label claims nothing, so nothing is
+          asked and nothing can be contradicted.
+        * `no-scope` keeps the lane working on the identity recorded at
+          enrolment; its readings carry `identity-enrolled`.
+        * Anything the endpoint could not answer is `identity-unverified`, and an
+          answer that names another account is `identity-mismatch`. Neither
+          stores capacity.
+        * A lane that has only a label — a setup token enrolled without profile
+          scope — is compared on that label, the only claim it has.
+        """
+        checked_at = iso_utc(self._now())
+        if not identity and not label:
+            return IdentityCheck(None, None, None, None, None, None, None, checked_at)
+        profile = self.probe_profile(credential_env or {})
+        observed = profile.identity
+        if profile.status == PROFILE_NO_SCOPE:
+            status = IdentityStatus.ENROLLED
+        elif profile.status != PROFILE_OK:
+            status = IdentityStatus.UNVERIFIED
+        elif identity:
+            status = (IdentityStatus.VERIFIED if observed == identity
+                      else IdentityStatus.MISMATCH)
+        elif profile.email and label and profile.email.casefold() == label.casefold():
+            status = IdentityStatus.ENROLLED
+        else:
+            status = IdentityStatus.MISMATCH
+        return IdentityCheck(status, profile.status, identity or label, observed,
+                             profile.email, profile.account_uuid, profile.org_uuid,
+                             checked_at)
+
+    def lane_identity_check(self, lane: Lane,
+                            credential_env: Mapping[str, str] | None) -> IdentityCheck:
+        return self.identity_check(lane.identity, lane.label, credential_env)
+
+    @staticmethod
+    def desktop_credential() -> Credential:
+        """C-10.3: the desktop app's own login, as a reference and never a value."""
+        return Credential(provider=PROVIDER, ref=DESKTOP_KEYCHAIN_REF,
+                          kind="keychain-token")
+
+    def probe_desktop_profile(self) -> ProfileResult:
+        """C-10.3: ask the desktop app's credential who it is, every cycle.
+
+        The keychain item is read, never written, and a missing or unreadable one
+        is `unavailable` — an unknown desktop identity keeps the recorded desktop
+        flags rather than silently removing protection.
+        """
+        try:
+            env = self.credential_env(self.desktop_credential())
+        except AdapterError as error:
+            return ProfileResult(PROFILE_UNAVAILABLE, detail=f"keychain: {error.code}")
+        return self.probe_profile(env)
 
     @staticmethod
     def account_from_reference(credential: Credential) -> str | None:
@@ -528,13 +798,45 @@ class ClaudeAdapter(Adapter):
             self._plan_from_keychain(credential.ref)
             if credential.kind == "keychain-token" else None
         )
+
+        # C-10.6: ask the credential itself who holds it, with the token the turn
+        # above just used. The profile is the authority; the operator's label and
+        # the keychain item's name are not. That is the whole lesson of the
+        # 2026-09-05 incident, applied at the one moment an operator is watching.
+        profile = self.probe_profile(env_add, refresh=True)
+        if profile.status == PROFILE_INVALID:
+            raise AdapterError(
+                "claude: the profile endpoint answered without naming an account",
+                code=7,
+                fix=(
+                    "retry enrolment; if it persists, the credential is not a Claude "
+                    "Code OAuth token and cannot be bound to an account (C-10.6)"
+                ),
+            )
+        if profile.ok:
+            # C-1.4: the account key is the identity, and the email is a label.
+            identity, label = profile.identity, profile.email
+            identity_status = IdentityStatus.VERIFIED
+            account_key = f"{PROVIDER}:{identity}"
+        else:
+            identity, label = None, account
+            identity_status = (IdentityStatus.ENROLLED
+                               if profile.status == PROFILE_NO_SCOPE
+                               else IdentityStatus.UNVERIFIED)
+            account_key = f"{PROVIDER}:{account}"
+
         # The lane does not exist yet, so its id is empty here; the daemon stamps the
         # id it assigns onto these readings when it inserts the lane row (C-10.1).
         readings = self.readings_from_summary(
             summary, lane_id="", model_id=ENROLL_MODEL, observed_at=iso_utc(self._now()),
         )
+        if identity_status is IdentityStatus.UNVERIFIED:
+            # C-10.6: a reading nobody can attribute is not capacity, at enrolment
+            # exactly as during a probe cycle.
+            readings = ()
         return LaneInfo(
-            account_key=f"{PROVIDER}:{account}", plan=plan, home=home, readings=readings,
+            account_key=account_key, plan=plan, home=home, readings=readings,
+            identity=identity, identity_status=identity_status.value, label=label,
         )
 
     # --- readings (C-9.1, C-9.8) --------------------------------------------
@@ -620,8 +922,15 @@ class ClaudeAdapter(Adapter):
     ) -> tuple[Reading, ...]:
         """The same probe pinned to the model a job actually wants (C-11.4): before
         expensive work goes to an unmeasured lane, ask about *that* model, because a
-        model-scoped exhaustion is invisible to a Haiku turn."""
+        model-scoped exhaustion is invisible to a Haiku turn.
+
+        C-10.6: the readings are returned only when the profile endpoint, asked
+        with this same credential in this same cycle, names the lane's own
+        account. A caller that needs to know *why* it got nothing uses
+        `probe_outcome`, which carries the evidence."""
         _rc, stdout, _stderr = self._run_turn(credential_env, model_id)
+        if not self.lane_identity_check(lane, credential_env).binds:
+            return ()
         summary = parse_stream(stdout)
         return self.readings_from_summary(
             summary, lane_id=lane.lane_id, model_id=model_id,
@@ -660,6 +969,8 @@ class ClaudeAdapter(Adapter):
                     "account_key": lane.account_key,
                     "model_id": model_id,
                     "session_id": session_id,
+                    "identity": lane.identity,     # C-10.6
+                    "label": lane.label,
                     "probe": True,
                 },
             )
@@ -738,6 +1049,10 @@ class ClaudeAdapter(Adapter):
         notes: dict[str, Any] = {
             "lane_id": lane.lane_id,
             "account_key": lane.account_key,
+            # C-10.6: what this lane claims, so `classify` can ask the credential
+            # itself whether the claim holds before any reading becomes capacity.
+            "identity": lane.identity,
+            "label": lane.label,
             "attempt_id": attempt_id,
             "model_id": model_id,
             "session_id": session_id,
@@ -899,6 +1214,15 @@ class ClaudeAdapter(Adapter):
             info, lane_id=lane_id, model_id=model_id, observed_at=observed_at,
             attempt_id=attempt if isinstance(attempt, str) else None,
         )
+        # C-10.6: the same credential that produced those readings is asked whose
+        # it is. A lane that claims no identity is not asked and is unaffected; a
+        # lane whose claim fails keeps the evidence and loses the capacity.
+        identity = self.identity_check(
+            notes.get("identity"), notes.get("label"),
+            dict(launch.env_add) if launch is not None else {},
+        )
+        if not identity.binds:
+            readings = ()
         session_id = (
             summary.session_id
             or (launch.native_session_id if launch is not None else None)
@@ -921,6 +1245,8 @@ class ClaudeAdapter(Adapter):
         }
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
+        if identity.checked:
+            evidence["identity"] = identity.evidence()
         if info is not None:
             evidence["rate_limit"] = {
                 "status": info.status,

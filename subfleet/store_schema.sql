@@ -1,5 +1,7 @@
--- subfleet v2 store schema, version 1. See docs/acceptance-contract.md section 3.
+-- subfleet v2 store schema, version 2. See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
+-- Version 2 (C-3.1, additive and numbered) adds identity, label, and
+-- identity_status to `lanes`; store.py migrates a version-1 database in place.
 
 CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER NOT NULL,
@@ -19,10 +21,17 @@ CREATE TABLE IF NOT EXISTS lanes (
   desktop INTEGER NOT NULL DEFAULT 0,
   enabled INTEGER NOT NULL DEFAULT 1,
   plan TEXT,
+  -- C-10.6 (schema version 2): the identity the profile endpoint returned for
+  -- this lane's own credential, "<account_uuid>:<org_uuid>"; the email label
+  -- C-1.4 calls a display name and never a key; and the last identity check.
+  identity TEXT,
+  label TEXT,
+  identity_status TEXT CHECK (identity_status IS NULL OR identity_status IN ('verified','enrolled','mismatch','unverified')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS lanes_account ON lanes(account_key);
+CREATE INDEX IF NOT EXISTS lanes_identity ON lanes(identity) WHERE identity IS NOT NULL;
 
 -- C-9.1, C-9.8
 CREATE TABLE IF NOT EXISTS readings (

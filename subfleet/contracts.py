@@ -123,6 +123,33 @@ class LaneOwner(str, enum.Enum):  # C-10.4
     V2 = "v2"
 
 
+class IdentityStatus(str, enum.Enum):  # C-10.6
+    """What the profile endpoint said about the credential a lane holds.
+
+    `VERIFIED` and `MISMATCH` need a recorded identity to compare against;
+    `ENROLLED` is a setup token whose scope the profile endpoint refuses (403),
+    so the operator's label is the only claim the lane has; `UNVERIFIED` is any
+    profile the endpoint could not answer. A lane with no recorded identity and
+    no label makes no claim at all and has no status.
+    """
+    VERIFIED = "verified"
+    ENROLLED = "enrolled"
+    MISMATCH = "mismatch"
+    UNVERIFIED = "unverified"
+
+
+#: C-10.6's own wording, used wherever the finding is recorded as evidence beside
+#: a reading, an outcome, or a probe result. `lanes.identity_status` keeps the
+#: short name above; evidence keeps this one, so a reader of `runs show --json`
+#: sees the words the clause uses.
+IDENTITY_EVIDENCE: dict[IdentityStatus, str] = {
+    IdentityStatus.VERIFIED: "verified",
+    IdentityStatus.ENROLLED: "identity-enrolled",
+    IdentityStatus.MISMATCH: "identity-mismatch",
+    IdentityStatus.UNVERIFIED: "identity-unverified",
+}
+
+
 # --- Exit codes (C-17.3) -----------------------------------------------------
 
 class Exit(enum.IntEnum):
@@ -187,6 +214,8 @@ class Lane:
     owner: LaneOwner
     desktop: bool
     enabled: bool = True
+    identity: str | None = None   # C-10.6: "<account_uuid>:<org_uuid>", never a secret
+    label: str | None = None      # C-1.4: the email, a display label and never the key
 
 
 @dataclass(frozen=True)
@@ -297,6 +326,9 @@ class LaneInfo:  # returned by enroll (C-10.2)
     plan: str | None
     home: str | None
     readings: tuple[Reading, ...]
+    identity: str | None = None             # C-10.6, from the profile endpoint
+    identity_status: str | None = None      # an `IdentityStatus` value
+    label: str | None = None                # the email the profile or the operator gave
 
 
 @dataclass(frozen=True)

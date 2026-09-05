@@ -46,7 +46,7 @@ def test_store_newer_schema_refused(tmp_path):
     with Store(path) as store:
         with store.transaction() as conn:
             conn.execute("UPDATE schema_version SET version=99")
-    with pytest.raises(SchemaVersionError, match="99.*1"):
+    with pytest.raises(SchemaVersionError, match=rf"99.*{SCHEMA_VERSION}"):
         Store(path)
 
 
