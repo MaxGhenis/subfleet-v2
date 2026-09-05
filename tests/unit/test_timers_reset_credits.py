@@ -105,6 +105,22 @@ def test_pending_precedes_call_and_confirmed_reopens_without_inventing_windows(s
     assert "utilization" not in override
 
 
+def test_confirmed_action_and_closure_release_commit_atomically(store, tmp_path, monkeypatch):
+    """C-3.2 C-23.17: publication failure cannot leave a confirmed action with its old closure."""
+    lane(store, tmp_path)
+    resets = component(store, HTTP())
+    def fail_release(*args, **kwargs):
+        raise OSError("injected publication failure")
+    monkeypatch.setattr(resets, "_release", fail_release)
+    with pytest.raises(OSError):
+        resets.evaluate(snapshot(store), now=NOW)
+    action = store.query("SELECT * FROM actions")[0]
+    assert action["state"] == "executing" and action["result_json"] is None
+    assert store.list_closures(active_at=STAMP)
+    resets.recover(now=NOW)
+    assert store.get_action(action["action_id"])["state"] == "unknown"
+
+
 @pytest.mark.parametrize("response", [{"code": "reset", "windows_reset": 0}, {"code": "success", "windows_reset": 2},
                                      {"code": "reset", "windows_reset": True}, {"code": "reset", "windows_reset": "2"}])
 def test_only_exact_provider_success_confirms(store, tmp_path, response):

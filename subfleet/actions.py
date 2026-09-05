@@ -328,14 +328,15 @@ class ResetCredits:
                 isinstance(windows, int) and not isinstance(windows, bool) and windows > 0)
             state = "confirmed" if confirmed else "unknown" if consumed.get("status") in (
                 "timeout", "network-error", "invalid-response") else "failed"
-            if not self.actions.publish(action_id, holder, state, consumed, now=stamp):
-                return {**result, "status": "result-discarded", "action_id": action_id}
-            if confirmed:
-                self._release(lane.lane_id, stamp, action_id=action_id)
-                override = {"action_id": action_id, "confirmed_at": stamp,
-                            "weekly_reset_at": _iso(instant + timedelta(days=7)), "clock_source": "guessed"}
-                self.store.add_event("reset-credit.confirmed", lane_id=lane.lane_id, data=override)
-                result.update(override=override, fleet_credits_remaining=fleet_credits_remaining(all_rows, spent_lane=lane.lane_id))
+            with self.store.transaction("reset-credit.result", lane_id=lane.lane_id, data={"action_id": action_id}):
+                if not self.actions.publish(action_id, holder, state, consumed, now=stamp):
+                    return {**result, "status": "result-discarded", "action_id": action_id}
+                if confirmed:
+                    self._release(lane.lane_id, stamp, action_id=action_id)
+                    override = {"action_id": action_id, "confirmed_at": stamp,
+                                "weekly_reset_at": _iso(instant + timedelta(days=7)), "clock_source": "guessed"}
+                    self.store.add_event("reset-credit.confirmed", lane_id=lane.lane_id, data=override)
+                    result.update(override=override, fleet_credits_remaining=fleet_credits_remaining(all_rows, spent_lane=lane.lane_id))
             return {**result, "status": state, "action_id": action_id, "lane_id": lane.lane_id}
         finally:
             self._lock.release()
