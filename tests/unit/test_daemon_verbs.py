@@ -20,6 +20,12 @@ from subfleet.client import Client
 
 REPO = str(Path(__file__).resolve().parents[2])
 
+# The five `doctor` tests that lived here moved to tests/unit/test_doctor.py
+# with the table itself (cutover-compat, milestone 4). `cli.doctor_checks` is
+# now a call into `subfleet/doctor.py`, whose rows are pass/fail/unknown with a
+# fix line rather than ok/warn/fail, and `doctor --live` pings the daemon
+# (C-16.2) instead of reporting that it is not implemented.
+
 STUB = '''#!{python}
 """A stand-in subfleetd: binds the socket, writes the lock, answers daemon.status."""
 import json, os, signal, socket, sys
@@ -205,64 +211,6 @@ def test_the_state_root_comes_from_subfleet_home(root, monkeypatch):
     assert state_root() == Path("~/.subfleet").expanduser()
 
 
-def test_doctor_reports_the_layout_and_a_stale_socket(root, capsys, monkeypatch):
-    """C-17.1 `doctor` reports the state root layout and a socket the lock denies.
-
-    The provider versions are stubbed so the test measures this lane's logic and
-    not whether the machine running it happens to have claude and codex on PATH.
-    """
-    monkeypatch.setattr(cli, "_version", lambda binary: ("ok", f"stub {binary}"))
-    assert cli.main(["doctor"]) == 0
-    text = capsys.readouterr().out
-    assert "state root layout" in text and "daemon.sock and daemon.lock agree" in text
-    (root / "daemon.sock").touch()
-    (root / "daemon.lock").write_text(json.dumps(
-        {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
-    assert cli.main(["doctor"]) == 1
-    assert "the lock is stale" in capsys.readouterr().out
-
-
-def test_doctor_json_emits_one_object_per_check(root, capsys, monkeypatch):
-    """C-17.4 `doctor --json` emits JSON objects only."""
-    monkeypatch.setattr(cli, "_version", lambda binary: ("ok", f"stub {binary}"))
-    assert cli.main(["doctor", "--json"]) == 0
-    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
-    checks = [json.loads(line) for line in lines]
-    names = {check["check"] for check in checks}
-    assert {"claude --version", "codex --version", "uv --version",
-            "state root layout", "daemon.sock and daemon.lock agree",
-            "PATH shadows for claude", "PATH shadows for codex",
-            "never-rules hook in ~/.claude/settings.json"} <= names
-    assert all(check["status"] in {"ok", "warn", "fail"} for check in checks)
-
-
-def test_doctor_live_is_not_implemented_yet(root, capsys):
-    """C-17.1 `doctor --live` is reserved for the adapter lanes."""
-    assert cli.main(["doctor", "--live"]) == 0
-    assert "not implemented" in capsys.readouterr().err
-
-
-def test_doctor_names_a_missing_never_rules_hook(root, capsys, monkeypatch):
-    """C-14.3 doctor reports whether ~/.claude/settings.json carries the hook."""
-    monkeypatch.setattr(cli, "_version", lambda binary: ("ok", f"stub {binary}"))
-    settings = root / "settings.json"
-    settings.write_text(json.dumps({"hooks": {"PreToolUse": []}}))
-    rows = {check["check"]: check
-            for check in cli.doctor_checks(root, claude_settings=settings)}
-    hook = rows["never-rules hook in ~/.claude/settings.json"]
-    assert hook["status"] == "warn" and "C-14.3" in hook["detail"]
-    settings.write_text(json.dumps(
-        {"hooks": {"PreToolUse": [{"command": "guard-never-rules.sh"}]}}))
-    rows = {check["check"]: check
-            for check in cli.doctor_checks(root, claude_settings=settings)}
-    assert rows["never-rules hook in ~/.claude/settings.json"]["status"] == "ok"
-    settings.unlink()
-    rows = {check["check"]: check
-            for check in cli.doctor_checks(root, claude_settings=settings)}
-    assert rows["never-rules hook in ~/.claude/settings.json"]["status"] == "warn"
-    capsys.readouterr()
-
-
 def test_daemon_start_waits_out_a_self_daemonising_subfleetd(root, monkeypatch,
                                                              tmp_path, capsys):
     """C-17.1 a subfleetd that double-forks exits 0; that is not a failure."""
@@ -328,13 +276,3 @@ def test_daemon_logs_line_counts(root, capsys):
     assert "non-negative" in capsys.readouterr().err
 
 
-def test_doctor_names_a_state_root_whose_socket_cannot_exist(capsys, monkeypatch,
-                                                             tmp_path):
-    """C-2.1 a SUBFLEET_HOME too deep for AF_UNIX can never hold a daemon."""
-    deep = tmp_path / ("d" * 120)
-    deep.mkdir()
-    monkeypatch.setattr(cli, "_version", lambda binary: ("ok", f"stub {binary}"))
-    rows = {check["check"]: check for check in cli.doctor_checks(deep)}
-    row = rows["socket path fits AF_UNIX"]
-    assert row["status"] == "fail" and "shorter path" in row["detail"]
-    capsys.readouterr()

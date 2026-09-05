@@ -10,7 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
-import threading
+import sys
 import time
 from pathlib import Path
 
@@ -237,27 +237,33 @@ def test_a_released_lease_is_available_again(root):
 
 
 def test_a_lease_is_dropped_when_its_holder_exits(root):
-    """C-5.3 a hook killed with its session leaves no lease behind."""
-    done = threading.Event()
+    """C-5.3 the kernel drops a flock when its HOLDER dies, so a hook killed
+    with its session leaves no lease to reap and no identity check is needed.
 
-    def hold() -> None:
-        lease = hooks.Lease(root, JOB)
-        assert lease.acquire() is True
-        done.wait(2)
-        lease.release()
-
-    worker = threading.Thread(target=hold)
-    worker.start()
+    Held by a real child process, because that is the claim: a thread would
+    share this process and prove something weaker.
+    """
+    import subprocess
+    import textwrap
+    holder = subprocess.Popen(
+        [sys.executable, "-c", textwrap.dedent(f"""
+            import sys, time
+            sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r})
+            from subfleet import hooks
+            lease = hooks.Lease({str(root)!r}, {JOB!r})
+            assert lease.acquire()
+            print("held", flush=True)
+            time.sleep(30)
+        """)], stdout=subprocess.PIPE, text=True)
     try:
-        for _ in range(100):                  # let the thread take it first
-            if not hooks.Lease(root, JOB).acquire():
-                break
-            time.sleep(0.01)
+        assert holder.stdout.readline().strip() == "held"
+        blocked = hooks.Lease(root, JOB)
+        assert blocked.acquire() is False, "a live holder must exclude a second waiter"
     finally:
-        done.set()
-        worker.join(2)
+        holder.kill()
+        holder.wait(5)
     after = hooks.Lease(root, JOB)
-    assert after.acquire() is True
+    assert after.acquire() is True, "a dead holder's lease is gone with it"
     after.release()
 
 
