@@ -20,16 +20,21 @@ import os
 import re
 import socket
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 from .contracts import Exit
-from .protocol import ProtocolError, Request, Response, decode_response, encode
+from .protocol import (PROTOCOL_VERSION, ProtocolError, Request, Response,
+                        decode_response, encode)
+
+TABLE_CODES = {int(code) for code in Exit}          # C-17.3
 
 SOCKET_NAME = "daemon.sock"
 LOCK_NAME = "daemon.lock"
 LOG_NAME = "daemon.log"
 DEFAULT_TIMEOUT_S = 15.0
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 DEFAULT_STATE_ROOT = "~/.subfleet"
 START_DAEMON_FIX = "subfleet daemon start"
 
@@ -66,9 +71,17 @@ class DaemonError(Exception):
 
 # --- Process identity (C-5.3), kept local to the client ----------------------
 
+# `ps` renders lstart in the caller's locale and timezone, and the recorded
+# value was rendered by whoever wrote it. Both sides must pin the rendering or
+# two views of one live process compare unequal (C-5.3).
+PS_ENV = {"LC_ALL": "C", "LANG": "C", "TZ": "UTC",
+          "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+
+
 def _run(argv: list[str], timeout: float = 5.0) -> tuple[int, str]:
     try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, capture_output=True, text=True,
+                              timeout=timeout, env=PS_ENV)
     except (OSError, subprocess.SubprocessError):
         return -1, ""
     return done.returncode, done.stdout
@@ -97,12 +110,26 @@ def _read_boot_id() -> str | None:
     return digits[0] if digits else None
 
 
+ZOMBIE_STATES = ("Z",)
+
+
 def proc_start(pid: int) -> str | None:
-    """The `lstart` column for `pid`; "" when the pid is gone, None when unknown."""
-    rc, out = _run(["ps", "-p", str(int(pid)), "-o", "lstart="])
+    """The `lstart` column for `pid`; "" when the pid is gone, None when unknown.
+
+    A zombie is not a live process (C-5.5), so it reads as gone. Only `ps`
+    saying "no such process" (rc 1 with no output) is death; any other failure
+    is unverifiable, because a refused `ps` is not evidence that a pid is free.
+    """
+    rc, out = _run(["ps", "-p", str(int(pid)), "-o", "state=,lstart="])
     if rc < 0:
         return None                      # ps itself did not run: unverifiable
-    return " ".join(out.split())         # "" means no such process
+    line = " ".join(out.split())
+    if not line:
+        return "" if rc == 1 else None   # rc 1 with no output is "no such process"
+    state, _, started = line.partition(" ")
+    if state.startswith(ZOMBIE_STATES):
+        return ""                        # exited, not yet reaped: not live
+    return started
 
 
 def same_process(pid: int | None, recorded_boot: str | None,
@@ -127,6 +154,35 @@ def same_process(pid: int | None, recorded_boot: str | None,
     if not recorded_start:
         return None                      # alive, but identity unconfirmed
     return " ".join(str(recorded_start).split()) == start
+
+
+def _read_line(conn: socket.socket, deadline_at: float) -> bytes:
+    """One newline-terminated response line, bounded in both time and size.
+
+    `settimeout` bounds each recv, not the whole read, so a peer that trickles
+    bytes without ever sending a newline would otherwise hold the CLI forever.
+    """
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        remaining = deadline_at - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("no complete response line before the deadline")
+        conn.settimeout(remaining)
+        chunk = conn.recv(65536)
+        if not chunk:
+            break                        # peer closed
+        newline = chunk.find(b"\n")
+        if newline >= 0:
+            chunks.append(chunk[:newline + 1])
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+        if size > MAX_RESPONSE_BYTES:
+            raise ProtocolError(
+                f"the daemon sent more than {MAX_RESPONSE_BYTES} bytes without a "
+                f"newline", Exit.OPERATIONAL)
+    return b"".join(chunks)
 
 
 class Client:
@@ -213,8 +269,7 @@ class Client:
                 raise DaemonUnavailable(f"cannot reach {self.socket_path}: {exc}") from exc
             try:
                 conn.sendall(encode(request))
-                with conn.makefile("rb") as stream:
-                    line = stream.readline()
+                line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
                 raise ProtocolError(
                     f"no response from the daemon within {deadline:g}s",
@@ -227,14 +282,26 @@ class Client:
         if not line.strip():
             raise ProtocolError("the daemon closed the connection without a response",
                                 Exit.OPERATIONAL)
-        response: Response = decode_response(line)
+        try:
+            response: Response = decode_response(line)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ProtocolError(f"malformed response: {exc}", Exit.OPERATIONAL) from exc
+        if response.v != PROTOCOL_VERSION:
+            raise ProtocolError(
+                f"the daemon speaks protocol version {response.v}; this CLI speaks "
+                f"{PROTOCOL_VERSION}", Exit.OPERATIONAL)
         if response.error is not None or not response.ok:
             error = response.error
-            code = getattr(error, "code", None)
+            raw = getattr(error, "code", None)
             message = getattr(error, "message", None) or "the daemon reported a failure"
             try:
-                code = int(code)
+                code = int(raw)
             except (TypeError, ValueError):
+                code = int(Exit.OPERATIONAL)
+            if code not in TABLE_CODES or code == int(Exit.OK):
+                # C-17.3 gives every code one meaning; a code outside the table
+                # (or a "failure" numbered 0) must not become the exit status.
+                message = f"{message} (daemon reported code {raw!r})"
                 code = int(Exit.OPERATIONAL)
             raise DaemonError(code, message, getattr(error, "fix", None))
         result = response.result

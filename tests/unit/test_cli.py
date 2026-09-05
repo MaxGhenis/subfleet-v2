@@ -830,3 +830,164 @@ def test_run_wait_inside_a_claude_session_still_blocks(daemon, monkeypatch, caps
     assert captured.out.strip() == JOB
     assert "waiting inline" in captured.err
     assert "--attach waits inline" in captured.err
+
+
+# --- fixes from the adversarial review ----------------------------------------
+
+def test_wait_mine_that_never_resolves_a_job_times_out(daemon, monkeypatch, capsys):
+    """C-17.3 `wait --mine --timeout` expiring with no job named is still 124."""
+    daemon({"wait": lambda request: {"timeout": True}})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+    assert run_cli(["wait", "--mine", "--timeout", "1"]) == 124
+    assert "nothing reached a terminal state" in capsys.readouterr().err
+
+
+def test_wait_timeout_holds_even_when_the_daemon_wedges(daemon, capsys):
+    """C-15.4, C-17.3 --timeout is a wall-clock bound, not a per-poll one."""
+    import time as _time
+
+    def wedged(request):
+        _time.sleep(5)
+        return {"timeout": True}
+
+    daemon({"wait": wedged})
+    started = _time.monotonic()
+    assert run_cli(["wait", JOB, "--timeout", "1"]) == 124
+    assert _time.monotonic() - started < 4.5
+    capsys.readouterr()
+
+
+def test_a_daemon_code_outside_the_table_becomes_one(daemon, capsys, workdir):
+    """C-17.3 every exit code has one meaning; 256 would reach the shell as 0."""
+    daemon({"submit": lambda request: protocol.fail(request.id, 256, "boom")})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
+    captured = capsys.readouterr()
+    assert "boom" in captured.err and "256" in captured.err
+
+
+def test_a_daemon_failure_numbered_zero_is_not_success(daemon, capsys, workdir):
+    """C-17.3 an `ok: false` answer can never exit 0."""
+    daemon({"submit": lambda request: protocol.fail(request.id, 0, "refused")})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("body", [b"[1, 2, 3]\n", b'"a string"\n', b"null\n",
+                                  b'{"v": 1, "ok": false, "error": 7}\n'])
+def test_a_wrong_shaped_response_is_exit_one(daemon, capsys, workdir, body):
+    """C-16.1 valid JSON of the wrong shape is an exit code, not a traceback."""
+    daemon({"submit": lambda request: body})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
+    assert "malformed response" in capsys.readouterr().err
+
+
+def test_a_response_from_another_protocol_version_is_refused(daemon, capsys, workdir):
+    """C-16.1 the version is part of the wire contract in both directions."""
+    daemon({"submit": lambda request: b'{"v": 2, "ok": true, "result": {}}\n'})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
+    assert "protocol version 2" in capsys.readouterr().err
+
+
+def test_an_unclosed_response_line_does_not_hang(daemon, capsys, workdir):
+    """C-16.1 a peer that never sends a newline is bounded by the timeout."""
+    daemon({"submit": lambda request: b'{"v": 1, "ok": true'})   # no newline
+    import time as _time
+    started = _time.monotonic()
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
+    assert _time.monotonic() - started < 30
+    capsys.readouterr()
+
+
+def test_a_request_id_can_never_name_a_path(daemon, root, workdir, capsys):
+    """C-2.1, C-1.5 a caller-supplied request id stages inside the state root."""
+    daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
+    victim = root / "victim.md"
+    victim.write_text("do not truncate me\n")
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
+                    "--request-id", "../victim", "hi"]) == 0
+    assert victim.read_text() == "do not truncate me\n"
+    staged = list((root / "inbox").glob("*.md"))
+    assert len(staged) == 1 and staged[0].parent == root / "inbox"
+    capsys.readouterr()
+
+
+def test_the_request_id_reaches_the_wire_unchanged(daemon, root, workdir, capsys):
+    """C-1.5 a request id is the caller's string on the wire, whatever it looks like."""
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
+                    "--request-id", "../victim", "hi"]) == 0
+    assert server.args("submit")["request_id"] == "../victim"
+    capsys.readouterr()
+
+
+def test_a_relative_out_path_is_resolved_for_the_daemon(daemon, workdir, monkeypatch,
+                                                        capsys):
+    """C-6.1 the daemon writes -o, and its cwd is not the caller's."""
+    server = daemon({"submit": submit_ok})
+    monkeypatch.chdir(workdir)
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d", "-o", "out.md",
+                    "hi"]) == 0
+    assert server.args("submit")["out_path"] == str(workdir / "out.md")
+    capsys.readouterr()
+
+
+def test_an_unambiguous_outcome_class_supplies_the_exit_code(capsys):
+    """C-17.3 the job's rc rules when it is in the table; the class fills the gap.
+
+    A provider rc outside the table, or none at all, would otherwise collapse to
+    1 and lose the two classes that name exactly one code.
+    """
+    assert cli.exit_for_job({"job_id": JOB, "state": "failed", "rc": 127,
+                             "outcome_class": "cli-too-old"}) == 6
+    assert cli.exit_for_job({"job_id": JOB, "state": "failed", "rc": None,
+                             "outcome_class": "auth-dead"}) == 5
+    # The rc wins whenever it is one of the table's codes (C-17.3).
+    assert cli.exit_for_job({"job_id": JOB, "state": "failed", "rc": 1,
+                             "outcome_class": "auth-dead"}) == 1
+    # `limited` is 3 or 4 depending on the pin, so only the daemon can say.
+    assert cli.exit_for_job({"job_id": JOB, "state": "failed", "rc": 3,
+                             "outcome_class": "limited"}) == 3
+    assert cli.exit_for_job({"job_id": JOB, "state": "failed", "rc": 99,
+                             "outcome_class": "limited"}) == 1
+    assert cli.exit_for_job({"job_id": JOB, "state": "succeeded", "rc": 0,
+                             "outcome_class": "ok"}) == 0
+    capsys.readouterr()
+
+
+def test_show_json_with_out_is_a_usage_error(daemon, capsys):
+    """C-17.1 --json is the metadata object; it cannot also stream an artifact."""
+    daemon({"show": lambda request: {"job_id": JOB, "state": "succeeded"}})
+    assert run_cli(["runs", "show", JOB, "--out", "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "cannot also stream" in captured.err
+
+
+def test_resume_without_a_job_id_is_an_operational_error(daemon, root, capsys):
+    """C-17.3 an empty job id on stdout would be a lie about what was created."""
+    daemon({"show": lambda request: {"job_id": JOB, "workdir": str(root)},
+            "submit": lambda request: {"created": False}})
+    assert run_cli(["resume", JOB]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and "returned no job id" in captured.err
+
+
+def test_formatters_survive_numbers_that_are_not_numbers(capsys):
+    """C-17.4 a scalar of the wrong type renders, it does not raise."""
+    table = cli.format_runs([{"job_id": JOB, "state": "succeeded", "rc": "0",
+                              "out_bytes": "lots", "duration_s": "a while"}])
+    assert JOB in table
+    status = cli.format_status({
+        "lanes": [{"lane_id": "codex-1", "in_flight": "two"}],
+        "readings": [{"lane_id": "codex-1", "window": "five_hour",
+                      "utilization": "high", "label": "provider"}]})
+    assert "codex-1" in status and "?" in status
+    capsys.readouterr()
+
+
+def test_the_offline_banner_is_prose_on_stderr(root, capsys):
+    """C-17.4 stdout carries the table; the offline banner is prose."""
+    from test_offline import build_store
+    build_store(root)
+    assert run_cli(["status"]) == 0
+    captured = capsys.readouterr()
+    assert "offline" in captured.err and "offline" not in captured.out

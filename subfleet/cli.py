@@ -22,6 +22,7 @@ Exit codes are the one table in C-17.3.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import plistlib
@@ -66,6 +67,7 @@ TIER_CHOICES = ("trivial", "easy", "standard", "hard")
 SANDBOX_CHOICES = tuple(item.value for item in Sandbox)
 LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer")
 
+AF_UNIX_PATH_MAX = 103          # sun_path is 104 bytes including the NUL
 PLIST_LABEL = "com.subfleet.daemon"
 PLIST_PATH = "~/Library/LaunchAgents/com.subfleet.daemon.plist"
 
@@ -150,6 +152,13 @@ def launch_mode(args: argparse.Namespace,
 
 # --- exit-code mapping (C-17.3) ----------------------------------------------
 
+# An outcome class that names exactly one code in C-17.3. `limited` is left
+# out: it is exit 3 or exit 4 depending on whether the lane was pinned, and the
+# daemon is the one that knows.
+CLASS_EXITS = {"auth-dead": int(Exit.AUTH_DEAD),
+               "cli-too-old": int(Exit.CLI_TOO_OLD)}
+
+
 def exit_for_job(job: dict[str, Any], *, quiet: bool = False) -> int:
     """The job's rc mapped onto the one exit-code table (C-17.3)."""
     state = job.get("state")
@@ -160,10 +169,13 @@ def exit_for_job(job: dict[str, Any], *, quiet: bool = False) -> int:
     if state == JobState.SUCCEEDED.value:
         return int(Exit.OK)
     rc = job.get("rc")
+    outcome = CLASS_EXITS.get(job_row(job).get("outcome_class"))
     if isinstance(rc, bool) or not isinstance(rc, int) or rc == 0:
-        return int(Exit.OPERATIONAL)
+        return outcome or int(Exit.OPERATIONAL)
     if rc in EXIT_CODES:
         return rc
+    if outcome:
+        return outcome
     if not quiet:
         note(f"{PROG}: {job.get('job_id') or job.get('id')} "
              f"failed with provider rc {rc}")
@@ -178,6 +190,18 @@ def _first(row: dict[str, Any], *keys: str) -> Any:
         if value not in (None, ""):
             return value
     return None
+
+
+def as_number(value: Any) -> float | None:
+    """A number, or None; never an exception inside a formatter."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def rows_of(value: Any) -> list[dict[str, Any]]:
@@ -237,15 +261,15 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
             rc = str(row["rc"])
         else:
             rc = str(state or "-").upper()
-        duration = "-" if not isinstance(row["duration_s"], (int, float)) \
-            else f"{float(row['duration_s']):.1f}"
+        seconds = as_number(row["duration_s"])
+        duration = "-" if seconds is None else f"{seconds:.1f}"
         caller = row["caller_session"] or ""
         lines.append(
             f"{str(row['id'] or '-'):<{id_width}} "
             f"{str(row['family'] or '-'):<7.7} "
             f"{str(row['model'] or '-'):<16.16} "
             f"{str(row['lane'] or '-'):<12.12} "
-            f"{rc:>9.9} {int(row['out_bytes'] or 0):>9} {duration:>8} "
+            f"{rc:>9.9} {int(as_number(row['out_bytes']) or 0):>9} {duration:>8} "
             f"{str(row['notice'] or '-'):<10.10} {(caller[:8] or '-'):<10.10} "
             f"{row['workdir'] or '-'}"
         )
@@ -253,9 +277,10 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
 
 
 def _percent(value: Any) -> str:
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return f"{float(value) * 100:.0f}%" if value <= 1.0 else f"{float(value):.0f}%"
-    return "?"
+    number = as_number(value)
+    if number is None:
+        return "?"
+    return f"{number * 100:.0f}%" if number <= 1.0 else f"{number:.0f}%"
 
 
 def format_status(data: dict[str, Any]) -> str:
@@ -271,8 +296,6 @@ def format_status(data: dict[str, Any]) -> str:
         reading["label"] = age_adjusted_label(reading.get("label"),
                                               reading.get("observed_at"))
 
-    if data.get("offline"):
-        lines.append("(offline: read from the store; no daemon is running)")
     if not lanes:
         lines.append("no lanes enrolled — subfleet lanes enroll <credential>")
     else:
@@ -299,7 +322,7 @@ def format_status(data: dict[str, Any]) -> str:
                 f"{str(lane.get('provider') or '-'):<8.8} "
                 f"{str(lane.get('account_key') or '-'):<28.28} "
                 f"{str(lane.get('owner') or '-'):<6.6} "
-                f"{int(lane.get('in_flight') or 0):>6}  "
+                f"{int(as_number(lane.get('in_flight')) or 0):>6}  "
                 f"{' · '.join(marks) or 'no reading'}"
                 + (f"  [{', '.join(flags)}]" if flags else "")
             )
@@ -388,6 +411,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     if args.json:
         emit(data)
         return int(Exit.OK)
+    if data.get("offline"):
+        note(f"{PROG} status: offline — read from the store; "
+             f"readings are as of the last daemon write")
     out(format_status(data))
     return int(Exit.OK)
 
@@ -435,7 +461,10 @@ def stage_prompt(text: str, request_id: str, root: Path) -> Path:
                 stale.unlink()
         except OSError:
             pass
-    path = inbox / f"{request_id}.md"
+    # The request id is caller-supplied (C-1.5); it names the wire, never a
+    # path. A digest keeps the staging inside the state root (C-2.1).
+    digest = hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:32]
+    path = inbox / f"{digest}.md"
     handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(handle, "w") as stream:
         stream.write(text if text.endswith("\n") else text + "\n")
@@ -485,7 +514,7 @@ def _validate_run(args: argparse.Namespace) -> tuple[str | None, int | None]:
                           f"run: a workdir under /tmp is refused: {resolved} (C-2.4)",
                           "pass --allow-tmp, or use a directory under $HOME")
     if args.o:
-        parent = Path(args.o).expanduser().parent
+        parent = Path(args.o).expanduser().absolute().parent
         if not parent.is_dir():
             return None, fail(Exit.INVALID_INPUT,
                               f"run: -o directory does not exist: {parent}")
@@ -523,7 +552,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         tier=args.tier,
         pinned_model=args.m,
         pinned_lane=args.a or args.H,
-        out_path=str(Path(args.o).expanduser()) if args.o else None,
+        out_path=str(Path(args.o).expanduser().absolute()) if args.o else None,
         name=args.name,
         exclusions=list(args.exclude or []),
         allow_desktop=bool(args.allow_desktop),
@@ -637,8 +666,8 @@ def _wait_summary(job: dict[str, Any]) -> str:
     state = str(row["state"] or "unknown").upper()
     rc = row["rc"]
     label = state if state != "FAILED" or not isinstance(rc, int) else f"FAILED rc={rc}"
-    duration = "-" if not isinstance(row["duration_s"], (int, float)) \
-        else f"{float(row['duration_s']):.0f}s"
+    seconds = as_number(row["duration_s"])
+    duration = "-" if seconds is None else f"{seconds:.0f}s"
     target = (job.get("out_path") or _artifact_path(job, "deliverable")
               or job.get("deliverable_path") or "-")
     return (f"{PROG} wait: {row['id']} {label} · {row['model'] or '-'} · "
@@ -652,18 +681,30 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     started = time.monotonic()
     pending = {str(job_id) for job_id in ids}
     finished: dict[str, dict[str, Any]] = {}
+    timed_out = False
     try:
         client = _client(args, timeout=WAIT_POLL_MAX_S + 15)
         while True:
             remaining = None if timeout is None else timeout - (time.monotonic() - started)
             if remaining is not None and remaining <= 0:
+                timed_out = True
                 break
             deadline = WAIT_POLL_MAX_S if remaining is None else max(
                 1, min(WAIT_POLL_MAX_S, int(remaining)))
             poll = protocol.WaitArgs(job_ids=sorted(pending), mine=mine,
                                      last=last, deadline_s=deadline)
             before = time.monotonic()
-            result = client.call("wait", _asdict(poll), timeout=deadline + 15)
+            # `--timeout` is a wall-clock bound: a wedged daemon must still end
+            # in exit 124, not in a socket error (C-15.4, C-17.3).
+            budget = deadline + 15 if remaining is None else min(
+                deadline + 15, max(1.0, remaining + 1.0))
+            try:
+                result = client.call("wait", _asdict(poll), timeout=budget)
+            except ProtocolError:
+                if timeout is not None and timeout - (time.monotonic() - started) <= 0:
+                    timed_out = True
+                    break
+                raise
             jobs = _jobs_from_wait(result)
             for job_id, job in jobs.items():
                 if job.get("state") in TERMINAL_STATES:
@@ -693,13 +734,22 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
         else:
             note(_wait_summary(job))
         worst = max(worst, exit_for_job(job, quiet=as_json))
+    elapsed = time.monotonic() - started
     for job_id in sorted(pending):
-        elapsed = time.monotonic() - started
         if as_json:
             emit({"job_id": job_id, "state": "running", "timeout": True,
                   "waited_s": round(elapsed, 1)})
         else:
             note(f"{PROG} wait: {job_id} still running after {elapsed:.0f}s (timeout)")
+        worst = max(worst, int(Exit.WAIT_TIMEOUT))
+    if timed_out and not pending and not finished:
+        # --mine and --last never seed `pending`, so a deadline that expires
+        # before the daemon names a job is still a timeout, not success.
+        if as_json:
+            emit({"state": "running", "timeout": True, "waited_s": round(elapsed, 1)})
+        else:
+            note(f"{PROG} wait: nothing reached a terminal state in "
+                 f"{elapsed:.0f}s (timeout)")
         worst = max(worst, int(Exit.WAIT_TIMEOUT))
     return worst
 
@@ -866,6 +916,12 @@ def _ack_notices(client: Client, job: dict[str, Any]) -> None:
 
 
 def cmd_runs_show(args: argparse.Namespace) -> int:
+    if args.json and (args.out or args.err):
+        return fail(Exit.INVALID_INPUT,
+                    "runs show: --json is the metadata object; it cannot also "
+                    "stream an artifact",
+                    "run them separately: `runs show <id> --json` and "
+                    "`runs show <id> --out`")
     try:
         client = _client(args)
         job = client.call("show", _asdict(protocol.ShowArgs(job_id=args.id)))
@@ -1057,7 +1113,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
         prompt_path=str(prompt_path),
         sandbox=source.get("sandbox") or Sandbox.READ_ONLY.value,
         pinned_lane=source.get("lane_id") or source.get("lane"),
-        out_path=str(Path(args.output).expanduser()) if args.output
+        out_path=str(Path(args.output).expanduser().absolute()) if args.output
                  else source.get("out_path"),
         name=source.get("name"),
         parent_job_id=args.id,
@@ -1073,6 +1129,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
     except ProtocolError as exc:
         return fail(exc.code, str(exc))
     job_id = result.get("job_id") or ""
+    if not job_id:
+        return fail(Exit.OPERATIONAL, "resume: the daemon returned no job id")
     if args.json:
         emit({"job_id": job_id, "run_id": job_id, "request_id": request_id,
               "resumed_from": args.id, "created": bool(result.get("created", True))})
@@ -1161,7 +1219,13 @@ def cmd_ping(args: argparse.Namespace) -> int:
     if not target:
         return fail(Exit.INVALID_INPUT,
                     "ping: --session ID is required outside a Claude session")
-    text = " ".join(args.text) if args.text else sys.stdin.read()
+    if args.text:
+        text = " ".join(args.text)
+    else:
+        try:
+            text = sys.stdin.buffer.read().decode("utf-8", "replace")
+        except (OSError, ValueError) as exc:
+            return fail(Exit.INVALID_INPUT, f"ping: cannot read the message: {exc}")
     try:
         result = _client(args).call(
             "ping", _asdict(protocol.PingArgs(text=text, session_id=target)))
@@ -1196,6 +1260,20 @@ def _daemond_argv(root: Path) -> list[str]:
     if sibling.exists():
         return [str(sibling), "--state-root", str(root)]
     return [sys.executable, "-m", "subfleet.daemon", "--state-root", str(root)]
+
+
+# The daemon outlives the shell that starts it, and by C-5.1 every guardian and
+# provider child inherits its environment. An API key or a session id picked up
+# from one terminal must not become the fleet's ambient environment (C-14.4).
+STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
+                "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
+                "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH")
+
+
+def daemon_env(root: Path) -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if k not in STRIPPED_ENV}
+    env["SUBFLEET_HOME"] = str(root)
+    return env
 
 
 def _log_tail(path: Path, lines: int = 20) -> str:
@@ -1240,7 +1318,7 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
         with open(os.devnull, "rb") as devnull:
             child = subprocess.Popen(argv, stdin=devnull, stdout=log, stderr=log,
                                      start_new_session=True, cwd=str(root),
-                                     env={**os.environ, "SUBFLEET_HOME": str(root)})
+                                     env=daemon_env(root))
     except OSError as exc:
         log.close()
         return fail(Exit.OPERATIONAL,
@@ -1254,12 +1332,12 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
             note(f"{PROG} daemon: started (pid {info.get('pid') or child.pid}), "
                  f"socket {root / SOCKET_NAME}")
             return int(Exit.OK)
-        if child.poll() is not None:
-            break
+        if child.poll() not in (None, 0):
+            break                        # a real failure; a double fork exits 0
         time.sleep(0.05)
     note(f"{PROG} daemon start: {root / SOCKET_NAME} did not appear within 10s"
          + (f"; {' '.join(argv)} exited {child.returncode}"
-            if child.poll() is not None else ""))
+            if child.poll() not in (None, 0) else ""))
     note(_log_tail(log_path))
     return int(Exit.DAEMON_UNAVAILABLE)
 
@@ -1272,8 +1350,15 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
     if info is None:
         note(f"{PROG} daemon: not running (no {client.lock_path})")
         return int(Exit.OK)
-    alive = client.lock_holder_alive()
     pid = info.get("pid")
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return fail(Exit.OPERATIONAL,
+                    f"daemon stop: {client.lock_path} records no usable pid")
+    # One snapshot: re-reading the lock could verify a NEW daemon's identity and
+    # then signal the pid from the old read (C-5.4).
+    alive = same_process(pid, info.get("boot_id"), info.get("proc_start"))
     if alive is False:
         note(f"{PROG} daemon: not running (stale lock for pid {pid})")
         return int(Exit.OK)
@@ -1282,7 +1367,7 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
                     f"daemon stop: cannot verify that pid {pid} is the recorded "
                     f"daemon (C-5.3); refusing to signal it")
     try:
-        os.kill(int(pid), _signal.SIGTERM)
+        os.kill(pid, _signal.SIGTERM)
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon stop: SIGTERM to {pid} failed: {exc}")
     note(f"{PROG} daemon: SIGTERM sent to pid {pid}")
@@ -1290,7 +1375,7 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
     # cleans up removes the lock, and a missing lock is not evidence of an exit.
     deadline = time.monotonic() + 15.0
     while time.monotonic() < deadline:
-        if same_process(int(pid), info.get("boot_id"), info.get("proc_start")) is False:
+        if same_process(pid, info.get("boot_id"), info.get("proc_start")) is False:
             note(f"{PROG} daemon: stopped")
             return int(Exit.OK)
         time.sleep(0.1)
@@ -1340,7 +1425,9 @@ def cmd_daemon_logs(args: argparse.Namespace) -> int:
         text = path.read_text(errors="replace")
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon logs: {exc}")
-    for line in text.splitlines()[-args.lines:]:
+    if args.lines < 0:
+        return fail(Exit.INVALID_INPUT, "daemon logs: --lines must be non-negative")
+    for line in (text.splitlines()[-args.lines:] if args.lines else []):
         out(line)
     if not args.follow:
         return int(Exit.OK)
@@ -1375,6 +1462,7 @@ def _plist(root: Path) -> bytes:
 
 def cmd_daemon_install(args: argparse.Namespace) -> int:
     root = _root(args)
+    already_running = _daemon_alive(Client(root))
     plist = _plist(root)
     target = Path(PLIST_PATH).expanduser()
     if args.dry_run:
@@ -1396,7 +1484,20 @@ def cmd_daemon_install(args: argparse.Namespace) -> int:
                     f"daemon install: launchctl load failed: "
                     f"{(loaded.stderr or loaded.stdout).strip()}")
     note(f"{PROG} daemon install: loaded {PLIST_LABEL} (KeepAlive, RunAtLoad)")
-    return int(Exit.OK)
+    if already_running:
+        note(f"  a daemon was already running; launchd owns the next one — "
+             f"`{PROG} daemon stop` when you want it to take over")
+        return int(Exit.OK)
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if _daemon_alive(Client(root)):
+            note(f"  socket {root / SOCKET_NAME} is up")
+            return int(Exit.OK)
+        time.sleep(0.05)
+    note(f"{PROG} daemon install: {PLIST_LABEL} is loaded but "
+         f"{root / SOCKET_NAME} did not appear within 10s")
+    note(_log_tail(root / LOG_NAME))
+    return int(Exit.DAEMON_UNAVAILABLE)
 
 
 def cmd_daemon(args: argparse.Namespace) -> int:
@@ -1469,6 +1570,15 @@ def doctor_checks(root: Path, *,
                    "detail": f"{root}: " + (", ".join(present) if present
                                             else "empty (the daemon has not run yet)")})
     client = Client(root)
+    encoded = len(str(client.socket_path).encode())
+    checks.append({
+        "check": "socket path fits AF_UNIX",
+        "status": "ok" if encoded <= AF_UNIX_PATH_MAX else "fail",
+        "detail": (f"{encoded} bytes" if encoded <= AF_UNIX_PATH_MAX else
+                   f"{client.socket_path} is {encoded} bytes; the kernel caps a "
+                   f"unix socket path near {AF_UNIX_PATH_MAX}, so no daemon can "
+                   f"ever listen there — set SUBFLEET_HOME to a shorter path"),
+    })
     sock, lock = client.socket_path.exists(), client.lock_info()
     alive = client.lock_holder_alive()
     if not sock and lock is None:

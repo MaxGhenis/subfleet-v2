@@ -5,6 +5,7 @@ Every test names the clause it proves (C-20.5).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import plistlib
@@ -259,4 +260,81 @@ def test_doctor_names_a_missing_never_rules_hook(root, capsys, monkeypatch):
     rows = {check["check"]: check
             for check in cli.doctor_checks(root, claude_settings=settings)}
     assert rows["never-rules hook in ~/.claude/settings.json"]["status"] == "warn"
+    capsys.readouterr()
+
+
+def test_daemon_start_waits_out_a_self_daemonising_subfleetd(root, monkeypatch,
+                                                             tmp_path, capsys):
+    """C-17.1 a subfleetd that double-forks exits 0; that is not a failure."""
+    forking = tmp_path / "forking-subfleetd"
+    forking.write_text(STUB.format(python=sys.executable, repo=REPO).replace(
+        'root = Path(sys.argv[sys.argv.index("--state-root") + 1])',
+        'if os.fork():\n    os._exit(0)\n'
+        'os.setsid()\n'
+        'root = Path(sys.argv[sys.argv.index("--state-root") + 1])'))
+    forking.chmod(0o755)
+    monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(forking))
+    try:
+        assert cli.main(["daemon", "start"]) == 0
+        assert (root / "daemon.sock").exists()
+    finally:
+        capsys.readouterr()
+        info = Client(root).lock_info() or {}
+        if isinstance(info.get("pid"), int):
+            with contextlib.suppress(OSError):
+                os.kill(info["pid"], signal.SIGKILL)
+
+
+def test_the_daemon_does_not_inherit_api_keys_or_a_session(root, monkeypatch):
+    """C-14.4 the daemon outlives the shell, so it starts from a scrubbed env."""
+    for name in ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
+                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID"):
+        monkeypatch.setenv(name, "leaked")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    env = cli.daemon_env(root)
+    assert not {name for name in env if name in cli.STRIPPED_ENV}
+    assert env["SUBFLEET_HOME"] == str(root)
+    assert env["PATH"] == "/usr/bin:/bin"
+
+
+def test_daemon_stop_verifies_and_signals_one_snapshot(root, monkeypatch, capsys):
+    """C-5.4 the lock is read once, so a new daemon's identity cannot vouch for
+    an old daemon's pid."""
+    seen: list[int] = []
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 4242, "boot_id": "b", "proc_start": "recorded"}))
+    monkeypatch.setattr("subfleet.cli.same_process",
+                        lambda pid, boot, start: seen.append(pid) or (
+                            True if len(seen) == 1 else False))
+    monkeypatch.setattr(os, "kill", lambda pid, sig: seen.append(-pid))
+    assert cli.main(["daemon", "stop"]) == 0
+    assert seen[0] == 4242 and -4242 in seen
+    assert "stopped" in capsys.readouterr().err
+
+
+def test_daemon_stop_refuses_a_lock_with_no_usable_pid(root, capsys):
+    """C-5.8 a lock the CLI cannot read a pid out of is not something to signal."""
+    (root / "daemon.lock").write_text(json.dumps({"pid": "not a number"}))
+    assert cli.main(["daemon", "stop"]) == 1
+    assert "no usable pid" in capsys.readouterr().err
+
+
+def test_daemon_logs_line_counts(root, capsys):
+    """C-17.3 `-n 0` prints nothing and a negative count is invalid input."""
+    (root / "daemon.log").write_text("a\nb\nc\n")
+    assert cli.main(["daemon", "logs", "-n", "0"]) == 0
+    assert capsys.readouterr().out == ""
+    assert cli.main(["daemon", "logs", "-n", "-1"]) == 2
+    assert "non-negative" in capsys.readouterr().err
+
+
+def test_doctor_names_a_state_root_whose_socket_cannot_exist(capsys, monkeypatch,
+                                                             tmp_path):
+    """C-2.1 a SUBFLEET_HOME too deep for AF_UNIX can never hold a daemon."""
+    deep = tmp_path / ("d" * 120)
+    deep.mkdir()
+    monkeypatch.setattr(cli, "_version", lambda binary: ("ok", f"stub {binary}"))
+    rows = {check["check"]: check for check in cli.doctor_checks(deep)}
+    row = rows["socket path fits AF_UNIX"]
+    assert row["status"] == "fail" and "shorter path" in row["detail"]
     capsys.readouterr()
