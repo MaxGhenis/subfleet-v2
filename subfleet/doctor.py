@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from .client import Client, DaemonError, DaemonUnavailable, LOCK_NAME, SOCKET_NAME
+from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
@@ -356,6 +357,34 @@ def check_live(root: Path) -> dict[str, Any]:
                "`subfleet daemon status` for the rest")
 
 
+def check_mirror(root: Path) -> dict[str, Any]:
+    """C-23.28: mirror health is a state file, never a quiet log.
+
+    Judged only from the mirror's per-pass sidecar: a pass the sidecar records
+    as in flight is healthy until thirty minutes after its recorded start, and
+    only then is the mirror `stalled`. v1 read the log's mtime instead and
+    reported a false "stalled" on 2026-08-19 07:08, because `--quiet` keeps the
+    log silent on a no-op pass. An absent sidecar is `unknown`, not a failure:
+    a fresh install has simply never run a pass.
+    """
+    from .sessions import mirror as mirror_module
+    try:
+        policy = load_policy(root / "policy.json")
+    except (PolicyError, OSError):
+        try:
+            policy = load_policy(DEFAULT_POLICY_PATH)
+        except (PolicyError, OSError):
+            policy = {}
+    health = mirror_module.health(root, policy)
+    fix = "`subfleet sessions mirror --once`, then `subfleet daemon logs -n 40`"
+    if health["status"] == "absent":
+        return row("desktop sidebar mirror", UNKNOWN, health["detail"], fix)
+    if health["status"] == "stalled":
+        return row("desktop sidebar mirror", FAIL, health["detail"], fix)
+    return row("desktop sidebar mirror", PASS, health["detail"],
+               "`subfleet sessions mirror --status` for the sidecar")
+
+
 # --- the table ----------------------------------------------------------------
 
 def checks(root: Path, *, live: bool = False,
@@ -372,7 +401,9 @@ def checks(root: Path, *, live: bool = False,
         check_state_root(root),
         check_socket_path(root),
         check_daemon_lock(root),
-        *(check_module(name) for name in ("store", "procs", "compat", "hooks")),
+        check_mirror(root),
+        *(check_module(name) for name in ("store", "procs", "compat", "hooks",
+                                          "sessions.mirror")),
     ]
     if live:
         rows.append(check_live(root))

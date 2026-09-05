@@ -35,6 +35,8 @@ Delivery is one `ping` — a notice row the daemon's delivery ladder carries
 
 from __future__ import annotations
 
+import os
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -46,6 +48,11 @@ from .transcripts import MARKER, MUSTER_MARKER, TurnState
 
 #: A `SessionStart` whose source is not a restart never earns a nudge (C-23.33).
 RESTART_SOURCES = frozenset({"startup", "resume"})
+
+#: v1's operator kill switch, kept because it is the one thing a person reaches
+#: for when an automatic sweep misbehaves at 07:00 and the skills document it.
+TICKLE_ENV = "SUBFLEET_TICKLE"
+OFF = frozenset({"off", "0", "false", "no"})
 
 #: The scopes `sessions continue` accepts. `interrupted` is v1's `tickle`,
 #: `idle` is v1's `muster`, and `cold` is v1's `revive` — which in v2 defaults
@@ -121,9 +128,50 @@ def caps(policy: dict[str, Any]) -> dict[str, float]:
     }
 
 
+def enabled(env: dict[str, str] | None = None) -> bool:
+    """`SUBFLEET_TICKLE=off` stops every automatic nudge (v1's own switch)."""
+    values = os.environ if env is None else env
+    return (values.get(TICKLE_ENV) or "on").strip().lower() not in OFF
+
+
 def source_allows(source: str | None) -> bool:
     """C-23.33: only `startup` and `resume` are restarts."""
     return source is None or source in RESTART_SOURCES
+
+
+def spawn(session_id: str, *, source: str | None, transcript: str | Path | None,
+          delay_s: float, root: str | Path | None = None,
+          popen=None) -> int | None:
+    """Start the detached worker a `SessionStart` hook needs (C-23.34).
+
+    The hook must return at once — the inbox binds a moment after SessionStart,
+    and a hook that blocks blocks the session — so it records the wake by
+    handing the session id, its source and the transcript to a worker that
+    re-decides everything after the delay. `python -m` rather than a console
+    script: the guardian is launched the same way, and neither depends on PATH.
+    """
+    import subprocess
+    launcher = popen or subprocess.Popen
+    command = [sys.executable, "-m", "subfleet.sessions.cli", "continue",
+               "--scope", "interrupted", "--session", session_id,
+               "--delay", str(delay_s)]
+    if source:
+        command += ["--source", source]
+    if transcript:
+        command += ["--transcript", str(transcript)]
+    environment = dict(os.environ)
+    if root:
+        environment["SUBFLEET_HOME"] = str(root)
+    package = str(Path(__file__).resolve().parents[2])
+    environment["PYTHONPATH"] = (package + os.pathsep + environment["PYTHONPATH"]
+                                 if environment.get("PYTHONPATH") else package)
+    try:
+        process = launcher(command, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           start_new_session=True, close_fds=True, env=environment)
+    except OSError:
+        return None
+    return process.pid
 
 
 def decide(session_id: str, state: TurnState, *, scope: str, limits: dict[str, float],

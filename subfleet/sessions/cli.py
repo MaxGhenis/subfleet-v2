@@ -184,12 +184,13 @@ def cmd_continue(args: argparse.Namespace) -> int:
     named = [value for value in (getattr(args, "sessions", None) or []) if value]
     if getattr(args, "session", None):
         named.append(args.session)
+    source = getattr(args, "source", None)
     report = nudge_module.sweep(
         sessions, policy, scope=scope, only=named,
-        transcript=getattr(args, "transcript", None),
+        transcript=getattr(args, "transcript", None), source=source,
         force=bool(getattr(args, "force", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
-        delay_s=getattr(args, "delay", None), manual=True)
+        delay_s=getattr(args, "delay", None), manual=source is None)
     if args.json:
         emit(report.to_dict())
         return int(Exit.OK)
@@ -444,6 +445,11 @@ def add_continue_flags(parser: argparse.ArgumentParser) -> None:
                              "the session's own recorded tier (C-23.39)")
     parser.add_argument("--max", type=int, default=None, metavar="N",
                         help="with --scope cold: cap concurrent revives")
+    parser.add_argument("--source", metavar="SOURCE",
+                        help="the SessionStart source that woke this sweep "
+                             "(startup|resume|compact|clear); passing one marks "
+                             "the sweep a hook wake rather than a hand-started "
+                             "one, which shortens the quiet window (C-23.34)")
 
 
 def build_parser() -> argparse.ArgumentParser:
