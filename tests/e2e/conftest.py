@@ -140,6 +140,20 @@ class E2E:
             ])
         (self.root / "lanes.json").write_text(json.dumps(lanes))
 
+    def setup_token_lane(self, number: int) -> None:
+        """C-10.6: re-record one Claude lane as a setup-token enrolment.
+
+        Such a lane has the operator's label and no identity, because the token
+        it holds cannot ask the profile endpoint who it is (403).
+        """
+        path = self.root / "lanes.json"
+        lanes = json.loads(path.read_text())
+        for lane in lanes:
+            if lane["lane_id"] == f"claude-{number}":
+                lane.update(identity=None, identity_status="enrolled",
+                            account_key=f"claude:{lane['label']}")
+        path.write_text(json.dumps(lanes))
+
     def init_repo(self):
         """C-6.5, C-13.1: use a disposable feature branch with a salvage baseline."""
         if (self.workdir / ".git").exists():
