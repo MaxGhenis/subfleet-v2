@@ -257,6 +257,7 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
           only: Sequence[str] = (), transcript: str | Path | None = None,
           source: str | None = None, force: bool = False, dry_run: bool = False,
           delay_s: float | None = None, manual: bool = True,
+          caller: str | None = None,
           now: Callable[[], datetime] | None = None,
           sleep: Callable[[float], None] = time.sleep) -> Report:
     """Nudge every eligible session once (C-23.33, C-23.34).
@@ -264,6 +265,16 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
     `sessions` is a `client.Sessions`. `manual` marks a sweep a person started,
     which requires the longer quiet window; a `SessionStart` wake passes
     `manual=False` and its own `source`.
+
+    The wait before the re-check is per session and differs by path, exactly as
+    v1's did: a `SessionStart` wake waits `nudge_delay_s` (8 s) because the
+    inbox binds a moment after the hook runs, and a sweep waits the much shorter
+    `nudge_sample_s` (3 s) because it is only sampling for activity and would
+    otherwise spend eight seconds per session on a fleet of twenty.
+
+    `caller` is the session running the sweep, and a sweep never nudges it: a
+    long tool call writes no turns, so the sweeping session looks interrupted to
+    itself. Naming it explicitly still works — that is a person's decision.
     """
     clock = now or (lambda: datetime.now(timezone.utc))
     limits = caps(policy)
@@ -295,9 +306,17 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
     report.duplicates = registry.duplicate_report(listing)
 
     quiet_s = limits["muster_quiet_s"] if scope == "idle" else limits["sweep_quiet_s"]
-    wait_s = limits["delay_s"] if delay_s is None else float(delay_s)
+    default_wait = limits["sample_s"] if manual else limits["delay_s"]
+    wait_s = default_wait if delay_s is None else float(delay_s)
 
     for item in listing:
+        if caller and item.session_id == caller and item.session_id not in wanted:
+            # v1's rule: a long tool call writes no turns, so the session running
+            # the sweep can look dead to itself and nudge itself mid-work.
+            report.outcomes.append(Outcome(
+                session_id=item.session_id, scope=scope, name=item.row.name,
+                pid=item.pid, reason="this session (a sweep never nudges itself)"))
+            continue
         if item.lane:
             # C-23.31: a headless lane run is never a notice target; its
             # deliverable is its last message and a nudge would become it.

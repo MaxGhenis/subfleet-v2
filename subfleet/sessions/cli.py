@@ -200,7 +200,8 @@ def cmd_continue(args: argparse.Namespace) -> int:
         transcript=getattr(args, "transcript", None), source=source,
         force=bool(getattr(args, "force", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
-        delay_s=getattr(args, "delay", None), manual=source is None)
+        delay_s=getattr(args, "delay", None), manual=source is None,
+        caller=_cli().session_id())
     # C-23.31: a request naming a headless lane run is refused with the reason.
     # A sweep that merely passed over one reports 0 — its exit code says whether
     # the sweep ran, not whether every session qualified — but a person who

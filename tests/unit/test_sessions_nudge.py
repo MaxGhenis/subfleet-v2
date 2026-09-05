@@ -325,6 +325,51 @@ def test_muster_ignores_a_session_outside_the_roll_call_window(home, policy):
     assert "roll-call window" in report.outcomes[0].reason
 
 
+# --- the caller's own session, and the wait (v1 parity) -----------------------
+
+def test_a_sweep_never_nudges_the_session_running_it(home, policy):
+    """v1's rule, kept: a long tool call writes no turns, so the session running
+    the sweep looks interrupted to itself and would nudge itself mid-work."""
+    live(home, ALICE, entries=fx.interrupted(age_s=1800))
+    daemon = fx.FakeSessions()
+    report = sweep(daemon, policy, scope="interrupted", manual=False, caller=ALICE)
+    assert daemon.pings == []
+    assert "a sweep never nudges itself" in report.outcomes[0].reason
+
+
+def test_naming_your_own_session_still_nudges_it(home, policy):
+    """The self-exclusion is a sweep rule, not a prohibition: a person who names
+    their own session has made a decision."""
+    live(home, ALICE, entries=fx.interrupted(age_s=1800))
+    daemon = fx.FakeSessions()
+    report = sweep(daemon, policy, scope="interrupted", manual=False,
+                   caller=ALICE, only=[ALICE])
+    assert report.outcomes[0].delivered is True
+
+
+def test_a_sweep_samples_briefly_and_a_hook_wake_waits_for_the_inbox(home, policy):
+    """v1's two waits, kept apart: a `SessionStart` wake waits 8 s because the
+    inbox binds a moment after the hook runs; a sweep waits 3 s because it is
+    only sampling, and eight seconds per session over a fleet is a minute wasted.
+    """
+    live(home, ALICE, entries=fx.interrupted(age_s=1800))
+    waited: list[float] = []
+    nudge.sweep(fx.FakeSessions(), policy, scope="interrupted", manual=True,
+                now=clock, sleep=waited.append)
+    nudge.sweep(fx.FakeSessions(), policy, scope="interrupted", manual=False,
+                now=clock, sleep=waited.append)
+    assert waited == [3.0, 8.0]
+
+
+def test_an_explicit_delay_overrides_both(home, policy):
+    """v1's `_tickle --delay S`, kept: the hook passes the policy value through."""
+    live(home, ALICE, entries=fx.interrupted(age_s=1800))
+    waited: list[float] = []
+    nudge.sweep(fx.FakeSessions(), policy, scope="interrupted", manual=False,
+                delay_s=0.5, now=clock, sleep=waited.append)
+    assert waited == [0.5]
+
+
 # --- the sweep's own shape ----------------------------------------------------
 
 def test_a_named_session_that_is_not_live_is_reported_not_silently_dropped(home, policy):
