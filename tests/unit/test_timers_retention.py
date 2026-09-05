@@ -2,6 +2,8 @@
 
 import json
 from pathlib import Path
+import threading
+import time
 
 import pytest
 
@@ -114,3 +116,79 @@ def test_unreadable_tree_is_pinned_and_reported(retained, monkeypatch):
     assert result["protected"] == ["old"]
     assert result["errors"][0]["job_id"] == "old"
     assert store.get_job("old") is not None
+
+
+@pytest.mark.parametrize("reason", ["cancelled", "deadline"])
+def test_interrupted_retention_does_no_scan_or_mutation(retained, monkeypatch, reason):
+    """C-16.4, C-8.4: a cancelled or expired maintenance pass preserves jobs without scanning files."""
+    store, root = retained
+    directory = job(store, root, "old")
+    job(store, root, "active", state="running")
+    cancel = threading.Event()
+    if reason == "cancelled":
+        cancel.set()
+    deadline = time.monotonic() - 1 if reason == "deadline" else None
+    before = store.connection.total_changes
+    monkeypatch.setattr(retention, "_size", lambda *args, **kwargs: pytest.fail("interrupted pass must not scan"))
+    result = retention.maintenance(store, root, max_jobs=0, cancel=cancel, deadline=deadline)
+    assert result["interrupted"] == reason
+    assert result["pruned"] == []
+    assert result["protected"] == ["active", "old"]
+    assert result["bytes_before"] is None
+    assert result["bytes_after"] is None
+    assert store.connection.total_changes == before
+    assert directory.exists()
+
+
+def test_retention_byte_scan_observes_cancellation(retained, monkeypatch):
+    """C-16.4, C-8.4: cancellation interrupts a directory walk without publishing partial byte totals."""
+    store, root = retained
+    directory = job(store, root, "old")
+    cancel = threading.Event()
+    before = store.connection.total_changes
+    visited = []
+    original = retention.os.walk
+
+    def interrupted_walk(path, **kwargs):
+        for item in original(path, **kwargs):
+            visited.append(item[0])
+            cancel.set()
+            yield item
+
+    monkeypatch.setattr(retention.os, "walk", interrupted_walk)
+    result = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
+    assert result["interrupted"] == "cancelled"
+    assert len(visited) == 1
+    assert result["bytes_before"] is None
+    assert result["pruned"] == []
+    assert store.connection.total_changes == before
+    assert directory.exists()
+
+
+def test_cancel_after_filesystem_stage_preserves_rows_and_is_retryable(retained, monkeypatch):
+    """C-16.4, C-8.4: cancellation after a removal stage prevents further DB writes and later-job deletion."""
+    store, root = retained
+    first = job(store, root, "a")
+    later = job(store, root, "b")
+    cancel = threading.Event()
+    changes_at_cancel = []
+    original = retention.shutil.rmtree
+
+    def remove_then_cancel(path):
+        original(path)
+        changes_at_cancel.append(store.connection.total_changes)
+        cancel.set()
+
+    monkeypatch.setattr(retention.shutil, "rmtree", remove_then_cancel)
+    result = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
+    assert result["interrupted"] == "cancelled"
+    assert result["pruned"] == []
+    assert result["protected"] == ["a", "b"]
+    assert not first.exists()
+    assert later.exists()
+    assert store.get_job("a") is not None
+    assert store.connection.total_changes == changes_at_cancel[0]
+    monkeypatch.setattr(retention.shutil, "rmtree", original)
+    resumed = retention.maintenance(store, root, max_jobs=0)
+    assert resumed["pruned"] == ["a", "b"]
+    assert resumed["bytes_after"] == 0
