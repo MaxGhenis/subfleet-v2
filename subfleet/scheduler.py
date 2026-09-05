@@ -14,7 +14,7 @@ from typing import Any
 
 from .capacity import fresh_provider
 from .contracts import DEFAULT_CAPS, HEADROOM_FLOOR, Decision, Exit
-from .policy import lane_capacity, resolve_model
+from .policy import resolve_model
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -187,7 +187,10 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                 reasons.append("disabled")
             reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in scoped_closures
                            if row["lane_id"] == identity)
-            slot_cap = lane_capacity(policy, identity, readings, now=now)
+            lane_measured = any(row["lane_id"] == identity and fresh_provider(
+                row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
+            slot_cap = (caps["max_in_flight_per_lane"] if lane_measured else
+                        min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
             if capacity_blocks or in_flight.get(identity, 0) >= slot_cap:
                 reasons.append("no-slot")
             if any(row["utilization"] >= 1 - floor for row in measured_readings):

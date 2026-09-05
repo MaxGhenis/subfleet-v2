@@ -212,6 +212,14 @@ def test_admission_observed_does_not_grant_measured_capacity(policy):
     assert probe_required(evaluate(policy, snapshot, spec), spec)
 
 
+def test_provider_label_without_numeric_window_does_not_grant_second_slot(policy):
+    """C-6.4, C-9.1: an incomplete provider reading cannot grant measured concurrency."""
+    snapshot = view([lane()], [reading("claude-1", None)], attempts=[attempt("claude-1")])
+    result = evaluate(policy, snapshot, job(pinned_model="opus"))
+    assert exit_code(result) == Exit.NO_LANE
+    assert result.evaluations[0]["rejections"][0]["reasons"] == ["no-slot"]
+
+
 def test_retired_sol_alias_resolves_with_note(policy, capsys):
     """C-11.1, C-17.2: the retired Sol pin resolves to Astra with a stderr note."""
     decision = evaluate(policy, view([lane("codex-1")]), job(pinned_model="sol"))
