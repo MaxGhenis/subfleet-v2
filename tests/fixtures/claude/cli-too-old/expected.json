@@ -1,0 +1,33 @@
+{
+  "case": "cli-too-old",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "The sentence is quoted verbatim in v1 bin/subfleet-claude as the message observed from Claude Code 2.1.228; the 400 envelope around it is assembled.",
+  "requested_model": "claude-fable-5-1",
+  "session_id": "66666666-6666-4666-8666-666666666666",
+  "class": "cli-too-old",
+  "detail_contains": "does not support this model",
+  "evidence": {
+    "auth": "not reached",
+    "admission": "not reached",
+    "quota": "not reached",
+    "cli": "version gate"
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": null,
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": false,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": null,
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "case": "auth-signature-false-positive",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "Synthetic, modelled on the false positive v1 guards against with a live token probe (bin/subfleet-claude AUTH_SIGNATURE_FALSE_POSITIVE): a 401 from something other than the lane credential, with system/init present and the server still reporting quota. rate_limit_info is the verbatim experiment-0 max@axiom.org payload.",
+  "requested_model": "claude-opus-5",
+  "session_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  "class": "transient",
+  "detail_contains": "auth signature",
+  "evidence": {
+    "auth": "system/init present; 401 signature not from the lane credential",
+    "admission": "rate_limit_event.status=allowed",
+    "quota": "rate_limit_event.unifiedWindows"
+  },
+  "closure": null,
+  "readings": [
+    {
+      "scope": "account",
+      "window": "five_hour",
+      "utilization": 0.05,
+      "resets_at_epoch": 1788624000,
+      "label": "provider",
+      "source": "rate_limit_event"
+    },
+    {
+      "scope": "account",
+      "window": "seven_day",
+      "utilization": 0.25,
+      "resets_at_epoch": 1789056000,
+      "label": "provider",
+      "source": "rate_limit_event"
+    }
+  ],
+  "deliverable": null,
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 1,
+    "result_subtype": "error_during_execution",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "case": "stream-disconnect",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "Synthetic. The api_retry frames use the CLI's own schema and its `error` enum members server_error / overloaded; the stderr sentence is verbatim from the Claude Code 2.1.260 string table. The final line is cut mid-JSON the way a killed pipe leaves it.",
+  "requested_model": "claude-opus-5",
+  "session_id": "88888888-8888-4888-8888-888888888888",
+  "class": "transient",
+  "detail_contains": "connection",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "no rate_limit_event",
+    "quota": "not reached"
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": null,
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": null,
+    "truncated_tail": true,
+    "bad_lines": 0
+  }
+}

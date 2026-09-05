@@ -1,0 +1,51 @@
+{
+  "case": "ok-with-background-task-warning",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 0,
+  "synthetic": true,
+  "provenance": "The stderr line is the real, byte-for-byte stderr of v1 run 20260905-063243-us-housing-source-graph (rc 0, lane max@farness.ai). rate_limit_info is the verbatim experiment-0 max.ghenis@gmail.com payload. The stream frames and the deliverable text are assembled: the real run's output is the lane's own prose and is not fixture material.",
+  "requested_model": "claude-opus-5",
+  "session_id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+  "class": "ok",
+  "detail_contains": "rate_limit_event",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "rate_limit_event.status=allowed",
+    "quota": "rate_limit_event.unifiedWindows"
+  },
+  "closure": null,
+  "readings": [
+    {
+      "scope": "account",
+      "window": "five_hour",
+      "utilization": 0.42,
+      "resets_at_epoch": 1788612600,
+      "label": "provider",
+      "source": "rate_limit_event"
+    },
+    {
+      "scope": "account",
+      "window": "seven_day",
+      "utilization": 0.33,
+      "resets_at_epoch": 1788616800,
+      "label": "provider",
+      "source": "rate_limit_event"
+    }
+  ],
+  "deliverable": "Done: the graph builds and the tests pass.",
+  "attestation": {
+    "status": "attested",
+    "served_model": "claude-opus-5"
+  },
+  "stream": {
+    "init": true,
+    "assistants": 1,
+    "assistant_models": [
+      "claude-opus-5"
+    ],
+    "rate_limit_events": 1,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

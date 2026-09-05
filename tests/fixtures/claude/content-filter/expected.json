@@ -1,0 +1,51 @@
+{
+  "case": "content-filter",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 0,
+  "synthetic": true,
+  "provenance": "Synthetic. `stop_reason: \"refusal\"` is the signal Claude Code 2.1.260 documents as 'detecting stop_reason \"refusal\" on the assistant error frame'; the rate_limit_info is the verbatim experiment-0 max@axiom.org payload, so a refusal still reports capacity.",
+  "requested_model": "claude-opus-5",
+  "session_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  "class": "content-filter",
+  "detail_contains": "refusal",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "rate_limit_event.status=allowed",
+    "quota": "rate_limit_event.unifiedWindows"
+  },
+  "closure": null,
+  "readings": [
+    {
+      "scope": "account",
+      "window": "five_hour",
+      "utilization": 0.05,
+      "resets_at_epoch": 1788624000,
+      "label": "provider",
+      "source": "rate_limit_event"
+    },
+    {
+      "scope": "account",
+      "window": "seven_day",
+      "utilization": 0.25,
+      "resets_at_epoch": 1789056000,
+      "label": "provider",
+      "source": "rate_limit_event"
+    }
+  ],
+  "deliverable": "I can't help with that.",
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 1,
+    "assistant_models": [
+      "claude-opus-5"
+    ],
+    "rate_limit_events": 1,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

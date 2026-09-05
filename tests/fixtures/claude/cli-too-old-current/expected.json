@@ -1,0 +1,33 @@
+{
+  "case": "cli-too-old-current",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "'Update Claude Code to use this model' is verbatim from the installed Claude Code 2.1.260 string table (the current wording of the gate v1 matched as 'does not support this model'); the envelope is assembled.",
+  "requested_model": "claude-fable-5-1",
+  "session_id": "77777777-7777-4777-8777-777777777777",
+  "class": "cli-too-old",
+  "detail_contains": "Update Claude Code",
+  "evidence": {
+    "auth": "not reached",
+    "admission": "not reached",
+    "quota": "not reached",
+    "cli": "version gate"
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": null,
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": false,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": null,
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}
