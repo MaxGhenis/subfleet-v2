@@ -234,6 +234,7 @@ def job_row(row: dict[str, Any]) -> dict[str, Any]:
         "caller_session": merged.get("caller_session"),
         "workdir": merged.get("workdir"),
         "outcome_class": merged.get("outcome_class"),
+        "receipts": merged.get("receipts") or {},
         "attestation": merged.get("attestation"),
         "name": merged.get("name"),
     }
@@ -255,7 +256,11 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
     ]
     for row in normalised:
         state = row["state"]
-        if state in LIVE_STATES:
+        if state in LIVE_STATES and "exit" in (row["receipts"] or {}):
+            # C-17.5: the guardian's receipt says it finished; the row has not
+            # caught up because no daemon has finalized it yet.
+            rc = "EXITED"
+        elif state in LIVE_STATES:
             rc = str(state).upper()
         elif isinstance(row["rc"], int) and not isinstance(row["rc"], bool):
             rc = str(row["rc"])
@@ -874,9 +879,17 @@ def _format_job(job: dict[str, Any]) -> str:
     if attempts:
         lines.append("attempts")
         for attempt in attempts:
+            receipts = attempt.get("receipts") or {}
+            receipt = ""
+            if "exit" in receipts:
+                receipt = (f" · exit.json rc={receipts['exit'].get('rc')}"
+                           f" wall={receipts['exit'].get('wall_s')}")
+            elif "start" in receipts:
+                receipt = f" · start.json pgid={receipts['start'].get('pgid')}"
             lines.append(
                 f"  a{attempt.get('seq')} {attempt.get('state')} "
                 f"lane={attempt.get('lane_id')} model={attempt.get('model_requested')}"
+                + receipt
                 + (f" rc={attempt.get('rc')}" if attempt.get("rc") is not None else "")
                 + (f" class={attempt.get('outcome_class')}"
                    if attempt.get("outcome_class") else "")

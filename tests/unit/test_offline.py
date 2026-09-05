@@ -394,3 +394,62 @@ def test_reap_prefers_the_core_lanes_identity_check_when_it_lands(store, capsys,
     captured = capsys.readouterr()
     assert "identity checked with subfleet.procs" in captured.err
     assert JOB in captured.out
+
+
+def _write_receipt(root: Path, job_id: str, seq: int, name: str, data: dict) -> None:
+    directory = root / "jobs" / job_id / f"a{seq}"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.json").write_text(json.dumps(data))
+
+
+def test_offline_reads_the_guardian_receipts(store, capsys):
+    """C-17.5, C-5.2 offline mode reads the receipts beside the store."""
+    _write_receipt(store, JOB, 1, "start",
+                   {"guardian_pid": 999999, "pgid": 999999, "boot_id": "b",
+                    "proc_start": "recorded", "started_at": NOW})
+    _write_receipt(store, JOB, 1, "exit",
+                   {"rc": 0, "signal": None, "finished_at": NOW, "wall_s": 12.5,
+                    "child_pid": 1235})
+    assert cli.main(["runs"]) == 0
+    # The row still says running; the receipt says the guardian is done.
+    assert "EXITED" in capsys.readouterr().out
+    assert cli.main(["runs", "show", JOB]) == 0
+    text = capsys.readouterr().out
+    assert "exit.json rc=0" in text and "wall=12.5" in text
+
+
+def test_a_started_but_unfinished_attempt_shows_its_start_receipt(store, capsys):
+    """C-5.2 a start receipt with no exit receipt still reports what it knows."""
+    _write_receipt(store, JOB, 1, "start", {"guardian_pid": 999999, "pgid": 999999})
+    assert cli.main(["runs"]) == 0
+    assert "RUNNING" in capsys.readouterr().out
+    assert cli.main(["runs", "show", JOB]) == 0
+    assert "start.json pgid=999999" in capsys.readouterr().out
+
+
+def test_offline_kill_will_not_signal_an_attempt_that_already_exited(store, capsys):
+    """C-17.5 a finish receipt means there is nothing left to signal."""
+    _write_receipt(store, JOB, 1, "exit", {"rc": 4, "finished_at": NOW})
+    assert cli.main(["kill", JOB]) == 0
+    captured = capsys.readouterr()
+    assert "already-exited" in captured.out
+    assert "rc 4" in captured.err and "will finalize it" in captured.err
+
+
+def test_a_deliverable_on_disk_is_found_without_its_artifact_row(store, capsys):
+    """C-17.5 a daemon that died before recording the artifact still leaves the file."""
+    directory = store / "jobs" / JOB / "a1"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "deliverable.md").write_text("# written, never recorded\n")
+    assert cli.main(["runs", "show", JOB, "--out"]) == 0
+    assert capsys.readouterr().out == "# written, never recorded\n"
+
+
+def test_a_corrupt_receipt_is_ignored_not_fatal(store, capsys):
+    """C-17.3 a half-written receipt is skipped, never a traceback."""
+    directory = store / "jobs" / JOB / "a1"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "exit.json").write_text('{"rc": 0, "fini')
+    assert cli.main(["runs"]) == 0
+    assert "RUNNING" in capsys.readouterr().out
+    assert cli.main(["runs", "show", JOB]) == 0

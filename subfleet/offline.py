@@ -23,6 +23,7 @@ from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 
 STORE_NAME = "state.sqlite3"
+RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
 KNOWN_SCHEMA_VERSION = 1          # C-3.5
 LIVE_JOB_STATES = ("queued", "running", "waiting")
 LIVE_ATTEMPT_STATES = ("reserved", "starting", "running", "finalizing")
@@ -149,6 +150,29 @@ class Offline:
 
 
 
+    # --- receipts (C-2.3, C-5.2, C-17.5) ------------------------------------
+
+    def attempt_dir(self, job_id: str, seq: Any) -> Path:
+        return self.root / "jobs" / job_id / f"a{seq}"
+
+    def receipts(self, job_id: str, seq: Any) -> dict[str, Any]:
+        """`start.json` and `exit.json` for one attempt.
+
+        C-17.5 makes the receipts part of what offline mode reads: the daemon
+        may have died between a guardian writing `exit.json` and the row being
+        finalized, and only the file says so.
+        """
+        directory = self.attempt_dir(job_id, seq)
+        found: dict[str, Any] = {}
+        for name in RECEIPTS:
+            try:
+                data = json.loads((directory / f"{name}.json").read_text())
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
+            if isinstance(data, dict):
+                found[name] = data
+        return found
+
     # --- runs (C-17.1, C-17.5) ----------------------------------------------
 
     _JOB_SELECT = """
@@ -199,7 +223,11 @@ class Offline:
             params.append(int(last))
         with self.reading() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return [self._job_dict(row) for row in rows]
+        jobs = [self._job_dict(row) for row in rows]
+        for job in jobs:
+            if job.get("state") in LIVE_JOB_STATES and job.get("attempt_seq"):
+                job["receipts"] = self.receipts(job["job_id"], job["attempt_seq"])
+        return jobs
 
     def show_job(self, job_id: str) -> dict[str, Any]:
         with self.reading() as conn:
@@ -235,6 +263,22 @@ class Offline:
                 job["decision"] = json.loads(decisions["decision_json"])
             except (json.JSONDecodeError, TypeError):
                 job["decision"] = None
+        for attempt in job["attempts"]:
+            attempt["receipts"] = self.receipts(job_id, attempt.get("seq"))
+        if job.get("attempt_seq"):
+            job["receipts"] = self.receipts(job_id, job["attempt_seq"])
+        # A deliverable the daemon wrote but has not yet recorded as an artifact
+        # is still on disk; C-17.5 says offline mode reads the receipts too.
+        if job["attempts"]:
+            latest = job["attempts"][-1]
+            directory = self.attempt_dir(job_id, latest.get("seq"))
+            for role, name in (("deliverable", "deliverable.md"),
+                               ("stderr", "stderr"), ("stdout", "stdout")):
+                candidate = directory / name
+                recorded = any(item.get("role") == role
+                               for item in job.get("artifacts") or [])
+                if not recorded and candidate.exists():
+                    job[f"{role}_path"] = str(candidate)
         job["offline"] = True
         return job
 
@@ -320,6 +364,14 @@ class Offline:
             return {"job_id": job_id, "action": "refused", "state": state,
                     "reason": "no live attempt is recorded for this job"}
         attempt = live[-1]
+        receipt = self.receipts(job_id, attempt.get("seq")).get("exit")
+        if receipt is not None:
+            return {"job_id": job_id, "action": "already-exited", "state": state,
+                    "attempt_id": attempt.get("attempt_id"),
+                    "rc": receipt.get("rc"), "signal": receipt.get("signal"),
+                    "reason": (f"the attempt already exited with rc "
+                               f"{receipt.get('rc')} per its exit.json; there is "
+                               f"nothing to signal, the daemon will finalize it")}
         pgid, pid = attempt.get("pgid"), attempt.get("guardian_pid")
         if not pgid or not pid:
             return {"job_id": job_id, "action": "refused", "state": state,
