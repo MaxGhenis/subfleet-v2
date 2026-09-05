@@ -606,3 +606,26 @@ def test_staged_prompts_are_private_and_pruned(daemon, root, workdir, capsys):
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d", "again"]) == 0
     assert not old.exists()
     capsys.readouterr()
+
+
+def test_no_percentage_without_a_provider_reading(capsys):
+    """C-9.1 a percentage is rendered only from a provider reading, stale marked."""
+    table = cli.format_status({
+        "lanes": [{"lane_id": "codex-1", "provider": "codex",
+                   "account_key": "codex:a", "owner": "v2"},
+                  {"lane_id": "codex-2", "provider": "codex",
+                   "account_key": "codex:b", "owner": "v2"},
+                  {"lane_id": "codex-3", "provider": "codex",
+                   "account_key": "codex:c", "owner": "v2"}],
+        "readings": [
+            {"lane_id": "codex-1", "window": "five_hour", "utilization": 0.42,
+             "label": "provider"},
+            {"lane_id": "codex-2", "window": "five_hour", "utilization": 0.91,
+             "label": "stale-provider"},
+            {"lane_id": "codex-3", "window": "five_hour", "utilization": 0.77,
+             "label": "admission-observed"},
+        ]})
+    assert "five_hour 42%" in table
+    assert "five_hour 91% stale" in table
+    assert "77%" not in table                 # admission-observed carries no percentage
+    assert "five_hour admission-observed" in table
