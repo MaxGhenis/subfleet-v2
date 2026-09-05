@@ -10,6 +10,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .base import Adapter, AdapterError
 from ..contracts import (
@@ -21,20 +22,24 @@ from ..contracts import (
 WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 USER_AGENT = "subfleet/2 (codex_cli_rs compatible)"
 AUTH_RE = re.compile(
-    r"refresh[ _-]token.{0,60}(?:revoked|reused|invalidated)|token_revoked|"
+    r"refresh[ _-]token.{0,60}revoked|"
     r"(?:organi[sz]ation|organization_id).{0,60}(?:blocked|disabled|deactivated)|"
     r"(?:wham/usage|usage endpoint).{0,100}\b401\b|"
     r"\b401\b.{0,100}(?:wham/usage|usage endpoint)", re.I,
 )
+CREDITS_RE = re.compile(
+    r"(?:insufficient|not enough|out of|exhausted|no remaining)[ _-]credits|"
+    r"credits?.{0,35}(?:exhausted|depleted|insufficient|required)|"
+    r"credits?[ _-]rejection", re.I,
+)
 LIMIT_RE = re.compile(
     r"hit your usage limit|usage limit reached|usage_limit_reached|"
-    r"(?:insufficient|not enough|out of|exhausted|no remaining) credits|"
-    r"credits?.{0,35}(?:exhausted|depleted|insufficient|required)|"
-    r"(?:model|account).{0,60}(?:quota|usage limit)|quota exceeded", re.I,
+    r"(?:model|account).{0,60}(?:quota|usage limit)|quota exceeded|" + CREDITS_RE.pattern, re.I,
 )
 CONTENT_RE = re.compile(r"content[ _-]filter|trusted access|can('|’)t (help|assist) with", re.I)
 OLD_CLI_RE = re.compile(
-    r"cli.{0,45}(?:too old|outdated)|(?:upgrade|update).{0,45}(?:codex|cli)|"
+    r"cli.{0,45}(?:too old|outdated)|"
+    r"(?:upgrade|update)\s+(?:(?:your|the)\s+)?(?:codex|cli)\b|"
     r"(?:unsupported|unrecognized|unexpected|unknown) (?:argument|option|flag)|"
     r"minimum.{0,30}(?:codex|cli|version)|requires? (?:codex )?version", re.I,
 )
@@ -152,16 +157,25 @@ def _reset(event: dict, text: str, now: datetime) -> str | None:
             if result := _clock(obj.get(key)):
                 return result
     # CLI rejection messages include either an absolute ISO clock or a local wall clock.
-    for match in re.finditer(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}| UTC)", text):
-        if result := _clock(match.group().replace(" UTC", "+00:00")):
+    for match in re.finditer(
+        r"(?:try again at|resets?(?: at)?)\s+(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}"
+        r"(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}| UTC))", text, re.I,
+    ):
+        if result := _clock(match.group(1).replace(" UTC", "+00:00")):
             return result
-    match = re.search(r"try again at (\d{1,2}):(\d{2})\s*([AP])\.?M\.?", text, re.I)
+    match = re.search(
+        r"(?:try again at|resets?(?: at)?)\s+(\d{1,2}):(\d{2})\s*([AP])\.?M\.?"
+        r"(?:\s*\(([A-Za-z_]+/[A-Za-z_/]+)\))?", text, re.I,
+    )
     if match:
-        hour, minute, meridian = match.groups()
+        hour, minute, meridian, zone = match.groups()
         hour, minute = int(hour), int(minute)
         if not (1 <= hour <= 12 and 0 <= minute < 60):
             return None
-        local = now.astimezone()
+        try:
+            local = now.astimezone(ZoneInfo(zone)) if zone else now.astimezone()
+        except ZoneInfoNotFoundError:
+            return None
         result = local.replace(hour=hour % 12 + (12 if meridian.upper() == "P" else 0), minute=minute, second=0, microsecond=0)
         # v1 prints an optional date in the process locale after the clock.
         date_match = re.search(r"(?:on\s+|\()(\w{3,9}\s+\d{1,2},?\s+\d{4})", text[match.end():])
@@ -360,12 +374,16 @@ class CodexAdapter(Adapter):
                 continue
             evidence["admission"] = event or text
             evidence["quota"] = event or text
-            scope = "account"
-            for obj in _objects(event):
-                candidate = obj.get("scope") or obj.get("model_id") or obj.get("model")
-                if isinstance(candidate, str) and candidate not in ("model", "account"):
-                    scope = candidate
-                    break
+            objects = list(_objects(event))
+            # Explicit account scope wins over incidental requested-model metadata.
+            scope = next((obj["scope"] for obj in objects
+                          if isinstance(obj.get("scope"), str) and obj["scope"]
+                          and obj["scope"] != "model"), None)
+            if scope is None:
+                scope = next((candidate for obj in objects
+                              for candidate in (obj.get("model_id"), obj.get("model"))
+                              if isinstance(candidate, str) and candidate
+                              and candidate not in ("model", "account")), "account")
             now = self._now()
             until = _reset(event, text, now)
             source = ClockSource.REPORTED if until else ClockSource.GUESSED
@@ -377,7 +395,7 @@ class CodexAdapter(Adapter):
                 except (OSError, ValueError, AttributeError):
                     pass
             closure = Closure(lane_id, scope, until,
-                              ClosureReason.CREDITS if re.search(r"credits?", text, re.I) else ClosureReason.PROVIDER_LIMIT,
+                              ClosureReason.CREDITS if CREDITS_RE.search(text) else ClosureReason.PROVIDER_LIMIT,
                               source, json.dumps(event, ensure_ascii=False) if event else text)
             evidence.update(scope=scope, clock_source=source.value, resets_at=until)
             return result(OutcomeClass.LIMITED, "Codex subscription limit reached", closure)

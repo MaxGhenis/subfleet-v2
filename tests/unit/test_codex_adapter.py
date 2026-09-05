@@ -372,3 +372,58 @@ def test_attestation_does_not_trust_thread_id_only_in_filename(tmp_path):
     result = CodexAdapter().attest(tmp_path, _launch(tmp_path, home),
                                   Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
     assert result.status == Attestation.UNATTESTED
+
+
+def test_subscription_upgrade_link_is_not_an_old_cli_error(tmp_path):
+    """C-9.2 C-9.4 A usage rejection with a subscription upgrade link still closes quota."""
+    launch = _events(tmp_path, {"type": "turn.failed", "error": {"message":
+        "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/codex) "
+        "or buy credits; try again at 2026-09-05T18:00:00Z."}})
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit())
+    assert outcome.cls == OutcomeClass.LIMITED
+    assert outcome.closure.reason.value == "provider-limit"
+    assert outcome.closure.until_at == "2026-09-05T18:00:00Z"
+
+
+def test_event_timestamp_is_not_a_reported_reset_clock(tmp_path):
+    """C-9.4 An observation timestamp alone cannot supply the provider's reset clock."""
+    launch = _events(tmp_path, {"type": "turn.failed", "timestamp": "2026-09-05T11:59:00Z",
+        "error": {"message": "You've hit your usage limit."}})
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit())
+    assert outcome.closure.clock_source == ClockSource.GUESSED
+    assert outcome.closure.until_at == "2026-09-05T13:00:00Z"
+
+
+def test_reported_reset_clock_uses_explicit_timezone(tmp_path):
+    """C-9.4 A provider's local reset clock keeps v1's explicit-zone and rollover semantics."""
+    launch = _events(tmp_path, {"type": "turn.failed", "error": {"message":
+        "You've hit your usage limit. Try again at 6:00 PM (America/Los_Angeles)."}})
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit())
+    assert outcome.closure.clock_source == ClockSource.REPORTED
+    assert outcome.closure.until_at == "2026-09-06T01:00:00Z"
+
+
+def test_explicit_account_scope_beats_requested_model_metadata(tmp_path):
+    """C-9.4 C-9.6 Account limits retain their explicit scope even when a requested model is recorded."""
+    launch = _events(tmp_path, {"type": "turn.failed", "model": MODEL, "error": {
+        "message": "Usage limit reached.", "scope": "account", "model": MODEL}})
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit())
+    assert outcome.closure.scope == "account"
+
+
+def test_credit_rejection_code_without_limit_phrase(tmp_path):
+    """C-9.4 C-12.7 A structured insufficient-credits rejection closes the account for credits."""
+    launch = _events(tmp_path, {"type": "turn.failed", "error": {
+        "code": "insufficient_credits", "message": "Request rejected."}})
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit())
+    assert outcome.cls == OutcomeClass.LIMITED
+    assert outcome.closure.reason.value == "credits"
+
+
+def test_access_token_error_outside_usage_endpoint_does_not_prove_auth_death(tmp_path):
+    """C-9.3 A response endpoint token error lacks the usage-401 or refresh-revocation evidence."""
+    launch = _events(tmp_path, {"type": "turn.failed", "error": {
+        "code": "token_revoked", "message": "HTTP 401 from responses endpoint."}})
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit())
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.closure is None

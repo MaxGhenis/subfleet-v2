@@ -14,6 +14,7 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - Prepared local dependencies offline from the existing UV cache after inherited `UV_FROZEN=1` and network DNS failures prevented initial sync; generated `uv.lock`.
 - Resume baseline: `uv run pytest -q tests/unit/test_codex_adapter.py tests/unit/test_guard_trust.py tests/process/test_codex_isolation.py`: **97 passed in 4.24 s** (with workspace-local UV cache/environment).
 - Re-read C-6.7: Claude owns its headless prepend; the Codex prompt remains unchanged.
+- Fixed six classifier regressions (C-9.2–C-9.6): subscription upgrade URLs, observation timestamps mistaken for reset clocks, explicit reset time zones, account scope precedence, structured credit codes, and access-token errors outside usage endpoints. Adapter suite: **59 passed in 0.10 s**; all six new tests failed before the fixes.
 
 ## Next
 
@@ -29,4 +30,4 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - Shared store/daemon/guardian/process/CLI/Claude/registry modules are out of scope.
 - The raw exit code and signal can be retained in `Outcome.evidence` without changing shared dataclasses.
 - Existing additive seam: optional `Launch.lane_id` binds classifier closures to their lane without filesystem writes or undocumented environment variables.
-- Earlier push failed with `Could not resolve host: github.com`; the resumed branch starts synchronized with origin. Push after every new commit remains required.
+- Push of resumed progress commit failed with `Could not resolve host: github.com`. Local commits are retained; push after every new commit remains required.
