@@ -319,11 +319,12 @@ def test_a_new_run_imports_incrementally(v1):
     (directory / "prompt.md").write_text("later\n", encoding="utf-8")
     (directory / "out.md").write_text("later out\n", encoding="utf-8")
     report = run_import(v1)
-    # The new run, plus the one run that was still live: the cursor carries open
-    # runs forward so a later pass can read the rc v1 finally wrote (principle 3).
-    assert report.stores["runs"].seen == 2
+    # The new run, plus everything the first pass left open: the two runs v1 has
+    # not given an rc, and the one whose lane is not in the roster (principles 3, 4).
+    assert report.stores["runs"].seen == 4
     assert report.stores["runs"].imported == 1
-    assert report.stores["runs"].reasons["already-imported"] == 1
+    assert report.stores["runs"].reasons["already-imported"] == 2
+    assert report.stores["runs"].reasons["no-lane-for-run"] == 1
     assert rows(v1["root"], "SELECT job_id FROM jobs WHERE job_id=?", (later,))
 
 
@@ -457,7 +458,30 @@ def test_a_live_run_is_external_and_never_adopted(v1):
     cursors = {json.loads(row["data_json"])["store"]: json.loads(row["data_json"])["cursor"]
                for row in rows(v1["root"],
                                "SELECT data_json FROM events WHERE kind='import.cursor'")}
-    assert cursors["runs"]["open"] == ["20260905-100400-live"]
+    # Everything the pass did not finish: the run v1 is still running, the one it
+    # never finalized, and the one whose lane the roster does not name.
+    assert cursors["runs"]["open"] == ["20260905-100300-lost", "20260905-100400-live",
+                                       "20260905-100600-nolane"]
+
+
+def test_the_daemon_never_adopts_an_external_run(v1):
+    """principle 3: "v2 never adopts, kills, or finalizes it".
+
+    The flag has to be one the daemon reads, not only one a human can see in
+    `manifest.json`: `daemon.LIVE_ATTEMPTS_THIS_DAEMON_OWNS` is the query its
+    recovery loop selects with.
+    """
+    from subfleet import daemon as daemon_module
+    run_import(v1)
+    live = "20260905-100400-live/a1"
+    with Store(v1["root"] / "state.sqlite3", read_only=True) as store:
+        selected = [row["attempt_id"] for row in
+                    store.query(daemon_module.LIVE_ATTEMPTS_THIS_DAEMON_OWNS)]
+        every = [row["attempt_id"] for row in
+                 store.query("SELECT * FROM attempts WHERE state IN "
+                             "('reserved','starting','running','finalizing')")]
+    assert live in every                 # it is live, so v1 still owns it
+    assert live not in selected          # and v2's recovery loop never sees it
 
 
 def test_an_external_run_settles_when_v1_finalizes_it(v1):
@@ -478,6 +502,17 @@ def test_an_external_run_settles_when_v1_finalizes_it(v1):
     assert rows(v1["root"], "SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'",
                 ("20260905-100400-live/a1",))
     assert report.stores["runs"].reasons.get("external-run-settled-from-v1") == 1
+
+
+def test_runs_limit_imports_the_oldest_first_and_never_strands_the_rest(v1):
+    """A bounded pass must leave the cursor where a later pass can continue."""
+    first = run_import(v1, runs_limit=2)
+    assert first.stores["runs"].seen == 2
+    imported = {row["job_id"] for row in rows(v1["root"], "SELECT job_id FROM jobs")}
+    assert imported == {"20260905-100000-ok", "20260905-100100-limited"}
+    second = run_import(v1)
+    assert second.stores["runs"].imported >= 3
+    assert {row["job_id"] for row in rows(v1["root"], "SELECT job_id FROM jobs")} > imported
 
 
 def test_a_run_on_an_unknown_lane_is_reported_not_invented(v1):
@@ -588,6 +623,39 @@ def test_reset_redemptions_become_confirmed_actions(v1):
         f"reset-credit:codex:{CODEX_ONE}:RateLimitResetCredit_26c531af84688191afcbab1b15c7ec69")
     without = [row for row in actions if row not in with_credit][0]
     assert json.loads(without["request_json"])["credit_id_absent_in_v1"] is True
+
+
+def test_a_redemption_is_one_action_however_v1_remembers_it(v1):
+    """C-19.1: `op_key` is unique per operation; v1 keeps one credit id at a time."""
+    home = v1["home"]
+    run_import(v1)
+    before = {row["subject"] + row["created_at"] for row in
+              rows(v1["root"], "SELECT * FROM actions")}
+    policy = json.loads((v1["state"] / "reset-policy.json").read_text())
+    # v1 redeems on another home: the first redemption loses its credit id.
+    policy["last_redemptions"][f"{home}/.codex-2"] = offset_now(-100)
+    policy["lane"] = f"{home}/.codex-2"
+    policy["credit_id"] = "RateLimitResetCredit_second"
+    write_json(v1["state"] / "reset-policy.json", policy)
+    run_import(v1)
+    after = rows(v1["root"], "SELECT * FROM actions")
+    assert len({row["subject"] + row["created_at"] for row in after} - before) == 1
+    assert len(after) == 3          # not four: no redemption is counted twice
+
+
+def test_a_tickle_updated_since_the_last_pass_is_imported(v1):
+    """Manifest row `S/tickles/`: the timestamps are what stop a re-nudge."""
+    run_import(v1, milestone=6)
+    path = v1["state"] / "tickles" / f"{SESSION}.json"
+    entry = json.loads(path.read_text())
+    entry["at"] = offset_now(-1)
+    write_json(path, entry)
+    os.utime(path, None)
+    report = run_import(v1, milestone=6)
+    assert report.stores["sessions-kit"].imported == 1
+    latest = [json.loads(row["data_json"])["at"] for row in
+              rows(v1["root"], "SELECT * FROM events WHERE kind='tickle' ORDER BY event_id")]
+    assert len(latest) == 2 and latest[1] > latest[0]
 
 
 def test_cooldowns_become_closures_with_scope_and_source(v1):
@@ -821,6 +889,60 @@ def test_a_real_import_refuses_while_a_daemon_holds_the_lock(v1):
     finally:
         fcntl.flock(handle, fcntl.LOCK_UN)
         os.close(handle)
+
+
+def test_the_import_holds_the_lock_for_its_whole_pass(v1):
+    """A check that is released before the work leaves a window for two writers."""
+    held: list[bool] = []
+
+    def probe(*_args, **_kwargs) -> None:
+        handle = os.open(v1["root"] / "daemon.lock", os.O_RDWR)
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(handle, fcntl.LOCK_UN)
+            held.append(False)
+        except BlockingIOError:
+            held.append(True)
+        finally:
+            os.close(handle)
+
+    original = importer.import_salt
+    try:
+        importer.import_salt = lambda *a, **k: (probe(), original(*a, **k))[1]
+        run_import(v1)
+    finally:
+        importer.import_salt = original
+    assert held == [True]
+
+
+def test_an_unopenable_daemon_lock_refuses_rather_than_assuming_no_daemon(v1):
+    """The importer never proceeds on the strength of a check it could not make."""
+    root = v1["root"]
+    root.mkdir(parents=True, exist_ok=True)
+    lock = root / "daemon.lock"
+    lock.mkdir()                        # not a file: os.open for writing fails
+    with pytest.raises(ImportRefused):
+        run_import(v1)
+
+
+def test_a_wal_v1_database_is_never_opened_in_place(v1):
+    """Opening a WAL database read-only still writes its `-shm`; v1 is read-only."""
+    outbox = v1["state"] / "outbox.sqlite3"
+    connection = sqlite3.connect(outbox)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("INSERT INTO messages(message_id,session_id,request_digest,"
+                       "payload_digest,payload,status,created_at,updated_at,receipt) "
+                       "VALUES('m-wal','claude:x','d','p','{}','queued',1.0,1.0,'')")
+    connection.commit()
+    connection.close()
+    # SQLite removed the sidecars when the writer closed, but the header still says
+    # WAL, so a read-only open would recreate `-wal` and `-shm` right here.
+    assert not outbox.with_name(outbox.name + "-shm").exists()
+    before = sorted(path.name for path in v1["state"].iterdir())
+    report = run_import(v1)
+    assert sorted(path.name for path in v1["state"].iterdir()) == before
+    assert report.stores["outbox"].seen == 4        # the WAL row was read all the same
+    assert rows(v1["root"], "SELECT * FROM notices WHERE text='m-wal'")
 
 
 def test_nothing_under_the_v1_state_is_modified(v1):

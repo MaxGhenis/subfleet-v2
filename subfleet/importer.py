@@ -143,7 +143,8 @@ MANIFEST: tuple[ManifestRow, ...] = (
                 ("D/decisions.jsonl", "D/rotation.json"), "D"),
     ManifestRow("prompts", "retain", 0, "referenced by imported v1 artifacts",
                 ("prompts", "briefs", "dispatch")),
-    ManifestRow("integration-events", "retain", 5, "the daemon keeps writing this spool",
+    ManifestRow("integration-events", "retain", 0,
+                "kept and written to; the daemon emits to the same spool from milestone 5",
                 ("integration-events",)),
     ManifestRow("cockpit", "drop", 0, "the cockpit branch is not carried", ("cockpit-client",)),
     ManifestRow("job-specific", "drop", 0, "regenerated or belonging to one finished campaign",
@@ -256,15 +257,40 @@ class ImportReport:
         stamp = (self.finished_at or self.started_at).replace("-", "").replace(":", "")
         path = Path(state_root) / f"import-report-{stamp}.json"
         path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-        payload = json.dumps(self.as_dict(), indent=1, sort_keys=True).encode() + b"\n"
-        temporary = path.with_name(path.name + ".tmp")
-        with open(temporary, "wb", opener=lambda p, f: os.open(p, f, 0o600)) as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        _publish(path, json.dumps(self.as_dict(), indent=1, sort_keys=True).encode() + b"\n")
         self.path = str(path)
         return path
+
+
+def _publish(path: Path, payload: bytes) -> None:
+    """C-8.1: temp file in the destination directory, fsync, rename, fsync the directory."""
+    temporary = path.with_name(path.name + ".tmp")
+    with open(temporary, "wb", opener=lambda name, flags: os.open(name, flags, 0o600)) as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _copy_sqlite(source: Path, destination: Path) -> None:
+    """Copy a SQLite database and its WAL sidecars, touching neither.
+
+    Opening a WAL database read-only still creates and writes its `-shm` file, so
+    the importer never opens a v1 database, or the live store during a dry run,
+    in place: it copies `db`, `db-wal` and `db-shm` and opens the copy, where
+    recovery may write freely. A copy taken while another process is committing
+    can be torn; a real import refuses to run while a daemon holds the lock, and
+    a dry run says in its report that its numbers are a snapshot.
+    """
+    for suffix in ("", "-wal", "-shm"):
+        candidate = source.with_name(source.name + suffix)
+        if candidate.is_file():
+            shutil.copy2(candidate, destination.with_name(destination.name + suffix))
 
 
 class ImportRefused(RuntimeError):
@@ -426,7 +452,12 @@ class _Writer:
 
     @contextmanager
     def transaction(self, kind: str, **keys: Any) -> Iterator[None]:
-        """One commit per store: inner writes become savepoints (C-3.2, C-3.3)."""
+        """Record one item's rows together, with its audit event (C-3.2).
+
+        Nested `_insert` calls become savepoints inside it. The transaction opens
+        after every v1 read, `ps` call and digest the item needs, so it never
+        spans a subprocess, a filesystem sync or a sleep (C-3.3).
+        """
         if not self.writable:
             yield
             return
@@ -899,7 +930,13 @@ def import_reset_policy(writer: _Writer, report: StoreReport, *, v1_state: Path,
         row = writer.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)) if lane_id else None
         account_key = row["account_key"] if row else lane
         op_key = f"reset-credit:{account_key}:{credit_id or 'at-' + redeemed_at}"
-        if writer.exists("SELECT 1 FROM actions WHERE op_key=?", (op_key,)):
+        # v1 remembers the credit id of the most recent redemption only, so the
+        # same redemption is named `:<credit id>` on one pass and `:at-<utc>` on
+        # the next, once v1 redeems somewhere else. One redemption is one action,
+        # so the subject and the instant decide, not the op_key alone (C-19.1).
+        if writer.exists("SELECT 1 FROM actions WHERE op_key=?", (op_key,)) or writer.exists(
+                "SELECT 1 FROM actions WHERE kind='reset-credit' AND subject=? AND created_at=?",
+                (account_key, redeemed_at)):
             report.skip("already-imported")
             continue
         writer.insert("actions", {
@@ -1148,9 +1185,13 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
     `imported` and `imported_external` are written to
     `<state root>/jobs/<job id>/manifest.json` (C-2.3), which is where principle
     3 puts the external flag, and to the attempt's `evidence_json` so a reader of
-    the row alone can see it. The cursor is the newest imported run id plus the
-    ids that were still live, so a later pass re-reads exactly those and picks up
-    the rc v1 finally wrote.
+    the row alone can see it.
+
+    The cursor is the newest run id seen plus an `open` list of everything this
+    pass did not finish: runs v1 has not given an rc, and runs it refused for a
+    reason a later pass can fix (no `meta.json` yet, no lane in the roster). A
+    later pass re-reads exactly those, so nothing below the high-water mark is
+    lost and the rc v1 finally writes still lands (principles 3 and 4).
     """
     runs = v1_state / "runs"
     if not runs.is_dir():
@@ -1161,7 +1202,10 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
     names = sorted(entry.name for entry in runs.iterdir() if entry.is_dir())
     todo = [name for name in names if name > last_id or name in open_runs]
     if limit is not None:
-        todo = todo[-limit:]
+        # The OLDEST `limit`, so the high-water mark advances contiguously and a
+        # later pass picks up the rest; taking the newest would strand every
+        # directory below the cursor for good.
+        todo = todo[:limit]
     index = _lane_index(writer, home)
     still_open: list[str] = []
     high_water = last_id
@@ -1172,6 +1216,7 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
         meta = _read_json(run_dir / "meta.json")
         if not isinstance(meta, dict) or not meta.get("id"):
             report.skip("no-meta-json")
+            still_open.append(name)         # v1 may not have written it yet
             continue
         job_id = str(meta["id"])
         request_id = f"v1:{job_id}"
@@ -1188,13 +1233,18 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
                 continue
             if existing["state"] == job_state:
                 report.skip("already-imported")
-                if live:
+                if meta.get("rc") is None:
+                    # v1 has not finalized it: read it again next pass so the rc
+                    # it eventually writes settles the row (principle 3).
                     still_open.append(name)
                 continue
-            # A run that was live last pass and that v1 has since finalized.
+            # A run that was live last pass and that v1 has since finalized, or
+            # one whose liveness reading changed while it is still unfinalized.
             _finalize_imported_run(writer, report, meta=meta, job_id=job_id,
                                    attempt_id=attempt_id, state=state, run_dir=run_dir,
                                    state_root=state_root, now=now)
+            if meta.get("rc") is None:
+                still_open.append(name)
             continue
         if writer.exists("SELECT 1 FROM jobs WHERE request_id=?", (request_id,)):
             report.skip("request-id-taken")
@@ -1202,6 +1252,7 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
         lane_id = _lane_of(index, meta.get("lane"), home) or _lane_of(index, meta.get("codex_home"), home)
         if lane_id is None:
             report.skip("no-lane-for-run")
+            still_open.append(name)         # enrolling the lane later imports it
             report.note(f"{job_id}: v1 lane {meta.get('lane')!r} is not in the roster; "
                         "the ledger row was not imported")
             continue
@@ -1259,10 +1310,11 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
             report.count("sandbox-defaulted-to-read-only")
         if not (requested or served):
             report.count("no-model-recorded-by-v1")
-        if live:
+        if meta.get("rc") is None:
             still_open.append(name)
+        if live:
             report.count("imported-external-never-adopted")
-    return {"last_id": high_water, "open": sorted(still_open)}
+    return {"last_id": high_water, "open": sorted(set(still_open))}
 
 
 def _finalize_imported_run(writer: _Writer, report: StoreReport, *, meta: Mapping[str, Any],
@@ -1319,13 +1371,8 @@ def _write_job_manifest(writer: _Writer, state_root: Path, job_id: str,
                 "original_out_path", "session_id", "transcript_path", "codex_thread_id",
                 "codex_home", "rollout_path", "resumed_from", "salvage_refs", "launcher")},
     }
-    path = directory / "manifest.json"
-    temporary = path.with_name("manifest.json.tmp")
-    with open(temporary, "wb", opener=lambda p, f: os.open(p, f, 0o600)) as handle:
-        handle.write(json.dumps(payload, indent=1, sort_keys=True, default=str).encode() + b"\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    _publish(directory / "manifest.json",
+             json.dumps(payload, indent=1, sort_keys=True, default=str).encode() + b"\n")
 
 
 # --- S/notices/ ---------------------------------------------------------------
@@ -1401,6 +1448,12 @@ def import_notices(writer: _Writer, report: StoreReport, *, v1_state: Path,
             report.imported += 1
             report.count(f"state-{notice_state}")
         files[path.name] = {"lines": len(lines), "retry": retry}
+    unresolved = sum(len(entry["retry"]) for entry in files.values())
+    if unresolved:
+        report.note(f"{unresolved} notice entries name a run the ledger does not hold; "
+                    "v1 keeps 500 run directories and far more notices, so most of these "
+                    "are for evicted runs. They stay on the cursor and land if their run "
+                    "is ever imported")
     return {"files": files}
 
 
@@ -1415,69 +1468,88 @@ def import_outbox(writer: _Writer, report: StoreReport, *, v1_state: Path,
     present, else `offered`" (C-15.3).
 
     The live outbox holds session continuations, which name a session and no run,
-    while `notices.job_id` references a job. Rows whose payload names no run are
-    reported and left where they are, and the reason names the schema that
-    refuses them, so the integrator can decide between relaxing `job_id` and
-    dropping the row with the rest of the cockpit branch.
+    so this lane relaxed `notices.job_id` to nullable; a row whose payload names
+    a run still points at it. Against a store built before that change the rows
+    are reported and kept in the cursor's `retry` list, never burned.
+
+    v1's outbox is a WAL database, and opening one read-only still writes its
+    `-shm` file, so the copy in `_copy_sqlite` is what makes the "read-only
+    towards v1" guarantee at the top of this module true.
     """
     path = v1_state / "outbox.sqlite3"
     if not path.is_file():
         report.skip("absent")
         return cursor
     last_sequence = int(cursor.get("last_sequence") or 0)
+    retry = sorted({int(item) for item in (cursor.get("retry") or [])})
     nullable = writer.nullable("notices", "job_id")
+    scratch = tempfile.mkdtemp(prefix="subfleet-import-outbox-")
     try:
-        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    except sqlite3.Error:
-        report.skip("unreadable-database")
-        return cursor
-    connection.row_factory = sqlite3.Row
-    high_water = last_sequence
-    try:
-        rows = connection.execute(
-            "SELECT * FROM messages WHERE sequence>? ORDER BY sequence", (last_sequence,)).fetchall()
-    except sqlite3.Error:
-        report.skip("no-messages-table")
-        connection.close()
-        return cursor
-    for row in rows:
-        report.seen += 1
-        high_water = max(high_water, int(row["sequence"]))
-        status = str(row["status"] or "")
-        receipt = str(row["receipt"] or "").strip()
-        delivered = status in OUTBOX_DELIVERED
-        state = "acknowledged" if delivered and receipt else "offered"
-        if status not in OUTBOX_DELIVERED:
-            report.count(f"status-{status or 'empty'}")
-        payload = {}
+        copy = Path(scratch) / "outbox.sqlite3"
         try:
-            payload = json.loads(row["payload"]) if row["payload"] else {}
-        except ValueError:
+            _copy_sqlite(path, copy)                 # never open v1's WAL in place
+            connection = sqlite3.connect(str(copy))
+        except (OSError, sqlite3.Error):
+            report.skip("unreadable-database")
+            return cursor
+        connection.row_factory = sqlite3.Row
+        high_water = last_sequence
+        still_open: list[int] = []
+        try:
+            marks = ",".join("?" for _ in retry)
+            rows = connection.execute(
+                "SELECT * FROM messages WHERE sequence>?"
+                + (f" OR sequence IN ({marks})" if retry else "")
+                + " ORDER BY sequence", (last_sequence, *retry)).fetchall()
+        except sqlite3.Error:
+            report.skip("no-messages-table")
+            connection.close()
+            return cursor
+        for row in rows:
+            report.seen += 1
+            sequence = int(row["sequence"])
+            high_water = max(high_water, sequence)
+            status = str(row["status"] or "")
+            receipt = str(row["receipt"] or "").strip()
+            delivered = status in OUTBOX_DELIVERED
+            state = "acknowledged" if delivered and receipt else "offered"
+            if status not in OUTBOX_DELIVERED:
+                report.count(f"status-{status or 'empty'}")
             payload = {}
-        job_id = payload.get("run_id") if isinstance(payload, dict) else None
-        if job_id and not writer.exists("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)):
-            job_id = None
-        if job_id is None and not nullable:
-            report.skip("notices.job_id-is-not-null-and-the-message-names-no-run")
-            continue
-        session_id = str(row["session_id"] or "") or None
-        text = payload.get("prompt") if isinstance(payload, dict) else None
-        if writer.exists("SELECT 1 FROM notices WHERE session_id=? AND text=? AND created_at=?",
-                         (session_id, str(text or row["message_id"]),
-                          _utc(row["created_at"]) or utc_now())):
-            report.skip("already-imported")
-            continue
-        writer.insert("notices", {
-            "job_id": job_id, "session_id": session_id,
-            "text": str(text or row["message_id"]), "state": state, "transport": "v1-socket",
-            "created_at": _utc(row["created_at"]) or utc_now(),
-            "offered_at": _utc(row["updated_at"]),
-            "acknowledged_at": _utc(row["updated_at"]) if state == "acknowledged" else None,
-        }, kind="notice.imported")
-        report.imported += 1
-        report.count(f"state-{state}")
-    connection.close()
-    return {"last_sequence": high_water}
+            try:
+                payload = json.loads(row["payload"]) if row["payload"] else {}
+            except ValueError:
+                payload = {}
+            job_id = payload.get("run_id") if isinstance(payload, dict) else None
+            if job_id and not writer.exists("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)):
+                job_id = None
+            if job_id is None and not nullable:
+                # An older store still has notices.job_id NOT NULL; keep the row
+                # for the pass that runs after the schema is migrated.
+                report.skip("notices.job_id-is-not-null-and-the-message-names-no-run")
+                still_open.append(sequence)
+                continue
+            session_id = str(row["session_id"] or "") or None
+            text = payload.get("prompt") if isinstance(payload, dict) else None
+            if writer.exists("SELECT 1 FROM notices WHERE session_id=? AND text=? AND created_at=?",
+                             (session_id, str(text or row["message_id"]),
+                              _utc(row["created_at"]) or utc_now())):
+                report.skip("already-imported")
+                continue
+            writer.insert("notices", {
+                "job_id": job_id, "session_id": session_id,
+                "text": str(text or row["message_id"]), "state": state,
+                "transport": "v1-socket",
+                "created_at": _utc(row["created_at"]) or utc_now(),
+                "offered_at": _utc(row["updated_at"]),
+                "acknowledged_at": _utc(row["updated_at"]) if state == "acknowledged" else None,
+            }, kind="notice.imported")
+            report.imported += 1
+            report.count(f"state-{state}")
+        connection.close()
+        return {"last_sequence": high_water, "retry": sorted(set(still_open))}
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 # --- S/integration-events.salt ------------------------------------------------
@@ -1516,12 +1588,7 @@ def import_salt(writer: _Writer, report: StoreReport, *, v1_state: Path,
         report.imported += 1
         return
     destination.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-    temporary = destination.with_name(destination.name + ".tmp")
-    with open(temporary, "wb", opener=lambda p, f: os.open(p, f, 0o600)) as handle:
-        handle.write(salt)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, destination)
+    _publish(destination, salt)
     report.imported += 1
 
 
@@ -1571,8 +1638,19 @@ def import_sessions_kit(writer: _Writer, report: StoreReport, *, v1_state: Path,
     high_water = last_mtime
     directory = v1_state / "tickles"
     if directory.is_dir():
-        seen = {json.loads(row["data_json"]).get("session_id")
-                for row in writer.query("SELECT data_json FROM events WHERE kind='tickle'")}
+        # The newest record per session is what keeps the sessions kit from
+        # re-nudging, so a session already imported is re-imported when v1 has
+        # tickled it again since (manifest row: "with their timestamps").
+        seen: dict[Any, str] = {}
+        for row in writer.query("SELECT data_json FROM events WHERE kind='tickle'"):
+            try:
+                entry = json.loads(row["data_json"])
+            except (ValueError, TypeError):
+                continue
+            key = entry.get("session_id")
+            at = str(entry.get("at") or "")
+            if key not in seen or at > seen[key]:
+                seen[key] = at
         for path in sorted(directory.glob("*.json")):
             try:
                 mtime = path.stat().st_mtime
@@ -1587,15 +1665,16 @@ def import_sessions_kit(writer: _Writer, report: StoreReport, *, v1_state: Path,
                 report.skip("unparsable-file")
                 continue
             session_id = entry.get("session_id") or path.stem
-            if session_id in seen:
+            at = _utc(entry.get("at")) or ""
+            if session_id in seen and at <= seen[session_id]:
                 report.skip("already-imported")
                 continue
             writer.event("tickle", data={
-                "session_id": session_id, "at": _utc(entry.get("at")),
+                "session_id": session_id, "at": at or None,
                 "last_uuid": entry.get("last_uuid"), "turn_uuid": entry.get("turn_uuid"),
                 "delivered": bool(entry.get("delivered")), "source": "v1-tickles",
             })
-            seen.add(session_id)
+            seen[session_id] = at
             report.imported += 1
     else:
         report.skip("tickles-absent")
@@ -1641,42 +1720,38 @@ def scan_unmanifested(v1_state: Path, delegate_state: Path) -> list[str]:
 
 # --- preconditions ------------------------------------------------------------
 
-def _snapshot(database: Path, scratch: Path) -> None:
-    """Copy the store into a scratch database for a dry run (C-3.4).
-
-    `Connection.backup` reads through one consistent snapshot, so this is safe
-    even while a daemon is writing; the scratch file is thrown away afterwards.
-    """
-    source = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
-    try:
-        destination = sqlite3.connect(str(scratch))
-        try:
-            source.backup(destination)
-        finally:
-            destination.close()
-    finally:
-        source.close()
-
-
-def _refuse_if_daemon_is_live(state_root: Path) -> None:
+def _hold_daemon_lock(state_root: Path) -> int | None:
     """Plan amendment 3: the daemon holds `daemon.lock` for its lifetime.
 
-    The importer writes rows the daemon owns (C-3.4), so a real import runs only
-    while no daemon is up. A dry run never takes this path.
+    The importer writes rows the daemon owns (C-3.4), so a real import takes that
+    same lock and keeps it for the whole pass: checking once and letting go would
+    leave a window in which a daemon starts and two writers run. A lock file that
+    exists and cannot be opened is a refusal, not a pass: the importer must not
+    proceed on the strength of a check it could not make. A dry run never takes
+    this path.
     """
     lock = state_root / "daemon.lock"
-    if not lock.is_file():
-        return
     try:
-        handle = os.open(lock, os.O_RDWR)
-    except OSError:
-        return
+        handle = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as error:
+        raise ImportRefused(f"cannot open {lock} to check for a daemon: {error}") from None
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(handle, fcntl.LOCK_UN)
     except BlockingIOError:
+        os.close(handle)
         raise ImportRefused(
             f"a daemon holds {lock}; stop it before importing (plan amendment 3)") from None
+    except OSError as error:
+        os.close(handle)
+        raise ImportRefused(f"cannot lock {lock}: {error}") from None
+    return handle
+
+
+def _release_daemon_lock(handle: int | None) -> None:
+    if handle is None:
+        return
+    try:
+        fcntl.flock(handle, fcntl.LOCK_UN)
     finally:
         os.close(handle)
 
@@ -1706,18 +1781,30 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
 
     database = state_root / "state.sqlite3"
     scratch_dir: str | None = None
+    lock: int | None = None
     if dry_run:
         # A dry run imports for real, into a throwaway copy of the store, so the
         # report counts what a real pass would write and every row function reads
-        # back what it wrote. Nothing under the state root changes but the report.
+        # back what it wrote. Nothing under the state root changes but the report,
+        # which is why the store is copied rather than opened: opening a WAL
+        # database, even read-only, writes its `-shm` file.
         scratch_dir = tempfile.mkdtemp(prefix="subfleet-import-dry-")
-        scratch = Path(scratch_dir) / "state.sqlite3"
-        if database.is_file():
-            _snapshot(database, scratch)
-        store = Store(scratch)
+        try:
+            scratch = Path(scratch_dir) / "state.sqlite3"
+            if database.is_file():
+                _copy_sqlite(database, scratch)
+            store = Store(scratch)
+        except BaseException:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
+            raise
     else:
-        _refuse_if_daemon_is_live(state_root)
-        store = Store(database)
+        state_root.mkdir(parents=True, mode=0o700, exist_ok=True)   # C-2.2
+        lock = _hold_daemon_lock(state_root)
+        try:
+            store = Store(database)
+        except BaseException:
+            _release_daemon_lock(lock)
+            raise
     writer = _Writer(store, dry_run)
     models = _load_policy_models(state_root)
     try:
@@ -1782,6 +1869,7 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
         store.close()
         if scratch_dir is not None:
             shutil.rmtree(scratch_dir, ignore_errors=True)
+        _release_daemon_lock(lock)
     report.finished_at = utc_now()
     if write_report:
         report.write(state_root)
