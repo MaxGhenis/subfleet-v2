@@ -694,3 +694,15 @@ def test_reap_blames_the_store_not_the_daemon_when_the_daemon_is_up(daemon, caps
     captured = capsys.readouterr()
     assert "the daemon is running but its store is not readable" in captured.err
     assert "subfleet daemon start" not in captured.err
+
+
+def test_usage_errors_return_two_and_help_returns_zero(capsys):
+    """C-17.3 a usage error is exit 2; main() returns a code, it never raises."""
+    assert run_cli(["not-a-verb"]) == 2
+    capsys.readouterr()
+    assert run_cli(["run", "--tier", "nope"]) == 2
+    capsys.readouterr()
+    assert run_cli(["--help"]) == 0
+    assert "subfleet run" in capsys.readouterr().out
+    assert run_cli(["--version"]) == 0
+    assert capsys.readouterr().out.startswith("subfleet 2.")

@@ -1698,7 +1698,11 @@ def rewrite_aliases(argv: Sequence[str]) -> list[str]:
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     parser = build_parser()
-    args = parser.parse_args(rewrite_aliases(argv))
+    try:
+        args = parser.parse_args(rewrite_aliases(argv))
+    except SystemExit as exc:
+        # argparse exits 2 on a usage error and 0 on --help; main() returns codes.
+        return int(exc.code or 0)
     if getattr(args, "version", False):
         from . import __version__
         out(f"{PROG} {__version__}")
