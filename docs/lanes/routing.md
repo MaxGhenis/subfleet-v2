@@ -43,7 +43,7 @@ export UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv"
 uv sync --group dev && uv run pytest -q
 ```
 
-Standard library only at runtime. Commit after every coherent step with a message naming the clauses implemented, and push after every commit: `git push -u origin lane/routing`. Never commit to `main`, never force-push, never rewrite history. If a guard or hook refuses a command, do not work around it; record it in the final message.
+Standard library only at runtime. Commit after every coherent step with a message naming the clauses implemented. Your sandbox has no network, so do not try to push; the integrator pushes `lane/routing` from outside when you finish. Never commit to `main`, never force-push, never rewrite history. If a guard or hook refuses a command, do not work around it; record it in the final message.
 
 ## Final message
 
