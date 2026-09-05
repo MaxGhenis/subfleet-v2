@@ -81,7 +81,7 @@ def fresh_provider(reading: Mapping[str, Any], *, now: str | datetime,
         return False
     utilization = reading.get("utilization")
     if (not isinstance(utilization, (int, float)) or isinstance(utilization, bool)
-            or not math.isfinite(utilization) or not 0 <= utilization <= 1):
+            or not math.isfinite(utilization) or utilization < 0):
         return False
     instant = _time(now)
     age = (instant - _time(reading["observed_at"])).total_seconds()
