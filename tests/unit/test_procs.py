@@ -8,7 +8,7 @@ import pytest
 
 import os
 
-from subfleet import procs
+from subfleet import client, procs
 
 
 def census(monkeypatch, *, groups="", parents="", markers="", fail=None):
@@ -35,6 +35,36 @@ def test_boot_identity_uses_sysctl_seconds(monkeypatch):
     """C-5.3 boot identity extracts only kern.boottime seconds."""
     census(monkeypatch)
     assert procs.boot_id() == "100"
+
+
+@pytest.mark.parametrize("parent_path", ["/fixture/bin", None])
+def test_daemon_identity_matches_cli_outside_utc(monkeypatch, parent_path):
+    """C-5.3: locale/timezone differences cannot make a live daemon lock look stale."""
+    monkeypatch.setenv("TZ", "America/New_York")
+    monkeypatch.setenv("LC_ALL", "fr_FR.UTF-8")
+    monkeypatch.setenv("LANG", "fr_FR.UTF-8")
+    if parent_path is None:
+        monkeypatch.delenv("PATH", raising=False)
+    else:
+        monkeypatch.setenv("PATH", parent_path)
+    calls = []
+
+    def ps(argv, **kwargs):
+        env = kwargs.get("env", os.environ)
+        calls.append(dict(env))
+        utc = env.get("TZ") == "UTC" and env.get("LC_ALL") == "C"
+        # Model ps rendering the same process under two parent environments.
+        started = "Sat Sep  5 14:00:00 2026" if utc else "sam. sept.  5 10:00:00 2026"
+        prefix = "S " if argv[-1] == "state=,lstart=" else ""
+        return subprocess.CompletedProcess(argv, 0, prefix + started + "\n", "")
+
+    monkeypatch.setattr(procs.subprocess, "run", ps)
+    recorded = procs.proc_start(4242)
+    assert client.same_process(4242, None, recorded) is True
+    assert " ".join(recorded.split()) == client.proc_start(4242)
+    assert calls[0] == {"LC_ALL": "C", "LANG": "C", "TZ": "UTC",
+                        "PATH": parent_path or "/usr/bin:/bin"}
+    assert os.environ["TZ"] == "America/New_York"
 
 
 @pytest.mark.parametrize("boot,started,expected", [
