@@ -59,6 +59,13 @@ Anything found at import time that is not in this table is reported by the impor
 - Skills `tickle`, `muster`, `codex-accounts` repointed at milestone 6, not before.
 - `bin/codex` shim kept, calling `subfleet lanes pick codex`.
 - Memory files updated with the new state root and the ownership map.
+- Findings from the compatibility lane (2026-09-05), each a checklist item:
+  - `PYTHONPATH` on this machine points at the v1 checkout and outranks an installed package, so a v2 console script in a v2 virtualenv imports v1's package. Unset it (or repoint it) before the symlink flip; `doctor` fails on this until it is done.
+  - The v2 compat layer delegates every unported v1 verb (`gate`, `sessions`, `handoff`, `tickle`, `muster`, `revive`, `pick`, `login`, `reset`, `errors`, `watch`, `keepalive`, `brief`, the hidden `_` verbs) to the v1 binary with its exit code unchanged, because v1's runners call `_record-run` and friends back through `$SUBFLEET_RUN_SUBFLEET` on every record. The v1 binary therefore stays installed at its known path until milestones 6 and 7 land; the flip repoints only the front door.
+  - `--independent` changes meaning: v1's abbreviation of `--independent-review`; v2's child-survives-parent flag (C-7.3). v2 wins. Say so in the cutover announcement, with `-I -D` as the isolated-review spelling.
+  - `subfleet codex -d` and `subfleet claude -d`, which v1's guard allowed, are refused unconditionally in v2 (front-door rule). The refusal names `subfleet run`.
+  - `runs show <id>` keeps its spelling but v1 printed metadata and the deliverable together; v2 prints one thing per form. Restore v1's bare-form shape in `cmd_runs_show` before the flip (follow-up, not compat's job).
+  - v1's `gate` is `consensus.py` behind v1's own `subfleet`; there is no separate `subfleet-gate` binary in v1, so delegation targets the v1 `subfleet` entry point.
 
 ## Rollback
 

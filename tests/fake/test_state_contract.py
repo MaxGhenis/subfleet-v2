@@ -36,7 +36,7 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
-    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args: Containment())
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
     def refuse_real_launch(*args):
@@ -277,7 +277,7 @@ def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_
     job_id, attempt, _ = reserve(daemon, harness, out_path=str(harness.root / "export.md"))
     daemon.store.update_attempt(attempt["attempt_id"], state="starting", guardian_pid=42001)
     daemon._starting_deadlines[attempt["attempt_id"]] = time.monotonic() - 1
-    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args: Containment(unverifiable=True))
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment(unverifiable=True))
     daemon._process_attempt(attempt["attempt_id"])
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"
     assert daemon.store.query("SELECT * FROM leases WHERE lease_key LIKE 'out:%'")

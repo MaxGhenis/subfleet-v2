@@ -145,7 +145,7 @@ class Containment:
 
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
-                attempt_id: str) -> Containment:
+                attempt_id: str, root: str | None = None) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
@@ -188,10 +188,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")
         marker = re.compile(r"(?:^|\s)SUBFLEET_ATTEMPT=" + re.escape(attempt_id) + r"(?=\s|$)")
+        # C-5.5: attempt ids are a timestamp and a slug, so two daemons (or two
+        # test state roots) can mint the same id in the same second. The state
+        # root is the second half of the marker whenever the caller has one.
+        root_marker = (re.compile(r"(?:^|\s)SUBFLEET_ROOT=" + re.escape(root) + r"(?=\s|$)")
+                       if root else None)
         # Never retain or report these command/environment strings.
         for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
             pid_text, _, command = row.strip().partition(" ")
-            if marker.search(command):
+            if marker.search(command) and (root_marker is None or root_marker.search(command)):
                 pid = int(pid_text)
                 state = states.get(pid) or _stat(pid)
                 if state and not state.startswith("Z"):

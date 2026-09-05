@@ -565,7 +565,7 @@ class Daemon:
 
     def _probe_census(self, record: dict):
         return procs.containment(record.get("pgid"), record.get("guardian_pid"),
-                                 record.get("child_pid"), record["holder"])
+                                 record.get("child_pid"), record["holder"], root=str(self.root))
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
@@ -667,7 +667,7 @@ class Daemon:
         env = {**os.environ, **launch.env_add}
         for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
             env.pop(key, None)
-        env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_PROBE="1")  # C-11.4: a probe names itself
+        env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
         package_root = str(Path(__file__).resolve().parent.parent)
         env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         read_fd, write_fd = os.pipe()
@@ -948,7 +948,7 @@ class Daemon:
         env.update(launch.env_add)
         for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
             env.pop(key, None)
-        env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"])
+        env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))  # C-5.1 markers
         # The package path is explicit: provider cwd is deliberately unrelated
         # to the daemon's installation or test checkout.
         package_root = str(Path(__file__).resolve().parent.parent)
@@ -1069,7 +1069,7 @@ class Daemon:
             self._lost(a)
 
     def _contain(self, a: dict):
-        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"])
+        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
     def _record_owned(self, a: dict) -> None:
         census = self._contain(a)

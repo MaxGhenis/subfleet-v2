@@ -187,3 +187,14 @@ def test_proc_start_retry_reraises_when_every_pass_fails(monkeypatch):
     monkeypatch.setattr(procs.time, "sleep", lambda s: None)
     with pytest.raises(procs.InspectionError):
         procs.proc_start_retry(9, tries=3, delay_s=0)
+
+
+def test_containment_marker_requires_the_state_root_when_given(monkeypatch):
+    """C-5.5 a marker match from another state root is not a writer of this attempt."""
+    census(monkeypatch, parents="42 1 S\n",
+           markers=("99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/other-root\n"
+                    "100 python SUBFLEET_ROOT=/tmp/this-root SUBFLEET_ATTEMPT=job/a1\n"))
+    scoped = procs.containment(42, 42, None, "job/a1", root="/tmp/this-root")
+    assert scoped.marker_pids == {100}
+    unscoped = procs.containment(42, 42, None, "job/a1")
+    assert unscoped.marker_pids == {99, 100}
