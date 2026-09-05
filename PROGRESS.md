@@ -2,9 +2,9 @@
 
 ## State
 
-Implementing milestone 1 and 2 acceptance through the real CLI, daemon, and
-provider adapters on `lane/e2e`. Physical execution is blocked by sandbox denial
-of `ps`, `sysctl kern.boottime`, and AF_UNIX binding; no bypass attempted.
+The suite and seam fixes are committed on `lane/e2e`. Milestone 1 and 2 acceptance
+remains blocked by sandbox denial of `ps`, `sysctl kern.boottime`, and AF_UNIX
+binding; no bypass attempted. The final E2E run collected and skipped 21 cases.
 
 ## Done
 
@@ -31,9 +31,20 @@ of `ps`, `sysctl kern.boottime`, and AF_UNIX binding; no bypass attempted.
 - Extended the Codex executable fake with metadata RPCs, a delayed `slow` alias,
   and opt-in dirty-worktree bytes for salvage. Its version and `hooks/list`
   replies pass the real guard preflight using the unchanged reviewed TRUST.
+- Fixed daemon/client timezone and locale identity mismatch (`5523bad`).
+- Preserved exact original prompts and digest inputs, recorded prepared write
+  prompts separately, and added Codex sent-prompt capture (`cb144ad`). Eight
+  regressions cover both providers, sandboxes, no-preamble, and retry inputs.
+- Final focused `uv run pytest` validation: 405 passed, 1 deselected in 12.64 s.
+- Final `uv sync --group dev` succeeded. E2E: 21 skipped in 0.12 s (0.54 s wall),
+  which does not establish physical acceptance or its execution-time budget.
+- All 17 E2E test functions cite clauses; `git diff --check` passed.
+- Wrote the final report to `OUTPUT.md` and `docs/lanes/reports/e2e-OUTPUT.md`.
 
 ## Next
 
-- Run the final focused regressions, audit clause docstrings, and record skips.
-- Run `uv run pytest -q tests/e2e`, record timing and limitations, and write
-  `docs/lanes/reports/e2e-OUTPUT.md`.
+- Integrator: run all 21 real-daemon cases with permitted inspection and Unix
+  sockets, and verify executed passes in under 90 seconds.
+- Integrator: address the existing-store credential CHECK migration before
+  adopting env credentials there, run broader physical milestone gates, and push
+  the local lane commits from outside the sandbox.
