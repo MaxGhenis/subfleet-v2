@@ -1,0 +1,110 @@
+{
+  "api_error_status": null,
+  "duration_api_ms": 331104,
+  "duration_ms": 329948,
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "fast_mode_state": "off",
+  "first_content_frame_ms": 5092,
+  "is_error": false,
+  "modelUsage": {
+    "claude-fable-5-1": {
+      "cacheCreationInputTokens": 66872,
+      "cacheReadInputTokens": 157938,
+      "canonicalModel": "claude-fable-5-1",
+      "contextWindow": 1000000,
+      "costBasis": "list",
+      "costUSD": 2.5162744999999997,
+      "inputTokens": 130,
+      "maxOutputTokens": 64000,
+      "outputTokens": 22761,
+      "provider": "firstParty",
+      "thinkingTokens": 20039,
+      "webSearchRequests": 0
+    },
+    "claude-haiku-4-5-20251001": {
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0,
+      "canonicalModel": "claude-haiku-4-5",
+      "contextWindow": 200000,
+      "costBasis": "list",
+      "costUSD": 0.00417,
+      "inputTokens": 4080,
+      "maxOutputTokens": 32000,
+      "outputTokens": 18,
+      "provider": "firstParty",
+      "thinkingTokens": 0,
+      "webSearchRequests": 0
+    }
+  },
+  "num_turns": 16,
+  "permission_denials": [],
+  "queued_turn_count": 0,
+  "result": "---SUBFLEET-VERDICT-BEGIN---\n{\n  \"artifact_revision\": {\n    \"base_sha\": \"9bed01ec384ae55fc033de7f597d1c76f28cc660\",\n    \"head_sha\": \"e8dc810f7ea45c3508fe0cab5fe7af44df551753\",\n    \"kind\": \"pr\",\n    \"number\": 222,\n    \"repository\": \"TheAxiomFoundation/axiom-api\"\n  },\n  \"findings\": [],\n  \"notes\": [],\n  \"schema_version\": 1,\n  \"summary\": \"Static read-only review of the immutable patch; I did not execute tests and could not verify live SHAs since the review directory is not a git repository, but the clean checkout's workflow, reporter, and test file match the artifact byte-for-byte. Both prior peer findings are resolved at this head: reporter stdout/stderr is now logged once inside a per-invocation ::stop-commands:: block before the success exit or fallback continuation (workflow lines 264-271), and a fallback-created comparison-error issue now uses the reporter's canonical title (line 297), asserted against comparisonFailure() in the new-issue test. Re-verified under static analysis: job-scoped contents:write with persist-credentials:false and an env-only inline credential helper; archive gated on compare success and refs/heads/main; workflow-level concurrency without cancellation; marker-based category identity shared by reporter and fallback; body-preserving PATCH with damaged-section refusal; run-marker idempotency for both paths including the reporter's no-op retry; jq -er multi-document and non-numeric guards preventing drift inference from malformed reports; bash 3.2/5 compatible syntax with -eo pipefail matching runner semantics; erasable-only TypeScript for Node 24 type stripping; the pre-existing migration-schemas step-ordering test still holds since 'Commit bundled run' precedes 'Read pinned RuleSpec revision'. Accepted trade-offs, not defects: a failed canonical-issue lookup aborts without any alert (tested, prefers no duplicates); setup/archive/downstream failures handled by the fallback land on the comparison-error issue as documented in docs/observability.md; the reporter's main guard compares realpath-based import.meta.url with path.resolve'd argv[1], which is safe in the runner's non-symlinked workspace; action SHA pins could not be verified offline; existing issues #213/#221 must be seeded with markers before merge as the parent stated, or the first run creates fresh issues.\",\n  \"verdict\": \"approve\"\n}\n---SUBFLEET-VERDICT-END---",
+  "session_id": "216b6cb7-225c-4a67-8663-9e032a4dad25",
+  "stop_reason": "end_turn",
+  "subagent_stats": {
+    "by_type": {},
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "system": 0,
+      "user": 0
+    },
+    "max_depth": 0,
+    "refused": {
+      "budget": 0,
+      "concurrency_limit": 0,
+      "depth_limit": 0
+    },
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "spawned": 0,
+    "spawned_by_subagents": 0,
+    "started_in_background": 0
+  },
+  "subtype": "success",
+  "terminal_reason": "completed",
+  "time_to_request_ms": 115,
+  "total_cost_usd": 2.5204445,
+  "ttft_ms": 6585,
+  "ttft_stream_ms": 4118,
+  "type": "result",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 66872,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "cache_creation_input_tokens": 66872,
+    "cache_read_input_tokens": 157938,
+    "inference_geo": "not_available",
+    "input_tokens": 130,
+    "iterations": [
+      {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 2845,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 2845,
+        "cache_read_input_tokens": 66827,
+        "input_tokens": 32,
+        "output_tokens": 6199,
+        "type": "message"
+      }
+    ],
+    "output_tokens": 22761,
+    "output_tokens_details": {
+      "thinking_tokens": 20039
+    },
+    "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  },
+  "uuid": "9fbce8a9-e6e7-44e9-9066-a70f96912df8"
+}

@@ -1,0 +1,110 @@
+{
+  "api_error_status": null,
+  "duration_api_ms": 278634,
+  "duration_ms": 277754,
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "fast_mode_state": "off",
+  "first_content_frame_ms": 4642,
+  "is_error": false,
+  "modelUsage": {
+    "claude-fable-5-1": {
+      "cacheCreationInputTokens": 113907,
+      "cacheReadInputTokens": 769089,
+      "canonicalModel": "claude-fable-5-1",
+      "contextWindow": 1000000,
+      "costBasis": "list",
+      "costUSD": 3.35898225,
+      "inputTokens": 322,
+      "maxOutputTokens": 64000,
+      "outputTokens": 17707,
+      "provider": "firstParty",
+      "thinkingTokens": 11085,
+      "webSearchRequests": 0
+    },
+    "claude-haiku-4-5-20251001": {
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0,
+      "canonicalModel": "claude-haiku-4-5",
+      "contextWindow": 200000,
+      "costBasis": "list",
+      "costUSD": 0.003755,
+      "inputTokens": 3635,
+      "maxOutputTokens": 32000,
+      "outputTokens": 24,
+      "provider": "firstParty",
+      "thinkingTokens": 0,
+      "webSearchRequests": 0
+    }
+  },
+  "num_turns": 39,
+  "permission_denials": [],
+  "queued_turn_count": 0,
+  "result": "---SUBFLEET-VERDICT-BEGIN---\n{\n  \"artifact_revision\": {\n    \"base_sha\": \"e16e1feb58fb97d53c65c2fe331ac04d4be14664\",\n    \"head_sha\": \"b31bf822059c64a34f9f93abd3a1879cd41672f0\",\n    \"kind\": \"pr\",\n    \"number\": 519,\n    \"repository\": \"TheAxiomFoundation/axiom-oracles\"\n  },\n  \"findings\": [],\n  \"notes\": [],\n  \"schema_version\": 1,\n  \"summary\": \"Static read-only re-review of PR 519 at head b31bf822 against base e16e1feb. The checkout's worktree ref resolves to the exact head sha and its comparator.py, report.py, cli.py, and run_comparison.py contents match artifact.patch hunk-for-hunk. The diff makes comparison completeness strict: Comparator.compare requires a household-ID bijection between engine results (and with outputs_by_case when supplied), rejects duplicate mapping concepts, treats missing/both-missing values as mismatches, requires every summed component to be present, raises on non-finite inputs and differences, and rejects empty per-household comparisons; ComparisonReportAccumulator validates the whole batch (submitted-case/comparison bijection, cross-batch case repeats, engine-pair stability, exact requested-output coverage) before mutating any counter or writing case rows, and counts submitted cases rather than surviving comparisons. The CLI passes each prepared case's outputs as the requested surface and converts ValueError into a ClickException without writing a report; comparable_mappings already guarantees both-engine targets, so the new 'Unmapped requested outputs' path cannot trigger on the CLI happy path, and case outputs are trimmed to the selected concept set before comparison. All other Comparator/build_comparison_report callers were inspected (scripts/run_comparison.py gettsim runner now propagates explicit concepts into case outputs and is covered by the parametrized test; scripts/run_canada_official_comparison.py suites declare exactly the three mapped concepts; the entitledto report compares one aligned household at a time with a two-target mapping) and remain consistent with the stricter contract. New tests cover bijection failures, sum-component semantics, non-finite handling, zero-agreement empty comparisons, no-mutation-on-rejection for streaming batches, per-case scoped outputs, and the CLI error/success paths. Residual, non-actionable observations: heterogeneous suites whose case ends with no comparable declared outputs for a given engine pair now abort the run instead of contributing a vacuous case, which is the documented intent; _filter_comparisons_for_case_outputs remains defined and unit-tested but is no longer used by the CLI compare path. The packet and upstream-audit markdown files referenced by the brief were not present in the review directory, so this verdict rests on artifact.patch plus the clean checkout; the PR diff touches no saved report JSON, so the upstream timestamp-only refreshes do not interact with it. Tests were not executed here; merge remains contingent on the current-head CI completing successfully.\",\n  \"verdict\": \"approve\"\n}\n---SUBFLEET-VERDICT-END---",
+  "session_id": "bb2f5efd-be24-4564-a172-d3a1455473d1",
+  "stop_reason": "end_turn",
+  "subagent_stats": {
+    "by_type": {},
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "system": 0,
+      "user": 0
+    },
+    "max_depth": 0,
+    "refused": {
+      "budget": 0,
+      "concurrency_limit": 0,
+      "depth_limit": 0
+    },
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "spawned": 0,
+    "spawned_by_subagents": 0,
+    "started_in_background": 0
+  },
+  "subtype": "success",
+  "terminal_reason": "completed",
+  "time_to_request_ms": 85,
+  "total_cost_usd": 3.36273725,
+  "ttft_ms": 7654,
+  "ttft_stream_ms": 3694,
+  "type": "result",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 113907,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "cache_creation_input_tokens": 113907,
+    "cache_read_input_tokens": 769089,
+    "inference_geo": "not_available",
+    "input_tokens": 322,
+    "iterations": [
+      {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 3859,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 3859,
+        "cache_read_input_tokens": 112848,
+        "input_tokens": 32,
+        "output_tokens": 1198,
+        "type": "message"
+      }
+    ],
+    "output_tokens": 17707,
+    "output_tokens_details": {
+      "thinking_tokens": 11085
+    },
+    "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  },
+  "uuid": "904c76d8-1cb5-4823-b3b0-75558833fd58"
+}

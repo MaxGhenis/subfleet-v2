@@ -1,0 +1,6 @@
+Revision4 changes ONLY the version label and adds the final two specification clarifications you requested. All earlier reviewed semantics unchanged. Your round3 verdict had two low findings and explicitly no high/medium issue; the gate also rejected the progress sentence before the sentinel. PLEASE EMIT NO PROGRESS/COMMENTARY TEXT. Return only the required sentinel JSON verdict.
+
+1. Family placeholders retain already-loaded180k/220k/160k source amounts, no Axiom reloading,3% exact-rational raises each October from2027. Active-month only, assumed financial completeness separate from Axiom subtotal. Concrete fixture cents in final section.
+2. All22family spine display-only nodes explicitly mapped toband0 with no competing capacity. Local priority integer[-99,99] gives disjoint intervals underband*1000+local (unlike[-1,999]which would collide at boundaries). Preserve source circle.
+
+Please evaluate those two short clarifications against your previous findings and return approval if resolved. Full previous notes and sources already available; do not repeat the entire research process unnecessarily. No implementation has started. Do not emit anything outside sentinel block, including progress updates.

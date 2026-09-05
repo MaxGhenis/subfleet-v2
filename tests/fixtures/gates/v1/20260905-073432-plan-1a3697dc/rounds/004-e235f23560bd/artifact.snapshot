@@ -1,0 +1,182 @@
+# PlanGraph portfolio rebuild
+
+Revision 4 · 5 September 2026 · implementation authorization: Max's request to write the plan, research existing tools, obtain Fable's review, then build.
+
+## Outcome
+
+Axiom and Public Interface will become two views of one versioned institutional model. A person is employed and paid once, shared work consumes that person's capacity once, and every view and export reads the same projection. The application will lead with the consequences of a scenario: missed targets, unstaffed work, capacity constraints, and changes in monthly costs. The graph will explain those consequences.
+
+This is a new portfolio contract inside the existing small TypeScript package, with a controlled application migration. It preserves the existing proposal and frozen-document workflows. It is not a rewrite of GrantKit, an optimal scheduling claim, or an authorization to replace sent budgets with new payroll estimates.
+
+## Research and reuse decision
+
+Read the companion [scheduling research](oss-scheduling.md), [prior Fable research](prior-research.md), and [GrantKit boundary](grantkit-boundary.md). Fable's September 3 recommendation was a TypeScript engine informed by TaskJuggler. Its initial novelty claim was corrected: TaskJuggler already provides scenarios, shared resources, effort scheduling, and completion-linked accounting.
+
+- Keep React, React Flow and the current TypeScript/Bun/Vite stack. React Flow provides graph interaction; node layout is a separate concern. Keep existing dependencies unless a demonstrated requirement warrants another. Do not copy paid React Flow Pro examples. [React Flow source](https://github.com/xyflow/xyflow), [layout choices](https://reactflow.dev/learn/layouting/layouting).
+- Reference TaskJuggler's leaf resources, responsible-versus-allocated distinction, scenario identity and booked-versus-planned work. Its Ruby/DSL adapter would still leave the institutional and payroll models to build. Do not claim custom scheduling is novel. [TaskJuggler internals](https://taskjuggler.org/manual/TaskJuggler_Internals.html).
+- Keep optimization behind the projection boundary. OR-Tools and Airbus Discrete Optimization already address advanced resource constraints, skills, modes and objectives. Adopt one if representative fixtures demonstrate a need beyond a transparent monthly heuristic. Neither becomes a production dependency in this build. [OR-Tools RCPSP](https://github.com/google/or-tools/blob/v9.15/examples/python/rcpsp_sat.py), [Airbus library](https://github.com/airbus/discrete-optimization).
+- Reference OpenProject's separate work and people timelines, resource requests, skills and availability. Its budgets are project-local; adopting the full application would add a second system of record and substantial integration. Do not assume every advertised feature is in its Community edition. [Resource management](https://www.openproject.org/docs/user-guide/resource-management/), [budgets](https://www.openproject.org/docs/user-guide/budgets/).
+- ChronoGraph is a real MIT TypeScript computational graph with transactions and branching, underlying commercial Bryntum scheduling products. Full recomputation is simpler for our roughly hundred-item monthly portfolio. Reference its input/derived-value separation; reconsider only after profiling. [Source and scope](https://github.com/bryntum/chronograph).
+- ProjectLibre is a useful conventional desktop Gantt/resource-leveling reference, not an embeddable institutional ledger. Its cloud product is a separate offering. [Official desktop description](https://projectlibre.com/projectlibre-desktop/).
+- Preserve GrantKit menu/rates/selection compilation, funding-stack checks and proposal artifacts. The new projection owns employment cash costs and explicit funding events; it does not silently reinterpret proposal quote prices. [GrantKit model](https://docs.grantkit.io/budget-model/).
+
+## Contract
+
+Add `plangraph/portfolio` without breaking existing root and Node exports. Its public function is `project(portfolio, scenarioId, asOfMonth): Projection`. Input and output are serializable JSON. YAML parses to the same validated contract. Schema version is `plangraph-portfolio/v1`; projection declares its schema, algorithm version, source revision, scenario and as-of month. Inputs remain immutable. Reject malformed numbers, duplicate IDs, missing references, cyclic dependencies and unknown scenarios before computing.
+
+The monthly calendar uses integer month indices and exclusive end dates. Resource identity is a stable string, independent of array order. Resources have a home program, planned or existing employment status, start/end, bounded productive FTE and effective-dated monthly cost/capacity records. Pools only group resource IDs. They add no capacity. A demand names eligible resource IDs, optional required skills, FTE and its source components. No automatic CEO fallback exists. Accountability is an owner label/reference distinct from execution allocation.
+
+Work has a stable ID, program, source references, earliest start, optional target finish, dependencies and explicit scheduling mode:
+
+1. Fixed reservations: known standing commitments or explicitly pinned windows. Reserve these first and report infeasible load rather than silently moving them. Pinned plans are not labeled measured actuals.
+2. Duration work: fixed elapsed duration with monthly demand profiles, shifted as a unit until all execution demands fit.
+3. Effort work: total FTE-months with explicit minimum/maximum staffing and eligibility; allocate available capacity across months until effort is complete. No implicit conversion of every legacy duration into effort.
+4. Milestones/rollups: zero effort, depend on named work or milestones; show targets independently of projected dates. Unmapped claims have an explicit unresolved reason and no invented completion.
+
+Actual start/completion/bookings require evidence references. Preserve actual bookings before as-of and do not reschedule completed work. Moving as-of forward cannot turn an expired forecast into an actual. Planned work with no actual start cannot begin before as-of. Imported legacy 'underway' flags retain their stated pinned planning windows with a migration warning when exact execution evidence is absent.
+
+Scenarios are stored with the input, keyed by ID. Overrides address stable resource/work/funding IDs. They can change future planned hire dates, remove future hires, change effort assumptions and include/exclude funding. A funding receipt delay is distinct from an employment-date change. Reject attempts to erase or postpone an employee already in place as of the projection, rather than silently rewriting history. Existing principal IDs are shared across Axiom and the family.
+
+## Scheduling and explanations
+
+Use a deterministic serial scheduling heuristic: fixed/actual reservations first, then dependency-ready items sorted by explicit priority, earliest date and ID. Respect every execution demand, including bounded founders. Report unscheduled work with the exhausted eligible resources or unresolved predecessor, not a fake date at the horizon. Keep any in-horizon allocation of effort work that continues beyond the horizon; distinguish partial from complete. Explain selected dates with dependencies, capacity constraints, earliest dates and retained fixed commitments. Retain coincident blockers when encountered. Explanations state what this heuristic did, not that no feasible schedule exists.
+
+The engine is generic. Axiom-specific pay, funders, milestone interpretation and portfolio composition live in the application adapter. Do not port the old owner-only/unlimited-fallback exception into the new contract.
+
+## Monthly economics
+
+Compute payroll directly from dated per-person costs, regardless of workload. The app adapter uses the existing salary loading functions, January raises, actual founder-pay schedules and hire/exit boundaries. Fixed costs have explicit windows. Resource-linked overhead follows the scenario's active roster month by month. Marketing's 18-month window ends when the proposal says it ends; no annual smearing into later months.
+
+Represent amounts as integer USD cents at the monthly event boundary, with one documented rounding rule. Sum rounded ledger entries for reports. Keep four concepts separate: expense, funding coverage, commitment and cash receipt. Coverage is restricted to explicit resource/cost targets and windows and cannot exceed eligible costs; overcoverage remains visible as a finding. A commitment or quote is never a cash receipt. Cash is computed only when an opening balance and receipt assumptions are explicitly provided; otherwise output unknown cash, not zero or a fake self-balancing runway. Financial completeness is declared by program so assumed family staffing costs do not become a certified institutional budget.
+
+GrantKit compiled proposals and current registry snapshots remain quote references. Ballmer's residual ask is an ask, not new cash. Frozen proposals retain their exact source amounts, dates and status. New monthly planning totals may differ; a reconciliation report names the calculation/window changes rather than asserting numerical parity.
+
+## Axiom and Public Interface migration
+
+Compose before scheduling. Expand Axiom's real roster to individual IDs such as `axiom:enc:0`; preserve existing MTS instance identities and funder attribution. The family no longer creates a second 21-person Axiom team or extra principals. Its PolicyEngine team and new program leads remain explicitly assumed resources until actual roster records exist. Preserve the user's consolidated-MTS policy as the default eligibility set; the schema permits specialist eligibility without inventing restrictions for current staff.
+
+Account for every existing detailed Axiom work item and every family item, but do not assume a different program label means different work. Convert coarse family Axiom nodes to zero-effort milestones referencing detailed Axiom work where the claim is actually equivalent. Maintain an explicit mapping table with a reason and source for every node. Encoding/certification count floors, multi-country claims or other gates without a defensible detailed-work mapping are unresolved milestones. Their dependents visibly wait on missing planning/evidence, instead of substituting a vaguely related task. This exposes source gaps without double-booking a parallel Axiom roadmap.
+
+Represent batch handoffs as ordinary milestones. Add a sourced intermediate corpus batch only if the source identifies its scope and timing; otherwise record the proposed decomposition as an open modeling decision. Do not make Microcosm's 2028 target look achievable by inventing an earlier batch.
+
+Migrate the existing Axiom hire/proposal scenarios and the two family stress cases into one scenario set. All capacity-enforced forecasts share one baseline. Retain an explicitly labeled source-plan comparison where needed, but never present unlevelled dates as feasible. Full-family and Axiom views filter output after projection. View filters cannot create capacity, change allocations, or remove shared costs from the canonical export.
+
+## Application
+
+Visual thesis: a calm planning workspace, with readable dense rows, a restrained accent and clear differences between target, forecast and unresolved work. No decorative hero. Content order: scenario/as-of controls, explanation of what changed, milestone table, timeline/graph, people and monthly costs. The selected item's inspector gives sources, effort components, actual carriers and blockers.
+
+Use one shared portfolio component for Axiom and Public Interface views. Keep the surrounding proposal, roster and historical workflows available and clearly identify legacy estimate surfaces. New planning views use the new projection only. Include a keyboard-accessible table alternative to the graph, stable selection, program filtering, honest temporal bar widths, and discoverable unscheduled items. Scenario/as-of/view state belongs in the URL. An overview is a view, not another calculation.
+
+JSON, CSV and a standalone workbook export are generated from this projection. They include revision/scenario/as-of, resource-month ledgers, milestones, sources and findings. Browser downloads and CLI output must agree. Keep proposal workbook exports separate and preserve their regression checks.
+
+## Delivery sequence and review gate
+
+1. Complete this plan, primary-source research and actual Fable review. Resolve actionable plan findings and record the accepted plan hash before implementing runtime changes.
+2. Create isolated worktrees from freshly fetched `origin/main`. PlanGraph main is an ancestor of existing `review-fixes`; incorporate that prerequisite on the new branch. Merge the open Public Interface branch into the new dashboard branch. Preserve existing worktrees, untracked files and open PRs.
+3. Establish the schema and projection types first. Implement engine scheduling/validation/economics with bounded fixtures. In parallel after the contract is stable, build the application adapter and shared UI.
+4. Add real multi-scenario acceptance fixtures and projection exports; reconcile known corrected monthly costs and document unresolved source claims.
+5. Run package tests/typechecks/build/packed-package consumption and dashboard tests/typechecks/build. Exercise the real UI locally at desktop and narrow widths, scenario controls, keyboard selection, no-lead and funding-delay results, and downloads. Run the existing proposal/workbook checks without repricing frozen artifacts.
+6. Obtain independent code review, fix actionable findings and rerun affected checks. Deliver clean reviewable branches/commits and a local preview. Production deployment and merging existing PRs are separate decisions; this build does not require them.
+
+## Required acceptance cases
+
+- Duplicate identities, missing references, cycles, NaN/infinity, negative money, invalid month/capacity and unknown scenario fail validation with paths.
+- The same person used by two programs never exceeds capacity in movable work; fixed overloads are explicit. Pools and rollups add no payroll or effort.
+- Priority is applied among ready siblings; fixed reservations are booked before ordinary work. Input order does not affect results.
+- Hiring later cannot create founder capacity or move an existing employee. No-program-leads visibly creates lost capacity/unresolved work instead of leaving all dates unchanged through an unlimited CEO.
+- Actual completions and bookings remain unchanged across scenarios/as-of; historical forecasts are not fabricated into actuals.
+- Fixed duration and effort-driven work differ under additional staffing; partial/out-of-horizon work and blockers are exported.
+- January salary events, a midyear hire, an exit, scenario-dependent office/tooling and an 18-month marketing window reconcile to an independently calculated monthly fixture.
+- Coverage/commitment never increments cash. Unknown balances/receipt schedules produce unknown cash. Restricted coverage cannot fund unrelated costs or silently overcover them.
+- All detailed Axiom and non-Axiom family items are accounted for; all replaced family Axiom nodes have reviewed mapping or an explicit unresolved reason. Canonical Axiom MTS counts match the real 17-instance roster, including scenario-specific individual drops/delays.
+- Axiom and family filters show identical dates and allocations for the same canonical item. UI, CLI and exports agree on the same projection.
+- Source components retain mixed provenance. Graph positions/durations and inspector values use selected-scenario data.
+- Legacy package behavior and frozen proposal exports retain regression coverage. Financial differences from the old planning totals have a written explanation.
+
+## Limits explicitly outside this build
+
+No daily work calendar, automatic staff-skill inference, stochastic forecast, optimal staffing recommendation, operational timesheet system, multiuser database editor, real-time upstream actuals sync, or new grant accounting system. No claim of verified institutional cash runway while inputs are absent. These are documented limits, not silently simulated capabilities. Future solver adoption must start with representative fixtures, a measured benefit and a licensing/runtime decision.
+
+
+## Revision 2: resolved Fable review decisions
+
+These rules refine the earlier sections and take precedence where more specific. Fable round 1 is preserved alongside this plan. Companion evidence is at the absolute directory `/redacted/home/architecture-reviews/plangraph-build-20260905/`; the original review is `/redacted/home/architecture-reviews/plangraph-20260905/review.md`.
+
+### Executive envelope and cross-program work
+
+`z0` is the existing full-time executive responsibility envelope. Convert it to a zero-effort summary; its 1.0 CEO and 1.0 President figures are the total executive envelope, not another two person-years added to specific executive activities. Specific family executive tasks consume the same bounded people. The unitemized remainder remains executive responsibility and is displayed as such, not idle engineers or cross-pool capacity. This preserves the recorded “executives 100% here” interpretation at the summary level. The migration states that the distribution of executive work is an assumption: we have no calibrated administrative minimum beyond the enumerated work. Do not claim the model proves executives have discretionary spare time. Add a stress scenario with a 0.5 FTE fixed general-executive reservation per executive to reveal that sensitivity; this is explicitly an assumption, not an observed booking. No other role falls back to either executive.
+
+Extend the work-mapping audit to all 56 family items. Any item citing detailed Axiom work or demanding shared Axiom resources gets an explicit disposition: identical work becomes a zero-effort alias, demonstrably separate incremental work retains only its distinct demand, and an ambiguous split becomes unresolved. `pe-migrate` aliases detailed `rp1` (the source note explicitly identifies it). Bounded-fidelity/missing-fact composition is not automatically equated with rule-fidelity, but its shared Axiom contribution is unresolved until the responsibility split is supported. `th-uplift` and `pe-instances` receive the same audit. Retain every source item and demand in migration metadata; removing duplicate scheduling effort must not erase its source claim.
+
+All 17 complete family Axiom gate claims currently lack a fully defensible mapping. Preserve targets and related-work links, mark them unresolved, and propagate that source gap. Related work cannot complete a gate. The local 20-country manifests are documented cut plans, not sufficient published/signed-release evidence; no actual completion is inferred. See `milestone-mapping.md` and `corpus-release-manifest-inspection.json` in the companion directory.
+
+### Resource mapping
+
+| Family input | Canonical resources | Status and rationale |
+|---|---|---|
+| ceo | Axiom CEO instance | One existing person; same Max, no second payroll |
+| axiom-lead (2) | Axiom President and Director of Product instances | Existing principal identities from roster; mapping is a stated interpretation of the coarse source, not additional hires |
+| axiom-team (21) | The actual 17 MTS instances | Remove the placeholder; the 21 figure was whole-roster target shape incorrectly used as engineers, not four missing MTS jobs |
+| pe-team (6) | Six stable PE planning instances | Source reports six in place; identities, costs and productive capacity remain assumed aggregate-to-person placeholders, flagged as such |
+| chronicle/thesis/microcosm leads | One distinct planned instance each | Existing family assumptions, no CEO fallback |
+| steward-ops | One distinct planned instance | Existing family assumption, no duplicate Axiom ops identity is asserted |
+
+Preserve source resource IDs and replacement IDs in an explicit mapping artifact. Existing employment is identified by a recorded evidence/source reference and explicit `existing` status, never by a planned start date crossing as-of. A stale unconfirmed planned hire emits a finding, remains scenario-editable and has forecast availability clamped to as-of, while the original planned date is retained. No historical payroll is fabricated for an unconfirmed planned hire. Overrides to exited resources fail validation; explicit employment end events are separate from dropping a future hire.
+
+### Standing work, assignment and as-of
+
+Add a fifth mode: dependent ongoing work. It starts only after dependencies and eligibility permit, reserves its stated monthly demands from that start to the horizon, and exports `ongoing` with no completion date. Dependencies distinguish `finish` (default) from `start`; a finish dependency on ongoing work cannot be satisfied and emits an explicit blocker. Migration uses start-to-start edges only where the source actually requires an operating service rather than its completion. It never substitutes the horizon for completion.
+
+Allocation is deterministic first-fit by ascending eligible resource ID, with more restricted demand sets allocated first, stable demand IDs breaking ties. It splits fractional FTE across eligible resources as needed, with all demands in a month checked atomically. This is a documented greedy heuristic: failure means this heuristic did not place the item, not proven infeasibility. Coverage targets refer to resource employment-cost entries, not the identity of the resource selected for a particular work item; changing a carrier cannot change payroll or invent funding eligibility. Pin a multi-resource assignment fixture and reverse all input arrays to test determinism.
+
+As-of is the start of a month and must be within `[0, horizon)`. Actual bookings occur strictly before as-of; actual completion is an exclusive boundary at or before as-of (completion exactly at as-of closes the prior month). Reject future actual starts/bookings, completion after as-of, and bookings outside recorded employment. Actual source references must exist. Effort remaining equals declared total minus evidenced actual booked FTE-months; reject over-completion. An actual start without enough bookings/remaining-effort evidence yields an unresolved remainder rather than guessing elapsed effort. Duration work with an actual start uses its original elapsed duration; if that end has passed without actual completion, report overdue/unresolved rather than fabricating completion. Actual completion takes priority over projection and remains invariant.
+
+Legacy pinned months before as-of are displayed as historical planning assumptions, not actual bookings and not consumed effort. Preserve their fixed windows as source metadata; future reservations begin at as-of. An expired pinned finite item without completion evidence is unresolved. Ongoing imported commitments may reserve from as-of onward, but past planned load is not labeled observed. No future scenario scale affects actual bookings.
+
+### Funding migration and exact cents
+
+Classify every legacy funding line in a reconciliation table:
+
+- Pre-award self-balancing bridge: proposed coverage of the three named founders' pre-award costs, with assumed status; no receipt.
+- Proposal asks, including term/year spreads and Ballmer residual: retain exact quote references and proposed coverage only where personnel/non-personnel restrictions are explicit. Unallocated remainder stays a quote reference, not unrestricted coverage. An awarded proposal may supply a commitment only with source evidence, never an inferred receipt date.
+- Partner-funded and parent-shared offsets: assumed restricted coverage of named employment costs and windows; recompute eligible coverage on the scenario roster, no receipt.
+- Ballmer historical reference funding: comparison-only quote reference, excluded from new cash and coverage to prevent double counting.
+- Modeled revenue streams: retained as commercial assumptions/reference context, excluded from receipts until a receipt schedule is explicitly supplied. The new UI says revenue receipts are not modeled.
+
+Coverage status is explicit (proposed versus committed) and reported separately. In this first migration no verified receipt schedule/opening balance exists, so cash is unknown. Choosing 'include proposal' tests proposed coverage, not award probability or money in the bank. Founder October compensation step-up is a dated planning assumption; receipt delays alone leave it unchanged. Moving that step requires an explicit future compensation override; no such automatic coupling is introduced.
+
+Round nonnegative recurring payroll/cost events half-up to cents once per resource/cost-month, then sum. Annualized payroll rates may differ from twelve rounded months by at most six cents per resource-year; this is accepted and documented. Salary-loading caps remain the existing model's annualized full-year convention divided by twelve; do not claim year-to-date payroll-tax accounting or recalculate caps over months worked. Productive FTE never multiplies an already-priced salary. For an exact fixed total T cents spread over N months, allocate month k as `halfUp(T*(k+1)/N)-halfUp(T*k/N)`, preserving the total. Precompute the original entire window before horizon clipping. The independently calculated vectors in `economics-fixtures.md` are acceptance evidence.
+
+### Checkout and package consumption
+
+Preparation during review created these isolated branches, with no new runtime implementation yet: `/redacted/home/TheAxiomFoundation/_worktrees/plangraph-portfolio` at 22eee68 after fast-forwarding the new branch from fetched origin/main 5007eca; `/redacted/home/TheAxiomFoundation/_worktrees/roadmap-portfolio` at b29b4c2, merging PI 55cc47d into fetched origin/main 99ae592. Local dashboard main ce781af is stale; it was not the base. The ledger-seam tree is already represented by the later main squash. Reuse these clean prepared worktrees and recheck status before edits; do not create duplicate branches.
+
+During development consume the new engine through an explicit local package path/alias. Before delivery, build and pack the engine into a content-addressed tarball under the dashboard's vendor directory and install it with a relative `file:vendor/...tgz` dependency and frozen lockfile. This keeps the local build reproducible without pushing an unpublished SHA. Include engine source revision/hash provenance and test both root and portfolio exports from the packed artifact under Node and TypeScript. Remove absolute worktree aliases before final validation. A later published package/commit pin can replace this artifact deliberately.
+
+Additional required tests: out-of-horizon as-of; overrides to exited resources; effort work with all eligible resources exiting before it finishes (retained partial bookings and explicit missing-capacity reason); empty milestone with neither dependency nor evidenced completion (unresolved); JSON/YAML equivalent inputs yield the same deterministic projection fingerprint; UI/CLI/exports carry that fingerprint and agree on a golden fixture. Fingerprinting uses canonical serialization and a documented deterministic content digest, not timestamps or input array order. The engine version is part of the fingerprint.
+
+
+## Revision 3: final implementation details from Fable round 2
+
+The following resolves round 2 and the independently reasoned scheduling fixtures. Lower numeric priority runs first. The composed baseline bands are: Axiom FinBot (0), Axiom US tax/benefit (1), Axiom organization (2), family programs (3), steward (4), Axiom elsewhere (5), Corollary (6). Encode `band * 1000 + existingItemPriority`, retaining current -1 FinBot path overrides; validate the local priority fits its band. This is an explicit priority assumption: funded delivery and institutional prerequisites before family expansion, with general geographic expansion and commercial spinout later. Fixed/actual reservations still precede these bands. A cross-program contention fixture must prove the documented order, not merely sorting within one program.
+
+**Expected useful output despite source gaps.** The expanded audit yields 24 directly unresolved family items: the 17 ax-* gates plus bf-spec, bf-safety, bf-finbot, bf-85, pe-instances, pi-transfer and th-uplift. Transitive source-gap closure is exactly these 34 source IDs:
+`ax-100k, ax-100m, ax-10k, ax-10m, ax-1b, ax-1m, ax-20-countries, ax-coalition, ax-conformance, ax-contract, ax-evidence, ax-first-dep, ax-living, ax-oracles, ax-readiness, ax-registry, ax-trancheb, bf-85, bf-finbot, bf-safety, bf-spec, co-commons, co-form, co-products, mc-20, mc-50, mc-every, pe-default, pe-instances, pe-utility, pi-transfer, th-calibration, th-observatory, th-uplift`.
+Pin this source-gap set independently of additional capacity or missing-actual blockers. Display it as an explicit data-readiness result, with related detailed work, original source targets and the missing modeling/evidence. The public-interface view also exposes the canonical detailed Axiom work and the remaining independent family paths; it is not only the 56 coarse nodes. Source-plan comparison means a separate authored-target column/timeline with original source edges. It does not run an assumed-complete scheduler or inject target dates into forecast dependencies. A gap stays a gap in every feasible forecast. No-leads must change independent Chronicle/Microcosm/Thesis work or its capacity reason; six-month Axiom hiring delay must change actual canonical Axiom resource-month capacity and detailed work, even if an already source-blocked family gate has no date to move. Add those real-data assertions and UI tests.
+
+**Ongoing and effort semantics.** Movable ongoing work must fit atomically in every month from its candidate start through the horizon. A future exit/conflict prevents that candidate; name it. Do not book an infeasible attempt or label it complete. Existing/fixed ongoing commitments retain their windows and expose shortfalls rather than shifting. Final fractional effort may fall below the minimum staffing threshold to conserve total effort; nonfinal productive months must meet the minimum. No-work months may be skipped by effort mode. Tests include a future exit, an atomic failed attempt with no capacity leakage, and a 0.2 final remainder when min staffing is 0.5.
+
+**Exact monetary arithmetic.** The generic engine accepts safe integer cents, never fractional dollars. Fixed-total distribution uses BigInt integer arithmetic: `halfUp(n/d) = (2*n+d)/(2*d)` with integer division for nonnegative integers. The app adapter uses exact decimal/rational arithmetic for base salaries, the 5% January escalation, declared payroll rates/caps, retirement and fringe, then rounds annual loaded cost divided by twelve once to cents. Extract/reuse the existing loading constants; do not substitute updated statutory constants or change the legacy quote calculations. Do not pass a binary floating-point loaded annual result into the cents boundary. Preserve full rational precision through escalation and cap comparisons; no annual-rate truncation is permitted. Shares of cost use the same exact decimal conversion. Add explicit half-cent tie, multi-year escalation and fixed-total conservation tests, as well as the independent fixture vectors.
+
+**Alias removal.** Final dashboard code removes the root `plangraph` source alias from Vite and tsconfig and resolves both root and `plangraph/portfolio` through the packed package's dist exports. Temporary development aliases, if used, must be exact-match entries for both subpaths (not a prefix alias); remove them before final checks. Packed artifact tests run the browser build, TypeScript scripts, and a Node import of both exports. The final tarball and dependency path are relative and content-addressed.
+
+**Ambiguous leadership label.** The source calls `axiom-lead` “president; rules lead”, not President and DoP. Supersede the unconditional row above: preserve it as an unresolved coarse group with candidate interpretations President+DoP (existing principals, Pavel's rules role) and President+encoding lead (future MTS hire). Since all coarse tasks demanding this group are aliases or unresolved in the migration, it creates no capacity and assigns no work to either candidate interpretation. Existing real principal and MTS identities still come directly from the detailed roster. The mapping artifact records this source conflict; a later scoped work split must explicitly choose real eligible resources.
+
+Add fixtures for: the extra 0.5 executive fixed reservation reducing available specific-work capacity; a stale planned hire retaining its original date while forecasting from as-of and remaining scenario-editable; proposed and committed coverage staying separately reported and both leaving cash unchanged; exact 34-node source-gap closure; no-leads and late-hiring effects on the actual composed input. These are required implementation tests, not optional future checks.
+
+
+## Revision 4: final two specification clarifications
+
+Family placeholder costs use the source's **already-loaded annual** amounts (PE 180,000 USD; each program lead 220,000 USD; steward operations 160,000 USD). Do not apply Axiom salary loading or Axiom's 5% raises again. Retain family 3% escalation at the funding-year boundary: base rates through September 2027, first 3% step October 2027, then each October. Use exact rational multiplication by 103/100 before monthly half-up cents. Price only active resource months. The family financial view labels all these costs assumed; they do not upgrade any program's completeness or enter Axiom's program-only payroll subtotal. Fixture: one PE placeholder costs 1,500,000 cents/month through September 2027, 1,545,000 in October 2027, and 1,591,350 from October 2028. A program lead active September–October 2027 costs [1,833,333, 1,888,333] cents. Assert that no salaried loading/fringe is added to these values.
+
+All 22 family `spine` items are zero-effort unresolved milestones or the pe-migrate alias after migration; none competes for capacity. Assign these display nodes band 0 explicitly; preserve the original spine circle in provenance. Local priority is an integer in [-99, 99], so `band*1000+localPriority` gives disjoint band intervals. Validate the adapter mapping and include spine in the composed-input fixture. The generic kernel accepts explicit integer priority and has no organization-specific band names.
