@@ -7,7 +7,11 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.scripts]
-subfleet = "subfleet.cli:main"
+# The front door is the compatibility layer, not the parser: every v1
+# invocation is mapped, delegated, or refused by `subfleet/compat.py` before
+# `cli.main` sees a v2 argv (C-17.1, plan.md amendment 1). `cli.main` itself is
+# unchanged and is still what the tests call directly.
+subfleet = "subfleet.compat:dispatch"
 subfleetd = "subfleet.daemon:main"
 subfleet-guardian = "subfleet.guardian:main"
 

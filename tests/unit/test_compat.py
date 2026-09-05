@@ -9,6 +9,7 @@ against, so a wrong row fails a rule rather than quietly becoming the contract.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -588,6 +589,37 @@ def test_dispatch_exports_the_aliased_names(monkeypatch):
     compat.dispatch(["runs"], env={"CARPOOL_CODEX_HOMES": "/y"})
     import os
     assert os.environ["SUBFLEET_CODEX_HOMES"] == "/y"
+
+
+# --- the entry point ----------------------------------------------------------
+
+def test_the_console_script_and_python_m_both_enter_through_compat():
+    """C-17.1 the compatibility layer is only a compatibility layer if every
+    invocation goes through it. `pyproject.toml`'s `subfleet` script and
+    `subfleet/__main__.py` are the two ways a process starts, and both name
+    `compat.dispatch`; `cli.main` is what compat hands a v2 argv to."""
+    repo = Path(__file__).resolve().parents[2]
+    pyproject = (repo / "pyproject.toml").read_text()
+    assert 'subfleet = "subfleet.compat:dispatch"' in pyproject
+    assert 'subfleet.cli:main' not in pyproject
+    main_module = (repo / "subfleet" / "__main__.py").read_text()
+    assert "from .compat import dispatch" in main_module
+    assert "sys.exit(dispatch())" in main_module
+
+
+def test_python_m_subfleet_runs_a_hook_end_to_end(root, tmp_path):
+    """C-15.2 `daemon install --hooks` writes `<interpreter> -m subfleet hook
+    <Event>` rather than a bare `subfleet`, because during the shadow period a
+    bare `subfleet` may still be v1. That command line has to actually run."""
+    from subfleet import hooks
+    command = hooks.hook_command()
+    assert command.endswith("-m subfleet hook")
+    done = subprocess.run(
+        [*command.split(), "SessionStart"],
+        input=json.dumps({"session_id": "sess-entry"}), capture_output=True,
+        text=True, cwd=str(Path(__file__).resolve().parents[2]),
+        env={**os.environ, "SUBFLEET_HOME": str(root)})
+    assert done.returncode == 0, done.stderr
 
 
 # --- the doctor row -----------------------------------------------------------
