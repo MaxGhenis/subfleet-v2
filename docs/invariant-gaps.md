@@ -751,3 +751,155 @@ Three rows, three clauses.
   than a parked one" — a revive that silently changes model resumes someone else's work in the
   session's name. The tier comes from the session record, not from a `policy.json` chain, so C-11.2's
   chain walk does not reach it.
+
+## provenance/attestation
+
+Five rows, four clauses. Row 218 is an `ops-hygiene` row filed here because P-23.40 is the clause
+that covers it.
+
+### P-23.40 — finding the transcript attestation reads
+
+> **P-23.40** The transcript for a session uuid is looked for at `<projects>/<session id>.jsonl` and
+> `<projects>/*/<session id>.jsonl` and nowhere deeper; no search walks a workdir or a worktree.
+> Attestation waits for a transcript that has not landed yet at most `transcript_wait_tries` (4)
+> times with a one-second backoff, and then the verdict is `unattested`.
+
+- **Ledger rows:** 19 (`keep`, provenance/attestation), 218 (`keep`, ops-hygiene)
+- **Milestone:** 2
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/adapters/claude.py`
+- **Rationale:** both rows bound the same search. Row 19's rationale is that "transcripts land
+  slightly after the run", so some wait is necessary and an unbounded one hangs finalization; row
+  218's is that the alternative is "an unbounded recursive walk of the worktree". C-12.5 says the
+  transcript is "located by session uuid under `~/.claude/projects/`" and requires exactly one match,
+  which a recursive walk also satisfies, and it says nothing about waiting — so a C-12.5 test passes
+  on both violations. The depth bound is implemented on this branch
+  (`subfleet/adapters/claude.py:1142-1163`, two globs, no recursion); the wait is not.
+
+### P-23.41 — a nested submission mints its own identity
+
+> **P-23.41** A submission made from inside a running attempt takes no identity from its environment:
+> the daemon mints a fresh job id and, absent `--request-id`, a fresh request id. An inherited
+> `SUBFLEET_JOB` is read only as the default `--parent`, and an inherited `SUBFLEET_ATTEMPT` — which
+> C-5.1 and C-5.5 require the child to keep — is never an identity claim.
+
+- **Ledger rows:** 32 (`replace`, provenance/attestation)
+- **Milestone:** 1
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/daemon.py`
+- **Rationale:** row 32's rationale is "id hijack by a child dispatch". v1 answered it by unsetting
+  every `SUBFLEET_RUN_*` variable after recording the run; v2 cannot, because C-5.1 puts
+  `SUBFLEET_ATTEMPT` in the child environment and C-5.5 enumerates containment by reading it back
+  out of `ps -axEww`. The obligation therefore moves from scrubbing the environment to refusing to
+  trust it, and no clause says the daemon distrusts an inherited id — C-6.2's request-id rule assumes
+  the id came from the caller. C-7.3 is the secondary clause: a parent's cancel reaches children, so
+  `--parent` has to keep working from the inherited value.
+
+### P-23.42 — a notice says what the recipient may do
+
+> **P-23.42** Every notice envelope declares the recipient session's own recorded permission class.
+> `SUBFLEET_NOTIFY_MODE` in the recipient's environment overrides the recorded value, and the
+> override is recorded on the notice.
+
+- **Ledger rows:** 74 (`keep`, provenance/attestation)
+- **Milestone:** 4
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/notices.py`
+- **Rationale:** row 74's rationale is the "inbox attestation contract" — the recipient acts on what
+  the envelope claims about it, so the claim has to be the recipient's own recorded class and not the
+  sender's guess. C-15.1 enumerates the notice *text* (job id, class, rc, paths, summary,
+  uncertainty) and C-15.3 the states; neither describes an envelope, so a test of either passes on an
+  envelope that declares nothing.
+
+### P-23.43 — an unattested round is not a verdict
+
+> **P-23.43** A peer round counts only when its attestation is `attested` for the model the gate
+> asked for. A round whose attestation is `mismatch` or `unattested`, or which carries a downgrade
+> record, is discarded and re-run; it is never counted as agreement or as changes requested.
+
+- **Ledger rows:** 197 (`keep`, provenance/attestation)
+- **Milestone:** 7
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/gate.py`
+- **Rationale:** row 197's rationale is "silent model downgrade during adjudication" — the whole
+  value of a peer round is that a different, named model looked at it. C-12.5 produces the verdict
+  and forbids a false positive, which is necessary but not sufficient: a gate that ignores an
+  `unattested` verdict breaks no C-12.5 test. This is C-12.5's result being made load-bearing at the
+  one place a wrong model is worth the most.
+
+## identity
+
+Eight rows, four clauses.
+
+### P-23.44 — what an auth-dead lane costs
+
+> **P-23.44** An `auth-dead` result disables the lane at once. A disabled lane is not a routing
+> candidate, not a keepalive target, and not probed — no request is sent to it — until
+> `subfleet lanes enroll` rebinds its credential, which records a new lane id under C-1.3; the CLI
+> exits 5 and names that command. The lane's auth-dead detail is logged at most once a day.
+
+- **Ledger rows:** 116 (`replace`, identity), 175 (`keep`, identity)
+- **Milestone:** 2 for the disable, 5 for the keepalive and log cadence
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/credentials.py`
+- **Rationale:** row 175's rationale is "repeated dead-token pings and alert spam"; row 116's ledger
+  verdict is `keep-simplified` because v1's 30-day cooldown became severe once row 23 made rc 5
+  probe-confirmed — the 2026-09-03 incident, "six live lanes parked 30 days on a phrase match". C-9.3
+  sets the evidence bar for `auth-dead`, C-17.3 gives exit 5, and C-1.3 gives the new lane id on
+  rebind, but no clause says the lane is disabled or that nothing may talk to it while it is, so a
+  test of all three passes while a keepalive pings a dead token every five hours.
+
+### P-23.45 — one account, one enabled lane
+
+> **P-23.45** Two enabled lanes never share an account key. Enrolment and each probe cycle detect a
+> duplicate binding, disable the non-canonical one, and raise a critical alert naming both homes.
+
+- **Ledger rows:** 136 (`keep`, identity)
+- **Milestone:** 2 for detection, 5 for the alert
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/credentials.py`
+- **Rationale:** row 136's incident is "2026-07-11: revoked refresh token from same-account-in-two-homes"
+  — two homes refreshing one account's token race, and the loser's rotation revokes the winner's. That
+  is the most expensive failure in the ledger, because it costs an operator login. C-1.4 defines the
+  account key and C-10.1 makes a lane an immutable binding, but neither forbids two lanes holding the
+  same key, so a test of either passes while the fleet is set up to revoke itself.
+
+### P-23.46 — what shadowing changes and what it does not
+
+> **P-23.46** A lane whose account is a provider desktop app's current login is recorded as shadowed;
+> that fact alone never changes its dispatch order. Reset-credit redemption excludes a shadowed lane
+> while any unshadowed lane holds a concrete `available` credit, and redeems on a shadowed lane only
+> when none does.
+
+- **Ledger rows:** 138 (`keep`, identity), 163 (`keep`, identity)
+- **Milestone:** 5
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/actions.py`
+- **Rationale:** two halves of one rule — shadowing is metadata for dispatch and a preference for
+  redemption. Row 138 was "observed 2026-08-04, 08-13, 08-17"; row 163's rationale is that "shadowed
+  lanes can be revoked by the app", so a credit spent there can evaporate. C-10.3's `desktop` flag is
+  the adjacent clause but not the same thing: it is the Claude desktop login and it bars the lane from
+  candidacy outright, where this row's Codex app shadow must *not* change dispatch. A C-10.3 test
+  therefore passes while redemption picks the lane most likely to lose the credit. See
+  [Conflicts](#c-9).
+
+### P-23.47 — the auth store belongs to the provider CLI
+
+> **P-23.47** subfleet never writes a provider auth store and never refreshes a token in process. A
+> lane whose Codex token looks merely expired gets exactly one automatic heal — a minimal
+> `codex exec` turn under that lane's home, so the CLI refreshes and persists its own `auth.json` —
+> followed by a re-probe. A `refresh token was revoked` result latches the lane: it is probed no
+> further until the credential epoch of C-10.1, the home's `auth.json` `last_refresh`, changes.
+
+- **Ledger rows:** 139 (`keep`, identity), 150 (`keep`, identity), 151 (`keep`, identity)
+- **Milestone:** 2 for the prohibition, 5 for the heal and the latch
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/credentials.py`, `subfleet/alerts.py`
+- **Rationale:** one rule and its two consequences. Row 139's rationale is that "an unpersisted
+  refresh rotation is the revocation trap" — refreshing in process rotates the token upstream while
+  the file still holds the old one, which is how row 136's incident ends. Row 150 is the sanctioned
+  way out, "added 2026-08-12 after `~/.codex-2` sat auth-suspect for 14 h": let the CLI do the
+  refresh. Row 151 stops the loop when it is genuinely over. C-2.1 covers only part of the first
+  sentence — a lane home under `$SUBFLEET_HOME/lanes/<lane id>/` (C-2.2) is inside the state root, so
+  writing `auth.json` there breaks no C-2.1 test — and C-9.3 sets the `auth-dead` bar without saying
+  what may be attempted before it.
