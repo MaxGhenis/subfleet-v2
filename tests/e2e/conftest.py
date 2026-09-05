@@ -278,7 +278,7 @@ def e2e_process_inspection():
 
 
 @pytest.fixture
-def e2e(e2e_process_inspection):
+def e2e(request, e2e_process_inspection):
     # macOS AF_UNIX's sun_path cannot fit pytest's usual temporary root.
     with tempfile.TemporaryDirectory(prefix="sf-e2e-", dir="/tmp") as directory:
         harness = E2E(Path(directory))
@@ -286,3 +286,19 @@ def e2e(e2e_process_inspection):
             yield harness
         finally:
             harness.close()
+            # Keep the state root of a failed test so daemon logs, receipts and the
+            # store (with any quarantine census) can be read afterwards.
+            report = getattr(request.node, "rep_call", None)
+            if report is not None and report.failed:
+                import re, shutil, sys
+                keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
+                shutil.rmtree(keep, ignore_errors=True)
+                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True)
+                print(f"\n[e2e harness] kept state root at {keep}", file=sys.stderr)
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, "rep_" + report.when, report)
