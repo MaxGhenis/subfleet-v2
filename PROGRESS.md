@@ -17,11 +17,11 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - Fixed six classifier regressions (C-9.2–C-9.6): subscription upgrade URLs, observation timestamps mistaken for reset clocks, explicit reset time zones, account scope precedence, structured credit codes, and access-token errors outside usage endpoints. Adapter suite: **59 passed in 0.10 s**; all six new tests failed before the fixes.
 - Added the missing offline probe/enrollment suite: **50 passed in 0.10 s**. Covers saved synthetic wham schema, reversed/weekly-only/unusual windows, fractions and UTC clocks, HTTP/DNS/TLS failures, API/free refusals, and account identity (C-1.4, C-9.7, C-10.2).
 - Verified byte-for-byte v1 guard parity and hardened preflight to reject non-finite timeouts, JSON-RPC errors alongside results, and trust returned for the wrong workdir. Guard suite: **35 passed in 2.83 s** (C-14.1, C-14.2).
+- Audited all 12 fixtures, verified the real success against its source rc/thread/deliverable, and added provenance/redaction plus nested-setsid lifecycle checks. Process suite: **28 passed in 0.83 s** (C-12.7, C-12.8, environment/flags portion of C-14.4).
 
 ## Next
 
 - Finish review of restored attestation and launch behavior (C-12).
-- Audit existing fixture provenance, fake replay, and isolation evidence.
 - Run the specified acceptance suite within C-20.2 budgets; write the final report to `OUTPUT.md` unless an output path is supplied.
 - Commit every coherent step and push each commit to `origin lane/codex-adapter`.
 
@@ -31,4 +31,5 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - Shared store/daemon/guardian/process/CLI/Claude/registry modules are out of scope.
 - The raw exit code and signal can be retained in `Outcome.evidence` without changing shared dataclasses.
 - Existing additive seam: optional `Launch.lane_id` binds classifier closures to their lane without filesystem writes or undocumented environment variables.
+- The fake does not implement an OS filesystem sandbox. Full C-14.4 write enforcement and the installed Codex hooks/list measurement remain integration gates; this lane runs only fake providers.
 - Push of resumed progress commit failed with `Could not resolve host: github.com`. Local commits are retained; push after every new commit remains required.

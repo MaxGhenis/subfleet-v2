@@ -35,6 +35,9 @@ their identity and deliverable data are recorded provider output. The fixture
 keeps the provider header from stderr and the redacted `out.md` as `last.md`.
 The prompt and tool transcript are omitted. Absolute personal paths are
 redacted, along with any token, cookie, or authorization value.
+The resume audit independently checked the original manifest's rc and thread
+id and reproduced `last.md` from the original `out.md` by redacting its personal
+absolute path; all three matched the restored fixture.
 
 Each `expected.json` records classification, scope, clock source, closure
 presence, native session id, a `synthetic` flag, and detailed provenance.
@@ -49,3 +52,10 @@ credential/attempt environment fields for the process isolation tests. The
 `nested-setsid` scenario starts a grandchild in a new session, records its pid
 in those diagnostics, and keeps both the fake and grandchild alive for 30 s
 so the process lane can test containment (C-12.8).
+
+The process tests verify exact replay, delay, final-message output, provenance,
+redaction, API-key removal, and that the detached grandchild survives termination
+of the fake provider. The test always kills that grandchild during cleanup.
+The fake accepts the sandbox argument but does not implement a filesystem
+sandbox: these tests cover the environment and launch wiring of C-14.4;
+filesystem write enforcement still needs a separate integration measurement.
