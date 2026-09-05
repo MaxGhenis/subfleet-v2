@@ -39,6 +39,7 @@ def core(tmp_path, monkeypatch):
     daemon._busy_lock, daemon._busy = threading.Lock(), set()
     daemon._pending_launches = set()
     daemon._export_locks = {}
+    daemon._desktop_cache = (0.0, daemon_module._UNSET)   # C-10.3: the identity lane's per-window profile cache
     daemon._notify = lambda: None
     daemon._boundary = lambda *args: None
     daemon._publish = lambda role, path, contents: atomic_publish(path, contents)

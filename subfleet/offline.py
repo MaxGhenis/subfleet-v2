@@ -25,6 +25,7 @@ from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
+KNOWN_SCHEMA_VERSION = 4          # C-3.5; store.SCHEMA_VERSION, read without importing it
 LIVE_JOB_STATES = ("queued", "running", "waiting")
 LIVE_ATTEMPT_STATES = ("reserved", "starting", "running", "finalizing")
 
@@ -297,6 +298,14 @@ class Offline:
         return job
 
     # --- status (C-17.1) -----------------------------------------------------
+
+    def lanes(self) -> list[dict[str, Any]]:
+        """The lane roster alone (C-17.5), for checks that need no job history."""
+        with self.reading() as conn:
+            if "lanes" not in self._tables(conn):
+                return []
+            return [dict(row) for row in conn.execute(
+                "SELECT * FROM lanes ORDER BY lane_id")]
 
     def status(self) -> dict[str, Any]:
         with self.reading() as conn:

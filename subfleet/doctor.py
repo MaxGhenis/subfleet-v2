@@ -358,6 +358,20 @@ def check_live(root: Path) -> dict[str, Any]:
 
 # --- the table ----------------------------------------------------------------
 
+def _with_fix(row: dict[str, Any]) -> dict[str, Any]:
+    """Every doctor row carries a fix line, whatever it reports (C-17.1)."""
+    fix = (row.get("fix") or "").strip()
+    if not fix:
+        detail = str(row.get("detail", ""))
+        if row.get("status") == "pass":
+            fix = "nothing to do"
+        elif "no readable store" in detail or "no store" in detail:
+            fix = "start the daemon once (subfleet daemon start) so a store exists, then run doctor again"
+        else:
+            fix = "read the detail: the identity checks name the lane and the command that releases it"
+    return {**row, "fix": fix}
+
+
 def checks(root: Path, *, live: bool = False,
            settings: Path | None = None) -> list[dict[str, Any]]:
     rows = [
@@ -376,9 +390,14 @@ def checks(root: Path, *, live: bool = False,
     ]
     if live:
         rows.append(check_live(root))
-    return rows
-
-
+    table = rows
+    # C-10.3, C-10.7: the identity checks are rows of this one table. cli imports
+    # doctor at module load, so the import is deferred to the call.
+    from . import cli as _identity_source
+    table.append(_with_fix(_identity_source._identity_roster_check(root)))
+    if live:
+        table += [_with_fix(row) for row in _identity_source.live_checks(root)]
+    return table
 def render(rows: list[dict[str, Any]]) -> str:
     width = max((len(item["check"]) for item in rows), default=0)
     lines = []

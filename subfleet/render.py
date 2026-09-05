@@ -74,8 +74,14 @@ def status(view: Mapping[str, Any]) -> str:
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
     rows = []
     for lane in snapshot["lanes"]:
-        flags = [name for name, enabled in (("desktop", lane.get("desktop")),
-                 ("disabled", not lane.get("enabled", True))) if enabled]
+        # C-10.6: an operator looking at a lane with no readings has to be able
+        # to see that it was refused rather than merely quiet.
+        flags = [name for name, enabled in (
+            ("desktop", lane.get("desktop")),
+            ("disabled", not lane.get("enabled", True)),
+            ("identity-mismatch", lane.get("identity_status") == "mismatch"),
+            ("identity-unverified", lane.get("identity_status") == "unverified"),
+        ) if enabled]
         if lane.get("probe_state"):
             flags.append(f"probe={_label(lane['probe_state'])}")
         weekly = [row["resets_at"] for row in lane["readings"]

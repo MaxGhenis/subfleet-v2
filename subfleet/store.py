@@ -18,10 +18,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .contracts import Closure, Credential, Decision, Lane, LaneOwner, Reading
+from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 Row = dict[str, Any]
+
+#: C-3.1: migrations are additive and numbered. Each entry is the statements that
+#: carry a database from `n - 1` to `n`; `store_schema.sql` always describes the
+#: newest version, so a fresh database never runs one.
+MIGRATIONS: dict[int, tuple[str, ...]] = {
+    # C-10.6, C-1.4: bind a Claude lane to the identity its own credential
+    # reports, with the email kept beside it as a label and never as a key.
+    4: (
+        "ALTER TABLE lanes ADD COLUMN identity TEXT",
+        "ALTER TABLE lanes ADD COLUMN label TEXT",
+        "ALTER TABLE lanes ADD COLUMN identity_status TEXT CHECK (identity_status IS NULL "
+        "OR identity_status IN ('verified','enrolled','mismatch','unverified'))",
+    ),
+}
 
 
 def utc_now() -> str:
@@ -62,16 +76,28 @@ class Store:
             else:
                 self.connection.execute("PRAGMA journal_mode=WAL")
                 self.connection.execute("PRAGMA synchronous=FULL")
+                # Columns first, then the schema file: `store_schema.sql` always
+                # describes the newest version, and its indexes cannot be created
+                # over an older table until that table has caught up (C-3.1).
+                migrated_from = None
+                if version and version < SCHEMA_VERSION:
+                    self.connection.execute("BEGIN IMMEDIATE")
+                    self._migrate(version)          # records one schema_version row per step
+                    self.connection.commit()
+                    migrated_from, version = version, SCHEMA_VERSION
                 schema = Path(__file__).with_name("store_schema.sql").read_text()
                 self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
-                if version and version < 3:
+                if (migrated_from is not None and migrated_from < 3) or (version and version < 3):
                     columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
                     for name, declaration in (("isolated_review", "INTEGER NOT NULL DEFAULT 0"),
                                               ("review_root", "TEXT"), ("round_lease", "TEXT")):
                         if name not in columns:
                             self.connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {declaration}")
-                if not version or version < SCHEMA_VERSION:
+                if not version:
                     self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utc_now()))
+                if not version or migrated_from is not None:
+                    # A fresh store records its version once; a migrated store already
+                    # recorded each step and records only the event here (C-3.1).
                     self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                                             (utc_now(), "schema.applied", _json({"version": SCHEMA_VERSION})))
                 self.connection.commit()
@@ -83,6 +109,27 @@ class Store:
             row["name"]: {col["name"] for col in self.connection.execute(f'PRAGMA table_info("{row["name"]}")')}
             for row in self.connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
+
+    def _migrate(self, version: int) -> None:
+        """C-3.1: carry an older database forward, one numbered step at a time.
+
+        Runs inside the caller's open transaction, so a database is either fully
+        migrated or untouched, and before `store_schema.sql` is applied, so the
+        newest schema's indexes find their columns. Each `ADD COLUMN` is skipped
+        when the column is already there, so an interrupted upgrade re-runs safely.
+        """
+        for step in range(version + 1, SCHEMA_VERSION + 1):
+            for statement in MIGRATIONS.get(step, ()):
+                if statement.startswith("ALTER TABLE "):
+                    _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
+                    present = {row[1] for row in
+                               self.connection.execute(f'PRAGMA table_info("{table}")')}
+                    if column in present:
+                        continue
+                self.connection.execute(statement)
+            self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
+            self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                                    (utc_now(), "schema.migrated", _json({"version": step})))
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -155,15 +202,30 @@ class Store:
 
     @staticmethod
     def lane_from_row(row: Mapping[str, Any]) -> Lane:
+        # `.get` for the version-2 columns: a read-only handle on a database this
+        # process may not migrate still yields a usable Lane (C-3.1).
         return Lane(row["lane_id"], row["provider"], row["account_key"],
                     Credential(row["provider"], row["credential_ref"], row["credential_kind"], row["credential_epoch"]),
-                    row["home"], LaneOwner(row["owner"]), bool(row["desktop"]), bool(row["enabled"]))
+                    row["home"], LaneOwner(row["owner"]), bool(row["desktop"]), bool(row["enabled"]),
+                    row.get("identity"), row.get("label"))
 
-    def put_lane(self, lane: Lane, *, plan: str | None = None) -> None:
+    def put_lane(self, lane: Lane, *, plan: str | None = None,
+                 identity_status: str | None = None) -> None:
+        if identity_status is not None:
+            # C-10.6: four statuses and no fifth. Named here as well as in the
+            # schema so a hand-edited roster fails with words, not a constraint.
+            try:
+                IdentityStatus(str(identity_status))
+            except ValueError:
+                allowed = ", ".join(status.value for status in IdentityStatus)
+                raise ValueError(
+                    f"identity_status {identity_status!r} is not one of {allowed}") from None
         values = {"lane_id": lane.lane_id, "provider": lane.provider, "account_key": lane.account_key,
                   "credential_ref": lane.credential.ref, "credential_kind": lane.credential.kind,
                   "credential_epoch": lane.credential.epoch, "home": lane.home, "owner": lane.owner,
                   "desktop": int(lane.desktop), "enabled": int(lane.enabled), "plan": plan,
+                  "identity": lane.identity, "label": lane.label,
+                  "identity_status": str(identity_status) if identity_status else None,
                   "created_at": utc_now(), "updated_at": utc_now()}
         with self.transaction("lane.enrolled", lane_id=lane.lane_id):
             existing = self.one("SELECT * FROM lanes WHERE lane_id=?", (lane.lane_id,))
@@ -171,15 +233,38 @@ class Store:
                 immutable = ("provider", "account_key", "credential_ref", "credential_kind", "credential_epoch", "home")
                 if any(existing[key] != values[key] for key in immutable):
                     raise ValueError("lane binding is immutable; disable it and create a new lane id")
-                self.update_lane(lane.lane_id, owner=lane.owner, desktop=int(lane.desktop), enabled=int(lane.enabled), plan=plan)
+                # C-10.6, C-1.3: an unbound lane may learn its identity once. A lane
+                # already bound to a different account is a new binding and needs a
+                # new lane id, so an operator re-enrols rather than silently rebinds.
+                for key in ("identity", "label"):
+                    if existing.get(key) and values[key] and existing[key] != values[key]:
+                        raise ValueError(
+                            f"lane {key} is immutable once recorded; re-enrol under a new lane id")
+                learned = {key: values[key] for key in ("identity", "label")
+                           if values[key] and not existing.get(key)}
+                self.update_lane(lane.lane_id, owner=lane.owner, desktop=int(lane.desktop),
+                                 enabled=int(lane.enabled), plan=plan, clear_mismatch=True,
+                                 **learned,
+                                 **({"identity_status": values["identity_status"]}
+                                    if values["identity_status"] else {}))
             else:
                 self._insert("lanes", values)
 
     add_lane = put_lane
 
-    def update_lane(self, lane_id: str, **values: Any) -> None:
-        if set(values) - {"owner", "desktop", "enabled", "plan"}:
+    def update_lane(self, lane_id: str, *, clear_mismatch: bool = False, **values: Any) -> None:
+        # `identity_status` is the one identity column that moves: every probe
+        # cycle re-asks the profile endpoint (C-10.6). `identity` and `label` are
+        # part of the binding and are only ever learned once.
+        if set(values) - {"owner", "desktop", "enabled", "plan",
+                          "identity", "label", "identity_status"}:
             raise ValueError("lane binding is immutable")
+        if values.get("identity_status") and not clear_mismatch:
+            current = self.one("SELECT identity_status FROM lanes WHERE lane_id=?", (lane_id,))
+            if (current and current["identity_status"] == "mismatch"
+                    and values["identity_status"] != "mismatch"):
+                # C-10.6: only an operator re-enrolling the lane releases it.
+                raise ValueError("a mismatched lane is released only by re-enrolment")
         self._update("lanes", "lane_id", lane_id, {**values, "updated_at": utc_now()})
 
     def get_lane(self, lane_id: str) -> Lane | None:

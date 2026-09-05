@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import LANE_EMAIL, LANE_IDENTITY
 from tests.fake.test_state_contract import state_daemon, reserve, receipt_fixture
 from tests.fake_adapter import FakeAdapter
 
@@ -23,7 +24,15 @@ def test_c8_2_real_adapter_artifacts_survive_launch_reload(state_daemon, monkeyp
     daemon, harness = state_daemon
     lane = daemon.store.get_lane("codex-1")
     lane = replace(lane, lane_id=f"{provider}-real", provider=provider, account_key=f"{provider}:fixture",
-                   credential=Credential(provider, lane.credential.ref, "home"))
+                   credential=Credential(provider, lane.credential.ref, "home"),
+                   identity=LANE_IDENTITY if provider == "claude" else None,
+                   label=LANE_EMAIL if provider == "claude" else None)
+    if provider == "claude":
+        # C-10.6: the identity check reads the bearer from the lane's own home,
+        # the way a rebuilt launch does after a restart — `launch.json` holds no
+        # secret, so the credential is resolved again from the lane reference.
+        (Path(lane.credential.ref) / ".credentials.json").write_text(
+            json.dumps({"claudeAiOauth": {"accessToken": "fixture-home-token"}}))
     daemon.store.put_lane(lane)
     job_id, attempt, adir = reserve(daemon, harness, pinned_model=model, pinned_lane=lane.lane_id)
     adapter = CodexAdapter() if provider == "codex" else ClaudeAdapter(projects_dir=adir / "projects")

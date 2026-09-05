@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import cli
+from subfleet import cli, offline
 from subfleet.client import boot_id
 from subfleet.offline import Offline
 
@@ -274,7 +274,26 @@ def test_kill_refuses_a_store_written_by_a_newer_subfleet(root, capsys):
     conn.close()
     assert cli.main(["kill", JOB]) == 1
     captured = capsys.readouterr()
-    assert "schema version 99" in captured.err and f"version {cli.KNOWN_SCHEMA_VERSION}" in captured.err
+    assert ("schema version 99" in captured.err
+            and f"version {offline.KNOWN_SCHEMA_VERSION}" in captured.err)
+
+
+def test_the_offline_reader_knows_the_schema_the_daemon_writes(root, capsys):
+    """C-3.5, C-17.5 a store this build wrote is never "newer than this CLI".
+
+    The two constants are one fact in two modules: let them drift and every
+    offline read warns about missing columns and `kill` — the verb an operator
+    reaches for when the daemon is down — refuses with exit 1.
+    """
+    from subfleet.store import SCHEMA_VERSION, Store
+
+    assert offline.KNOWN_SCHEMA_VERSION == SCHEMA_VERSION
+    Store(root / "state.sqlite3").close()
+    reader = offline.Offline(root)
+    assert reader.status()["schema_version"] == SCHEMA_VERSION
+    assert reader.newer_schema is None
+    assert cli.main(["status"]) == 0
+    assert "schema version" not in capsys.readouterr().err
 
 
 def test_a_store_with_no_tables_is_reported_not_raised(root, capsys):

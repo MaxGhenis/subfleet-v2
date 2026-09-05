@@ -27,8 +27,8 @@ from subfleet.contracts import (
     Credential, OutcomeClass, ReadingLabel, Sandbox,
 )
 from tests.conftest import (
-    FIXTURES, NOW, case_names, exit_info, load_expected, make_job, make_lane,
-    make_launch, stage_case, stage_transcript,
+    FIXTURES, LANE_IDENTITY, NOW, case_names, exit_info, load_expected, make_job,
+    make_lane, make_launch, profile_opener, stage_case, stage_transcript,
 )
 
 
@@ -686,12 +686,18 @@ def test_enroll_runs_one_haiku_turn_and_reads_the_sensor(tmp_path):
         .splitlines()[2]
     )["rate_limit_info"]
     runner = _Runner(stdout=_enroll_stream(info=info))
-    adapter = ClaudeAdapter(runner=runner, now=lambda: NOW, projects_dir=tmp_path)
+    adapter = ClaudeAdapter(runner=runner, now=lambda: NOW, projects_dir=tmp_path,
+                            profile_opener=profile_opener())
     lane_info = adapter.enroll(
         Credential(provider="claude", ref="claude-quota-max@axiom.org",
                    kind="keychain-token")
     )
-    assert lane_info.account_key == "claude:max@axiom.org"
+    # C-1.4: the key is the identity the profile endpoint returned for this very
+    # credential (C-10.6); the email rides along as a label and never as a key.
+    assert lane_info.account_key == f"claude:{LANE_IDENTITY}"
+    assert lane_info.identity == LANE_IDENTITY
+    assert lane_info.label == "max@axiom.org"
+    assert lane_info.identity_status == "verified"
     assert {r.window: r.utilization for r in lane_info.readings} == {
         "five_hour": 0.05, "seven_day": 0.25
     }

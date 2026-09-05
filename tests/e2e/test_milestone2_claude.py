@@ -175,6 +175,86 @@ def test_model_downgrade_persists_transcript_attestation(e2e):
     assert Path(attempt["transcript_path"]).is_file()
 
 
+def test_a_credential_that_belongs_to_another_account_yields_no_capacity(e2e):
+    """C-1.4, C-9.1, C-10.6, C-11.2, C-17.4: the 2026-09-05 incident, end to end.
+
+    `claude-1`'s credential reports the Axiom identity from
+    `tests/fixtures/claude/identity/profile-mismatch.json` while the lane is
+    recorded as its own account. The turn itself succeeds — the provider did the
+    work — but not one usage window is stored against that lane, the finding is
+    on the attempt for anyone to read, and the lane stops being a candidate until
+    an operator re-enrols it. The rest of the fleet keeps working.
+    """
+    e2e.start(scenario="success-allowed",
+              env={"SUBFLEET_FAKE_PROFILE": "1=profile-mismatch"})
+    result = e2e.cli(*e2e.run_args("haiku", "-a", "claude-1", "--wait"))
+    assert result.rc == 0, result
+    job_id = submitted(result)
+
+    shown = e2e.show(job_id)
+    attempt, = shown["attempts"]
+    assert attempt["lane_id"] == "claude-1"
+    assert attempt["outcome_class"] == "ok"          # C-10.6 governs capacity only
+    identity = json.loads(attempt["evidence_json"])["classification"]["identity"]
+    assert identity["status"] == "identity-mismatch"
+    assert identity["identity"]["email"] == "max@axiom.org"
+    assert identity["expected"] == "e2e-account-1:e2e-org-1"
+
+    # C-9.1: no reading at all, so C-17.4 can render no percentage for the lane.
+    assert not e2e.rows("SELECT * FROM readings WHERE lane_id='claude-1'")
+    lane_row, = e2e.rows("SELECT * FROM lanes WHERE lane_id='claude-1'")
+    assert lane_row["identity_status"] == "mismatch"
+    status = e2e.cli("status")
+    assert status.rc == 0, status
+    lane_line, = [line for line in status.stdout.splitlines()
+                  if line.startswith("claude-1 ")]
+    assert "%" not in lane_line and "no reading" in lane_line
+    assert "identity-mismatch" in lane_line      # C-10.6: and why, not just silence
+    lanes = e2e.cli("lanes")
+    assert lanes.rc == 0, lanes
+    assert "mismatch" in [line for line in lanes.stdout.splitlines()
+                          if line.startswith("claude-1 ")][0]
+
+    # C-11.2: not a candidate, and `why` says which rule rejected it.
+    why = e2e.cli("why", "--task", "review", "--tier", "standard")
+    assert why.rc == 0, why
+    rejected = [line for line in why.stdout.splitlines()
+                if "claude-1" in line and "identity-mismatch" in line]
+    assert rejected, why.stdout
+    assert "chose claude-2" in why.stdout
+
+    # The fleet is not stranded: the lane whose credential is its own still runs.
+    second = e2e.cli(*e2e.run_args("haiku", "--wait"))
+    assert second.rc == 0, second
+    attempt, = e2e.show(submitted(second))["attempts"]
+    assert attempt["lane_id"] == "claude-2"
+    readings = e2e.rows("SELECT * FROM readings WHERE lane_id='claude-2'")
+    assert {row["window"] for row in readings} == {"five_hour", "seven_day"}
+
+
+def test_a_setup_token_lane_keeps_working_without_profile_scope(e2e):
+    """C-10.6: a 403 from the profile endpoint is a setup token, not a defect.
+
+    The lane's stream readings are stored, and the evidence beside them says the
+    identity was the one recorded at enrolment rather than one just verified.
+    """
+    e2e.setup_token_lane(1)
+    e2e.start(scenario="success-allowed",
+              env={"SUBFLEET_FAKE_PROFILE": "profile-no-scope"})
+    result = e2e.cli(*e2e.run_args("haiku", "-a", "claude-1", "--wait"))
+    assert result.rc == 0, result
+    attempt, = e2e.show(submitted(result))["attempts"]
+    identity = json.loads(attempt["evidence_json"])["classification"]["identity"]
+    assert identity["status"] == "identity-enrolled"
+    readings = e2e.rows("SELECT * FROM readings WHERE lane_id='claude-1'")
+    assert {row["window"] for row in readings} == {"five_hour", "seven_day"}
+    assert all(row["label"] == "provider" for row in readings)
+    status = e2e.cli("status")
+    lane_line, = [line for line in status.stdout.splitlines()
+                  if line.startswith("claude-1 ")]
+    assert "five_hour 5%" in lane_line
+
+
 def test_empty_result_with_zero_rc_is_unknown(e2e):
     """C-9.2, C-12.6: rc 0 with empty text is unknown and cannot succeed."""
     e2e.start(scenario="empty-result-rc0")
