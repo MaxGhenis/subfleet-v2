@@ -1015,6 +1015,9 @@ class Daemon:
                 self.store.add_closure(outcome.closure)
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             job_rc = 130 if cancel else None if retry else 125 if lost else rc
+            if not cancel and not retry and not lost:
+                job_rc = {OutcomeClass.LIMITED: 4 if job["pinned_lane"] else 3,
+                          OutcomeClass.AUTH_DEAD: 5, OutcomeClass.CLI_TOO_OLD: 6}.get(outcome.cls, rc)
             accepted = a["attempt_id"] if ok and not cancel else None
             next_check = after(60 if outcome.cls == OutcomeClass.TRANSIENT else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",

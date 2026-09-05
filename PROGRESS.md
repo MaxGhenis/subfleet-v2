@@ -26,6 +26,8 @@ of `ps`, `sysctl kern.boottime`, and AF_UNIX binding; no bypass attempted.
 - All four requested acceptance modules are committed (21 cases before final audit).
 - Reproduced lost guard refusal details through daemon finalization and CLI wait;
   retain prelaunch errors and include the latest attempt in terminal wait results.
+- Reproduced rc 1 leaking through for provider limits, dead authentication, and
+  old CLIs; map terminal job codes to C-17.3 while retaining raw attempt rc.
 
 ## Next
 

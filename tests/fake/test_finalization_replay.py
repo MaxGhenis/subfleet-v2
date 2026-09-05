@@ -125,3 +125,26 @@ def test_c14_2_guard_refusal_reaches_cli_wait_with_fix(state_daemon, monkeypatch
     payload, = daemon.wait(protocol.WaitArgs(job_ids=[job_id], deadline_s=0))["jobs"]
     assert exit_for_job(payload) == 7
     assert detail in _wait_summary(payload)
+
+
+@pytest.mark.parametrize("classification,pinned,expected", [
+    ("limited", True, 4), ("limited", False, 3),
+    ("auth-dead", True, 5), ("cli-too-old", True, 6),
+])
+def test_c17_3_provider_rc_and_cli_outcome_have_distinct_codes(state_daemon, monkeypatch, classification, pinned, expected):
+    """C-9.2, C-17.3: terminal CLI codes preserve the raw provider rc on the attempt."""
+    from subfleet import daemon as module, protocol
+    from subfleet.cli import exit_for_job
+    from subfleet.contracts import Outcome, OutcomeClass
+
+    daemon, harness = state_daemon
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=1,
+                                    pinned_lane="codex-1" if pinned else None)
+    class ClassifiedAdapter(FakeAdapter):
+        def classify(self, *args):
+            return Outcome(OutcomeClass(classification), "provider fixture outcome")
+    monkeypatch.setattr(module, "get_adapter", lambda _: ClassifiedAdapter())
+    daemon._finalize(receipt_fixture(daemon, attempt, adir, rc=1))
+    assert daemon.store.get_attempt(attempt["attempt_id"])["rc"] == 1
+    payload, = daemon.wait(protocol.WaitArgs(job_ids=[job_id], deadline_s=0))["jobs"]
+    assert exit_for_job(payload) == expected

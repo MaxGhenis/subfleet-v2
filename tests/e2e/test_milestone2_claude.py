@@ -90,7 +90,7 @@ def test_credits_rejection_closes_model_and_retry_explains_exclusion(e2e):
     policy_path.write_text(json.dumps(policy))
     e2e.start(scenario=scenario)
     result = e2e.cli(*e2e.run_args("fable", "--wait"))
-    assert result.rc == 1, result
+    assert result.rc == 3, result
     job_id = submitted(result)
     shown = e2e.show(job_id)
     assert shown["job"]["state"] == "failed"
