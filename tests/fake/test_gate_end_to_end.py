@@ -192,6 +192,14 @@ def test_plan_peer_process_finalizes_through_real_daemon(daemon):
     import sys
 
     daemon.start("--gate-peer")
+    def gates_ready():
+        probe = daemon.call("gate.poll", gate_id="test-readiness")
+        if probe.get("code") == 1:
+            assert probe["message"] == "daemon recovery is in progress; retry the gate command"
+            return False
+        assert probe["code"] == 2  # An absent gate is validated only after recovery completes.
+        return True
+    daemon.until(gates_ready, timeout=5)
     plan = daemon.workdir / "plan.md"
     plan.write_text("A process-backed agreement gate with exact revision ownership.\n")
     repository = Path(__file__).resolve().parents[2]
