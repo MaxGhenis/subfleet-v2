@@ -38,7 +38,7 @@ class FakeAdapter(Adapter):
                 settings = parsed
         except (ValueError, OSError):
             pass
-        env_add = {**credential_env, "SUBFLEET_FAKE_LANE": lane.lane_id}
+        env_add = {**credential_env, "SUBFLEET_LANE": lane.lane_id}
         for key, variable in (("scenario", "SUBFLEET_FAKE_SCENARIO"),
                               ("delay_s", "SUBFLEET_FAKE_DELAY_S"),
                               ("marker", "SUBFLEET_FAKE_MARKER")):
@@ -68,7 +68,7 @@ class FakeAdapter(Adapter):
             until_at = datetime.fromtimestamp(quota["resets_at"], timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ")
             closure = Closure(
-                lane_id=launch.env_add["SUBFLEET_FAKE_LANE"], scope=quota["scope"],
+                lane_id=launch.env_add["SUBFLEET_LANE"], scope=quota["scope"],
                 until_at=until_at, reason=ClosureReason.PROVIDER_LIMIT,
                 clock_source=ClockSource.REPORTED, source_event=line,
             )
