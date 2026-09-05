@@ -156,11 +156,22 @@ DELEGATED_PAIRS: dict[tuple[str, ...], str] = {
 
 #: Direct provider verbs. The agent contract says never to call these from a
 #: session and v1's PreToolUse guard denies them; v2 refuses them outright.
+#: v2 refuses these unconditionally, which is NARROWER than v1's PreToolUse
+#: guard: `bin/subfleet-hook:61-67` let `subfleet codex -d` and `subfleet claude
+#: -d` through, because the runners' own `-d` re-execs under `setsid` and
+#: survives the session. v2 has no `subfleet-codex`/`subfleet-claude` runner to
+#: re-exec — those are v1 binaries — so there is nothing for `-d` to make
+#: survivable, and the message says so rather than leaving an agent to wonder
+#: why the flag stopped helping.
 REFUSED: dict[str, str] = {
     "codex": "`subfleet codex` launches a provider directly, outside the "
-             "ledger, the lane accounting, and the cancellation tree",
+             "ledger, the lane accounting, and the cancellation tree; v1's "
+             "guard let `-d` through because v1's runner re-exec'd under "
+             "setsid, and v2 has no such runner",
     "claude": "`subfleet claude` launches a provider directly, outside the "
-              "ledger, the lane accounting, and the cancellation tree",
+              "ledger, the lane accounting, and the cancellation tree; v1's "
+              "guard let `-d` through because v1's runner re-exec'd under "
+              "setsid, and v2 has no such runner",
     "mirror": "`subfleet mirror` is v1's desktop-session mirror; it is not a "
               "dispatch path and v2 does not own it",
 }
@@ -328,6 +339,16 @@ def v2_options(path: str) -> set[str]:
 
     table = walk(cli.build_parser(), "")
     return table.get(path, set()) | table.get("(root)", set())
+
+
+def _abbreviates(flag: str, token: str) -> bool:
+    """Is `token` the flag, or one of argparse's abbreviations of it?
+
+    Any prefix of a long option is accepted when it is unambiguous, which for a
+    v1-only flag it always is on the v2 side — v2 does not have the flag at all.
+    """
+    bare = token.split("=", 1)[0]
+    return bare.startswith("--") and len(bare) > 2 and flag.startswith(bare)
 
 
 def _resolve(token: str, flags: dict[str, V1Flag], protected: set[str]) -> str | None:
@@ -553,6 +574,27 @@ def _refusal(verb: str, why: str) -> Mapping:
                    notes=[f"{PROG}: {why}", f"  fix: {FRONT_DOOR}"])
 
 
+#: The one place a permanent verb's OUTPUT changed rather than its spelling.
+#: v1's `cmd_runs` (`cli.py:691-710`) printed the metadata JSON and then
+#: `--- out.md ---` and the deliverable, unconditionally; v2 keeps stdout to one
+#: thing at a time (C-17.4) and streams the deliverable only under `--out`.
+#: Neither v2 form reproduces v1 — `--out` returns before the metadata block —
+#: so nothing is rewritten here and the difference is said out loud instead, on
+#: exactly the invocation that used to print output and now does not.
+RUNS_SHOW_NOTE = (
+    "runs show: v1 printed the deliverable after the metadata; v2 keeps stdout "
+    "to one thing (C-17.4) — `subfleet runs show <id> --out` streams the "
+    "deliverable, `--err` the saved stderr, and this form is the metadata")
+
+
+def _runs_show_note(two: tuple[str, ...], kept: list[str]) -> list[str]:
+    if two != ("runs", "show"):
+        return []
+    if any(item in ("--out", "--err", "--json") for item in kept[2:]):
+        return []
+    return [f"{PROG} {RUNS_SHOW_NOTE}"]
+
+
 def _flag_refusal(rule: str, refusals: list[str]) -> Mapping:
     return Mapping(disposition="refuse", exit_code=int(Exit.INVALID_INPUT),
                    rule=rule, notes=refusals)
@@ -607,8 +649,11 @@ def translate(argv: Sequence[str], env: dict[str, str] | None = None) -> Mapping
     # `run --status` was never a dispatch: it printed v1's lane table and then
     # re-exec'd `pick codex` (v1 `delegate.py:378`). It is rewritten before the
     # flag scan so its other flags are read against `status`, not `run`.
-    if head == "run" and "--status" in argv[1:]:
-        rest = [item for item in argv[1:] if item != "--status"]
+    # `--stat` and `--statu` were unambiguous v1 abbreviations of it, and v2's
+    # `run` has no `--stat*` flag at all, so they would otherwise reach a usage
+    # error naming nothing.
+    if head == "run" and any(_abbreviates("--status", item) for item in argv[1:]):
+        rest = [item for item in argv[1:] if not _abbreviates("--status", item)]
         return finish(Mapping(
             "note", ["status", *[item for item in rest if item == "--json"]],
             rule="run:--status",
@@ -633,9 +678,10 @@ def translate(argv: Sequence[str], env: dict[str, str] | None = None) -> Mapping
                                      *flag_notes]))
 
     if two in PERMANENT:
-        return finish(Mapping("note" if flag_notes else "map",
+        notes = [*flag_notes, *_runs_show_note(two, kept)]
+        return finish(Mapping("note" if notes else "map",
                               [*PERMANENT[two], *kept[2:]],
-                              rule=f"permanent:{' '.join(two)}", notes=flag_notes))
+                              rule=f"permanent:{' '.join(two)}", notes=notes))
     if one in PERMANENT:
         return finish(Mapping("note" if flag_notes else "map",
                               [*PERMANENT[one], *kept[1:]],
@@ -685,11 +731,16 @@ def delegate(argv: Sequence[str], *, stderr: Any = None,
     stderr = sys.stderr if stderr is None else stderr
     binary = v1_binary()
     if binary is None:
-        print(f"{PROG}: `{argv[0] if argv else ''}` needs the v1 install and "
-              f"none was found", file=stderr)
+        # Exit 7, not 1. `gate`'s own codes run 0 to 5 and 1 means "operational
+        # error" inside that scheme (v1 README:717-720), so returning 1 here
+        # would hand a driving agent a gate verdict that no gate produced. 7 is
+        # C-17.3's "refused (message names the rule and the fix)" and is outside
+        # every delegated verb's range.
+        print(f"{PROG}: `{argv[0] if argv else ''}` is not a v2 verb and the v1 "
+              f"install it delegates to was not found", file=stderr)
         print(f"  fix: set {V1_BIN_ENV} to the v1 `subfleet`, or wait for the "
               f"milestone that brings this verb to v2", file=stderr)
-        return int(Exit.OPERATIONAL)
+        return int(Exit.REFUSED)
     try:
         done = runner([binary, *argv])
     except OSError as exc:

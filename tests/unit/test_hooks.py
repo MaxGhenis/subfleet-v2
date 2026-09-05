@@ -204,7 +204,8 @@ def test_post_tool_use_reports_a_job_with_no_notice_row_from_the_job_itself(
 
 
 def test_the_lease_stops_a_second_hook_waiting_on_one_job(daemon, root):
-    """Plan B rev 4, layer 2: one waiter per job, so two hooks never both block."""
+    """C-15.2 layer 2, one waiter per job: two hooks must never both block on
+    one job, or a session spends two tool calls waiting for one answer."""
     daemon({"list": lambda request: {"jobs": [running_job()]},
             "wait": lambda request: {"timeout": True}})
     held = hooks.Lease(root, JOB)
@@ -268,7 +269,8 @@ def test_a_lease_is_dropped_when_its_holder_exits(root):
 
 
 def test_post_tool_use_ignores_tools_that_are_not_bash(daemon, root):
-    """The entry is installed with `matcher: "Bash"`; the hook re-checks anyway."""
+    """C-15.2 layer 2 is the Bash arm; the entry carries `matcher: "Bash"` and
+    the hook re-checks, because a matcher is a filter and not a guarantee."""
     server = daemon({"list": lambda request: {"jobs": [running_job()]}})
     assert hooks.post_tool_use(payload("PostToolUse", tool_name="Read"), root,
                                budget_s=1, stderr=io.StringIO()) == 0
@@ -276,7 +278,8 @@ def test_post_tool_use_ignores_tools_that_are_not_bash(daemon, root):
 
 
 def test_post_tool_use_narrows_to_the_job_the_submission_created(daemon, root):
-    """The lane brief's precise case: the ids `run` printed pick the job out."""
+    """C-17.4 `run` prints the job id on stdout, and those are the ids that pick
+    this submission's job out of the session's unfinished set (C-15.2)."""
     waited: list[dict] = []
     daemon({
         "list": lambda request: {"jobs": [running_job(OTHER, "req-other"),
@@ -295,7 +298,8 @@ def test_post_tool_use_narrows_to_the_job_the_submission_created(daemon, root):
 
 
 def test_post_tool_use_arms_session_wide_when_the_output_named_nothing(daemon, root):
-    """Plan B rev 4: an unmatched submission still leaves the session-wide arm."""
+    """C-15.2 layer 2 is armed by the session's own unfinished job set; the ids
+    narrow it when they are there, and an unmatched submission still arms."""
     waited: list[dict] = []
     daemon({
         "list": lambda request: {"jobs": [running_job(OTHER, "req-other")]},
@@ -322,13 +326,15 @@ def test_post_tool_use_arms_session_wide_when_the_output_named_nothing(daemon, r
     ("grep -n 'subfleet run' README.md", False),
 ])
 def test_ran_subfleet_run_decides_the_way_v1s_guard_decides(command, expected):
-    """v1 `bin/subfleet-hook:41-45`: command position, not a mention."""
+    """C-15.2 the `if` filter is a cost saver, so this decides the same way v1's
+    guard does (`bin/subfleet-hook:41-45`): command position, not a mention."""
     assert hooks.ran_subfleet_run(command) is expected
 
 
 def test_tool_output_reads_both_spellings_of_the_output_field():
-    """`claude-hooks.md` §2: the field table says `tool_response`, the page's own
-    example says `tool_result`, and both literals are in the 2.1.260 binary."""
+    """C-15.2 layer 2 reads the Bash call's output; `claude-hooks.md` §2 says
+    the field table names it `tool_response` and the page's own example names it
+    `tool_result`, and both literals are in the 2.1.260 binary."""
     assert JOB in hooks.tool_output({"tool_response": JOB})
     assert JOB in hooks.tool_output({"tool_result": JOB})
     assert JOB in hooks.tool_output({"tool_response": {"stdout": JOB}})
@@ -343,7 +349,8 @@ def test_ids_in_output_finds_job_and_request_ids():
 
 
 def test_read_payload_never_raises_on_junk():
-    """A hook that dies on a malformed payload blocks or spams every turn."""
+    """C-15.2 a hook that dies on a malformed payload blocks or spams every turn,
+    which is worse than every notice this layer could ever deliver."""
     assert hooks.read_payload(io.StringIO("not json")) == {}
     assert hooks.read_payload(io.StringIO("")) == {}
     assert hooks.read_payload(io.StringIO("[1,2]")) == {}
@@ -353,8 +360,9 @@ def test_read_payload_never_raises_on_junk():
 # --- the `subfleet hook <event>` verb ----------------------------------------
 
 def test_run_dispatches_each_event_spelling(daemon, root):
-    """The v1 `bin/subfleet-hook` argument spellings stay accepted, so a
-    half-migrated ~/.claude/settings.json still resolves."""
+    """C-17.1 v1 spellings stay accepted: a half-migrated
+    ~/.claude/settings.json still points at `bin/subfleet-hook session-start`
+    and its argument spelling has to resolve."""
     daemon({"notice.pending": lambda request: {"notices": []}})
     for spelling in ("SessionStart", "session-start", "sessionstart",
                      "UserPromptSubmit", "user-prompt"):
@@ -403,7 +411,8 @@ def test_plan_proposes_the_three_entries_and_writes_nothing(tmp_path):
 
 
 def test_plan_is_idempotent(tmp_path):
-    """A second `--hooks` is a no-op, so it is safe to run from a script."""
+    """C-15.2 a second `--hooks` is a no-op, so installing the delivery entries
+    is safe to run from a script and from `daemon install` twice."""
     path = settings_file(tmp_path, {})
     first = hooks.apply(path, command="/bin/sf hook")
     assert first["written"] is True
@@ -412,8 +421,9 @@ def test_plan_is_idempotent(tmp_path):
 
 
 def test_v1_entries_are_reported_and_never_rewritten(tmp_path):
-    """v1's PreToolUse guard is the only thing enforcing the front-door rule
-    inside a session until v1 is uninstalled, so v2 leaves every v1 entry alone."""
+    """C-14.3 v1's PreToolUse guard is the only thing enforcing the front-door
+    rule inside a session until v1 is uninstalled, so v2 leaves every v1 entry
+    exactly where it found it."""
     v1 = {"hooks": {
         "PreToolUse": [{"matcher": "Bash", "hooks": [
             {"type": "command", "command": "~/cos/subfleet/bin/subfleet-hook pre-bash"}]}],
@@ -433,7 +443,7 @@ def test_v1_entries_are_reported_and_never_rewritten(tmp_path):
 
 
 def test_apply_replaces_v2s_own_entry_instead_of_stacking_it(tmp_path):
-    """Running `--hooks` twice with a different command must not leave two."""
+    """C-15.2 two entries for one event would deliver every notice twice."""
     path = settings_file(tmp_path, {})
     hooks.apply(path, command="/old/sf hook")
     hooks.apply(path, command="/new/sf hook")
@@ -444,7 +454,8 @@ def test_apply_replaces_v2s_own_entry_instead_of_stacking_it(tmp_path):
 
 
 def test_apply_keeps_a_backup(tmp_path):
-    """~/.claude/settings.json is hand-edited; a rewrite keeps the previous bytes."""
+    """C-14.3 ~/.claude/settings.json carries the guard hook and is hand-edited;
+    a rewrite keeps the previous bytes so nothing is lost to a bad merge."""
     path = settings_file(tmp_path, {"statusLine": {"type": "command"}})
     before = path.read_text()
     written = hooks.apply(path, command="/bin/sf hook")
@@ -452,7 +463,8 @@ def test_apply_keeps_a_backup(tmp_path):
 
 
 def test_plan_reports_a_broken_settings_file_instead_of_overwriting_it(tmp_path):
-    """A file that will not parse is a thing to fix, never a thing to replace."""
+    """C-14.3 a settings file that will not parse is a thing to fix, never a
+    thing to replace: replacing it would drop the guard hook silently."""
     path = tmp_path / "settings.json"
     path.write_text("{not json")
     report = hooks.plan(path)
@@ -462,7 +474,8 @@ def test_plan_reports_a_broken_settings_file_instead_of_overwriting_it(tmp_path)
 
 def test_daemon_install_hooks_prints_the_diff_and_writes_nothing_on_dry_run(
         tmp_path, monkeypatch, capsys):
-    """The lane's own rule: the diff is printed before anything is written."""
+    """C-14.3 the diff is printed before anything is written, because this file
+    is the one holding the never-rules guard."""
     from subfleet import cli
     path = settings_file(tmp_path, {})
     monkeypatch.setenv(hooks.SETTINGS_ENV, str(path))
@@ -489,7 +502,8 @@ def test_daemon_install_hooks_writes_after_printing_the_diff(tmp_path, monkeypat
 
 
 def test_hook_command_prefers_this_interpreter(monkeypatch):
-    """A bare `subfleet` on PATH may be v1; the running interpreter never is."""
+    """C-17.1 a bare `subfleet` on PATH may still be v1 during the shadow period;
+    the interpreter running this process never is."""
     monkeypatch.delenv("SUBFLEET_HOOK_COMMAND", raising=False)
     assert hooks.hook_command().endswith("-m subfleet hook")
     monkeypatch.setenv("SUBFLEET_HOOK_COMMAND", "/x/sf hook")
@@ -497,7 +511,9 @@ def test_hook_command_prefers_this_interpreter(monkeypatch):
 
 
 def test_timeout_is_explicit_and_overridable(monkeypatch):
-    """Plan B rev 4: the entry's timeout and this process's budget move together."""
+    """C-15.4 caps a long poll at 60 s per call; the hook's own budget is the
+    entry's `timeout`, and the two move together so the hook always exits on
+    its own terms rather than being cancelled mid-write."""
     monkeypatch.delenv("SUBFLEET_HOOK_TIMEOUT_S", raising=False)
     assert hooks.timeout_s() == 600
     monkeypatch.setenv("SUBFLEET_HOOK_TIMEOUT_S", "45")

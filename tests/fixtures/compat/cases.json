@@ -384,6 +384,35 @@
    }
   },
   {
+   "id": "claude-d-a-c",
+   "cite": "~/chief-of-staff/subfleet/bin/subfleet-hook:62",
+   "also_cited": [],
+   "v1_line": "subfleet claude -d -A -C /repo -p prompt.md -o out.md",
+   "v1_meaning": "the same allowance on the Claude runner",
+   "argv": [
+    "claude",
+    "-d",
+    "-A",
+    "-C",
+    "/repo",
+    "-p",
+    "prompt.md",
+    "-o",
+    "out.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "refuse",
+    "argv": [],
+    "verb": "",
+    "exit_code": 7,
+    "rule": "claude",
+    "note_count": 2,
+    "env": {}
+   }
+  },
+  {
    "id": "claude-lane-a-max-example-com-c",
    "cite": "~/.claude/CLAUDE.md:66",
    "also_cited": [],
@@ -430,6 +459,34 @@
    "v1_meaning": "The contract's own statement of the negative rule, including the promise that the guard NAMES the replacement rather than merely denying. Enforced at bin/subfleet-hook:53-68.",
    "argv": [
     "codex",
+    "-C",
+    "/repo",
+    "-p",
+    "prompt.md",
+    "-o",
+    "out.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "refuse",
+    "argv": [],
+    "verb": "",
+    "exit_code": 7,
+    "rule": "codex",
+    "note_count": 2,
+    "env": {}
+   }
+  },
+  {
+   "id": "codex-d-c-repo",
+   "cite": "~/chief-of-staff/subfleet/bin/subfleet-hook:62",
+   "also_cited": [],
+   "v1_line": "subfleet codex -d -C /repo -p prompt.md -o out.md",
+   "v1_meaning": "v1's PreToolUse guard ALLOWED -d ('the runners' own -d re-execs under setsid: survivable'); v2 refuses it, a deliberate narrowing",
+   "argv": [
+    "codex",
+    "-d",
     "-C",
     "/repo",
     "-p",
@@ -2113,6 +2170,78 @@
    }
   },
   {
+   "id": "gate-pr-42-peer-env-subfleet-v1-bin",
+   "cite": "~/chief-of-staff/subfleet/README.md:717",
+   "also_cited": [],
+   "v1_line": "subfleet gate pr 42 --peer astra --main-approve --expect-head 4c1d9a7e3b52f08d6a1c4e9b7d2f5a8c0e3b6d91",
+   "v1_meaning": "the delegation fallback: gate's own codes run 0 to 5, so the missing-v1 answer must sit outside that range",
+   "argv": [
+    "gate",
+    "pr",
+    "42",
+    "--peer",
+    "astra",
+    "--main-approve",
+    "--expect-head",
+    "4c1d9a7e3b52f08d6a1c4e9b7d2f5a8c0e3b6d91"
+   ],
+   "env": {
+    "SUBFLEET_V1_BIN": "/nonexistent/subfleet"
+   },
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "gate",
+     "pr",
+     "42",
+     "--peer",
+     "astra",
+     "--main-approve",
+     "--expect-head",
+     "4c1d9a7e3b52f08d6a1c4e9b7d2f5a8c0e3b6d91"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "delegate:gate",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
+   "id": "gate-pr-https-github-com-policyengine-policyengine-us-pull-42-peer",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1359",
+   "also_cited": [],
+   "v1_line": "subfleet gate pr https://github.com/PolicyEngine/policyengine-us/pull/42 --peer astra --dry-run",
+   "v1_meaning": "a PR URL is what an agent has in hand straight after `gh pr view`",
+   "argv": [
+    "gate",
+    "pr",
+    "https://github.com/PolicyEngine/policyengine-us/pull/42",
+    "--peer",
+    "astra",
+    "--dry-run"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "delegate",
+    "argv": [
+     "gate",
+     "pr",
+     "https://github.com/PolicyEngine/policyengine-us/pull/42",
+     "--peer",
+     "astra",
+     "--dry-run"
+    ],
+    "verb": "",
+    "exit_code": null,
+    "rule": "delegate:gate",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
    "id": "h",
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:1596",
    "also_cited": [],
@@ -3702,6 +3831,41 @@
     "exit_code": null,
     "rule": "permanent:notify",
     "note_count": 1,
+    "env": {}
+   }
+  },
+  {
+   "id": "notify-session-3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01-the",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:1413",
+   "also_cited": [],
+   "v1_line": "subfleet notify --session 3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01 the review is ready",
+   "v1_meaning": "v1's notify text is nargs=?, so unquoted words exit 2; v2's ping is nargs=* and accepts them, a deliberate widening",
+   "argv": [
+    "notify",
+    "--session",
+    "3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01",
+    "the",
+    "review",
+    "is",
+    "ready"
+   ],
+   "env": {},
+   "v1_parses": false,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "ping",
+     "--session",
+     "3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01",
+     "the",
+     "review",
+     "is",
+     "ready"
+    ],
+    "verb": "ping",
+    "exit_code": null,
+    "rule": "permanent:notify",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -6119,6 +6283,45 @@
    }
   },
   {
+   "id": "run-dp-prompt-md-task",
+   "cite": "~/chief-of-staff/subfleet/subfleet/delegate.py:347",
+   "also_cited": [],
+   "v1_line": "subfleet run -dp prompt.md --task build --tier standard -C /repo",
+   "v1_meaning": "-d is the only boolean short flag on run, so -dp FILE is legal clustering",
+   "argv": [
+    "run",
+    "-dp",
+    "prompt.md",
+    "--task",
+    "build",
+    "--tier",
+    "standard",
+    "-C",
+    "/repo"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "run",
+     "-dp",
+     "prompt.md",
+     "--task",
+     "build",
+     "--tier",
+     "standard",
+     "-C",
+     "/repo"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
    "id": "run-dry-run-m-opus",
    "cite": "README.md:490",
    "also_cited": [],
@@ -7310,6 +7513,37 @@
    }
   },
   {
+   "id": "run-mastra-c-repo-pprompt-md",
+   "cite": "~/chief-of-staff/subfleet/subfleet/delegate.py:330",
+   "also_cited": [],
+   "v1_line": "subfleet run -mastra -C/repo -pprompt.md -oout.md",
+   "v1_meaning": "attached short-option values: -C/repo is the same as -C /repo",
+   "argv": [
+    "run",
+    "-mastra",
+    "-C/repo",
+    "-pprompt.md",
+    "-oout.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "run",
+     "-mastra",
+     "-C/repo",
+     "-pprompt.md",
+     "-oout.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
    "id": "run-n-cutover-compat-task",
    "cite": "subfleet/delegate.py:342",
    "also_cited": [],
@@ -7973,6 +8207,38 @@
    }
   },
   {
+   "id": "run-reuse-o-repo-out-md",
+   "cite": "~/chief-of-staff/subfleet/subfleet/delegate.py:349",
+   "also_cited": [],
+   "v1_line": "subfleet run --reuse -o /repo/out.md --task build --tier standard -C /repo -p prompt.md",
+   "v1_meaning": "--reuse was an unambiguous v1 abbreviation of --reuse-out",
+   "argv": [
+    "run",
+    "--reuse",
+    "-o",
+    "/repo/out.md",
+    "--task",
+    "build",
+    "--tier",
+    "standard",
+    "-C",
+    "/repo",
+    "-p",
+    "prompt.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "refuse",
+    "argv": [],
+    "verb": "",
+    "exit_code": 2,
+    "rule": "run:v1-only-flag",
+    "note_count": 1,
+    "env": {}
+   }
+  },
+  {
    "id": "run-reuse-out-o-repo-out-md",
    "cite": "subfleet/delegate.py:349",
    "also_cited": [
@@ -8250,6 +8516,30 @@
     "exit_code": null,
     "rule": "permanent:run",
     "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "run-stat",
+   "cite": "~/chief-of-staff/subfleet/subfleet/delegate.py:378",
+   "also_cited": [],
+   "v1_line": "subfleet run --stat",
+   "v1_meaning": "--stat was an unambiguous v1 abbreviation of --status; no other run flag starts --stat",
+   "argv": [
+    "run",
+    "--stat"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "note",
+    "argv": [
+     "status"
+    ],
+    "verb": "status",
+    "exit_code": null,
+    "rule": "run:--status",
+    "note_count": 1,
     "env": {}
    }
   },
@@ -9724,6 +10014,51 @@
    }
   },
   {
+   "id": "run-task-build-tier-env-codex-api-key",
+   "cite": "~/chief-of-staff/subfleet/subfleet/codex.py:87",
+   "also_cited": [],
+   "v1_line": "subfleet run --task build --tier hard -C /repo -p prompt.md -o out.md",
+   "v1_meaning": "the metered-API key; C-12.3 removes it from the launch environment, so compat leaves it alone rather than acting on it twice",
+   "argv": [
+    "run",
+    "--task",
+    "build",
+    "--tier",
+    "hard",
+    "-C",
+    "/repo",
+    "-p",
+    "prompt.md",
+    "-o",
+    "out.md"
+   ],
+   "env": {
+    "CODEX_API_KEY": "sk-proj-REDACTED"
+   },
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--task",
+     "build",
+     "--tier",
+     "hard",
+     "-C",
+     "/repo",
+     "-p",
+     "prompt.md",
+     "-o",
+     "out.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
    "id": "run-task-build-tier-env-delegate-carpool",
    "cite": "chief-of-staff/subfleet/subfleet/__init__.py:28",
    "also_cited": [],
@@ -10084,6 +10419,45 @@
    }
   },
   {
+   "id": "run-task-build-tier-standard-c",
+   "cite": "~/chief-of-staff/subfleet/subfleet/delegate.py:321",
+   "also_cited": [],
+   "v1_line": "subfleet run --task=build --tier=standard -C /repo -p prompt.md -o out.md",
+   "v1_meaning": "argparse accepts --opt=value everywhere; it is the shape most shells and model-written one-liners produce",
+   "argv": [
+    "run",
+    "--task=build",
+    "--tier=standard",
+    "-C",
+    "/repo",
+    "-p",
+    "prompt.md",
+    "-o",
+    "out.md"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--task=build",
+     "--tier=standard",
+     "-C",
+     "/repo",
+     "-p",
+     "prompt.md",
+     "-o",
+     "out.md"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
    "id": "run-task-lookup-tier",
    "cite": "~/.claude/CLAUDE.md:47",
    "also_cited": [],
@@ -10311,6 +10685,82 @@
      "-C",
      "/repo",
      "which module defines rewrite_aliases?"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "run-task-lookup-tier-7",
+   "cite": "~/chief-of-staff/subfleet/subfleet/delegate.py:357",
+   "also_cited": [],
+   "v1_line": "subfleet run --task lookup --tier trivial -C /repo -- --why did the api-lane guard refuse ~/.codex-api?",
+   "v1_meaning": "-- ends option parsing; what an agent types when the prompt starts with a dash",
+   "argv": [
+    "run",
+    "--task",
+    "lookup",
+    "--tier",
+    "trivial",
+    "-C",
+    "/repo",
+    "--",
+    "--why did the api-lane guard refuse ~/.codex-api?"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--task",
+     "lookup",
+     "--tier",
+     "trivial",
+     "-C",
+     "/repo",
+     "--",
+     "--why did the api-lane guard refuse ~/.codex-api?"
+    ],
+    "verb": "run",
+    "exit_code": null,
+    "rule": "permanent:run",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "run-task-lookup-tier-8",
+   "cite": "~/chief-of-staff/subfleet/subfleet/delegate.py:358",
+   "also_cited": [],
+   "v1_line": "subfleet run --task lookup --tier trivial summarize what changed in HEAD -C /repo",
+   "v1_meaning": "flags after the positional prompt: argparse does not stop at the first positional",
+   "argv": [
+    "run",
+    "--task",
+    "lookup",
+    "--tier",
+    "trivial",
+    "summarize what changed in HEAD",
+    "-C",
+    "/repo"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "run",
+     "--task",
+     "lookup",
+     "--tier",
+     "trivial",
+     "summarize what changed in HEAD",
+     "-C",
+     "/repo"
     ],
     "verb": "run",
     "exit_code": null,
@@ -11548,7 +11998,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "map",
+    "disposition": "note",
     "argv": [
      "runs",
      "show",
@@ -11557,7 +12007,7 @@
     "verb": "runs.show",
     "exit_code": null,
     "rule": "permanent:runs show",
-    "note_count": 0,
+    "note_count": 1,
     "env": {}
    }
   },
@@ -11585,6 +12035,35 @@
      "show",
      "20260905-120000-demo",
      "--err"
+    ],
+    "verb": "runs.show",
+    "exit_code": null,
+    "rule": "permanent:runs show",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "runs-show-20260905-120000-demo-out",
+   "cite": "~/chief-of-staff/subfleet/subfleet/cli.py:697",
+   "also_cited": [],
+   "v1_line": "subfleet runs show 20260905-120000-demo --out",
+   "v1_meaning": "v1's runs show printed metadata then `--- out.md ---` and the deliverable, unconditionally; --out is v2's way to the same bytes",
+   "argv": [
+    "runs",
+    "show",
+    "20260905-120000-demo",
+    "--out"
+   ],
+   "env": {},
+   "v1_parses": false,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "runs",
+     "show",
+     "20260905-120000-demo",
+     "--out"
     ],
     "verb": "runs.show",
     "exit_code": null,

@@ -32,7 +32,8 @@ def stub_probes(monkeypatch):
 # --- the shape of a row -------------------------------------------------------
 
 def test_every_row_is_pass_fail_or_unknown_with_a_fix(root, stub_probes):
-    """The lane's acceptance: each check reports pass/fail/unknown and a fix line."""
+    """C-17.3 the exit code is decided by these statuses, so each row reports
+    pass, fail, or unknown, and carries a fix line whatever it reports."""
     rows = doctor.checks(root)
     assert rows, "the table is not empty"
     for item in rows:
@@ -42,8 +43,9 @@ def test_every_row_is_pass_fail_or_unknown_with_a_fix(root, stub_probes):
 
 
 def test_the_table_covers_every_check_the_lane_brief_names(root, stub_probes):
-    """The cutover gate: the compat table, the hook entries, the symlink, the
-    PATH shadows, the state root, and whether daemon.lock names a live process."""
+    """C-17.1 `doctor` is the cutover gate: the compat table (C-17.1), the hook
+    entries (C-15.2), the symlink, the PATH shadows, the state root (C-2.2), and
+    whether daemon.lock names a live process (C-5.8)."""
     names = {item["check"] for item in doctor.checks(root)}
     assert {"compat table loads",
             "hook entries in ~/.claude/settings.json",
@@ -65,7 +67,8 @@ def test_an_unknown_never_decides_the_exit_code(root):
 
 
 def test_render_prints_a_fix_line_for_everything_that_is_not_a_pass():
-    """A table that is being acted on needs the fix beside the finding."""
+    """C-17.3 a non-zero exit sends someone to this table, so the fix sits
+    beside the finding rather than in the documentation."""
     text = doctor.render([doctor.row("ok thing", doctor.PASS, "fine", "nothing"),
                           doctor.row("bad thing", doctor.FAIL, "broken", "do this"),
                           doctor.row("dark", doctor.UNKNOWN, "no idea", "look here")])
@@ -76,14 +79,15 @@ def test_render_prints_a_fix_line_for_everything_that_is_not_a_pass():
 # --- the compat table ---------------------------------------------------------
 
 def test_compat_row_passes_when_every_rule_reaches_a_verb():
-    """The whole point of the row: a rule whose target verb was renamed is a
-    command that used to work and now prints a usage error."""
+    """C-17.1 the whole point of the row: a rule whose target verb was renamed
+    is a command that used to work and now prints a usage error."""
     item = doctor.check_compat_table()
     assert item["status"] == doctor.PASS
     assert "rules" in item["detail"] and "reachable" in item["detail"]
 
 
 def test_compat_row_fails_and_names_the_broken_rules(monkeypatch):
+    """C-17.3 a fail names what is wrong, not just that something is."""
     from subfleet import compat
     monkeypatch.setattr(compat, "self_check", lambda: {
         "rules": 3, "verbs": 2, "env": 1, "unreachable": ["jobs -> runs"]})
@@ -92,7 +96,8 @@ def test_compat_row_fails_and_names_the_broken_rules(monkeypatch):
 
 
 def test_compat_row_fails_when_the_module_will_not_import(monkeypatch):
-    """A table that cannot load is a blocked cutover, not an unknown."""
+    """C-17.1 every v1 invocation goes through this table, so a table that
+    cannot load is a blocked cutover — a fail, never an unknown."""
     import builtins
     real = builtins.__import__
 
@@ -132,7 +137,8 @@ def test_hook_row_passes_once_they_match_and_reports_v1s_own(tmp_path, monkeypat
 
 
 def test_hook_row_is_unknown_when_the_settings_file_will_not_parse(tmp_path):
-    """A file that cannot be read is not a failing check; it is an unreadable one."""
+    """C-17.3 an unknown never decides the exit code: a file that cannot be read
+    is an unreadable check, not a failing one."""
     settings = tmp_path / "settings.json"
     settings.write_text("{not json")
     item = doctor.check_hook_entries(settings)
@@ -161,7 +167,8 @@ def test_never_rules_row_reads_the_settings_file(tmp_path):
 
 def test_symlink_row_fails_while_subfleet_still_resolves_into_v1(tmp_path,
                                                                 monkeypatch):
-    """Plan amendment 8: the symlink is the visible half of the cutover."""
+    """C-17.1 and plan amendment 8: the shadow period runs both installs and the
+    symlink is the visible half of the flip."""
     v1 = tmp_path / "chief-of-staff" / "subfleet" / "bin"
     v1.mkdir(parents=True)
     binary = v1 / "subfleet"
@@ -174,8 +181,9 @@ def test_symlink_row_fails_while_subfleet_still_resolves_into_v1(tmp_path,
 
 
 def test_symlink_row_catches_a_v2_path_that_imports_v1(tmp_path, monkeypatch):
-    """Found by running this table for real: PYTHONPATH outranks the install, so
-    a v2 console script in a v2 virtualenv can answer with v1's verb table."""
+    """C-17.1 found by running this table for real: PYTHONPATH outranks the
+    install, so a v2 console script in a v2 virtualenv can answer with v1's verb
+    table and every command an agent types reaches v1."""
     binary = tmp_path / "subfleet"
     binary.write_text("#!/bin/sh\nexit 2\n")
     binary.chmod(0o755)
@@ -190,6 +198,8 @@ def test_symlink_row_catches_a_v2_path_that_imports_v1(tmp_path, monkeypatch):
 
 def test_symlink_row_is_unknown_when_the_binary_will_not_answer(tmp_path,
                                                                monkeypatch):
+    """C-17.3 a binary that will not answer is an unknown: looked, could not
+    tell. It is never reported as a pass and never decides the exit code."""
     binary = tmp_path / "subfleet"
     binary.write_text("#!/bin/sh\nexit 3\n")
     binary.chmod(0o755)
@@ -200,8 +210,8 @@ def test_symlink_row_is_unknown_when_the_binary_will_not_answer(tmp_path,
 
 def test_pythonpath_row_names_the_entry_that_shadows_the_install(tmp_path,
                                                                  monkeypatch):
-    """PYTHONPATH precedes site-packages and an editable install's .pth, so a
-    `subfleet` package on it wins for every entry point, invisibly."""
+    """C-17.1 PYTHONPATH precedes site-packages and an editable install's .pth,
+    so a `subfleet` package on it wins for every entry point, invisibly."""
     monkeypatch.setenv("PYTHONPATH", str(tmp_path))
     assert doctor.check_pythonpath()["status"] == doctor.PASS
 
@@ -215,7 +225,8 @@ def test_pythonpath_row_names_the_entry_that_shadows_the_install(tmp_path,
 
 
 def test_path_shadows_row_fails_on_a_second_copy(tmp_path, monkeypatch):
-    """Two `claude` on PATH is a silent version flip between one run and the next."""
+    """C-12.4 builds a Claude launch against a specific CLI's flags, so two
+    `claude` on PATH is a silent flip between one run and the next."""
     first, second = tmp_path / "a", tmp_path / "b"
     for directory in (first, second):
         directory.mkdir()
@@ -232,8 +243,9 @@ def test_path_shadows_row_fails_on_a_second_copy(tmp_path, monkeypatch):
 
 def test_a_missing_subfleet_on_path_fails_but_a_missing_provider_is_unknown(
         tmp_path, monkeypatch):
-    """Nothing can be typed without `subfleet`; a provider may simply not be
-    installed on the machine running the check."""
+    """C-17.3 the distinction the statuses exist for: nothing can be typed
+    without `subfleet`, so its absence is a fail, while a provider may simply
+    not be installed on the machine running the check."""
     monkeypatch.setenv("PATH", str(tmp_path))
     assert doctor.check_path_shadows("subfleet")["status"] == doctor.FAIL
     assert doctor.check_path_shadows("claude")["status"] == doctor.UNKNOWN
@@ -248,6 +260,7 @@ def test_state_root_row_is_unknown_before_the_daemon_has_ever_run(tmp_path):
 
 
 def test_state_root_row_passes_once_the_store_exists(root):
+    """C-2.2 lists what belongs in the state root; the store is the anchor."""
     (root / "state.sqlite3").write_text("")
     item = doctor.check_state_root(root)
     assert item["status"] == doctor.PASS and "state.sqlite3" in item["detail"]
@@ -268,6 +281,7 @@ def test_socket_path_row_fails_when_sun_path_cannot_hold_it(root, tmp_path):
 
 
 def test_daemon_lock_row_passes_with_neither_lock_nor_socket(root):
+    """C-5.8 no lock and no socket is a consistent state: no daemon."""
     item = doctor.check_daemon_lock(root)
     assert item["status"] == doctor.PASS and "no daemon" in item["detail"]
 
@@ -282,13 +296,15 @@ def test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone(root):
 
 
 def test_daemon_lock_row_fails_on_a_socket_with_no_lock(root):
+    """C-5.8 a socket nothing holds is an inconsistency, not an unknown."""
     (root / "daemon.sock").touch()
     item = doctor.check_daemon_lock(root)
     assert item["status"] == doctor.FAIL and "no daemon.lock" in item["detail"]
 
 
 def test_daemon_lock_row_passes_against_a_live_daemon(daemon, root):
-    """The fake daemon holds the socket; the lock names this very process."""
+    """C-5.3 the lock is verified by process identity, not by a bare pid; here
+    the fake daemon holds the socket and the lock names this very process."""
     from subfleet.client import boot_id, proc_start
     daemon({"ping": lambda request: {"pong": True, "version": "test"}})
     (root / "daemon.lock").write_text(json.dumps(
@@ -306,12 +322,15 @@ def test_live_pings_the_daemon(daemon, root):
 
 
 def test_live_fails_when_nothing_is_listening(root):
+    """C-17.5 everything that needs the daemon exits 69 when it is not there,
+    and `--live` is exactly the check that needs it."""
     item = doctor.check_live(root)
     assert item["status"] == doctor.FAIL and "daemon start" in item["fix"]
 
 
 def test_live_adds_a_row_and_the_offline_table_does_not_have_it(daemon, root,
                                                                stub_probes):
+    """C-17.5 the offline table reads files only; the probe is opt-in."""
     daemon({"ping": lambda request: {"pong": True, "version": "t"}})
     names = {item["check"] for item in doctor.checks(root)}
     live = {item["check"] for item in doctor.checks(root, live=True)}
@@ -351,6 +370,7 @@ def test_cli_doctor_live_reaches_the_ping(daemon, root, capsys, stub_probes):
 
 
 def test_doctor_checks_is_the_same_table(root, stub_probes):
-    """`cli.doctor_checks` is a thin call into `doctor.checks`, not a second table."""
+    """C-17.1 there is one `doctor`, so there is one table: `cli.doctor_checks`
+    is a call into `doctor.checks` and not a second list of checks."""
     assert [item["check"] for item in cli.doctor_checks(root)] == \
            [item["check"] for item in doctor.checks(root)]
