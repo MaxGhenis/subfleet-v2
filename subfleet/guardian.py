@@ -88,6 +88,10 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     try:
         with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
             with open(stdin_path or os.devnull, "rb") as stdin:
+                # Timer observation begins at the provider launch boundary, after
+                # credential lookup and worker queueing (C-23.19).
+                if os.environ.get("SUBFLEET_PROBE"):
+                    _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
                 child = subprocess.Popen(argv, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
                 rc = child.wait()
     except OSError as exc:

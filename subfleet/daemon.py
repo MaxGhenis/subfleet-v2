@@ -146,6 +146,10 @@ class Daemon:
         self.readers = ThreadPoolExecutor(max_workers=32, thread_name_prefix="subfleet-socket")
         self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
         self._control_thread: threading.Thread | None = None
+        from .timers import Timers
+        self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
+                             deliver=self._timer_notice)
+        self._recovery_complete = threading.Event()
 
     def _seed_lanes(self) -> None:
         path = self.root / "lanes.json"
@@ -214,7 +218,11 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        return scheduler.evaluate(self.policy, self._capacity_view(desktop_account),
+        view = self._capacity_view(desktop_account)
+        overrides = {lane["lane_id"] for lane in view["lanes"]
+                     if self.timers.actions.confirmed_override(lane["lane_id"])}
+        view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
+        return scheduler.evaluate(self.policy, view,
                                   {**job, "exclusions": tuple(exclusions) + extra_exclusions,
                                    "policy_hash": self.policy_digest})
 
@@ -412,14 +420,30 @@ class Daemon:
             if op == "notice.ack":
                 with self.store.transaction("notice.acknowledged") as tx:
                     for notice_id in a.notice_ids:
+                        if notice_id < 0:
+                            tx.execute("UPDATE service_notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=?",
+                                       (utcnow(), -notice_id, a.session_id))
+                            continue
                         tx.execute("UPDATE notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=? AND state!='acknowledged'", (utcnow(), notice_id, a.session_id))
-            return {"notices": self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))}
+            notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
+            notices += [{**row, "notice_id": -row["notice_id"], "job_id": None} for row in
+                        self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))]
+            return {"notices": notices}
         if op == "ping":
-            return {"pong": True, "version": __version__, "session_id": args.get("session_id"), "text": args.get("text", "")}
+            text = args.get("text", "")
+            session = args.get("session_id") or self.policy.get("alerts", {}).get("operator_session") or "operator"
+            notice_id = None
+            if text:
+                with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
+                    cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
+                                        (session, text, utcnow()))
+                    notice_id = -cursor.lastrowid
+                self._notify()
+            return {"pong": True, "version": __version__, "session_id": session, "text": text, "notice_id": notice_id}
         if op == "daemon.status":
             view = self._capacity_view(capacity.read_desktop_account())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
-                    "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"]}
+                    "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"]}
         raise protocol.ProtocolError(f"unknown op {op}")
 
     def wait(self, args: protocol.WaitArgs) -> dict:
@@ -507,13 +531,77 @@ class Daemon:
                 for j in self.store.query("SELECT * FROM jobs WHERE accepted_attempt_id IS NOT NULL"):
                     if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):
                         self._schedule("export:" + j["job_id"], self._export, j["job_id"])
-                self._schedule("admission", self._admit)
+                if self._recovery_complete.is_set():
+                    self._schedule("admission", self._admit)
+                    self.timers.tick()
+                else:
+                    self._schedule("timer-recovery", self._recover_then_start_timers)
                 if time.monotonic() - self._last_maintenance >= 3600:
                     self._last_maintenance = time.monotonic()
-                    self._schedule("retention", maintenance, self.store, self.root)
+                    self._schedule("retention", self._retention)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
             self.stopping.wait(self.tick_s)
+
+    def _timer_notice(self, notice: dict) -> bool:
+        result = self.dispatch("ping", {"session_id": self.policy.get("alerts", {}).get("operator_session"),
+                                       "text": notice["subject"] + "\n" + notice["body"]})
+        return result.get("notice_id") is not None
+
+    def _retention(self):
+        try:
+            maintenance(self.store, self.root)
+        except Exception as exc:
+            self.timers.mark("retention", error=type(exc).__name__, next_due=after(3600))
+            raise
+        self.timers.mark("retention", next_due=after(3600))
+
+    def _recover_then_start_timers(self):
+        # HTTP reservations have no provider process and can be released on restart.
+        for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:timer:%'"):
+            if not self._probe_record(lease["holder"]):
+                self.store.release_leases(lease["holder"])
+        self._recover_probes()
+        self.timers.actions.recover()
+        self.timers.start()
+        self._recovery_complete.set()
+
+    def _timer_turn(self, lane: Lane, purpose: str, holder: str, *, cancel, deadline) -> Outcome:
+        if cancel.is_set() or time.monotonic() >= deadline:
+            return Outcome(OutcomeClass.UNKNOWN, "timer cancelled", evidence={"timed_out": True})
+        token = holder.rsplit(":", 1)[-1]
+        directory = self.root / "lanes" / lane.lane_id / "probes" / token
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        model = self.policy["models"]["haiku" if lane.provider == "claude" else "terra"]
+        record = {"holder": holder, "job_id": None, "lane_id": lane.lane_id,
+                  "timer_kind": purpose, "model_id": model["id"], "directory": str(directory),
+                  "state": "reserved", "created_at": utcnow(), "owned_identities": {},
+                  "deadline_at": after(max(0, deadline - time.monotonic()))}
+        self._save_probe(record)
+        job = {"job_id": "timer-" + token, "request_id": token, "kind": "probe",
+               "workdir": str(directory), "prompt_path": str(directory / "prompt.md"),
+               "sandbox": "read-only", "exclusions": "[]"}
+        try:
+            outcome = self._execute_probe(job, lane, model, holder)
+        except Exception:
+            current = self._probe_record(holder)
+            safe = self._contain_probe(current)
+            if not safe:
+                return Outcome(OutcomeClass.UNKNOWN, "timer quarantined", evidence={"probe_quarantined": True})
+            raise
+        requested = (self._read_json(directory / "request.json") or {}).get("requested_at")
+        if requested:
+            self.store.add_event("timer.request", lane_id=lane.lane_id,
+                                 data={"requested_at": requested, "purpose": purpose,
+                                       "rc": outcome.evidence.get("rc"), "native_session_id": outcome.native_session_id})
+        evidence = {**outcome.evidence, "requested_at": requested,
+                    "timed_out": time.monotonic() >= deadline}
+        if not evidence.get("probe_quarantined"):
+            record = self._probe_record(holder)
+            record.update(state="completed")
+            self._save_probe(record)
+            shutil.rmtree(directory, ignore_errors=True)
+        return dataclasses.replace(outcome, evidence=evidence)
 
     def _workspace(self, job: dict) -> tuple[str, str | None, str | None]:
         workdir = job.get("worktree") or job["workdir"]
@@ -601,7 +689,9 @@ class Daemon:
                 record["child_pid"] = receipt.get("child_pid")
                 break
             job = self.store.get_job(record["job_id"])
-            if not job or job["cancel_requested_at"] or job["state"] in TERMINAL:
+            if not record.get("timer_kind") and (not job or job["cancel_requested_at"] or job["state"] in TERMINAL):
+                break
+            if record.get("timer_kind") and self.timers.cancel.is_set():
                 break
             if record.get("state") in ("reserved", "quarantined", "containing", "contained"):
                 break
@@ -670,7 +760,8 @@ class Daemon:
             record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
             self._save_probe(record)
-            os.write(write_fd, b"1")  # Committed ownership is required to open the gate.
+            if not record.get("timer_kind") or not self.timers.cancel.is_set():
+                os.write(write_fd, b"1")  # Committed ownership is required to open the gate.
         except (OSError, procs.InspectionError) as exc:
             record["launch_error"] = type(exc).__name__
         finally:
@@ -684,14 +775,29 @@ class Daemon:
                            evidence={"probe_quarantined": True})
         if not receipt:
             return Outcome(OutcomeClass.UNKNOWN, "probe ended without an exit receipt")
-        return adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
+        outcome = adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
                                 ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+        request = self._read_json(directory / "request.json") or {}
+        return dataclasses.replace(outcome, evidence={**outcome.evidence, **request,
+                                   "rc": receipt.get("rc"), "signal": receipt.get("signal")})
 
     def _finish_probe(self, record: dict, outcome: Outcome) -> None:
         if outcome.cls == OutcomeClass.LIMITED and outcome.closure is None:
             outcome = dataclasses.replace(outcome, closure=Closure(
                 record["lane_id"], record["model_id"], after(3600), ClosureReason.PROVIDER_LIMIT,
                 ClockSource.GUESSED, None))
+        if record.get("timer_kind"):
+            sent = (self._read_json(Path(record["directory"]) / "request.json") or {}).get("requested_at")
+            if sent:
+                self.store.add_event("timer.request", lane_id=record["lane_id"], data={"requested_at": sent})
+            if record["timer_kind"] == "keepalive" and sent and outcome.cls == OutcomeClass.OK:
+                self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
+                                              ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
+            record.update(state="completed")
+            self._save_probe(record)
+            self.store.release_leases(record["holder"])
+            shutil.rmtree(record["directory"], ignore_errors=True)
+            return
         with self.store.transaction("probe.completed", job_id=record["job_id"], lane_id=record["lane_id"],
                                     data={"model": record["model_id"], "class": outcome.cls.value,
                                           "evidence": outcome.evidence}) as tx:
@@ -712,6 +818,8 @@ class Daemon:
     def _recover_probes(self) -> None:
         """C-5.3–7, C-8.4: recover each durable probe before admitting more work."""
         for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'"):
+            if lease["holder"] in self.timers.active_holders:
+                continue
             record = self._probe_record(lease["holder"])
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
@@ -1448,6 +1556,7 @@ class Daemon:
             return
         self._closed = True
         self.stopping.set()
+        self.timers.cancel.set()
         self._notify()
         if self._socket:
             self._socket.close()
@@ -1459,6 +1568,7 @@ class Daemon:
                     conn.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
+        self.timers.stop()
         for pool in (self.readers, self.requests, self.waiters, self.workers):
             pool.shutdown(wait=True, cancel_futures=True)
         self.store.close()

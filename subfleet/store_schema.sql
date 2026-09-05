@@ -200,3 +200,16 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_job ON events(job_id, event_id);
 CREATE INDEX IF NOT EXISTS events_kind ON events(kind, event_id DESC);
+
+-- Jobless operator messages use ping and the same notice polling/ack path.
+-- A separate table is additive: v1's notices.job_id remains a required FK.
+CREATE TABLE IF NOT EXISTS service_notices (
+  notice_id INTEGER PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('pending','offered','acknowledged','surfaced')),
+  transport TEXT,
+  created_at TEXT NOT NULL,
+  offered_at TEXT,
+  acknowledged_at TEXT
+);

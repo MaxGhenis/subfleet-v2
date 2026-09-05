@@ -1,26 +1,97 @@
 {
-  "tiers": ["trivial", "easy", "standard", "hard"],
+  "tiers": [
+    "trivial",
+    "easy",
+    "standard",
+    "hard"
+  ],
   "chains": {
-    "lookup": ["haiku", "sonnet", "opus", "astra"],
-    "research": ["haiku", "sonnet", "opus", "astra"],
-    "review": ["haiku", "sonnet", "opus", "astra"],
-    "build": ["haiku", "sonnet", "opus", "astra"],
-    "sweep": ["terra", "terra", "terra", "astra"],
-    "authored-prose": ["fable", "fable", "fable", "fable"],
-    "strategy": ["fable", "fable", "fable", "fable"],
-    "adjudication": ["fable", "fable", "fable", "fable"]
+    "lookup": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "astra"
+    ],
+    "research": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "astra"
+    ],
+    "review": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "astra"
+    ],
+    "build": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "astra"
+    ],
+    "sweep": [
+      "terra",
+      "terra",
+      "terra",
+      "astra"
+    ],
+    "authored-prose": [
+      "fable",
+      "fable",
+      "fable",
+      "fable"
+    ],
+    "strategy": [
+      "fable",
+      "fable",
+      "fable",
+      "fable"
+    ],
+    "adjudication": [
+      "fable",
+      "fable",
+      "fable",
+      "fable"
+    ]
   },
   "fallback": "upward-only",
-  "permissions": {"build": "workspace-write", "*": "read-only"},
-  "models": {
-    "fable": {"provider": "claude", "id": "claude-fable-5-1", "scope": "fable"},
-    "opus": {"provider": "claude", "id": "claude-opus-5"},
-    "sonnet": {"provider": "claude", "id": "claude-sonnet-5"},
-    "haiku": {"provider": "claude", "id": "claude-haiku-4-5-20251001"},
-    "astra": {"provider": "codex", "id": "gpt-6-astra", "effort": "ultra"},
-    "terra": {"provider": "codex", "id": "gpt-5.6-terra"}
+  "permissions": {
+    "build": "workspace-write",
+    "*": "read-only"
   },
-  "retired": {"sol": "astra", "claude-fable-5": "fable"},
+  "models": {
+    "fable": {
+      "provider": "claude",
+      "id": "claude-fable-5-1",
+      "scope": "fable"
+    },
+    "opus": {
+      "provider": "claude",
+      "id": "claude-opus-5"
+    },
+    "sonnet": {
+      "provider": "claude",
+      "id": "claude-sonnet-5"
+    },
+    "haiku": {
+      "provider": "claude",
+      "id": "claude-haiku-4-5-20251001"
+    },
+    "astra": {
+      "provider": "codex",
+      "id": "gpt-6-astra",
+      "effort": "ultra"
+    },
+    "terra": {
+      "provider": "codex",
+      "id": "gpt-5.6-terra"
+    }
+  },
+  "retired": {
+    "sol": "astra",
+    "claude-fable-5": "fable"
+  },
   "desktop_login": "never",
   "caps": {
     "max_active_attempts": 4,
@@ -30,7 +101,22 @@
     "max_wall_s": 21600,
     "max_attempts": 3,
     "max_child_jobs": 8,
-    "max_tokens_observed": null
+    "max_tokens_observed": null,
+    "keepalive_workers": 4,
+    "keepalive_timeout_s": 60,
+    "probe_timeout_s": 60
   },
-  "reset_credits": {"enabled": true, "headroom_floor_pct": 15, "min_interval_min": 30}
+  "reset_credits": {
+    "enabled": true,
+    "headroom_floor_pct": 15,
+    "min_interval_min": 30
+  },
+  "timers": {
+    "probe_interval_s": 300,
+    "keepalive_interval_s": 18300
+  },
+  "alerts": {
+    "realert_hours": 6,
+    "expiring_capacity_daily": true
+  }
 }

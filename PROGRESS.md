@@ -11,3 +11,9 @@ Implementing milestone 5 on `lane/timers`. Initial worktree is clean. Final repo
 - Read implementation and v1 seams; split independent reset-credit and alert/status work.
 - Build bounded probe/keepalive timers and wire daemon lifecycle/status.
 - Verify retention pins and byte accounting, run focused and full suites, commit the final report.
+
+## Step: bounded timers and daemon seams
+- Done: retained guardian process ownership for jobless timer turns; added lane reservations, usage reads with deadlines/cancellation, post-heal cycle publication, keepalive request tracking, lifecycle/status, and policy defaults.
+- Done: ping now enqueues jobless operator notices in additive schema v2 `service_notices`; existing notice polling/ack accepts their negative IDs. Alert/status and retention components committed independently.
+- Validation: policy/store + alert/status focused suites pass with the existing shared checkout Python. `uv sync --group dev` failed fetching pluggy due DNS; no external endpoint used.
+- Next: exercise daemon fakes, review reset propagation and action fencing, complete probe/keepalive regression cases, full suite.

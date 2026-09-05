@@ -165,6 +165,22 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             or not math.isfinite(interval) or interval <= 0):
         fail("reset_credits.min_interval_min", "must be a positive number of minutes")
 
+    for section, defaults in (("timers", {"probe_interval_s": 300, "keepalive_interval_s": 18300}),
+                              ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True})):
+        supplied = value.get(section, {})
+        if not isinstance(supplied, dict):
+            fail(section, "must be an object")
+        settings = {**defaults, **supplied}
+        for key, default in defaults.items():
+            item = settings[key]
+            if isinstance(default, bool):
+                if not isinstance(item, bool):
+                    fail(f"{section}.{key}", "must be a boolean")
+            elif (not isinstance(item, (int, float)) or isinstance(item, bool)
+                  or not math.isfinite(item) or item <= 0):
+                fail(f"{section}.{key}", "must be a positive finite number")
+        value[section] = settings
+
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()
     value["_policy_path"] = str(path)
