@@ -680,11 +680,17 @@ class Daemon:
 
     def _session_events(self, kinds: tuple[str, ...],
                         session_ids: set[str] | None) -> dict[str, dict]:
-        """The newest event of each kind per session id, keyed `<kind>:<id>`."""
+        """The newest event of each kind per session id, keyed `<kind>:<id>`.
+
+        `event_id` rides along because the store stamps `ts` to the second, and
+        retiring and unretiring a session inside one second is a thing an
+        operator does; the row order is the only tiebreak that is always right.
+
+        """
         marks = ",".join("?" for _ in kinds)
         latest: dict[str, dict] = {}
         for row in self.store.query(
-                f"SELECT kind,ts,data_json FROM events WHERE kind IN ({marks}) "
+                f"SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
                 "ORDER BY event_id DESC", kinds):
             try:
                 data = json.loads(row["data_json"])
@@ -694,7 +700,8 @@ class Daemon:
             if not isinstance(session, str) or (session_ids is not None
                                                 and session not in session_ids):
                 continue
-            latest.setdefault(f"{row['kind']}:{session}", {**data, "at": row["ts"]})
+            latest.setdefault(f"{row['kind']}:{session}",
+                              {**data, "at": row["ts"], "event_id": row["event_id"]})
         return latest
 
     def _lane_session_ids(self) -> list[str]:
@@ -716,8 +723,9 @@ class Daemon:
                 retired = latest.get(f"{RETIRE_EVENT}:{session}")
                 cleared = latest.get(f"{UNRETIRE_EVENT}:{session}")
                 # Retirement is durable until the operator clears it, and both
-                # halves are append-only, so the later row wins (C-23.35).
-                if retired and cleared and cleared["at"] >= retired["at"]:
+                # halves are append-only, so the later ROW wins (C-23.35) —
+                # by event_id, not by a second-precision timestamp.
+                if retired and cleared and cleared["event_id"] > retired["event_id"]:
                     retired = None
                 state[session] = {
                     "retired": retired,

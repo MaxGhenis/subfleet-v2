@@ -254,6 +254,19 @@ def test_retirement_is_durable_and_the_state_op_reports_it(world):
     assert client.state([ALICE])["sessions"][ALICE]["retired"] is None
 
 
+
+def test_retirement_uses_event_order_within_one_second(world, monkeypatch):
+    """C-23.35: the last operator action wins even when timestamps tie."""
+    _service, client, _home, _store, _root, _policy, _base = world
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: fx.iso(fx.NOW))
+    client.retire(ALICE, "first retirement")
+    client.unretire(ALICE)
+    client.retire(ALICE, "retired again")
+    state = client.state([ALICE])["sessions"][ALICE]
+    assert state["retired"]["reason"] == "retired again"
+    client.unretire(ALICE)
+    assert client.state([ALICE])["sessions"][ALICE]["retired"] is None
+
 def test_the_state_op_reports_the_ledgers_own_lane_sessions(world):
     """C-23.31: the recorded lane marker is the daemon's `attempts` rows."""
     service, client, _home, _store, _root, _policy, _base = world
