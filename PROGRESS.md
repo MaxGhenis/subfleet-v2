@@ -3,8 +3,9 @@
 ## State
 Building milestone 1 core on `lane/core`, against `docs/acceptance-contract.md`.
 Shared seams remain unchanged. Runtime dependencies are standard library only.
-Implementation is integrated; deterministic acceptance coverage passes. Real
-process/crash verification remains blocked by this sandbox's OS inspection policy.
+Implementation and review are complete for integration. Deterministic acceptance
+coverage passes. Physical process/crash acceptance remains unverified because this
+sandbox prohibits the required OS inspection commands.
 
 ## Done
 - Read the acceptance contract, shared seams, plan, and specified v1 references.
@@ -26,15 +27,26 @@ process/crash verification remains blocked by this sandbox's OS inspection polic
   attempt publication; regression tests cover replay and disk-full failures.
 - Retention now accounts for and safely removes selected allocated worktrees under a
   durable removal lease. Fake scenarios survive prompt preambles and checkpoint suffixes.
+- Final exact required command: **119 passed, 33 skipped in 3.33 s**.
+- Audited 111 test functions: all contain clause citations. `git diff --check` passed.
+- Wrote the final integrator report to `OUTPUT.md`.
 
 ## Next
-- Run the final exact required command and verify all test docstrings cite clauses.
-- Write final report to `OUTPUT.md`; commit and attempt the required push.
+- Integrator: run the 33 physical tests where `ps` and `sysctl` are permitted.
+- Integrator: push `lane/core` once GitHub DNS/network access is available.
+- Later lanes: full routing, provider/CLI integration, live guard/isolation validation,
+  and enforcement of the optional observed-token cap when usage evidence is available.
 
 ## Validation and limitations
-`UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv run pytest -q`:
-86 passed, 32 skipped in 1.79 s at lifecycle integration. Full routing and provider
-adapters belong to other lanes.
+```sh
+export UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv"
+uv sync --group dev && uv run pytest -q
+```
+
+119 passed, 33 skipped in 3.33 s. The skips are 29 real-daemon cases and four
+guardian/process cases; these are implemented, but their physical acceptance claims
+are not established by deterministic fixture tests. Full routing and provider
+adapters belong to other lanes. No live provider/account commands were run.
 
 Pushes fail: DNS cannot resolve github.com. Initial `uv sync --group dev` failed
 because inherited UV_FROZEN=1 requires a missing lockfile; retry with UV_FROZEN=false
