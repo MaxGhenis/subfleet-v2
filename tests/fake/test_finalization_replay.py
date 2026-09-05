@@ -108,3 +108,20 @@ def test_c20_3_finalization_metadata_disk_full_is_recoverable(state_daemon):
     daemon.publish_hook = None
     daemon._finalize(a)
     assert daemon.store.get_job(job_id)["state"] == "succeeded"
+
+
+def test_c14_2_guard_refusal_reaches_cli_wait_with_fix(state_daemon, monkeypatch):
+    """C-14.2, C-17.3: a prelaunch refusal retains code 7 and its actionable fix."""
+    from subfleet import daemon as module, protocol
+    from subfleet.adapters.codex import CodexAdapter
+    from subfleet.cli import _wait_summary, exit_for_job
+
+    daemon, harness = state_daemon
+    job_id, attempt, adir = reserve(daemon, harness)
+    monkeypatch.setattr(module, "get_adapter", lambda _: CodexAdapter())
+    detail = "Guard preflight refused: SHA-256 does not match TRUST; fix: restore guard files and rerun subfleet doctor"
+    daemon._launch_failure(attempt, detail, rc=7)
+    daemon._finalize(daemon.store.get_attempt(attempt["attempt_id"]))
+    payload, = daemon.wait(protocol.WaitArgs(job_ids=[job_id], deadline_s=0))["jobs"]
+    assert exit_for_job(payload) == 7
+    assert detail in _wait_summary(payload)

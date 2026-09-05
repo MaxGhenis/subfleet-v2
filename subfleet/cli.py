@@ -676,8 +676,11 @@ def _wait_summary(job: dict[str, Any]) -> str:
     duration = "-" if seconds is None else f"{seconds:.0f}s"
     target = (job.get("out_path") or _artifact_path(job, "deliverable")
               or job.get("deliverable_path") or "-")
+    attempt = job.get("attempt") or {}
+    detail = job.get("outcome_detail") or attempt.get("outcome_detail")
     return (f"{PROG} wait: {row['id']} {label} · {row['model'] or '-'} · "
-            f"lane={row['lane'] or '-'} · {duration} · out={target}")
+            f"lane={row['lane'] or '-'} · {duration} · out={target}"
+            + (f" · {detail}" if state == "FAILED" and detail else ""))
 
 
 def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,

@@ -416,6 +416,9 @@ class Daemon:
             jobs = [self._job(j) for j in job_ids]
             pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
             if all(j["state"] in TERMINAL for j in jobs) and not pending_exports:
+                for job in jobs:
+                    job["attempt"] = self.store.one(
+                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
                 return {"jobs": jobs, "timeout": False}
             remaining = deadline - time.monotonic()
             if remaining <= 0 or self.stopping.is_set():
@@ -957,6 +960,8 @@ class Daemon:
             if result is None:
                 exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
                 outcome = adapter.classify(adir, launch, exit_info)
+                if exit_info.spawn_error:
+                    outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
                 attest = adapter.attest(adir, launch, outcome, a["model_requested"])
                 result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest)}
                 self._publish("finalization", result_path, json_bytes(result))

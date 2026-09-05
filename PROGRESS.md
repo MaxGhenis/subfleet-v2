@@ -23,6 +23,9 @@ of `ps`, `sysctl kern.boottime`, and AF_UNIX binding; no bypass attempted.
   isolated Git setup, CLI readiness, and cleanup of guardians without receipts.
 - Reproduced missing effective retry exclusions in `show`; persist them in the
   admission transaction. Limited and transient retry regression checks pass.
+- All four requested acceptance modules are committed (21 cases before final audit).
+- Reproduced lost guard refusal details through daemon finalization and CLI wait;
+  retain prelaunch errors and include the latest attempt in terminal wait results.
 
 ## Next
 
