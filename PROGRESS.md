@@ -18,6 +18,15 @@
 - Kept revive attempts out of the daemon-created lane-session census (C-23.31).
   A desktop session remains eligible for listing/continuation after revival;
   ordinary dispatch attempts still mark headless sessions. Both cases pass.
+- Kept C-23.39 model-substitution history and added the real-daemon transport
+  and audit regression. Refused submissions create no history.
+- Dropped Claude-only revive routing: the six original revive failures explicitly
+  requested `astra`; model resolution was unchanged. C-23.39/C-23.54 do not
+  authorize this new refusal, and C-6.5 requires refusals to be indexed.
+- Dropped repeat-revive dedupe: C-23.33 dedupes nudges; C-23.55 limits concurrent
+  revives through leases, not later retries at an unchanged interruption.
+- Revive unit + fake suite: 38 passed, 5 failed in 31.63s. Remaining failures
+  reach admission but probes quarantine when process enumeration is unavailable.
 
 ## Validation environment
 
@@ -26,9 +35,12 @@
   cached hatchling. Tests use `UV_OFFLINE=1 UV_NO_SYNC=1` with the local venv.
 - The initial registry socket test failed with `PermissionError: Operation not
   permitted` at Unix socket bind. This sandbox restriction is not bypassed.
+- Probe records confirm `group enumeration unavailable`, `descendant enumeration
+  unavailable`, and `marker enumeration unavailable`; containment therefore keeps
+  the job waiting. No process guards or test expectations are bypassed.
 
 ## Next
 
-- Finish removing unsupported revive admission checks and test the retained audit.
+- Commit the reviewed CLI, nudge, handoff and mirror behaviors.
 - Commit corrected behaviors separately, updating this file with each step.
 - Run the complete suite and commit the final report.

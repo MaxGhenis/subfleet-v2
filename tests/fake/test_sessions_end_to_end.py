@@ -66,6 +66,11 @@ class Client:
             "cooldown_s": cooldown_s, "kind": kind, "force": force,
             "detail": dict(detail or {})})
 
+    def record_revive(self, session_id, *, dedupe_key, detail=None):
+        return self.service.dispatch("sessions", {
+            "action": "revived", "session_id": session_id, "dedupe_key": dedupe_key,
+            "detail": dict(detail or {})})
+
     def retire(self, session_id, reason=None):
         return self.service.dispatch("sessions", {
             "action": "retire", "session_id": session_id, "reason": reason})
@@ -305,6 +310,24 @@ def test_revive_is_refused_for_a_desktop_owned_session_unless_opted_in(world):
     assert service.store.query("SELECT * FROM jobs WHERE kind='revive'") == []
 
 
+
+def test_a_revive_records_the_requested_model_substitution(world):
+    """C-23.39: the daemon durably records an explicit model substitution."""
+    service, client, home, store_dir, root, policy, base = world
+    repo = workdir(base)
+    cold_desktop_session(home, store_dir, repo)
+    result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                 opt_in=True, model="astra", now=fx.NOW)
+    record = client.state([ALICE])["sessions"][ALICE]["last_revive"]
+    assert record["job_id"] == result.job_id
+    assert record["recorded_model"] == "claude-fable-5-1"
+    assert record["model"] == "astra"
+    assert record["substituted"] is True
+    events = service.store.query("SELECT data_json FROM events WHERE kind=?",
+                                 (daemon_module.REVIVE_EVENT,))
+    assert len(events) == 1
+    assert json.loads(events[0]["data_json"])["job_id"] == result.job_id
+
 def test_revive_probes_lane_before_launch(world):
     """C-23.20: revive admits a lane only on a `provider` reading taken in the
     same pass — a stored reading never qualifies it on its own.
@@ -471,6 +494,7 @@ def test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job(world):
         revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
                              opt_in=True, model="astra", now=fx.NOW)
     assert "refused on main" in str(raised.value)
+    assert client.state([ALICE])["sessions"][ALICE]["last_revive"] is None
 
 
 # --- `subfleet handoff` (C-23.14, C-23.36, C-23.54) ---------------------------
@@ -557,6 +581,6 @@ def test_recording_a_nudge_without_a_session_is_invalid_input(world):
     """C-16.2: a missing required key is exit 2, not a row with no target."""
     from subfleet import protocol
     _service, client, _home, _store, _root, _policy, _base = world
-    for action in ("nudged", "retire", "unretire"):
+    for action in ("nudged", "revived", "retire", "unretire"):
         with pytest.raises(protocol.ProtocolError, match="session_id is required"):
             client.service.dispatch("sessions", {"action": action})
