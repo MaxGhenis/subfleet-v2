@@ -300,13 +300,16 @@ class CodexAdapter(Adapter):
         result = self._request(raw, WHAM_USAGE_URL)
         if result["status"] != "ok":
             status = "network-error" if result["status"] == "timeout" else result["status"]
-            if result.get("http_status") == 401:
-                error = str(result.get("error_code", "")).lower()
-                message = str(result.get("detail", "")).lower()
+            error = str(result.get("error_code", "")).lower()
+            message = str(result.get("detail", "")).lower()
+            if "revok" in error or "refresh token was revoked" in message:
+                status = "revoked"
+            elif re.search(r"(?:organi[sz]ation|organization_id).{0,60}(?:blocked|disabled|deactivated)",
+                           error + " " + message, re.I):
+                status = "auth-dead"
+            elif result.get("http_status") == 401:
                 expires = _claims(identity["token"]).get("exp")
-                if "revok" in error or "refresh token was revoked" in message:
-                    status = "revoked"
-                elif "expir" in error or "expir" in message or (
+                if "expir" in error or "expir" in message or (
                     isinstance(expires, (int, float)) and not isinstance(expires, bool)
                     and expires <= self._now().timestamp()
                 ):
