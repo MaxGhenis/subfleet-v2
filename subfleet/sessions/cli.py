@@ -125,7 +125,8 @@ def _guard(handler):
         except ProtocolError as exc:
             return fail(exc.code, str(exc))
         except handoff_module.HandoffError as exc:
-            return fail(Exit.INVALID_INPUT, f"handoff: {exc}")
+            return fail(getattr(exc, "code", Exit.INVALID_INPUT),
+                        f"handoff: {exc}", getattr(exc, "fix", None))
     return wrapped
 
 
@@ -200,10 +201,22 @@ def cmd_continue(args: argparse.Namespace) -> int:
         force=bool(getattr(args, "force", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
         delay_s=getattr(args, "delay", None), manual=source is None)
+    # C-23.31: a request naming a headless lane run is refused with the reason.
+    # A sweep that merely passed over one reports 0 — its exit code says whether
+    # the sweep ran, not whether every session qualified — but a person who
+    # named one asked a question that has a refusal for an answer.
+    lanes = [item for item in report.outcomes if item.session_id in set(named)
+             and "headless lane run" in item.reason]
     if args.json:
         emit(report.to_dict())
-        return int(Exit.OK)
+        return int(Exit.REFUSED if named and len(lanes) == len(named) else Exit.OK)
     out(nudge_module.render(report))
+    if named and len(lanes) == len(named):
+        return fail(Exit.REFUSED,
+                    "sessions continue: " + ", ".join(
+                        f"{item.session_id[:8]} is a headless lane run" for item in lanes),
+                    "a lane's deliverable is its last message; "
+                    "`subfleet runs show <job>` for what it produced")
     return int(Exit.OK)
 
 
@@ -457,6 +470,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
                   if getattr(args, "o", None) else None),
         current_session=os.environ.get("CLAUDE_CODE_SESSION_ID"),
         request_id=request_id,
+        lane_ids=sessions.state([]).get("lane_sessions") or [],
         dry_run=bool(getattr(args, "dry_run", False)))
     if args.json:
         emit(result.to_dict())

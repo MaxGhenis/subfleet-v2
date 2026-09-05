@@ -309,6 +309,37 @@ def test_handoff_without_a_target_is_invalid_input(monkeypatch):
     assert "--handoff needs --to <model>" in err
 
 
+def test_naming_a_lane_run_in_a_sweep_is_refused_with_the_reason(monkeypatch):
+    """C-23.31: a sweep passes over a lane silently, but a person who NAMES one
+    asked a question whose answer is a refusal."""
+    from subfleet.sessions import nudge as nudge_module
+    lane = "8f2c1d90-4a7b-4f31-9c22-0d5b6e7a1234"
+    report = nudge_module.Report(scope="interrupted", outcomes=[
+        nudge_module.Outcome(session_id=lane, scope="interrupted",
+                             reason="headless lane run — never nudged (C-23.31)")])
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(nudge_module, "sweep", lambda *a, **k: report)
+    code, out, err = run(["sessions", "continue", "--session", lane], monkeypatch)
+    assert code == int(Exit.REFUSED) == 7
+    assert "is a headless lane run" in err and "fix: " in err
+
+
+def test_a_sweep_that_merely_passed_over_a_lane_still_exits_zero(monkeypatch):
+    """The exit code reports whether the sweep ran, not whether every session
+    in the fleet qualified."""
+    from subfleet.sessions import nudge as nudge_module
+    lane = "8f2c1d90-4a7b-4f31-9c22-0d5b6e7a1234"
+    report = nudge_module.Report(scope="interrupted", outcomes=[
+        nudge_module.Outcome(session_id=lane, scope="interrupted",
+                             reason="headless lane run — never nudged (C-23.31)")])
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(nudge_module, "sweep", lambda *a, **k: report)
+    code, out, err = run(["sessions", "continue", "--all"], monkeypatch)
+    assert code == int(Exit.OK)
+
+
 # --- the help text stays honest ------------------------------------------------
 
 def test_the_scope_choices_match_the_module(monkeypatch):

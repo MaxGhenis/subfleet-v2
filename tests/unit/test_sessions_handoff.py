@@ -373,6 +373,37 @@ def test_last_falls_back_to_the_newest_durable_transcript(home):
     assert found == newer
 
 
+def test_a_headless_lane_run_is_refused_rather_than_handed_off(home, policy, repo):
+    """C-23.31: a headless lane run is never continued, and a request naming one
+    is refused with the reason.
+
+    Its transcript is one brief and one answer; there is no conversation to hand
+    to anybody, and a continuation of it has no reader.
+    """
+    fx.transcript(home, SESSION, fx.headless(age_s=600), cwd=str(repo))
+    daemon = fx.FakeSessions(lane_sessions=[SESSION])
+    for lane_ids in ([SESSION], []):     # the recorded marker, then the shape
+        with pytest.raises(handoff.HandoffError) as raised:
+            handoff.handoff(daemon, policy, session_id=SESSION, last=False,
+                            model="astra", stage_prompt=lambda text: Path("/dev/null"),
+                            workdir=repo, lane_ids=lane_ids)
+        assert "headless lane run" in str(raised.value)
+        assert raised.value.code == 7, "refused, not invalid input (C-17.3)"
+        assert raised.value.fix
+    assert daemon.submits == []
+
+
+def test_an_ordinary_session_is_not_refused_as_a_lane(home, policy, repo):
+    """C-23.31's other half: the refusal must not catch a real session."""
+    fx.transcript(home, SESSION, conversation(), cwd=str(repo))
+    daemon = fx.FakeSessions()
+    result = handoff.handoff(daemon, policy, session_id=SESSION, last=False,
+                             model="astra",
+                             stage_prompt=lambda text: Path("/dev/null"),
+                             workdir=repo, dry_run=True)
+    assert result.brief.session_id == SESSION
+
+
 def test_a_missing_transcript_is_a_user_facing_error(home):
     """C-17.3: exit 2, and the message names the session it could not find."""
     with pytest.raises(handoff.HandoffError, match="transcript not found"):

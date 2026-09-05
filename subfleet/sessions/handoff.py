@@ -49,7 +49,7 @@ from typing import Any
 
 from ..contracts import Sandbox
 from ..protocol import SubmitArgs
-from . import transcripts
+from . import registry, transcripts
 
 REDACTED = "[REDACTED]"
 OMITTED_BINARY = "[binary/base64 tool result omitted]"
@@ -129,9 +129,20 @@ _SENSITIVE_TOOL_PATTERNS = tuple(
 
 
 class HandoffError(ValueError):
-    """A user-facing handoff selection or source error (exit 2)."""
+    """A user-facing handoff selection or source error.
+
+    Exit 2 (invalid input) by default; a refusal — a request naming something
+    the contract forbids continuing — carries 7 instead (C-17.3).
+    """
 
     code = 2
+
+    def __init__(self, message: str, code: int | None = None,
+                 fix: str | None = None):
+        super().__init__(message)
+        if code is not None:
+            self.code = code
+        self.fix = fix
 
 
 def scrub_secrets(text: str) -> tuple[str, int]:
@@ -617,7 +628,7 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
             sandbox: str | None = None, caller_session: str | None = None,
             caller_pid: int | None = None, out_path: str | None = None,
             current_session: str | None = None, request_id: str | None = None,
-            dry_run: bool = False) -> Dispatched:
+            lane_ids: Any = None, dry_run: bool = False) -> Dispatched:
     """Build one brief and submit it through the ordinary path (C-23.54).
 
     `--to` is a routing pin, so the brief inherits the same model resolution,
@@ -626,6 +637,13 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
     """
     caps = {**policy.get("sessions", {}).get("handoff_caps", {})}
     canonical, transcript = resolve_source(session_id, last, current=current_session)
+    if registry.is_lane_run(canonical, lane_ids=lane_ids or (), transcript=transcript):
+        # C-23.31: a headless lane run is never continued, and a request naming
+        # one is refused with the reason. Its transcript is one brief and one
+        # answer; there is no conversation to hand to anybody.
+        raise HandoffError(
+            f"{canonical} is a headless lane run (claude -p), not a session", 7,
+            "`subfleet runs show <job>` for what that lane produced")
     target, source_cwd = resolve_workdir(transcript, workdir)
     brief = build_brief(canonical, transcript, target, source_cwd, caps)
     identity = request_id or str(uuid.uuid4())
