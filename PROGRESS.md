@@ -1,0 +1,38 @@
+# Codex adapter lane progress
+
+## State
+
+Lane implementation and offline acceptance are complete on `lane/codex-adapter`. All **181 tests pass** in **3.86 s wall time**. Runtime code uses the standard library and never launches provider processes from the adapter. The final integrator report is `OUTPUT.md`. Remote delivery remains blocked by DNS resolution for github.com.
+
+## Done
+
+- Confirmed the worktree and clean lane branch.
+- Read the acceptance contract, shared dataclasses, adapter interface, captured CLI help, and v1 reference files (read-only).
+- Identified lane scope: Codex adapter, pinned guard/preflight, redacted fixtures, fake CLI, and focused unit/process tests.
+- Built 12 fixtures and a Python fake provider; all replay/redaction smoke checks passed (0.55 s).
+- Real success comes from run `20260905-111854-fix-06-lane-g-r2`, using normalized stream envelopes around recorded thread/deliverable evidence. Eleven failure fixtures are explicitly synthetic: the newest 150 directories contained 29 Codex-family runs and no failed Codex artifact. v1 uses `family`, not `provider`, in these metadata files.
+- Prepared local dependencies offline from the existing UV cache after inherited `UV_FROZEN=1` and network DNS failures prevented initial sync; generated `uv.lock`.
+- Resume baseline: `uv run pytest -q tests/unit/test_codex_adapter.py tests/unit/test_guard_trust.py tests/process/test_codex_isolation.py`: **97 passed in 4.24 s** (with workspace-local UV cache/environment).
+- Re-read C-6.7: Claude owns its headless prepend; the Codex prompt remains unchanged.
+- Fixed six classifier regressions (C-9.2–C-9.6): subscription upgrade URLs, observation timestamps mistaken for reset clocks, explicit reset time zones, account scope precedence, structured credit codes, and access-token errors outside usage endpoints. Adapter suite: **59 passed in 0.10 s**; all six new tests failed before the fixes.
+- Added the missing offline probe/enrollment suite: **50 passed in 0.10 s**. Covers saved synthetic wham schema, reversed/weekly-only/unusual windows, fractions and UTC clocks, HTTP/DNS/TLS failures, API/free refusals, and account identity (C-1.4, C-9.7, C-10.2).
+- Verified byte-for-byte v1 guard parity and hardened preflight to reject non-finite timeouts, JSON-RPC errors alongside results, and trust returned for the wrong workdir. Guard suite: **35 passed in 2.83 s** (C-14.1, C-14.2).
+- Audited all 12 fixtures, verified the real success against its source rc/thread/deliverable, and added provenance/redaction plus nested-setsid lifecycle checks. Process suite: **28 passed in 0.83 s** (C-12.7, C-12.8, environment/flags portion of C-14.4).
+- Fixed native resume forwarding a short policy alias as a provider model id; resume now keeps the original thread's model (C-1.6, C-12.3). Adapter suite: **60 passed in 0.07 s**.
+- Bound resumed model evidence to the guardian's recorded start/exit interval and refused attestation after spawn failure. Missing clocks and ambiguous boundary seconds return `unattested`; old/later turns cannot change the current result (C-12.5). Adapter suite: **68 passed in 0.12 s**.
+- Fixed account-claim fallback when the access token has plan claims and the ID token has the account id; enrollment still uses the account id before email (C-1.4, C-10.2). Probe suite: **50 passed in 0.10 s**.
+- Final acceptance: `uv run pytest -q tests/unit/test_codex_adapter.py tests/unit/test_codex_probe.py tests/unit/test_guard_trust.py tests/process/test_codex_isolation.py`: **181 passed in 3.70 s**, **3.86 s measured wall time**. These are all test modules currently in this worktree; 153 unit and 28 process cases fit C-20.2 budgets. `uv sync --group dev`, `git diff --check`, and the clause-docstring audit passed.
+
+## Next
+
+- Push the committed branch when github.com DNS is available; every coherent step was committed and each required push was attempted.
+- Integrator: wire preflight before executable Codex launches, preserve `Launch.lane_id` and receipt clocks, sanitize all provider API keys, then measure installed CLI trust and OS write isolation.
+
+## Constraints and integration notes
+
+- No v1 commands or provider executions; only `codex --version` may run.
+- Shared store/daemon/guardian/process/CLI/Claude/registry modules are out of scope.
+- The raw exit code and signal can be retained in `Outcome.evidence` without changing shared dataclasses.
+- Existing additive seam: optional `Launch.lane_id` binds classifier closures to their lane without filesystem writes or undocumented environment variables.
+- The fake does not implement an OS filesystem sandbox. Full C-14.4 write enforcement and the installed Codex hooks/list measurement remain integration gates; this lane runs only fake providers.
+- Every resumed push has failed with `Could not resolve host: github.com`. Local commits are retained. No guard/hook refusal occurred and no workaround was attempted.

@@ -1,0 +1,2 @@
+error: unexpected argument '--json' found
+Usage: codex exec [OPTIONS] [PROMPT]
