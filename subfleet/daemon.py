@@ -32,7 +32,8 @@ from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
-    HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, START_GRACE_S, TERM_GRACE_S,
+    EXIT_SETTLE_S, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
+    START_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
@@ -127,6 +128,7 @@ class DaemonUnavailable(RuntimeError):
 class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
+                 kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
                  guardian_start_delay_s: float = 0,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
@@ -135,6 +137,10 @@ class Daemon:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
+        self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
+        # C-5.9: attempt id -> when a post-receipt census first found the table
+        # still draining; the exit settle window is measured from there.
+        self._exit_settle: dict[str, float] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
         # C-10.3: who asks the desktop app's own credential who it is. `None`
@@ -1618,10 +1624,18 @@ class Daemon:
         for pid in census.live_pids:
             if pid in owned:
                 procs.signal_process(owned[pid], signal.SIGKILL)
-        # Give exited children a chance to be reaped; zombies are already absent
-        # from the census. No SQLite transaction is open while waiting.
-        self.stopping.wait(.05)
-        census = self._contain(a)
+        # Signalled processes leave the process table only when the kernel has
+        # finished tearing them down, and under load that takes longer than one
+        # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).
+        # The loop ends early only on a verified-empty census; the last census,
+        # never a guess about a pid, decides. No SQLite transaction is open.
+        settle_until = time.monotonic() + self.kill_settle_s
+        while True:
+            if self.stopping.wait(.05):
+                return
+            census = self._contain(a)
+            if census.verified_empty or time.monotonic() >= settle_until:
+                break
         if not census.verified_empty:
             self._quarantine(a, census, "termination could not verify containment")
             return
@@ -1748,12 +1762,17 @@ class Daemon:
         adir.mkdir(mode=0o700, exist_ok=True)
         census = self._contain(a)
         if not census.verified_empty:
-            # A receipt is written just before guardian exit; allow that small
-            # interval without mistaking the guardian itself for an escape.
-            if not census.unverifiable and census.live_pids <= {a.get("guardian_pid")}:
+            # The guardian writes the receipt just before it exits, and processes
+            # it already reaped can still be leaving the process table under
+            # load. Allow a bounded settle window (C-5.9, exit_settle_s), re-running
+            # the census on each tick, before declaring that writers remain.
+            since = self._exit_settle.setdefault(a["attempt_id"], time.monotonic())
+            if time.monotonic() - since < self.exit_settle_s:
                 return
+            self._exit_settle.pop(a["attempt_id"], None)
             self._quarantine(a, census, "writers remain after exit receipt")
             return
+        self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
         # stream once after containment when no separate raw file was supplied.

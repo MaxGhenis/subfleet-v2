@@ -190,6 +190,12 @@ GUESSED_CLOSURE_S = 3600
 TRANSIENT_RETRY_DELAY_S = 60
 START_GRACE_S = 10
 TERM_GRACE_S = 15
+# C-5.6, C-5.9: how long a census may keep finding pids the kernel is still
+# tearing down (after SIGKILL, or after the guardian's exit receipt) before the
+# attempt is quarantined. Both windows end early on the first verified-empty
+# census; neither widens what counts as contained.
+KILL_SETTLE_S = 3
+EXIT_SETTLE_S = 3
 HEADROOM_FLOOR = 0.15
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
