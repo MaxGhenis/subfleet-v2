@@ -403,6 +403,7 @@ class _Writer:
     def __init__(self, store: Store | None, dry_run: bool):
         self.store = store
         self.dry_run = dry_run
+        self.depth = 0
 
     @property
     def writable(self) -> bool:
@@ -429,8 +430,12 @@ class _Writer:
         if not self.writable:
             yield
             return
-        with self.store.transaction(kind, **keys):
-            yield
+        self.depth += 1
+        try:
+            with self.store.transaction(kind, **keys):
+                yield
+        finally:
+            self.depth -= 1
 
     def insert(self, table: str, values: Mapping[str, Any], *, kind: str | None = None) -> None:
         if self.writable:
@@ -445,7 +450,9 @@ class _Writer:
 
         `Store.add_event` opens its own transaction, which then logs a second row
         of the same kind; an import that writes thousands of `tickle` rows needs
-        exactly one row per fact.
+        exactly one row per fact. Outside a transaction the connection is in
+        autocommit (`isolation_level=None`, `synchronous=FULL`), so the row is
+        durable on return either way.
         """
         if not self.writable:
             return
@@ -1080,6 +1087,25 @@ def _run_sandbox(meta: Mapping[str, Any]) -> tuple[str, bool]:
     return "read-only", True
 
 
+def _prepare_artifacts(report: StoreReport, run_dir: Path, meta: Mapping[str, Any],
+                       dry_run: bool) -> list[tuple[str, str, str, int]]:
+    """Hash the v1 files an imported run points at, outside any transaction (C-3.3).
+
+    A dry run hashes nothing: 500 v1 runs are 653 MB of deliverables and logs.
+    """
+    prepared: list[tuple[str, str, str, int]] = []
+    for role, path in _artifact_paths(run_dir, meta):
+        if dry_run:
+            report.count("artifact-would-be-recorded")
+            continue
+        digest = _sha256(path)
+        if digest is None:
+            report.count("artifact-unreadable")
+            continue
+        prepared.append((role, str(path), digest[0], digest[1]))
+    return prepared
+
+
 def _artifact_paths(run_dir: Path, meta: Mapping[str, Any]) -> list[tuple[str, Path]]:
     """The v1 files an imported run points at; nothing is copied (manifest row)."""
     found: list[tuple[str, Path]] = []
@@ -1177,6 +1203,10 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
         decision = meta.get("routing_decision") if isinstance(meta.get("routing_decision"), dict) else {}
         requested_short = decision.get("requested_model") or decision.get("model")
         requested = models.get(str(requested_short).lower(), served) if requested_short else served
+        # C-3.3: the digests and the manifest file are written before the
+        # transaction opens, never inside it.
+        artifacts = [] if live else _prepare_artifacts(report, run_dir, meta, writer.dry_run)
+        _write_job_manifest(writer, state_root, job_id, meta, live, run_dir)
         with writer.transaction("import.run", job_id=job_id):
             writer.insert("jobs", {
                 "job_id": job_id, "request_id": request_id,
@@ -1209,9 +1239,7 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
                 "reserved_at": started_at, "started_at": started_at,
                 "finished_at": _utc(meta.get("finished_at")),
             }, kind="attempt.imported")
-            if not live:
-                _record_artifacts(writer, report, attempt_id, run_dir, meta)
-        _write_job_manifest(writer, state_root, job_id, meta, live, run_dir)
+            _record_artifacts(writer, report, attempt_id, artifacts)
         report.imported += 1
         if defaulted:
             report.count("sandbox-defaulted-to-read-only")
@@ -1230,9 +1258,11 @@ def _finalize_imported_run(writer: _Writer, report: StoreReport, *, meta: Mappin
     run itself.
     """
     finished_at = _utc(meta.get("finished_at")) or now
+    job_state = _job_state(state)
+    artifacts = _prepare_artifacts(report, run_dir, meta, writer.dry_run)   # C-3.3
+    _write_job_manifest(writer, state_root, job_id, meta, False, run_dir)
     with writer.transaction("import.run-finalized", job_id=job_id):
         if writer.writable:
-            job_state = _job_state(state)
             writer.store.update_job(job_id, state=job_state, rc=meta.get("rc"),
                                     finished_at=finished_at,
                                     accepted_attempt_id=attempt_id if job_state == "succeeded" else None)
@@ -1240,28 +1270,20 @@ def _finalize_imported_run(writer: _Writer, report: StoreReport, *, meta: Mappin
                 writer.store.update_attempt(attempt_id, state=state, rc=meta.get("rc"),
                                             signal=_signal_of(meta.get("rc")),
                                             child_pid=None, finished_at=finished_at)
-        _record_artifacts(writer, report, attempt_id, run_dir, meta)
-    _write_job_manifest(writer, state_root, job_id, meta, False, run_dir)
+        _record_artifacts(writer, report, attempt_id, artifacts)
     report.imported += 1
     report.count("external-run-settled-from-v1")
 
 
-def _record_artifacts(writer: _Writer, report: StoreReport, attempt_id: str, run_dir: Path,
-                      meta: Mapping[str, Any]) -> None:
-    """`artifacts` rows point at the v1 paths (not copied); a dry run hashes nothing."""
-    for role, path in _artifact_paths(run_dir, meta):
+def _record_artifacts(writer: _Writer, report: StoreReport, attempt_id: str,
+                      prepared: list[tuple[str, str, str, int]]) -> None:
+    """`artifacts` rows point at the v1 paths (not copied); the digests are already read."""
+    for role, path, digest, size in prepared:
         if writer.exists("SELECT 1 FROM artifacts WHERE attempt_id=? AND role=? AND path=?",
-                         (attempt_id, role, str(path))):
-            continue
-        if writer.dry_run:
-            report.count("artifact-would-be-recorded")
-            continue
-        digest = _sha256(path)
-        if digest is None:
-            report.count("artifact-unreadable")
+                         (attempt_id, role, path)):
             continue
         if writer.writable:
-            writer.store.add_artifact(attempt_id, role, str(path), digest[0], digest[1])
+            writer.store.add_artifact(attempt_id, role, path, digest, size)
         report.count("artifact-recorded")
 
 
@@ -1681,86 +1703,48 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
                 return True
             return False
 
-        if not staged("roster"):
-            entry = report.store_report("roster")
-            with writer.transaction("import.roster"):
-                import_roster(writer, entry, roster_dir=roster_dir, home=home, now=now)
+        # C-3.3: no transaction spans the v1 reads, the `ps` calls or the digests.
+        # Each row function reads first and records in short transactions, and the
+        # cursor lands after the rows it describes, so a pass that dies mid-store
+        # re-reads that store next time and the existence checks skip what landed.
+        def row(key: str, work) -> None:
+            if staged(key):
+                return
+            entry = report.store_report(key)
+            cursor = work(entry)
+            if cursor is not None:
+                write_cursor(writer, key, cursor, entry)
 
-        if not staged("capacity-live-cache"):
-            entry = report.store_report("capacity-live-cache")
-            with writer.transaction("import.capacity-live-cache"):
-                cursor = import_capacity_cache(writer, entry, v1_state=v1_state, home=home,
-                                               cursor=cursors.get("capacity-live-cache", {}), now=now)
-                write_cursor(writer, "capacity-live-cache", cursor, entry)
-
-        if not staged("claude-oauth-raw"):
-            entry = report.store_report("claude-oauth-raw")
-            with writer.transaction("import.claude-oauth-raw"):
-                cursor = import_desktop_oauth(writer, entry, v1_state=v1_state, home=home,
-                                              models=models,
-                                              cursor=cursors.get("claude-oauth-raw", {}), now=now)
-                write_cursor(writer, "claude-oauth-raw", cursor, entry)
-
-        if not staged("keepalive"):
-            entry = report.store_report("keepalive")
-            with writer.transaction("import.keepalive"):
-                cursor = import_keepalive(writer, entry, v1_state=v1_state, home=home,
-                                          models=models, cursor=cursors.get("keepalive", {}))
-                write_cursor(writer, "keepalive", cursor, entry)
-
-        if not staged("cooldowns"):
-            entry = report.store_report("cooldowns")
-            with writer.transaction("import.cooldowns"):
-                cursor = import_cooldowns(writer, entry, delegate_state=delegate_state, home=home,
-                                          models=models, cursor=cursors.get("cooldowns", {}), now=now)
-                write_cursor(writer, "cooldowns", cursor, entry)
-
-        if not staged("reset-policy"):
-            entry = report.store_report("reset-policy")
-            with writer.transaction("import.reset-policy"):
-                cursor = import_reset_policy(writer, entry, v1_state=v1_state, home=home,
-                                             cursor=cursors.get("reset-policy", {}))
-                write_cursor(writer, "reset-policy", cursor, entry)
-
-        if not staged("runs"):
-            entry = report.store_report("runs")
-            with writer.transaction("import.runs"):
-                cursor = import_runs(writer, entry, v1_state=v1_state, state_root=state_root,
-                                     home=home, models=models, cursor=cursors.get("runs", {}),
-                                     now=now, limit=runs_limit)
-                write_cursor(writer, "runs", cursor, entry)
-
-        if not staged("notices"):
-            entry = report.store_report("notices")
-            with writer.transaction("import.notices"):
-                cursor = import_notices(writer, entry, v1_state=v1_state,
-                                        cursor=cursors.get("notices", {}))
-                write_cursor(writer, "notices", cursor, entry)
-
-        if not staged("outbox"):
-            entry = report.store_report("outbox")
-            with writer.transaction("import.outbox"):
-                cursor = import_outbox(writer, entry, v1_state=v1_state,
-                                       cursor=cursors.get("outbox", {}))
-                write_cursor(writer, "outbox", cursor, entry)
-
-        if not staged("salt"):
-            entry = report.store_report("salt")
-            import_salt(writer, entry, v1_state=v1_state, state_root=state_root)
-
-        if not staged("alerts"):
-            entry = report.store_report("alerts")
-            with writer.transaction("import.alerts"):
-                cursor = import_alerts(writer, entry, v1_state=v1_state,
-                                       cursor=cursors.get("alerts", {}))
-                write_cursor(writer, "alerts", cursor, entry)
-
-        if not staged("sessions-kit"):
-            entry = report.store_report("sessions-kit")
-            with writer.transaction("import.sessions-kit"):
-                cursor = import_sessions_kit(writer, entry, v1_state=v1_state,
-                                            cursor=cursors.get("sessions-kit", {}))
-                write_cursor(writer, "sessions-kit", cursor, entry)
+        row("roster", lambda entry: import_roster(
+            writer, entry, roster_dir=roster_dir, home=home, now=now))
+        row("capacity-live-cache", lambda entry: import_capacity_cache(
+            writer, entry, v1_state=v1_state, home=home,
+            cursor=cursors.get("capacity-live-cache", {}), now=now))
+        row("claude-oauth-raw", lambda entry: import_desktop_oauth(
+            writer, entry, v1_state=v1_state, home=home, models=models,
+            cursor=cursors.get("claude-oauth-raw", {}), now=now))
+        row("keepalive", lambda entry: import_keepalive(
+            writer, entry, v1_state=v1_state, home=home, models=models,
+            cursor=cursors.get("keepalive", {})))
+        row("cooldowns", lambda entry: import_cooldowns(
+            writer, entry, delegate_state=delegate_state, home=home, models=models,
+            cursor=cursors.get("cooldowns", {}), now=now))
+        row("reset-policy", lambda entry: import_reset_policy(
+            writer, entry, v1_state=v1_state, home=home,
+            cursor=cursors.get("reset-policy", {})))
+        row("runs", lambda entry: import_runs(
+            writer, entry, v1_state=v1_state, state_root=state_root, home=home, models=models,
+            cursor=cursors.get("runs", {}), now=now, limit=runs_limit))
+        row("notices", lambda entry: import_notices(
+            writer, entry, v1_state=v1_state, cursor=cursors.get("notices", {})))
+        row("outbox", lambda entry: import_outbox(
+            writer, entry, v1_state=v1_state, cursor=cursors.get("outbox", {})))
+        row("salt", lambda entry: import_salt(
+            writer, entry, v1_state=v1_state, state_root=state_root))
+        row("alerts", lambda entry: import_alerts(
+            writer, entry, v1_state=v1_state, cursor=cursors.get("alerts", {})))
+        row("sessions-kit", lambda entry: import_sessions_kit(
+            writer, entry, v1_state=v1_state, cursor=cursors.get("sessions-kit", {})))
 
         for row in MANIFEST:
             report.store_report(row.key)            # every row appears, imported or not

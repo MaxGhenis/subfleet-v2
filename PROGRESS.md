@@ -5,24 +5,30 @@ Brief: `docs/lanes/importer.md`. Specification: `docs/migration.md` (import mani
 
 ## State
 
-Read the manifest, the binding contract sections (C-1, C-2, C-3, C-9, C-10, C-11, C-15,
-C-18, C-19, C-20), plan amendments 8 and 12, the v2 seams (`store.py`,
-`store_schema.sql`, `contracts.py`, `policy.py`, `cli.py`, `client.py`, `daemon.py`,
-`protocol.py`), and every v1 format the manifest names (read-only, individual files;
-the newest 20 `runs/*/meta.json` for the run schema). Implementing.
+Built and green. `uv run pytest -q tests/unit/test_importer.py tests/unit/test_lanes_transfer.py`:
+63 passed in ~9 s. Full suite: 856 passed, 5 skipped (one pre-existing timing flake in
+`tests/fake/test_daemon_contract.py::test_c7_2_...`, which passes in isolation).
 
 ## Done
 
-- Read order 1–4 of the brief complete; v1 formats recorded below.
-- `PROGRESS.md` created (this file).
+- Read order 1-4 of the brief; the v1 formats are recorded below.
+- `subfleet/importer.py`: `ImportReport`/`StoreReport`, the manifest as data, per-store cursors
+  in `events` of kind `import.cursor`, one function per `import` row, `scan_unmanifested`,
+  a snapshot dry run, a refusal while a daemon holds `daemon.lock`, and `python -m subfleet.importer`.
+- `subfleet/lanes_transfer.py` plus the `lanes` daemon op, two additive `LanesArgs` fields and
+  two CLI flags: ownership flip, one `events` row, both rosters, a backup beside the v1 file,
+  `--i-understand-v1-edit`, `--dry-run`.
+- `tools/compare_decisions.py` and `docs/shadow-diffs/README.md`.
+- `tests/unit/test_importer.py` (46), `tests/unit/test_lanes_transfer.py` (17),
+  `tests/live/test_import_dry_run.py` (opt-in, `SUBFLEET_LIVE=1`).
+- Seam change: `notices.job_id` is nullable, because the v1 outbox holds session messages that
+  name a session and no run.
+- C-3.3 pass: every v1 read, every `ps` call, every digest and every file publication happens
+  outside the transaction that records the rows.
 
 ## Next
 
-1. `subfleet/importer.py`: report dataclasses, cursors, one function per `import` row.
-2. `subfleet lanes transfer` (daemon op + thin CLI, both rosters, backup, `--dry-run`).
-3. `tools/compare_decisions.py` (shadow-week diff, never shipped in the package).
-4. `tests/unit/test_importer.py`, `tests/unit/test_lanes_transfer.py`.
-5. Opt-in `SUBFLEET_LIVE=1` dry run against the real v1 state.
+- The integrator runs the opt-in dry run against the real v1 state.
 
 ## v1 formats read (2026-09-05, read-only)
 
