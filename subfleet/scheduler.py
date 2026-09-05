@@ -97,6 +97,8 @@ def _earliest_reset(evaluations: Iterable[Mapping[str, Any]], now: datetime) -> 
     for evaluation in evaluations:
         for key, clock in (("closures", "until_at"), ("readings", "resets_at")):
             for evidence in evaluation.get(key, ()):
+                if not evidence.get(clock):
+                    continue  # Admission observations have no quota/reset clock.
                 try:
                     instant = _time(evidence[clock])
                     if instant > now:

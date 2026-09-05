@@ -345,3 +345,13 @@ def test_probe_reservations_count_toward_fleet_admission_bound(policy):
     assert exit_code(decision) == Exit.NO_LANE
     assert decision.evaluations[0]["capacity_blocks"] == ["fleet"]
     assert snapshot["in_flight"] == {"claude-1": 0}
+
+
+def test_no_lane_with_admission_evidence_reports_unknown_reset(policy):
+    """C-9.1, C-11.4, C-17.3: admission success supplies no invented reset clock."""
+    snapshot = view([lane(desktop=True)], [reading("claude-1", utilization=None,
+                    reset=None, label="admission-observed", window="admission",
+                    scope="claude-opus-5")])
+    decision = evaluate(policy, snapshot, job(pinned_model="opus"))
+    assert exit_code(decision) == Exit.NO_LANE
+    assert "earliest reset: unknown" in decision.reason
