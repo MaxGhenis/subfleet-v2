@@ -112,7 +112,10 @@ Twenty-five rows, fourteen clauses.
   exit-7 refusals and neither is on it, so a C-6.5 test passes while the review runs under inherited
   policy. The Codex predicate is v1's: layers of type `sessionFlags` and `user` are ours or ignored,
   `system` and `project` are permitted only when empty, and a non-null `configRequirements/read`
-  result refuses (`bin/subfleet-codex:368-472`). See [Conflicts](#c-2) for the addition to C-6.5.
+  result refuses (`bin/subfleet-codex:368-472`). v1 exits 2 on both refusals; the clause says 7
+  because C-17.3 gives exit 7 one meaning, "refused (message names the rule and the fix)", and the
+  disposition makes the same constant change on row 51. See [Conflicts](#c-2) for the addition to
+  C-6.5.
 
 ### P-23.4 — isolation is prepared per attempt
 
@@ -155,7 +158,7 @@ Twenty-five rows, fourteen clauses.
 
 > **P-23.6** A Codex launch reads `SUBFLEET_CODEX_UNIFIED_EXEC`; when it is `off` the launch carries
 > `-c features.unified_exec=false`, leaving `shell_command` as the only shell tool. `doctor` reports
-> which setting is in force, and the setting is recorded on the attempt's decision record.
+> which setting is in force.
 
 - **Ledger rows:** 65 (`keep`, safety-guard)
 - **Milestone:** 1
@@ -420,10 +423,10 @@ P-23.40 under provenance/attestation.
 
 ### P-23.21 — how a provider binary is found
 
-> **P-23.21** A provider binary is resolved before launch as: the `SUBFLEET_CLAUDE_BIN` or
-> `SUBFLEET_CODEX_BIN` override, then `~/.local/bin/<name>`, then `PATH`, then the provider's known
-> install paths. The resolved absolute path goes into the launch argv, is recorded on the attempt,
-> and is printed by `doctor`.
+> **P-23.21** A provider binary is resolved to an absolute path before launch, never left to
+> `PATH` alone. Claude resolves `SUBFLEET_CLAUDE_BIN`, then `~/.local/bin/claude`, then `PATH`;
+> Codex resolves `SUBFLEET_CODEX_BIN`, then `PATH`, then its known install locations. The resolved
+> path goes into the launch argv, is recorded on the attempt, and is printed by `doctor`.
 
 - **Ledger rows:** 26 (`keep`, ops-hygiene), 158 (`keep`, ops-hygiene)
 - **Milestone:** 2
@@ -434,7 +437,12 @@ P-23.40 under provenance/attestation.
   row 158's is 2026-08-13, when "the auto-heal raised FileNotFoundError for a week" because
   "launchd's PATH lacks `~/bin`" and `.codex-3` latched failed. No clause states provider-binary
   resolution at all: C-12.3 and C-12.4 begin at `codex` and `claude` as bare names. Under a daemon
-  that launchd starts, that bare name is the whole bug. v1's override variables were
+  that launchd starts, that bare name is the whole bug. The clause keeps the two orders apart
+  rather than unifying them, because v1's differ and each difference is load-bearing:
+  `~/.local/bin` before `PATH` is the whole point on Claude, where `claude update` maintains the
+  native launcher a Homebrew cask on `PATH` shadows (`subfleet/paths.py:147-165`), while Codex has
+  no `~/.local/bin` candidate at all and falls back past `PATH` to the bun global install, `~/bin`,
+  and the two Homebrew prefixes (`subfleet/codex.py:454-480`). v1's override variables were
   `CLAUDE_LANE_CLAUDE` and `$SUBFLEET_CODEX_BIN`; row 219 collapses the prefixes to `SUBFLEET_*`,
   which is why the clause names the new spellings.
 
@@ -589,7 +597,7 @@ Fourteen rows, seven clauses.
 
 > **P-23.30** When the session registry holds more than one row for a session, the row used is the
 > one whose recorded pid is live, then the one whose socket is present, then the newest by start
-> time. The rows not chosen are ignored, not deleted.
+> time.
 
 - **Ledger rows:** 72 (`keep`, session-continuity)
 - **Milestone:** 4
@@ -688,9 +696,8 @@ Fourteen rows, seven clauses.
 
 ### P-23.36 — a handoff is bounded and points at its source
 
-> **P-23.36** Every section of a handoff is bounded by an explicit character cap recorded beside the
-> excerpt, and a section that was truncated says so. The handoff records the absolute path of the
-> source transcript, which stays the durable record.
+> **P-23.36** Every section of a handoff is bounded by an explicit per-section character cap. The
+> handoff records the absolute path of the source transcript, which stays the durable record.
 
 - **Ledger rows:** 210 (`keep`, session-continuity)
 - **Milestone:** 6
@@ -851,8 +858,9 @@ Eight rows, four clauses.
 
 ### P-23.45 — one account, one enabled lane
 
-> **P-23.45** Two enabled lanes never share an account key. Enrolment and each probe cycle detect a
-> duplicate binding, disable the non-canonical one, and raise a critical alert naming both homes.
+> **P-23.45** At most one lane is canonical for an account key. Enrolment and each probe cycle
+> detect a second lane bound to an account key another lane already holds, mark the later binding
+> non-canonical, and raise a critical alert naming both homes.
 
 - **Ledger rows:** 136 (`keep`, identity)
 - **Milestone:** 2 for detection, 5 for the alert
