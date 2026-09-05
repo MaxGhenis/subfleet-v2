@@ -903,3 +903,143 @@ Eight rows, four clauses.
   sentence — a lane home under `$SUBFLEET_HOME/lanes/<lane id>/` (C-2.2) is inside the state root, so
   writing `auth.json` there breaks no C-2.1 test — and C-9.3 sets the `auth-dead` bar without saying
   what may be attempted before it.
+
+## UX-contract
+
+Eight rows, six clauses.
+
+### P-23.48 — what the session hook counts as a launch
+
+> **P-23.48** The session hook blocks a provider CLI or a v1 runner only in command position; a
+> mention inside a quoted string, a heredoc, or an inspection command such as `bash -n` is not a
+> launch. A runner's own detach flag passes, and `SUBFLEET_ATTACHED_OK=1` in the tool call's
+> environment is the explicit one-off override.
+
+- **Ledger rows:** 68 (`keep`, UX-contract), 69 (`keep`, UX-contract)
+- **Milestone:** 4
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/hooks.py`
+- **Rationale:** both rows bound the block of P-23.54 so it stays usable. Row 68's rationale is
+  "false blocks on inspection commands" — a hook that cannot be reasoned about gets disabled, which
+  costs more than it saves. Row 69's is that "detached launches already survive", so the thing the
+  block exists to prevent is not present. C-17.6 makes `run` detached by default inside a Claude
+  session, which is the replacement the hook points at, but no clause states the hook's matching
+  rules, so a test of C-17.6 passes on a hook that blocks `cat bin/subfleet-claude`.
+
+### P-23.49 — one envelope per notice
+
+> **P-23.49** A notice is delivered as exactly one envelope. Any sequence in the body that would
+> close the envelope early is neutralised before the envelope is written.
+
+- **Ledger rows:** 75 (`keep`, UX-contract)
+- **Milestone:** 4
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/notices.py`
+- **Rationale:** row 75's rationale is that "recipient parses only single-envelope messages" — a
+  deliverable that happens to contain the closing tag splits the notice and the recipient acts on
+  half of it. C-15.1 fixes the notice's *content* and C-16.1 the socket framing between CLI and
+  daemon, which is a different wire; nothing describes the envelope a session receives, so a test of
+  either passes on a notice that terminates inside its own summary line.
+
+### P-23.50 — the push waits behind a live waiter
+
+> **P-23.50** The best-effort socket push is skipped while the job has a `wait` or `--attach` waiter
+> whose recorded identity is still live, and is attempted once that waiter is no longer live. The
+> push is never the reason a caller learns about a job twice.
+
+- **Ledger rows:** 79 (`keep`, UX-contract)
+- **Milestone:** 4
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/notices.py`
+- **Rationale:** row 79's rationale is "duplicate reports". C-15.2 orders `wait` above the
+  best-effort push in reliability but does not say the higher layer suppresses the lower one, and
+  C-15.3 makes a repeated offer explicitly harmless ("a notice may be offered more than once"), so a
+  test of either passes while every attached run reports itself twice. The fall-through matters as
+  much as the skip: a waiter that died must not swallow the notice.
+
+### P-23.51 — a running job never falls off the list
+
+> **P-23.51** `runs --last N` bounds terminal jobs only. Every job in a live state is listed whatever
+> N is and however old it is, and `--json` output carries the same set.
+
+- **Ledger rows:** 89 (`keep`, UX-contract)
+- **Milestone:** 1
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/cli.py`
+- **Rationale:** row 89's incident is the most recent in the ledger: "2026-09-05: a 7 h lane fell
+  below the newest-20 window and a poller lost it; commit c465456". A long job is exactly the job a
+  poller is waiting on, and it is exactly the one a newest-N window drops. C-17.1 names `--last N`
+  without stating its semantics, so a C-17.1 test passes on the failure. Code on this branch does not
+  implement it: `subfleet/offline.py:207-224` applies the `LIMIT` to live and terminal rows alike.
+
+### P-23.52 — what an alert says and when a recovery is one
+
+> **P-23.52** subfleet never performs a provider login; every alert about a credential names the
+> exact command the operator must run. A recovery notice is emitted only when a condition has cleared
+> and no other condition on the same home is active; a move from one condition to another is reported
+> as the new condition, not as a recovery.
+
+- **Ledger rows:** 149 (`keep`, UX-contract), 156 (`keep`, UX-contract)
+- **Milestone:** 5
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/alerts.py`
+- **Rationale:** row 149's incident is the "2026-07-11 postmortem" and its rule is that logins are
+  operator-only; row 156's rationale is that "revoked to no-auth is a state change, not a recovery" —
+  an alert stream that says "recovered" while the home is still broken trains the operator to ignore
+  it. C-17.3's exit 7 "names the rule and the fix" is the analogous rule for the CLI and does not
+  reach alert bodies. The ledger notes v1's own prefix list omitted some conditions, so v2 defines
+  recovery per condition rather than by prefix.
+
+### P-23.53 — a gate stops
+
+> **P-23.53** A gate stops after `gate_max_rounds` (4) peer rounds without agreement and reports the
+> blocker, naming the last verdict. The cap is a `policy.json` cap under C-6.4.
+
+- **Ledger rows:** 200 (`keep`, UX-contract)
+- **Milestone:** 7
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/gate.py`
+- **Rationale:** row 200's rationale is "bounded loops" — a gate that can iterate forever spends
+  provider windows arguing. Four is v1's `DEFAULT_MAX_ROUNDS`. No clause covers gates beyond
+  C-19.1's action row.
+
+## process-survival
+
+Three rows, two clauses.
+
+### P-23.54 — one dispatch path
+
+> **P-23.54** Every provider launch is a `subfleet run` submission, including subfleet's own —
+> a handoff is dispatched detached through the ordinary submit path so it inherits routing, the
+> guard, salvage, the ledger, and notices. The session hook blocks a provider CLI or a v1 runner
+> invoked directly from a session's Bash tool and names `subfleet run` as the replacement.
+
+- **Ledger rows:** 67 (`keep`, process-survival), 211 (`keep`, process-survival)
+- **Milestone:** 4 for the hook, 6 for handoff
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/hooks.py`, `subfleet/sessions/handoff.py`
+- **Rationale:** one rule, enforced outward and inward. Row 67's incident is "2026-08-23, observed
+  three times" — a provider launched from a session's Bash tool dies with the session, which is the
+  failure C-5.1's guardian exists to prevent and which no amount of guardian helps if the launch
+  never reaches it. Row 211's rationale is "one dispatch path". C-5.1 owns what happens once a launch
+  is the daemon's; nothing says every launch must become the daemon's, so a test of C-5.1 passes
+  while a session or a subfleet subsystem shells out directly. P-23.48 bounds what the hook counts.
+
+### P-23.55 — one live revive per session
+
+> **P-23.55** A session has at most one live revive: the revive lease `session:<session id>:revive`
+> is taken in the transaction that admits the attempt, and a session that already holds it is skipped
+> rather than launched again. The census the sweep skips on is the lease rows, read inside the
+> admitting transaction, not a snapshot taken at the start of the pass.
+
+- **Ledger rows:** 192 (`keep`, process-survival)
+- **Milestone:** 6
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/sessions/tickle.py`
+- **Rationale:** row 192's incident is "2026-09-04: a headless revive twin ran alongside a live
+  session and re-dispatched its lanes" — the twin did not merely waste a window, it re-issued the
+  original session's work. C-6.5 refuses "a writable job for a session id that already has one
+  running from another instance", which is the same shape but scoped to writable jobs; a revive need
+  not be writable, so a C-6.5 test passes on the incident. v2's lease rows (C-6.3) replace v1's pass
+  lock, and taking the lease inside the admitting transaction is what makes the stale-census race
+  impossible rather than unlikely.
