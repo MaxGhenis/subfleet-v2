@@ -37,6 +37,11 @@ PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
 #: A resolved `subfleet` under this directory is still v1 (plan amendment 8:
 #: the shadow period runs both, and the symlink is the visible half of the flip).
 V1_MARKER = "chief-of-staff/subfleet"
+#: Hidden v1 verbs that appear in v1's own usage line and in no v2 parser, so a
+#: `subfleet` that answers with them is v1 whatever its path says. Checking the
+#: output as well as the path is what catches an entry point that is v2 on disk
+#: but imports v1 (see `check_pythonpath`).
+V1_OUTPUT_MARKERS = ("_session-hook", "_record-lane-run", "resume-codex,")
 STATE_ROOT_ENTRIES = ("state.sqlite3", "policy.json", "lanes.json",
                       "jobs", "lanes", "worktrees", "daemon.log")
 
@@ -45,13 +50,20 @@ def row(check: str, status: str, detail: str, fix: str) -> dict[str, Any]:
     return {"check": check, "status": status, "detail": detail, "fix": fix}
 
 
-def _run(argv: list[str], timeout: float = 20.0) -> tuple[int | None, str]:
+def _run_full(argv: list[str], timeout: float = 20.0) -> tuple[int | None, str]:
+    """(rc, all of stdout+stderr). `rc is None` means it could not be run."""
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"{exc.__class__.__name__}: {exc}"
-    text = (done.stdout or done.stderr or "").strip().splitlines()
-    return done.returncode, text[0] if text else "(no output)"
+    return done.returncode, f"{done.stdout or ''}\n{done.stderr or ''}".strip()
+
+
+def _run(argv: list[str], timeout: float = 20.0) -> tuple[int | None, str]:
+    """(rc, first line) — the shape the one-line detail columns want."""
+    code, text = _run_full(argv, timeout)
+    lines = text.splitlines()
+    return code, lines[0] if lines else "(no output)"
 
 
 def path_matches(binary: str) -> list[str]:
@@ -123,18 +135,58 @@ def check_symlink() -> dict[str, Any]:
                    "put the v2 entry point on PATH before repointing anything")
     real = os.path.realpath(found)
     link = f"{found} -> {real}" if real != found else found
-    code, text = _run([found, "-V"])
-    version = text if code == 0 else f"`{found} -V` exited {code}: {text}"
+    code, text = _run_full([found, "-V"])
+    first = (text.splitlines() or ["(no output)"])[0]
     if V1_MARKER in real:
         return row("subfleet symlink target", FAIL,
-                   f"{link} — still v1 ({version})",
+                   f"{link} — still v1 ({first})",
                    "repoint the symlink at the v2 entry point when the cutover "
                    "gates in docs/release-gates.md are green")
+    if code != 0 and any(marker in text for marker in V1_OUTPUT_MARKERS):
+        # v2 answers `-V`; v1 has no such flag and prints its own verb table.
+        # The path says v2 and the behaviour says v1, so something on the import
+        # path is v1 — `check_pythonpath` names the usual culprit.
+        return row("subfleet symlink target", FAIL,
+                   f"{link} — the path is not v1 but `{found} -V` answered with "
+                   f"v1's verb table, so this entry point imports v1",
+                   "check PYTHONPATH and `python -c \"import subfleet; "
+                   "print(subfleet.__file__)\"` for which package actually wins")
     if code != 0:
-        return row("subfleet symlink target", UNKNOWN, f"{link} — {version}",
+        return row("subfleet symlink target", UNKNOWN,
+                   f"{link} — `{found} -V` exited {code}: {first}",
                    f"run `{found} -V` by hand to see why it did not answer")
-    return row("subfleet symlink target", PASS, f"{link} — {version}",
+    return row("subfleet symlink target", PASS, f"{link} — {first}",
                "`subfleet doctor` after any change to this symlink")
+
+
+def check_pythonpath() -> dict[str, Any]:
+    """A `PYTHONPATH` entry holding a `subfleet` package outranks the install.
+
+    Found by running this table for real on 2026-09-05: `PYTHONPATH` was set to
+    the v1 checkout, so `.venv/bin/subfleet` — a v2 console script, in a v2
+    virtualenv — imported v1's `subfleet` package and printed v1's verb table.
+    `PYTHONPATH` precedes both site-packages and any `.pth` an editable install
+    adds, so this survives every reinstall and is invisible from the symlink,
+    which is why it gets a row of its own.
+    """
+    entries = [item for item in (os.environ.get("PYTHONPATH") or "").split(os.pathsep)
+               if item]
+    if not entries:
+        return row("PYTHONPATH does not shadow subfleet", PASS, "PYTHONPATH is unset",
+                   "keep it that way; the runtime is standard library only")
+    shadows = [item for item in entries
+               if (Path(item).expanduser() / "subfleet" / "__init__.py").exists()]
+    if not shadows:
+        return row("PYTHONPATH does not shadow subfleet", PASS,
+                   f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}, "
+                   f"none holding a `subfleet` package",
+                   "`echo $PYTHONPATH` if that ever changes")
+    return row("PYTHONPATH does not shadow subfleet", FAIL,
+               f"{', '.join(shadows)} hold{'s' if len(shadows) == 1 else ''} a "
+               f"`subfleet` package and PYTHONPATH outranks the install, so every "
+               f"`subfleet` entry point imports that one",
+               "unset PYTHONPATH (or drop those entries) before the cutover; "
+               "`python -c \"import subfleet; print(subfleet.__file__)\"` confirms")
 
 
 def check_path_shadows(binary: str) -> dict[str, Any]:
@@ -185,7 +237,10 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
     alive, reason = client.lock_report()
     if alive is False:
         return row("daemon.lock names a live process", FAIL,
-                   f"pid {info.get('pid')} is gone: {reason}",
+                   f"pid {info.get('pid')} is gone: {reason}"
+                   + (f" — a socket is present but the lock is stale, so "
+                      f"{root / SOCKET_NAME} belongs to nobody"
+                      if socket_present else ""),
                    "`subfleet daemon start` — a CLI may start one over a dead "
                    "holder, never over a live one (plan amendment 3)")
     if alive is None:
@@ -225,8 +280,63 @@ def check_socket_path(root: Path) -> dict[str, Any]:
                    "keep SUBFLEET_HOME short")
     return row("socket path fits AF_UNIX", FAIL,
                f"{path} is {encoded} bytes; the kernel caps a unix socket path "
-               f"near {AF_UNIX_PATH_MAX}",
-               "set SUBFLEET_HOME to a shorter path — no daemon can ever listen there")
+               f"near {AF_UNIX_PATH_MAX}, so no daemon can ever listen there — "
+               f"set SUBFLEET_HOME to a shorter path",
+               "set SUBFLEET_HOME to a shorter path, then `subfleet daemon start`")
+
+
+def check_never_rules(settings: Path | None = None) -> dict[str, Any]:
+    """C-14.3: the never-rules PreToolUse guard is installed for this user.
+
+    v2 never writes this entry — it belongs to the guard, not to subfleet — so
+    the honest report when the file cannot be read is `unknown`, not a failure.
+    """
+    path = (settings if settings is not None
+            else Path("~/.claude/settings.json").expanduser())
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return row("never-rules hook in ~/.claude/settings.json", UNKNOWN,
+                   f"{path}: {exc.__class__.__name__} — cannot tell (C-14.3)",
+                   f"read {path} by hand, or reinstall the guard hook")
+    if any(marker in text for marker in
+           ("never-rules", "never_rules", "subfleet-guard")):
+        return row("never-rules hook in ~/.claude/settings.json", PASS,
+                   f"{path}: present", "`subfleet doctor` after editing that file")
+    return row("never-rules hook in ~/.claude/settings.json", FAIL,
+               f"no never-rules hook in {path} (C-14.3)",
+               "install the guard's PreToolUse hook; subfleet does not write it")
+
+
+def check_toolchain(binary: str = "uv") -> dict[str, Any]:
+    """A dev-time dependency, not a runtime one: absent is `unknown`, not `fail`.
+
+    Nothing the daemon or the adapters do needs `uv` (the runtime is standard
+    library only); the tests and `uv sync` do, so it is worth one row.
+    """
+    found = shutil.which(binary)
+    if found is None:
+        return row(f"{binary} --version", UNKNOWN, f"{binary} is not on PATH",
+                   f"only the test and build paths need {binary}; the runtime "
+                   f"is standard library only")
+    code, text = _run([found, "--version"])
+    if code == 0:
+        return row(f"{binary} --version", PASS, f"{found}: {text}",
+                   "`uv sync --group dev` before running the suite")
+    return row(f"{binary} --version", UNKNOWN, f"{found} exited {code}: {text}",
+               f"run `{found} --version` by hand")
+
+
+def check_module(name: str) -> dict[str, Any]:
+    """A module the verbs degrade without. Missing is `unknown`: the verb that
+    needs it says so itself, and a partial checkout is not a broken install."""
+    try:
+        __import__(f"subfleet.{name}")
+    except ImportError as exc:
+        return row(f"subfleet.{name}", UNKNOWN, f"not importable: {exc}",
+                   f"the verbs that need subfleet.{name} degrade rather than fail")
+    return row(f"subfleet.{name}", PASS, "importable",
+               "nothing to do while this passes")
 
 
 def check_live(root: Path) -> dict[str, Any]:
@@ -253,12 +363,16 @@ def checks(root: Path, *, live: bool = False,
     rows = [
         check_compat_table(),
         check_hook_entries(settings),
+        check_never_rules(settings),
         check_symlink(),
+        check_pythonpath(),
         *(check_path_shadows(binary) for binary in ("subfleet", "claude", "codex")),
         *(check_provider(binary) for binary in ("claude", "codex")),
+        check_toolchain("uv"),
         check_state_root(root),
         check_socket_path(root),
         check_daemon_lock(root),
+        *(check_module(name) for name in ("store", "procs", "compat", "hooks")),
     ]
     if live:
         rows.append(check_live(root))
