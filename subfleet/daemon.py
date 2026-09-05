@@ -15,6 +15,7 @@ import logging
 import os
 from pathlib import Path
 import signal
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -27,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import ids, procs, protocol
+from . import capacity, ids, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -38,7 +39,7 @@ from .contracts import (
 )
 from .credentials import resolve_credential
 from .guardian import atomic_publish
-from .policy import load_policy, policy_hash, pick
+from .policy import load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import git_head, salvage, validate_writable_workdir
 from .store import Store
@@ -192,16 +193,30 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _pick(self, job: dict, *, extra_exclusions: tuple[str, ...] = ()):
-        live = self.store.query("SELECT lane_id, count(*) AS n FROM attempts WHERE state IN "
-                                "('reserved','starting','running','finalizing') GROUP BY lane_id")
-        return pick(self.policy, self.store.list_lanes(), pinned_model=job.get("pinned_model"),
-                    pinned_lane=job.get("pinned_lane"), task=job.get("task"), tier=job.get("tier"),
-                    exclusions=tuple(json.loads(job.get("exclusions", "[]"))) + extra_exclusions,
-                    allow_desktop=bool(job.get("allow_desktop")),
-                    closures=self.store.query("SELECT * FROM closures WHERE released_at IS NULL"),
-                    readings=self.store.query("SELECT * FROM readings"),
-                    in_flight={r["lane_id"]: r["n"] for r in live}, policy_digest=self.policy_digest)
+    def _capacity_view(self, desktop_account=None):
+        view = capacity.build_view(
+            self.store.lane_rows(), self.store.list_readings(), self.store.list_closures(),
+            self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
+            reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop_account=desktop_account)
+        # Probe reservations are explicit leases, not invented in-flight attempt
+        # counts. A recovered probe keeps its lane unavailable until containment.
+        leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
+        view["unavailable_lanes"] = {row["lease_key"].split(":")[1]: row["holder"] for row in leases}
+        view["reserved_probes"] = len(leases)
+        for lane in view["lanes"]:
+            if holder := view["unavailable_lanes"].get(lane["lane_id"]):
+                lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
+        return view
+
+    def _pick(self, job: dict, *, extra_exclusions: tuple[str, ...] = (), desktop_account=None):
+        # C-6.3, C-11: one pure evaluation uses the same transaction's attempt
+        # rows as reservation. Desktop file I/O happens before entering it.
+        exclusions = job.get("exclusions") or ()
+        if isinstance(exclusions, str):
+            exclusions = json.loads(exclusions)
+        return scheduler.evaluate(self.policy, self._capacity_view(desktop_account),
+                                  {**job, "exclusions": tuple(exclusions) + extra_exclusions,
+                                   "policy_hash": self.policy_digest})
 
     def submit(self, args: protocol.SubmitArgs) -> dict:
         # Called on a filesystem worker, never on the socket reader pool.
@@ -225,22 +240,21 @@ class Daemon:
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
                 model = args.pinned_model
                 if model:
-                    model = self.policy["retired"].get(model, model)
-                    if model not in self.policy["models"]:
-                        matches = [k for k, v in self.policy["models"].items() if v["id"] == model]
-                        if not matches:
-                            raise ValueError(f"unknown model {model}")
-                        model = matches[0]
+                    model = resolve_model(self.policy, model)
                 if args.task and args.task not in self.policy["chains"]:
                     raise ValueError(f"unknown task {args.task}")
                 if args.tier and args.tier not in self.policy["tiers"]:
                     raise ValueError(f"unknown tier {args.tier}")
-                if not model and not args.task:
-                    raise ValueError("submit requires pinned_model or task")
-                lane = self.store.get_lane(args.pinned_lane) if args.pinned_lane else None
+                if not model and not args.task and not args.pinned_lane:
+                    raise ValueError("submit requires pinned_model, pinned_lane or task")
+                lane_row = scheduler.resolve_lane(self.store.lane_rows(), args.pinned_lane) if args.pinned_lane else None
+                lane = self.store.get_lane(lane_row["lane_id"]) if lane_row else None
                 if args.pinned_lane and not lane:
                     raise ValueError(f"unknown lane {args.pinned_lane}")
-                task_model = model or self.policy["chains"][args.task][self.policy["tiers"].index(args.tier or "standard")]
+                task_model = model or (self.policy["chains"][args.task][self.policy["tiers"].index(args.tier or "standard")]
+                                       if args.task else next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None))
+                if task_model is None:
+                    raise ValueError(f"pinned_lane: policy has no model for provider {lane.provider}")
                 provider = self.policy["models"][task_model]["provider"]
                 if lane and lane.provider != provider:
                     raise ValueError("pinned lane and model providers disagree")
@@ -280,7 +294,7 @@ class Daemon:
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
                           max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow())
             if args.dry_run:
-                return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values))}
+                return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values, desktop_account=capacity.read_desktop_account()))}
             self._validate_conflicts(values)
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
@@ -378,18 +392,20 @@ class Daemon:
         if op == "kill":
             return self.kill(protocol.coerce_args(protocol.KillArgs, args))
         if op == "lanes":
-            return {"lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id"),
+            return {"lanes": self._capacity_view(capacity.read_desktop_account())["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
-            return {"readings": self.store.query("SELECT * FROM readings ORDER BY observed_at DESC"),
-                    "closures": self.store.query("SELECT * FROM closures WHERE released_at IS NULL AND until_at>?", (utcnow(),))}
+            view = self._capacity_view(capacity.read_desktop_account())
+            return {"readings": view["readings"], "closures": view["closures"], "status": render.status(view)}
         if op == "why":
             a = protocol.coerce_args(protocol.WhyArgs, args)
             if a.job_id:
                 self._job(a.job_id)
                 row = self.store.one("SELECT decision_json FROM decisions WHERE job_id=? ORDER BY decision_id DESC LIMIT 1", (a.job_id,))
-                return {"decision": json.loads(row["decision_json"]) if row else None}
-            return {"decision": dataclasses.asdict(self._pick({**dataclasses.asdict(a), "exclusions": json.dumps(a.exclusions)}))}
+                decision = json.loads(row["decision_json"]) if row else None
+            else:
+                decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop_account=capacity.read_desktop_account()))
+            return {"decision": decision, "text": render.why(decision) if decision else "No decision recorded."}
         if op.startswith("notice."):
             a = protocol.coerce_args(protocol.NoticeArgs, args)
             if op == "notice.ack":
@@ -400,7 +416,8 @@ class Daemon:
         if op == "ping":
             return {"pong": True, "version": __version__, "session_id": args.get("session_id"), "text": args.get("text", "")}
         if op == "daemon.status":
-            return {"pid": os.getpid(), "version": __version__, "state_root": str(self.root),
+            view = self._capacity_view(capacity.read_desktop_account())
+            return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"]}
         raise protocol.ProtocolError(f"unknown op {op}")
 
@@ -512,12 +529,272 @@ class Daemon:
                 baseline = result.stdout.strip()
         return workdir, head, baseline
 
+    def _probe_record(self, holder: str) -> dict | None:
+        # C-8.4: probe state and results live in events, never synthetic jobs.
+        rows = self.store.query("SELECT data_json FROM events WHERE kind='probe.state' ORDER BY event_id DESC")
+        for row in rows:
+            record = json.loads(row["data_json"])
+            if record.get("holder") == holder:
+                return record
+        return None
+
+    def _save_probe(self, record: dict) -> None:
+        self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
+
+    def _probe_census(self, record: dict):
+        return procs.containment(record.get("pgid"), record.get("guardian_pid"),
+                                 record.get("child_pid"), record["holder"])
+
+    def _contain_probe(self, record: dict) -> bool:
+        """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
+        census = self._probe_census(record)
+        owned = {int(pid): procs.ProcessIdentity(**value)
+                 for pid, value in record.get("owned_identities", {}).items()}
+        pid = record.get("guardian_pid")
+        leader_live = pid and procs.same_process(pid, record.get("boot_id"), record.get("proc_start"))
+        if leader_live:
+            owned.update({p: ident for p, ident in census.identities.items() if p in census.group_pids})
+            owned[pid] = procs.ProcessIdentity(pid, record["boot_id"], record["proc_start"])
+        record["owned_identities"] = {str(p): dataclasses.asdict(ident) for p, ident in owned.items()}
+        if not census.verified_empty and record.get("state") != "quarantined":
+            record["state"] = "containing"
+            self._save_probe(record)  # Authority precedes every signal, including recovery.
+            if leader_live:
+                procs.signal_group(record["pgid"], signal.SIGTERM,
+                                   boot_id=record["boot_id"], proc_start=record["proc_start"])
+            deadline = time.monotonic() + self.term_grace_s
+            while not census.verified_empty and time.monotonic() < deadline:
+                time.sleep(.05)
+                census = self._probe_census(record)
+            if not census.verified_empty:
+                if leader_live:
+                    procs.signal_group(record["pgid"], signal.SIGKILL,
+                                       boot_id=record["boot_id"], proc_start=record["proc_start"])
+                for target in census.live_pids:
+                    if target in owned:
+                        procs.signal_process(owned[target], signal.SIGKILL)
+                time.sleep(.05)
+                census = self._probe_census(record)
+        record.update(state="contained" if census.verified_empty else "quarantined",
+                      containment=census.to_dict())
+        self._save_probe(record)
+        if not census.verified_empty:
+            with self.store.transaction("probe.quarantined", job_id=record["job_id"],
+                                        lane_id=record["lane_id"], data={"containment": census.to_dict()}) as tx:
+                tx.execute("UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
+                           (after(60), record["job_id"]))
+        return census.verified_empty
+
+    def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | None]:
+        """Re-adopt the same gated guardian, bounded by its durable deadline."""
+        directory = Path(record["directory"])
+        next_census = 0.0
+        while not self.stopping.is_set():
+            if child:
+                child.poll()  # Reap our own guardian when it finishes.
+            receipt = self._read_json(directory / "exit.json")
+            if receipt:
+                record["child_pid"] = receipt.get("child_pid")
+                break
+            job = self.store.get_job(record["job_id"])
+            if not job or job["cancel_requested_at"] or job["state"] in TERMINAL:
+                break
+            if record.get("state") in ("reserved", "quarantined", "containing", "contained"):
+                break
+            if record["deadline_at"] <= utcnow() or not procs.same_process(
+                    record["guardian_pid"], record["boot_id"], record["proc_start"]):
+                break
+            if time.monotonic() >= next_census:
+                census = self._probe_census(record)
+                if not procs.same_process(record["guardian_pid"], record["boot_id"], record["proc_start"]):
+                    break
+                owned = dict(record.get("owned_identities", {}))
+                owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items()
+                              if pid in census.group_pids})
+                if owned != record.get("owned_identities", {}):
+                    record["owned_identities"] = owned
+                    self._save_probe(record)
+                next_census = time.monotonic() + .5
+            self.stopping.wait(.05)
+        safe = self._contain_probe(record)
+        if child:
+            child.poll()
+        return safe, self._read_json(directory / "exit.json")
+
+    def _execute_probe(self, job: dict, lane: Lane, model: dict, holder: str) -> Outcome:
+        """C-11.4, C-5.1: run a read-only requested-model probe through the guardian.
+
+        This is the process seam for tests. A normal return guarantees containment
+        unless the durable probe record is quarantined; no secret enters a receipt.
+        """
+        record = self._probe_record(holder)
+        directory = Path(record["directory"])
+        adapter = get_adapter(lane.provider)
+        self._validate_home(lane)
+        credential_env = resolve_credential(lane.credential)
+        prompt = directory / "prompt.md"
+        self._publish("probe-prompt", prompt, b"Reply with exactly OK. Do not use tools.\n")
+        spec = self._spec(job, kind="probe", workdir=str(directory), prompt_path=str(prompt),
+                          sandbox=Sandbox.READ_ONLY, out_path=None)
+        launch = adapter.build_launch(spec, holder, directory, lane, credential_env,
+                                      model["id"], model.get("effort"), prompt,
+                                      self._guard_override(adapter, lane, str(directory)))
+        safe_launch = dataclasses.asdict(launch)
+        safe_launch.pop("env_add")
+        self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
+        env = {**os.environ, **launch.env_add}
+        for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+            env.pop(key, None)
+        env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder)
+        package_root = str(Path(__file__).resolve().parent.parent)
+        env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        read_fd, write_fd = os.pipe()
+        command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(directory),
+                   "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
+                   "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]
+        if launch.stdin_path:
+            command += ["--stdin-path", launch.stdin_path]
+        command += ["--", *launch.argv]
+        child = None
+        try:
+            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            started = procs.proc_start(child.pid)
+            if not started:
+                raise procs.InspectionError("probe guardian identity is absent")
+            record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
+                          boot_id=procs.boot_id(), proc_start=started)
+            self._save_probe(record)
+            os.write(write_fd, b"1")  # Committed ownership is required to open the gate.
+        except (OSError, procs.InspectionError) as exc:
+            record["launch_error"] = type(exc).__name__
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+        if child is None:
+            return Outcome(OutcomeClass.UNKNOWN, "probe guardian could not be spawned")
+        safe, receipt = self._await_probe(record, child)
+        if not safe:
+            return Outcome(OutcomeClass.UNKNOWN, "probe containment is quarantined",
+                           evidence={"probe_quarantined": True})
+        if not receipt:
+            return Outcome(OutcomeClass.UNKNOWN, "probe ended without an exit receipt")
+        return adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
+                                ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+
+    def _finish_probe(self, record: dict, outcome: Outcome) -> None:
+        if outcome.cls == OutcomeClass.LIMITED and outcome.closure is None:
+            outcome = dataclasses.replace(outcome, closure=Closure(
+                record["lane_id"], record["model_id"], after(3600), ClosureReason.PROVIDER_LIMIT,
+                ClockSource.GUESSED, None))
+        with self.store.transaction("probe.completed", job_id=record["job_id"], lane_id=record["lane_id"],
+                                    data={"model": record["model_id"], "class": outcome.cls.value,
+                                          "evidence": outcome.evidence}) as tx:
+            for reading in outcome.readings:
+                self.store.add_reading(dataclasses.replace(reading, attempt_id=None))
+            if outcome.closure:
+                self.store.add_closure(outcome.closure)
+            if outcome.cls == OutcomeClass.OK:
+                self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
+                                              ReadingLabel.ADMISSION_OBSERVED, "probe", utcnow()))
+            record.update(state="completed", outcome=dataclasses.asdict(outcome))
+            self._save_probe(record)
+            tx.execute("DELETE FROM leases WHERE holder=?", (record["holder"],))
+            tx.execute("UPDATE jobs SET wait_reason='capacity',next_check_at=? WHERE job_id=? AND state='waiting' AND wait_reason='uncertain'",
+                       (utcnow(), record["job_id"]))
+        shutil.rmtree(record["directory"], ignore_errors=True)
+
+    def _recover_probes(self) -> None:
+        """C-5.3–7, C-8.4: recover each durable probe before admitting more work."""
+        for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'"):
+            record = self._probe_record(lease["holder"])
+            if not record:
+                continue  # No recorded identity grants no authority to release or kill.
+            safe, receipt = self._await_probe(record)
+            if not safe:
+                continue
+            outcome = Outcome(OutcomeClass.UNKNOWN, "probe recovered without an exit receipt")
+            if receipt and (value := self._read_json(Path(record["directory"]) / "launch.json")):
+                value.update(env_add={"SUBFLEET_LANE": record["lane_id"]},
+                             argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
+                adapter = get_adapter(self.store.get_lane(record["lane_id"]).provider)
+                outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
+                    key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+            self._finish_probe(record, outcome)
+
+    def _probe_candidate(self, job: dict, decision, holder: str) -> Outcome:
+        lane = self.store.get_lane(decision.chosen_lane)
+        model = self.policy["models"][decision.chosen_model]
+        try:
+            outcome = self._execute_probe(job, lane, model, holder)
+        except (AdapterError, OSError, subprocess.SubprocessError) as exc:
+            outcome = Outcome(OutcomeClass.UNKNOWN, f"probe unavailable: {type(exc).__name__}")
+            self._contain_probe(self._probe_record(holder))
+        record = self._probe_record(holder)
+        if record["state"] not in ("reserved", "contained", "quarantined"):
+            self._contain_probe(record)
+            record = self._probe_record(holder)
+        if record["state"] == "quarantined":
+            return Outcome(OutcomeClass.UNKNOWN, "probe containment is quarantined",
+                           evidence={"probe_quarantined": True})
+        self._finish_probe(record, outcome)
+        return outcome
+
+    def _prepare_route(self, job: dict, decision_job: dict, exclusions: tuple[str, ...]):
+        # The admission worker serializes probes; a distinct durable holder and
+        # a gated guardian prevent a restart from launching a duplicate probe.
+        approved = set()
+        for _ in range(len(self.store.list_lanes()) * len(self.policy["models"]) + 1):
+            desktop = capacity.read_desktop_account()
+            current = self._job(job["job_id"])
+            if current["cancel_requested_at"] or current["state"] in TERMINAL:
+                return None, desktop
+            decision = self._pick(decision_job, extra_exclusions=exclusions, desktop_account=desktop)
+            pair = (decision.chosen_lane, decision.chosen_model)
+            if not scheduler.probe_required(decision, job) or pair in approved:
+                return approved, desktop
+            token = os.urandom(12).hex()
+            holder = f"probe:{token}"
+            directory = self.root / "lanes" / decision.chosen_lane / "probes" / token
+            directory.mkdir(mode=0o700, parents=True)
+            record = {"holder": holder, "job_id": job["job_id"], "lane_id": decision.chosen_lane,
+                      "model_id": self.policy["models"][decision.chosen_model]["id"],
+                      "directory": str(directory), "state": "reserved", "created_at": utcnow(),
+                      "deadline_at": after(60), "owned_identities": {}}
+            with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
+                if not self.store.acquire_lease(f"lane:{decision.chosen_lane}:slot:0", holder):
+                    return None, desktop
+                self._save_probe(record)
+            outcome = self._probe_candidate(job, decision, holder)
+            if outcome.cls == OutcomeClass.OK:
+                approved.add(pair)
+            elif outcome.cls != OutcomeClass.LIMITED:
+                with self.store.transaction("job.probe_waiting", job_id=job["job_id"]) as tx:
+                    self.store.add_decision(job["job_id"], decision)
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
+                               ("uncertain" if outcome.evidence.get("probe_quarantined") else "capacity",
+                                after(60), job["job_id"]))
+                return None, desktop
+        return None, desktop
+
     def _admit(self) -> None:
-        for job in self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid"):
+        self._recover_probes()
+        desktop_account = capacity.read_desktop_account()
+        queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+        blocked_tiers = set()
+        for job in scheduler.ordered_jobs(self.policy, queued):
+            tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
                 self.kill(protocol.KillArgs(job["job_id"]))
                 continue
-            if job["wait_reason"] in ("approval", "uncertain") or (job["next_check_at"] and job["next_check_at"] > utcnow()):
+            if tier in blocked_tiers:
+                continue
+            if job["wait_reason"] in ("approval", "uncertain"):
+                continue
+            if job["next_check_at"] and job["next_check_at"] > utcnow():
+                if job["wait_reason"] == "capacity":
+                    blocked_tiers.add(tier)
                 continue
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 continue
@@ -526,27 +803,37 @@ class Daemon:
             except (OSError, subprocess.SubprocessError, AdapterError):
                 self._fail_queued(job, "workspace preparation failed")
                 continue
+            previous = self.store.list_attempts(job["job_id"])
+            extra_exclusions = tuple(a["lane_id"] for a in previous if a["outcome_class"] == "limited")
+            transient_counts: dict[str, int] = {}
+            for a in previous:
+                if a["outcome_class"] == "transient":
+                    transient_counts[a["lane_id"]] = transient_counts.get(a["lane_id"], 0) + 1
+            extra_exclusions += tuple(l for l, n in transient_counts.items() if n >= 2)
+            decision_job = job
+            if previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1:
+                decision_job = {**job, "pinned_lane": previous[-1]["lane_id"],
+                                "pinned_model": previous[-1]["model_requested"]}
+            approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
+            if approved is None:
+                blocked_tiers.add(tier)
+                continue
             with self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
                 job = self._job(job["job_id"])
                 if job["cancel_requested_at"] or job["state"] in TERMINAL:
                     continue
-                previous = self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (job["job_id"],))
-                extra_exclusions = tuple(a["lane_id"] for a in previous if a["outcome_class"] == "limited")
-                # A transient gets one same-lane retry. Subsequent attempts move
-                # on; a pinned lane has no next candidate.
-                transient_counts: dict[str, int] = {}
-                for a in previous:
-                    if a["outcome_class"] == "transient":
-                        transient_counts[a["lane_id"]] = transient_counts.get(a["lane_id"], 0) + 1
-                extra_exclusions += tuple(l for l, n in transient_counts.items() if n >= 2)
-                decision_job = job
-                if previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1:
-                    decision_job = {**job, "pinned_lane": previous[-1]["lane_id"]}
-                decision = self._pick(decision_job, extra_exclusions=extra_exclusions)
+                decision = self._pick(decision_job, extra_exclusions=extra_exclusions, desktop_account=desktop_account)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
                 if not decision.chosen_lane or live >= self.policy["caps"]["max_active_attempts"]:
-                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (after(1), job["job_id"]))
+                    blocked_tiers.add(tier)
+                    waiting = scheduler.waiting_metadata(decision)
+                    self.store.add_decision(job["job_id"], decision)
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
+                               (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
                     continue
+                if scheduler.probe_required(decision, job) and (decision.chosen_lane, decision.chosen_model) not in approved:
+                    blocked_tiers.add(tier)
+                    continue  # The chosen identity changed after its probe.
                 seq = len(previous) + 1
                 aid = ids.attempt_id(job["job_id"], seq)
                 lane_id = decision.chosen_lane
@@ -562,6 +849,7 @@ class Daemon:
                         leases.append((f"session:{job['caller_session']}", job["job_id"]))
                 conflict = any((r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder for key, holder in leases)
                 if conflict:
+                    blocked_tiers.add(tier)
                     tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (after(1), job["job_id"]))
                     continue
                 for key, holder in leases:
