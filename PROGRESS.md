@@ -22,11 +22,17 @@ Lane: disposition of the 220-row invariant ledger (`docs/reports/A-invariants.md
 3. Adjudication of rows 1-220 dispatched as an 11-chunk workflow, each chunk adversarially verified
    against the actual clause texts.
 
+4. Merged the 11 chunks and their 64 verifier corrections: 55 accepted, 9 rejected with a reason
+   recorded, plus my own adjudication of the 15 contested rows. `docs/invariants.md` and
+   `docs/invariants.json` committed; `uv run pytest -q tests/unit/test_invariants_index.py` is
+   18 passed.
+5. Authored the Replaced (21 rows) and Dropped (4 rows) sections.
+
 ## Next
 
-1. Merge the chunks, apply the verified corrections, resolve contested rows by hand.
-2. Emit `docs/invariants.md` and `docs/invariants.json`; make the index test pass.
-3. Author the Gaps (proposed clause text), Replaced, Dropped, and Counts sections.
+1. Land the Gaps section: proposed clause text for the 92 `GAP` rows, drafted per group and checked
+   for coverage, duplication with existing clauses, and numbering collisions.
+2. Final read-through of the whole table, then the lane report.
 
 ## Decisions taken
 
