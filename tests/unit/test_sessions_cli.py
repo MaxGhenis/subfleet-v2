@@ -44,6 +44,13 @@ def run(argv: list[str], monkeypatch, **fakes):
     return code, out.getvalue(), err.getvalue()
 
 
+def run_v1(argv: list[str], monkeypatch, **fakes):
+    """The same, for a v1 spelling: through `compat` first, as the front door does."""
+    mapping = compat.translate(argv, env={})
+    assert mapping.disposition in ("map", "note"), (argv, mapping)
+    return run(mapping.argv, monkeypatch, **fakes)
+
+
 # --- the verb table (C-17.1) --------------------------------------------------
 
 @pytest.mark.parametrize("argv,verb", [
@@ -242,6 +249,36 @@ def test_a_daemon_that_is_older_than_the_op_says_so(monkeypatch, tmp_path):
     assert "daemon stop" in err
 
 
+def test_a_bare_tickle_surveys_and_sends_nothing(monkeypatch):
+    """C-17.1 preserves v1: without `--all` or `--session`, tickle printed the
+    survey and nudged nobody.
+
+    `subfleet tickle` is a command agents run to LOOK. Making it deliver would
+    turn every diagnostic into a fleet-wide nudge.
+    """
+    from subfleet.sessions import nudge as nudge_module
+    seen: list[bool] = []
+
+    def record(sessions, policy, **kwargs):
+        seen.append(kwargs["dry_run"])
+        return nudge_module.Report(scope=kwargs["scope"])
+
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(nudge_module, "sweep", record)
+
+    for argv in (["tickle"], ["tickle", "--force"]):
+        seen.clear()
+        code, out, err = run_v1(argv, monkeypatch)
+        assert code == int(Exit.OK) and seen == [True]
+        assert "a survey, because no session was named" in err
+
+    for argv in (["tickle", "--all"], ["tickle", "--session", ALICE], ["muster"]):
+        seen.clear()
+        run_v1(argv, monkeypatch)
+        assert seen == [False], argv
+
+
 # --- the cold sweep's two recoveries (plan decision 7) ------------------------
 
 def test_a_cold_sweep_dispatches_nothing_without_an_explicit_recovery(monkeypatch,
@@ -265,6 +302,40 @@ def test_a_cold_sweep_dispatches_nothing_without_an_explicit_recovery(monkeypatc
     assert revive_module.OPT_IN_FIX in err
 
 
+def test_a_batch_cap_of_zero_means_zero(monkeypatch):
+    """C-17.1 preserves `--max`: an explicit zero requests no recoveries."""
+    from subfleet.sessions import revive as revive_module
+    tried: list[str] = []
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "cold_candidates",
+                        lambda *a, **k: [revive_module.Candidate(session_id=ALICE)])
+    monkeypatch.setattr(revive_module, "revive",
+                        lambda s, p, sid, **k: tried.append(sid) or
+                        revive_module.Attempted(session_id=sid))
+    run(["sessions", "continue", "--scope", "cold", "--max", "0"], monkeypatch)
+    assert tried == []
+    run(["sessions", "continue", "--scope", "cold", "--max", "1"], monkeypatch)
+    assert tried == [ALICE]
+
+
+def test_a_refused_revive_reports_seven_under_json_too(monkeypatch):
+    """C-17.3, C-17.4: `--json` changes the output format, not the verdict."""
+    from subfleet.sessions import revive as revive_module
+    held = revive_module.Attempted(session_id=ALICE, admitted=False,
+                                   reason="the desktop app owns this session",
+                                   fix=revive_module.OPT_IN_FIX,
+                                   candidate=revive_module.Candidate(session_id=ALICE))
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "revive", lambda *a, **k: held)
+    code, out, err = run(["sessions", "revive", ALICE, "--json"], monkeypatch)
+    assert code == int(Exit.REFUSED) == 7
+    assert json.loads(out)["admitted"] is False
+
+
 def test_the_cold_sweep_can_hand_off_instead_of_reviving(monkeypatch):
     """Plan decision 7's other recovery, made explicit: `--handoff --to <model>`
     dispatches a continuity brief per cold session (C-23.54)."""
@@ -286,6 +357,10 @@ def test_the_cold_sweep_can_hand_off_instead_of_reviving(monkeypatch):
                         lambda *a, **k: [revive_module.Candidate(session_id=ALICE,
                                                                  cwd="/repo")])
     monkeypatch.setattr(handoff_module, "handoff", fake_handoff)
+    code, out, err = run(["sessions", "continue", "--scope", "cold", "--handoff",
+                          "--to", "astra", "--max", "0"], monkeypatch)
+    assert code == int(Exit.OK) and dispatched == []
+    assert "1 more cold sessions were not attempted" in err
     code, out, err = run(["sessions", "continue", "--scope", "cold", "--handoff",
                           "--to", "astra"], monkeypatch)
     assert code == int(Exit.OK)

@@ -305,8 +305,14 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
                 reason="not a live registered session (no inbox to reach)"))
     report.duplicates = registry.duplicate_report(listing)
 
-    quiet_s = limits["muster_quiet_s"] if scope == "idle" else limits["sweep_quiet_s"]
-    default_wait = limits["sample_s"] if manual else limits["delay_s"]
+    # C-17.1 preserves v1's immediate `tickle --session <id>`. That exception
+    # applies to one manual nudge: hook wakes still wait for the inbox, and
+    # muster and manual sweeps retain C-23.34's sample and quiet window.
+    named_nudge = manual and scope == "interrupted" and len(wanted) == 1
+    quiet_s = 0.0 if named_nudge else (
+        limits["muster_quiet_s"] if scope == "idle" else limits["sweep_quiet_s"])
+    default_wait = 0.0 if named_nudge else (
+        limits["sample_s"] if manual else limits["delay_s"])
     wait_s = default_wait if delay_s is None else float(delay_s)
 
     for item in listing:

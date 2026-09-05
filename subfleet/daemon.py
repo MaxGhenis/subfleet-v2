@@ -56,6 +56,7 @@ LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
 #: are events rather than a table because each is an append-only record of one
 #: operator or worker decision, and the latest row for a session is the answer.
 NUDGE_EVENT = "session.nudged"
+REVIVE_EVENT = "session.revived"
 RETIRE_EVENT = "session.retired"
 UNRETIRE_EVENT = "session.unretired"
 
@@ -680,11 +681,17 @@ class Daemon:
 
     def _session_events(self, kinds: tuple[str, ...],
                         session_ids: set[str] | None) -> dict[str, dict]:
-        """The newest event of each kind per session id, keyed `<kind>:<id>`."""
+        """The newest event of each kind per session id, keyed `<kind>:<id>`.
+
+        `event_id` rides along because the store stamps `ts` to the second, and
+        retiring and unretiring a session inside one second is a thing an
+        operator does; the row order is the only tiebreak that is always right.
+
+        """
         marks = ",".join("?" for _ in kinds)
         latest: dict[str, dict] = {}
         for row in self.store.query(
-                f"SELECT kind,ts,data_json FROM events WHERE kind IN ({marks}) "
+                f"SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
                 "ORDER BY event_id DESC", kinds):
             try:
                 data = json.loads(row["data_json"])
@@ -694,20 +701,33 @@ class Daemon:
             if not isinstance(session, str) or (session_ids is not None
                                                 and session not in session_ids):
                 continue
-            latest.setdefault(f"{row['kind']}:{session}", {**data, "at": row["ts"]})
+            latest.setdefault(f"{row['kind']}:{session}",
+                              {**data, "at": row["ts"], "event_id": row["event_id"]})
         return latest
 
     def _lane_session_ids(self) -> list[str]:
-        """Every session id subfleet itself launched as a headless lane (C-23.31)."""
+        """Every session id subfleet itself CREATED as a headless lane (C-23.31).
+
+        A revive's attempt records the session it continued, not one it created —
+        `resume_launch` is handed the operator's own session id. Counting those
+        would mark every revived session a lane run permanently, and C-23.31
+        makes a lane run un-nudgeable, un-listable and un-revivable: one revive
+        would retire the session from the fleet for good. Every other kind
+        launches under a `--session-id` this daemon minted, so every other kind
+        belongs here.
+        """
         return sorted({row["native_session_id"] for row in self.store.query(
-            "SELECT DISTINCT native_session_id FROM attempts "
-            "WHERE native_session_id IS NOT NULL") if row["native_session_id"]})
+            "SELECT DISTINCT a.native_session_id FROM attempts a "
+            "JOIN jobs j USING(job_id) "
+            "WHERE a.native_session_id IS NOT NULL AND j.kind<>'revive'")
+            if row["native_session_id"]})
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
         action = args.action or "state"
         if action == "state":
             wanted = {s for s in args.session_ids if isinstance(s, str) and s} or None
-            latest = self._session_events((NUDGE_EVENT, RETIRE_EVENT, UNRETIRE_EVENT), wanted)
+            latest = self._session_events(
+                (NUDGE_EVENT, REVIVE_EVENT, RETIRE_EVENT, UNRETIRE_EVENT), wanted)
             leases = {row["lease_key"]: row["holder"] for row in
                       self.store.query("SELECT lease_key,holder FROM leases "
                                        "WHERE lease_key LIKE 'session:%:revive'")}
@@ -716,15 +736,28 @@ class Daemon:
                 retired = latest.get(f"{RETIRE_EVENT}:{session}")
                 cleared = latest.get(f"{UNRETIRE_EVENT}:{session}")
                 # Retirement is durable until the operator clears it, and both
-                # halves are append-only, so the later row wins (C-23.35).
-                if retired and cleared and cleared["at"] >= retired["at"]:
+                # halves are append-only, so the later ROW wins (C-23.35) —
+                # by event_id, not by a second-precision timestamp.
+                if retired and cleared and cleared["event_id"] > retired["event_id"]:
                     retired = None
                 state[session] = {
                     "retired": retired,
                     "last_nudge": latest.get(f"{NUDGE_EVENT}:{session}"),
+                    "last_revive": latest.get(f"{REVIVE_EVENT}:{session}"),
                     "revive_holder": leases.get(revive_lease_key(session)),
                 }
             return {"sessions": state, "lane_sessions": self._lane_session_ids()}
+        if action == "revived":
+            if not args.session_id:
+                raise protocol.ProtocolError("sessions revived: session_id is required")
+            # C-23.39: retain the operator's model substitution as history.
+            # Admission remains governed by the live lease (C-23.55).
+            data = {"session_id": args.session_id, "dedupe_key": args.dedupe_key,
+                    **args.detail}
+            with self.store.transaction(audit_kind(REVIVE_EVENT), data=data) as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), REVIVE_EVENT, json.dumps(data, sort_keys=True)))
+            return {"session_id": args.session_id, "recorded": True}
         if action in ("retire", "unretire"):
             if not args.session_id:
                 raise protocol.ProtocolError(f"sessions {action}: session_id is required")

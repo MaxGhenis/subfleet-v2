@@ -270,6 +270,30 @@ def test_a_session_with_no_recorded_model_is_routed_by_task_and_tier(world, poli
     assert "routed as" in result.reason
 
 
+
+def test_previous_revive_history_does_not_replace_live_lease_admission(
+        world, policy, tmp_path):
+    """C-23.55 limits live revives; history alone cannot refuse a later retry."""
+    cold_session(world)
+    daemon = fx.FakeSessions(revives={COLD: {"dedupe_key": "cut",
+                                           "job_id": "finished-revive"}})
+    result = attempt(daemon, policy, COLD, tmp_path, opt_in=True)
+    assert result.admitted is True
+    assert len(daemon.submits) == 1
+
+def test_the_substitution_is_recorded_durably(world, policy, tmp_path):
+    """C-23.39: "a different tier is used only when the operator passes
+    `--model`, and the substitution is recorded"."""
+    cold_session(world, model="claude-fable-5-1")
+    daemon = fx.FakeSessions()
+    attempt(daemon, policy, COLD, tmp_path, opt_in=True, model="opus")
+    record = daemon.revives[COLD]
+    assert record["model"] == "opus"
+    assert record["recorded_model"] == "claude-fable-5-1"
+    assert record["substituted"] is True
+    assert "substituted opus for claude-fable-5-1" in record["why"]
+
+
 # --- the job it submits (C-23.54, C-6.5) --------------------------------------
 
 def test_the_revive_job_is_writable_in_place_and_owned_by_its_own_session(

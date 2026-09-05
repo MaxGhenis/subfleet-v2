@@ -286,6 +286,43 @@ def test_every_named_section_is_present_and_in_order(home, repo, policy):
     assert f"Target cwd: {repo}" in brief.text
 
 
+def test_recent_excerpt_counts_separators_inside_its_cap(home, policy):
+    """C-23.36: separators and a tiny final allowance fit the section budget."""
+    caps = {**policy["sessions"]["handoff_caps"], "recent": 40}
+    path = fx.transcript(home, SESSION, [
+        fx.assistant_text("older context " * 1000, uuid="a0", at=fx.ago(600)),
+        fx.assistant_text("latest reply", uuid="a1", at=fx.ago(60))])
+    excerpt, _count = handoff.recent_excerpt(path, None, caps)
+    assert len(excerpt) <= caps["recent"]
+    assert excerpt.endswith("latest reply"), "the newest context is kept first"
+    assert "\n\n" in excerpt, "more than one segment exercises separator accounting"
+
+
+def test_empty_sections_still_respect_their_caps_in_the_rendered_brief(home, repo, policy):
+    """C-23.36: fallback explanations are part of the bounded section too."""
+    caps = {**policy["sessions"]["handoff_caps"], "recent": 10, "progress": 5}
+    brief = build(home, repo, [fx.typed_prompt("continue the work", uuid="p0",
+                                              at=fx.ago(60))], policy, caps=caps)
+    recent = brief.text.split("## Recent main-chain excerpt\n\n", 1)[1].split(
+        "\n\n## PROGRESS.md", 1)[0]
+    progress = brief.text.split("## PROGRESS.md\n\n", 1)[1].split(
+        "\n\n## Repository state", 1)[0]
+    assert len(recent) <= caps["recent"]
+    assert len(progress) <= caps["progress"]
+
+
+@pytest.mark.parametrize("cap", [0, 5])
+def test_tiny_caps_allow_a_task_and_bound_non_git_repository_context(home, tmp_path, policy, cap):
+    """C-23.36: zero omits task text, and non-Git fallback obeys its cap."""
+    caps = {**policy["sessions"]["handoff_caps"], "original_task": cap,
+            "recent": cap, "progress": cap, "repository": cap}
+    brief = build(home, tmp_path, [fx.typed_prompt("continue the work", uuid="p0",
+                                                  at=fx.ago(60))], policy, caps=caps)
+    assert len(brief.original) <= cap
+    repository = brief.text.split("## Repository state", 1)[1].strip()
+    assert len(repository) <= cap
+
+
 def test_the_repository_section_reports_the_real_worktree(home, repo, policy):
     """C-23.36: the brief points at state a receiving agent can verify."""
     brief = build(home, repo, conversation(), policy)
@@ -465,6 +502,24 @@ def test_a_workdir_that_is_not_a_directory_is_refused(home, tmp_path):
         handoff.resolve_workdir(path, tmp_path / "nope")
 
 
+@pytest.mark.parametrize("tail_kind", ["sidechain", "tool-result"])
+def test_workdir_uses_recorded_cwd_beyond_the_recent_tail(home, repo, tail_kind):
+    """C-23.54 and v1 handoff compatibility: long tails do not lose the workdir."""
+    task = fx.typed_prompt("continue the work", uuid="p0", at=fx.ago(3600))
+    task["cwd"] = str(repo)
+    padding = "tool output " * (handoff.LAST_SCAN_BYTES // 12 + 1000)
+    if tail_kind == "sidechain":
+        tail = fx.assistant_text(padding, uuid="a1", at=fx.ago(60))
+        tail["isSidechain"] = True
+    else:
+        tail = fx.user_tool_result(padding, uuid="r1", at=fx.ago(60))
+        tail.pop("cwd")
+    path = fx.transcript(home, SESSION, [task, tail], cwd=str(repo))
+
+    assert path.stat().st_size > handoff.LAST_SCAN_BYTES
+    assert handoff.resolve_workdir(path, None) == (repo.resolve(), str(repo))
+
+
 # --- the scrubber, exercised directly -----------------------------------------
 
 def test_the_scrubber_counts_what_it_replaced(home):
@@ -493,3 +548,12 @@ def test_truncation_keeps_the_head_and_the_tail(home):
     cut = handoff.truncate(body, 200)
     assert cut.startswith("START") and cut.endswith("END")
     assert len(cut) <= 200 and "characters omitted" in cut
+
+
+@pytest.mark.parametrize("limit", [0, 1, 12, 13, 30])
+def test_tiny_truncation_budget_never_returns_the_whole_section(limit):
+    """C-23.36: even a cap smaller than the omission marker is a hard bound."""
+    cut = handoff.truncate("ordinary text " * 1000, limit)
+    assert len(cut) <= limit
+    if limit >= len(handoff.ELIDED):
+        assert "omitted" in cut

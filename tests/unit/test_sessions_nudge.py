@@ -347,8 +347,24 @@ def test_naming_your_own_session_still_nudges_it(home, policy):
     assert report.outcomes[0].delivered is True
 
 
+def test_a_named_session_waits_for_neither_gate(home, policy):
+    """C-17.1 keeps `tickle --session <id>`: no sample or 120 s quiet window.
+
+    v1 applied both only to `--all`. Naming a session is a decision, and the
+    person who made it can see the session; a fresh interruption is exactly the
+    case they are naming it for.
+    """
+    live(home, ALICE, entries=fx.interrupted(age_s=5))
+    waited: list[float] = []
+    daemon = fx.FakeSessions()
+    report = nudge.sweep(daemon, policy, scope="interrupted", only=[ALICE],
+                         manual=True, now=clock, sleep=waited.append)
+    assert report.outcomes[0].delivered is True, "no quiet gate for a named session"
+    assert waited == [], "and no sample either"
+
+
 def test_a_sweep_samples_briefly_and_a_hook_wake_waits_for_the_inbox(home, policy):
-    """v1's two waits, kept apart: a `SessionStart` wake waits 8 s because the
+    """C-23.34: a `SessionStart` wake waits 8 s because the
     inbox binds a moment after the hook runs; a sweep waits 3 s because it is
     only sampling, and eight seconds per session over a fleet is a minute wasted.
     """
@@ -356,9 +372,25 @@ def test_a_sweep_samples_briefly_and_a_hook_wake_waits_for_the_inbox(home, polic
     waited: list[float] = []
     nudge.sweep(fx.FakeSessions(), policy, scope="interrupted", manual=True,
                 now=clock, sleep=waited.append)
-    nudge.sweep(fx.FakeSessions(), policy, scope="interrupted", manual=False,
-                now=clock, sleep=waited.append)
+    nudge.wake(fx.FakeSessions(), policy, ALICE, source="startup",
+               now=clock, sleep=waited.append)
     assert waited == [3.0, 8.0]
+
+
+@pytest.mark.parametrize("scope,named", [("idle", [ALICE]),
+                                         ("interrupted", [ALICE, BOB])])
+def test_named_roll_calls_and_multi_session_sweeps_keep_the_quiet_window(
+        home, policy, scope, named):
+    """C-23.34: naming sweep targets does not waive the manual quiet window."""
+    live(home, ALICE, entries=fx.interrupted(age_s=5))
+    waited: list[float] = []
+    daemon = fx.FakeSessions()
+    report = nudge.sweep(daemon, policy, scope=scope, only=named,
+                         now=clock, sleep=waited.append)
+    alice = next(item for item in report.outcomes if item.session_id == ALICE)
+    assert "quiet" in alice.reason
+    assert daemon.pings == []
+    assert waited == [3.0]
 
 
 def test_an_explicit_delay_overrides_both(home, policy):

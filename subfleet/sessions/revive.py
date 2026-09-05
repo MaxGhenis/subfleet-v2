@@ -98,6 +98,7 @@ class Candidate:
     desktop_owned: bool = True
     lane: bool = False
     retired: dict | None = None
+    last_revive: dict | None = None
     live_pids: tuple[int, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -105,6 +106,7 @@ class Candidate:
                 "cwd": self.cwd, "permission_mode": self.permission_mode,
                 "model": self.model, "desktop_owned": self.desktop_owned,
                 "lane": self.lane, "retired": self.retired,
+                "last_revive": self.last_revive,
                 "live_pids": list(self.live_pids), "state": self.state.to_dict()}
 
 
@@ -191,6 +193,7 @@ def inspect(session_id: str, *, lane_ids: set[str], facts: dict[str, Any],
         desktop_owned=bool(meta.get("desktop_owned")),
         lane=registry.is_lane_run(session_id, lane_ids=lane_ids, transcript=path),
         retired=(facts.get("retired") if facts else None),
+        last_revive=(facts.get("last_revive") if facts else None),
         live_pids=live.live_pids if live else (),
     )
 
@@ -337,8 +340,16 @@ def revive(sessions, policy: dict[str, Any], session_id: str, *,
                        prompt_path=str(prompt_path), workdir=workdir,
                        task=task, tier=tier)
     result = sessions.submit(args)
+    job_id = result.get("job_id")
+    # Record only accepted submissions; refused requests did not change models.
+    sessions.record_revive(
+        session_id, dedupe_key=candidate.state.dedupe_key,
+        detail={"job_id": job_id, "model": pinned,
+                "recorded_model": candidate.model,
+                "substituted": bool(model), "task": task, "tier": tier,
+                "why": why})
     return Attempted(session_id=session_id, admitted=True,
-                     job_id=result.get("job_id"), model=pinned,
+                     job_id=job_id, model=pinned,
                      reason=why, candidate=candidate)
 
 
@@ -384,5 +395,5 @@ def render(attempts: Sequence[Attempted]) -> str:
 
 __all__ = ["Attempted", "Candidate", "OPT_IN_FIX", "PROBE_PROMPT", "REQUIRED_MODE",
            "REVIVE_MESSAGE", "ReviveRefused", "admits", "cold_candidates", "inspect",
-           "model_for", "render", "revive", "session_store_dir", "store_metadata",
-           "submit_args"]
+           "model_for", "render", "revive", "session_store_dir",
+           "store_metadata", "submit_args"]
