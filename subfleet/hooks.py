@@ -343,7 +343,11 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
     if not session:
         return int(Exit.OK)
     if event == "SessionStart":
-        wake_worker(session, payload, root)
+        try:
+            wake_worker(session, payload, root)
+        except Exception:                               # noqa: BLE001 - see below
+            pass    # Exit 2 here blocks the session from starting; a missed
+                    # nudge is recoverable and a blocked session is not.
     marked = True
     try:
         client = Client(root) if client is None else client
