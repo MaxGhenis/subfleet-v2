@@ -31,3 +31,10 @@ Implementing the core lane's persistence and support modules; shared seams remai
 ## Next
 +- Integrate with daemon checks and address concrete failures.
 +- Required pushes continue to fail DNS resolution for github.com; final report must record this limitation.
+
+## Independent daemon review
++- C-8.1/C-8.3: reported concurrent `_export` entry from finalization and the control loop; one publisher could release the lease while another still writes the old result. Root owns the fix and regression test.
++- C-4.5: reproduced a transient retry choosing a different newly available lane, and a pinned lane waiting forever after its second transient failure. Root owns retry fixes.
++- C-6.4: noted that wall time was checked only for live attempts, leaving waiting retries outside the deadline.
++- C-8.4/C-13.4: reported that the maintenance helper removes job artifacts but does not remove allocated Git worktrees; this requires integrator follow-up or explicit scope reporting.
++- Review used deterministic daemon state with constructor identity stubs, never spawned providers, and made no daemon edits.
