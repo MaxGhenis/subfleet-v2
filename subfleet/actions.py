@@ -65,6 +65,22 @@ def _weekly(row: dict) -> dict:
     return max(values, key=lambda item: item.get("observed_at", ""), default={})
 
 
+def _usage_observed(probe: dict) -> datetime | None:
+    """C-19.1: a stored usage verdict retains its real observation timestamp."""
+    timestamp = probe.get("checked_at")
+    if timestamp is None:
+        readings = [asdict(item) if is_dataclass(item) else item for item in probe.get("readings", ())]
+        observed = [item.get("observed_at") for item in readings
+                    if isinstance(item, dict) and item.get("label") in ("provider", "stale-provider")
+                    and item.get("observed_at")]
+        # Completion of a new monitoring pass must not freshen retained readings.
+        timestamp = min(observed) if observed else probe.get("probed_at")
+    try:
+        return _time(timestamp) if timestamp is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _order(row: dict) -> tuple:
     try:
         reset = _time(_weekly(row)["resets_at"]).timestamp()
@@ -179,6 +195,11 @@ class ResetCredits:
     def _history(self) -> list[dict]:
         return self.store.query("SELECT * FROM actions WHERE kind='reset-credit' ORDER BY created_at,action_id")
 
+    def _fresh_usage(self, probe: dict, now: datetime) -> bool:
+        observed = _usage_observed(probe)
+        ttl = self.policy.get("caps", {}).get("reading_ttl_s", 120)
+        return observed is not None and 0 <= (now - observed).total_seconds() <= ttl
+
     def _reconciled(self) -> set[str]:
         return {json.loads(row["data_json"]).get("action_id") for row in self.store.query(
             "SELECT data_json FROM events WHERE kind='action.reconciled'")}
@@ -234,6 +255,8 @@ class ResetCredits:
             result.update(trigger_reason=trigger, weekly_headroom_pct=headroom)
             candidates = sorted([row for row in rows if (row.get("probe") or {}).get("limit_reached") is True
                                  and (row.get("probe") or {}).get("status") in ("ok", "limited")
+                                 and self._fresh_usage(row.get("probe") or {}, instant)
+                                 and (row.get("probe") or {}).get("account_key", row["account_key"]) == row["account_key"]
                                  and self.confirmed_override(row["lane_id"], now=instant) is None], key=_order)
             # Shadowing excludes while ANY eligible unshadowed lane has a concrete gift.
             def shadowed(row):
@@ -329,7 +352,12 @@ class ResetCredits:
         instant = _time(now or datetime.now(timezone.utc))
         if probe.get("status") != "ok" or probe.get("limit_reached") is not False or probe.get("allowed") is False:
             return None
-        observed = _time(probe.get("checked_at") or instant)
+        lane = self.store.get_lane(lane_id)
+        if lane is not None and probe.get("account_key") is not None and probe["account_key"] != lane.account_key:
+            return None
+        if not self._fresh_usage(probe, instant):
+            return None
+        observed = _usage_observed(probe)
         reconciled, result = self._reconciled(), None
         for action in self._history():
             if not self._belongs_to_lane(action, lane_id) or action["action_id"] in reconciled or action["state"] not in ("unknown", "confirmed"):

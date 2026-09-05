@@ -167,6 +167,8 @@ def test_one_credit_per_evaluation_and_minimum_interval_including_imported_actio
     assert len(store.query("SELECT * FROM actions")) == 1
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
     assert resets.evaluate(view, now=NOW + timedelta(minutes=29))["status"] == "interval-blocked"
+    for row in view["lanes"]:
+        row["probe"]["checked_at"] = "2026-09-05T12:30:00Z"
     assert resets.evaluate(view, now=NOW + timedelta(minutes=30))["status"] == "confirmed"
     store.add_action(action_id="imported", kind="reset-credit", op_key="imported-account:gift-old", subject="old-home",
                      state="confirmed", created_at="2026-09-05T13:00:00Z", updated_at="2026-09-05T13:00:00Z")
@@ -306,7 +308,8 @@ def test_confirmed_override_ends_after_provider_propagation(store, tmp_path):
     resets = component(store, HTTP())
     resets.evaluate(snapshot(store), now=NOW)
     assert resets.confirmed_override(target.lane_id, now=NOW)
-    resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False}, now=NOW + timedelta(minutes=5))
+    resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False,
+                          "checked_at": "2026-09-05T12:05:00Z"}, now=NOW + timedelta(minutes=5))
     assert resets.confirmed_override(target.lane_id, now=NOW + timedelta(minutes=5)) is None
 
 
@@ -333,7 +336,7 @@ def test_imported_account_or_home_subject_reopens_and_reconciles_the_correct_lan
                      created_at=STAMP, updated_at=STAMP)
     resets = component(store, HTTP())
     assert resets.confirmed_override(target.lane_id, now=NOW)["action_id"] == "imported"
-    settled = resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False}, now=NOW)
+    settled = resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False, "checked_at": STAMP}, now=NOW)
     assert settled["action_id"] == "imported"
     assert resets.confirmed_override(target.lane_id, now=NOW) is None
     assert store.get_action("imported")["state"] == "confirmed"
@@ -345,6 +348,39 @@ def test_imported_home_cannot_reopen_another_account_after_home_rebinding(store,
     store.add_action(action_id="imported", kind="reset-credit", op_key="codex:another:gift-old",
                      subject=target.home, state="confirmed", created_at=STAMP, updated_at=STAMP)
     assert component(store, HTTP()).confirmed_override(target.lane_id, now=NOW) is None
+
+
+@pytest.mark.parametrize("metadata", [
+    {"checked_at": "2026-09-05T11:00:00Z"},
+    {"checked_at": "2026-09-05T13:00:00Z"},
+    {"account_key": "codex:another-account"},
+])
+def test_stale_future_or_wrong_account_usage_cannot_admit_a_reset(store, tmp_path, metadata):
+    """C-23.16 C-1.4: redemption requires current usage from the bound account."""
+    target = lane(store, tmp_path)
+    http = HTTP()
+    view = snapshot(store)
+    view["lanes"][0]["probe"].update(metadata)
+    assert component(store, http).evaluate(view, now=NOW)["status"] == "no-concrete-credit"
+    assert not http.calls
+
+
+@pytest.mark.parametrize("metadata", [
+    {"checked_at": "2026-09-05T11:00:00Z"},
+    {"checked_at": STAMP, "account_key": "codex:another-account"},
+    {"probed_at": STAMP, "readings": [{"label": "provider", "observed_at": "2026-09-05T11:00:00Z"}]},
+    {},
+])
+def test_unknown_reconciliation_requires_current_same_account_usage(store, tmp_path, metadata):
+    """C-19.1 C-23.13 C-1.4: completion timestamps and wrong-account reads cannot settle unknown actions."""
+    target = lane(store, tmp_path)
+    resets = component(store, HTTP(response=TimeoutError()))
+    result = resets.evaluate(snapshot(store), now=NOW)
+    assert result["status"] == "unknown"
+    probe = {"status": "ok", "limit_reached": False, **metadata}
+    assert resets.settle_by_usage(target.lane_id, probe, now=NOW) is None
+    assert store.list_closures(active_at=STAMP)
+    assert not resets._reconciled() - {None}
 
 
 def test_cancelled_evaluation_makes_no_request(store, tmp_path):
