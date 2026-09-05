@@ -5,26 +5,29 @@ Brief: `docs/lanes/importer.md`. Specification: `docs/migration.md` (import mani
 
 ## State
 
-Built and green. `uv run pytest -q tests/unit/test_importer.py tests/unit/test_lanes_transfer.py`:
-63 passed in ~9 s. Full suite: 856 passed, 5 skipped (one pre-existing timing flake in
-`tests/fake/test_daemon_contract.py::test_c7_2_...`, which passes in isolation).
+Built, reviewed and green. `uv run pytest -q tests/unit/test_importer.py
+tests/unit/test_lanes_transfer.py`: 79 passed in ~4 s. Full suite: 873 passed,
+5 skipped.
 
 ## Done
 
 - Read order 1-4 of the brief; the v1 formats are recorded below.
 - `subfleet/importer.py`: `ImportReport`/`StoreReport`, the manifest as data, per-store cursors
   in `events` of kind `import.cursor`, one function per `import` row, `scan_unmanifested`,
-  a snapshot dry run, a refusal while a daemon holds `daemon.lock`, and `python -m subfleet.importer`.
+  a snapshot dry run, `daemon.lock` held for the whole pass, `python -m subfleet.importer`.
 - `subfleet/lanes_transfer.py` plus the `lanes` daemon op, two additive `LanesArgs` fields and
   two CLI flags: ownership flip, one `events` row, both rosters, a backup beside the v1 file,
-  `--i-understand-v1-edit`, `--dry-run`.
+  `--i-understand-v1-edit`, `--dry-run`, and a refusal while v1's launch agents can still
+  reach a Codex home.
 - `tools/compare_decisions.py` and `docs/shadow-diffs/README.md`.
-- `tests/unit/test_importer.py` (46), `tests/unit/test_lanes_transfer.py` (17),
+- `tests/unit/test_importer.py` (55), `tests/unit/test_lanes_transfer.py` (24),
   `tests/live/test_import_dry_run.py` (opt-in, `SUBFLEET_LIVE=1`).
-- Seam change: `notices.job_id` is nullable, because the v1 outbox holds session messages that
-  name a session and no run.
-- C-3.3 pass: every v1 read, every `ps` call, every digest and every file publication happens
-  outside the transaction that records the rows.
+- Seam changes: `notices.job_id` nullable; `daemon._control` skips attempts flagged
+  `imported_external`; `LanesArgs` gained `dry_run` and `confirm_v1_edit`.
+- A 12-agent adversarial review of the lane against the manifest and the contract, and its
+  confirmed findings fixed: external runs stay v1's, cursors keep what they did not finish,
+  no v1 WAL database is opened in place, the compare script replays the caller's request
+  rather than v1's answer.
 
 ## Next
 

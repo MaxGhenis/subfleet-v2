@@ -13,14 +13,23 @@ package imports it: it lives in `tools/` so it never ships (pyproject packages
     tools/compare_decisions.py --since 2026-09-01
     SUBFLEET_HOME=~/.subfleet tools/compare_decisions.py --date 2026-09-06
 
-For each v1 decision it replays the inputs v1 recorded through
+The inputs are read from the record's `overrides` object, which is where v1 puts
+what the *caller* asked for - `model` (the caller's `-m`), `home` and `lane` (the
+caller's `-H`/`-a`), `task`, `tier` and `class` - plus the top-level `task` and
+`tier` on records new enough to carry them. Nothing is read from the recorded
+`cmd`: that argv is built *after* v1 has routed, so its `-m` and `-H` are v1's
+answer. Feeding them back as the replay's input would ask v2 to confirm v1's
+decision and it would agree by construction. `requested_model` is v1's own
+pre-capacity choice, an output too, and is not used either.
+
+A shape with a task and a tier and no pinned lane replays through
 `subfleet why --task <task> --tier <tier> --json` (C-11.5: `why` prints the
-decision record and never dispatches). Two inputs the CLI cannot express are
-replayed through the routing engine directly, against a read-only store
-(C-3.4): a lane pinned with v1's `-a <email>` or `-H <home>`, which `why` has no
-flag for, and a decision v1 recorded before it carried a task and a tier, whose
-`class` only maps onto a v2 task for `build`, `review` and `sweep`
-(`cli.LEGACY_TASK_CLASSES`).
+decision record and never dispatches). Everything else - a caller's lane pin,
+which `why` has no flag for, and a `-m` pin with no task, which the CLI refuses
+without `--task` - replays through the routing engine directly against a
+read-only store (C-3.4). v1 records the caller's exclusions (`-x`) nowhere, so a
+decision that had them cannot be replayed faithfully; the report says so rather
+than replaying a shape it knows is incomplete.
 
 `decisions.jsonl` is 16,710 lines and 274 MB, one JSON object per line, most of
 it the capacity snapshot v1 embedded in each record. The file is streamed, never
@@ -55,6 +64,8 @@ DECISIONS = Path("~/.local/state/delegate/decisions.jsonl").expanduser()
 OUTPUT_DIR = REPOSITORY / "docs" / "shadow-diffs"
 
 #: v1 routing classes that v2 spells the same way (`cli.LEGACY_TASK_CLASSES`).
+#: v1's other classes (`judgment`, `mechanical`, `fable`) have no v2 task, and a
+#: class carries no tier, so a class alone is only ever half a shape.
 CLASS_TO_TASK = {"build": "build", "review": "review", "sweep": "sweep"}
 TIERS = ("trivial", "easy", "standard", "hard")
 
@@ -75,6 +86,11 @@ class Shape:
     pinned_lane: str | None
     exclusions: tuple[str, ...]
     allow_desktop: bool
+
+    @property
+    def replayable(self) -> bool:
+        """Whether v1 recorded enough of the caller's request to route it again."""
+        return bool(self.task and self.tier) or bool(self.pinned_model) or bool(self.pinned_lane)
 
     @property
     def expressible(self) -> bool:
@@ -146,7 +162,9 @@ def records(path: Path, since: str | None, until: str | None,
             stamp = str(record.get("ts") or "")
             if since and stamp < since:
                 continue
-            if until and stamp > until:
+            if until and stamp[:len(until)] > until:
+                # A bare `--until 2026-09-06` means the whole of that day: every
+                # timestamp on it sorts after the date, so compare on its prefix.
                 continue
             yield record
             read += 1
@@ -155,26 +173,24 @@ def records(path: Path, since: str | None, until: str | None,
 
 
 def shape_of(record: dict[str, Any], model_names: dict[str, str]) -> Shape:
-    """The inputs v1 routed on, read off the record and its recorded argv."""
+    """What the caller asked v1 for, from `overrides` and the record's own fields.
+
+    Never from `cmd`: v1 writes that argv after routing, so its `-m` and `-H` are
+    v1's answer, not the question.
+    """
     overrides = record.get("overrides") if isinstance(record.get("overrides"), dict) else {}
     task = record.get("task") or overrides.get("task") or CLASS_TO_TASK.get(record.get("class"))
     tier = record.get("tier") or overrides.get("tier")
-    argv = [str(item) for item in (record.get("cmd") or []) if isinstance(item, str)]
-    pinned_model = pinned_lane = None
-    exclusions: list[str] = []
-    allow_desktop = False
-    for index, token in enumerate(argv):
-        following = argv[index + 1] if index + 1 < len(argv) else None
-        if token == "-m" and following:
-            pinned_model = model_names.get(following.lower(), following)
-        elif token in ("-a", "-H") and following:
-            pinned_lane = following
-        elif token in ("-x", "--exclude") and following:
-            exclusions.append(following)
-        elif token in ("--allow-desktop", "--desktop"):
-            allow_desktop = True
-    return Shape(task, tier if tier in TIERS else None, pinned_model, pinned_lane,
-                 tuple(sorted(exclusions)), allow_desktop)
+    pinned_model = overrides.get("model")
+    if isinstance(pinned_model, str) and pinned_model:
+        pinned_model = model_names.get(pinned_model.lower(), pinned_model)
+    else:
+        pinned_model = None
+    pinned_lane = overrides.get("home") or overrides.get("lane")
+    return Shape(task if isinstance(task, str) else None,
+                 tier if tier in TIERS else None, pinned_model,
+                 pinned_lane if isinstance(pinned_lane, str) and pinned_lane else None,
+                 (), bool(overrides.get("allow_desktop")))
 
 
 def v1_choice(record: dict[str, Any], names: dict[str, str]) -> tuple[str | None, str | None]:
@@ -315,6 +331,7 @@ def render(observations: list[Observation], *, when: str, source: Path, state_ro
         f"- records scanned: {scanned}; replayed: {replayed}; distinct input shapes: "
         f"{len(observations)}",
         f"- shapes where v2 chose differently: {len(differing)}; identical: {len(agreeing)}",
+        f"- records the journal could not answer for: {sum(skipped.values())}",
         "",
         "Every differing shape gets one line of explanation, written by a human. A row",
         "with an empty explanation has not been reviewed yet.",
@@ -322,7 +339,10 @@ def render(observations: list[Observation], *, when: str, source: Path, state_ro
         "## Differences",
         "",
     ]
-    if not differing:
+    if not replayed:
+        lines.append("Nothing was replayed, so this file says nothing about agreement. "
+                     "Check the window and the 'Records not replayed' section below.")
+    elif not differing:
         lines.append("None. v2 chose what v1 chose for every shape replayed.")
     else:
         lines += ["| n | inputs | v1 model | v1 lane | v2 model | v2 lane | v2 reason | engine | explanation |",
@@ -392,11 +412,9 @@ def main(argv: list[str] | None = None) -> int:
     for record in records(source, args.since, args.until, args.limit):
         scanned += 1
         shape = shape_of(record, names)
-        if shape.task is None and shape.pinned_model is None and shape.pinned_lane is None:
-            skipped["v1 recorded no task, model or lane this replay can express"] += 1
-            continue
-        if shape.task and shape.tier is None:
-            skipped["v1 recorded a task with no tier (pre-tier journal line)"] += 1
+        if not shape.replayable:
+            skipped["the caller's request is not in the record: no task and tier, "
+                    "no -m, no -a/-H"] += 1
             continue
         model, lane, reason, used = engine.evaluate(shape)
         v1_model, v1_lane = v1_choice(record, names)

@@ -468,20 +468,16 @@ def test_the_daemon_never_adopts_an_external_run(v1):
     """principle 3: "v2 never adopts, kills, or finalizes it".
 
     The flag has to be one the daemon reads, not only one a human can see in
-    `manifest.json`: `daemon.LIVE_ATTEMPTS_THIS_DAEMON_OWNS` is the query its
-    recovery loop selects with.
+    `manifest.json`: `daemon.imported_external` is what its recovery loop skips on.
     """
     from subfleet import daemon as daemon_module
     run_import(v1)
     live = "20260905-100400-live/a1"
     with Store(v1["root"] / "state.sqlite3", read_only=True) as store:
-        selected = [row["attempt_id"] for row in
-                    store.query(daemon_module.LIVE_ATTEMPTS_THIS_DAEMON_OWNS)]
-        every = [row["attempt_id"] for row in
-                 store.query("SELECT * FROM attempts WHERE state IN "
-                             "('reserved','starting','running','finalizing')")]
-    assert live in every                 # it is live, so v1 still owns it
-    assert live not in selected          # and v2's recovery loop never sees it
+        every = store.query(daemon_module.LIVE_ATTEMPTS)
+    assert live in [row["attempt_id"] for row in every]      # it is live: v1 owns it
+    skipped = [row["attempt_id"] for row in every if daemon_module.imported_external(row)]
+    assert skipped == [live]                                 # and recovery skips it
 
 
 def test_an_external_run_settles_when_v1_finalizes_it(v1):

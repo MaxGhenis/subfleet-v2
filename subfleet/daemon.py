@@ -45,15 +45,23 @@ from .store import Store
 
 TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
-# docs/migration.md principle 3: a v1 run still running at import time is recorded as
-# a live attempt flagged `imported_external` (subfleet/importer.py), and "v2 never
-# adopts, kills, or finalizes it". Recovery therefore selects the live attempts this
-# daemon owns, not every live attempt: without the filter the first control tick
-# would contain, kill or lose a run v1 is still executing.
-LIVE_ATTEMPTS_THIS_DAEMON_OWNS = (
-    "SELECT * FROM attempts WHERE state IN ('reserved','starting','running','finalizing') "
-    "AND COALESCE(json_extract(evidence_json,'$.imported_external'), 0) = 0"
-)
+LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
+                 "('reserved','starting','running','finalizing')")
+
+
+def imported_external(attempt: dict) -> bool:
+    """docs/migration.md principle 3: this attempt belongs to a v1 run, not to v2.
+
+    A v1 run still running at import time is recorded as a live attempt carrying
+    `imported_external` (subfleet/importer.py), and "v2 never adopts, kills, or
+    finalizes it". Recovery therefore skips it: without this the first control
+    tick would contain, kill or lose a run v1 is still executing. The parse is
+    defensive because a control loop that raises stops recovering everything.
+    """
+    try:
+        return bool(json.loads(attempt.get("evidence_json") or "{}").get("imported_external"))
+    except (TypeError, ValueError):
+        return False
 LIVE = ("reserved", "starting", "running", "finalizing")
 WRITE_PREAMBLE = (
     "<!-- subfleet:write -->\n"
@@ -504,7 +512,9 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                for a in self.store.query(LIVE_ATTEMPTS_THIS_DAEMON_OWNS):
+                for a in self.store.query(LIVE_ATTEMPTS):
+                    if imported_external(a):
+                        continue                    # v1 still owns it (principle 3)
                     self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"])
                 for j in self.store.query("SELECT * FROM jobs WHERE accepted_attempt_id IS NOT NULL"):
                     if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):
