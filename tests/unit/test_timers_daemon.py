@@ -63,3 +63,27 @@ def test_revoked_home_is_excluded_from_the_real_scheduler_without_disabling_epoc
             assert store.get_lane(lane.lane_id).enabled
         finally:
             timer.stop()
+
+
+def test_reenrolment_clears_the_homes_old_auth_condition_once(tmp_path):
+    """C-1.3 C-23.44 C-23.52: new lane binding supersedes old auth-dead history for recovery."""
+    policy = json.loads(Path('subfleet/default_policy.json').read_text())
+    with Store(tmp_path / 'state.sqlite3') as store:
+        old = Lane('codex-1', 'codex', 'codex:old', Credential('codex', str(tmp_path), 'home'), str(tmp_path), LaneOwner.V2, False, False)
+        store.put_lane(old)
+        notices = []
+        timer = Timers(store, tmp_path, policy, deliver=notices.append)
+        timer.record_auth_dead(old.lane_id)
+        try:
+            timer.alerts.evaluate(timer.snapshot())
+            new = Lane('codex-2', 'codex', 'codex:new', Credential('codex', str(tmp_path), 'home', 2), str(tmp_path), LaneOwner.V2, False)
+            store.put_lane(new)
+            timer.metadata[new.lane_id] = {'verdict':'ok', 'probe_status':'ok'}
+            view = timer.snapshot()
+            assert next(row for row in view['lanes'] if row['lane_id'] == old.lane_id)['superseded_by'] == new.lane_id
+            timer.alerts.evaluate(view)
+            timer.alerts.evaluate(view)
+            recovered = [notice for notice in notices if notice.get('recovery') and notice['home'] == str(tmp_path)]
+            assert len(recovered) == 1
+        finally:
+            timer.stop()

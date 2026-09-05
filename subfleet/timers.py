@@ -325,8 +325,16 @@ class Timers:
         return self.enrich_view(view)
 
     def enrich_view(self, view):
+        # Re-enrolment creates a new lane id. The previous binding stays in the
+        # ledger but no longer supplies the home's active credential condition.
+        bindings = {}
+        for lane in self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'):
+            bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
         for row in view['lanes']:
             row.update(self.metadata.get(row['lane_id'], {}))
+            bound = bindings.get((row['provider'], row['home'] or row['credential_ref']))
+            if not row['enabled'] and bound and bound != row['lane_id']:
+                row['superseded_by'] = bound
             row['app_shadowed'] = row.get('app_shadowed', False) or row['account_key'] == getattr(self, '_app_account', None)
             row['probe'] = dict(self.metadata.get(row['lane_id'], {}), status=row.get('probe_status', 'unknown'))
             row['probe']['readings'] = row['readings']

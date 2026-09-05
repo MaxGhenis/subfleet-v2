@@ -37,7 +37,7 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
                            "body": body, "home": home, **extra}
 
     groups: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
-    lanes = [lane for lane in snapshot.get("lanes", ()) if lane.get("owner", "v2") == "v2"]
+    lanes = [lane for lane in snapshot.get("lanes", ()) if lane.get("owner", "v2") == "v2" and not lane.get("superseded_by")]
     for lane in lanes:
         provider, home, verdict = lane["provider"], _home(lane), lane_verdict(lane)
         email = lane.get("email") or str(lane.get("account_key", home)).removeprefix(f"{provider}:")

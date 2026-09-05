@@ -78,6 +78,8 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     """C-18.1: retain Swift's Codex/Claude JSON shape with explicit evidence labels."""
     codex, claude = [], []
     for lane in snapshot.get("lanes", ()):
+        if lane.get("superseded_by"):
+            continue
         verdict, windows = lane_verdict(lane), _windows(lane)
         common = {"lane_id": lane["lane_id"], "verdict": verdict,
                   "enabled": bool(lane.get("enabled", True)), "owner": lane.get("owner", "v2"),

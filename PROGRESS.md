@@ -30,3 +30,8 @@ Implementing milestone 5 on `lane/timers`. Initial worktree is clean. Final repo
 - Done: revoked credentials block the real scheduler without losing epoch-based re-probe; guardian request metadata survives recovery; keepalive auth-dead disables immediately; retention accepts cancellation and deadlines.
 - Done: added daemon timeout-to-usage-settlement and real scheduler latch tests. The socket/guardian checks skip explicitly under this sandbox; the in-process daemon cycles execute normally.
 - Next: final full-suite comparison, report, and clean-worktree verification.
+
+## Step: re-enrolment recovery
+- Done: a newly enrolled enabled binding supersedes the old disabled binding for the home's alerts, menu projection, and credit total while preserving every historical row. This permits exactly one auth recovery notice after re-enrolment.
+- Validation: focused acceptance command now reports 120 passed, 2 skipped in 2.50 s; every new test has a contract clause in its docstring. Latest full run before this final regression case reported 1000 passed, 62 skipped, 86 baseline-identical sandbox failures in 22.54 s.
+- Next: final rerun and committed report.

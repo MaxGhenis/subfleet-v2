@@ -44,7 +44,7 @@ def fleet_credits_remaining(rows: list[dict], *, spent_lane: str | None = None) 
     """C-23.18: a partial fleet count is unknown, even after one confirmed spend."""
     counts, seen = [], set()
     for row in rows:
-        if row.get("provider") != "codex" or row.get("duplicate_of") or row.get("canonical") is False:
+        if row.get("provider") != "codex" or row.get("duplicate_of") or row.get("canonical") is False or row.get("superseded_by"):
             continue
         key = row.get("account_key") or row["lane_id"]
         if key in seen:
