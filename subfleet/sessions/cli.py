@@ -345,7 +345,9 @@ def cmd_revive(args: argparse.Namespace) -> int:
         request_id=request_id)
     if args.json:
         emit(attempt.to_dict())
-        return int(Exit.OK if attempt.admitted or attempt.candidate else Exit.REFUSED)
+        if attempt.admitted or getattr(args, "dry_run", False):
+            return int(Exit.OK)
+        return int(Exit.REFUSED)        # C-17.3: --json does not change the verdict
     if attempt.admitted:
         out(attempt.job_id or "")
         note(f"subfleet sessions revive: {attempt.job_id} continues "

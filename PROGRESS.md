@@ -33,6 +33,7 @@
 - CLI and nudge unit verification: 86 passed in 0.54s.
 - Kept explicit `--max 0` as zero cold recoveries for both revive and handoff,
   instead of replacing zero with the policy default (C-17.1).
+- Kept JSON revive refusals at exit 7, matching text output (C-17.3/C-17.4).
 
 ## Validation environment
 
