@@ -128,7 +128,7 @@ def test_c14_2_guard_refusal_reaches_cli_wait_with_fix(state_daemon, monkeypatch
 
 
 @pytest.mark.parametrize("classification,pinned,expected", [
-    ("limited", True, 4), ("limited", False, 3),
+    ("limited", True, 4), ("limited", False, 4),  # C-17.3: a final limited attempt reports 4, pinned or not,
     ("auth-dead", True, 5), ("cli-too-old", True, 6),
 ])
 def test_c17_3_provider_rc_and_cli_outcome_have_distinct_codes(state_daemon, monkeypatch, classification, pinned, expected):

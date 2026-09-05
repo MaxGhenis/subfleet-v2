@@ -68,6 +68,14 @@ CLASSES = {
 
 CLAUSE_RE = re.compile(r"^C-\d+\.\d+$")
 PROPOSAL_RE = re.compile(r"^P-23\.\d+$")
+#: The folded form: section 23 of the contract carries each P-23.<n> as C-23.<n>.
+FOLDED_RE = re.compile(r"^C-23\.\d+$")
+
+
+def as_proposal(clause: str) -> str:
+    """C-23.<n> (the folded clause a row cites) to P-23.<n> (its provenance section)."""
+    return "P-23." + clause.split(".")[1]
+
 
 #: What a dropped row puts in the columns that only a surviving invariant can fill.
 NOT_APPLICABLE = "n/a"
@@ -217,7 +225,8 @@ def test_every_cited_proposal_is_defined(rows: list[dict], proposals: dict[str, 
 
 def test_no_proposal_is_orphaned(rows: list[dict], proposals: dict[str, list[int]]) -> None:
     """Every proposed clause is cited by at least one row; the file invents nothing."""
-    cited = {row["contract_clause"] for row in rows}
+    cited = {as_proposal(c) if FOLDED_RE.match(c) else c
+             for c in (row["contract_clause"] for row in rows)}
     orphans = sorted(set(proposals) - cited)
     assert not orphans, f"proposals no row cites: {orphans}"
 
@@ -228,8 +237,9 @@ def test_proposals_and_index_agree_on_which_rows_each_covers(
     """A proposal's `Ledger rows:` list is exactly the set of rows citing it, both ways."""
     from_index: dict[str, set[int]] = {}
     for row in rows:
-        if PROPOSAL_RE.match(row["contract_clause"]):
-            from_index.setdefault(row["contract_clause"], set()).add(row["id"])
+        clause = row["contract_clause"]
+        if PROPOSAL_RE.match(clause) or FOLDED_RE.match(clause):
+            from_index.setdefault(as_proposal(clause), set()).add(row["id"])
     from_file = {name: set(ids) for name, ids in proposals.items()}
     assert from_file == from_index
 
@@ -261,7 +271,8 @@ def test_the_proposed_rows_are_the_ninety_two(
     assert len(covered) == len(set(covered)), "a ledger row is claimed by two proposals"
     assert len(covered) == PROPOSED_ROWS
     assert covered == sorted(
-        row["id"] for row in rows if PROPOSAL_RE.match(row["contract_clause"])
+        row["id"] for row in rows
+        if PROPOSAL_RE.match(row["contract_clause"]) or FOLDED_RE.match(row["contract_clause"])
     )
 
 

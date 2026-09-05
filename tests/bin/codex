@@ -89,6 +89,12 @@ def main() -> int:
                 }]}}), flush=True)
         return 0
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "success")
+    if os.environ.get("SUBFLEET_PROBE"):
+        # C-11.4: a probe is a tiny read-only turn; the fake answers it at once
+        # whatever scenario the surrounding test configured for real work.
+        scenario = "success"
+        os.environ["SUBFLEET_FAKE_DELAY_S"] = "0"
+        os.environ.pop("SUBFLEET_FAKE_DIRTY", None)
     fixture_name = "success" if scenario in {"slow", "nested-setsid"} else scenario
     fixture_root = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
     fixture = fixture_root / fixture_name

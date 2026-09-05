@@ -81,6 +81,10 @@ def read_bytes(path: Path) -> bytes:
 
 def main(argv: list[str]) -> int:
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO")
+    if os.environ.get("SUBFLEET_PROBE"):
+        # C-11.4: a probe is a tiny read-only turn; answer it at once regardless of the scenario.
+        scenario = "success-allowed"
+        os.environ["SUBFLEET_FAKE_DELAY_S"] = "0"
     if not scenario:
         sys.stderr.write("fake claude: SUBFLEET_FAKE_SCENARIO is not set\n")
         return 2

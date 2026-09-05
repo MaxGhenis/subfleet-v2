@@ -19,6 +19,10 @@ def launch_state(tmp_path, monkeypatch):
     harness = Harness(root)
     monkeypatch.setattr(module.procs, "boot_id", lambda: "fixture-boot")
     monkeypatch.setattr(module.procs, "proc_start", lambda pid: "fixture-start")
+    # These tests exercise the launch path itself; the C-11.4 pre-launch probe
+    # for unmeasured lanes has its own tests (test_probe_recovery) and would
+    # otherwise run `ps` through the fake Popen below.
+    monkeypatch.setattr(module.scheduler, "probe_required", lambda decision, job: False)
     register("codex", FakeAdapter)
     daemon = Daemon(root)
     calls = []

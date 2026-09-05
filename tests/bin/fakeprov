@@ -21,6 +21,9 @@ def main() -> int:
         return 0
 
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "ok")
+    if os.environ.get("SUBFLEET_PROBE"):
+        scenario = "ok"  # C-11.4: probes answer at once
+        os.environ["SUBFLEET_FAKE_DELAY_S"] = "0"
     delay = float(os.environ.get("SUBFLEET_FAKE_DELAY_S", "0"))
     # Reading stdin also exercises guardian prompt redirection.
     prompt = sys.stdin.read()
