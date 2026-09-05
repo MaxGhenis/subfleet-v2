@@ -165,6 +165,54 @@ def test_handoff_suppresses_credential_reading_tool_results(home, repo, policy, 
     assert command not in brief.text, "the input is omitted too, not just the result"
 
 
+@pytest.mark.parametrize("command", [
+    "cd /repo\nenv",
+    "set -e\nprintenv",
+    "for name in a b; do\n  env\ndone",
+    "cat <<EOF\nhi\nEOF\nenv > dump.txt",
+    "(env)",
+    "x=1 && env",
+    "env;true",
+], ids=["second-line", "after-set", "indented-in-loop", "after-heredoc",
+        "subshell", "after-and", "before-semicolon"])
+def test_a_multi_line_environment_dump_is_suppressed_too(home, repo, policy, command):
+    """C-23.14: an `env` that is not the first word of a one-line command.
+
+    v1 matched these patterns against `json.dumps` of the tool input, which
+    turns a real newline into the two characters `\\` and `n` — so `env` on the
+    second line sat behind neither `^` (the rendering starts with `{`) nor a
+    `;&|` separator, and the whole environment reached the brief. A multi-line
+    script that dumps the environment is not an exotic input.
+    """
+    assert handoff.sensitive_tool_call("Bash", {"command": command}), command
+    brief = build(home, repo, conversation(
+        fx.assistant_tool_use(uuid="a1", at=fx.ago(600),
+                              tool_input={"command": command}),
+        fx.user_tool_result(f"ANTHROPIC_API_KEY={fx.FAKE_SECRET}", uuid="r1",
+                            at=fx.ago(500))), policy)
+    assert fx.FAKE_SECRET not in brief.text
+    assert handoff.OMITTED_SENSITIVE in brief.text
+
+
+@pytest.mark.parametrize("command", [
+    "git log --oneline -5", "python -m venv .venv", "grep -r inventory .",
+    "echo $ENVIRONMENT", "ls /opt/envoy", "make env-check", "python envelope.py",
+    "docker run --env-file f", "cd /repo\ngit status",
+])
+def test_a_word_that_merely_contains_env_is_not_a_credential_read(command):
+    """C-23.14's retention half: suppressing everything is not safety."""
+    assert handoff.sensitive_tool_call("Bash", {"command": command}) is False, command
+
+
+def test_a_credential_read_nested_in_a_structured_input_is_still_seen(home):
+    """C-23.14: the corpus walks the input, so a tool whose schema is not
+    `{"command": ...}` is judged on its strings too."""
+    assert handoff.sensitive_tool_call("Task", {"steps": [{"run": "set -x\nprintenv"}]})
+    assert handoff.sensitive_tool_call("Read", {"file_path": "/Users/x/.codex/auth.json"})
+    assert handoff.sensitive_tool_call("Edit", {"file_path": "/repo/README.md"}) is False
+    assert handoff.sensitive_tool_call("Bash", None) is False
+
+
 def test_an_ordinary_command_is_not_suppressed(home, repo, policy):
     """C-23.14: the retention half. Suppressing everything is not safety."""
     assert handoff.sensitive_tool_call("Bash", {"command": "git log --oneline -5"}) is False

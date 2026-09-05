@@ -115,13 +115,19 @@ _SYSTEM_REMINDER_RE = re.compile(
 #: Tool calls whose RESULT is omitted by pattern rather than redacted (C-23.14).
 #: Suppression beats redaction here because the value a keychain read returns has
 #: no shape a regex can rely on.
+#: `MULTILINE`, the leading `^\s*`, and `_tool_corpus` below are v2's, and they
+#: close a hole v1 had. v1 matched these against `json.dumps` of the tool input,
+#: which turns a real newline into the two characters `\` and `n` — so an `env`
+#: on the SECOND line of a Bash command sat behind neither `^` (the rendering
+#: starts with `{`) nor a `;&|` separator, and escaped suppression entirely.
+#: A multi-line script that dumps the environment is not an exotic input.
 _SENSITIVE_TOOL_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE | re.DOTALL)
+    re.compile(pattern, re.IGNORECASE | re.DOTALL | re.MULTILINE)
     for pattern in (
         r"\bagent-secret\s+(?:get|show)\b",
         r"\bsecurity\s+(?:dump-keychain|find-generic-password\b.*(?:\s-w\b|--password\b))",
-        r"(?:^|[;&|]\s*|\bsudo\s+|[\"']command[\"']\s*:\s*[\"'])"
-        r"(?:env|printenv)(?:\s|[\"']|$)",
+        r"(?:^[ \t]*|[;&|(]\s*|\bsudo\s+|[\"']command[\"']\s*:\s*[\"'])"
+        r"(?:env|printenv)(?=[\s;&|)\"']|$)",
         r"(?:auth\.json|credentials(?:\.json)?|(?:^|[/\s])\.env"
         r"(?:\.[A-Za-z0-9_-]+)?(?=[\s\"']|$))",
     )
@@ -206,15 +212,44 @@ def _synthetic(text: str) -> bool:
     )
 
 
-def sensitive_tool_call(name: str, value: Any) -> bool:
-    """C-23.14: does this tool call read a credential?"""
-    if "agent-secret" in name.casefold() or "keychain" in name.casefold():
-        return True
+def _tool_corpus(value: Any) -> str:
+    """What the credential-reading patterns are matched against.
+
+    Two renderings, because neither alone is enough. The JSON one carries the
+    key names (`"command":`) and any shape that is not a string. The strings'
+    own text carries the LINE STRUCTURE that JSON escaping destroys — and a
+    command whose second line is `env` is invisible in the first and obvious in
+    the second.
+    """
+    strings: list[str] = []
+
+    def walk(item: Any, depth: int = 0) -> None:
+        if depth > 8:                       # a self-referential input is a bug,
+            return                          # not a reason to recurse forever
+        if isinstance(item, str):
+            strings.append(item)
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                strings.append(str(key))
+                walk(child, depth + 1)
+        elif isinstance(item, (list, tuple)):
+            for child in item:
+                walk(child, depth + 1)
+
+    walk(value)
     try:
         rendered = json.dumps(value, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
         rendered = str(value)
-    return any(pattern.search(rendered) for pattern in _SENSITIVE_TOOL_PATTERNS)
+    return "\n".join([rendered, *strings])
+
+
+def sensitive_tool_call(name: str, value: Any) -> bool:
+    """C-23.14: does this tool call read a credential?"""
+    if "agent-secret" in name.casefold() or "keychain" in name.casefold():
+        return True
+    return any(pattern.search(_tool_corpus(value))
+               for pattern in _SENSITIVE_TOOL_PATTERNS)
 
 
 def _tool_result_text(block: dict[str, Any]) -> str:
