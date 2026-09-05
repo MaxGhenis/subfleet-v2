@@ -2,13 +2,16 @@
 
 ## State
 
-Implementation starting on `lane/codex-adapter`. Contract and shared adapter interfaces read. Runtime code will use the standard library and will never launch provider processes from the adapter.
+Implementation underway on `lane/codex-adapter`. Adapter written; guard and focused tests in progress. Runtime code uses the standard library and never launches provider processes from the adapter.
 
 ## Done
 
 - Confirmed the worktree and clean lane branch.
 - Read the acceptance contract, shared dataclasses, adapter interface, captured CLI help, and v1 reference files (read-only).
 - Identified lane scope: Codex adapter, pinned guard/preflight, redacted fixtures, fake CLI, and focused unit/process tests.
+- Built 12 fixtures and a Python fake provider; all replay/redaction smoke checks passed (0.55 s).
+- Real success comes from run `20260905-111854-fix-06-lane-g-r2`, using normalized stream envelopes around recorded thread/deliverable evidence. Eleven failure fixtures are explicitly synthetic: the newest 150 directories contained 29 Codex-family runs and no failed Codex artifact. v1 uses `family`, not `provider`, in these metadata files.
+- Prepared local dependencies offline from the existing UV cache after inherited `UV_FROZEN=1` and network DNS failures prevented initial sync; generated `uv.lock`.
 
 ## Next
 
@@ -23,3 +26,5 @@ Implementation starting on `lane/codex-adapter`. Contract and shared adapter int
 - No v1 commands or provider executions; only `codex --version` may run.
 - Shared store/daemon/guardian/process/CLI/Claude/registry modules are out of scope.
 - The raw exit code and signal can be retained in `Outcome.evidence` without changing shared dataclasses.
+- Additive seam in progress: optional `Launch.lane_id` binds classifier closures to their lane without filesystem writes or undocumented environment variables.
+- Push after the initial commit failed: `Could not resolve host: github.com`. Required push attempts continue; commits remain local until networking is available.

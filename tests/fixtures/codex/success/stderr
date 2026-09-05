@@ -1,0 +1,10 @@
+OpenAI Codex v0.153.3
+--------
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, <redacted-path>]
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a07226-b8da-7cf3-b65d-8147d5af4a44
+--------

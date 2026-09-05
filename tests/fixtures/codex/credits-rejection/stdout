@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000004"}
+{"type":"turn.started"}
+{"type":"turn.failed","error":{"code":"insufficient_credits","message":"Insufficient credits. Usage limit reached. Try again at 2026-09-05T18:00:00Z."}}
