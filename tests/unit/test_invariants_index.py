@@ -8,8 +8,11 @@ replace names its acceptance owner").
 
 These tests pin the index itself, not the invariants: that every ledger row is present
 exactly once, that every disposition is legal, that every kept or replaced row names a
-clause of `docs/acceptance-contract.md` or is explicitly flagged `GAP`, and that no row
-cites a clause the contract does not define.
+clause, and that the clause it names exists — a `C-x.y` clause in
+`docs/acceptance-contract.md`, or a `P-23.<n>` clause proposed in `docs/invariant-gaps.md`
+for the rows the contract does not yet cover. No row may be left `GAP`: the milestone-0
+requirement is that every surviving invariant has somewhere to be accepted, and a proposed
+clause is that somewhere until the integrator folds section 23 into the contract.
 """
 
 from __future__ import annotations
@@ -26,8 +29,13 @@ INDEX = REPO / "docs" / "invariants.json"
 CONTRACT = REPO / "docs" / "acceptance-contract.md"
 LEDGER = REPO / "docs" / "reports" / "A-invariants.md"
 TABLE = REPO / "docs" / "invariants.md"
+PROPOSALS = REPO / "docs" / "invariant-gaps.md"
 
 LEDGER_ROWS = 220
+
+#: Rows the contract did not cover when `docs/invariants.md` was first written; each now
+#: carries a clause proposed in `docs/invariant-gaps.md`.
+PROPOSED_ROWS = 92
 
 FIELDS = (
     "id",
@@ -59,9 +67,14 @@ CLASSES = {
 }
 
 CLAUSE_RE = re.compile(r"^C-\d+\.\d+$")
+PROPOSAL_RE = re.compile(r"^P-23\.\d+$")
 
 #: What a dropped row puts in the columns that only a surviving invariant can fill.
 NOT_APPLICABLE = "n/a"
+
+#: The flag `docs/invariants.md` version 1 used for a row no clause covered. Nothing may
+#: carry it now: it is either a contract clause or a proposal.
+UNRESOLVED = "GAP"
 
 
 @pytest.fixture(scope="module")
@@ -73,6 +86,28 @@ def rows() -> list[dict]:
 def clauses() -> set[str]:
     """Clause ids the contract defines, parsed from its `**C-x.y**` markers."""
     return set(re.findall(r"\*\*(C-\d+\.\d+)\*\*", CONTRACT.read_text(encoding="utf-8")))
+
+
+@pytest.fixture(scope="module")
+def proposals() -> dict[str, list[int]]:
+    """Proposed clause ids, each mapped to the ledger rows its own text says it covers.
+
+    A proposal is a `### P-23.<n> — <title>` section whose clause text carries the same
+    `**P-23.<n>**` marker the contract uses, and whose `- **Ledger rows:**` line names the
+    rows. Both halves are required: a heading with no clause text defines nothing.
+    """
+    text = PROPOSALS.read_text(encoding="utf-8")
+    sections = re.split(r"^### (P-23\.\d+) — ", text, flags=re.MULTILINE)[1:]
+    found: dict[str, list[int]] = {}
+    for name, body in zip(sections[::2], sections[1::2]):
+        assert f"**{name}**" in body, f"{name} has a heading but no clause text"
+        line = re.search(r"^- \*\*Ledger rows:\*\* (.+)$", body, flags=re.MULTILINE)
+        assert line, f"{name} names no ledger rows"
+        ids = [int(m) for m in re.findall(r"(?:^|,\s*)(\d+) \(", line.group(1))]
+        assert ids, f"{name}'s ledger rows do not parse: {line.group(1)!r}"
+        assert name not in found, f"{name} is defined twice"
+        found[name] = ids
+    return found
 
 
 def test_index_is_a_json_array_of_objects(rows: list[dict]) -> None:
@@ -140,24 +175,94 @@ def test_dropped_rows_give_a_reason(rows: list[dict]) -> None:
             assert row["notes"].strip(), f"row {row['id']} is dropped with no reason"
 
 
-def test_kept_and_replaced_rows_name_a_clause_or_a_gap(rows: list[dict]) -> None:
-    """Every surviving invariant maps to a contract clause or is flagged `GAP`."""
+def test_kept_and_replaced_rows_name_a_clause(rows: list[dict]) -> None:
+    """Every surviving invariant maps to a contract clause or a proposed one."""
     for row in rows:
         if row["disposition"] in {"keep", "replace"}:
             value = row["contract_clause"]
-            assert value == "GAP" or CLAUSE_RE.match(value), (
-                f"row {row['id']} cites {value!r}, which is neither `GAP` nor a `C-x.y` clause"
+            assert CLAUSE_RE.match(value) or PROPOSAL_RE.match(value), (
+                f"row {row['id']} cites {value!r}, which is neither a `C-x.y` clause nor a "
+                "`P-23.<n>` proposal"
             )
 
 
-def test_every_cited_clause_exists_in_the_contract(rows: list[dict], clauses: set[str]) -> None:
+def test_no_row_is_left_unresolved(rows: list[dict]) -> None:
+    """No row still reads `GAP`: milestone 0 wants a clause for every surviving invariant."""
+    stranded = sorted(row["id"] for row in rows if row["contract_clause"] == UNRESOLVED)
+    assert not stranded, (
+        f"rows still flagged {UNRESOLVED}: {stranded}. Map each to a contract clause, or "
+        f"propose one in {PROPOSALS.name} and cite it as `P-23.<n>`."
+    )
+
+
+def test_every_cited_contract_clause_exists(rows: list[dict], clauses: set[str]) -> None:
     """No row cites a clause `docs/acceptance-contract.md` does not define (C-20.5 spirit)."""
     assert clauses, "no `**C-x.y**` markers parsed from the contract"
     unknown = sorted(
-        {row["contract_clause"] for row in rows if row["contract_clause"] not in clauses}
-        - {"GAP", NOT_APPLICABLE}
+        {row["contract_clause"] for row in rows if CLAUSE_RE.match(row["contract_clause"])}
+        - clauses
     )
     assert not unknown, f"clauses cited but not defined: {unknown}"
+
+
+def test_every_cited_proposal_is_defined(rows: list[dict], proposals: dict[str, list[int]]) -> None:
+    """A `P-23.<n>` is legal only where `docs/invariant-gaps.md` writes the clause text."""
+    assert proposals, f"no `P-23.<n>` proposals parsed from {PROPOSALS.name}"
+    unknown = sorted(
+        {row["contract_clause"] for row in rows if PROPOSAL_RE.match(row["contract_clause"])}
+        - set(proposals)
+    )
+    assert not unknown, f"proposals cited but not written in {PROPOSALS.name}: {unknown}"
+
+
+def test_no_proposal_is_orphaned(rows: list[dict], proposals: dict[str, list[int]]) -> None:
+    """Every proposed clause is cited by at least one row; the file invents nothing."""
+    cited = {row["contract_clause"] for row in rows}
+    orphans = sorted(set(proposals) - cited)
+    assert not orphans, f"proposals no row cites: {orphans}"
+
+
+def test_proposals_and_index_agree_on_which_rows_each_covers(
+    rows: list[dict], proposals: dict[str, list[int]],
+) -> None:
+    """A proposal's `Ledger rows:` list is exactly the set of rows citing it, both ways."""
+    from_index: dict[str, set[int]] = {}
+    for row in rows:
+        if PROPOSAL_RE.match(row["contract_clause"]):
+            from_index.setdefault(row["contract_clause"], set()).add(row["id"])
+    from_file = {name: set(ids) for name, ids in proposals.items()}
+    assert from_file == from_index
+
+
+def test_proposals_are_numbered_from_one_without_gaps(proposals: dict[str, list[int]]) -> None:
+    """`P-23.<n>` runs 1..N so the integrator can fold the set in as one section."""
+    numbers = sorted(int(name.split(".")[1]) for name in proposals)
+    assert numbers == list(range(1, len(proposals) + 1)), f"non-contiguous proposals: {numbers}"
+
+
+def test_every_proposal_names_an_owner_and_a_module() -> None:
+    """Each proposal carries the acceptance owner and v2 module the ledger rows assign."""
+    text = PROPOSALS.read_text(encoding="utf-8")
+    sections = re.split(r"^### (P-23\.\d+) — ", text, flags=re.MULTILINE)[1:]
+    for name, body in zip(sections[::2], sections[1::2]):
+        for field in ("Milestone", "Acceptance owner", "v2 module", "Rationale"):
+            assert f"- **{field}:**" in body, f"{name} names no {field.lower()}"
+        owners = re.search(r"^- \*\*Acceptance owner:\*\* (.+)$", body, flags=re.MULTILINE)
+        assert owners and owners.group(1).strip() in OWNERS, (
+            f"{name} owner {owners.group(1) if owners else None!r} is not one of {sorted(OWNERS)}"
+        )
+
+
+def test_the_proposed_rows_are_the_ninety_two(
+    rows: list[dict], proposals: dict[str, list[int]],
+) -> None:
+    """The set the proposals cover is the set `docs/invariants.md` version 1 left uncovered."""
+    covered = sorted(i for ids in proposals.values() for i in ids)
+    assert len(covered) == len(set(covered)), "a ledger row is claimed by two proposals"
+    assert len(covered) == PROPOSED_ROWS
+    assert covered == sorted(
+        row["id"] for row in rows if PROPOSAL_RE.match(row["contract_clause"])
+    )
 
 
 def test_dropped_rows_do_not_claim_a_clause(rows: list[dict]) -> None:

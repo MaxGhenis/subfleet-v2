@@ -1205,3 +1205,103 @@ This one is not caused by a proposal; it is a disagreement the proposals run int
 - **Recommendation:** when C-18.1 is expanded for milestone 5, say "one probe per idle, enabled,
   unlatched lane per window" explicitly. Ledger row 175 exists because v1 pinged dead tokens on a
   timer for weeks, so the exclusion is worth stating rather than inferring.
+
+## Index: ledger row to proposed clause
+
+Every row that read `GAP` in version 1 of `invariants.md`, in ledger order, with the clause
+that now covers it. Fifty-five clauses over ninety-two rows.
+
+| row | invariant | class | clause | milestone |
+|---|---|---|---|---|
+| 8 | Delete only an owned prompt whose basename is `delegate-prompt-*.md` and which is the exa… | safety-guard | [P-23.1](#p-231--a-caller's-files-are-read-only-to-subfleet) | 1 |
+| 19 | Bound retries for delayed transcript persistence to a small default (4 tries, 1 s backoff… | provenance/attestation | [P-23.40](#p-2340--finding-the-transcript-attestation-reads) | 2 |
+| 26 | Resolve the Claude binary through an explicit override, then `~/.local/bin/claude`, then… | ops-hygiene | [P-23.21](#p-2321--how-a-provider-binary-is-found) | 2 |
+| 29 | Require `-s read-only` and `-D` for `-I`, expose sources through `--add-dir`, and allow o… | safety-guard | [P-23.2](#p-232--an-isolated-review-inherits-no-context-and-holds-no-hosted-capability) | 1 for the CLI and Codex halves, 2 for the Claude environment |
+| 30 | Refuse an isolated review that inherits `CLAUDE_CODE_MANAGED_SETTINGS_PATH` or the remote… | safety-guard | [P-23.3](#p-233--an-isolated-review-is-refused-when-operator-policy-could-override-it) | 1 |
+| 31 | In read-only mode, unset the memory and CLAUDE.md inheritance variables before Claude ini… | safety-guard | [P-23.2](#p-232--an-isolated-review-inherits-no-context-and-holds-no-hosted-capability) | 1 for the CLI and Codex halves, 2 for the Claude environment |
+| 32 | Unset every `SUBFLEET_RUN_*` identity variable after recording the run so nested dispatch… | provenance/attestation | [P-23.41](#p-2341--a-nested-submission-mints-its-own-identity) | 1 |
+| 35 | Call the accounting hook synchronously and let no hook failure change the run outcome. | ops-hygiene | [P-23.22](#p-2322--accounting-never-changes-an-outcome) | 1 for the finalization ordering, 2 for the parser |
+| 41 | Re-run the guard preflight on a re-picked lane and stop rather than launch unguarded. | safety-guard | [P-23.5](#p-235--how-long-a-guard-preflight-verdict-is-good-for) | 1 |
+| 45 | Disable apps, plugins, hooks, multi-agent, browser, memories, shell snapshots, history pe… | safety-guard | [P-23.2](#p-232--an-isolated-review-inherits-no-context-and-holds-no-hosted-capability) | 1 for the CLI and Codex halves, 2 for the Claude environment |
+| 46 | Refuse an isolated Codex review when managed requirements or nonempty system or project c… | safety-guard | [P-23.3](#p-233--an-isolated-review-is-refused-when-operator-policy-could-override-it) | 1 |
+| 47 | Re-prepare isolation before every attempt, since lane rotation changes the config and the… | safety-guard | [P-23.4](#p-234--isolation-is-prepared-per-attempt) | 1 |
+| 50 | Never write the lane's `CODEX_HOME`: probe a scratch home seeded with copies of `config.t… | ops-hygiene | [P-23.23](#p-2323--how-the-guard-preflight-probes) | 1 |
+| 52 | Key the preflight cache on codex version, home, override, and seeded-config fingerprint,… | safety-guard | [P-23.5](#p-235--how-long-a-guard-preflight-verdict-is-good-for) | 1 |
+| 53 | Bound the preflight: fail immediately if the app-server dies unanswered, and TERM then KI… | ops-hygiene | [P-23.23](#p-2323--how-the-guard-preflight-probes) | 1 |
+| 56 | Make the guard's `check` verb a dry run that never writes the real denial log. | ops-hygiene | [P-23.24](#p-2324--a-guard-check-writes-nothing) | 8 (guard parity) |
+| 65 | Document the `write_stdin` PTY guard bypass and provide `SUBFLEET_CODEX_UNIFIED_EXEC=off`… | safety-guard | [P-23.6](#p-236--the-write_stdin-hole-is-closable) | 1 |
+| 67 | Block provider runners launched straight from a session's Bash tool and name the `subflee… | process-survival | [P-23.54](#p-2354--one-dispatch-path) | 4 for the hook, 6 for handoff |
+| 68 | Count only a runner in command position; `bash -n bin/subfleet-claude` or a heredoc menti… | UX-contract | [P-23.48](#p-2348--what-the-session-hook-counts-as-a-launch) | 4 |
+| 69 | Let the runners' own `-d` pass, and accept `SUBFLEET_ATTACHED_OK=1` as the explicit one-o… | UX-contract | [P-23.48](#p-2348--what-the-session-hook-counts-as-a-launch) | 4 |
+| 70 | Make hook install idempotent, preserve other settings, and write a timestamped backup bef… | ops-hygiene | [P-23.25](#p-2325--installing-a-hook-into-a-shared-settings-file) | 4 |
+| 72 | Rank duplicate session-registry rows by live pid, then present socket, then newest start. | session-continuity | [P-23.30](#p-2330--which-registry-row-speaks-for-a-session) | 4 |
+| 74 | Declare the recipient's own permission class on the notice envelope, with `SUBFLEET_NOTIF… | provenance/attestation | [P-23.42](#p-2342--a-notice-says-what-the-recipient-may-do) | 4 |
+| 75 | Emit exactly one envelope per notice and neutralize a closing tag appearing inside the body. | UX-contract | [P-23.49](#p-2349--one-envelope-per-notice) | 4 |
+| 76 | Refuse a lane session as a notify target and hide lane sessions from `subfleet sessions`… | session-continuity | [P-23.31](#p-2331--a-headless-lane-run-is-not-a-session) | 4 for notices, 6 for the listing and revive |
+| 79 | Skip the push while an inline `--attach` waiter is still alive, and fall through if that… | UX-contract | [P-23.50](#p-2350--the-push-waits-behind-a-live-waiter) | 4 |
+| 80 | Prune surfaced notices older than 14 days. | ops-hygiene | [P-23.26](#p-2326--secondary-records-are-pruned-by-age-never-by-a-caller's-window) | 2 for the scan cache, 4 for notices |
+| 89 | Never let an in-flight run age out of `subfleet runs`; `last` bounds only finished rows. | UX-contract | [P-23.51](#p-2351--a-running-job-never-falls-off-the-list) | 1 |
+| 95 | Resolve historical Codex resume identity lazily from the saved `err.log` and rollout name… | session-continuity | [P-23.32](#p-2332--the-importer-never-rewrites-what-it-imported) | 8 (cutover) |
+| 108 | Spend Fable-exhausted lanes first for non-Fable work. | routing-policy | [P-23.37](#p-2337--stranded-capacity-is-spent-first) | 3 |
+| 116 | On an auth-dead result, cool the account and print the exact re-enrolment ritual. | identity | [P-23.44](#p-2344--what-an-auth-dead-lane-costs) | 2 for the disable, 5 for the keepalive and log cadence |
+| 128 | Count each `message.id` once when summing transcript usage. | capacity-truth | [P-23.15](#p-2315--transcript-usage-is-summed-once-per-message) | 2 |
+| 129 | Never let usage accounting fail a run; record a parse failure as an error record instead. | ops-hygiene | [P-23.22](#p-2322--accounting-never-changes-an-outcome) | 1 for the finalization ordering, 2 for the parser |
+| 136 | Detect the same account bound in two homes, mark the non-canonical duplicate, and alert c… | identity | [P-23.45](#p-2345--one-account-one-enabled-lane) | 2 for detection, 5 for the alert |
+| 138 | Treat app shadowing as metadata that does not change dispatch order but excludes a lane f… | identity | [P-23.46](#p-2346--what-shadowing-changes-and-what-it-does-not) | 5 |
+| 139 | Never write any auth store and never refresh a token in-process. | identity | [P-23.47](#p-2347--the-auth-store-belongs-to-the-provider-cli) | 2 for the prohibition, 5 for the heal and the latch |
+| 141 | Prune a Codex scan-cache entry only when its file is gone or is a week stale, never becau… | ops-hygiene | [P-23.26](#p-2326--secondary-records-are-pruned-by-age-never-by-a-caller's-window) | 2 for the scan cache, 4 for notices |
+| 149 | Never auto-login, and name the exact heal command in every alert. | UX-contract | [P-23.52](#p-2352--what-an-alert-says-and-when-a-recovery-is-one) | 5 |
+| 150 | Allow exactly one automatic heal, a tiny `codex exec` turn that lets the CLI refresh and… | identity | [P-23.47](#p-2347--the-auth-store-belongs-to-the-provider-cli) | 2 for the prohibition, 5 for the heal and the latch |
+| 151 | Latch `refresh token was revoked` until `auth.json` changes, and probe no further. | identity | [P-23.47](#p-2347--the-auth-store-belongs-to-the-provider-cli) | 2 for the prohibition, 5 for the heal and the latch |
+| 152 | Attempt at most one refresh probe per home per cycle, spaced twenty minutes apart. | ops-hygiene | [P-23.27](#p-2327--one-monitoring-cycle-one-verdict) | 5 |
+| 153 | Heal before persisting, so the snapshot, brief, history, and conditions all see post-heal… | ops-hygiene | [P-23.27](#p-2327--one-monitoring-cycle-one-verdict) | 5 |
+| 154 | Treat a cycle in which every Codex probe is a network error as offline and stay silent. | ops-hygiene | [P-23.27](#p-2327--one-monitoring-cycle-one-verdict) | 5 |
+| 156 | Send a recovery notice only when no other condition for the same home is active. | UX-contract | [P-23.52](#p-2352--what-an-alert-says-and-when-a-recovery-is-one) | 5 |
+| 158 | Resolve the codex binary explicitly so a stripped launchd PATH cannot break the call. | ops-hygiene | [P-23.21](#p-2321--how-a-provider-binary-is-found) | 2 |
+| 159 | Judge mirror health from its per-pass state sidecar, tolerate a long in-flight pass, and… | ops-hygiene | [P-23.28](#p-2328--mirror-health-is-a-state-file-not-a-quiet-log) | 6 |
+| 161 | Redeem a reset credit only when the server confirms `limit_reached` and a concrete `avail… | capacity-truth | [P-23.16](#p-2316--when-a-reset-credit-may-be-spent) | 5 |
+| 162 | Order redemption candidates by furthest-out weekly reset first, then lowest in-flight, th… | routing-policy | [P-23.38](#p-2338--which-lane-a-reset-credit-is-spent-on) | 5 |
+| 163 | Prefer an unshadowed lane for redemption and use a shadowed one only when no unshadowed c… | identity | [P-23.46](#p-2346--what-shadowing-changes-and-what-it-does-not) | 5 |
+| 164 | Send a fresh UUID4 `redeem_request_id` with every consume. | capacity-truth | [P-23.16](#p-2316--when-a-reset-credit-may-be-spent) | 5 |
+| 165 | Accept a consume as successful only for code `reset` with `windows_reset` greater than zero. | capacity-truth | [P-23.16](#p-2316--when-a-reset-credit-may-be-spent) | 5 |
+| 167 | Treat a confirmed consume as authoritative while the usage endpoint is stale: set the res… | capacity-truth | [P-23.17](#p-2317--a-confirmed-consume-is-the-authority) | 5 |
+| 168 | Report fleet credits remaining as null whenever any lane's count is unreadable, never as… | capacity-truth | [P-23.18](#p-2318--an-unreadable-count-is-not-a-small-count) | 5 |
+| 169 | Clear the lane's dispatch cooldown after a successful redemption. | capacity-truth | [P-23.17](#p-2317--a-confirmed-consume-is-the-authority) | 5 |
+| 170 | List and consume only gifted entitlements, and provide no purchase or add-credit path. | safety-guard | [P-23.7](#p-237--reset-credits-are-gifts-not-purchases) | 5 |
+| 172 | Stamp the five-hour window at the moment the provider request is sent, not when the keych… | capacity-truth | [P-23.19](#p-2319--when-a-five-hour-window-is-open) | 5 |
+| 173 | Skip a lane that made any request within the last five hours, recording it as `skipped-op… | capacity-truth | [P-23.19](#p-2319--when-a-five-hour-window-is-open) | 5 |
+| 174 | Count a running lane entry as a recent request, and never count a session-less rc 5 as one. | capacity-truth | [P-23.19](#p-2319--when-a-five-hour-window-is-open) | 5 |
+| 175 | Mark a 401/403 lane auth-dead, skip it without a request, log the detail at most daily, a… | identity | [P-23.44](#p-2344--what-an-auth-dead-lane-costs) | 2 for the disable, 5 for the keepalive and log cadence |
+| 177 | Run keepalives with at most four workers and a 60 s per-lane timeout, writing state under… | ops-hygiene | [P-23.29](#p-2329--a-keepalive-pass-is-bounded) | 5 |
+| 179 | Nudge only from SessionStart sources `startup` and `resume`, never `compact` or `clear`. | session-continuity | [P-23.33](#p-2333--when-a-session-may-be-nudged) | 6 |
+| 180 | Cap the age of an interruption eligible for a nudge at eight hours by default. | session-continuity | [P-23.33](#p-2333--when-a-session-may-be-nudged) | 6 |
+| 181 | Nudge once per interruption point and enforce a per-session cooldown. | session-continuity | [P-23.33](#p-2333--when-a-session-may-be-nudged) | 6 |
+| 182 | Re-check the transcript after the nudge delay and skip when the real last turn has changed. | session-continuity | [P-23.34](#p-2334--the-worker-decides-against-the-transcript-it-can-see) | 6, with the hook half in milestone 4's `subfleet/hooks.py` |
+| 183 | Require additional transcript quiet before a manual sweep nudges a session. | session-continuity | [P-23.34](#p-2334--the-worker-decides-against-the-transcript-it-can-see) | 6, with the hook half in milestone 4's `subfleet/hooks.py` |
+| 184 | Recognize the app's synthetic resume stub and judge the turn underneath it. | session-continuity | [P-23.34](#p-2334--the-worker-decides-against-the-transcript-it-can-see) | 6, with the hook half in milestone 4's `subfleet/hooks.py` |
+| 185 | Defer the hook's dedupe and cooldown verdicts to the worker, which re-decides against the… | session-continuity | [P-23.34](#p-2334--the-worker-decides-against-the-transcript-it-can-see) | 6, with the hook half in milestone 4's `subfleet/hooks.py` |
+| 186 | Make cross-tier revive an explicit choice: without `--model`, revive on the session's own… | routing-policy | [P-23.39](#p-2339--revive-keeps-the-session's-own-tier) | 6 |
+| 187 | Never revive a headless lane run as a continuation. | session-continuity | [P-23.31](#p-2331--a-headless-lane-run-is-not-a-session) | 4 for notices, 6 for the listing and revive |
+| 188 | Revive only sessions whose recorded permission mode is `bypassPermissions`. | session-continuity | [P-23.35](#p-2335--which-sessions-revive-admits) | 6 |
+| 189 | Probe a lane live before reviving rather than trusting the lane ledger's estimates. | capacity-truth | [P-23.20](#p-2320--revive-measures-the-lane-it-is-about-to-use) | 6 |
+| 191 | Never list or revive a session the operator retired. | session-continuity | [P-23.35](#p-2335--which-sessions-revive-admits) | 6 |
+| 192 | Refresh the live-revive census under the pass lock before every launch and skip a session… | process-survival | [P-23.55](#p-2355--one-live-revive-per-session) | 6 |
+| 193 | Bind approval to a caller-attested fingerprint and never infer it from a fresh read of th… | safety-guard | [P-23.8](#p-238--a-gate-approves-an-exact-revision) | 7 |
+| 194 | Require exactly one sentinel-delimited JSON verdict, bound to the same revision, with no… | safety-guard | [P-23.9](#p-239--what-counts-as-a-peer-verdict) | 7 |
+| 195 | Reject an approval that carries findings or notes, and a changes-requested with no finding. | safety-guard | [P-23.9](#p-239--what-counts-as-a-peer-verdict) | 7 |
+| 196 | Block the round if the artifact revision changed while the peer was reviewing. | safety-guard | [P-23.8](#p-238--a-gate-approves-an-exact-revision) | 7 |
+| 197 | Require a positive Fable attestation and the absence of a downgrade marker before a Fable… | provenance/attestation | [P-23.43](#p-2343--an-unattested-round-is-not-a-verdict) | 7 |
+| 198 | Run the peer read-only and isolated, from a neutral temporary directory outside the repos… | safety-guard | [P-23.10](#p-2310--where-a-peer-round-runs-and-what-reserves-it) | 7 |
+| 199 | Reserve each round under a live lease so abandoned output never counts as a new approval. | safety-guard | [P-23.10](#p-2310--where-a-peer-round-runs-and-what-reserves-it) | 7 |
+| 200 | Stop after four peer rounds by default. | UX-contract | [P-23.53](#p-2353--a-gate-stops) | 7 |
+| 201 | Preflight a merge for an open, non-draft PR with unchanged head and base, clean mergeabil… | safety-guard | [P-23.11](#p-2311--what-a-merge-requires-before-it-is-attempted) | 7 |
+| 202 | Merge with `--match-head-commit` pinned to the approved head. | safety-guard | [P-23.11](#p-2311--what-a-merge-requires-before-it-is-attempted) | 7 |
+| 203 | Verify the landing against the immutable merge commit's parents, not the moving base tip. | safety-guard | [P-23.12](#p-2312--how-a-landing-is-verified) | 7 |
+| 204 | Report a post-merge mismatch as a mismatch; never retry and never auto-revert. | safety-guard | [P-23.12](#p-2312--how-a-landing-is-verified) | 7 |
+| 206 | Let only the currently reserved action publish its result, and never overwrite a completion. | safety-guard | [P-23.13](#p-2313--only-the-holder-publishes-an-action's-result) | 5 for `reset-credit`, 7 for `merge` |
+| 207 | Support merge and squash only, and refuse to verify a rebased landing. | safety-guard | [P-23.12](#p-2312--how-a-landing-is-verified) | 7 |
+| 208 | Scrub credentials and encoded binary from a handoff while retaining ordinary code, comman… | safety-guard | [P-23.14](#p-2314--what-a-handoff-may-carry) | 6 |
+| 209 | Suppress the results of credential-reading tool calls (`agent-secret get`, keychain reads… | safety-guard | [P-23.14](#p-2314--what-a-handoff-may-carry) | 6 |
+| 210 | Bound every handoff section with explicit character caps and keep the source transcript p… | session-continuity | [P-23.36](#p-2336--a-handoff-is-bounded-and-points-at-its-source) | 6 |
+| 211 | Dispatch handoffs detached through `subfleet run` so they inherit routing, guard, salvage… | process-survival | [P-23.54](#p-2354--one-dispatch-path) | 4 for the hook, 6 for handoff |
+| 218 | Keep `~/.claude` project transcript lookups to at most one directory below `projects`. | ops-hygiene | [P-23.40](#p-2340--finding-the-transcript-attestation-reads) | 2 |
