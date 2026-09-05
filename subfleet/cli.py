@@ -991,7 +991,20 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
             worst = max(worst, _cat("stderr", _artifact_path(job, "stderr"),
                                     header=both))
         return worst
-    out(_format_job(job))
+    # C-17.1: the bare form keeps v1's shape, which agents parse today: the
+    # metadata object, then `--- out.md ---` and the deliverable, and with
+    # `--err` also `--- err.log ---`. `--out`, `--err` alone, and `--json`
+    # are v2's single-artifact forms.
+    emit(job)
+    out("\n--- out.md ---")
+    path = _artifact_path(job, "deliverable") or job.get("out_path")
+    if path and Path(path).is_file():
+        # v1 printed whatever out.md held, or nothing, and still exited 0; the
+        # explicit `--out` form is the one that fails on a missing artifact.
+        text = Path(path).read_text(errors="replace")
+        sys.stdout.write(text)
+        if text and not text.endswith("\n"):
+            out()
     return int(Exit.OK)
 
 

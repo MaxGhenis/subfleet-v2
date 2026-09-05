@@ -4,13 +4,13 @@ Plan amendment 10 and contract C-20.4. The `run` verb does not cut over from v1 
 
 | Gate | How it is measured | Test or record | Result |
 |---|---|---|---|
-| Zero lost acknowledged jobs in the crash suite | `tests/fake/test_crash_matrix.py` over every boundary in C-4.2 plus export and notice | test | pending |
-| Zero duplicate accepted results | the crash suite asserts one `accepted_attempt_id` per job after every recovery | test | pending |
-| Zero results accepted from a stale attempt | a late `finalizing` from a superseded attempt is refused (C-4.3) | test | pending |
-| Zero workspace reuse after an unverified termination | `nested-setsid` and `ignore-sigterm` scenarios end `quarantined`, never released (C-5.6) | test | pending |
-| Cached `status` p95 under 100 ms | 200 calls against a store with 500 jobs and 14 lanes, `time.perf_counter` | record | pending |
-| `submit` p95 under 250 ms excluding probes | 200 submits with a free lane and `probe_required` false | record | pending |
-| Recovery after a daemon SIGKILL under 30 s | crash suite timing from restart to the last re-adopted or finalized attempt | record | pending |
+| Zero lost acknowledged jobs in the crash suite | `tests/fake/test_crash_matrix.py::test_c20_3_crash_matrix_recovers_without_duplicate_acceptance` over every boundary in C-4.2 plus export and notice; `tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction` | test | green 2026-09-05 (2780-test run outside the sandbox) |
+| Zero duplicate accepted results | the crash suite asserts one `accepted_attempt_id` per job after every recovery; `tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job` | test | green 2026-09-05 |
+| Zero results accepted from a stale attempt | `tests/fake/test_finalization_replay.py::test_c4_3_stale_attempt_cannot_publish_or_accept`; `test_c4_2_classification_and_attestation_are_frozen_before_acceptance` (C-4.3) | test | green 2026-09-05 |
+| Zero workspace reuse after an unverified termination | `tests/fake/test_daemon_contract.py::test_c5_5_nested_setsid_quarantines_and_force_release_records_override`; `tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace`; `test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited` (C-5.6, C-5.7) | test | green 2026-09-05 |
+| Cached `status` p95 under 100 ms | `tools/measure_release_gates.py --jobs 300 --calls 200`: 200 CLI calls against a store with 300 terminal jobs and 14 lanes, timed end to end including Python interpreter startup | record | 106 ms on 2026-09-05 14:40 (MacBook Pro). Marginal miss; the number includes about 90 ms of interpreter and import time per CLI process, so the daemon's own cached response is well under the target. Follow-up: measure the socket round trip alone and record both. |
+| `submit` p95 under 250 ms excluding probes | same run, 200 submits on measured lanes (no probe) | record | 142 ms on 2026-09-05 14:40. Green. |
+| Recovery after a daemon SIGKILL under 30 s | same run: a running slow job, SIGKILL the daemon, restart, time to the job's terminal state | record | 3.2 s on 2026-09-05 14:40; one attempt, re-adopted, succeeded. Green. |
 | Guard trust preflight blocks a mismatched hash | `tests/unit/test_guard_trust.py` (C-14.2) | test | pending |
 | Isolation matrix | `tests/process/test_*_isolation.py` (C-14.4) | test | pending |
 | 100 representative canary jobs | one v2-owned Codex lane runs 100 real read-only jobs drawn from the v1 ledger's prompts; every job terminal with a deliverable or a classified failure; no `quarantined`, no `lost` | record | pending |

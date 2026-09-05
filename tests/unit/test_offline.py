@@ -415,7 +415,10 @@ def test_offline_reads_the_guardian_receipts(store, capsys):
     assert "EXITED" in capsys.readouterr().out
     assert cli.main(["runs", "show", JOB]) == 0
     text = capsys.readouterr().out
-    assert "exit.json rc=0" in text and "wall=12.5" in text
+    # C-17.1: the bare form is v1-shaped: the metadata object, then --- out.md ---.
+    meta = json.loads(text.split("\n--- out.md ---")[0])
+    receipts = meta["attempts"][-1]["receipts"]
+    assert receipts["exit"]["rc"] == 0 and receipts["exit"]["wall_s"] == 12.5
 
 
 def test_a_started_but_unfinished_attempt_shows_its_start_receipt(store, capsys):
@@ -424,7 +427,8 @@ def test_a_started_but_unfinished_attempt_shows_its_start_receipt(store, capsys)
     assert cli.main(["runs"]) == 0
     assert "RUNNING" in capsys.readouterr().out
     assert cli.main(["runs", "show", JOB]) == 0
-    assert "start.json pgid=999999" in capsys.readouterr().out
+    meta = json.loads(capsys.readouterr().out.split("\n--- out.md ---")[0])
+    assert meta["attempts"][-1]["receipts"]["start"]["pgid"] == 999999
 
 
 def test_offline_kill_will_not_signal_an_attempt_that_already_exited(store, capsys):
