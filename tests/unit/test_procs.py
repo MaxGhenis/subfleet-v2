@@ -6,14 +6,16 @@ import subprocess
 
 import pytest
 
+import os
+
 from subfleet import procs
 
 
 def census(monkeypatch, *, groups="", parents="", markers="", fail=None):
     def read(argv, *, empty_ok=False):
-        if fail is not None and fail in argv:
+        if fail is not None and any(os.path.basename(str(a)) == fail for a in argv):
             raise procs.InspectionError("unavailable")
-        if argv[:2] == ["sysctl", "-n"]:
+        if os.path.basename(argv[0]) == "sysctl" and argv[1:2] == ["-n"]:
             return "{ sec = 100, usec = 123 }"
         if "pid=,stat=" in argv:
             return groups
@@ -118,11 +120,40 @@ def test_signal_survivor_rechecks_original_identity(monkeypatch):
 def test_empty_bsd_ps_selector_is_not_inspection_failure(monkeypatch):
     """C-5.5 BSD ps status 1 with empty output means a valid empty selection."""
     monkeypatch.setattr(procs.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", ""))
-    assert procs._read(["ps", "-p", "99999"], empty_ok=True) == ""
+    assert procs._read(["/bin/ps", "-p", "99999"], empty_ok=True) == ""
 
 
 def test_ps_permission_denial_is_not_empty(monkeypatch):
     """C-5.5 permission failures remain unverifiable, even with no process rows."""
     monkeypatch.setattr(procs.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", "denied"))
     with pytest.raises(procs.InspectionError):
-        procs._read(["ps"], empty_ok=True)
+        procs._read(["/bin/ps"], empty_ok=True)
+
+
+def test_proc_start_retry_recovers_from_one_empty_pass(monkeypatch):
+    """C-5.3 hardening: a single empty ps pass on a fresh pid does not lose the identity."""
+    answers = iter([None, None, "Sat Sep  5 10:00:00 2026"])
+    calls = []
+    monkeypatch.setattr(procs, "proc_start", lambda pid: (calls.append(pid), next(answers))[1])
+    monkeypatch.setattr(procs.time, "sleep", lambda s: None)
+    assert procs.proc_start_retry(4242, tries=5, delay_s=0) == "Sat Sep  5 10:00:00 2026"
+    assert calls == [4242, 4242, 4242]
+
+
+def test_proc_start_retry_stops_when_process_is_gone(monkeypatch):
+    """C-5.3 hardening: retries stop as soon as the caller reports the process exited."""
+    calls = []
+    monkeypatch.setattr(procs, "proc_start", lambda pid: (calls.append(pid), None)[1])
+    monkeypatch.setattr(procs.time, "sleep", lambda s: None)
+    assert procs.proc_start_retry(7, tries=5, delay_s=0, alive=lambda: False) is None
+    assert calls == [7]
+
+
+def test_proc_start_retry_reraises_when_every_pass_fails(monkeypatch):
+    """C-5.3 hardening: inspection that never succeeds still reports unavailable."""
+    def boom(pid):
+        raise procs.InspectionError("ps inspection unavailable")
+    monkeypatch.setattr(procs, "proc_start", boom)
+    monkeypatch.setattr(procs.time, "sleep", lambda s: None)
+    with pytest.raises(procs.InspectionError):
+        procs.proc_start_retry(9, tries=3, delay_s=0)

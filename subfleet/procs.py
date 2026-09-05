@@ -6,10 +6,13 @@ only pid sets and start identities may become durable evidence.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import os
 import re
 import signal
 import subprocess
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -20,21 +23,21 @@ class InspectionError(RuntimeError):
 
 def _read(argv: list[str], *, empty_ok: bool = False) -> str:
     try:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=3)
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError) as exc:
-        raise InspectionError(f"{argv[0]} inspection unavailable") from exc
+        raise InspectionError(f"{os.path.basename(argv[0])} inspection unavailable") from exc
     # BSD ps returns 1 when a valid selector matches no processes.
     if result.returncode and not (
         empty_ok and result.returncode == 1 and not result.stdout.strip()
         and not result.stderr.strip()
     ):
-        raise InspectionError(f"{argv[0]} inspection failed ({result.returncode})")
+        raise InspectionError(f"{os.path.basename(argv[0])} inspection failed ({result.returncode})")
     return result.stdout
 
 
 def boot_id() -> str:
     """Return kern.boottime seconds, the identity required by C-5.3."""
-    value = _read(["sysctl", "-n", "kern.boottime"]).strip()
+    value = _read(["/usr/sbin/sysctl", "-n", "kern.boottime"]).strip()
     match = re.search(r"\bsec\s*=\s*(\d+)", value)
     if match:
         return match.group(1)
@@ -47,11 +50,37 @@ def proc_start(pid: int) -> str | None:
     """Read exactly ps's lstart value; an absent process returns None."""
     if pid <= 0:
         return None
-    return _read(["ps", "-p", str(pid), "-o", "lstart="], empty_ok=True).strip() or None
+    return _read(["/bin/ps", "-p", str(pid), "-o", "lstart="], empty_ok=True).strip() or None
+
+
+def proc_start_retry(pid: int, *, tries: int = 6, delay_s: float = 0.25,
+                     alive: Callable[[], bool] | None = None) -> str | None:
+    """`proc_start` with a bounded retry (C-5.3 hardening for C-4.2 `starting`).
+
+    One `ps` pass can miss or time out on a just-spawned pid under load, and a
+    single failed read must not cost the caller an attempt. Retries stop early
+    when `alive()` says the process is gone. The last inspection error, if
+    every try raised, is re-raised so the caller still sees "unavailable".
+    """
+    last_error: InspectionError | None = None
+    for i in range(max(1, tries)):
+        try:
+            started = proc_start(pid)
+        except InspectionError as exc:
+            last_error, started = exc, None
+        if started:
+            return started
+        if alive is not None and not alive():
+            break
+        if i + 1 < tries:
+            time.sleep(delay_s)
+    if last_error is not None:
+        raise last_error
+    return None
 
 
 def _stat(pid: int) -> str | None:
-    return _read(["ps", "-p", str(pid), "-o", "stat="], empty_ok=True).strip() or None
+    return _read(["/bin/ps", "-p", str(pid), "-o", "stat="], empty_ok=True).strip() or None
 
 
 @dataclass(frozen=True)
@@ -126,7 +155,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     errors: list[str] = []
     try:
         if pgid and pgid > 0:
-            group_text = _read(["ps", "-o", "pid=,stat=", "-g", str(pgid)], empty_ok=True)
+            group_text = _read(["/bin/ps", "-o", "pid=,stat=", "-g", str(pgid)], empty_ok=True)
             for row in group_text.splitlines():
                 pid_text, state = row.split(None, 1)
                 if not state.startswith("Z"):
@@ -137,7 +166,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         errors.append("group enumeration unavailable")
     try:
         parents: dict[int, int] = {}
-        for row in _read(["ps", "-axo", "pid=,ppid=,stat="]).splitlines():
+        for row in _read(["/bin/ps", "-axo", "pid=,ppid=,stat="]).splitlines():
             pid_text, parent_text, state = row.split(None, 2)
             pid = int(pid_text)
             parents[pid] = int(parent_text)
@@ -156,7 +185,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             raise ValueError("invalid attempt marker")
         marker = re.compile(r"(?:^|\s)SUBFLEET_ATTEMPT=" + re.escape(attempt_id) + r"(?=\s|$)")
         # Never retain or report these command/environment strings.
-        for row in _read(["ps", "-axEww", "-o", "pid=,command="]).splitlines():
+        for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
             pid_text, _, command = row.strip().partition(" ")
             if marker.search(command):
                 pid = int(pid_text)

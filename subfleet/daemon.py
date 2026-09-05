@@ -650,19 +650,30 @@ class Daemon:
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                      pass_fds=(read_fd,), close_fds=True, cwd=package_root)
             self._children[a["attempt_id"]] = child
-            started = procs.proc_start(child.pid)
+            # ps can miss a pid for a few milliseconds after fork, and it is
+            # slow under load; retry briefly while the guardian is alive. The
+            # gate byte is not written until identity is recorded (C-5.2, C-5.3).
+            started = None
+            for _ in range(20):
+                started = procs.proc_start_retry(child.pid, alive=lambda: child.poll() is None)  # C-5.3: one ps pass can miss a fresh pid under load
+                if started or child.poll() is not None:
+                    break
+                time.sleep(0.1)
             if not started:
-                raise procs.InspectionError("guardian identity is absent")
+                rc = child.poll()
+                raise procs.InspectionError(
+                    f"guardian exited before identity (rc={rc})" if rc is not None
+                    else "guardian identity is absent after 2 s")
             boot = procs.boot_id()
             with self.store.transaction("attempt.starting", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
                 tx.execute("UPDATE attempts SET state='starting',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,native_session_id=? WHERE attempt_id=? AND state='reserved'",
                            (child.pid, child.pid, boot, started, launch.native_session_id, a["attempt_id"]))
             os.write(write_fd, b"1")
-        except (OSError, procs.InspectionError):
+        except (OSError, procs.InspectionError) as exc:
             # Closing the gate guarantees an unrecorded guardian cannot launch.
             os.close(write_fd)
             write_fd = -1
-            self._unlaunched(a, "guardian-identity-unavailable")
+            self._unlaunched(a, f"guardian-identity-unavailable: {type(exc).__name__}: {exc}")
             return
         finally:
             os.close(read_fd)

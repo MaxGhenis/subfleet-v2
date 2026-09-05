@@ -157,7 +157,7 @@ class Harness:
         if marker.exists():
             pid = int(marker.read_text())
             # Inspect the exact recorded marker PID and require our fixture argv.
-            command = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+            command = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "command="],
                                      text=True, capture_output=True, check=False).stdout
             if str(REPO / "tests/bin/fakeprov") in command and "--escaped-child" in command:
                 with suppress(ProcessLookupError):
@@ -177,8 +177,15 @@ def process_inspection_available():
         pytest.skip(f"C-5.3 real daemon tests require permitted sysctl/ps inspection: {exc}")
 
 
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, "rep_" + report.when, report)
+
+
 @pytest.fixture
-def daemon(process_inspection_available):
+def daemon(request, process_inspection_available):
     # AF_UNIX on macOS has a 104-byte path limit; pytest's default temp path is longer.
     with tempfile.TemporaryDirectory(prefix="sf-", dir="/tmp") as directory:
         harness = Harness(Path(directory))
@@ -186,3 +193,11 @@ def daemon(process_inspection_available):
             yield harness
         finally:
             harness.close()
+            # Keep the state root of a failed test so daemon.log and the store can be read.
+            report = getattr(request.node, "rep_call", None)
+            if report is not None and report.failed:
+                import re, shutil, sys
+                keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
+                shutil.rmtree(keep, ignore_errors=True)
+                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True)
+                print(f"\n[daemon harness] kept state root at {keep}", file=sys.stderr)

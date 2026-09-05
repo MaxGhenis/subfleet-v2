@@ -102,7 +102,7 @@ def boot_id() -> str | None:
 
 
 def _read_boot_id() -> str | None:
-    rc, out = _run(["sysctl", "-n", "kern.boottime"])
+    rc, out = _run(["/usr/sbin/sysctl", "-n", "kern.boottime"])
     if rc != 0 or not out.strip():
         return None
     match = re.search(r"sec\s*=\s*(\d+)", out)
@@ -122,7 +122,7 @@ def proc_start(pid: int) -> str | None:
     saying "no such process" (rc 1 with no output) is death; any other failure
     is unverifiable, because a refused `ps` is not evidence that a pid is free.
     """
-    rc, out = _run(["ps", "-p", str(int(pid)), "-o", "state=,lstart="])
+    rc, out = _run(["/bin/ps", "-p", str(int(pid)), "-o", "state=,lstart="])
     if rc < 0:
         return None                      # ps itself did not run: unverifiable
     line = " ".join(out.split())
