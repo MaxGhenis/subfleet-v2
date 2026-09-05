@@ -635,7 +635,7 @@ def _format_decision(decision: dict[str, Any]) -> str:
     for evaluation in rows_of(decision.get("evaluations")):
         lines.append(f"  {evaluation.get('model')}: "
                      f"{evaluation.get('reason') or evaluation.get('result') or ''}")
-        for rejected in rows_of(evaluation.get("rejected")):
+        for rejected in rows_of(evaluation.get("rejections", evaluation.get("rejected"))):
             lines.append(f"    - {rejected.get('lane_id')}: {rejected.get('reason')}")
     lines.append(f"chosen: {decision.get('chosen_model') or '-'} on "
                  f"{decision.get('chosen_lane') or '-'} — {decision.get('reason') or '-'}")
