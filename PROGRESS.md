@@ -2,7 +2,7 @@
 
 ## State
 
-Resumed on `lane/codex-adapter` after the restored WIP and main merge. The worktree started clean. Adapter, guard, fixtures, fake provider, and existing tests are present and pass; focused review and the missing probe suite are underway. Runtime code uses the standard library and never launches provider processes from the adapter.
+Lane implementation and offline acceptance are complete on `lane/codex-adapter`. All **181 tests pass** in **3.86 s wall time**. Runtime code uses the standard library and never launches provider processes from the adapter. The final integrator report is `OUTPUT.md`. Remote delivery remains blocked by DNS resolution for github.com.
 
 ## Done
 
@@ -21,11 +21,12 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - Fixed native resume forwarding a short policy alias as a provider model id; resume now keeps the original thread's model (C-1.6, C-12.3). Adapter suite: **60 passed in 0.07 s**.
 - Bound resumed model evidence to the guardian's recorded start/exit interval and refused attestation after spawn failure. Missing clocks and ambiguous boundary seconds return `unattested`; old/later turns cannot change the current result (C-12.5). Adapter suite: **68 passed in 0.12 s**.
 - Fixed account-claim fallback when the access token has plan claims and the ID token has the account id; enrollment still uses the account id before email (C-1.4, C-10.2). Probe suite: **50 passed in 0.10 s**.
+- Final acceptance: `uv run pytest -q tests/unit/test_codex_adapter.py tests/unit/test_codex_probe.py tests/unit/test_guard_trust.py tests/process/test_codex_isolation.py`: **181 passed in 3.70 s**, **3.86 s measured wall time**. These are all test modules currently in this worktree; 153 unit and 28 process cases fit C-20.2 budgets. `uv sync --group dev`, `git diff --check`, and the clause-docstring audit passed.
 
 ## Next
 
-- Run the specified acceptance suite within C-20.2 budgets; write the final report to `OUTPUT.md` unless an output path is supplied.
-- Commit every coherent step and push each commit to `origin lane/codex-adapter`.
+- Push the committed branch when github.com DNS is available; every coherent step was committed and each required push was attempted.
+- Integrator: wire preflight before executable Codex launches, preserve `Launch.lane_id` and receipt clocks, sanitize all provider API keys, then measure installed CLI trust and OS write isolation.
 
 ## Constraints and integration notes
 
@@ -34,4 +35,4 @@ Resumed on `lane/codex-adapter` after the restored WIP and main merge. The workt
 - The raw exit code and signal can be retained in `Outcome.evidence` without changing shared dataclasses.
 - Existing additive seam: optional `Launch.lane_id` binds classifier closures to their lane without filesystem writes or undocumented environment variables.
 - The fake does not implement an OS filesystem sandbox. Full C-14.4 write enforcement and the installed Codex hooks/list measurement remain integration gates; this lane runs only fake providers.
-- Push of resumed progress commit failed with `Could not resolve host: github.com`. Local commits are retained; push after every new commit remains required.
+- Every resumed push has failed with `Could not resolve host: github.com`. Local commits are retained. No guard/hook refusal occurred and no workaround was attempted.
