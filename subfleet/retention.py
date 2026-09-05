@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
+import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 from .contracts import RETENTION_MAX_BYTES, RETENTION_MAX_JOBS
-from .store import Store
+from .store import Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 
@@ -51,6 +53,8 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int]) -> set[str
         "SELECT DISTINCT parent_job_id AS job_id FROM jobs WHERE parent_job_id IS NOT NULL",
         "SELECT j.job_id FROM jobs j JOIN leases l ON l.holder=j.job_id",
         "SELECT a.job_id FROM attempts a JOIN leases l ON l.holder=a.attempt_id",
+        "SELECT j.job_id FROM jobs j JOIN leases l ON l.lease_key='worktree:' || j.worktree "
+        "WHERE l.holder != 'retention:' || j.job_id",
     )
     for sql in queries:
         protected.update(row["job_id"] for row in store.query(sql))
@@ -73,6 +77,76 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int]) -> set[str
     return protected
 
 
+def _owned_worktree(job: dict[str, Any], state_root: Path) -> Path | None:
+    """C-13.4: only daemon-allocated paths strictly below worktrees are owned."""
+    if job.get("in_place") or job.get("sandbox") != "workspace-write" or not job.get("worktree"):
+        return None
+    allocated_root = state_root / "worktrees"
+    # A symlinked container must not turn an external directory into our owner
+    # boundary. Individual paths are resolved to reject escapes the same way.
+    if allocated_root.resolve() != allocated_root:
+        raise ValueError("allocated worktree root is a symlink")
+    worktree = Path(job["worktree"]).resolve()
+    if worktree == allocated_root or allocated_root not in worktree.parents:
+        raise ValueError("worktree path is outside the daemon's allocated worktrees")
+    return worktree
+
+
+def _git(worktree: Path, *args: str, env: dict[str, str] | None = None) -> str:
+    result = subprocess.run(["git", "-C", str(worktree), *args], env=env,
+                            capture_output=True, text=True, timeout=15, check=False)
+    if result.returncode:
+        raise OSError(f"git {args[0]} failed while inspecting or removing allocated worktree")
+    return result.stdout.strip()
+
+
+def _remove_worktree(job: dict[str, Any], state_root: Path,
+                     salvage_artifacts: list[dict[str, Any]], expected_worktree: Path | None) -> None:
+    """Verify preservation, then remove both the owned tree and Git registration.
+
+    A forced removal additionally requires a recorded, existing salvage ref
+    whose tree exactly matches the current files. This prevents later operator
+    edits from being discarded merely because an earlier salvage row exists.
+    All Git commands and temporary-index work run outside store transactions.
+    """
+    worktree = _owned_worktree(job, state_root)
+    if worktree != expected_worktree:
+        raise ValueError("allocated worktree path changed during retention")
+    if worktree is None:
+        return
+    source = worktree if worktree.exists() else Path(job["workdir"])
+    registered = any(line.startswith("worktree ") and Path(line[9:]).resolve() == worktree
+                     for line in _git(source, "worktree", "list", "--porcelain").splitlines())
+    if not registered:
+        if worktree.exists():
+            raise ValueError("allocated path is not a registered Git worktree")
+        return
+    dirty = bool(worktree.exists() and _git(worktree, "status", "--porcelain=v1", "--untracked-files=all"))
+    if dirty:
+        if not salvage_artifacts:
+            raise ValueError("dirty allocated worktree has no recorded salvage snapshot")
+        with tempfile.TemporaryDirectory(prefix="retention-index-", dir=state_root) as temporary:
+            env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+            _git(worktree, "read-tree", "HEAD", env=env)
+            _git(worktree, "add", "-A", env=env)
+            current_tree = _git(worktree, "write-tree", env=env)
+        preserved = False
+        for artifact in salvage_artifacts:
+            ref = artifact["path"]
+            if not ref.startswith("refs/subfleet-salvage/"):
+                continue
+            try:
+                preserved = _git(worktree, "rev-parse", "--verify", ref + "^{tree}") == current_tree
+            except OSError:
+                continue
+            if preserved:
+                break
+        if not preserved:
+            raise ValueError("dirty allocated worktree is not preserved by an existing salvage ref")
+    options = ("--force",) if dirty else ()
+    _git(source, "worktree", "remove", *options, "--", str(worktree))
+
+
 def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTION_MAX_JOBS,
                 max_bytes: int = RETENTION_MAX_BYTES, referenced_job_ids: Iterable[str] = (),
                 salvage_referenced_elsewhere: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any]:
@@ -85,7 +159,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     """
     if max_jobs < 0 or max_bytes < 0:
         raise ValueError("retention limits must be nonnegative")
-    root = Path(state_root).resolve() / "jobs"
+    state_root = Path(state_root).resolve()
+    root = state_root / "jobs"
     jobs = store.list_jobs()
     sizes = {}
     errors = []
@@ -96,7 +171,10 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
             continue
         try:
             sizes[identity] = _size(root / identity)
-        except OSError as exc:
+            worktree = _owned_worktree(job, state_root)
+            if worktree is not None:
+                sizes[identity] += _size(worktree)
+        except (OSError, ValueError) as exc:
             errors.append({"job_id": identity, "error": str(exc)})
     explicit = set(referenced_job_ids) | {error["job_id"] for error in errors}
     landed = set()
@@ -114,7 +192,35 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
         identity = job["job_id"]
         if identity in protected:
             continue
+        # Fence new in-place admission for the entire filesystem removal. The
+        # dedicated holder survives a daemon crash and this pass can resume it.
+        worktree = _owned_worktree(job, state_root)
+        lease_key = f"worktree:{worktree}" if worktree is not None else None
+        lease_holder = f"retention:{identity}"
+        with store.transaction("retention.selected", job_id=identity) as conn:
+            if identity in _pins(store, explicit, landed):
+                protected.add(identity)
+                continue
+            if lease_key is not None:
+                current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (lease_key,)).fetchone()
+                if current and current["holder"] != lease_holder:
+                    protected.add(identity)
+                    continue
+                conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                             (lease_key, lease_holder, utc_now()))
+        salvage_artifacts = store.query("SELECT r.* FROM artifacts r JOIN attempts a USING(attempt_id) "
+                                        "WHERE a.job_id=? AND r.role='salvage'", (identity,))
+        try:
+            _remove_worktree(job, state_root, salvage_artifacts, worktree)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            error = {"job_id": identity, "error": str(exc)}
+            errors.append(error)
+            protected.add(identity)
+            with store.transaction("retention.worktree_error", job_id=identity, data=error) as conn:
+                conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
+            continue
         with store.transaction("retention.pruned", job_id=identity, data={"bytes": sizes.get(identity, 0)}) as conn:
+            conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
             if identity in _pins(store, explicit, landed):
                 protected.add(identity)
                 continue

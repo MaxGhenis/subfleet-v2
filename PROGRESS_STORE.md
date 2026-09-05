@@ -38,3 +38,10 @@ Implementing the core lane's persistence and support modules; shared seams remai
 +- C-6.4: noted that wall time was checked only for live attempts, leaving waiting retries outside the deadline.
 +- C-8.4/C-13.4: reported that the maintenance helper removes job artifacts but does not remove allocated Git worktrees; this requires integrator follow-up or explicit scope reporting.
 +- Review used deterministic daemon state with constructor identity stubs, never spawned providers, and made no daemon edits.
+
+## Allocated worktree retention follow-up
++- Implemented the previously reported C-8.4/C-13.4 gap: byte accounting now includes allocated worktrees, and selected owned linked worktrees are removed with their Git registrations outside transactions.
++- In-place workdirs, external resolved paths, and symlinked worktree containers are never removed. Dirty worktrees require a recorded existing salvage ref matching the exact current tree before a forced removal; unlanded salvage remains pinned by default.
++- A durable `worktree:<path>` lease held by `retention:<job id>` fences new writers throughout removal and can resume after a crash between Git removal and row deletion.
++- `UV_CACHE_DIR="$PWD/.uv-cache" UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv run pytest -q tests/unit/test_store_ids.py tests/unit/test_policy_support.py tests/unit/test_retention_worktrees.py`: 29 passed in 1.06 s.
++- All Git inspection, temporary-index preparation, byte accounting, and removal remain outside store transactions; isolated-repository tests cover clean cleanup, dirty preservation, exact salvage matching, path ownership, in-place preservation, and deletion recovery.
