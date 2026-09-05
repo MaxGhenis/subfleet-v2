@@ -8,11 +8,13 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from subfleet import cli
+from subfleet.client import boot_id
 from subfleet.offline import Offline
 
 SCHEMA = Path(__file__).resolve().parents[2] / "subfleet" / "store_schema.sql"
@@ -21,10 +23,21 @@ DONE = "20260905-110000-done"
 NOW = "2026-09-05T12:00:00Z"
 
 
-def build_store(root: Path, *, pgid: int | None = 4242,
+SAME_AS_GUARDIAN = object()
+
+
+def build_store(root: Path, *, pgid=SAME_AS_GUARDIAN,
                 guardian_pid: int | None = 999999,
                 proc_start: str | None = "Mon Jan  1 00:00:00 2001") -> Path:
-    """A store with one running job, one finished job, a lane, and a reading."""
+    """A store with one running job, one finished job, a lane, and a reading.
+
+    The guardian leads its own process group (C-5.1), so pgid follows
+    guardian_pid unless a test is deliberately recording a mismatch. The boot id
+    is this machine's real one, so the identity checks mean what they say and
+    the fixture does not expire at the next reboot (C-5.3).
+    """
+    if pgid is SAME_AS_GUARDIAN:
+        pgid = guardian_pid
     root.mkdir(parents=True, exist_ok=True)
     path = root / "state.sqlite3"
     conn = sqlite3.connect(path)
@@ -69,7 +82,7 @@ def build_store(root: Path, *, pgid: int | None = 4242,
              "attested" if rc == 0 else "unattested",
              "succeeded" if rc == 0 else "running",
              guardian_pid if rc is None else 1234, 1235,
-             pgid if rc is None else 4243, "1788531275", proc_start, rc,
+             pgid if rc is None else 4243, boot_id(), proc_start, rc,
              "ok" if rc == 0 else None, NOW, NOW,
              "2026-09-05T12:05:00Z" if rc == 0 else None))
     conn.execute(
@@ -189,7 +202,7 @@ def test_offline_mode_never_serves_the_verbs_that_need_a_daemon(root, capsys):
 
 def test_offline_kill_refuses_when_identity_cannot_be_verified(root, capsys):
     """C-17.5, C-5.3 offline kill refuses a pid it cannot confirm and says why."""
-    build_store(root, guardian_pid=os.getpid(), proc_start=None, pgid=os.getpgid(0))
+    build_store(root, guardian_pid=os.getpid(), proc_start=None)
     assert cli.main(["kill", JOB]) == 1
     captured = capsys.readouterr()
     assert "refused" in captured.out
@@ -220,12 +233,11 @@ def test_offline_kill_of_a_finished_job_is_already_finished(store, capsys):
 def test_offline_kill_signals_a_verified_process_group(root, capsys, monkeypatch):
     """C-5.4, C-17.5 a verified identity is the only thing offline kill signals."""
     signalled: list[tuple[int, int]] = []
-    build_store(root, guardian_pid=os.getpid(), pgid=os.getpgid(0),
-                proc_start="recorded")
+    build_store(root, guardian_pid=os.getpid(), proc_start="recorded")
     monkeypatch.setattr("subfleet.offline.same_process", lambda *a, **k: True)
     monkeypatch.setattr(os, "killpg", lambda pgid, sig: signalled.append((pgid, sig)))
     assert cli.main(["kill", JOB]) == 0
-    assert signalled == [(os.getpgid(0), 15)]
+    assert signalled == [(os.getpid(), 15)]
     captured = capsys.readouterr()
     assert "signalled" in captured.out
     assert "until a daemon reconciles it" in captured.err
@@ -287,3 +299,83 @@ def test_offline_kill_will_not_resolve_a_quarantine(store, capsys):
         captured = capsys.readouterr()
         assert "only the daemon" in captured.err
         assert "subfleet daemon start" in captured.err
+
+
+def test_offline_kill_refuses_a_pgid_the_guardian_does_not_lead(root, capsys):
+    """C-5.4, C-5.1 only a group whose leader is the verified guardian is signalled."""
+    build_store(root, guardian_pid=os.getpid(), pgid=4242, proc_start="recorded")
+    assert cli.main(["kill", JOB]) == 1
+    captured = capsys.readouterr()
+    assert "refused" in captured.out
+    assert "is not led by the recorded guardian" in captured.err
+
+
+def test_offline_status_marks_an_old_provider_reading_stale(root, capsys):
+    """C-9.1 a provider reading beyond reading_ttl_s is rendered as stale."""
+    path = build_store(root)
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE readings SET observed_at = '2020-01-01T00:00:00Z'")
+    conn.commit()
+    conn.close()
+    assert cli.main(["status"]) == 0
+    assert "42% stale" in capsys.readouterr().out
+
+
+def test_offline_status_keeps_a_fresh_provider_reading_live(root, capsys):
+    """C-9.1 a reading inside reading_ttl_s keeps its provider label."""
+    path = build_store(root)
+    fresh = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE readings SET observed_at = ?", (fresh,))
+    conn.commit()
+    conn.close()
+    assert cli.main(["status"]) == 0
+    table = capsys.readouterr().out
+    assert "42%" in table and "stale" not in table
+
+
+def test_show_out_prefers_the_accepted_attempts_deliverable(root, capsys):
+    """C-8.2 the deliverable is the accepted attempt's, not the earliest one."""
+    path = build_store(root)
+    first, second = root / "a1.md", root / "a2.md"
+    first.write_text("# the failed attempt\n")
+    second.write_text("# the accepted attempt\n")
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE artifacts SET path = ? WHERE role = 'deliverable'",
+                 (str(first),))
+    conn.execute(
+        "INSERT INTO attempts (attempt_id, job_id, seq, lane_id, model_requested,"
+        " state, reserved_at) VALUES (?,?,?,?,?,?,?)",
+        (f"{DONE}/a2", DONE, 2, "codex-1", "gpt-6-astra", "succeeded", NOW))
+    conn.execute(
+        "INSERT INTO artifacts (attempt_id, role, path, sha256, bytes, created_at)"
+        " VALUES (?,?,?,?,?,?)",
+        (f"{DONE}/a2", "deliverable", str(second), "sha", 20, NOW))
+    conn.execute("UPDATE jobs SET accepted_attempt_id = ? WHERE job_id = ?",
+                 (f"{DONE}/a2", DONE))
+    conn.commit()
+    conn.close()
+    assert cli.main(["runs", "show", DONE, "--out"]) == 0
+    assert capsys.readouterr().out == "# the accepted attempt\n"
+
+
+def test_a_relative_state_root_still_works(root, monkeypatch, capsys, tmp_path):
+    """C-2.1, C-17.3 a relative $SUBFLEET_HOME is resolved, not a ValueError."""
+    build_store(root)
+    monkeypatch.chdir(root.parent)
+    monkeypatch.setenv("SUBFLEET_HOME", root.name)
+    assert cli.main(["runs"]) == 0
+    assert JOB in capsys.readouterr().out
+
+
+def test_reads_say_so_when_the_store_is_newer(root, capsys):
+    """C-3.5 a store ahead of this CLI is named on every read, not only on kill."""
+    path = build_store(root)
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (7, ?)",
+                 (NOW,))
+    conn.commit()
+    conn.close()
+    for argv in (["runs"], ["status"], ["runs", "show", JOB]):
+        assert cli.main(argv) == 0, argv
+        assert "schema version 7" in capsys.readouterr().err, argv

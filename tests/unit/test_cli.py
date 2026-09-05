@@ -706,3 +706,25 @@ def test_usage_errors_return_two_and_help_returns_zero(capsys):
     assert "subfleet run" in capsys.readouterr().out
     assert run_cli(["--version"]) == 0
     assert capsys.readouterr().out.startswith("subfleet 2.")
+
+
+def test_show_out_online_prefers_the_accepted_attempt(daemon, root, capsys):
+    """C-8.2, C-4.3 a job with two attempts shows the accepted one's deliverable."""
+    first, second = root / "a1.md", root / "a2.md"
+    first.write_text("# the failed attempt\n")
+    second.write_text("# the accepted attempt\n")
+    daemon({"show": lambda request: {
+        "job_id": JOB, "state": "succeeded", "accepted_attempt_id": f"{JOB}/a2",
+        "artifacts": [
+            {"role": "deliverable", "path": str(first), "attempt_id": f"{JOB}/a1"},
+            {"role": "deliverable", "path": str(second), "attempt_id": f"{JOB}/a2"}]}})
+    assert run_cli(["runs", "show", JOB, "--out"]) == 0
+    assert capsys.readouterr().out == "# the accepted attempt\n"
+
+
+def test_last_zero_means_no_limit_on_both_sides(daemon, capsys):
+    """C-17.1 `--last 0` is unbounded online exactly as it is offline."""
+    server = daemon({"list": lambda request: {"jobs": []}})
+    assert run_cli(["runs", "--last", "0"]) == 0
+    assert server.args("list")["last"] is None
+    capsys.readouterr()

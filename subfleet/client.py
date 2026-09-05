@@ -35,9 +35,14 @@ START_DAEMON_FIX = "subfleet daemon start"
 
 
 def state_root(env: dict[str, str] | None = None) -> Path:
-    """`$SUBFLEET_HOME`, default `~/.subfleet/` (C-2.1)."""
+    """`$SUBFLEET_HOME`, default `~/.subfleet/`, always absolute (C-2.1).
+
+    A relative `SUBFLEET_HOME` would otherwise mean a different directory for
+    every caller's cwd, and a file URI cannot express one at all.
+    """
     env = os.environ if env is None else env
-    return Path((env.get("SUBFLEET_HOME") or DEFAULT_STATE_ROOT)).expanduser()
+    root = Path(env.get("SUBFLEET_HOME") or DEFAULT_STATE_ROOT).expanduser()
+    return root if root.is_absolute() else Path.cwd() / root
 
 
 class DaemonUnavailable(Exception):

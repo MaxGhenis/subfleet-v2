@@ -44,7 +44,8 @@ from .client import (
     state_root,
 )
 from .contracts import JobState, Sandbox, WAIT_POLL_MAX_S, Exit
-from .offline import Offline, OfflineUnavailable, SchemaTooNew
+from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
+                      SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
 
 PROG = "subfleet"
@@ -267,6 +268,8 @@ def format_status(data: dict[str, Any]) -> str:
     by_lane: dict[str, list[dict[str, Any]]] = {}
     for reading in readings:
         by_lane.setdefault(reading.get("lane_id"), []).append(reading)
+        reading["label"] = age_adjusted_label(reading.get("label"),
+                                              reading.get("observed_at"))
 
     if data.get("offline"):
         lines.append("(offline: read from the store; no daemon is running)")
@@ -329,6 +332,14 @@ def _offline(args: argparse.Namespace) -> Offline:
     return Offline(_root(args))
 
 
+def _note_schema(store: Offline) -> None:
+    """C-3.5: say so when the store was written by a newer subfleet."""
+    if store.newer_schema:
+        note(f"{PROG}: the store is at schema version {store.newer_schema}; this "
+             f"CLI knows version {KNOWN_SCHEMA_VERSION} — some columns may be "
+             f"missing from what is shown")
+
+
 def _daemon_down(exc: Exception) -> int:
     return fail(Exit.DAEMON_UNAVAILABLE, str(exc), getattr(exc, "fix", START_DAEMON))
 
@@ -364,10 +375,12 @@ def cmd_status(args: argparse.Namespace) -> int:
                 "list", _asdict(protocol.ListArgs(running=True, last=50))
             ).get("jobs", [])
     except DaemonUnavailable:
+        store = _offline(args)
         try:
-            data = _offline(args).status()
+            data = store.status()
         except OfflineUnavailable as exc:
             return _daemon_down(exc)
+        _note_schema(store)
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
@@ -727,15 +740,17 @@ def cmd_runs(args: argparse.Namespace) -> int:
     try:
         client = _client(args)
         result = client.call("list", _asdict(protocol.ListArgs(
-            mine=mine, running=bool(args.running), last=args.last)))
+            mine=mine, running=bool(args.running), last=args.last or None)))
         rows = rows_of(result.get("jobs") or result.get("rows"))
     except DaemonUnavailable:
         offline = True
+        store = _offline(args)
         try:
-            rows = _offline(args).list_jobs(
-                session=mine, running=bool(args.running), last=args.last)
+            rows = store.list_jobs(session=mine, running=bool(args.running),
+                                   last=args.last)
         except OfflineUnavailable as exc:
             return _daemon_down(exc)
+        _note_schema(store)
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
@@ -752,9 +767,19 @@ def cmd_runs(args: argparse.Namespace) -> int:
 
 
 def _artifact_path(job: dict[str, Any], role: str) -> str | None:
-    for artifact in rows_of(job.get("artifacts")):
-        if artifact.get("role") == role:
-            return artifact.get("path")
+    """The accepted attempt's artifact for `role` (C-8.2, C-4.3).
+
+    A job that failed once and then succeeded has two rows for the same role;
+    only the accepted attempt's is the result.
+    """
+    artifacts = rows_of(job.get("artifacts"))
+    accepted = job.get("accepted_attempt_id")
+    for wanted in ((accepted,) if accepted else ()) + (None,):
+        for artifact in artifacts:
+            if artifact.get("role") != role:
+                continue
+            if wanted is None or artifact.get("attempt_id") == wanted:
+                return artifact.get("path")
     return job.get(f"{role}_path")
 
 
@@ -846,12 +871,14 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         job = client.call("show", _asdict(protocol.ShowArgs(job_id=args.id)))
         _ack_notices(client, job)
     except DaemonUnavailable:
+        store = _offline(args)
         try:
-            job = _offline(args).show_job(args.id)
+            job = store.show_job(args.id)
         except OfflineUnavailable as exc:
             return _daemon_down(exc)
         except LookupError as exc:
             return fail(Exit.INVALID_INPUT, f"runs show: {exc}")
+        _note_schema(store)
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:

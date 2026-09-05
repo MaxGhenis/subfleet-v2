@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .client import same_process
-from .contracts import Exit, JobState
+from .contracts import READING_TTL_S, Exit, JobState
 
 STORE_NAME = "state.sqlite3"
 KNOWN_SCHEMA_VERSION = 1          # C-3.5
@@ -69,11 +69,28 @@ def _duration_s(started: Any, finished: Any) -> float | None:
     return max(0.0, (end - begin).total_seconds())
 
 
+def age_adjusted_label(label: Any, observed_at: Any) -> Any:
+    """C-9.1: a `provider` reading beyond `reading_ttl_s` is `stale-provider`.
+
+    The stored label records what the reading was when the daemon wrote it.
+    Offline the same row may be hours old, and a stale one must be marked.
+    """
+    if label != "provider":
+        return label
+    observed = _parse_ts(observed_at)
+    if observed is None:
+        return "stale-provider"
+    age = (datetime.now(timezone.utc) - observed).total_seconds()
+    return "provider" if age <= READING_TTL_S else "stale-provider"
+
+
 class Offline:
     """Read-only access to `<state root>/state.sqlite3` (C-3.4, C-17.5)."""
 
     def __init__(self, root: Path | str):
         self.root = Path(root).expanduser()
+        self.newer_schema: int | None = None      # set on the first read (C-3.5)
+        self._version_checked = False
 
     @property
     def store_path(self) -> Path:
@@ -84,23 +101,33 @@ class Offline:
         """A read-only connection that is always closed, with clean failures."""
         conn = self.connect()
         try:
+            # One read transaction per call: the daemon may be writing this WAL
+            # store, and a job row must not disagree with its own attempts.
+            conn.execute("BEGIN")
+            if not self._version_checked:
+                self._version_checked = True
+                self.schema_version(conn)         # records a newer store (C-3.5)
             yield conn
         except sqlite3.Error as exc:
             raise OfflineUnavailable(
                 f"cannot read {self.store_path}: {exc}") from exc
         finally:
+            with contextlib.suppress(sqlite3.Error):
+                conn.rollback()
             conn.close()
 
     def connect(self) -> sqlite3.Connection:
         if not self.store_path.exists():
             raise OfflineUnavailable(
                 f"no daemon and no store at {self.store_path}")
-        uri = f"file:{self.store_path.as_uri().removeprefix('file:')}?mode=ro"
+        absolute = Path(os.path.abspath(self.store_path))
+        uri = f"file:{absolute.as_uri().removeprefix('file:')}?mode=ro"
         try:
             conn = sqlite3.connect(uri, uri=True, timeout=5.0)
         except sqlite3.Error as exc:
             raise OfflineUnavailable(f"cannot read {self.store_path}: {exc}") from exc
         conn.row_factory = sqlite3.Row
+        conn.isolation_level = None      # explicit BEGIN, see reading()
         return conn
 
     # --- helpers -------------------------------------------------------------
@@ -115,7 +142,12 @@ class Offline:
         if "schema_version" not in self._tables(conn):
             return None
         row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        return None if row is None else row["v"]
+        version = None if row is None else row["v"]
+        if isinstance(version, int) and version > KNOWN_SCHEMA_VERSION:
+            self.newer_schema = version
+        return version
+
+
 
     # --- runs (C-17.1, C-17.5) ----------------------------------------------
 
@@ -185,6 +217,12 @@ class Offline:
                 job["artifacts"] = [dict(item) for item in conn.execute(
                     f"SELECT * FROM artifacts WHERE attempt_id IN ({marks})"
                     " ORDER BY artifact_id", ids)]
+            # C-8.2: the deliverable is the accepted attempt's, not the first
+            # attempt's; a job that failed once and then succeeded has both.
+            accepted = job.get("accepted_attempt_id") or (
+                ids[-1] if ids else None)
+            job["artifacts"].sort(
+                key=lambda item: item.get("attempt_id") != accepted)
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
             decisions = conn.execute(
@@ -223,10 +261,13 @@ class Offline:
                 "SELECT * FROM lanes ORDER BY lane_id")] if "lanes" in tables else []
             readings = [dict(row) for row in conn.execute(
                 """SELECT r.* FROM readings r
-                     JOIN (SELECT lane_id, scope, window, MAX(observed_at) AS newest
-                             FROM readings GROUP BY lane_id, scope, window) latest
-                       ON latest.lane_id = r.lane_id AND latest.scope = r.scope
-                      AND latest.window = r.window AND latest.newest = r.observed_at
+                    WHERE r.reading_id = (SELECT x.reading_id FROM readings x
+                                           WHERE x.lane_id = r.lane_id
+                                             AND x.scope = r.scope
+                                             AND x.window = r.window
+                                           ORDER BY x.observed_at DESC,
+                                                    x.reading_id DESC
+                                           LIMIT 1)
                     ORDER BY r.lane_id, r.window""")] if "readings" in tables else []
             closures = [dict(row) for row in conn.execute(
                 "SELECT * FROM closures WHERE released_at IS NULL"
@@ -242,6 +283,9 @@ class Offline:
             version = self.schema_version(conn)
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
+        for reading in readings:
+            reading["label"] = age_adjusted_label(reading.get("label"),
+                                                  reading.get("observed_at"))
         return {
             "offline": True,
             "state_root": str(self.root),
@@ -281,6 +325,12 @@ class Offline:
             return {"job_id": job_id, "action": "refused", "state": state,
                     "attempt_id": attempt.get("attempt_id"),
                     "reason": "the attempt has no recorded pgid and guardian pid yet"}
+        if int(pgid) != int(pid):
+            return {"job_id": job_id, "action": "refused", "state": state,
+                    "attempt_id": attempt.get("attempt_id"), "pid": pid, "pgid": pgid,
+                    "reason": (f"the recorded pgid {pgid} is not led by the recorded "
+                               f"guardian pid {pid}; C-5.1 makes the guardian its own "
+                               f"group leader, so this row cannot be verified (C-5.4)")}
         identity = same_process(pid, attempt.get("boot_id"), attempt.get("proc_start"))
         if identity is False:
             return {"job_id": job_id, "action": "already-dead", "state": state,
