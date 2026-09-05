@@ -22,8 +22,15 @@ def _size(path: Path) -> int:
     size = 0
     if path.is_symlink() or not path.is_dir():
         return path.lstat().st_size if path.exists() or path.is_symlink() else 0
-    for directory, _, filenames in os.walk(path, followlinks=False):
-        for name in filenames:
+
+    def unreadable(error: OSError) -> None:
+        raise error
+
+    for directory, dirnames, filenames in os.walk(path, followlinks=False, onerror=unreadable):
+        # os.walk puts links to directories in dirnames even when followlinks
+        # is false. Their own bytes count, but their external contents do not.
+        links = [name for name in dirnames if (Path(directory) / name).is_symlink()]
+        for name in [*filenames, *links]:
             try:
                 size += (Path(directory) / name).lstat().st_size
             except FileNotFoundError:
@@ -219,15 +226,6 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
             with store.transaction("retention.worktree_error", job_id=identity, data=error) as conn:
                 conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
             continue
-        with store.transaction("retention.pruned", job_id=identity, data={"bytes": sizes.get(identity, 0)}) as conn:
-            conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
-            if identity in _pins(store, explicit, landed):
-                protected.add(identity)
-                continue
-            for table in ("artifacts", "readings"):
-                conn.execute(f"DELETE FROM {table} WHERE attempt_id IN (SELECT attempt_id FROM attempts WHERE job_id=?)", (identity,))
-            for table in ("notices", "decisions", "attempts", "jobs"):
-                conn.execute(f"DELETE FROM {table} WHERE job_id=?", (identity,))
         directory = root / identity
         try:
             if directory.is_symlink():
@@ -237,7 +235,28 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
         except OSError as exc:
             error = {"job_id": identity, "error": str(exc)}
             errors.append(error)
+            protected.add(identity)
+            # A partial removal must retain the job so a later pass can retry
+            # it, and must not claim bytes that remain on disk were reclaimed.
+            try:
+                remaining = _size(directory) + (_size(worktree) if worktree is not None else 0)
+            except OSError:
+                remaining = sizes.get(identity, 0)
+            total += remaining - sizes.get(identity, 0)
+            sizes[identity] = remaining
+            with store.transaction("retention.lease_released", job_id=identity) as conn:
+                conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
             store.add_event("retention.remove_error", job_id=identity, data=error)
+            continue
+        with store.transaction("retention.pruned", job_id=identity, data={"bytes": sizes.get(identity, 0)}) as conn:
+            conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
+            if identity in _pins(store, explicit, landed):
+                protected.add(identity)
+                continue
+            for table in ("artifacts", "readings"):
+                conn.execute(f"DELETE FROM {table} WHERE attempt_id IN (SELECT attempt_id FROM attempts WHERE job_id=?)", (identity,))
+            for table in ("notices", "decisions", "attempts", "jobs"):
+                conn.execute(f"DELETE FROM {table} WHERE job_id=?", (identity,))
         pruned.append(identity)
         count -= 1
         total -= sizes.get(identity, 0)
