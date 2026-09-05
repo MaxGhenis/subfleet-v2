@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timezone
 import json
 import os
@@ -103,5 +104,15 @@ class FakeAdapter(Adapter):
 
     def resume_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                       credential_env: dict[str, str], native_session_id: str,
-                      prompt_path: Path, guard_override: str | None) -> Launch | None:
-        return None
+                      prompt_path: Path, guard_override: str | None,
+                      model_id: str | None = None) -> Launch | None:
+        """The same local process, but recording which session it continued.
+
+        A `revive` job's whole point is that it resumes the named session rather
+        than starting a new one (C-23.54), so the fake makes that observable:
+        `native_session_id` reaches the attempt row, and a test can read it back.
+        """
+        launch = self.build_launch(job, attempt_id, attempt_dir, lane, credential_env,
+                                   model_id or "fake-model", None, prompt_path,
+                                   guard_override)
+        return dataclasses.replace(launch, native_session_id=native_session_id)

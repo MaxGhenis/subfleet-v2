@@ -205,8 +205,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("reset_credits.min_interval_min", "must be a positive number of minutes")
 
     for section, defaults in (("timers", {"probe_interval_s": 300, "keepalive_interval_s": 18300}),
-                              ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True}),
-                              ("sessions", SESSION_DEFAULTS)):
+                              ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
             fail(section, "must be an object")
@@ -221,10 +220,33 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                 fail(f"{section}.{key}", "must be a positive finite number")
         value[section] = settings
 
+    # `sessions` is validated on its own because zero is meaningful in it: every
+    # cap, window and interval there switches OFF at zero — a mirror interval of
+    # 0 stops the timer without removing the verb, a cooldown of 0 removes the
+    # restart-storm guard, a quiet window of 0 removes the wait. The two mirror
+    # health windows are the exception: a zero there would call the mirror
+    # stalled the instant a pass ended, which is not "off", it is broken.
+    supplied = value.get("sessions", {})
+    if not isinstance(supplied, dict):
+        fail("sessions", "must be an object")
+    settings = {**SESSION_DEFAULTS, **{k: v for k, v in supplied.items()
+                                       if k != "handoff_caps"}}
+    for key, default in SESSION_DEFAULTS.items():
+        item = settings[key]
+        if isinstance(default, bool):
+            if not isinstance(item, bool):
+                fail(f"sessions.{key}", "must be a boolean")
+        elif (not isinstance(item, (int, float)) or isinstance(item, bool)
+              or not math.isfinite(item) or item < 0):
+            fail(f"sessions.{key}", "must be a nonnegative finite number")
+        elif key in ("mirror_stall_min", "mirror_hang_min") and item <= 0:
+            fail(f"sessions.{key}", "must be a positive finite number of minutes")
+    value["sessions"] = settings
+
     # `sessions.handoff_caps` is the one nested section: every handoff section is
     # bounded by an explicit character cap (C-23.36), and a cap of zero or a
     # non-number would silently produce an unbounded or empty brief.
-    supplied_caps = value["sessions"].get("handoff_caps", {})
+    supplied_caps = supplied.get("handoff_caps", {})
     if not isinstance(supplied_caps, dict):
         fail("sessions.handoff_caps", "must be an object of per-section character caps")
     caps = {**HANDOFF_CAPS, **supplied_caps}

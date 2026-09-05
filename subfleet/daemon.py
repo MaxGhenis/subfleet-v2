@@ -56,6 +56,13 @@ NUDGE_EVENT = "session.nudged"
 RETIRE_EVENT = "session.retired"
 UNRETIRE_EVENT = "session.unretired"
 
+#: `store.transaction` writes its own audit event under the kind it is given,
+#: and `_session_events` reads the NEWEST row of each kind. Naming the audit
+#: event after the record would therefore shadow the record with a summary that
+#: carries no dedupe key — so the two are deliberately different kinds.
+def audit_kind(event: str) -> str:
+    return event.rsplit(".", 1)[0] + ".recorded"
+
 #: C-23.55: one live revive per session. The key is session-scoped, not
 #: caller-scoped, and its holder is the revive job id so every existing
 #: holder-keyed release site frees it. It shares the `session:` namespace with
@@ -583,7 +590,7 @@ class Daemon:
                 raise protocol.ProtocolError(f"sessions {action}: session_id is required")
             kind = RETIRE_EVENT if action == "retire" else UNRETIRE_EVENT
             data = {"session_id": args.session_id, "reason": args.reason, **args.detail}
-            with self.store.transaction(kind, data=data) as tx:
+            with self.store.transaction(audit_kind(kind), data=data) as tx:
                 tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                            (utcnow(), kind, json.dumps(data, sort_keys=True)))
             return {"session_id": args.session_id, "action": action, "recorded": True}
@@ -594,7 +601,8 @@ class Daemon:
             # transaction that records the nudge, so two sweeps racing over one
             # session cannot both reserve it. The worker has already decided
             # eligibility against the transcript (C-23.34); this is the lock.
-            with self.store.transaction(NUDGE_EVENT, data={"session_id": args.session_id}) as tx:
+            with self.store.transaction(audit_kind(NUDGE_EVENT),
+                                        data={"session_id": args.session_id}) as tx:
                 previous = self._session_events((NUDGE_EVENT,), {args.session_id}).get(
                     f"{NUDGE_EVENT}:{args.session_id}")
                 if previous and not args.force:
