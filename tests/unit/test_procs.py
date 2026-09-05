@@ -1,0 +1,128 @@
+"""Deterministic ownership checks; real-process acceptance lives in tests/process."""
+
+import json
+import signal
+import subprocess
+
+import pytest
+
+from subfleet import procs
+
+
+def census(monkeypatch, *, groups="", parents="", markers="", fail=None):
+    def read(argv, *, empty_ok=False):
+        if fail is not None and fail in argv:
+            raise procs.InspectionError("unavailable")
+        if argv[:2] == ["sysctl", "-n"]:
+            return "{ sec = 100, usec = 123 }"
+        if "pid=,stat=" in argv:
+            return groups
+        if "pid=,ppid=,stat=" in argv:
+            return parents
+        if "pid=,command=" in argv:
+            return markers
+        if "lstart=" in argv:
+            return "Sat Sep  5 10:00:00 2026"
+        if "stat=" in argv:
+            return "S"
+        raise AssertionError(argv)
+    monkeypatch.setattr(procs, "_read", read)
+
+
+def test_boot_identity_uses_sysctl_seconds(monkeypatch):
+    """C-5.3 boot identity extracts only kern.boottime seconds."""
+    census(monkeypatch)
+    assert procs.boot_id() == "100"
+
+
+@pytest.mark.parametrize("boot,started,expected", [
+    ("100", "Sat Sep  5 10:00:00 2026", True),
+    ("101", "Sat Sep  5 10:00:00 2026", False),
+    ("100", "Sat Sep  5 10:00:01 2026", False),
+])
+def test_same_process_requires_both_identities(monkeypatch, boot, started, expected):
+    """C-5.3 pid reuse or a different boot cannot establish ownership."""
+    census(monkeypatch)
+    assert procs.same_process(42, boot, started) is expected
+
+
+def test_zombie_is_not_the_same_live_process(monkeypatch):
+    """C-5.3 and C-5.5 zombies do not count as live processes."""
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "recorded")
+    monkeypatch.setattr(procs, "_stat", lambda pid: "Z+")
+    assert not procs.same_process(42, "100", "recorded")
+
+
+def test_containment_three_sources_find_setsid_escape(monkeypatch):
+    """C-5.5 an escaped orphan remains visible through its inherited marker."""
+    census(monkeypatch, groups="42 S\n44 Z\n", parents="42 1 S\n43 42 S\n44 42 Z\n99 1 S\n",
+           markers="99 python SUBFLEET_ATTEMPT=job/a1 PRIVATE_TOKEN=secret-sentinel\n"
+                   "100 python SUBFLEET_ATTEMPT=job/a10\n")
+    result = procs.containment(42, 42, None, "job/a1")
+    assert result.group_pids == {42}
+    assert result.descendant_pids == {42, 43}
+    assert result.marker_pids == {99}
+    assert result.live_pids == {42, 43, 99}
+    assert not result.verified_empty
+    assert "secret-sentinel" not in json.dumps(result.to_dict())
+    assert "PRIVATE_TOKEN" not in json.dumps(result.to_dict())
+
+
+@pytest.mark.parametrize("failed", ["pid=,stat=", "pid=,ppid=,stat=", "pid=,command="])
+def test_containment_failed_source_is_unverifiable(monkeypatch, failed):
+    """C-5.5 every enumeration source must succeed before releasing a workspace."""
+    census(monkeypatch, fail=failed)
+    result = procs.containment(42, 42, None, "job/a1")
+    assert result.unverifiable
+    assert not result.verified_empty
+
+
+def test_containment_empty_all_sources_proves_release(monkeypatch):
+    """C-5.5 verified empty requires all three sources to return no live pid."""
+    census(monkeypatch)
+    assert procs.containment(42, 42, None, "job/a1").verified_empty
+
+
+def test_containment_descends_from_recorded_child_after_guardian_exit(monkeypatch):
+    """C-5.5 recorded child roots preserve a descendant census after reparenting."""
+    census(monkeypatch, parents="43 1 S\n44 43 S\n45 44 S\n")
+    assert procs.containment(42, 42, 43, "job/a1").descendant_pids == {43, 44, 45}
+
+
+def test_signal_group_refuses_reused_leader(monkeypatch):
+    """C-5.4 group signals require the recorded leader's complete identity."""
+    census(monkeypatch)
+    monkeypatch.setattr(procs.os, "getpgrp", lambda: 7)
+    monkeypatch.setattr(procs.os, "killpg", lambda *args: pytest.fail("unexpected signal"))
+    assert not procs.signal_group(42, signal.SIGTERM, boot_id="old", proc_start="old")
+
+
+def test_signal_group_checks_recorded_leader_before_signal(monkeypatch):
+    """C-5.4 a matching group leader permits signalling exactly its own group."""
+    census(monkeypatch)
+    sent = []
+    monkeypatch.setattr(procs.os, "getpgrp", lambda: 7)
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(procs.os, "killpg", lambda *args: sent.append(args))
+    assert procs.signal_group(42, signal.SIGTERM, boot_id="100", proc_start="Sat Sep  5 10:00:00 2026")
+    assert sent == [(42, signal.SIGTERM)]
+
+
+def test_signal_survivor_rechecks_original_identity(monkeypatch):
+    """C-5.6 pid reuse prevents signalling an individually recorded survivor."""
+    census(monkeypatch)
+    monkeypatch.setattr(procs.os, "kill", lambda *args: pytest.fail("unexpected signal"))
+    assert not procs.signal_process(procs.ProcessIdentity(42, "100", "old-start"), signal.SIGKILL)
+
+
+def test_empty_bsd_ps_selector_is_not_inspection_failure(monkeypatch):
+    """C-5.5 BSD ps status 1 with empty output means a valid empty selection."""
+    monkeypatch.setattr(procs.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", ""))
+    assert procs._read(["ps", "-p", "99999"], empty_ok=True) == ""
+
+
+def test_ps_permission_denial_is_not_empty(monkeypatch):
+    """C-5.5 permission failures remain unverifiable, even with no process rows."""
+    monkeypatch.setattr(procs.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", "denied"))
+    with pytest.raises(procs.InspectionError):
+        procs._read(["ps"], empty_ok=True)
