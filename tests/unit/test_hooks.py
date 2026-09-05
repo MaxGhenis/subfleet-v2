@@ -36,6 +36,97 @@ def notice(notice_id: int, job_id: str = JOB, state: str = "pending",
             "state": state, "text": text}
 
 
+# --- SessionStart hands the wake to the sessions kit (C-23.34) ----------------
+
+def test_hook_defers_dedupe_and_cooldown_to_worker_recheck(daemon, root):
+    """C-23.34: the hook records the wake and decides nothing — dedupe, cooldown
+    and eligibility are re-decided by the worker against the transcript as it
+    reads after the nudge delay.
+
+    Ledger row 185. The app writes this restart's resume stub about 0.7 s AFTER
+    the hook runs, so a verdict computed here is keyed to the PREVIOUS restart;
+    on 2026-08-24 that made a hook-time "already nudged" block a fresh restart's
+    nudge. The hook therefore hands over the session, the source and the
+    transcript, and returns at once.
+    """
+    spawned: list[dict] = []
+    server = daemon({"notice.pending": lambda request: {"notices": []}})
+    body = payload("SessionStart", source="resume",
+                   transcript_path="/tmp/fixture/transcript.jsonl")
+
+    pid = hooks.wake_worker(SESSION, body, root,
+                            spawn=lambda session, **kwargs:
+                            spawned.append({"session": session, **kwargs}) or 4242)
+
+    assert pid == 4242
+    assert spawned == [{"session": SESSION, "source": "resume",
+                        "transcript": "/tmp/fixture/transcript.jsonl",
+                        "delay_s": 8.0, "root": root}]
+    assert "sessions" not in server.ops(), "the hook asks the daemon nothing"
+
+
+def test_the_hook_passes_every_source_through_for_the_worker_to_judge(daemon, root):
+    """C-23.34 with C-23.33: `compact` and `clear` are refused by the WORKER.
+
+    The hook cannot apply C-23.33's source rule and also "decide nothing", so it
+    reports the source it saw and the worker applies the rule — which is what
+    `nudge.source_allows` is, and what `sessions continue --source` carries.
+    """
+    from subfleet.sessions import nudge
+    spawned: list[str | None] = []
+    daemon({"notice.pending": lambda request: {"notices": []}})
+    for source in ("startup", "resume", "compact", "clear", None):
+        hooks.wake_worker(SESSION, payload("SessionStart", source=source), root,
+                          spawn=lambda session, **kwargs:
+                          spawned.append(kwargs["source"]) or 1)
+    assert spawned == ["startup", "resume", "compact", "clear", None]
+    assert [nudge.source_allows(value) for value in spawned] == [
+        True, True, False, False, True]
+
+
+def test_a_session_start_spawns_the_worker_and_still_surfaces_notices(daemon, root,
+                                                                      monkeypatch):
+    """C-15.2 layer 3 and C-23.34 in one event: the wake does not displace the
+    notices, and a failure to spawn never blocks the session from starting."""
+    calls: list[str] = []
+    monkeypatch.setattr(hooks, "wake_worker",
+                        lambda session, body, path, **kw: calls.append(session))
+    daemon({"notice.pending": lambda request: {"notices": [notice(1)]},
+            "notice.mark": lambda request: {"notices": []}})
+    stdout = io.StringIO()
+    assert hooks.session_event("SessionStart", payload("SessionStart"), root,
+                               stdout=stdout) == 0
+    assert calls == [SESSION]
+    assert "run finished" in stdout.getvalue()
+
+
+def test_a_user_prompt_never_wakes_the_worker(daemon, root, monkeypatch):
+    """C-23.33: a nudge follows a `SessionStart`, not every prompt the user types."""
+    calls: list[str] = []
+    monkeypatch.setattr(hooks, "wake_worker",
+                        lambda session, body, path, **kw: calls.append(session))
+    daemon({"notice.pending": lambda request: {"notices": []}})
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"),
+                               root, stdout=io.StringIO()) == 0
+    assert calls == []
+
+
+def test_a_spawn_that_fails_never_blocks_the_session_from_starting(daemon, root,
+                                                                   monkeypatch):
+    """`docs/reference/claude-hooks.md` §3: exit 2 on SessionStart blocks startup,
+    so nothing this hook can go wrong with is worth that outcome."""
+    daemon({"notice.pending": lambda request: {"notices": []}})
+
+    def explode(*args, **kwargs):
+        raise OSError("no processes left")
+
+    assert hooks.wake_worker(SESSION, payload("SessionStart"), root,
+                             spawn=explode) is None
+    monkeypatch.setattr(hooks, "wake_worker", explode)
+    assert hooks.session_event("SessionStart", payload("SessionStart"), root,
+                               stdout=io.StringIO()) == 0
+
+
 # --- SessionStart and UserPromptSubmit (layer 3) ------------------------------
 
 @pytest.mark.parametrize("event", ["SessionStart", "UserPromptSubmit"])

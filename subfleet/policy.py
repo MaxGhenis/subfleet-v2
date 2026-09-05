@@ -19,6 +19,45 @@ from .contracts import (
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
+#: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
+#: forward from v1 `handoff.py`'s module constants so a ported brief is the same
+#: size it always was. `recent_records` is a count of main-chain entries, not
+#: characters; it bounds the scan, and the character caps bound the result.
+HANDOFF_CAPS: dict[str, int] = {
+    "recent_records": 40,
+    "recent": 48_000,
+    "tool_result": 5_000,
+    "tool_results_total": 16_000,
+    "tool_input": 4_000,
+    "tool_inputs_total": 12_000,
+    "original_task": 24_000,
+    "progress": 32_000,
+    "repository": 16_000,
+}
+
+#: `sessions.*` (C-6.4): the sessions kit's caps, all of them policy data rather
+#: than constants, because a restart storm or a slow host is a tuning problem.
+#: `auto_revive_desktop_owned` is plan decision 7 and defaults to OFF: a lease in
+#: subfleet's store binds only launches subfleet makes, so it cannot make a
+#: headless revive exclusive against a desktop restart that lands between the
+#: census and the launch (the 2026-09-04 twin). Handoff is the default recovery.
+SESSION_DEFAULTS: dict[str, Any] = {
+    "nudge_max_age_h": 8,            # C-23.33's age cap on the interruption
+    "nudge_cooldown_min": 1.5,       # C-23.33's per-session cooldown (v1: 90 s)
+    "nudge_delay_s": 8,              # the inbox binds a moment after SessionStart
+    "nudge_sample_s": 3,             # C-23.34's liveness sample before delivery
+    "sweep_quiet_s": 120,            # C-23.34: a hand-started sweep waits longer
+    "muster_max_age_h": 2,           # the roll-call window
+    "muster_quiet_s": 120,
+    "revive_min_age_s": 120,         # below this the app may still restart it
+    "revive_max_batch": 8,
+    "auto_revive_desktop_owned": False,
+    "mirror_interval_s": 60,         # C-23.28, plan decision 8
+    "mirror_stall_min": 10,
+    "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
+    "mirror_ultracode_default": True,
+}
+
 
 def policy_hash(path: str | Path) -> str:
     """C-11.1: hash the policy file's exact bytes."""
@@ -180,6 +219,41 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                   or not math.isfinite(item) or item <= 0):
                 fail(f"{section}.{key}", "must be a positive finite number")
         value[section] = settings
+
+    # `sessions` is validated on its own because zero is meaningful in it: every
+    # cap, window and interval there switches OFF at zero — a mirror interval of
+    # 0 stops the timer without removing the verb, a cooldown of 0 removes the
+    # restart-storm guard, a quiet window of 0 removes the wait. The two mirror
+    # health windows are the exception: a zero there would call the mirror
+    # stalled the instant a pass ended, which is not "off", it is broken.
+    supplied = value.get("sessions", {})
+    if not isinstance(supplied, dict):
+        fail("sessions", "must be an object")
+    settings = {**SESSION_DEFAULTS, **{k: v for k, v in supplied.items()
+                                       if k != "handoff_caps"}}
+    for key, default in SESSION_DEFAULTS.items():
+        item = settings[key]
+        if isinstance(default, bool):
+            if not isinstance(item, bool):
+                fail(f"sessions.{key}", "must be a boolean")
+        elif (not isinstance(item, (int, float)) or isinstance(item, bool)
+              or not math.isfinite(item) or item < 0):
+            fail(f"sessions.{key}", "must be a nonnegative finite number")
+        elif key in ("mirror_stall_min", "mirror_hang_min") and item <= 0:
+            fail(f"sessions.{key}", "must be a positive finite number of minutes")
+    value["sessions"] = settings
+
+    # `sessions.handoff_caps` is the one nested section: every handoff section is
+    # bounded by an explicit character cap (C-23.36), and a cap of zero or a
+    # non-number would silently produce an unbounded or empty brief.
+    supplied_caps = supplied.get("handoff_caps", {})
+    if not isinstance(supplied_caps, dict):
+        fail("sessions.handoff_caps", "must be an object of per-section character caps")
+    caps = {**HANDOFF_CAPS, **supplied_caps}
+    for key, item in caps.items():
+        if (not isinstance(item, int) or isinstance(item, bool) or item <= 0):
+            fail(f"sessions.handoff_caps.{key}", "must be a positive whole number of characters")
+    value["sessions"]["handoff_caps"] = caps
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()

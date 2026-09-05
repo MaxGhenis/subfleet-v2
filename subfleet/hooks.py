@@ -11,6 +11,15 @@ follow `docs/reference/claude-hooks.md` (fetched 2026-09-05) — not memory:
   blocks session startup; UserPromptSubmit blocks the prompt AND ERASES IT), so
   these two events exit 0 always — even on an error.
 
+  **SessionStart** additionally hands the wake to the sessions kit (C-23.34):
+  it records the session id, the harness's `source`, and the transcript path,
+  spawns a detached worker, and decides nothing itself. It cannot decide: the
+  app writes this restart's resume stub about 0.7 s AFTER the hook runs, so a
+  dedupe verdict computed here is keyed to the PREVIOUS restart, which is
+  exactly what blocked a fresh restart's nudge on 2026-08-24. The worker
+  re-reads the transcript after the delay and applies the age cap, the dedupe,
+  the cooldown and the liveness re-check against what it can actually see.
+
 * **PostToolUse** on Bash — layer 2. Ask the daemon which of this session's
   jobs are still running, take a file lease so two hooks never wait on one job,
   long-poll it, and exit 2 with the notice on stderr when it finishes inside
@@ -333,6 +342,12 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
     session = payload_session(payload)
     if not session:
         return int(Exit.OK)
+    if event == "SessionStart":
+        try:
+            wake_worker(session, payload, root)
+        except Exception:                               # noqa: BLE001 - see below
+            pass    # Exit 2 here blocks the session from starting; a missed
+                    # nudge is recoverable and a blocked session is not.
     marked = True
     try:
         client = Client(root) if client is None else client
@@ -354,6 +369,40 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
             pass
     return int(Exit.OK)
+
+
+def wake_worker(session: str, payload: dict[str, Any], root: Path,
+                *, spawn=None) -> int | None:
+    """Hand a `SessionStart` to the sessions kit and return at once (C-23.34).
+
+    Records the wake — the session, its source, its transcript — and decides
+    nothing. Every guard, including C-23.33's "only `startup` and `resume`" and
+    the `SUBFLEET_TICKLE=off` switch, is applied by the worker against the
+    transcript as it reads after the delay, so a wake this hook cannot judge is
+    still a wake the worker can.
+
+    Never raises and never blocks: exit 2 here would block the session from
+    starting, and a slow spawn would delay every restart.
+    """
+    try:
+        from .sessions import nudge
+        from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
+        try:
+            policy = load_policy(root / "policy.json")
+        except (PolicyError, OSError):
+            try:
+                policy = load_policy(DEFAULT_POLICY_PATH)
+            except (PolicyError, OSError):
+                policy = {}
+        delay_s = nudge.caps(policy)["delay_s"]
+        source = payload.get("source") if isinstance(payload, dict) else None
+        transcript = payload.get("transcript_path") if isinstance(payload, dict) else None
+        return (spawn or nudge.spawn)(
+            session, source=source if isinstance(source, str) else None,
+            transcript=transcript if isinstance(transcript, str) else None,
+            delay_s=delay_s, root=root)
+    except Exception:                                   # noqa: BLE001 - see above
+        return None
 
 
 def _candidates(client: Client, session: str, payload: dict[str, Any]

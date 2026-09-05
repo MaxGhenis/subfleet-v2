@@ -41,6 +41,11 @@ class Timers:
         self.cancel = threading.Event()
         self._lock = threading.RLock()
         self._cycles = ThreadPoolExecutor(max_workers=2, thread_name_prefix='subfleet-timer')
+        # The mirror gets its own worker. It is a file-copy pass over the whole
+        # desktop session store and an 8.5-minute one was observed on 2026-08-18
+        # during app churn; sharing the two-slot cycle pool would let it hold a
+        # probe or a keepalive behind it for minutes (C-23.28).
+        self._mirror = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-mirror')
         self._lanes = ThreadPoolExecutor(max_workers=min(4, policy.get('caps', {}).get('keepalive_workers', 4)),
                                          thread_name_prefix='subfleet-timer-lane')
         self._running = set()
@@ -55,8 +60,16 @@ class Timers:
         settings = policy.get('timers', {})
         self.intervals = {'probe': settings.get('probe_interval_s', 300),
                           'keepalive': settings.get('keepalive_interval_s', 18300)}
+        # C-23.28 and plan decision 8: the desktop sidebar mirror is a 60 s
+        # file-copy timer. Its interval lives under `sessions`, not `timers`,
+        # because it is the sessions kit's cadence; `mirror_interval_s: 0`
+        # switches it off without removing the verb.
+        mirror_interval = policy.get('sessions', {}).get('mirror_interval_s', 60)
+        if mirror_interval:
+            self.intervals['mirror'] = mirror_interval
         self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
-                        for name in ('probe', 'keepalive', 'reset_credits', 'alerts', 'retention')}
+                        for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
+                                     'retention', 'mirror')}
         self.metadata = self._latest('timer.verdict')
         self.balances = self._latest('reset-credit.balance')
         self._cycle_error = None
@@ -106,7 +119,8 @@ class Timers:
                 # Timestamp precision is seconds in the store; monotonic deadlines
                 # below still bound fractional test intervals and per-lane work.
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
-                self._cycles.submit(self._run, name)
+                pool = self._mirror if name == 'mirror' else self._cycles
+                pool.submit(self._run, name)
 
     def _run(self, name):
         error = None
@@ -122,10 +136,22 @@ class Timers:
             with self._lock:
                 self._running.discard(name)
 
+    def mirror_cycle(self):
+        """One desktop sidebar pass (C-23.28). Never calls a provider.
+
+        The pass records itself in its own sidecar as it starts and again as it
+        ends, so `doctor` judges the mirror from that file rather than from this
+        timer's `last_run` — a pass that hangs must read as in flight for thirty
+        minutes, not as a timer that merely has not reported yet.
+        """
+        from .sessions.mirror import Mirror, options_from
+        Mirror(self.root, self.policy, now=self.now).run_once(options_from(self.policy))
+
     def stop(self):
         self.cancel.set()
         self._cycles.shutdown(wait=True, cancel_futures=True)
         self._lanes.shutdown(wait=True, cancel_futures=True)
+        self._mirror.shutdown(wait=True, cancel_futures=True)
 
     def record_auth_dead(self, lane_id):
         meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}

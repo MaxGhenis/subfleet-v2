@@ -69,8 +69,15 @@ class Adapter(ABC):
     @abstractmethod
     def resume_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                       credential_env: dict[str, str], native_session_id: str,
-                      prompt_path: Path, guard_override: str | None) -> Launch | None:
-        """A native continuation on the same lane, or None when unsupported."""
+                      prompt_path: Path, guard_override: str | None,
+                      model_id: str | None = None) -> Launch | None:
+        """A native continuation on the same lane, or None when unsupported.
+
+        `model_id` is the attempt's resolved model id. An attempt never changes
+        model (C-4.6), so an adapter whose native thread already carries its own
+        model may ignore it; the Claude adapter needs it because `--resume`
+        takes the model as a flag.
+        """
 
     # --- helpers adapters may share -----------------------------------------
 

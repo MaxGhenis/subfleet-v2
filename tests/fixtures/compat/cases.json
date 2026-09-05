@@ -196,7 +196,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:539",
    "also_cited": [],
    "v1_line": "\"\"\"Private: canonical full Claude model id for an alias or retired pin, with any [1m]-style suffix preserved (used by bin/subfleet-claude).\"\"\"",
-   "v1_meaning": "The [1m] long-context suffix must survive normalization \u2014 that is the documented reason this helper exists.",
+   "v1_meaning": "The [1m] long-context suffix must survive normalization — that is the documented reason this helper exists.",
    "argv": [
     "_canonical-model",
     "claude-fable-5-1[1m]"
@@ -417,7 +417,7 @@
    "cite": "~/.claude/CLAUDE.md:66",
    "also_cited": [],
    "v1_line": "**Never ... `codex-run` / `claude-lane` directly from a session**",
-   "v1_meaning": "NOT a subfleet argv \u2014 the Claude-side deprecated runner name, matched in the same guard branch (bin/subfleet-hook:45,55-56). Also the reason the cheap prefilter at :45 greps for `claude-lane`.",
+   "v1_meaning": "NOT a subfleet argv — the Claude-side deprecated runner name, matched in the same guard branch (bin/subfleet-hook:45,55-56). Also the reason the cheap prefilter at :45 greps for `claude-lane`.",
    "argv": [
     "claude-lane",
     "-a",
@@ -511,7 +511,7 @@
    "cite": "chief-of-staff/subfleet/bin/subfleet-hook:62",
    "also_cited": [],
    "v1_line": "    if printf '%s' \"$cmd\" | grep -qE '(^|[[:space:]])-d([[:space:]]|$)'; then",
-   "v1_meaning": "The runners' own -d re-execs under setsid and therefore survives the session, so the guard lets it through (bin/subfleet-hook:61-67) \u2014 except for bare `codex exec`, which has no -d and falls through to the block (:64).",
+   "v1_meaning": "The runners' own -d re-execs under setsid and therefore survives the session, so the guard lets it through (bin/subfleet-hook:61-67) — except for bare `codex exec`, which has no -d and falls through to the block (:64).",
    "argv": [
     "codex",
     "-d",
@@ -541,7 +541,7 @@
    "cite": "docs/reports/D-surface.md:156",
    "also_cited": [],
    "v1_line": "2.  ... bare codex exec directly from a session; the PreToolUse guard blocks it and names this replacement.",
-   "v1_meaning": "NOT a subfleet argv \u2014 the bare provider CLI. The guard matches `codex exec|e|review` in command position and, unlike the subfleet runners, gives it no `-d` escape because bare codex has no detach flag (bin/subfleet-hook:57-58,63-66).",
+   "v1_meaning": "NOT a subfleet argv — the bare provider CLI. The guard matches `codex exec|e|review` in command position and, unlike the subfleet runners, gives it no `-d` escape because bare codex has no detach flag (bin/subfleet-hook:57-58,63-66).",
    "argv": [
     "codex",
     "exec",
@@ -567,7 +567,7 @@
    "cite": "~/.claude/CLAUDE.md:66",
    "also_cited": [],
    "v1_line": "**Never `subfleet codex` / `subfleet claude` / bare `codex exec` ... directly from a session**",
-   "v1_meaning": "NOT a subfleet argv \u2014 this is the bare `codex` binary (v1 ships a shim at bin/codex). The hook matches `codex exec|e|review` in command position and blocks it with no -d escape, since bare codex has no detach flag (bin/subfleet-hook:57-58,62-66).",
+   "v1_meaning": "NOT a subfleet argv — this is the bare `codex` binary (v1 ships a shim at bin/codex). The hook matches `codex exec|e|review` in command position and blocks it with no -d escape, since bare codex has no detach flag (bin/subfleet-hook:57-58,62-66).",
    "argv": [
     "codex",
     "exec",
@@ -614,8 +614,8 @@
    "id": "codex-h-users-maxghenis-codex-1-c",
    "cite": "~/.claude/CLAUDE.md:66",
    "also_cited": [],
-   "v1_line": "**Never `subfleet codex` / `subfleet claude` / bare `codex exec` / `codex-run` / `claude-lane` directly from a session** \u2014 they die with it. Hook-enforced (`[sol-attached]`)",
-   "v1_meaning": "v1 really has this verb: it execs bin/subfleet-codex with the argv untouched (subfleet/cli.py:1591-1598). What stops an agent is the PreToolUse hook, not the binary \u2014 bin/subfleet-hook:53-68 blocks a runner in command position and prints the [sol-attached] replacement text.",
+   "v1_line": "**Never `subfleet codex` / `subfleet claude` / bare `codex exec` / `codex-run` / `claude-lane` directly from a session** — they die with it. Hook-enforced (`[sol-attached]`)",
+   "v1_meaning": "v1 really has this verb: it execs bin/subfleet-codex with the argv untouched (subfleet/cli.py:1591-1598). What stops an agent is the PreToolUse hook, not the binary — bin/subfleet-hook:53-68 blocks a runner in command position and prints the [sol-attached] replacement text.",
    "argv": [
     "codex",
     "-H",
@@ -826,7 +826,7 @@
    "cite": "~/.claude/CLAUDE.md:66",
    "also_cited": [],
    "v1_line": "**Never ... `codex-run` / `claude-lane` directly from a session**",
-   "v1_meaning": "NOT a subfleet argv \u2014 a deprecated standalone runner name still matched by the guard alongside subfleet-codex/subfleet-claude (bin/subfleet-hook:55-56). No such binary exists in the v1 bin/ directory today; the guard keeps the name because old scripts and old agent habits still emit it.",
+   "v1_meaning": "NOT a subfleet argv — a deprecated standalone runner name still matched by the guard alongside subfleet-codex/subfleet-claude (bin/subfleet-hook:55-56). No such binary exists in the v1 bin/ directory today; the guard keeps the name because old scripts and old agent habits still emit it.",
    "argv": [
     "codex-run",
     "-C",
@@ -1016,7 +1016,7 @@
    "cite": "README.md:25",
    "also_cited": [],
    "v1_line": "    subfleet gate ...              main/peer agreement loop for an exact PR or plan revision",
-   "v1_meaning": "The bare verb \u2014 v1 prints gate's own usage.",
+   "v1_meaning": "The bare verb — v1 prints gate's own usage.",
    "argv": [
     "gate"
    ],
@@ -2279,17 +2279,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77",
      "--to",
      "astra"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2308,17 +2308,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50",
      "--to",
      "astra"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2339,7 +2339,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "8f2c1d90-4a7b-4f31-9c22-0d5b6e7a1234",
@@ -2348,10 +2348,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2374,7 +2374,7 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
@@ -2383,10 +2383,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2396,7 +2396,7 @@
    "also_cited": [
     "chief-of-staff/subfleet/subfleet/cli.py:1342"
    ],
-   "v1_line": "subfleet handoff <session-id>|--last --to sol|terra|astra|opus [-C DIR]  # Claude transcript \u2192 new agent",
+   "v1_line": "subfleet handoff <session-id>|--last --to sol|terra|astra|opus [-C DIR]  # Claude transcript → new agent",
    "v1_meaning": "Hands off the current (or newest durable) session's transcript to an Opus agent in /repo.",
    "argv": [
     "handoff",
@@ -2409,7 +2409,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
@@ -2418,10 +2418,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2442,17 +2442,17 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
      "--to",
      "opus"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2473,7 +2473,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
@@ -2482,10 +2482,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2504,17 +2504,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
      "--to",
      "sol"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2523,7 +2523,7 @@
    "cite": "docs/reports/D-surface.md:169",
    "also_cited": [],
    "v1_line": "--last --to sol|terra|astra|opus -C <dir>.",
-   "v1_meaning": "The fourth accepted target. TARGETS = {sol, terra, astra, opus} (subfleet/handoff.py:28) \u2014 note terra is a valid handoff target but NOT a valid gate peer.",
+   "v1_meaning": "The fourth accepted target. TARGETS = {sol, terra, astra, opus} (subfleet/handoff.py:28) — note terra is a valid handoff target but NOT a valid gate peer.",
    "argv": [
     "handoff",
     "--last",
@@ -2537,7 +2537,7 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "handoff",
      "--last",
@@ -2546,10 +2546,10 @@
      "-C",
      "/repo"
     ],
-    "verb": "",
+    "verb": "handoff",
     "exit_code": null,
-    "rule": "delegate:handoff",
-    "note_count": 1,
+    "rule": "permanent:handoff",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2560,7 +2560,7 @@
     "chief-of-staff/subfleet/subfleet/cli.py:1647"
    ],
    "v1_line": "    if args.command == \"hooks\" and not args.hooks_command:",
-   "v1_meaning": "A bare `subfleet hooks` falls through to the status report: main() defaults hooks_command to \"status\" (cli.py:1638-1639) and cmd_hooks prints hooks.format_report(hooks.status()) \u2014 the settings path, the script path and whether it is executable, one line per event with the installed command or MISSING, and a final `complete` / `incomplete \u2014 run: subfleet hooks install`.",
+   "v1_meaning": "A bare `subfleet hooks` falls through to the status report: main() defaults hooks_command to \"status\" (cli.py:1638-1639) and cmd_hooks prints hooks.format_report(hooks.status()) — the settings path, the script path and whether it is executable, one line per event with the installed command or MISSING, and a final `complete` / `incomplete — run: subfleet hooks install`.",
    "argv": [
     "hooks"
    ],
@@ -2586,7 +2586,7 @@
     "chief-of-staff/subfleet/subfleet/cli.py:1416"
    ],
    "v1_line": "def install(*, dry_run: bool = False, path: Path | None = None) -> dict[str, Any]:",
-   "v1_meaning": "Writes three entries into ~/.claude/settings.json \u2014 PreToolUse{matcher:\"Bash\"} -> `<script> pre-bash`, UserPromptSubmit -> `<script> user-prompt`, SessionStart -> `<script> session-start`, each {\"type\":\"command\", \"timeout\":5} (hooks.py:47-54, TIMEOUT at hooks.py:35). Idempotent: it strips its own and legacy `carpool-hook` entries first (hooks.py:57-59, 142-148) and copies the file to `settings.json.bak-YYYYMMDD-HHMMSS` before writing (hooks.py:92-102).",
+   "v1_meaning": "Writes three entries into ~/.claude/settings.json — PreToolUse{matcher:\"Bash\"} -> `<script> pre-bash`, UserPromptSubmit -> `<script> user-prompt`, SessionStart -> `<script> session-start`, each {\"type\":\"command\", \"timeout\":5} (hooks.py:47-54, TIMEOUT at hooks.py:35). Idempotent: it strips its own and legacy `carpool-hook` entries first (hooks.py:57-59, 142-148) and copies the file to `settings.json.bak-YYYYMMDD-HHMMSS` before writing (hooks.py:92-102).",
    "argv": [
     "hooks",
     "install"
@@ -2667,7 +2667,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/hooks.py:43",
    "also_cited": [],
    "v1_line": "    override = os.environ.get(\"SUBFLEET_CLAUDE_SETTINGS\")",
-   "v1_meaning": "SUBFLEET_CLAUDE_SETTINGS redirects every hooks read/write away from ~/.claude/settings.json (hooks.py:42-44) \u2014 the isolation every test and every dry rehearsal of the cutover uses.",
+   "v1_meaning": "SUBFLEET_CLAUDE_SETTINGS redirects every hooks read/write away from ~/.claude/settings.json (hooks.py:42-44) — the isolation every test and every dry rehearsal of the cutover uses.",
    "argv": [
     "hooks",
     "status"
@@ -3071,7 +3071,7 @@
    "cite": "chief-of-staff/subfleet/bin/subfleet-claude:516",
    "also_cited": [],
    "v1_line": "  case \"${CLAUDE_LANE_AUTH_PROBE:-}\" in",
-   "v1_meaning": "Short-circuits token_auth_state() to alive|dead|unknown without touching the network \u2014 v1 labels it as a test/offline seam. Real behaviour is an HTTPS call to the oauth usage endpoint where 401 means dead, 200/403/429 mean alive, anything else unknown.",
+   "v1_meaning": "Short-circuits token_auth_state() to alive|dead|unknown without touching the network — v1 labels it as a test/offline seam. Real behaviour is an HTTPS call to the oauth usage endpoint where 401 means dead, 200/403/429 mean alive, anything else unknown.",
    "argv": [
     "lanes",
     "probe"
@@ -3152,7 +3152,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/keepalive.py:163",
    "also_cited": [],
    "v1_line": "        \"CLAUDE_LANE_DETACHED\",",
-   "v1_meaning": "A second, independent scrub site: keepalive's _child_environment() pops the two markers alongside ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN before injecting the lane's own token. Same treatment as a credential \u2014 evidence v1 classes these as environment that must not leak into a lane child.",
+   "v1_meaning": "A second, independent scrub site: keepalive's _child_environment() pops the two markers alongside ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN before injecting the lane's own token. Same treatment as a credential — evidence v1 classes these as environment that must not leak into a lane child.",
    "argv": [
     "lanes",
     "probe"
@@ -3274,12 +3274,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 7,
-    "rule": "mirror",
-    "note_count": 2,
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3296,12 +3299,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 7,
-    "rule": "mirror",
-    "note_count": 2,
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--dry-run"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3318,12 +3325,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 7,
-    "rule": "mirror",
-    "note_count": 2,
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--list"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3342,12 +3353,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "refuse",
-    "argv": [],
-    "verb": "",
-    "exit_code": 7,
-    "rule": "mirror",
-    "note_count": 2,
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--quiet"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3363,14 +3378,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "muster"
+     "sessions",
+     "continue",
+     "--scope",
+     "idle"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:muster",
-    "note_count": 1,
+    "rule": "permanent:muster",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3387,15 +3405,18 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "muster",
+     "sessions",
+     "continue",
+     "--scope",
+     "idle",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:muster",
-    "note_count": 1,
+    "rule": "permanent:muster",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3627,7 +3648,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:825",
    "also_cited": [],
    "v1_line": "    text = args.text if args.text is not None else sys.stdin.read()",
-   "v1_meaning": "With the positional omitted the whole message body is read from stdin \u2014 the form used for multi-line notices, since the positional is a single argparse token.",
+   "v1_meaning": "With the positional omitted the whole message body is read from stdin — the form used for multi-line notices, since the positional is a single argparse token.",
    "argv": [
     "notify",
     "--session",
@@ -3777,7 +3798,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/notify.py:349",
    "also_cited": [],
    "v1_line": "    if requested == \"none\":",
-   "v1_meaning": "`none` is not a class \u2014 it suppresses the attestation entirely, so envelope emits <\\cross-session-message from-name=\"subfleet\"> with no from-mode attribute (notify.py:307-309) and the recipient holds the message for the user rather than acting on it.",
+   "v1_meaning": "`none` is not a class — it suppresses the attestation entirely, so envelope emits <\\cross-session-message from-name=\"subfleet\"> with no from-mode attribute (notify.py:307-309) and the recipient holds the message for the user rather than acting on it.",
    "argv": [
     "notify",
     "--session",
@@ -3961,7 +3982,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:1410",
    "also_cited": [],
    "v1_line": "p_notify.add_argument(\"text\", nargs=\"?\", help=\"message text (stdin when omitted)\")",
-   "v1_meaning": "Push a message into this session's inbox (nargs=\"?\" \u2014 one quoted string).",
+   "v1_meaning": "Push a message into this session's inbox (nargs=\"?\" — one quoted string).",
    "argv": [
     "notify",
     "the lane finished; out.md is ready"
@@ -4132,7 +4153,7 @@
    "id": "pick-claude-model-claude-fable-5",
    "cite": "README.md:532",
    "also_cited": [],
-   "v1_line": "everywhere \u2014 cooldowns, hard-limit records, revive targets, `pick --model` \u2014",
+   "v1_line": "everywhere — cooldowns, hard-limit records, revive targets, `pick --model` —",
    "v1_meaning": "A `--model` filter on pick, named only in passing as one of the places the retired pin claude-fable-5 normalizes onto claude-fable-5-1; the README never gives its full spelling, so the subcommand placement here is inferred.",
    "argv": [
     "pick",
@@ -5221,14 +5242,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "revive"
+     "sessions",
+     "continue",
+     "--scope",
+     "cold"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:revive",
-    "note_count": 1,
+    "rule": "permanent:revive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5245,15 +5269,18 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "revive",
+     "sessions",
+     "continue",
+     "--scope",
+     "cold",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:revive",
-    "note_count": 1,
+    "rule": "permanent:revive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5276,18 +5303,20 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "note",
     "argv": [
-     "revive",
+     "sessions",
+     "continue",
+     "--scope",
+     "cold",
      "--model",
      "claude-opus-5",
      "--max",
-     "3",
-     "--no-fallback"
+     "3"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:revive",
+    "rule": "permanent:revive",
     "note_count": 1,
     "env": {}
    }
@@ -5702,7 +5731,7 @@
    "cite": "subfleet/delegate.py:142",
    "also_cited": [],
    "v1_line": "    return \"build\", signals",
-   "v1_meaning": "No --task, no -t, no -m, no -a/-H. classify() scans the prompt for FABLE / REVIEW / SWEEP+MECHANICAL patterns and falls through to 'build' (delegate.py:126-142) \u2192 opus via the legacy table, sandbox workspace-write, PREAMBLE_WRITE prepended. This is the plain pre-semantic-routing v1 dispatch form and it works today.",
+   "v1_meaning": "No --task, no -t, no -m, no -a/-H. classify() scans the prompt for FABLE / REVIEW / SWEEP+MECHANICAL patterns and falls through to 'build' (delegate.py:126-142) → opus via the legacy table, sandbox workspace-write, PREAMBLE_WRITE prepended. This is the plain pre-semantic-routing v1 dispatch form and it works today.",
    "argv": [
     "run",
     "-C",
@@ -5836,7 +5865,7 @@
    "cite": "subfleet/delegate.py:334",
    "also_cited": [],
    "v1_line": "    p.add_argument(\"-C\", default=os.getcwd())",
-   "v1_meaning": "The workdir handed to the runner as -C and to notify.caller_context(cwd=...) (delegate.py:1063). v1 performs NO validation on it at all \u2014 not existence, not location.",
+   "v1_meaning": "The workdir handed to the runner as -C and to notify.caller_context(cwd=...) (delegate.py:1063). v1 performs NO validation on it at all — not existence, not location.",
    "argv": [
     "run",
     "-C",
@@ -5879,7 +5908,7 @@
    "cite": "subfleet/delegate.py:334",
    "also_cited": [],
    "v1_line": "    p.add_argument(\"-C\", default=os.getcwd())",
-   "v1_meaning": "v1 accepts a /tmp workdir without comment and the runner works there. Placeholder <dir> resolved to /tmp/scratch \u2014 the scratchpad convention Claude sessions are instructed to use.",
+   "v1_meaning": "v1 accepts a /tmp workdir without comment and the runner works there. Placeholder <dir> resolved to /tmp/scratch — the scratchpad convention Claude sessions are instructed to use.",
    "argv": [
     "run",
     "-C",
@@ -6363,7 +6392,7 @@
    "cite": "subfleet/delegate.py:1065",
    "also_cited": [],
    "v1_line": "    if args.o and not args.dry_run:",
-   "v1_meaning": "--dry-run bypasses _output_path_guard entirely, so a dry run against a path a live run is writing is never refused \u2014 nothing is dispatched, so nothing can collide.",
+   "v1_meaning": "--dry-run bypasses _output_path_guard entirely, so a dry run against a path a live run is writing is never refused — nothing is dispatched, so nothing can collide.",
    "argv": [
     "run",
     "--dry-run",
@@ -6615,7 +6644,7 @@
    "id": "run-h-users-maxghenis-codex-3-c",
    "cite": "README.md:511",
    "also_cited": [],
-   "v1_line": "ChatGPT login \u2014 verified with a bogus key); `subfleet run -H` refuses such a",
+   "v1_line": "ChatGPT login — verified with a bogus key); `subfleet run -H` refuses such a",
    "v1_meaning": "`-H` pins one CODEX_HOME (identity/attestation only, never load balancing) and refuses an API-key auth.json up front.",
    "argv": [
     "run",
@@ -6731,7 +6760,7 @@
    "cite": "~/.claude/CLAUDE.md:55",
    "also_cited": [],
    "v1_line": "subfleet refuses API-key Codex homes and drops `CODEX_API_KEY` (`SUBFLEET_ALLOW_API_LANE=1` is the deliberate override)",
-   "v1_meaning": "v1 refuses a `-H` home whose auth.json is an API key (rc 7) before any codex call, unless SUBFLEET_ALLOW_API_LANE=1 is exported \u2014 the one deliberate, metered escape hatch (subfleet/cli.py:528-536, delegate.py:847-850; env inventory docs/reports/D-surface.md:90).",
+   "v1_meaning": "v1 refuses a `-H` home whose auth.json is an API key (rc 7) before any codex call, unless SUBFLEET_ALLOW_API_LANE=1 is exported — the one deliberate, metered escape hatch (subfleet/cli.py:528-536, delegate.py:847-850; env inventory docs/reports/D-surface.md:90).",
    "argv": [
     "run",
     "-H",
@@ -6848,7 +6877,7 @@
    "cite": "subfleet/delegate.py:808",
    "also_cited": [],
    "v1_line": "        if args.b:",
-   "v1_meaning": "parser.error \"--independent-review cannot be combined with -b\" \u2192 exit 2. An isolated read-only peer must never push anything anywhere; the two flags are structurally incompatible.",
+   "v1_meaning": "parser.error \"--independent-review cannot be combined with -b\" → exit 2. An isolated read-only peer must never push anything anywhere; the two flags are structurally incompatible.",
    "argv": [
     "run",
     "--independent-review",
@@ -6929,7 +6958,7 @@
    "cite": "subfleet/delegate.py:806",
    "also_cited": [],
    "v1_line": "        if args.s != \"read-only\":",
-   "v1_meaning": "parser.error \"--independent-review requires -s read-only\" \u2192 exit 2. Note the check is `args.s != 'read-only'`, so omitting -s entirely also fails \u2014 the caller must type it.",
+   "v1_meaning": "parser.error \"--independent-review requires -s read-only\" → exit 2. Note the check is `args.s != 'read-only'`, so omitting -s entirely also fails — the caller must type it.",
    "argv": [
     "run",
     "--independent-review",
@@ -7140,7 +7169,7 @@
    "cite": "subfleet/delegate.py:1141",
    "also_cited": [],
    "v1_line": "            wait_inline=wait_inline, as_json=args.json,",
-   "v1_meaning": "--json is consumed ONLY on the detached announce path. Outside a Claude session with no -d the launch is sync (delegate.py:744), _announce is never called, and --json produces no output at all \u2014 the flag is silently inert.",
+   "v1_meaning": "--json is consumed ONLY on the detached announce path. Outside a Claude session with no -d the launch is sync (delegate.py:744), _announce is never called, and --json produces no output at all — the flag is silently inert.",
    "argv": [
     "run",
     "--json",
@@ -7267,7 +7296,7 @@
    "cite": "subfleet/delegate.py:327",
    "also_cited": [],
    "v1_line": "    p.add_argument(\"-m\", choices=(\"fable\", \"opus\", \"sonnet\", \"sol\", \"terra\", \"astra\", \"haiku\"),",
-   "v1_meaning": "Pins Fable. Note the floor at delegate.py:1029-1032 fires on task_class fable/FABLE_TASKS AND model=='fable' AND args.a is None, so a bare -m fable on a prompt that classifies as build does NOT get the floor's exit-3 protection \u2014 it just fails to find a lane.",
+   "v1_meaning": "Pins Fable. Note the floor at delegate.py:1029-1032 fires on task_class fable/FABLE_TASKS AND model=='fable' AND args.a is None, so a bare -m fable on a prompt that classifies as build does NOT get the floor's exit-3 protection — it just fails to find a lane.",
    "argv": [
     "run",
     "-m",
@@ -7834,7 +7863,7 @@
    "cite": "subfleet/delegate.py:346",
    "also_cited": [],
    "v1_line": "    p.add_argument(\"--no-preamble\", action=\"store_true\")",
-   "v1_meaning": "Suppresses BOTH injected blocks \u2014 PREAMBLE_WRITE (sandbox==workspace-write) and PREAMBLE_AUDIT (task_class=='review') \u2014 delegate.py:1074-1081. With it, the merged prompt file is the caller's bytes verbatim.",
+   "v1_meaning": "Suppresses BOTH injected blocks — PREAMBLE_WRITE (sandbox==workspace-write) and PREAMBLE_AUDIT (task_class=='review') — delegate.py:1074-1081. With it, the merged prompt file is the caller's bytes verbatim.",
    "argv": [
     "run",
     "--no-preamble",
@@ -7973,7 +8002,7 @@
    "cite": "subfleet/delegate.py:306",
    "also_cited": [],
    "v1_line": "        return 3",
-   "v1_meaning": "When run_ledger.output_collisions(/repo/out.md) reports a LIVE writer, v1 prints to stderr 'delegate: refusing -o /repo/out.md: run 20260905-120000-demo (lane <lane>, pid <pid>) is still writing it \u2014 suffix the path with the run id, or `subfleet kill` that run first (--reuse-out overrides)' and returns 3 BEFORE dispatching, after logging the decision (delegate.py:296-306, called at 1066-1069).",
+   "v1_meaning": "When run_ledger.output_collisions(/repo/out.md) reports a LIVE writer, v1 prints to stderr 'delegate: refusing -o /repo/out.md: run 20260905-120000-demo (lane <lane>, pid <pid>) is still writing it — suffix the path with the run id, or `subfleet kill` that run first (--reuse-out overrides)' and returns 3 BEFORE dispatching, after logging the decision (delegate.py:296-306, called at 1066-1069).",
    "argv": [
     "run",
     "-o",
@@ -8016,7 +8045,7 @@
    "cite": "subfleet/delegate.py:310",
    "also_cited": [],
    "v1_line": "            f\"delegate: note: -o {out} was last named by run {hit['id']} \"",
-   "v1_meaning": "When the only collisions on /repo/out.md are FINISHED runs, v1 prints 'delegate: note: -o /repo/out.md was last named by run 20260905-120000-demo (<finished_at>); resolve the landing by run id, not by whatever file sits at the path' and PROCEEDS (returns None) \u2014 delegate.py:307-315.",
+   "v1_meaning": "When the only collisions on /repo/out.md are FINISHED runs, v1 prints 'delegate: note: -o /repo/out.md was last named by run 20260905-120000-demo (<finished_at>); resolve the landing by run id, not by whatever file sits at the path' and PROCEEDS (returns None) — delegate.py:307-315.",
    "argv": [
     "run",
     "-o",
@@ -8186,7 +8215,7 @@
    "cite": "subfleet/delegate.py:358",
    "also_cited": [],
    "v1_line": "    source.add_argument(\"-p\", metavar=\"PROMPTFILE\")",
-   "v1_meaning": "Read eagerly with Path(args.p).read_text(); an OSError becomes parser.error(str(exc)) \u2192 exit 2 (delegate.py:386-391). The text is then merged with any preamble into a NEW mkstemp'd file (delegate.py:1082-1084) and it is that temp file the runner receives \u2014 the runner never sees the caller's path. The -p basename is the third slug fallback (delegate.py:759-760).",
+   "v1_meaning": "Read eagerly with Path(args.p).read_text(); an OSError becomes parser.error(str(exc)) → exit 2 (delegate.py:386-391). The text is then merged with any preamble into a NEW mkstemp'd file (delegate.py:1082-1084) and it is that temp file the runner receives — the runner never sees the caller's path. The -p basename is the third slug fallback (delegate.py:759-760).",
    "argv": [
     "run",
     "-p",
@@ -8336,7 +8365,7 @@
    "cite": "docs/reports/D-surface.md:184",
    "also_cited": [],
    "v1_line": "`_output_path_guard` (`delegate.py:286-315`) refuses a live collision for `subfleet run` callers, but a direct runner invocation (launchd scripts, `--reuse-out`) bypasses it entirely",
-   "v1_meaning": "`--reuse-out` is v1's escape hatch: dispatch onto an -o path a LIVE run is still writing, which v1 otherwise refuses (a finished run's path is only noted) \u2014 subfleet/delegate.py:349-351.",
+   "v1_meaning": "`--reuse-out` is v1's escape hatch: dispatch onto an -o path a LIVE run is still writing, which v1 otherwise refuses (a finished run's path is only noted) — subfleet/delegate.py:349-351.",
    "argv": [
     "run",
     "--reuse-out",
@@ -8368,7 +8397,7 @@
    "cite": "subfleet/delegate.py:812",
    "also_cited": [],
    "v1_line": "    elif args.review_root:",
-   "v1_meaning": "parser.error \"--review-root requires --independent-review\" \u2192 exit 2. --review-root is also help=SUPPRESS (delegate.py:353), so it never appeared in help either.",
+   "v1_meaning": "parser.error \"--review-root requires --independent-review\" → exit 2. --review-root is also help=SUPPRESS (delegate.py:353), so it never appeared in help either.",
    "argv": [
     "run",
     "--review-root",
@@ -8621,7 +8650,7 @@
     "chief-of-staff/subfleet/subfleet/delegate.py:356"
    ],
    "v1_line": "    p.add_argument(\"--status\", action=\"store_true\")",
-   "v1_meaning": "Short-circuits at delegate.py:814-815, BEFORE _prompt_text is called, so it needs no -p and no prompt. _status() (delegate.py:363-384) prints 'Claude lanes (last_used=<email|->):' then one line per enrolled lane \u2014 '<email>: available|account-cooldown-until-<iso> \u00b7 fable=ok opus=cooled-until-<iso> sonnet=... haiku=...' \u2014 then shells out to `subfleet pick codex --json --all` and relays its stdout and stderr verbatim. Returns 0.",
+   "v1_meaning": "Short-circuits at delegate.py:814-815, BEFORE _prompt_text is called, so it needs no -p and no prompt. _status() (delegate.py:363-384) prints 'Claude lanes (last_used=<email|->):' then one line per enrolled lane — '<email>: available|account-cooldown-until-<iso> · fable=ok opus=cooled-until-<iso> sonnet=... haiku=...' — then shells out to `subfleet pick codex --json --all` and relays its stdout and stderr verbatim. Returns 0.",
    "argv": [
     "run",
     "--status"
@@ -8750,7 +8779,7 @@
     "chief-of-staff/subfleet/subfleet/delegate.py:321"
    ],
    "v1_line": "Codex runners. `-t fable|review|build|sweep` remains as a legacy coarse-class",
-   "v1_meaning": "The fable coarse class \u2014 the fable floor that beats every other classifier signal (README.md:615-621).",
+   "v1_meaning": "The fable coarse class — the fable floor that beats every other classifier signal (README.md:615-621).",
    "argv": [
     "run",
     "-t",
@@ -8863,7 +8892,7 @@
    "cite": "subfleet/delegate.py:321",
    "also_cited": [],
    "v1_line": "    task.add_argument(\"-t\", choices=(\"fable\", \"review\", \"build\", \"sweep\"),",
-   "v1_meaning": "Forces task_class=review: opus (delegate.py:176), sandbox read-only (delegate.py:845), and PREAMBLE_AUDIT \u2014 \"Frame this as a defensive correctness and completeness audit.\" \u2014 prepended to the prompt (delegate.py:1078-1079).",
+   "v1_meaning": "Forces task_class=review: opus (delegate.py:176), sandbox read-only (delegate.py:845), and PREAMBLE_AUDIT — \"Frame this as a defensive correctness and completeness audit.\" — prepended to the prompt (delegate.py:1078-1079).",
    "argv": [
     "run",
     "-t",
@@ -9115,7 +9144,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/delegate.py:119",
    "also_cited": [],
    "v1_line": "    return Path(os.environ.get(\"DELEGATE_ACCOUNTS_FILE\", \"~/chief-of-staff/subfleet/claude-accounts.json\")).expanduser()",
-   "v1_meaning": "Points at the Claude roster JSON whose `enrolled` map is {email: keychain-item-name}. On a Fable/authored-prose dispatch this is the entire candidate set of lanes; an empty or truncated file means \"no dispatchable Claude lane\" (rc 3). Duplicates SUBFLEET_CLAUDE_ACCOUNTS (claude.py:55) \u2014 one file, two override names.",
+   "v1_meaning": "Points at the Claude roster JSON whose `enrolled` map is {email: keychain-item-name}. On a Fable/authored-prose dispatch this is the entire candidate set of lanes; an empty or truncated file means \"no dispatchable Claude lane\" (rc 3). Duplicates SUBFLEET_CLAUDE_ACCOUNTS (claude.py:55) — one file, two override names.",
    "argv": [
     "run",
     "--task",
@@ -9330,7 +9359,7 @@
    "cite": "subfleet/delegate.py:393",
    "also_cited": [],
    "v1_line": "        parser.error(\"one of -p PROMPTFILE or PROMPT_TEXT is required\")",
-   "v1_meaning": "Neither -p nor a positional: parser.error with that exact sentence \u2192 exit 2. Note this check lives in _prompt_text, which runs AFTER the --status short-circuit (delegate.py:814-816).",
+   "v1_meaning": "Neither -p nor a positional: parser.error with that exact sentence → exit 2. Note this check lives in _prompt_text, which runs AFTER the --status short-circuit (delegate.py:814-816).",
    "argv": [
     "run",
     "--task",
@@ -9504,7 +9533,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/delegate.py:1009",
    "also_cited": [],
    "v1_line": "        env = os.environ.copy()",
-   "v1_meaning": "The mechanism that makes every CLAUDE_LANE_* variable caller-facing: runner_env() starts from a full copy of the caller's environment, removes only three SUBFLEET_RUN_* keys and adds its own, so anything an agent exports in its shell reaches bin/subfleet-claude and bin/subfleet-codex unchanged. CLAUDE_LANE_* is not confined to the `subfleet claude` front door that v2 refuses \u2014 it arrives through `subfleet run`.",
+   "v1_meaning": "The mechanism that makes every CLAUDE_LANE_* variable caller-facing: runner_env() starts from a full copy of the caller's environment, removes only three SUBFLEET_RUN_* keys and adds its own, so anything an agent exports in its shell reaches bin/subfleet-claude and bin/subfleet-codex unchanged. CLAUDE_LANE_* is not confined to the `subfleet claude` front door that v2 refuses — it arrives through `subfleet run`.",
    "argv": [
     "run",
     "--task",
@@ -9998,7 +10027,7 @@
    "cite": "subfleet/notify.py:70",
    "also_cited": [],
    "v1_line": "    return bool((env.get(\"CLAUDECODE\") or \"\").strip()) or bool(",
-   "v1_meaning": "in_claude_session is true, so launch_mode returns ('detached','inside a Claude session \u2014 the provider must outlive it') (delegate.py:740-743) and _announce prints the four-line hint: 'subfleet run: dispatched run=<id> model=<m> lane=<~home> pid=<pid> (detached \u2014 <reason>)', then '  out: <path>', '  log: <path>', the done-hint, and '  status: subfleet runs --mine \u00b7 details: subfleet runs show <id> \u00b7 cancel: subfleet kill <id>' (delegate.py:785-800).",
+   "v1_meaning": "in_claude_session is true, so launch_mode returns ('detached','inside a Claude session — the provider must outlive it') (delegate.py:740-743) and _announce prints the four-line hint: 'subfleet run: dispatched run=<id> model=<m> lane=<~home> pid=<pid> (detached — <reason>)', then '  out: <path>', '  log: <path>', the done-hint, and '  status: subfleet runs --mine · details: subfleet runs show <id> · cancel: subfleet kill <id>' (delegate.py:785-800).",
    "argv": [
     "run",
     "--task",
@@ -10043,7 +10072,7 @@
    "cite": "subfleet/delegate.py:737",
    "also_cited": [],
    "v1_line": "        return \"sync\", \"SUBFLEET_RUN_DETACH=0\"",
-   "v1_meaning": "0/false/no/off forces the SYNC path even inside a Claude session \u2014 it is checked before notify.in_claude_session (delegate.py:736-740). It is the escape hatch for a caller that wants the provider as its own child process.",
+   "v1_meaning": "0/false/no/off forces the SYNC path even inside a Claude session — it is checked before notify.in_claude_session (delegate.py:736-740). It is the escape hatch for a caller that wants the provider as its own child process.",
    "argv": [
     "run",
     "--task",
@@ -10273,7 +10302,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/delegate.py:1184",
    "also_cited": [],
    "v1_line": "                    built = [os.environ.get(\"DELEGATE_CODEX_RUN\", _repo_bin(\"subfleet-codex\")), \"-H\", home,",
-   "v1_meaning": "Names the runner SCRIPT delegate launches for a Codex dispatch (default bin/subfleet-codex), which then builds the real `codex exec` argv. Not the codex CLI itself \u2014 v1 already has a separate SUBFLEET_CODEX_BIN for that, and the two are easy to confuse.",
+   "v1_meaning": "Names the runner SCRIPT delegate launches for a Codex dispatch (default bin/subfleet-codex), which then builds the real `codex exec` argv. Not the codex CLI itself — v1 already has a separate SUBFLEET_CODEX_BIN for that, and the two are easy to confuse.",
    "argv": [
     "run",
     "--task",
@@ -10695,7 +10724,7 @@
    "cite": "subfleet/delegate.py:359",
    "also_cited": [],
    "v1_line": "    source.add_argument(\"prompt\", nargs=\"?\")",
-   "v1_meaning": "Inline prompt text as a single positional. With no -n and no -o, the slug is the first five alphanumeric words lowercased and hyphen-joined \u2014 here 'summarize-the-changes-in-head' (delegate.py:761-762).",
+   "v1_meaning": "Inline prompt text as a single positional. With no -n and no -o, the slug is the first five alphanumeric words lowercased and hyphen-joined — here 'summarize-the-changes-in-head' (delegate.py:761-762).",
    "argv": [
     "run",
     "--task",
@@ -10929,7 +10958,7 @@
    "cite": "subfleet/notify.py:71",
    "also_cited": [],
    "v1_line": "        (env.get(\"CLAUDE_CODE_SESSION_ID\") or \"\").strip()",
-   "v1_meaning": "Either variable ALONE is sufficient \u2014 the OR is deliberate, because both are inherited by nohup'd children and that is exactly the process tree that dies on an account switch (notify.py:63-72). So a nested dispatch from inside an already-detached runner also detaches.",
+   "v1_meaning": "Either variable ALONE is sufficient — the OR is deliberate, because both are inherited by nohup'd children and that is exactly the process tree that dies on an account switch (notify.py:63-72). So a nested dispatch from inside an already-detached runner also detaches.",
    "argv": [
     "run",
     "--task",
@@ -10974,7 +11003,7 @@
    "cite": "~/.claude/CLAUDE.md:71",
    "also_cited": [],
    "v1_line": "When the user says to proceed or merge if the main and one Fable/Astra peer agree, use `subfleet gate`; do not approximate agreement with two unrelated one-shot reviews.",
-   "v1_meaning": "`-x/--exclude` is repeatable and bans a Claude lane account from selection \u2014 v1's help names exactly the agreement use case, 'the accounts that ran a pair's lanes' (subfleet/delegate.py:347-348). This is how an independent second reviewer is kept off the first reviewer's account.",
+   "v1_meaning": "`-x/--exclude` is repeatable and bans a Claude lane account from selection — v1's help names exactly the agreement use case, 'the accounts that ran a pair's lanes' (subfleet/delegate.py:347-348). This is how an independent second reviewer is kept off the first reviewer's account.",
    "argv": [
     "run",
     "--task",
@@ -11146,7 +11175,7 @@
    "cite": "subfleet/delegate.py:325",
    "also_cited": [],
    "v1_line": "    p.add_argument(\"--tier\", choices=TIERS,",
-   "v1_meaning": "sweep/hard = astra (delegate.py:86-88); semantic_model_candidates returns a single-entry tuple for sweep (delegate.py:150-151), so there is no upward walk \u2014 if Astra has no headroom the run fails rather than being downgraded.",
+   "v1_meaning": "sweep/hard = astra (delegate.py:86-88); semantic_model_candidates returns a single-entry tuple for sweep (delegate.py:150-151), so there is no upward walk — if Astra has no headroom the run fails rather than being downgraded.",
    "argv": [
     "run",
     "--task",
@@ -11267,7 +11296,7 @@
    "cite": "subfleet/delegate.py:339",
    "also_cited": [],
    "v1_line": "    p.add_argument(\"--attach\", \"--wait\", dest=\"attach\", action=\"store_true\",",
-   "v1_meaning": "--wait is an alias of --attach on the same dest. Distinct from the `subfleet wait <id>` VERB \u2014 the run flag takes no id.",
+   "v1_meaning": "--wait is an alias of --attach on the same dest. Distinct from the `subfleet wait <id>` VERB — the run flag takes no id.",
    "argv": [
     "run",
     "--wait",
@@ -11398,7 +11427,7 @@
    "cite": "README.md:626",
    "also_cited": [],
    "v1_line": "`--why` and `decisions.jsonl` include the normalized capacity inputs, family",
-   "v1_meaning": "Prints the routing decision \u2014 normalized capacity inputs, family scores, and any loud cross-family routing note.",
+   "v1_meaning": "Prints the routing decision — normalized capacity inputs, family scores, and any loud cross-family routing note.",
    "argv": [
     "run",
     "--why",
@@ -11439,7 +11468,7 @@
    "cite": "subfleet/delegate.py:348",
    "also_cited": [],
    "v1_line": "                   help=\"never pick this Claude lane account (repeatable; e.g. the accounts that ran a pair's lanes)\")",
-   "v1_meaning": "append action: both accounts are excluded. This is the documented use \u2014 excluding the accounts that already ran a pair's lanes so the reviewer is genuinely a third party.",
+   "v1_meaning": "append action: both accounts are excluded. This is the documented use — excluding the accounts that already ran a pair's lanes so the reviewer is genuinely a third party.",
    "argv": [
     "run",
     "-x",
@@ -11750,7 +11779,7 @@
     "chief-of-staff/subfleet/subfleet/cli.py:725"
    ],
    "v1_line": "dispatched; `subfleet runs --mine` lists it.",
-   "v1_meaning": "Lists everything the current session dispatched \u2014 the documented companion to `wait --mine`.",
+   "v1_meaning": "Lists everything the current session dispatched — the documented companion to `wait --mine`.",
    "argv": [
     "runs",
     "--mine"
@@ -11860,7 +11889,7 @@
    "also_cited": [
     "docs/reports/D-surface.md:164"
    ],
-   "v1_line": "After a restart/resume: `subfleet runs --mine --running` before re-dispatching anything \u2014 the run is probably still going or already done.",
+   "v1_line": "After a restart/resume: `subfleet runs --mine --running` before re-dispatching anything — the run is probably still going or already done.",
    "v1_meaning": "This session's unfinished runs only (running_only=True, subfleet/cli.py:728). The prescribed first move after any session restart, so it runs before the agent has any other state.",
    "argv": [
     "runs",
@@ -11890,7 +11919,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:12",
    "also_cited": [],
    "v1_line": "  subfleet runs [--last N] [--json] [--mine] [--running]       # durable run ledger, newest first",
-   "v1_meaning": "The documented full combination \u2014 the post-restart check CLAUDE.md tells every main to run before re-dispatching.",
+   "v1_meaning": "The documented full combination — the post-restart check CLAUDE.md tells every main to run before re-dispatching.",
    "argv": [
     "runs",
     "--mine",
@@ -12090,7 +12119,7 @@
     "chief-of-staff/subfleet/subfleet/cli.py:1306"
    ],
    "v1_line": "6.  Read the ledger output at the path `subfleet runs show <id>` prints, not the completion notice text (the notice carries only metadata, never the body).",
-   "v1_meaning": "The diagnostic form: metadata JSON, then out.md, then err.log. This line is the reason agents run `runs show` at all \u2014 the completion notice deliberately carries no body, so this is the only path to the deliverable.",
+   "v1_meaning": "The diagnostic form: metadata JSON, then out.md, then err.log. This line is the reason agents run `runs show` at all — the completion notice deliberately carries no body, so this is the only path to the deliverable.",
    "argv": [
     "runs",
     "show",
@@ -12227,7 +12256,7 @@
     "chief-of-staff/subfleet/subfleet/hooks.py:34"
    ],
    "v1_line": "            \"command\": \"/Users/maxghenis/chief-of-staff/subfleet/bin/subfleet-hook session-start\",",
-   "v1_meaning": "argv to bin/subfleet-hook. Unlike user-prompt there is NO notices-file fast path \u2014 it always enters python, because the resume nudge has to be decided even when there are no notices (bin/subfleet-hook:70-76). Requires jq and a non-empty .session_id, then execs `subfleet _session-hook session-start`.",
+   "v1_meaning": "argv to bin/subfleet-hook. Unlike user-prompt there is NO notices-file fast path — it always enters python, because the resume nudge has to be decided even when there are no notices (bin/subfleet-hook:70-76). Requires jq and a non-empty .session_id, then execs `subfleet _session-hook session-start`.",
    "argv": [
     "session-start"
    ],
@@ -12286,14 +12315,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "sessions"
     ],
-    "verb": "",
+    "verb": "sessions",
     "exit_code": null,
-    "rule": "delegate:sessions",
-    "note_count": 1,
+    "rule": "permanent:sessions",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12302,7 +12331,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/cli.py:1405",
    "also_cited": [],
    "v1_line": "    p_sessions.add_argument(\"--all\", action=\"store_true\", help=\"include lane sessions (headless runs), hidden by default\")",
-   "v1_meaning": "Includes headless lane sessions, which are hidden by default because addressing one overwrites its deliverable (notify.py:175-179); each such row is printed with the suffix ` [lane: headless run \u2014 do not notify]` (cli.py:815).",
+   "v1_meaning": "Includes headless lane sessions, which are hidden by default because addressing one overwrites its deliverable (notify.py:175-179); each such row is printed with the suffix ` [lane: headless run — do not notify]` (cli.py:815).",
    "argv": [
     "sessions",
     "--all"
@@ -12310,15 +12339,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "sessions",
      "--all"
     ],
-    "verb": "",
+    "verb": "sessions",
     "exit_code": null,
-    "rule": "delegate:sessions",
-    "note_count": 1,
+    "rule": "permanent:sessions",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12327,7 +12356,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/paths.py:66",
    "also_cited": [],
    "v1_line": "def claude_dir() -> Path:",
-   "v1_meaning": "SUBFLEET_CLAUDE_DIR relocates ~/.claude for every registry, key and transcript read (paths.py:66-67, used by notify.sessions_dir at notify.py:111-112 and notify.transcript_path at notify.py:233) \u2014 the only way to exercise the push path without touching real sessions.",
+   "v1_meaning": "SUBFLEET_CLAUDE_DIR relocates ~/.claude for every registry, key and transcript read (paths.py:66-67, used by notify.sessions_dir at notify.py:111-112 and notify.transcript_path at notify.py:233) — the only way to exercise the push path without touching real sessions.",
    "argv": [
     "sessions"
    ],
@@ -12336,14 +12365,14 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "sessions"
     ],
-    "verb": "",
+    "verb": "sessions",
     "exit_code": null,
-    "rule": "delegate:sessions",
-    "note_count": 1,
+    "rule": "permanent:sessions",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12360,15 +12389,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "sessions",
      "--json"
     ],
-    "verb": "",
+    "verb": "sessions",
     "exit_code": null,
-    "rule": "delegate:sessions",
-    "note_count": 1,
+    "rule": "permanent:sessions",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12478,7 +12507,7 @@
    "cite": "chief-of-staff/subfleet/bin/subfleet:8",
    "also_cited": [],
    "v1_line": "for _legacy in $(env | sed -n 's/^\\(CARPOOL_[A-Z0-9_]*\\)=.*/\\1/p') CLAUDE_LANE_CARPOOL DELEGATE_CARPOOL; do",
-   "v1_meaning": "The v1 LAUNCHER (not cli.py) renames every CARPOOL_* variable to SUBFLEET_* before exec, unless the SUBFLEET_* name is already set \u2014 the 2026-08-23 rename shim.",
+   "v1_meaning": "The v1 LAUNCHER (not cli.py) renames every CARPOOL_* variable to SUBFLEET_* before exec, unless the SUBFLEET_* name is already set — the 2026-08-23 rename shim.",
    "argv": [
     "status"
    ],
@@ -12698,14 +12727,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle"
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12724,15 +12756,18 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--all"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12740,7 +12775,7 @@
    "id": "tickle-all-dry-run",
    "cite": "README.md:204",
    "also_cited": [],
-   "v1_line": "[--dry-run]` is the manual sweep \u2014 `/tickle` in any Claude session runs it",
+   "v1_line": "[--dry-run]` is the manual sweep — `/tickle` in any Claude session runs it",
    "v1_meaning": "Reports which sessions would be nudged, and the skip reasons, without pushing anything.",
    "argv": [
     "tickle",
@@ -12750,16 +12785,19 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--all",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12776,15 +12814,18 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--json"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12838,17 +12879,20 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--session",
      "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77",
      "--force"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12869,19 +12913,22 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--session",
      "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77",
      "--transcript",
      "/Users/maxghenis/.claude/projects/-repo/3f9c1a2e.jsonl",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12931,17 +12978,20 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "tickle",
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
      "--session",
      "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "sessions.continue",
     "exit_code": null,
-    "rule": "delegate:tickle",
-    "note_count": 1,
+    "rule": "permanent:tickle",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -13109,8 +13159,8 @@
     "chief-of-staff/subfleet/subfleet/cli.py:1313",
     "docs/reports/D-surface.md:158"
    ],
-   "v1_line": "If you must block: `subfleet wait <id>` (`run_in_background: true` is fine \u2014 if the waiter dies the run survives and the message still comes).",
-   "v1_meaning": "Blocks until that ledger row is terminal, printing a summary line and returning the run's rc (or 124 on timeout, 125 orphaned, 2 unknown id) \u2014 subfleet/cli.py:740-783.",
+   "v1_line": "If you must block: `subfleet wait <id>` (`run_in_background: true` is fine — if the waiter dies the run survives and the message still comes).",
+   "v1_meaning": "Blocks until that ledger row is terminal, printing a summary line and returning the run's rc (or 124 on timeout, 125 orphaned, 2 unknown id) — subfleet/cli.py:740-783.",
    "argv": [
     "wait",
     "20260905-120000-demo"
@@ -13465,7 +13515,7 @@
    "cite": "chief-of-staff/subfleet/subfleet/delegate.py:280",
    "also_cited": [],
    "v1_line": "    path = _state_dir() / \"decisions.jsonl\"",
-   "v1_meaning": "The third thing rooted at DELEGATE_STATE_DIR is decisions.jsonl, v1's append-only record of why each dispatch chose the lane and model it chose \u2014 the direct ancestor of v2's `why`. Set the variable and the audit trail moves with it.",
+   "v1_meaning": "The third thing rooted at DELEGATE_STATE_DIR is decisions.jsonl, v1's append-only record of why each dispatch chose the lane and model it chose — the direct ancestor of v2's `why`. Set the variable and the audit trail moves with it.",
    "argv": [
     "why",
     "--task",
@@ -13885,6 +13935,116 @@
     "rule": "permanent:gate",
     "env": {},
     "note_count": 0
+   }
+  },
+  {
+   "id": "tickle-dry-run",
+   "cite": "~/.claude/skills/tickle/SKILL.md:42",
+   "also_cited": [
+    "chief-of-staff/subfleet/subfleet/cli.py:1467"
+   ],
+   "v1_line": "Diagnostics when something looks off: `subfleet tickle --dry-run` (survey",
+   "v1_meaning": "The /tickle skill's diagnostic form: survey every live session's turn state and print the verdicts without nudging anything.",
+   "argv": [
+    "tickle",
+    "--dry-run"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "continue",
+     "--scope",
+     "interrupted",
+     "--dry-run"
+    ],
+    "verb": "sessions.continue",
+    "exit_code": null,
+    "rule": "permanent:tickle",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "mirror-no-flag-sync",
+   "cite": "chief-of-staff/subfleet/bin/subfleet-mirror:141",
+   "also_cited": [],
+   "v1_line": "ap.add_argument(\"--no-flag-sync\", action=\"store_true\", help=\"skip syncing isArchived/isStarred/title across accounts\")",
+   "v1_meaning": "Runs the copy/repair steps but skips propagating isArchived, isStarred and the title across per-account copies; in v1 this also silently stopped the state sidecar being rewritten, which is what made the sidecar the heartbeat.",
+   "argv": [
+    "mirror",
+    "--no-flag-sync"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--no-flag-sync"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "mirror-prune-dead-home",
+   "cite": "chief-of-staff/subfleet/bin/subfleet-mirror:132",
+   "also_cited": [
+    "chief-of-staff/subfleet/bin/subfleet-mirror:134"
+   ],
+   "v1_line": "ap.add_argument(\"--prune\", action=\"store_true\", ...) / ap.add_argument(\"--dead-home\", default=None, metavar=\"ORG\", ...)",
+   "v1_meaning": "Removes copies of transcript-pruned (dead) sessions from every account except the --dead-home org; off by default because the Claude app prunes them itself on load.",
+   "argv": [
+    "mirror",
+    "--prune",
+    "--dead-home",
+    "1c4f0b2a-9d3e-4a5b-8c7d-6e5f4a3b2c1d"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "map",
+    "argv": [
+     "sessions",
+     "mirror",
+     "--prune",
+     "--dead-home",
+     "1c4f0b2a-9d3e-4a5b-8c7d-6e5f4a3b2c1d"
+    ],
+    "verb": "sessions.mirror",
+    "exit_code": null,
+    "rule": "permanent:mirror",
+    "note_count": 0,
+    "env": {}
+   }
+  },
+  {
+   "id": "mirror-version",
+   "cite": "chief-of-staff/subfleet/bin/subfleet-mirror:147",
+   "also_cited": [],
+   "v1_line": "ap.add_argument(\"--version\", action=\"version\", version=\"subfleet mirror %s\" % __version__)",
+   "v1_meaning": "Prints the standalone mirror tool's own version (5.0) and exits without performing a pass.",
+   "argv": [
+    "mirror",
+    "--version"
+   ],
+   "env": {},
+   "v1_parses": true,
+   "expect": {
+    "disposition": "refuse",
+    "argv": [],
+    "verb": "",
+    "exit_code": 2,
+    "rule": "mirror:v1-only-flag",
+    "note_count": 1,
+    "env": {}
    }
   }
  ]

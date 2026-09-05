@@ -52,6 +52,28 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
 
+#: The sessions kit's durable facts, as `events` kinds (C-23.33, C-23.35). They
+#: are events rather than a table because each is an append-only record of one
+#: operator or worker decision, and the latest row for a session is the answer.
+NUDGE_EVENT = "session.nudged"
+RETIRE_EVENT = "session.retired"
+UNRETIRE_EVENT = "session.unretired"
+
+#: `store.transaction` writes its own audit event under the kind it is given,
+#: and `_session_events` reads the NEWEST row of each kind. Naming the audit
+#: event after the record would therefore shadow the record with a summary that
+#: carries no dedupe key — so the two are deliberately different kinds.
+def audit_kind(event: str) -> str:
+    return event.rsplit(".", 1)[0] + ".recorded"
+
+#: C-23.55: one live revive per session. The key is session-scoped, not
+#: caller-scoped, and its holder is the revive job id so every existing
+#: holder-keyed release site frees it. It shares the `session:` namespace with
+#: C-6.5's writable-job lease, which is deliberate — both are about one session
+#: having one writer — but nothing reads that namespace by prefix.
+def revive_lease_key(session_id: str) -> str:
+    return f"session:{session_id}:revive"
+
 
 def imported_external(attempt: dict) -> bool:
     """docs/migration.md principle 3: this attempt belongs to a v1 run, not to v2.
@@ -480,6 +502,23 @@ class Daemon:
             count = self.store.one("SELECT count(*) AS n FROM jobs WHERE parent_job_id=?", (parent["job_id"],))["n"]
             if count >= self.policy["caps"]["max_child_jobs"]:
                 raise AdapterError("parent child budget exhausted", fix="use a new parent job")
+        if job.get("kind") == "revive" and job.get("caller_session"):
+            # C-23.55: one live revive per session. The lease below is taken in
+            # the admission transaction, but admission treats a lease conflict as
+            # a wait, and a revive that waits for its own twin is exactly the
+            # 2026-09-04 incident dressed as patience. Refuse at submit instead,
+            # so the second attempt is skipped rather than queued (C-6.5).
+            session = job["caller_session"]
+            lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?",
+                                   (revive_lease_key(session),))
+            live = self.store.one(
+                "SELECT job_id FROM jobs WHERE kind='revive' AND caller_session=? "
+                "AND state NOT IN ('succeeded','failed','cancelled','lost')", (session,))
+            if lease or live:
+                holder = (lease or {}).get("holder") or (live or {}).get("job_id")
+                raise AdapterError(
+                    f"session {session} already has a live revive ({holder})", code=7,
+                    fix=f"subfleet runs show {holder}, or kill it before reviving again")
         conflicts: list[tuple[str, Any, str]] = []
         if job.get("out_path"):
             conflicts.append(("out_path", job["out_path"], "use a different -o path or wait for its owner"))
@@ -629,11 +668,104 @@ class Daemon:
                     notice_id = -cursor.lastrowid
                 self._notify()
             return {"pong": True, "version": __version__, "session_id": session, "text": text, "notice_id": notice_id}
+        if op == "sessions":
+            return self.sessions(protocol.coerce_args(protocol.SessionsArgs, args))
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"]}
         raise protocol.ProtocolError(f"unknown op {op}")
+
+    # --- the sessions kit's store seam (C-23.33, C-23.35, C-23.55) ------------
+
+    def _session_events(self, kinds: tuple[str, ...],
+                        session_ids: set[str] | None) -> dict[str, dict]:
+        """The newest event of each kind per session id, keyed `<kind>:<id>`."""
+        marks = ",".join("?" for _ in kinds)
+        latest: dict[str, dict] = {}
+        for row in self.store.query(
+                f"SELECT kind,ts,data_json FROM events WHERE kind IN ({marks}) "
+                "ORDER BY event_id DESC", kinds):
+            try:
+                data = json.loads(row["data_json"])
+            except (TypeError, ValueError):
+                continue
+            session = data.get("session_id")
+            if not isinstance(session, str) or (session_ids is not None
+                                                and session not in session_ids):
+                continue
+            latest.setdefault(f"{row['kind']}:{session}", {**data, "at": row["ts"]})
+        return latest
+
+    def _lane_session_ids(self) -> list[str]:
+        """Every session id subfleet itself launched as a headless lane (C-23.31)."""
+        return sorted({row["native_session_id"] for row in self.store.query(
+            "SELECT DISTINCT native_session_id FROM attempts "
+            "WHERE native_session_id IS NOT NULL") if row["native_session_id"]})
+
+    def sessions(self, args: protocol.SessionsArgs) -> dict:
+        action = args.action or "state"
+        if action == "state":
+            wanted = {s for s in args.session_ids if isinstance(s, str) and s} or None
+            latest = self._session_events((NUDGE_EVENT, RETIRE_EVENT, UNRETIRE_EVENT), wanted)
+            leases = {row["lease_key"]: row["holder"] for row in
+                      self.store.query("SELECT lease_key,holder FROM leases "
+                                       "WHERE lease_key LIKE 'session:%:revive'")}
+            state: dict[str, dict] = {}
+            for session in sorted(wanted or {key.split(":", 1)[1] for key in latest}):
+                retired = latest.get(f"{RETIRE_EVENT}:{session}")
+                cleared = latest.get(f"{UNRETIRE_EVENT}:{session}")
+                # Retirement is durable until the operator clears it, and both
+                # halves are append-only, so the later row wins (C-23.35).
+                if retired and cleared and cleared["at"] >= retired["at"]:
+                    retired = None
+                state[session] = {
+                    "retired": retired,
+                    "last_nudge": latest.get(f"{NUDGE_EVENT}:{session}"),
+                    "revive_holder": leases.get(revive_lease_key(session)),
+                }
+            return {"sessions": state, "lane_sessions": self._lane_session_ids()}
+        if action in ("retire", "unretire"):
+            if not args.session_id:
+                raise protocol.ProtocolError(f"sessions {action}: session_id is required")
+            kind = RETIRE_EVENT if action == "retire" else UNRETIRE_EVENT
+            data = {"session_id": args.session_id, "reason": args.reason, **args.detail}
+            with self.store.transaction(audit_kind(kind), data=data) as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), kind, json.dumps(data, sort_keys=True)))
+            return {"session_id": args.session_id, "action": action, "recorded": True}
+        if action == "nudged":
+            if not args.session_id:
+                raise protocol.ProtocolError("sessions nudged: session_id is required")
+            # C-23.33's dedupe and cooldown are re-checked HERE, inside the
+            # transaction that records the nudge, so two sweeps racing over one
+            # session cannot both reserve it. The worker has already decided
+            # eligibility against the transcript (C-23.34); this is the lock.
+            with self.store.transaction(audit_kind(NUDGE_EVENT),
+                                        data={"session_id": args.session_id}) as tx:
+                previous = self._session_events((NUDGE_EVENT,), {args.session_id}).get(
+                    f"{NUDGE_EVENT}:{args.session_id}")
+                if previous and not args.force:
+                    if args.dedupe_key and previous.get("dedupe_key") == args.dedupe_key:
+                        return {"recorded": False, "session_id": args.session_id,
+                                "reason": "already nudged at this interruption point",
+                                "last_nudge": previous}
+                    cooldown = args.cooldown_s
+                    if cooldown and previous.get("at"):
+                        elapsed = age(previous["at"])
+                        if elapsed < float(cooldown):
+                            return {"recorded": False, "session_id": args.session_id,
+                                    "reason": (f"nudged {int(elapsed)}s ago "
+                                               f"(cooldown {int(float(cooldown))}s)"),
+                                    "last_nudge": previous}
+                data = {"session_id": args.session_id, "dedupe_key": args.dedupe_key,
+                        "kind": args.kind, **({"forced": True} if args.force else {}),
+                        **args.detail}
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), NUDGE_EVENT, json.dumps(data, sort_keys=True)))
+            return {"recorded": True, "session_id": args.session_id,
+                    "dedupe_key": args.dedupe_key, "kind": args.kind}
+        raise protocol.ProtocolError(f"unknown sessions action {action!r}")
 
     def wait(self, args: protocol.WaitArgs) -> dict:
         try:
@@ -1176,6 +1308,20 @@ class Daemon:
                     leases.append((f"worktree:{workspace}", job["job_id"]))
                     if job["caller_session"]:
                         leases.append((f"session:{job['caller_session']}", job["job_id"]))
+                revive_key = (revive_lease_key(job["caller_session"])
+                              if job["kind"] == "revive" and job["caller_session"] else None)
+                if revive_key:
+                    # C-23.55: the census the sweep skips on is the lease rows,
+                    # read inside the admitting transaction, not a snapshot taken
+                    # at the start of the pass.
+                    held = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
+                                      (revive_key,)).fetchone()
+                    if held and held[0] != job["job_id"]:
+                        # Skipped, not queued: waiting for the other revive to
+                        # end would launch the twin the moment it did.
+                        self._skip_revive(tx, job, held[0])
+                        continue
+                    leases.append((revive_key, job["job_id"]))
                 conflict = any((r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder for key, holder in leases)
                 if conflict:
                     blocked_tiers.add(tier)
@@ -1199,6 +1345,26 @@ class Daemon:
                 with self._busy_lock:
                     self._busy.discard(aid)
             self._notify()
+
+    def _skip_revive(self, tx, job: dict, holder: str) -> None:
+        """C-23.55: a session that already holds the revive lease is skipped.
+
+        Terminal, not queued. A revive that waits for its twin to finish would
+        launch a second continuation the moment the first ended, which is the
+        2026-09-04 twin with a delay.
+
+        `failed` with rc 7 rather than `cancelled`: nobody asked to cancel it,
+        and `exit_for_job` reports a cancelled job as 130 whatever its rc, which
+        would hide the refusal C-17.3 numbers 7. Submit refuses the ordinary
+        case; this path is the submit/admission race, and it says the same thing.
+        """
+        tx.execute("UPDATE jobs SET state='failed',rc=7,wait_reason=NULL,"
+                   "next_check_at=NULL,finished_at=? WHERE job_id=?",
+                   (utcnow(), job["job_id"]))
+        tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
+        self._notice(tx, job, "refused", 7, None,
+                     f"skipped: session {job['caller_session']} already has a live "
+                     f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}")
 
     def _fail_queued(self, job: dict, detail: str) -> None:
         with self.store.transaction("job.failed", job_id=job["job_id"]) as tx:
@@ -1238,8 +1404,23 @@ class Daemon:
             credential_env = resolve_credential(lane.credential)
             spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review else self._guard_override(adapter, lane, spec.workdir)
-            launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
-                                          model["id"], model.get("effort"), prompt_path, guard_override)
+            if job["kind"] == "revive" and job["caller_session"]:
+                # C-23.54: a revive is an ordinary submission, but the launch it
+                # asks for is `--resume <session id>` — continuing the session
+                # named by `caller_session`, which for a revive IS the session
+                # being revived. `build_launch` would start a NEW conversation
+                # under a fresh `--session-id`, which looks like a revive and is
+                # not one.
+                launch = adapter.resume_launch(spec, a["attempt_id"], adir, lane,
+                                               credential_env, job["caller_session"],
+                                               prompt_path, guard_override, model["id"])
+                if launch is None:
+                    raise AdapterError(
+                        f"{lane.provider} cannot resume a session in place", code=7,
+                        fix="use `subfleet sessions handoff` to continue this session")
+            else:
+                launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
+                                              model["id"], model.get("effort"), prompt_path, guard_override)
         except AdapterError as exc:
             self._launch_failure(a, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
             return

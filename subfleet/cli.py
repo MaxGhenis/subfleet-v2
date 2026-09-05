@@ -1820,6 +1820,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 # --- parser (C-17.1, C-17.2) --------------------------------------------------
 
+def cmd_sessions(args: argparse.Namespace) -> int:
+    """`subfleet sessions <verb>` (C-17.1); the kit's own module holds the verbs."""
+    from .sessions import cli as sessions_cli
+    return sessions_cli.dispatch(args)
+
+
+def cmd_handoff(args: argparse.Namespace) -> int:
+    """`subfleet handoff <session> --to <model>` (C-17.1, C-23.14, C-23.54)."""
+    from .sessions import cli as sessions_cli
+    return sessions_cli.cmd_handoff(args)
+
+
 def _add_json(parser: argparse.ArgumentParser, *, nested: bool = False) -> None:
     """`--json`; nested parsers suppress their default so the parent's survives."""
     kwargs: dict[str, Any] = {"action": "store_true",
@@ -2017,6 +2029,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_ping.add_argument("text", nargs="*", help="the message (quoting optional)")
     _add_json(p_ping)
     p_ping.set_defaults(handler=cmd_ping)
+
+    # The sessions kit (C-17.1: `sessions` and `handoff` are permanent verbs and
+    # dispatch to the `subfleet-sessions` entry point). The sub-verbs are
+    # registered by that module so the two surfaces cannot drift.
+    from .sessions import cli as sessions_cli
+    p_sessions = sub.add_parser(
+        "sessions", help="live sessions: list, continue, revive, mirror, handoff")
+    # A bare `subfleet sessions` is `sessions list`, so the parent carries that
+    # verb's flags — v1's `subfleet sessions --all` is a spelling C-17.1 keeps.
+    p_sessions.add_argument("--all", action="store_true",
+                            help="include lane runs, retired and dead rows")
+    _add_json(p_sessions)
+    p_sessions.set_defaults(handler=cmd_sessions, sessions_command=None)
+    sessions_cli.add_verbs(p_sessions.add_subparsers(dest="sessions_command"))
+
+    p_handoff = sub.add_parser(
+        "handoff", help="continue a Claude session through a freshly dispatched agent")
+    sessions_cli.add_handoff_flags(p_handoff)
+    _add_json(p_handoff)
+    p_handoff.set_defaults(handler=cmd_handoff)
     return parser
 
 
