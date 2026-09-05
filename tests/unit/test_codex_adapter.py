@@ -97,10 +97,11 @@ def test_classifies_fixture_corpus(case):
 
 @pytest.mark.parametrize("sandbox", list(Sandbox))
 @pytest.mark.parametrize("effort", [None, "high"])
-def test_build_launch_preserves_contract_and_does_not_touch_files(tmp_path, sandbox, effort):
-    """C-5.1 C-10.5 C-12.1 C-12.3 C-14.3 Launch describes flags, credentials and files without I/O."""
+def test_build_launch_preserves_contract_and_captures_sent_prompt(tmp_path, sandbox, effort):
+    """C-5.1 C-6.7 C-10.5 C-12.3 C-14.3 Launch records flags, credentials and exact sent bytes."""
     home, workdir, attempt = tmp_path / "home", tmp_path / "work", tmp_path / "attempt"
     prompt = tmp_path / "prompt.md"
+    prompt.write_bytes(b"Caller prompt.\r\n")
     credential_env = {"CODEX_HOME": str(home), "SUBFLEET_ATTEMPT": "job/a1", "SUBFLEET_JOB": "job"}
     launch = CodexAdapter(codex_bin="/test/bin/codex").build_launch(
         _job(workdir, prompt, sandbox), "job/a1", attempt, _lane(home), credential_env,
@@ -115,7 +116,8 @@ def test_build_launch_preserves_contract_and_does_not_touch_files(tmp_path, sand
         assert not any(value.startswith("model_reasoning_effort=") for value in overrides)
     assert launch.argv[launch.argv.index("--output-last-message") + 1] == str(attempt / "last.md")
     assert launch.cwd == str(workdir)
-    assert launch.stdin_path == str(prompt)
+    assert launch.stdin_path == str(attempt / "prompt.sent.md")
+    assert Path(launch.stdin_path).read_bytes() == prompt.read_bytes() == b"Caller prompt.\r\n"
     assert launch.stdout_path == str(attempt / "stdout")
     assert launch.stderr_path == str(attempt / "stderr")
     assert launch.raw_stream_path == str(attempt / "stream.jsonl")
@@ -124,11 +126,13 @@ def test_build_launch_preserves_contract_and_does_not_touch_files(tmp_path, sand
     assert launch.env_remove == ("CODEX_API_KEY", "OPENAI_API_KEY")
     assert launch.native_session_id is None
     assert launch.lane_id == "codex-4"
-    assert list(tmp_path.iterdir()) == []
+    assert set(tmp_path.iterdir()) == {prompt, attempt}
+    assert list(attempt.iterdir()) == [Path(launch.stdin_path)]
 
 
 def test_read_only_launch_can_omit_guard(tmp_path):
     """C-12.3 A read-only launch without a guard does not invent a hooks override."""
+    (tmp_path / "prompt").write_bytes(b"Caller prompt.\n")
     launch = CodexAdapter().build_launch(
         _job(tmp_path, tmp_path / "prompt"), "job/a1", tmp_path, _lane(tmp_path / "home"),
         {"CODEX_HOME": str(tmp_path / "home")}, MODEL, None, tmp_path / "prompt", None,
@@ -153,6 +157,7 @@ def test_resume_launch_keeps_home_sandbox_and_guard(tmp_path, sandbox):
     """C-12.3 C-14.3 Native resume preserves the lane home, sandbox and guard override."""
     home = tmp_path / "lane-home"
     prompt = tmp_path / "continuation.md"
+    prompt.write_bytes(b"Continue the work.\n")
     launch = CodexAdapter().resume_launch(
         _job(tmp_path, prompt, sandbox), "job/a2", tmp_path / "a2", _lane(home),
         {"CODEX_HOME": str(home)}, THREAD, prompt, GUARD_OVERRIDE,
@@ -164,7 +169,8 @@ def test_resume_launch_keeps_home_sandbox_and_guard(tmp_path, sandbox):
     assert launch.argv[launch.argv.index("--sandbox") + 1] == sandbox.value
     assert GUARD_OVERRIDE in launch.argv
     assert "--json" in launch.argv
-    assert launch.stdin_path == str(prompt)
+    assert launch.stdin_path == str(tmp_path / "a2" / "prompt.sent.md")
+    assert Path(launch.stdin_path).read_bytes() == prompt.read_bytes()
     assert launch.cwd == str(tmp_path)
     assert launch.native_session_id == THREAD
     assert launch.env_remove == ("CODEX_API_KEY", "OPENAI_API_KEY")
@@ -175,6 +181,7 @@ def test_resume_keeps_native_model_instead_of_forwarding_policy_alias(tmp_path):
     """C-1.6 C-12.3 Native resume preserves the thread model instead of sending an unresolved policy pin."""
     home = tmp_path / "lane-home"
     prompt = tmp_path / "continuation.md"
+    prompt.write_bytes(b"Continue the work.\n")
     job = replace(_job(tmp_path, prompt), pinned_model="astra")
     launch = CodexAdapter().resume_launch(
         job, "job/a2", tmp_path / "a2", _lane(home), {"CODEX_HOME": str(home)},

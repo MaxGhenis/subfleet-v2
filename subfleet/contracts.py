@@ -172,8 +172,8 @@ WINDOW_KEYS = {300: "five_hour", 10080: "seven_day"}
 class Credential:
     """A credential reference, never a value (C-10.1, C-10.5)."""
     provider: str
-    ref: str                # keychain item name or home directory path
-    kind: str               # "keychain-token" | "home"
+    ref: str                # keychain item, home directory, or environment variable name
+    kind: str               # "keychain-token" | "home" | "env"
     epoch: int = 1
 
 

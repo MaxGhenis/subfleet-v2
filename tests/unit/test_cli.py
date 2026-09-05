@@ -126,6 +126,25 @@ def test_why_and_ping_reach_their_ops(daemon, capsys):
     assert server.args("ping") == {"text": "hello", "session_id": "s-1"}
 
 
+def test_why_renders_exclusion_from_real_policy_decision():
+    """C-11.5 why prints the actual policy decision's rejected lane and reason."""
+    from dataclasses import asdict
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy, pick
+
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    lanes = [{"lane_id": f"claude-{number}", "provider": "claude", "owner": "v2"}
+             for number in (1, 2)]
+    decision = asdict(pick(policy, lanes, pinned_model="fable",
+                           exclusions=("claude-1",), policy_digest="recorded-policy"))
+    # Match the JSON socket representation consumed by the CLI.
+    decision = json.loads(json.dumps(decision))
+    assert decision["chosen_lane"] == "claude-2"
+    rendered = cli._format_decision(decision)
+    assert "claude-1: excluded" in rendered
+    assert "chosen: fable on claude-2" in rendered
+    assert "policy: recorded-policy" in rendered
+
+
 # --- run (C-17.2, C-17.4, C-17.6) --------------------------------------------
 
 def test_run_inside_a_claude_session_is_detached_and_prints_the_hint(

@@ -584,6 +584,7 @@ def test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock(state_dae
     attempts = daemon.store.list_attempts(job_id)
     assert [row["lane_id"] for row in attempts] == ["codex-1", "codex-2"]
     assert [row["seq"] for row in attempts] == [1, 2]
+    assert json.loads(daemon.dispatch("show", {"job_id": job_id})["job"]["exclusions"]) == ["codex-1"]
     assert daemon.store.list_notices() == []
 
 

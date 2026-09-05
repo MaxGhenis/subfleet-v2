@@ -191,6 +191,22 @@ def test_preflight_refuses_changed_trust_pin(fake_codex, tmp_path, field):
     assert not report.exists()
 
 
+def test_preflight_uses_environment_trust_path(fake_codex, tmp_path, monkeypatch):
+    """C-14.2: daemon and doctor can check a selected TRUST file without altering installation."""
+    fake, report = fake_codex
+    trust = json.loads(guard.TRUST_PATH.read_text())
+    trust["hook_sha256"] = "0" * 64
+    pin = tmp_path / "TRUST"
+    pin.write_text(json.dumps(trust))
+    monkeypatch.setenv("SUBFLEET_GUARD_TRUST", str(pin))
+    result = guard.preflight(fake)
+    assert not result.ok and result.code == 7
+    assert "SHA-256" in result.message
+    assert "subfleet doctor" in result.fix
+    assert not report.exists()
+    assert guard.preflight(fake, trust_path=guard.TRUST_PATH).ok
+
+
 def test_preflight_refuses_new_cli_version(fake_codex, monkeypatch):
     """C-14.2 Codex upgrades require review before trusting the guard scheme."""
     fake, report = fake_codex

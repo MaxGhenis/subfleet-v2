@@ -22,8 +22,12 @@ class InspectionError(RuntimeError):
 
 
 def _read(argv: list[str], *, empty_ok: bool = False) -> str:
+    # Match the CLI's rendering of ps lstart; ambient locale/timezone must not
+    # make the same live daemon or guardian appear to be a reused pid.
+    env = {"LC_ALL": "C", "LANG": "C", "TZ": "UTC",
+           "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
     try:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=10, env=env)
     except (OSError, subprocess.SubprocessError) as exc:
         raise InspectionError(f"{os.path.basename(argv[0])} inspection unavailable") from exc
     # BSD ps returns 1 when a valid selector matches no processes.

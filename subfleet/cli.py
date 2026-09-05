@@ -635,7 +635,7 @@ def _format_decision(decision: dict[str, Any]) -> str:
     for evaluation in rows_of(decision.get("evaluations")):
         lines.append(f"  {evaluation.get('model')}: "
                      f"{evaluation.get('reason') or evaluation.get('result') or ''}")
-        for rejected in rows_of(evaluation.get("rejected")):
+        for rejected in rows_of(evaluation.get("rejections", evaluation.get("rejected"))):
             lines.append(f"    - {rejected.get('lane_id')}: {rejected.get('reason')}")
     lines.append(f"chosen: {decision.get('chosen_model') or '-'} on "
                  f"{decision.get('chosen_lane') or '-'} — {decision.get('reason') or '-'}")
@@ -676,8 +676,11 @@ def _wait_summary(job: dict[str, Any]) -> str:
     duration = "-" if seconds is None else f"{seconds:.0f}s"
     target = (job.get("out_path") or _artifact_path(job, "deliverable")
               or job.get("deliverable_path") or "-")
+    attempt = job.get("attempt") or {}
+    detail = job.get("outcome_detail") or attempt.get("outcome_detail")
     return (f"{PROG} wait: {row['id']} {label} · {row['model'] or '-'} · "
-            f"lane={row['lane'] or '-'} · {duration} · out={target}")
+            f"lane={row['lane'] or '-'} · {duration} · out={target}"
+            + (f" · {detail}" if state == "FAILED" and detail else ""))
 
 
 def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,

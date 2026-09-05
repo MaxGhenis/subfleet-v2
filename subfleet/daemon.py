@@ -246,10 +246,6 @@ class Daemon:
                     raise ValueError("pinned lane and model providers disagree")
                 if lane:
                     self._validate_home(lane)
-                if provider == "claude" and HEADLESS_MARKER.encode() not in prompt.splitlines():
-                    prompt = HEADLESS_PREAMBLE.encode() + prompt
-                if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
-                    prompt = WRITE_PREAMBLE.encode() + prompt
                 caps = self.policy["caps"]
                 max_attempts = args.max_attempts if args.max_attempts is not None else caps["max_attempts"]
                 max_wall_s = args.max_wall_s if args.max_wall_s is not None else caps["max_wall_s"]
@@ -284,7 +280,12 @@ class Daemon:
             self._validate_conflicts(values)
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
-            self._publish("manifest", jobdir / "manifest.json", json_bytes({"job": values}))
+            manifest = {"job": values}
+            if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
+                prepared_path = jobdir / "prompt.prepared.md"
+                self._publish("prompt-prepared", prepared_path, WRITE_PREAMBLE.encode() + prompt)
+                manifest["prepared_prompt_path"] = str(prepared_path)
+            self._publish("manifest", jobdir / "manifest.json", json_bytes(manifest))
             with self.store.transaction("job.submitted", job_id=job_id) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
@@ -416,6 +417,9 @@ class Daemon:
             jobs = [self._job(j) for j in job_ids]
             pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
             if all(j["state"] in TERMINAL for j in jobs) and not pending_exports:
+                for job in jobs:
+                    job["attempt"] = self.store.one(
+                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
                 return {"jobs": jobs, "timeout": False}
             remaining = deadline - time.monotonic()
             if remaining <= 0 or self.stopping.is_set():
@@ -539,6 +543,9 @@ class Daemon:
                     if a["outcome_class"] == "transient":
                         transient_counts[a["lane_id"]] = transient_counts.get(a["lane_id"], 0) + 1
                 extra_exclusions += tuple(l for l, n in transient_counts.items() if n >= 2)
+                if extra_exclusions:
+                    job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                    tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision_job = job
                 if previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1:
                     decision_job = {**job, "pinned_lane": previous[-1]["lane_id"]}
@@ -607,11 +614,15 @@ class Daemon:
         evidence = json.loads(a["evidence_json"] or "{}")
         model = self.policy["models"][evidence["model_short"]]
         prompt_path = Path(job["prompt_path"])
+        prepared_path = prompt_path.with_name("prompt.prepared.md")
+        if prepared_path.is_file():
+            prompt_path = prepared_path
         if a["seq"] > 1 and job["sandbox"] == "workspace-write":
             refs = self.store.query("SELECT path FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=? AND role='salvage' ORDER BY seq", (job["job_id"],))
             suffix = f"\n\nContinue from checkpoint {evidence.get('baseline_commit')}. Preserved snapshots: {', '.join(r['path'] for r in refs) or 'none'}.\n"
+            prompt = prompt_path.read_bytes() + suffix.encode()
             prompt_path = adir / "prompt.md"
-            self._publish("prompt", prompt_path, Path(job["prompt_path"]).read_bytes() + suffix.encode())
+            self._publish("prompt", prompt_path, prompt)
         try:
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
@@ -933,6 +944,12 @@ class Daemon:
             self._quarantine(a, census, "writers remain after exit receipt")
             return
         launch = self._saved_launch(a)
+        # Both stream-json CLIs write their raw protocol to stdout. Freeze that
+        # stream once after containment when no separate raw file was supplied.
+        if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
+            stdout = Path(launch.stdout_path)
+            if stdout.is_file():
+                self._publish("raw-stream", Path(launch.raw_stream_path), stdout.read_bytes())
         lane = self.store.get_lane(a["lane_id"])
         adapter = get_adapter(lane.provider)
         receipt = self._read_json(adir / "exit.json")
@@ -948,6 +965,8 @@ class Daemon:
             if result is None:
                 exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
                 outcome = adapter.classify(adir, launch, exit_info)
+                if exit_info.spawn_error:
+                    outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
                 attest = adapter.attest(adir, launch, outcome, a["model_requested"])
                 result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest)}
                 self._publish("finalization", result_path, json_bytes(result))
@@ -964,6 +983,9 @@ class Daemon:
         artifacts = [x for x in [deliverable,
                      self._artifact(Path(launch.stdout_path), "stdout"),
                      self._artifact(Path(launch.stderr_path), "stderr"),
+                     self._artifact(adir / "launch.json", "launch"),
+                     self._artifact(Path(launch.stdin_path), "prompt-sent")
+                     if launch.stdin_path and Path(launch.stdin_path).name == "prompt.sent.md" else None,
                      self._artifact(adir / "lane.log", "lane-log"),
                      self._artifact(Path(launch.raw_stream_path), "raw-stream") if launch.raw_stream_path else None,
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
@@ -998,6 +1020,9 @@ class Daemon:
                 self.store.add_closure(outcome.closure)
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             job_rc = 130 if cancel else None if retry else 125 if lost else rc
+            if not cancel and not retry and not lost:
+                job_rc = {OutcomeClass.LIMITED: 4 if job["pinned_lane"] else 3,
+                          OutcomeClass.AUTH_DEAD: 5, OutcomeClass.CLI_TOO_OLD: 6}.get(outcome.cls, rc)
             accepted = a["attempt_id"] if ok and not cancel else None
             next_check = after(60 if outcome.cls == OutcomeClass.TRANSIENT else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
