@@ -16,3 +16,7 @@ Plan amendment 10 and contract C-20.4. The `run` verb does not cut over from v1 
 | 100 representative canary jobs | one v2-owned Codex lane runs 100 real read-only jobs drawn from the v1 ledger's prompts; every job terminal with a deliverable or a classified failure; no `quarantined`, no `lost` | record | pending |
 | Seven-day soak | the canary lane under v2 for seven days with the daemon's timers on; no unresolved ownership, loss, or duplicate-action defect in `events` | record | pending |
 | Shadow week decision diff | nightly `compare` of v1 and v2 decisions for the same submissions; every difference explained and none worse | record | pending |
+
+## Watch list
+
+- Two daemon tests quarantine an attempt under the full 3000-test run and pass when run alone: `tests/fake/test_daemon_contract.py::test_c5_6_c13_1_writable_kill_salvages_dirty_workspace_after_verified_containment` and the Claude workspace-write case of `tests/e2e/test_guard_and_isolation.py::test_provider_environment_isolated_in_each_sandbox`. Seen 2026-09-05 17:00 after the state-root marker fix, so the cause is not the cross-root marker collision. The kept state roots under `/tmp/sf-failed/` show a live pid outside the recorded group at kill time. Diagnose before the seven-day soak; a quarantine that a rerun does not reproduce is exactly the class of defect the soak exists to catch.
