@@ -165,6 +165,7 @@ def test_preflight_blocks_every_unsafe_remote_state(store, tmp_path, override, r
     assert result["code"] == 4 and result["action_state"] == "failed"
     assert result["action"]["status"] == "blocked"
     assert reason in result["action"]["reason"]
+    assert result["message"] == result["action"]["reason"]
     assert runner.merges == []
 
 

@@ -216,6 +216,8 @@ class MergeActions:
                        else "action_failed")
         return {"code": result.get("code", 5), "status": gate_status,
                 "action_id": action["action_id"], "action_state": action["state"],
+                "message": result.get("reason") or ("merged " + result["postcheck"]["url"]
+                                                     if status == "merged" and result.get("postcheck") else None),
                 "action": {**result, "status": status, "action_id": action["action_id"]}}
 
     def _publish(self, action_id: str, holder: str, state: str, result: dict) -> dict:
