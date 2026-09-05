@@ -410,6 +410,13 @@ def post_tool_use(payload: dict[str, Any], root: Path, *,
     return int(Exit.OK)
 
 
+#: Shortest pause between two `wait` calls that both came back at once. A
+#: server-side long poll normally spends the whole deadline, so this only fires
+#: when it does not — and then it is the difference between one call a second
+#: and a hook spinning on the socket for its whole 600 s budget.
+_RETRY_FLOOR_S = 0.25
+
+
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,
                       *, stderr: Any, now, sleep) -> int:
     while True:
@@ -417,11 +424,19 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
         if remaining <= 0:
             return int(Exit.OK)                         # silent timeout
         poll = min(remaining, float(WAIT_POLL_MAX_S))
+        started = now()
         try:
             result = client.call("wait", {"job_ids": [job_id], "deadline_s": poll},
                                  timeout=poll + 10)
         except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
             return int(Exit.OK)
+        # A `wait` that returns early — a shorter server-side cap, a job the
+        # daemon no longer has — must not turn this loop into a busy wait on
+        # the socket. C-15.4 makes the deadline a server-side maximum, not a
+        # promise about how long the call takes.
+        idle = poll - (now() - started)
+        if idle > 0:
+            sleep(min(max(idle, _RETRY_FLOOR_S), max(0.0, deadline - now())))
         if result.get("timeout"):
             continue
         jobs = result.get("jobs")
@@ -431,10 +446,7 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
         job = next((row for row in rows if row.get("job_id") == job_id),
                    rows[0] if rows else None)
         if job is None or job.get("state") not in TERMINAL_STATES:
-            # A `wait` that returned without a terminal state is not a finish;
-            # pause a beat rather than spinning on the daemon.
-            sleep(min(0.25, max(0.0, deadline - now())))
-            continue
+            continue                        # not a finish; the pause above ran
         return _deliver(client, session, job, stderr=stderr)
 
 
@@ -505,25 +517,53 @@ def desired_groups(command: str | None = None,
     }
 
 
-def _is_ours(hook: Any) -> bool:
-    command = str(hook.get("command") or "") if isinstance(hook, dict) else ""
-    return bool(command) and MARKER in command
+def _is_ours(hook: Any, event: str, command: str) -> bool:
+    """Is this entry one `daemon install --hooks` wrote?
 
+    Three ways to say yes, narrowest first, because the cost of a wrong yes is
+    deleting somebody else's hook:
 
-def _strip_ours(groups: list[Any]) -> list[Any]:
-    """Remove v2's own entries and nothing else.
+    1. it is character-for-character what this invocation would write;
+    2. it carries `MARKER`, the default command's own spelling, so an entry
+       written before `SUBFLEET_HOOK_COMMAND` was pointed somewhere else is
+       still recognised;
+    3. its last two tokens are `hook <Event>`, which is the shape every entry
+       we write has and nothing else on this machine has: the `hook` verb takes
+       the event as its only argument, so `... hook SessionStart` is a subfleet
+       entry written under some other path (an old `SUBFLEET_HOOK_COMMAND`, a
+       moved virtualenv). A false positive here removes one entry, and the diff
+       that removal appears in is printed before anything is written.
 
-    v1's `bin/subfleet-hook` entries do NOT match `MARKER`, so they survive this
-    untouched — including the PreToolUse attached-runner guard, which no v2
-    entry replaces (see `subfleet/compat.py`, which refuses the same commands at
-    the CLI instead).
+    v1's entries end in `session-start` / `user-prompt` / `pre-bash`, never in a
+    v2 event name, and carry `V1_MARKER` rather than `MARKER`, so none of the
+    three matches them. That is deliberate: v1's PreToolUse guard is the only
+    thing enforcing the front-door rule inside a session until v1 is
+    uninstalled (`subfleet/compat.py` refuses the same commands at the CLI).
     """
+    if not isinstance(hook, dict):
+        return False
+    text = str(hook.get("command") or "")
+    if not text:
+        return False
+    if text == f"{command} {event}":
+        return True
+    if V1_MARKER in text:
+        return False
+    if MARKER in text:
+        return True
+    tokens = text.split()
+    return len(tokens) >= 3 and tokens[-1] == event and tokens[-2] == "hook"
+
+
+def _strip_ours(groups: list[Any], event: str, command: str) -> list[Any]:
+    """Remove v2's own entries for `event` and nothing else."""
     kept: list[Any] = []
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
             kept.append(group)
             continue
-        remaining = [hook for hook in group["hooks"] if not _is_ours(hook)]
+        remaining = [hook for hook in group["hooks"]
+                     if not _is_ours(hook, event, command)]
         if remaining or not group["hooks"]:
             kept.append({**group, "hooks": remaining})
     return kept
@@ -555,9 +595,10 @@ def plan(path: Path | None = None, *, command: str | None = None,
     hooks = dict(hooks) if isinstance(hooks, dict) else {}
     proposed_hooks: dict[str, Any] = {key: value for key, value in hooks.items()}
     changed: list[str] = []
+    resolved = command or hook_command()
     for event, group in desired_groups(command, timeout).items():
         existing = hooks.get(event) if isinstance(hooks.get(event), list) else []
-        stripped = _strip_ours(list(existing))
+        stripped = _strip_ours(list(existing), event, resolved)
         updated = [*stripped, group]
         if updated != list(existing):
             changed.append(event)
