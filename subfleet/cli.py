@@ -817,10 +817,33 @@ def _format_job(job: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _ack_notices(client: Client, job: dict[str, Any]) -> None:
+    """C-15.3 a notice is acknowledged when its session runs `runs show <job>`.
+
+    Best effort: the job was already shown, so a failed acknowledgement must not
+    change what the caller sees or the exit code.
+    """
+    session = session_id()
+    if not session:
+        return
+    ids = [notice.get("notice_id") for notice in rows_of(job.get("notices"))
+           if notice.get("session_id") == session
+           and notice.get("state") != "acknowledged"
+           and isinstance(notice.get("notice_id"), int)]
+    if not ids:
+        return
+    try:
+        client.call("notice.ack", _asdict(protocol.NoticeArgs(
+            session_id=session, notice_ids=sorted(ids))))
+    except (DaemonUnavailable, DaemonError, ProtocolError):
+        pass
+
+
 def cmd_runs_show(args: argparse.Namespace) -> int:
     try:
         client = _client(args)
         job = client.call("show", _asdict(protocol.ShowArgs(job_id=args.id)))
+        _ack_notices(client, job)
     except DaemonUnavailable:
         try:
             job = _offline(args).show_job(args.id)

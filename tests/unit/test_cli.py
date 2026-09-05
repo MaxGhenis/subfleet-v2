@@ -629,3 +629,40 @@ def test_no_percentage_without_a_provider_reading(capsys):
     assert "five_hour 91% stale" in table
     assert "77%" not in table                 # admission-observed carries no percentage
     assert "five_hour admission-observed" in table
+
+
+def test_runs_show_acknowledges_this_sessions_notices(daemon, monkeypatch, capsys):
+    """C-15.3 a notice is acknowledged when its session runs `runs show <job>`."""
+    job = {"job_id": JOB, "state": "succeeded", "rc": 0, "notices": [
+        {"notice_id": 4, "session_id": "sess-9", "state": "offered", "text": "done"},
+        {"notice_id": 5, "session_id": "sess-9", "state": "acknowledged", "text": "old"},
+        {"notice_id": 6, "session_id": "other", "state": "pending", "text": "theirs"},
+    ]}
+    server = daemon({"show": lambda request: job,
+                     "notice.ack": lambda request: {"acknowledged": 1}})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
+    assert run_cli(["runs", "show", JOB]) == 0
+    assert server.args("notice.ack") == {"session_id": "sess-9", "notice_ids": [4]}
+    capsys.readouterr()
+
+
+def test_runs_show_outside_a_session_acknowledges_nothing(daemon, capsys):
+    """C-15.3 acknowledgement belongs to a session; there is none to speak for here."""
+    server = daemon({"show": lambda request: {
+        "job_id": JOB, "state": "succeeded",
+        "notices": [{"notice_id": 4, "session_id": "sess-9", "state": "offered"}]}})
+    assert run_cli(["runs", "show", JOB]) == 0
+    assert "notice.ack" not in server.ops()
+    capsys.readouterr()
+
+
+def test_a_failed_acknowledgement_does_not_change_the_show(daemon, monkeypatch, capsys):
+    """C-15.3 acknowledgement is best effort; `runs show` still succeeds."""
+    daemon({"show": lambda request: {
+        "job_id": JOB, "state": "succeeded",
+        "notices": [{"notice_id": 4, "session_id": "sess-9", "state": "offered"}]},
+        "notice.ack": lambda request: protocol.fail(request.id, Exit.OPERATIONAL,
+                                                    "the notice vanished")})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
+    assert run_cli(["runs", "show", JOB]) == 0
+    assert JOB in capsys.readouterr().out
