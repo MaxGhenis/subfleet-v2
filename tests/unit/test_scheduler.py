@@ -9,7 +9,8 @@ import pytest
 from subfleet.capacity import build_view
 from subfleet.contracts import Exit
 from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
-from subfleet.scheduler import evaluate, exit_code, ordered_jobs, probe_required, waiting_metadata
+from subfleet.scheduler import (evaluate, exit_code, ordered_jobs, probe_required,
+                                resolve_lane, waiting_metadata)
 
 
 NOW = "2026-09-05T10:33:00Z"
@@ -355,3 +356,20 @@ def test_no_lane_with_admission_evidence_reports_unknown_reset(policy):
     decision = evaluate(policy, snapshot, job(pinned_model="opus"))
     assert exit_code(decision) == Exit.NO_LANE
     assert "earliest reset: unknown" in decision.reason
+
+
+def test_c17_2_an_email_pin_still_resolves_when_the_key_is_two_uuids(policy):
+    """C-1.4, C-11.2, C-17.2 a verified Claude lane is keyed by identity, so the
+    email an operator types for `-a` and `-x` has to resolve through the label
+    C-1.4 calls the display name."""
+    lane = {"lane_id": "claude-9", "provider": "claude", "owner": "v2",
+            "account_key": "claude:acct-uuid:org-uuid", "desktop": False,
+            "identity": "acct-uuid:org-uuid", "label": "max@axiom.org"}
+    view = {"lanes": [lane], "readings": [], "closures": [], "attempts": [], "jobs": [],
+            "in_flight": {}, "now": "2026-09-05T11:30:00Z"}
+    assert resolve_lane([lane], "max@axiom.org")["lane_id"] == "claude-9"
+    pinned = evaluate(policy, view, job(pinned_model="haiku", pinned_lane="max@axiom.org"))
+    assert pinned.chosen_lane == "claude-9"
+    excluded = evaluate(policy, view, job(pinned_model="haiku",
+                                          exclusions=["max@axiom.org"]))
+    assert excluded.chosen_lane is None

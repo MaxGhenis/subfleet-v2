@@ -234,7 +234,7 @@ class Daemon:
         """
         hint = capacity.read_desktop_account()
         last = capacity.last_desktop_identity(self.store.query(
-            "SELECT * FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 1",
+            "SELECT * FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 8",
             (capacity.DESKTOP_IDENTITY_EVENT,))) or {}
         desktop = capacity.desktop_identity(self._desktop_profile(hint or last),
                                             cached_label=hint, last_label=last.get("label"))
@@ -243,7 +243,6 @@ class Daemon:
             self.store.add_event(capacity.DESKTOP_IDENTITY_EVENT,
                                  data={"identity": desktop.identity, "label": desktop.label,
                                        "observed_at": utcnow()})
-        self._desktop_cache = (time.monotonic(), desktop)
         return desktop
 
     def _desktop_profile(self, wanted: Any) -> Any:

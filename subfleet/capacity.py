@@ -161,21 +161,24 @@ def desktop_identity(profile: Any, *, cached_label: str | None = None,
 
 
 def last_desktop_identity(events: Iterable[Any]) -> dict[str, Any] | None:
-    """The newest recorded `desktop.identity` event payload, or nothing (C-10.3)."""
-    newest = None
-    for item in events:
-        row = _row(item)
+    """The newest recorded desktop identity, or nothing (C-10.3).
+
+    Rows are scanned newest first for one that actually carries an identity:
+    every store mutation also writes an audit event of the same kind (C-3.2),
+    and that companion row has no payload of its own.
+    """
+    rows = sorted((_row(item) for item in events),
+                  key=lambda row: row.get("event_id") or 0, reverse=True)
+    for row in rows:
         if row.get("kind") != DESKTOP_IDENTITY_EVENT:
             continue
-        if newest is None or (row.get("event_id") or 0) >= (newest.get("event_id") or 0):
-            newest = row
-    if newest is None:
-        return None
-    try:
-        data = json.loads(newest.get("data_json") or "{}")
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+        try:
+            data = json.loads(row.get("data_json") or "{}")
+        except ValueError:
+            continue
+        if isinstance(data, dict) and data.get("identity"):
+            return data
+    return None
 
 
 def latest_readings(readings: Iterable[Any], *, now: str | datetime,
