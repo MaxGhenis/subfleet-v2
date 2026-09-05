@@ -32,7 +32,8 @@ from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
-    HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, START_GRACE_S, TERM_GRACE_S,
+    EXIT_SETTLE_S, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
+    START_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
@@ -128,6 +129,7 @@ class DaemonUnavailable(RuntimeError):
 class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
+                 kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
                  guardian_start_delay_s: float = 0,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
@@ -136,6 +138,10 @@ class Daemon:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
+        self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
+        # C-5.9: attempt id -> when a post-receipt census first found the table
+        # still draining; the exit settle window is measured from there.
+        self._exit_settle: dict[str, float] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
         # C-10.3: who asks the desktop app's own credential who it is. `None`
@@ -1575,11 +1581,25 @@ class Daemon:
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
-        if a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+        alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
+        if alive == "alive":
             if time.monotonic() >= self._census_next.get(aid, 0):
                 self._record_owned(a)
                 self._census_next[aid] = time.monotonic() + .5
             return  # Re-adopted solely by receipt identity, not parentage.
+        if alive == "unknown":
+            # ps failed or timed out (load, or an inspection outage). A guardian
+            # that cannot be inspected is neither dead nor an escape; nothing is
+            # decided from it this tick (C-4.2, C-5.5).
+            self.log.debug("guardian liveness of %s unknown this tick", aid)
+            return
+        # The guardian writes exit.json and then exits, so a receipt can appear
+        # between the read above and the liveness check: a dead guardian with a
+        # receipt is the normal end of an attempt, not a loss (C-4.2).
+        receipt = self._read_json(adir / "exit.json")
+        if receipt:
+            self._begin_finalizing(a, receipt)
+            return
         census = self._contain(a)
         if not census.verified_empty:
             self._kill_attempt(a, lost=True)
@@ -1651,10 +1671,18 @@ class Daemon:
         for pid in census.live_pids:
             if pid in owned:
                 procs.signal_process(owned[pid], signal.SIGKILL)
-        # Give exited children a chance to be reaped; zombies are already absent
-        # from the census. No SQLite transaction is open while waiting.
-        self.stopping.wait(.05)
-        census = self._contain(a)
+        # Signalled processes leave the process table only when the kernel has
+        # finished tearing them down, and under load that takes longer than one
+        # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).
+        # The loop ends early only on a verified-empty census; the last census,
+        # never a guess about a pid, decides. No SQLite transaction is open.
+        settle_until = time.monotonic() + self.kill_settle_s
+        while True:
+            if self.stopping.wait(.05):
+                return
+            census = self._contain(a)
+            if census.verified_empty or time.monotonic() >= settle_until:
+                break
         if not census.verified_empty:
             self._quarantine(a, census, "termination could not verify containment")
             return
@@ -1781,12 +1809,17 @@ class Daemon:
         adir.mkdir(mode=0o700, exist_ok=True)
         census = self._contain(a)
         if not census.verified_empty:
-            # A receipt is written just before guardian exit; allow that small
-            # interval without mistaking the guardian itself for an escape.
-            if not census.unverifiable and census.live_pids <= {a.get("guardian_pid")}:
+            # The guardian writes the receipt just before it exits, and processes
+            # it already reaped can still be leaving the process table under
+            # load. Allow a bounded settle window (C-5.9, exit_settle_s), re-running
+            # the census on each tick, before declaring that writers remain.
+            since = self._exit_settle.setdefault(a["attempt_id"], time.monotonic())
+            if time.monotonic() - since < self.exit_settle_s:
                 return
+            self._exit_settle.pop(a["attempt_id"], None)
             self._quarantine(a, census, "writers remain after exit receipt")
             return
+        self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
         # stream once after containment when no separate raw file was supplied.
@@ -1797,8 +1830,12 @@ class Daemon:
         lane = self.store.get_lane(a["lane_id"])
         adapter = get_adapter(lane.provider)
         receipt = self._read_json(adir / "exit.json")
-        if not receipt:
-            lost = True
+        # The receipt on disk decides, not the verdict the caller reached before
+        # reading it: a guardian found dead a moment after it published exit.json
+        # completed its attempt (C-4.2). Only a missing receipt is a loss.
+        lost = receipt is None
+        if receipt and actual["state"] != "finalizing":
+            self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt")

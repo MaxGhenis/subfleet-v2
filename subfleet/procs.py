@@ -105,6 +105,23 @@ def identity(pid: int) -> ProcessIdentity | None:
     return ProcessIdentity(pid, boot_id(), started)
 
 
+def liveness(pid: int | None, boot_id: str | None, proc_start: str | None) -> str:
+    """C-5.3 with three answers: "alive" (the recorded identity), "dead" (absent,
+    a zombie, or a different process at that pid), or "unknown" (inspection
+    failed). A caller that would act on death must treat "unknown" as no
+    evidence at all and look again later; only `same_process`, which gates
+    signals, collapses "unknown" into "not the same" (C-5.4)."""
+    if not pid or pid <= 0 or not boot_id or not proc_start:
+        return "dead"
+    try:
+        current = identity(pid)
+    except InspectionError:
+        return "unknown"
+    if current is None:
+        return "dead"
+    return "alive" if current == ProcessIdentity(pid, str(boot_id), proc_start) else "dead"
+
+
 def same_process(pid: int, boot_id: str, proc_start: str) -> bool:
     """C-5.3: pid reuse, a different boot and zombies never match."""
     if not boot_id or not proc_start:
@@ -123,6 +140,9 @@ class Containment:
     unverifiable: bool = False
     identities: dict[int, ProcessIdentity] = field(default_factory=dict)
     errors: tuple[str, ...] = ()
+    # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
+    # census saw, without commands or environments (C-5.5 evidence).
+    shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -141,6 +161,7 @@ class Containment:
             "unverifiable": self.unverifiable,
             "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
             "errors": list(self.errors),
+            "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
         }
 
 
@@ -151,39 +172,45 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     Identities describe the census, not authority to signal. In particular a
     newly discovered escaped process must remain quarantined unless the caller
     already recorded that process's ownership before the escape.
+
+    The group and the descendant walk are read from one process-table snapshot
+    (`ps -axo pid=,ppid=,pgid=,stat=`), so a process cannot be present in one
+    source and absent from the other because it exited between two reads. The
+    snapshot also gives every live pid a shape (parent, group, state) that the
+    census records as evidence; commands and environments are never retained.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
     markers: set[int] = set()
-    states: dict[int, str] = {}
+    table: dict[int, tuple[int, int, str]] = {}   # pid -> (ppid, pgid, stat)
     errors: list[str] = []
     try:
+        for row in _read(["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat="]).splitlines():
+            parts = row.split(None, 3)
+            if len(parts) < 4:
+                continue
+            table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3].strip())
+        snapshot = True
+    except (InspectionError, ValueError):
+        snapshot = False
+        errors.append("group enumeration unavailable")
+        errors.append("descendant enumeration unavailable")
+
+    def live(pid: int) -> bool:
+        return pid in table and not table[pid][2].startswith("Z")
+
+    if snapshot:
         if pgid and pgid > 0:
-            group_text = _read(["/bin/ps", "-o", "pid=,stat=", "-g", str(pgid)], empty_ok=True)
-            for row in group_text.splitlines():
-                pid_text, state = row.split(None, 1)
-                if not state.startswith("Z"):
-                    groups.add(int(pid_text))
+            groups = {pid for pid, (_, group, _) in table.items() if group == pgid and live(pid)}
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
-    except (InspectionError, ValueError):
-        errors.append("group enumeration unavailable")
-    try:
-        parents: dict[int, int] = {}
-        for row in _read(["/bin/ps", "-axo", "pid=,ppid=,stat="]).splitlines():
-            pid_text, parent_text, state = row.split(None, 2)
-            pid = int(pid_text)
-            parents[pid] = int(parent_text)
-            states[pid] = state
         roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
         found = set(roots)
         frontier = roots
         while frontier:
-            frontier = {pid for pid, parent in parents.items() if parent in frontier and pid not in found}
+            frontier = {pid for pid, (parent, _, _) in table.items() if parent in frontier and pid not in found}
             found.update(frontier)
-        descendants = {pid for pid in found if pid in states and not states[pid].startswith("Z")}
-    except (InspectionError, ValueError):
-        errors.append("descendant enumeration unavailable")
+        descendants = {pid for pid in found if live(pid)}
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")
@@ -198,7 +225,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             pid_text, _, command = row.strip().partition(" ")
             if marker.search(command) and (root_marker is None or root_marker.search(command)):
                 pid = int(pid_text)
-                state = states.get(pid) or _stat(pid)
+                state = table[pid][2] if pid in table else _stat(pid)
                 if state and not state.startswith("Z"):
                     markers.add(pid)
     except (InspectionError, ValueError):
@@ -216,8 +243,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 markers.discard(pid)
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
+    shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
+              for pid in groups | descendants | markers if pid in table}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors))
+                       bool(errors), identities, tuple(errors), shapes)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
