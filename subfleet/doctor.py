@@ -24,6 +24,7 @@ on.
 from __future__ import annotations
 
 import os
+import sys
 import shutil
 import subprocess
 from pathlib import Path
@@ -172,6 +173,11 @@ def check_pythonpath() -> dict[str, Any]:
     """
     entries = [item for item in (os.environ.get("PYTHONPATH") or "").split(os.pathsep)
                if item]
+    if _ignores_environment():
+        return row("PYTHONPATH does not shadow subfleet", PASS,
+                   "this interpreter runs with -E and ignores PYTHON* variables"
+                   + (f" ({len(entries)} PYTHONPATH entr{'y' if len(entries) == 1 else 'ies'} present, unread)" if entries else ""),
+                   "bin/sf2 and the launchd plist start every entry point this way")
     if not entries:
         return row("PYTHONPATH does not shadow subfleet", PASS, "PYTHONPATH is unset",
                    "keep it that way; the runtime is standard library only")
@@ -186,8 +192,13 @@ def check_pythonpath() -> dict[str, Any]:
                f"{', '.join(shadows)} hold{'s' if len(shadows) == 1 else ''} a "
                f"`subfleet` package and PYTHONPATH outranks the install, so every "
                f"`subfleet` entry point imports that one",
-               "unset PYTHONPATH (or drop those entries) before the cutover; "
+               "start subfleet through bin/sf2 (python -E) or unset PYTHONPATH; "
                "`python -c \"import subfleet; print(subfleet.__file__)\"` confirms")
+
+
+def _ignores_environment() -> bool:
+    """True when the interpreter was started with -E (or -I): PYTHON* variables are unread."""
+    return bool(sys.flags.ignore_environment)
 
 
 def check_path_shadows(binary: str) -> dict[str, Any]:

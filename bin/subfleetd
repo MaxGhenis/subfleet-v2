@@ -1,0 +1,5 @@
+#!/bin/sh
+# The v2 daemon, started with an interpreter that ignores inherited PYTHON* variables
+# (see bin/sf2). `sf2 daemon install` writes the same flags into the launchd plist.
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+exec "$ROOT/.venv/bin/python" -E -P -m subfleet.daemon "$@"

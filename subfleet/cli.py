@@ -1372,13 +1372,19 @@ def _daemond_argv(root: Path) -> list[str]:
     override = (os.environ.get("SUBFLEET_DAEMON_BIN") or "").strip()
     if override:
         return [override, "--state-root", str(root)]
+    # `-E -P`: the daemon must import this package whatever PYTHON* variables the
+    # installing shell inherited (v1's wrapper exports PYTHONPATH=<v1 checkout>
+    # to everything it launches; decisions memo 2026-09-05 §3). A console script
+    # found on PATH or beside the interpreter is run through the interpreter for
+    # the same reason instead of being exec'd on its own shebang.
+    isolated = [sys.executable, "-E", "-P"]
     found = shutil.which("subfleetd")
     if found:
-        return [found, "--state-root", str(root)]
+        return [*isolated, found, "--state-root", str(root)]
     sibling = Path(sys.executable).parent / "subfleetd"
     if sibling.exists():
-        return [str(sibling), "--state-root", str(root)]
-    return [sys.executable, "-m", "subfleet.daemon", "--state-root", str(root)]
+        return [*isolated, str(sibling), "--state-root", str(root)]
+    return [*isolated, "-m", "subfleet.daemon", "--state-root", str(root)]
 
 
 # The daemon outlives the shell that starts it, and by C-5.1 every guardian and

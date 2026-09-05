@@ -276,3 +276,16 @@ def test_daemon_logs_line_counts(root, capsys):
     assert "non-negative" in capsys.readouterr().err
 
 
+
+
+def test_daemon_argv_runs_the_interpreter_with_an_isolated_environment(monkeypatch, tmp_path):
+    """Decision 2026-09-05 §3: without an override the daemon starts under python -E -P."""
+    from subfleet import cli as cli_module
+    monkeypatch.delenv("SUBFLEET_DAEMON_BIN", raising=False)
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli_module.sys, "executable", str(tmp_path / "python"))
+    argv = cli_module._daemond_argv(tmp_path / "root")
+    assert argv[:3] == [str(tmp_path / "python"), "-E", "-P"]
+    assert argv[3:5] == ["-m", "subfleet.daemon"]
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/opt/bin/subfleetd")
+    assert cli_module._daemond_argv(tmp_path / "root")[:4] == [str(tmp_path / "python"), "-E", "-P", "/opt/bin/subfleetd"]

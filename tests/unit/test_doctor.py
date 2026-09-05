@@ -374,3 +374,15 @@ def test_doctor_checks_is_the_same_table(root, stub_probes):
     is a call into `doctor.checks` and not a second list of checks."""
     assert [item["check"] for item in cli.doctor_checks(root)] == \
            [item["check"] for item in doctor.checks(root)]
+
+
+def test_pythonpath_row_passes_when_the_interpreter_ignores_its_environment(monkeypatch, tmp_path):
+    """Decision 2026-09-05 §3: a shadowing PYTHONPATH is harmless under python -E, which bin/sf2 uses."""
+    (tmp_path / "subfleet").mkdir()
+    (tmp_path / "subfleet" / "__init__.py").write_text("")
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    monkeypatch.setattr(doctor, "_ignores_environment", lambda: False)
+    assert doctor.check_pythonpath()["status"] == doctor.FAIL
+    monkeypatch.setattr(doctor, "_ignores_environment", lambda: True)
+    item = doctor.check_pythonpath()
+    assert item["status"] == doctor.PASS and "-E" in item["detail"]
