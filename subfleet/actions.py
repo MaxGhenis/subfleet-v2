@@ -192,10 +192,11 @@ class ResetCredits:
         if not self._lock.acquire(blocking=False):
             return {"status": "evaluation-running"}
         try:
-            rows = [dict(row) for row in snapshot.get("lanes", ()) if row.get("provider") == "codex"
+            all_rows = [dict(row) for row in snapshot.get("lanes", ())]
+            rows = [row for row in all_rows if row.get("provider") == "codex"
                     and row.get("owner") == "v2" and row.get("enabled", True)
                     and row.get("canonical") is not False and not row.get("duplicate_of")]
-            result = {"status": "disabled", "fleet_credits_remaining": fleet_credits_remaining(rows)}
+            result = {"status": "disabled", "fleet_credits_remaining": fleet_credits_remaining(all_rows)}
             if not settings["enabled"]:
                 return result
             history, reconciled = self._history(), self._reconciled()
@@ -216,9 +217,20 @@ class ResetCredits:
             candidates = sorted([row for row in rows if (row.get("probe") or {}).get("limit_reached") is True
                                  and (row.get("probe") or {}).get("status") in ("ok", "limited")], key=_order)
             # Shadowing excludes while ANY eligible unshadowed lane has a concrete gift.
-            candidates.sort(key=lambda row: bool(row.get("app_shadowed") or row.get("shadowed_by_app")))
+            def shadowed(row):
+                return bool(row.get("app_shadowed") or row.get("shadowed_by_app"))
+            candidates.sort(key=shadowed)
+            candidate_ids = {row["lane_id"] for row in candidates}
+            if any(shadowed(row) for row in candidates):
+                blockers = sorted([row for row in rows if not shadowed(row)
+                                   and row["lane_id"] not in candidate_ids], key=_order)
+                candidates = ([row for row in candidates if not shadowed(row)] + blockers
+                              + [row for row in candidates if shadowed(row)])
             selected = None
+            unshadowed_has_gifts = False
             for row in candidates:
+                if shadowed(row) and unshadowed_has_gifts:
+                    return {**result, "status": "shadow-excluded"}
                 if (cancel is not None and cancel.is_set()) or time.monotonic() >= deadline:
                     return {**result, "status": "cancelled"}
                 lane = self.store.get_lane(row["lane_id"])
@@ -227,9 +239,14 @@ class ResetCredits:
                 adapter = self.adapter_factory(lane)
                 timeout = max(.001, min(15., deadline - time.monotonic()))
                 guard = self._http_slots.setdefault(lane.lane_id, threading.Lock())
-                listed = _bounded(lambda: adapter.list_reset_credits(lane, {}, timeout=timeout), cancel,
+                listed = _bounded(lambda adapter=adapter, lane=lane, timeout=timeout:
+                                  adapter.list_reset_credits(lane, {}, timeout=timeout), cancel,
                                   min(deadline, time.monotonic() + timeout), guard)
-                concrete = [credit for credit in gifted_credits(listed) if not self.store.one(
+                gifts = gifted_credits(listed)
+                unshadowed_has_gifts = unshadowed_has_gifts or (not shadowed(row) and bool(gifts))
+                if row["lane_id"] not in candidate_ids and gifts:
+                    return {**result, "status": "shadow-excluded"}
+                concrete = [credit for credit in gifts if not self.store.one(
                     "SELECT action_id FROM actions WHERE op_key=?", (lane.account_key + ":" + credit["id"],))]
                 if concrete:
                     selected = (row, lane, adapter, concrete[0])
@@ -276,7 +293,7 @@ class ResetCredits:
                 override = {"action_id": action_id, "confirmed_at": stamp,
                             "weekly_reset_at": _iso(instant + timedelta(days=7)), "clock_source": "guessed"}
                 self.store.add_event("reset-credit.confirmed", lane_id=lane.lane_id, data=override)
-                result.update(override=override, fleet_credits_remaining=fleet_credits_remaining(rows, spent_lane=lane.lane_id))
+                result.update(override=override, fleet_credits_remaining=fleet_credits_remaining(all_rows, spent_lane=lane.lane_id))
             return {**result, "status": state, "action_id": action_id, "lane_id": lane.lane_id}
         finally:
             self._lock.release()

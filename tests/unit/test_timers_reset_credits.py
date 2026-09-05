@@ -203,6 +203,17 @@ def test_shadowed_lane_can_redeem_when_unshadowed_has_no_concrete_gift(store, tm
     assert result["lane_id"] == "codex-1"
 
 
+def test_shadowed_lane_waits_for_gift_on_an_unlimited_unshadowed_lane(store, tmp_path):
+    """C-23.46: even a currently unlimited unshadowed gift holder excludes shadowed redemption."""
+    lane(store, tmp_path, 1, days=6)
+    lane(store, tmp_path, 2, utilization=.99)
+    http = HTTP()
+    result = component(store, http).evaluate(snapshot(store, **{"codex-1": {"app_shadowed": True}}), now=NOW)
+    assert result["status"] == "shadow-excluded"
+    assert not store.query("SELECT * FROM actions")
+    assert all(request.get_method() == "GET" for request, _ in http.calls)
+
+
 @pytest.mark.parametrize("invalid", [dict(GIFT, reset_type="paid_credits"), dict(GIFT, status="used"),
                                       dict(GIFT, source="purchased"), dict(GIFT, gifted=False), dict(GIFT, id="")])
 def test_gifted_only_allowlist_and_concrete_entitlement_gate(store, tmp_path, invalid):
@@ -276,6 +287,17 @@ def test_unknown_credit_count_makes_entire_fleet_total_null():
     assert fleet_credits_remaining(rows, spent_lane="a") is None
     rows[1]["reset_credits"]["available"] = 2
     assert fleet_credits_remaining(rows, spent_lane="a") == 4
+
+
+def test_disabled_unreadable_lane_keeps_fleet_total_null_after_a_confirmed_spend(store, tmp_path):
+    """C-23.18: action eligibility cannot remove an unreadable lane from the fleet credit total."""
+    lane(store, tmp_path, 1)
+    other = lane(store, tmp_path, 2)
+    store.update_lane(other.lane_id, enabled=False)
+    view = snapshot(store, **{"codex-2": {"probe": {"status": "auth-dead"}}})
+    result = component(store, HTTP()).evaluate(view, now=NOW)
+    assert result["status"] == "confirmed"
+    assert result["fleet_credits_remaining"] is None
 
 
 def test_confirmed_override_ends_after_provider_propagation(store, tmp_path):
