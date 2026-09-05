@@ -142,10 +142,12 @@ CREATE TABLE IF NOT EXISTS artifacts (
 );
 CREATE INDEX IF NOT EXISTS artifacts_attempt ON artifacts(attempt_id, role);
 
--- C-15
+-- C-15. `job_id` is nullable because the v1 outbox the migration manifest
+-- imports (docs/migration.md, `S/outbox.sqlite3`) holds session messages that
+-- name a session and no run; every notice v2 itself writes names a job (C-15.1).
 CREATE TABLE IF NOT EXISTS notices (
   notice_id INTEGER PRIMARY KEY,
-  job_id TEXT NOT NULL REFERENCES jobs(job_id),
+  job_id TEXT REFERENCES jobs(job_id),
   session_id TEXT,
   text TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('pending','offered','acknowledged','surfaced')),

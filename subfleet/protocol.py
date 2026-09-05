@@ -153,6 +153,8 @@ class LanesArgs:
     credential: str | None = None
     until: str | None = None
     owner: str | None = None            # for transfer: "v1" | "v2"
+    dry_run: bool = False               # transfer: print the diff, write nothing
+    confirm_v1_edit: bool = False       # transfer: --i-understand-v1-edit
 
 
 @dataclass

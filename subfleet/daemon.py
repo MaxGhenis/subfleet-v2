@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, procs, protocol, render, scheduler
+from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -45,6 +45,24 @@ from .salvage import git_head, salvage, validate_writable_workdir
 from .store import Store
 
 TERMINAL = ("succeeded", "failed", "cancelled", "lost")
+
+LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
+                 "('reserved','starting','running','finalizing')")
+
+
+def imported_external(attempt: dict) -> bool:
+    """docs/migration.md principle 3: this attempt belongs to a v1 run, not to v2.
+
+    A v1 run still running at import time is recorded as a live attempt carrying
+    `imported_external` (subfleet/importer.py), and "v2 never adopts, kills, or
+    finalizes it". Recovery therefore skips it: without this the first control
+    tick would contain, kill or lose a run v1 is still executing. The parse is
+    defensive because a control loop that raises stops recovering everything.
+    """
+    try:
+        return bool(json.loads(attempt.get("evidence_json") or "{}").get("imported_external"))
+    except (TypeError, ValueError):
+        return False
 LIVE = ("reserved", "starting", "running", "finalizing")
 WRITE_PREAMBLE = (
     "<!-- subfleet:write -->\n"
@@ -401,6 +419,19 @@ class Daemon:
         if op == "kill":
             return self.kill(protocol.coerce_args(protocol.KillArgs, args))
         if op == "lanes":
+            a = protocol.coerce_args(protocol.LanesArgs, args)
+            if a.action == "transfer":
+                # Ownership changes only here, and it records an event (C-10.4,
+                # plan amendment 8). The roster edits belong to the daemon
+                # because the daemon owns the store (C-3.4).
+                try:
+                    result = lanes_transfer.transfer(
+                        self.store, self.root, a.lane_id, a.owner,
+                        dry_run=bool(a.dry_run), confirm_v1_edit=bool(a.confirm_v1_edit))
+                except lanes_transfer.TransferError as exc:
+                    raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+                return {"transfer": result,
+                        "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
             return {"lanes": self._capacity_view(capacity.read_desktop_account())["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
@@ -544,7 +575,9 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                for a in self.store.query("SELECT * FROM attempts WHERE state IN ('reserved','starting','running','finalizing')"):
+                for a in self.store.query(LIVE_ATTEMPTS):
+                    if imported_external(a):
+                        continue                    # v1 still owns it (principle 3)
                     self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"])
                 for j in self.store.query("SELECT * FROM jobs WHERE accepted_attempt_id IS NOT NULL"):
                     if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):

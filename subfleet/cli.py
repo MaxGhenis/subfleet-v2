@@ -1223,6 +1223,27 @@ def _format_lanes(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _format_transfer(result: dict[str, Any]) -> str:
+    """Plan amendment 8: one transfer, both rosters, and what is left to do."""
+    lines = [f"{result.get('lane_id')}: {result.get('from')} -> {result.get('to')}"
+             + ("  (dry run, nothing written)" if result.get("dry_run") else "")]
+    if not result.get("changed"):
+        lines.append("already owned by " + str(result.get("to")))
+    for edit in result.get("edits") or []:
+        mark = "edited" if edit.get("changed") else "unchanged"
+        if result.get("dry_run") and edit.get("changed"):
+            mark = "would edit"
+        lines.append(f"  {mark}: {edit.get('path')}"
+                     + (f"  (backup {edit.get('backup')})" if edit.get("backup") else ""))
+    if result.get("diff"):
+        lines.append(result["diff"].rstrip("\n"))
+    for item in result.get("follow_up") or []:
+        lines.append(f"  next: {item}")
+    if result.get("blocker"):
+        lines.append(f"  blocked: {result['blocker']}")
+    return "\n".join(lines)
+
+
 def cmd_lanes(args: argparse.Namespace) -> int:
     action = args.lanes_command or "list"
     if action == "transfer" and args.to not in ("v1", "v2"):
@@ -1235,6 +1256,8 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         credential=getattr(args, "credential", None),
         until=getattr(args, "until", None),
         owner=getattr(args, "to", None),
+        dry_run=bool(getattr(args, "dry_run", False)),
+        confirm_v1_edit=bool(getattr(args, "confirm_v1_edit", False)),
     )
     try:
         result = _client(args).call("lanes", _asdict(lanes_args))
@@ -1244,8 +1267,18 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return _daemon_error(exc)
     except ProtocolError as exc:
         return fail(exc.code, str(exc))
+    if action == "transfer" and not isinstance(result.get("transfer"), dict):
+        # C-16.2 ignores unknown request fields, so a daemon older than this verb
+        # answers the `lanes` op with the roster and no transfer at all. Printing
+        # that as a completed no-op would record a canary transfer that never ran.
+        return fail(Exit.DAEMON_UNAVAILABLE,
+                    "the daemon did not perform the transfer; it is older than this CLI",
+                    "subfleet daemon stop && subfleet daemon start")
     if args.json:
         emit(result)
+        return int(Exit.OK)
+    if action == "transfer":
+        out(_format_transfer(result["transfer"]))
         return int(Exit.OK)
     out(_format_lanes(result))
     return int(Exit.OK)
@@ -1790,6 +1823,11 @@ def build_parser() -> argparse.ArgumentParser:
     l_transfer = lanes_sub.add_parser("transfer")
     l_transfer.add_argument("lane")
     l_transfer.add_argument("--to", required=True, choices=("v1", "v2"))
+    l_transfer.add_argument("--i-understand-v1-edit", dest="confirm_v1_edit",
+                            action="store_true",
+                            help="allow the one write this repo makes to a v1 file")
+    l_transfer.add_argument("--dry-run", action="store_true",
+                            help="print the roster diff and write nothing")
     _add_json(l_transfer, nested=True)
 
     p_why = sub.add_parser("why", help="the routing decision for a job or a shape")
