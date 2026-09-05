@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import ids, procs, protocol
+from . import ids, lanes_transfer, procs, protocol
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -378,6 +378,19 @@ class Daemon:
         if op == "kill":
             return self.kill(protocol.coerce_args(protocol.KillArgs, args))
         if op == "lanes":
+            a = protocol.coerce_args(protocol.LanesArgs, args)
+            if a.action == "transfer":
+                # Ownership changes only here, and it records an event (C-10.4,
+                # plan amendment 8). The roster edits belong to the daemon
+                # because the daemon owns the store (C-3.4).
+                try:
+                    result = lanes_transfer.transfer(
+                        self.store, self.root, a.lane_id, a.owner,
+                        dry_run=bool(a.dry_run), confirm_v1_edit=bool(a.confirm_v1_edit))
+                except lanes_transfer.TransferError as exc:
+                    raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+                return {"transfer": result,
+                        "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
             return {"lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id"),
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
