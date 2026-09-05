@@ -441,3 +441,58 @@ def test_access_token_error_outside_usage_endpoint_does_not_prove_auth_death(tmp
     outcome = CodexAdapter().classify(tmp_path, launch, _exit())
     assert outcome.cls == OutcomeClass.TRANSIENT
     assert outcome.closure is None
+
+
+def test_spawn_failure_cannot_attest_historic_rollout(tmp_path):
+    """C-5.2 C-12.5 A failed provider spawn cannot attest a model from a preexisting thread."""
+    home = tmp_path / "home"
+    sessions = home / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "rollout.jsonl").write_text(json.dumps({"type": "session_meta", "payload": {
+        "id": THREAD, "model": MODEL}}) + "\n")
+    launch = replace(_launch(tmp_path, home), native_session_id=THREAD)
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(127, spawn_error="No executable"))
+    assert CodexAdapter().attest(tmp_path, launch, outcome, MODEL).status == Attestation.UNATTESTED
+
+
+@pytest.mark.parametrize("with_receipts,timestamp", [
+    (False, "2026-09-05T11:00:00Z"), (True, "2026-09-05T11:00:00Z"),
+    (True, "2026-09-05T12:00:00.500Z"), (True, "2026-09-05T12:01:00.500Z"),
+    (True, None),
+])
+def test_resume_cannot_attest_using_only_old_turns(tmp_path, with_receipts, timestamp):
+    """C-12.5 A native continuation needs model evidence belonging to its own recorded attempt."""
+    home = tmp_path / "home"
+    sessions = home / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "rollout.jsonl").write_text(
+        json.dumps({"type": "session_meta", "payload": {"id": THREAD, "model": MODEL}}) + "\n" +
+        json.dumps({"type": "turn_context", "timestamp": timestamp,
+                    "payload": {"model": MODEL}}) + "\n")
+    if with_receipts:
+        (tmp_path / "start.json").write_text(json.dumps({"started_at": "2026-09-05T12:00:00Z"}))
+        (tmp_path / "exit.json").write_text(json.dumps({"finished_at": "2026-09-05T12:01:00Z"}))
+    launch = replace(_launch(tmp_path, home), native_session_id=THREAD)
+    outcome = Outcome(OutcomeClass.OK, "done", native_session_id=THREAD)
+    assert CodexAdapter().attest(tmp_path, launch, outcome, MODEL).status == Attestation.UNATTESTED
+
+
+@pytest.mark.parametrize("served,expected", [(MODEL, Attestation.ATTESTED), ("gpt-5.6-sol", Attestation.MISMATCH)])
+def test_resume_attestation_uses_only_current_receipt_interval(tmp_path, served, expected):
+    """C-12.5 Old and later turns cannot change the model attestation for this resumed attempt."""
+    home = tmp_path / "home"
+    sessions = home / "sessions"
+    sessions.mkdir(parents=True)
+    records = [
+        {"type": "session_meta", "payload": {"id": THREAD, "model": "gpt-5.6-sol"}},
+        {"type": "turn_context", "timestamp": "2026-09-05T11:00:00Z", "payload": {"model": "gpt-5.6-sol"}},
+        {"type": "turn_context", "timestamp": "2026-09-05T12:00:30Z", "payload": {"model": served}},
+        {"type": "turn_context", "timestamp": "2026-09-05T13:00:00Z", "payload": {"model": "gpt-5.6-sol"}},
+    ]
+    (sessions / "rollout.jsonl").write_text("".join(json.dumps(event) + "\n" for event in records))
+    (tmp_path / "start.json").write_text(json.dumps({"started_at": "2026-09-05T12:00:00Z"}))
+    (tmp_path / "exit.json").write_text(json.dumps({"finished_at": "2026-09-05T12:01:00Z"}))
+    launch = replace(_launch(tmp_path, home), native_session_id=THREAD)
+    result = CodexAdapter().attest(tmp_path, launch, Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
+    assert result.status == expected
+    assert result.served_model == served

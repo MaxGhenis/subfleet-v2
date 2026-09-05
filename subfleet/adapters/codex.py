@@ -411,8 +411,26 @@ class CodexAdapter(Adapter):
                model_id: str) -> AttestationResult:
         session_id = outcome.native_session_id or launch.native_session_id
         home = launch.env_add.get("CODEX_HOME")
+        if outcome.evidence.get("spawn_error"):
+            return AttestationResult(Attestation.UNATTESTED, None, "Provider did not spawn")
         if not session_id or not home:
             return AttestationResult(Attestation.UNATTESTED, None, "No thread id or CODEX_HOME")
+        interval = None
+        if launch.native_session_id:
+            # Resumes share a persistent rollout. The guardian's existing receipts
+            # bound this invocation without adding another shared interface field.
+            try:
+                start = json.loads((attempt_dir / "start.json").read_bytes())
+                end = json.loads((attempt_dir / "exit.json").read_bytes())
+                started = _clock(start.get("started_at"))
+                finished = _clock(end.get("finished_at"))
+                if started and finished and started < finished:
+                    interval = (started, finished)
+            except (OSError, ValueError, AttributeError):
+                pass
+            if interval is None:
+                return AttestationResult(Attestation.UNATTESTED, None,
+                                         "Native resume needs valid start/exit receipt clocks")
         matches = []
         for path in (Path(home).expanduser() / "sessions").rglob("*.jsonl"):
             records = _events(path)
@@ -421,9 +439,15 @@ class CodexAdapter(Adapter):
             if first.get("type") != "session_meta" or not isinstance(payload, dict) or payload.get("id") != session_id:
                 continue
             models = []
-            if isinstance(payload.get("model"), str):
+            if interval is None and isinstance(payload.get("model"), str):
                 models.append(payload["model"])
             for event in records:
+                if interval is not None:
+                    observed = _clock(event.get("timestamp"))
+                    # Receipt timestamps have second precision (C-1.7). Boundary
+                    # seconds are ambiguous; prefer unattested to borrowing a turn.
+                    if observed is None or not interval[0] < observed < interval[1]:
+                        continue
                 payload = event.get("payload", {})
                 if event.get("type") == "turn_context" and isinstance(payload, dict) and isinstance(payload.get("model"), str):
                     models.append(payload["model"])
