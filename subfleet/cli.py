@@ -1235,6 +1235,8 @@ def _format_transfer(result: dict[str, Any]) -> str:
         lines.append(result["diff"].rstrip("\n"))
     for item in result.get("follow_up") or []:
         lines.append(f"  next: {item}")
+    if result.get("blocker"):
+        lines.append(f"  blocked: {result['blocker']}")
     return "\n".join(lines)
 
 
@@ -1261,11 +1263,18 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return _daemon_error(exc)
     except ProtocolError as exc:
         return fail(exc.code, str(exc))
+    if action == "transfer" and not isinstance(result.get("transfer"), dict):
+        # C-16.2 ignores unknown request fields, so a daemon older than this verb
+        # answers the `lanes` op with the roster and no transfer at all. Printing
+        # that as a completed no-op would record a canary transfer that never ran.
+        return fail(Exit.DAEMON_UNAVAILABLE,
+                    "the daemon did not perform the transfer; it is older than this CLI",
+                    "subfleet daemon stop && subfleet daemon start")
     if args.json:
         emit(result)
         return int(Exit.OK)
     if action == "transfer":
-        out(_format_transfer(result.get("transfer") or {}))
+        out(_format_transfer(result["transfer"]))
         return int(Exit.OK)
     out(_format_lanes(result))
     return int(Exit.OK)

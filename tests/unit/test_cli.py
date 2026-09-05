@@ -88,7 +88,15 @@ def test_every_verb_and_alias_parses_to_its_handler(argv, handler):
 
 def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
     """C-17.1 lanes list|probe|enroll|hold|release|transfer reach op `lanes`."""
-    server = daemon({"lanes": lambda request: {"lanes": []}})
+    # A `transfer` answer carries the transfer it performed; the CLI refuses to
+    # report one the daemon did not do (subfleet/lanes_transfer.py).
+    server = daemon({"lanes": lambda request: {
+        "lanes": [],
+        **({"transfer": {"lane_id": request.args.get("lane_id"), "from": "v2",
+                         "to": request.args.get("owner"), "changed": True,
+                         "applied": True, "dry_run": False, "diff": "", "edits": [],
+                         "follow_up": []}}
+           if request.args.get("action") == "transfer" else {})}})
     cases = [
         (["lanes"], {"action": "list"}),
         (["lanes", "list"], {"action": "list"}),

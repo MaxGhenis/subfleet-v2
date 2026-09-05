@@ -8,6 +8,7 @@ v1 roster files here are synthetic copies in a temp dir; nothing under
 from __future__ import annotations
 
 import json
+import plistlib
 from pathlib import Path
 
 import pytest
@@ -27,8 +28,10 @@ def world(tmp_path: Path) -> dict:
     state_root = tmp_path / "v2"
     roster = tmp_path / "v1-roster"
     home = tmp_path / "home"
+    agents = tmp_path / "LaunchAgents"
     state_root.mkdir(parents=True)
     roster.mkdir(parents=True)
+    agents.mkdir(parents=True)
     for index in (1, 2):
         (home / f".codex-{index}").mkdir(parents=True)
     (roster / "claude-accounts.json").write_text(json.dumps({
@@ -49,7 +52,8 @@ def world(tmp_path: Path) -> dict:
     store.put_lane(Lane("claude-1", "claude", f"claude:{CLAUDE_EMAIL}",
                         Credential("claude", f"claude-quota-{CLAUDE_EMAIL}", "keychain-token"),
                         None, LaneOwner.V1, False, True))
-    return {"store": store, "root": state_root, "roster": roster, "home": home}
+    return {"store": store, "root": state_root, "roster": roster, "home": home,
+            "agents": agents}
 
 
 def snapshot(paths: list[Path]) -> dict[str, tuple[int, int]]:
@@ -58,8 +62,24 @@ def snapshot(paths: list[Path]) -> dict[str, tuple[int, int]]:
 
 
 def transfer(world: dict, lane: str, to: str, **kwargs) -> dict:
+    kwargs.setdefault("agents_dir", world["agents"])
     return lanes_transfer.transfer(world["store"], world["root"], lane, to,
                                    roster_dir=world["roster"], home=world["home"], **kwargs)
+
+
+def write_agent(world: dict, label: str, *, homes: list[str] | None = None,
+                runs_v1: bool = True) -> Path:
+    """A launch agent shaped like v1's own (com.maxghenis.cos.subfleet.plist)."""
+    payload: dict = {
+        "Label": label,
+        "ProgramArguments": ["/bin/bash", str((world["roster"] if runs_v1 else world["home"])
+                                              / "bin" / "subfleet-watch")],
+    }
+    if homes is not None:
+        payload["EnvironmentVariables"] = {"SUBFLEET_CODEX_HOMES": ":".join(homes)}
+    path = world["agents"] / f"{label}.plist"
+    path.write_bytes(plistlib.dumps(payload))
+    return path
 
 
 def owner(world: dict, lane: str) -> str:
@@ -175,6 +195,95 @@ def test_a_codex_transfer_names_the_follow_up_that_enforces_it(world):
     follow_up = " ".join(result["follow_up"])
     assert "SUBFLEET_CODEX_HOMES=" + str(world["home"] / ".codex-2") in follow_up
     assert str(world["home"] / ".codex-1") not in follow_up.split("SUBFLEET_CODEX_HOMES=")[1].split()[0]
+
+
+def test_a_codex_transfer_is_refused_while_a_v1_launch_agent_can_reach_the_home(world):
+    """migration.md principle 5: never two schedulers on one account.
+
+    `codex-accounts.json` is a record v1 never reads (`paths.codex_homes` globs
+    `~/.codex-1..9`), so the only thing that stops v1 is `SUBFLEET_CODEX_HOMES` in
+    the launch agent that runs it.
+    """
+    write_agent(world, "com.maxghenis.cos.subfleet")           # no exclusion at all
+    plan = lanes_transfer.plan_transfer(world["store"], world["root"], "codex-1", "v2",
+                                        roster_dir=world["roster"], home=world["home"],
+                                        agents_dir=world["agents"])
+    assert plan.blocker and "com.maxghenis.cos.subfleet" in plan.blocker
+    assert "SUBFLEET_CODEX_HOMES=" + str(world["home"] / ".codex-2") in plan.blocker
+    with pytest.raises(lanes_transfer.TransferError) as raised:
+        transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+    assert raised.value.code == Exit.REFUSED
+    assert owner(world, "codex-1") == "v1"
+    assert "transferred_to_v2" not in roster_json(world, "codex-accounts.json")
+    assert not (world["root"] / "lanes.json").exists()
+
+
+def test_a_codex_transfer_proceeds_once_v1_is_fenced_out_of_the_home(world):
+    write_agent(world, "com.maxghenis.cos.subfleet",
+                homes=[str(world["home"] / ".codex-2")])
+    result = transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+    assert result["blocker"] is None and result["applied"] is True
+    assert owner(world, "codex-1") == "v2"
+
+
+def test_a_launch_agent_that_does_not_run_v1_is_not_consulted(world):
+    write_agent(world, "com.example.unrelated", runs_v1=False)
+    assert transfer(world, "codex-1", "v2", confirm_v1_edit=True)["applied"] is True
+
+
+def test_giving_a_codex_account_back_to_v1_is_never_blocked(world):
+    write_agent(world, "com.maxghenis.cos.subfleet",
+                homes=[str(world["home"] / ".codex-2")])
+    transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+    result = transfer(world, "codex-1", "v1", confirm_v1_edit=True)
+    assert result["blocker"] is None and owner(world, "codex-1") == "v1"
+
+
+def test_a_roster_only_edit_still_records_an_event(world):
+    """v2 already owns the lane but v1's file was never told: that is a fact."""
+    world["store"].update_lane("claude-1", owner="v2")
+    result = transfer(world, "claude-1", "v2", confirm_v1_edit=True)
+    assert result["changed"] is True
+    events = world["store"].query("SELECT * FROM events WHERE kind='lane.transferred'")
+    assert len(events) == 1
+    assert json.loads(events[0]["data_json"])["rosters"]
+
+
+def test_the_v1_roster_keeps_its_own_style_and_mode(world):
+    """`--dry-run` is the review gate on the only v1 write: it must show one change."""
+    path = world["roster"] / "claude-accounts.json"
+    path.write_text(json.dumps({
+        "_comment": "an em dash \u2014 here",
+        "enrolled": {CLAUDE_EMAIL: f"claude-quota-{CLAUDE_EMAIL}",
+                     OTHER_EMAIL: f"claude-quota-{OTHER_EMAIL}"},
+        "accounts": [CLAUDE_EMAIL, OTHER_EMAIL],
+    }, indent=2) + "\n", encoding="utf-8")
+    path.chmod(0o644)
+    plan = lanes_transfer.plan_transfer(world["store"], world["root"], "claude-1", "v2",
+                                        roster_dir=world["roster"], home=world["home"],
+                                        agents_dir=world["agents"])
+    edit = [item for item in plan.edits if item.owner == "v1"][0]
+    diff = edit.diff()
+    changed = [line for line in diff.splitlines()
+               if line[:1] in "+-" and not line.startswith(("---", "+++"))]
+    # The comment and the account that stayed are context, not changes: a
+    # whole-file rewrite would put every line of the roster in this list.
+    assert len(changed) == 6, diff
+    assert not any("_comment" in line or OTHER_EMAIL in line for line in changed), diff
+    assert sum(1 for line in changed if CLAUDE_EMAIL in line) == 2, diff
+    transfer(world, "claude-1", "v2", confirm_v1_edit=True)
+    assert path.stat().st_mode & 0o777 == 0o644
+    assert "\\u2014" in path.read_text()
+
+
+def test_two_transfers_in_one_second_keep_both_backups(world):
+    """Accounts transfer in batches; a clobbered backup loses the pre-batch roster."""
+    original = (world["roster"] / "claude-accounts.json").read_text()
+    transfer(world, "claude-1", "v2", confirm_v1_edit=True)
+    transfer(world, "claude-1", "v1", confirm_v1_edit=True)
+    backups = sorted(world["roster"].glob("claude-accounts.json.bak-*"))
+    assert len(backups) == 2
+    assert backups[0].read_text() == original
 
 
 def test_an_unknown_lane_is_exit_two(world):
