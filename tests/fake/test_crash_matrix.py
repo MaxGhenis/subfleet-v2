@@ -15,6 +15,8 @@ def test_c20_3_crash_matrix_recovers_without_duplicate_acceptance(daemon, bounda
     flags = ["--crash-at", boundary]
     if boundary == "starting":
         flags += ["--start-delay", ".3"]
+    if boundary == "salvage":
+        flags += ["--hold-at", "finalizing"]
     daemon.start(*flags)
     options = {"out_path": str(daemon.root / "export.md")}
     if boundary == "salvage":
@@ -29,8 +31,9 @@ def test_c20_3_crash_matrix_recovers_without_duplicate_acceptance(daemon, bounda
         options.update(sandbox="workspace-write", in_place=True, no_preamble=True)
     job_id = daemon.submit("slow", delay_s=.2, **options)
     if boundary == "salvage":
-        daemon.attempt_state(job_id, "running")
+        daemon.until(lambda: (daemon.root / "hook-finalizing.json").exists())
         (daemon.workdir / "tracked.txt").write_text("changed result\n")
+        (daemon.root / "release-hook").touch()
     daemon.process.wait(timeout=5)
     assert daemon.process.returncode == -signal.SIGKILL
     marker = json.loads((daemon.root / f"hook-{boundary}.json").read_text())
