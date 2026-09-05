@@ -381,6 +381,31 @@ def test_dry_run_does_not_create_or_advance_action(store, tmp_path):
     assert not store.query("SELECT * FROM actions") and runner.commands == []
 
 
+@pytest.mark.parametrize("original_state", ["pending", "executing"])
+def test_startup_recovers_orphan_action_without_submitting_or_forging_result(store, tmp_path, original_state):
+    """C-19.1, C-23.13: pending aborts; lost execution becomes unknown until immutable read settlement."""
+    runner = FakeGh()
+    state, _ = agreement(tmp_path)
+    store.add_action(action_id="orphan", kind="merge", op_key=f"{REPO}:42:{HEAD}", subject=f"{REPO}#42",
+                     state=original_state, request_json=json.dumps({"holder": "dead-worker", **state,
+                                                                    "approved_revision": REVISION}))
+    service = MergeActions(store, runner=runner)
+    assert service.recover() == {"recovered": ["orphan"]}
+    assert runner.commands == []
+    action = store.get_action("orphan")
+    if original_state == "pending":
+        assert action["state"] == "failed"
+        assert json.loads(action["result_json"])["status"] == "blocked"
+    else:
+        assert action["state"] == "unknown" and action["result_json"] is None
+        assert json.loads(action["request_json"])["holder"] == "dead-worker"
+        runner.landed()
+        assert service.reconcile("orphan")["code"] == 0
+        assert store.get_action("orphan") == action
+    assert service.recover() == {"recovered": []}
+    assert runner.merges == []
+
+
 @pytest.mark.parametrize("override", [
     {"url": "https://example.org/not-github"}, {"number": 43}, {"number": True},
     {"headRefOid": "short"}, {"baseRefOid": "short"}, {"isDraft": None},

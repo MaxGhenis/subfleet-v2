@@ -208,6 +208,30 @@ class MergeActions:
         self.store, self.runner = store, runner
         self.actions = Actions(store)
 
+    def recover(self) -> dict:
+        """C-19.1, C-23.13: classify orphan actions after singleton acquisition.
+
+        Call once during daemon startup, before admitting workers. No remote
+        call runs here. As in reset-credit recovery, a lost executing holder
+        leaves an unknown classification without a fabricated result.
+        """
+        recovered = []
+        for action in self.store.query("SELECT * FROM actions WHERE kind='merge' ORDER BY created_at,action_id"):
+            action_id = action["action_id"]
+            if action["state"] == "pending":
+                holder = "recovery:" + str(uuid.uuid4())
+                if self.actions.claim(action_id, holder, now=utc_now()):
+                    self.actions.publish(action_id, holder, "failed", {
+                        "status": "blocked", "code": 4, "reason": "merge aborted before submission"}, now=utc_now())
+                    recovered.append(action_id)
+            elif action["state"] == "executing":
+                with self.store.transaction("action.holder-lost", data={"action_id": action_id,
+                                             "effective_state": "unknown"}) as conn:
+                    conn.execute("UPDATE actions SET state='unknown' WHERE action_id=? AND state='executing'",
+                                 (action_id,))
+                recovered.append(action_id)
+        return {"recovered": recovered}
+
     def _response(self, action: dict, result: dict | None = None) -> dict:
         result = result or json.loads(action.get("result_json") or "{}")
         status = result.get("status", "attempting" if action["state"] in {"pending", "executing"} else "unknown")
