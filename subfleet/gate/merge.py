@@ -311,6 +311,11 @@ class MergeActions:
                                       subject=f"{expected['repository']}#{expected['number']}",
                                       request_json=json.dumps(request, sort_keys=True))
         if existing is not None:
+            prior_request = json.loads(existing.get("request_json") or "{}")
+            if (existing["kind"] != "merge" or not isinstance(prior_request, dict) or
+                    prior_request.get("approved_revision") != expected or
+                    prior_request.get("merge_method") != state["merge_method"]):
+                raise GateError("merge operation key already belongs to a different approved revision or merge method", 4)
             return self.reconcile(existing["action_id"]) if existing["state"] == "unknown" else self._response(existing)
         if not self.actions.claim(action_id, holder, now=utc_now()):
             return self._response(self.store.get_action(action_id))

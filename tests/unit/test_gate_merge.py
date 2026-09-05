@@ -196,6 +196,33 @@ def test_head_moves_between_preflight_and_merge_and_guard_refuses(store, tmp_pat
     assert len(runner.merges) == 1
 
 
+@pytest.mark.parametrize("prior_state", ["confirmed", "unknown"])
+@pytest.mark.parametrize("changed", ["base", "method"])
+def test_operation_key_cannot_reuse_another_revision_or_merge_method(store, tmp_path, prior_state, changed):
+    """C-19.1, C-23.8, C-23.12–13: a shared head key cannot certify different base or landing semantics."""
+    runner = FakeGh()
+    runner.timeout = prior_state == "unknown"
+    service = MergeActions(store, runner=runner)
+    state, round_state = agreement(tmp_path)
+    first = service.execute(state, round_state)
+    assert first["action_state"] == prior_state
+    action_before = store.get_action(first["action_id"])
+    events_before = store.list_events()
+    calls_before = copy.deepcopy(runner.commands)
+    if changed == "base":
+        round_state["revision"]["base_sha"] = OTHER
+        round_state["main_approval"]["expected_revision"]["base_sha"] = OTHER
+        round_state["verdict"]["artifact_revision"]["base_sha"] = OTHER
+    else:
+        state["merge_method"] = "merge"
+    with pytest.raises(GateError, match="different approved revision or merge method") as caught:
+        service.execute(state, round_state)
+    assert caught.value.code == 4
+    assert store.get_action(first["action_id"]) == action_before
+    assert store.list_events() == events_before
+    assert runner.commands == calls_before
+
+
 @pytest.mark.parametrize("failure", ["timeout", "postread"])
 def test_ambiguous_call_is_unknown_then_read_settles_without_overwrite(store, tmp_path, failure):
     """C-19.1, C-23.13: preserve unknown result and append read reconciliation; never retry."""
