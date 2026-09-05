@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -14,6 +15,12 @@ def resolve_credential(credential: Credential) -> dict[str, str]:
     if credential.kind == "home" and credential.provider in ("codex", "claude"):
         key = "CODEX_HOME" if credential.provider == "codex" else "CLAUDE_CONFIG_DIR"
         return {key: str(Path(credential.ref).expanduser().resolve())}
+    if credential.kind == "env" and credential.provider == "claude":
+        token = os.environ.get(credential.ref)
+        if not token or not token.strip():
+            raise AdapterError("could not resolve lane environment credential", code=7,
+                               fix=f"set {credential.ref} in the daemon environment to the lane OAuth token")
+        return {"CLAUDE_CODE_OAUTH_TOKEN": token}
     if credential.kind != "keychain-token" or credential.provider != "claude":
         raise AdapterError("unsupported credential kind for provider", code=7)
     try:

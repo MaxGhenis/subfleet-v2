@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   provider TEXT NOT NULL CHECK (provider IN ('codex','claude')),
   account_key TEXT NOT NULL,
   credential_ref TEXT NOT NULL,
-  credential_kind TEXT NOT NULL CHECK (credential_kind IN ('keychain-token','home')),
+  credential_kind TEXT NOT NULL CHECK (credential_kind IN ('keychain-token','home','env')),
   credential_epoch INTEGER NOT NULL DEFAULT 1,
   home TEXT,
   owner TEXT NOT NULL DEFAULT 'v2' CHECK (owner IN ('v1','v2')),

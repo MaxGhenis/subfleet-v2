@@ -94,6 +94,36 @@ def test_keychain_secret_only_enters_environment(monkeypatch, tmp_path):
     assert error.value.__cause__ is None
 
 
+def test_env_credential_resolves_without_keychain_and_roundtrips_store(monkeypatch, tmp_path):
+    """C-10.1, C-10.5: env references persist by name and resolve only into child env."""
+    credential = Credential("claude", "SUBFLEET_TEST_OAUTH", "env")
+    monkeypatch.setenv(credential.ref, "test-only-oauth-token")
+    monkeypatch.setattr("subfleet.credentials.subprocess.run", lambda *args, **kwargs: pytest.fail("env credentials must not call security"))
+    assert resolve_credential(credential) == {"CLAUDE_CODE_OAUTH_TOKEN": "test-only-oauth-token"}
+    with Store(tmp_path / "state.sqlite3") as store:
+        store.put_lane(Lane("claude-1", "claude", "claude:fake", credential, None, LaneOwner.V2, False))
+        assert store.get_lane("claude-1").credential == credential
+        row = store.lane_rows()[0]
+        assert row["credential_ref"] == credential.ref
+        assert row["credential_kind"] == "env"
+        assert "test-only-oauth-token" not in json.dumps(row)
+
+
+@pytest.mark.parametrize("token", [None, "", "  "])
+def test_env_credential_missing_refuses_with_fix(monkeypatch, token):
+    """C-10.5, C-17.3: unresolved environment credentials refuse without disclosure."""
+    if token is None:
+        monkeypatch.delenv("SUBFLEET_TEST_OAUTH", raising=False)
+    else:
+        monkeypatch.setenv("SUBFLEET_TEST_OAUTH", token)
+    monkeypatch.setattr("subfleet.credentials.subprocess.run", lambda *args, **kwargs: pytest.fail("env credentials must not call security"))
+    with pytest.raises(AdapterError) as error:
+        resolve_credential(Credential("claude", "SUBFLEET_TEST_OAUTH", "env"))
+    assert error.value.code == 7
+    assert "SUBFLEET_TEST_OAUTH" in error.value.fix
+    assert "daemon environment" in error.value.fix
+
+
 def test_registry_injected_factory_never_imports_provider(monkeypatch):
     """C-12.1: a fake adapter can execute without either real provider module."""
     fake = object()
