@@ -311,6 +311,18 @@ def test_empty_sections_still_respect_their_caps_in_the_rendered_brief(home, rep
     assert len(progress) <= caps["progress"]
 
 
+@pytest.mark.parametrize("cap", [0, 5])
+def test_tiny_caps_allow_a_task_and_bound_non_git_repository_context(home, tmp_path, policy, cap):
+    """C-23.36: zero omits task text, and non-Git fallback obeys its cap."""
+    caps = {**policy["sessions"]["handoff_caps"], "original_task": cap,
+            "recent": cap, "progress": cap, "repository": cap}
+    brief = build(home, tmp_path, [fx.typed_prompt("continue the work", uuid="p0",
+                                                  at=fx.ago(60))], policy, caps=caps)
+    assert len(brief.original) <= cap
+    repository = brief.text.split("## Repository state", 1)[1].strip()
+    assert len(repository) <= cap
+
+
 def test_the_repository_section_reports_the_real_worktree(home, repo, policy):
     """C-23.36: the brief points at state a receiving agent can verify."""
     brief = build(home, repo, conversation(), policy)

@@ -43,6 +43,12 @@
 - Kept read-only v1 mirror configuration defaults. Replaced salvage's filtering
   of explicit empty flags and its replacement of saved exclusions: v1 honors
   empty archive/dead-home overrides and combines configured/CLI exclusions.
+- Closed the remaining tiny-cap handoff cases: zero original-task cap no longer
+  masquerades as a missing task, and non-Git fallback text is bounded. Handoff
+  tests: 62 passed in 3.85s.
+- First full suite: 3260 passed, 131 failed, 66 skipped, 1 error in 74.14s.
+- Unmodified `38a7a9a` reproduces probe no-attempt and socket-bind failures:
+  1 failed, 1 error in 0.69s. Full baseline failure-set comparison is running.
 
 ## Validation environment
 
@@ -57,5 +63,5 @@
 
 ## Next
 
-- All reviewed behaviors are committed in separate steps.
-- Run the complete suite and commit the final report.
+- Rerun the requested sessions and full suites after the final tiny-cap fix.
+- Compare full baseline failures and commit the final report.

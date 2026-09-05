@@ -322,11 +322,10 @@ def first_task(path: Path, cap: int) -> tuple[str, str | None, int]:
             if origin.get("kind") in {"task-notification", "peer"}:
                 continue
             text = transcripts.text_of(transcripts.blocks(entry.get("message")))
-            if not text or _synthetic(text):
+            if not text.strip() or _synthetic(text):
                 continue
             cleaned, redactions = clean(text, cap)
-            if cleaned:
-                return cleaned, entry.get("uuid"), redactions
+            return cleaned, entry.get("uuid"), redactions
     raise HandoffError(f"no user task text found in transcript {path}")
 
 
@@ -457,7 +456,7 @@ def _run_git(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str] | N
 def repository_context(cwd: Path, cap: int) -> tuple[str, int]:
     probe = _run_git(cwd, ["rev-parse", "--show-toplevel"])
     if probe is None or probe.returncode != 0:
-        return "Not a Git worktree.", 0
+        return truncate("Not a Git worktree.", cap), 0
     sections = []
     for title, args, empty in (
         ("Status", ["status", "--short", "--branch", "--untracked-files=normal"], "Clean."),
