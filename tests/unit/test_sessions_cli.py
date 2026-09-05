@@ -287,6 +287,10 @@ def test_the_cold_sweep_can_hand_off_instead_of_reviving(monkeypatch):
                                                                  cwd="/repo")])
     monkeypatch.setattr(handoff_module, "handoff", fake_handoff)
     code, out, err = run(["sessions", "continue", "--scope", "cold", "--handoff",
+                          "--to", "astra", "--max", "0"], monkeypatch)
+    assert code == int(Exit.OK) and dispatched == []
+    assert "1 more cold sessions were not attempted" in err
+    code, out, err = run(["sessions", "continue", "--scope", "cold", "--handoff",
                           "--to", "astra"], monkeypatch)
     assert code == int(Exit.OK)
     assert dispatched == [ALICE]
@@ -385,3 +389,21 @@ def test_a_bare_tickle_surveys_and_sends_nothing(monkeypatch):
         seen.clear()
         run_v1(argv, monkeypatch)
         assert seen == [False], argv
+
+
+def test_a_batch_cap_of_zero_means_zero(monkeypatch):
+    """C-17.1 preserves `--max`: an explicit zero requests no recoveries."""
+    from subfleet.sessions import revive as revive_module
+    tried: list[str] = []
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "cold_candidates",
+                        lambda *a, **k: [revive_module.Candidate(session_id=ALICE)])
+    monkeypatch.setattr(revive_module, "revive",
+                        lambda s, p, sid, **k: tried.append(sid) or
+                        revive_module.Attempted(session_id=sid))
+    run(["sessions", "continue", "--scope", "cold", "--max", "0"], monkeypatch)
+    assert tried == []
+    run(["sessions", "continue", "--scope", "cold", "--max", "1"], monkeypatch)
+    assert tried == [ALICE]

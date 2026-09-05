@@ -250,8 +250,9 @@ def _continue_cold(args: argparse.Namespace) -> int:
     if getattr(args, "handoff", False):
         return _continue_cold_by_handoff(args, sessions, policy, candidates)
     opt_in = bool(getattr(args, "revive", False))
-    batch = int(getattr(args, "max", None)
-                or policy.get("sessions", {}).get("revive_max_batch", 8))
+    cap = getattr(args, "max", None)
+    batch = int(cap if cap is not None
+                else policy.get("sessions", {}).get("revive_max_batch", 8))
     attempts: list[revive_module.Attempted] = []
     launched = 0
     for candidate in candidates:
@@ -292,8 +293,9 @@ def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
     caller, so the operator sees them in `subfleet runs --mine`.
     """
     cli = _cli()
-    batch = int(getattr(args, "max", None)
-                or policy.get("sessions", {}).get("revive_max_batch", 8))
+    cap = getattr(args, "max", None)
+    batch = int(cap if cap is not None
+                else policy.get("sessions", {}).get("revive_max_batch", 8))
     rows: list[dict[str, Any]] = []
     for candidate in candidates[:batch]:
         if candidate.lane or candidate.retired:

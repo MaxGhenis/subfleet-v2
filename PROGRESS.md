@@ -31,6 +31,8 @@
   named manual tickle acts immediately. Hook wakes keep their delay, and muster
   and multi-session sweeps keep their quiet window (C-17.1, C-23.34).
 - CLI and nudge unit verification: 86 passed in 0.54s.
+- Kept explicit `--max 0` as zero cold recoveries for both revive and handoff,
+  instead of replacing zero with the policy default (C-17.1).
 
 ## Validation environment
 
