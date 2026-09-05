@@ -141,3 +141,22 @@ def test_why_no_lane_retains_earliest_reset_and_closure_evidence():
     assert "Chosen: no lane" in result
     assert f"earliest reset {reset}" in result
     assert "guessed clock" in result and "event=e" in result
+
+
+def test_why_shows_additional_capacity_readings_without_duplicating_quota_evidence():
+    """C-6.4, C-11.5: why includes evidence used only to grant lane concurrency."""
+    quota = reading()
+    capacity_only = reading(scope="gpt-5.6-terra", utilization=.95)
+    decision = Decision(("astra",), ({"model": "astra", "candidates": ["codex-1"],
+        "readings": [quota], "capacity_readings": [quota, capacity_only]},),
+        "codex-1", "astra", "chosen", "hash")
+    result = why(decision)
+    assert result.count("account/seven_day") == 1
+    assert "capacity reading codex-1: gpt-5.6-terra/seven_day 95% used [provider;" in result
+
+
+def test_status_shows_quarantined_probe_without_counting_it_as_running_attempt():
+    """C-5.7, C-11.4: a quarantined probe remains visible despite zero dispatch attempts."""
+    view = build_view([lane(probe_state="quarantined")], now=NOW)
+    assert view["in_flight"] == {"codex-1": 0}
+    assert "probe=quarantined" in status(view)

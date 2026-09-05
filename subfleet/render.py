@@ -76,6 +76,8 @@ def status(view: Mapping[str, Any]) -> str:
     for lane in snapshot["lanes"]:
         flags = [name for name, enabled in (("desktop", lane.get("desktop")),
                  ("disabled", not lane.get("enabled", True))) if enabled]
+        if lane.get("probe_state"):
+            flags.append(f"probe={_label(lane['probe_state'])}")
         weekly = [row["resets_at"] for row in lane["readings"]
                   if row["window"] == "seven_day" and row["label"] in {"provider", "stale-provider"}
                   and row.get("resets_at")]
@@ -130,6 +132,9 @@ def why(decision: Any) -> str:
             lines.append(f"  rejected {rejection['lane_id']}: {', '.join(reasons)}")
         for reading in evaluation.get("readings", ()):
             lines.append(f"  reading {reading['lane_id']}: {reading_text(reading)}")
+        for reading in evaluation.get("capacity_readings", ()):
+            if reading not in evaluation.get("readings", ()):
+                lines.append(f"  capacity reading {reading['lane_id']}: {reading_text(reading)}")
         for closure in evaluation.get("closures", ()):
             lines.append(f"  closure {closure['lane_id']}: {closure_text(closure)}")
     if value.get("chosen_lane"):

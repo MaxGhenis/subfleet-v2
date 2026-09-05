@@ -14,7 +14,7 @@ from typing import Any
 
 from .capacity import fresh_provider
 from .contracts import DEFAULT_CAPS, HEADROOM_FLOOR, Decision, Exit
-from .policy import resolve_model
+from .policy import PolicyError, resolve_model
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -130,8 +130,12 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
         default = "standard" if "standard" in policy["tiers"] else policy["tiers"][0]
         chain = policy["chains"][task][policy["tiers"].index(tier or default):]
     elif selected:
-        chain = [next(name for name, model in policy["models"].items()
-                      if model["provider"] == selected["provider"])]
+        model_name = next((name for name, model in policy["models"].items()
+                           if model["provider"] == selected["provider"]), None)
+        if model_name is None:
+            raise PolicyError(policy.get("_policy_path", "policy.json"), "pinned_lane",
+                              f"lane {pin!r} has provider {selected['provider']!r} with no models in policy")
+        chain = [model_name]
     else:
         chain = [next(iter(policy["models"]))]
     if pin:
@@ -148,7 +152,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                 identity = attempt["lane_id"]
                 in_flight[identity] = in_flight.get(identity, 0) + 1
     capacity_blocks = _parent_blocks(policy, view, job)
-    if sum(in_flight.values()) >= caps["max_active_attempts"]:
+    if sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
         capacity_blocks.append("fleet")
     evaluations: list[dict[str, Any]] = []
     messages: list[str] = []
@@ -191,7 +195,9 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                 row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
             slot_cap = (caps["max_in_flight_per_lane"] if lane_measured else
                         min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
-            if capacity_blocks or in_flight.get(identity, 0) >= slot_cap:
+            if identity in view.get("unavailable_lanes", {}):
+                detail["slot_block"] = view["unavailable_lanes"][identity]
+            if capacity_blocks or in_flight.get(identity, 0) >= slot_cap or detail.get("slot_block"):
                 reasons.append("no-slot")
             if any(row["utilization"] >= 1 - floor for row in measured_readings):
                 reasons.append("below-floor")
@@ -220,6 +226,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                             "candidates": candidates, "candidate_details": details,
                             "rejections": rejections, "rejected": rejections,
                             "readings": scoped_readings,
+                            "capacity_readings": [row for row in readings if row["lane_id"] in lane_ids],
                             "closures": scoped_closures, "capacity_blocks": list(capacity_blocks),
                             "reason": reason, "evaluated_at": _iso(now)})
         messages.append(reason)

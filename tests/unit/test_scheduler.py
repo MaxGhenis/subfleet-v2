@@ -8,7 +8,7 @@ import pytest
 
 from subfleet.capacity import build_view
 from subfleet.contracts import Exit
-from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from subfleet.scheduler import evaluate, exit_code, ordered_jobs, probe_required, waiting_metadata
 
 
@@ -295,3 +295,53 @@ def test_decision_records_consulted_evidence_and_policy_hash_without_mutation(po
     assert data["evaluations"][0]["readings"] == snapshot["readings"]
     assert data["evaluations"][0]["closures"] == []
     assert snapshot == original
+
+
+def test_lane_pin_provider_absent_from_valid_policy_is_key_named_invalid_input(policy, tmp_path):
+    """C-11.1–2, C-17.3: a lane with no policy model returns exit 2 instead of crashing."""
+    policy["models"] = {name: model for name, model in policy["models"].items() if model["provider"] == "codex"}
+    policy["chains"] = {"research": ["terra", "terra", "terra", "astra"]}
+    policy["permissions"] = {"*": "read-only"}
+    policy["retired"] = {"sol": "astra"}
+    path = tmp_path / "codex-only-policy.json"
+    path.write_text(json.dumps(policy))
+    policy = load_policy(path)
+    with pytest.raises(PolicyError) as caught:
+        evaluate(policy, view([lane()]), {"pinned_lane": "claude-1"})
+    assert caught.value.code == Exit.INVALID_INPUT
+    assert caught.value.key == "pinned_lane"
+    assert "claude" in str(caught.value) and str(path) in str(caught.value)
+
+
+def test_decision_records_other_model_reading_that_grants_second_lane_slot(policy):
+    """C-6.4, C-11.5: cross-model slot evidence is recorded without becoming requested quota."""
+    snapshot = view([lane()], [reading("claude-1", .95, scope="claude-fable-5-1")],
+                    attempts=[attempt("claude-1")])
+    decision = evaluate(policy, snapshot, job(pinned_model="opus"))
+    assert decision.chosen_lane == "claude-1"
+    evaluation = decision.evaluations[0]
+    assert evaluation["candidate_details"]["claude-1"]["measured"] is False
+    assert evaluation["candidate_details"]["claude-1"]["headroom"] is None
+    assert evaluation["readings"] == []
+    assert evaluation["capacity_readings"] == snapshot["readings"]
+
+
+def test_probe_reservation_blocks_lane_without_becoming_an_in_flight_attempt(policy):
+    """C-6.4, C-11.4: an active probe reserves admission without inventing an attempt count."""
+    snapshot = view([lane()])
+    snapshot["unavailable_lanes"] = {"claude-1": "probe:running"}
+    decision = evaluate(policy, snapshot, job(pinned_model="opus"))
+    assert exit_code(decision) == Exit.NO_LANE
+    assert snapshot["in_flight"] == {"claude-1": 0}
+    assert decision.evaluations[0]["rejections"][0]["reasons"] == ["no-slot"]
+    assert decision.evaluations[0]["rejections"][0]["slot_block"] == "probe:running"
+
+
+def test_probe_reservations_count_toward_fleet_admission_bound(policy):
+    """C-6.4, C-11.4: concurrent probes consume the same fleet budget as admitted work."""
+    snapshot = view([lane()])
+    snapshot["reserved_probes"] = policy["caps"]["max_active_attempts"]
+    decision = evaluate(policy, snapshot, job(pinned_model="opus"))
+    assert exit_code(decision) == Exit.NO_LANE
+    assert decision.evaluations[0]["capacity_blocks"] == ["fleet"]
+    assert snapshot["in_flight"] == {"claude-1": 0}
