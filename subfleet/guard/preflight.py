@@ -166,6 +166,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
 
     Callers should pass the lane home and job workdir. Omitting ``home`` uses
     ``CODEX_HOME`` when set; without either, doctor checks a fresh empty home.
+    Omitting ``trust_path`` uses ``SUBFLEET_GUARD_TRUST`` when set, then the
+    packaged ``TRUST`` file. An explicit path takes precedence.
     Every refusal has code 7 and an actionable fix. No provider work is run.
     """
     version = None
@@ -175,7 +177,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             raise ValueError("preflight timeout must be finite and positive")
         hook = Path(hook_path) if hook_path is not None else HOOK_PATH
         hook = hook.resolve(strict=True)
-        trust = json.loads((Path(trust_path) if trust_path is not None else TRUST_PATH).read_text())
+        trust_file = trust_path if trust_path is not None else os.environ.get("SUBFLEET_GUARD_TRUST") or TRUST_PATH
+        trust = json.loads(Path(trust_file).read_text())
         if hashlib.sha256(hook.read_bytes()).hexdigest() != trust["hook_sha256"]:
             raise ValueError("never-rules hook SHA-256 does not match TRUST")
         if not os.access(hook, os.X_OK):
