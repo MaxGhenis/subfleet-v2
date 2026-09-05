@@ -17,7 +17,7 @@ PROTOCOL_VERSION = 1
 
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
-    "notice.pending", "notice.ack", "ping", "daemon.status",
+    "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
 )
 
 
@@ -126,7 +126,11 @@ class WhyArgs:
 @dataclass
 class NoticeArgs:
     session_id: str
-    notice_ids: list[int] = field(default_factory=list)   # for ack
+    notice_ids: list[int] = field(default_factory=list)   # for ack and mark
+    #: `notice.mark` only (C-15.3). `notice.ack` ignores it and always
+    #: acknowledges, so an older client keeps its exact meaning.
+    state: str = "acknowledged"
+    transport: str | None = None                          # how it was delivered
 
 
 @dataclass
