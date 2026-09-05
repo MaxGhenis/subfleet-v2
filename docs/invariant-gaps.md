@@ -303,3 +303,112 @@ Twenty-five rows, fourteen clauses.
   milestone-1 rule and covers lane credentials in the launch environment only, so a C-10.5 test
   passes while a handoff carries a keychain read's output. The categories are v1's
   (`subfleet/handoff.py:51-160` for the patterns, `:100-110` for the tool-input suppression).
+
+## capacity-truth
+
+Eleven rows, six clauses.
+
+### P-23.15 — transcript usage is summed once per message
+
+> **P-23.15** Token usage read from a Claude transcript is summed once per `message.id`: a repeated
+> assistant message replaces the record already held for that id and never adds to it. The count is
+> a `readings` observation, not a job column.
+
+- **Ledger rows:** 128 (`keep`, capacity-truth)
+- **Milestone:** 2
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/adapters/claude.py`
+- **Rationale:** row 128's rationale is that "transcripts repeat updated assistant messages", so a
+  naive sum double-counts every streamed revision. C-6.4 names an optional `max_tokens_observed`
+  cap, which implies a token observation exists but says nothing about how it is computed, so a
+  C-6.4 test passes on a doubled figure — and a cap enforced on a doubled figure kills jobs early.
+
+### P-23.16 — when a reset credit may be spent
+
+> **P-23.16** A reset-credit redemption is attempted only when the usage endpoint reports the
+> account `limit_reached` and the entitlements list holds a concrete `available` credit of type
+> `codex_rate_limits`; neither condition alone admits it. Each consume carries a fresh UUID4
+> `redeem_request_id` in the action's request JSON. Only a response with code `reset` and
+> `windows_reset` greater than zero moves the action to `confirmed`.
+
+- **Ledger rows:** 161 (`keep`, capacity-truth), 164 (`keep`, capacity-truth), 165 (`keep`, capacity-truth)
+- **Milestone:** 5
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/actions.py`
+- **Rationale:** the three rows are the precondition, the request, and the success predicate of one
+  irreversible action. Row 161's rationale is "do not spend a scarce gift on a guess", row 164's is
+  "idempotency for an irreversible action", and row 165's is the "upstream success enum". C-18.1
+  adopts "reset-credit policy as an action (C-19) with v1's rule set" at interface level only, and
+  C-19.1 owns the `confirmed` state without a success predicate, so a C-19.1 test passes while a
+  credit is burned on a guess and any 200 is read as success. v2's durable double-spend guard is
+  C-19.1's unique `op_key` (account key plus credit id); the UUID rides inside the request.
+
+### P-23.17 — a confirmed consume is the authority
+
+> **P-23.17** A `confirmed` consume is the later `provider` reading C-9.6 requires: it releases the
+> lane's weekly closure, sets the weekly reset clock to now plus seven days with
+> `clock_source: guessed`, and leaves the lane dispatchable even while the usage endpoint still
+> reports the old window. It also clears the lane's `local-backoff` dispatch closure.
+
+- **Ledger rows:** 167 (`keep`, capacity-truth), 169 (`keep`, capacity-truth)
+- **Milestone:** 5
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/actions.py`
+- **Rationale:** row 167's rationale is that "endpoint lag must not undo a real redemption"; row
+  169's is that "the reset supersedes the 15-minute cooldown". C-9.6 says closures "expire by
+  clock; nothing else releases a provider-limit closure except a later `provider` reading that shows
+  the window reset" — the clause names the confirmed consume as that reading rather than carving an
+  exception, which is why it is a proposal and not an amendment to C-9.6. Now plus seven days is a
+  guessed clock under C-9.4, marked as one.
+
+### P-23.18 — an unreadable count is not a small count
+
+> **P-23.18** A fleet-wide credit total is rendered only when every lane's count was readable; if
+> any lane's count is unknown the total is `null` and is displayed as unknown, never as a sum over
+> the readable lanes.
+
+- **Ledger rows:** 168 (`keep`, capacity-truth)
+- **Milestone:** 5
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/actions.py`
+- **Rationale:** row 168's rationale is that "unknown is rendered as unknown" — the failure it
+  prevents is a false undercount that reads as "we are nearly out". C-9.1 forbids rendering a
+  percentage without a `provider` reading but says nothing about aggregates, and a count is not a
+  percentage, so a C-9.1 test passes on a silent undercount. This is amendment 15's rule
+  ("admission-observed and local-backoff evidence render as words, never as a percentage") applied
+  to a total rather than a rate.
+
+### P-23.19 — when a five-hour window is open
+
+> **P-23.19** A keepalive reading's observed-at instant is the moment the provider request is sent,
+> not when the worker was queued or the credential was read. A lane whose window was opened by any
+> request inside the last five hours — a keepalive, a completed attempt, or an attempt still
+> running — is skipped and recorded `skipped-open`. An attempt that ended rc 5 without a recorded
+> provider session did not open the window.
+
+- **Ledger rows:** 172 (`keep`, capacity-truth), 173 (`keep`, capacity-truth), 174 (`keep`, capacity-truth)
+- **Milestone:** 5
+- **Acceptance owner:** unit
+- **v2 module:** `subfleet/keepalive.py`
+- **Rationale:** the three rows answer one question, when the lane's window opened. Row 172's
+  rationale is that "the 5h window starts at the request", row 173's that "another ping only
+  consumes usage", and row 174's that "a no-session rc=5 may mean no provider request happened".
+  C-18.1 gives the 5 h 05 m cadence and nothing else; C-9.1's `admission-observed` label needs a
+  success or a rejection, so an in-flight attempt — which has neither — has no label and no rule,
+  and a C-18.1 test passes while a keepalive pings a lane that is already open.
+
+### P-23.20 — revive measures the lane it is about to use
+
+> **P-23.20** Revive admits a lane only on a `provider` reading taken in the same pass; a stored
+> reading, a `stale-provider` reading, or the absence of a closure never qualifies a lane on its
+> own.
+
+- **Ledger rows:** 189 (`keep`, capacity-truth)
+- **Milestone:** 6
+- **Acceptance owner:** fake
+- **v2 module:** `subfleet/sessions/tickle.py`
+- **Rationale:** row 189's incident is 2026-08-25, when "three 'healthy' lanes were out of Fable".
+  C-11.4 requires a probe before dispatching expensive work — writable, or tier `hard` — to an
+  *unmeasured* lane; a revive is usually neither, and the lanes in the incident were measured but
+  stale, so a C-11.4 test passes on exactly the case that failed. C-9.1 removed estimates from the
+  label set, which is the other half of the fix and is already contracted.
