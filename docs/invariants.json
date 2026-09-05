@@ -322,7 +322,7 @@
     "acceptance_owner": "unit",
     "v2_module": "subfleet/adapters/claude.py",
     "test_name": "test_model_not_supported_message_classifies_cli_too_old",
-    "notes": "2026-09-02: a Homebrew cask frozen at 2.1.87 shadowed the real CLI; exit 6 per `C-17.3`, no retry per `C-4.5`, no closure because only `limited` writes one (`C-9.4`)."
+    "notes": "2026-09-02: a Homebrew cask frozen at 2.1.87 shadowed the real CLI; exit 6 per `C-17.3`, no retry per `C-4.5`, no closure because only `limited` writes one (`C-9.4`). Fixture premise for C-20.1's live suite: that an old CLI answers 400 with this message."
   },
   {
     "id": 26,
@@ -660,7 +660,7 @@
     "acceptance_owner": "fake",
     "v2_module": "subfleet/guard/preflight.py",
     "test_name": "test_guard_preflight_refuses_launch_when_hooks_list_reports_untrusted",
-    "notes": "Constant change: the refusal is exit 7 per C-17.3, not v1's exit 2. Milestone 1 acceptance already lists this as a fake test."
+    "notes": "A codex upgrade must not silently skip the guard. Constant change: the refusal is exit 7 per C-17.3, not v1's exit 2. Fixture premise for C-20.1's live suite: that the installed CLI's `hooks/list` reports enabled and trusted."
   },
   {
     "id": 52,
@@ -1700,7 +1700,7 @@
     "acceptance_owner": "unit",
     "v2_module": "subfleet/adapters/codex.py",
     "test_name": "test_codex_window_keyed_by_duration_not_payload_position",
-    "notes": "2026-07-11 primary was 5h; by 2026-07-25 primary was weekly with no 5h reported. Claude keys by `unifiedWindows` name instead (C-9.8)."
+    "notes": "2026-07-11 primary was 5h; by 2026-07-25 primary was weekly with no 5h reported. Claude keys by `unifiedWindows` name instead (C-9.8). Fixture premise for C-20.1's wham probe: that Codex reports `window_minutes` 300 and 10080."
   },
   {
     "id": 132,
@@ -2311,7 +2311,7 @@
     "acceptance_owner": "unit",
     "v2_module": "subfleet/adapters/claude.py",
     "test_name": "test_enrollment_accepts_scope_403_and_rejects_401",
-    "notes": "Setup tokens cannot read usage. `C-9.3` covers 403-not-evidence and 401-auth-dead but not the authenticated 429; `C-10.2` owns enrolment probing beside the Haiku turn."
+    "notes": "Setup tokens cannot read usage. `C-9.3` covers 403-not-evidence and 401-auth-dead but not the authenticated 429. Fixture premise for C-20.1's Haiku probe: that a setup token gets 403 or 429 and never 401."
   },
   {
     "id": 179,
