@@ -210,7 +210,7 @@ class Daemon:
         for lane in view["lanes"]:
             if holder := view["unavailable_lanes"].get(lane["lane_id"]):
                 lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
-        return view
+        return self.timers.enrich_view(view)
 
     def _pick(self, job: dict, *, extra_exclusions: tuple[str, ...] = (), desktop_account=None):
         # C-6.3, C-11: one pure evaluation uses the same transaction's attempt
@@ -550,7 +550,10 @@ class Daemon:
 
     def _retention(self):
         try:
-            maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+            result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+            if result.get("interrupted"):
+                self.timers.mark("retention", error="CancelledError" if result["interrupted"] == "cancelled" else "TimeoutError", next_due=after(3600))
+                return
             with self.store.transaction("service-notice.retention") as tx:
                 tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
         except Exception as exc:

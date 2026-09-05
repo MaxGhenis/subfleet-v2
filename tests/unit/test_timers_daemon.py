@@ -42,3 +42,24 @@ def test_foreign_usage_never_releases_original_accounts_closure_or_credit_count(
             assert not any(r['utilization'] is not None for r in store.list_readings(lane.lane_id))
         finally:
             timer.stop()
+
+
+def test_revoked_home_is_excluded_from_the_real_scheduler_without_disabling_epoch_reprobe(tmp_path):
+    """C-23.47 C-18.1: revoked-home latches block routing while preserving epoch-based re-probe."""
+    from subfleet.daemon import Daemon
+    policy = json.loads(Path('subfleet/default_policy.json').read_text())
+    with Store(tmp_path / 'state.sqlite3') as store:
+        lane = Lane('codex-1', 'codex', 'codex:one', Credential('codex', str(tmp_path), 'home'), str(tmp_path), LaneOwner.V2, False)
+        store.put_lane(lane)
+        timer = Timers(store, tmp_path, policy)
+        daemon = Daemon.__new__(Daemon)
+        daemon.store, daemon.policy, daemon.timers = store, policy, timer
+        daemon.policy_digest = "test-policy"
+        daemon._probe_record = lambda _: None
+        timer.metadata[lane.lane_id] = {'probe_status':'revoked', 'verdict':'auth-revoked', 'revoked_epoch':'old'}
+        try:
+            decision = daemon._pick({'pinned_lane':lane.lane_id, 'pinned_model':'astra'})
+            assert decision.chosen_lane is None
+            assert store.get_lane(lane.lane_id).enabled
+        finally:
+            timer.stop()

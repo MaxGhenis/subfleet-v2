@@ -305,9 +305,9 @@ class Timers:
                 self.store.add_reading(Reading(lane.lane_id, 'account', 'admission', None, None,
                                               ReadingLabel.UNKNOWN, 'probe', at))
             override = self.actions.confirmed_override(lane.lane_id, now=self.now())
-            if outcome and outcome.closure and not override:
+            if status != 'identity-mismatch' and outcome and outcome.closure and not override:
                 self.store.add_closure(outcome.closure)
-            if (probe.get('limit_reached') is True or status == 'limited') and not override:
+            if status != 'identity-mismatch' and (probe.get('limit_reached') is True or status == 'limited') and not override:
                 reset = max((r.resets_at for r in readings if r.resets_at), default=None)
                 self.store.add_closure(Closure(lane.lane_id, 'account', reset or iso(self.now() + timedelta(hours=1)),
                     ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED if reset else ClockSource.GUESSED, 'wham'))
@@ -315,18 +315,23 @@ class Timers:
                 # Release only after real server evidence of a reset, not absence of numbers.
                 if any(r.label == ReadingLabel.PROVIDER and r.utilization is not None and r.utilization < 1 for r in readings):
                     with self.store.transaction('closure.reset') as tx:
-                        tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='provider-limit' AND released_at IS NULL", (at, lane.lane_id))
+                        tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND scope='account' AND reason='provider-limit' AND released_at IS NULL", (at, lane.lane_id))
             self.store.add_event('timer.verdict', lane_id=lane.lane_id, data=meta)
         self.metadata[lane.lane_id] = meta
 
     def snapshot(self):
         with self.store.transaction('timer.snapshot'):
             view = capacity.from_store(self.store, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
+        return self.enrich_view(view)
+
+    def enrich_view(self, view):
         for row in view['lanes']:
             row.update(self.metadata.get(row['lane_id'], {}))
             row['app_shadowed'] = row.get('app_shadowed', False) or row['account_key'] == getattr(self, '_app_account', None)
             row['probe'] = dict(self.metadata.get(row['lane_id'], {}), status=row.get('probe_status', 'unknown'))
             row['probe']['readings'] = row['readings']
+            if row.get('revoked_epoch') is not None or row.get('probe_status') in ('revoked', 'auth-revoked', 'expired-token', 'no-auth'):
+                view.setdefault('unavailable_lanes', {})[row['lane_id']] = 'credential-latched'
             row['reset_credits_remaining'] = (row.get('reset_credits') or {}).get('available')
             override = self.actions.confirmed_override(row['lane_id'], now=self.now())
             if override:
@@ -336,12 +341,19 @@ class Timers:
                     row['reset_credits_remaining'] = min(current, remaining) if isinstance(current, int) and isinstance(remaining, int) else None
                 row['reset_override'] = override
                 row['verdict'] = 'admission-observed'
+                for reading in row['readings']:
+                    if reading['label'] == 'provider':
+                        reading['label'] = 'stale-provider'
             measured = [r for r in row['readings'] if capacity.fresh_provider(r, now=self.now(),
                         reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))]
             headroom_ok = override or not any(r['utilization'] >= 1 - self.policy.get('headroom_floor', .15) for r in measured if r['scope'] == 'account')
+            caps = self.policy.get('caps', {})
+            slot_cap = caps.get('max_in_flight_per_lane', 2) if measured and not override else min(caps.get('max_in_flight_per_lane', 2), caps.get('max_in_flight_unmeasured', 1))
             row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not row['desktop'] and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
-                                       row['in_flight'] < self.policy.get('caps', {}).get('max_in_flight_per_lane', 2))
+                                       row['lane_id'] not in view.get('unavailable_lanes', {}) and
+                                       row['in_flight'] < slot_cap and
+                                       sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) < caps.get('max_active_attempts', 4))
         return view
 
     def probe_cycle(self):

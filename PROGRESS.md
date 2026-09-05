@@ -24,3 +24,9 @@ Implementing milestone 5 on `lane/timers`. Initial worktree is clean. Final repo
 - Validation: focused timer suite passes; full corrected run had 979 passed / 61 skipped / 86 failed in 21.60 s. The untouched starting commit had the exact same 86 failure node IDs (876 passed / 60 skipped / 86 failed in 22.26 s). Existing failures require denied Unix binding, process inspection, or guard scratch writes.
 - Environment: copied already-installed dependency files into ignored local `.venv`; `UV_NO_SYNC=1 uv run pytest` works offline. No guard bypass, v1 command, provider endpoint, or push was attempted.
 - Next: finish cancellation/propagation edge cases, repeat affected checks, write and commit OUTPUT.md with exact final counts and integration seams.
+
+## Step: final evidence and shutdown fixes
+- Done: confirmation and closure reopening are atomic; mismatched-account usage cannot release or extend closures; reset candidates require current usage; old post-consume readings are marked stale in status and ignored for routing until propagation.
+- Done: revoked credentials block the real scheduler without losing epoch-based re-probe; guardian request metadata survives recovery; keepalive auth-dead disables immediately; retention accepts cancellation and deadlines.
+- Done: added daemon timeout-to-usage-settlement and real scheduler latch tests. The socket/guardian checks skip explicitly under this sandbox; the in-process daemon cycles execute normally.
+- Next: final full-suite comparison, report, and clean-worktree verification.

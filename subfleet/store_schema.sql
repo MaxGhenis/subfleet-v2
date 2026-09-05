@@ -1,4 +1,4 @@
--- subfleet v2 store schema, version 1. See docs/acceptance-contract.md section 3.
+-- subfleet v2 store schema, version 2 (additive jobless operator notices). See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 
 CREATE TABLE IF NOT EXISTS schema_version (

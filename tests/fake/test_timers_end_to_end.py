@@ -53,7 +53,8 @@ def codex(daemon, number):
     return lane
 
 
-def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon):
+@pytest.mark.parametrize('consume_timeout', [False, True])
+def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout):
     """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
     codex(daemon, 1)
     codex(daemon, 2)
@@ -78,6 +79,8 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon):
         assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
         state['consumes'] += 1
         assert daemon.store.query('SELECT state FROM actions')[0]['state'] == 'executing'
+        if consume_timeout:
+            raise TimeoutError('fake timeout after submission')
         return 200, b'{"code":"reset","windows_reset":2}'
 
     daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
@@ -94,7 +97,7 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon):
     try:
         until(lambda: daemon.store.query('SELECT * FROM actions'))
         until(lambda: daemon.store.query("SELECT * FROM events WHERE kind='timer.cycle'"))
-        assert daemon.store.query('SELECT state FROM actions')[0]['state'] == 'confirmed'
+        assert daemon.store.query('SELECT state FROM actions')[0]['state'] == ('unknown' if consume_timeout else 'confirmed')
         assert not daemon.store.get_lane(dead.lane_id).enabled
         assert state['consumes'] == 1
         until(lambda: state['keepalives'] == 1)
@@ -103,6 +106,9 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon):
         assert all(row['notice_id'] < 0 for row in first_notices)
         state['limited'] = False
         until(lambda: any('recovered' in row['text'].lower() for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']))
+        if consume_timeout:
+            until(lambda: daemon.store.query("SELECT 1 FROM events WHERE kind='action.reconciled'"))
+            assert daemon.store.query('SELECT state FROM actions')[0]['state'] == 'unknown'
         time.sleep(.35)
         assert state['consumes'] == 1 and state['dead_probes'] == 1 and state['keepalives'] == 1
         events = daemon.store.query("SELECT data_json FROM events WHERE kind='timer.keepalive'")
