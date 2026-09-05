@@ -1066,10 +1066,14 @@ class ClaudeAdapter(Adapter):
             )
         match = TRANSIENT_RE.search(corpus)
         if transient_kind is not None or match is not None:
-            reason = (
-                f"provider error kind {transient_kind}" if transient_kind is not None
-                else _first_line_containing(corpus, match)
-            )
+            # Name both the provider's own error kind and the text it came with: one
+            # says what class of failure it was, the other says what actually happened.
+            parts = []
+            if transient_kind is not None:
+                parts.append(f"provider error kind {transient_kind}")
+            if match is not None:
+                parts.append(_first_line_containing(corpus, match))
+            reason = "; ".join(parts)
             return finish(
                 OutcomeClass.TRANSIENT, f"transient: {reason}",
                 answered={"transient": reason},
@@ -1397,6 +1401,7 @@ __all__ = [
     "ENROLL_MODEL",
     "ENROLL_PROMPT",
     "ENV_REMOVE",
+    "KEYCHAIN_PREFIX",
     "HEADLESS_BLOCK",
     "ADMISSION_WINDOW",
     "SOURCE_RATE_LIMIT_EVENT",
