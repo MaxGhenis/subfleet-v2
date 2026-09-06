@@ -84,6 +84,56 @@ def response_for(token: str, spec: str | None = None) -> tuple[int, bytes]:
     return fixture_response(name) if name else (200, derived_body(token))
 
 
+USAGE_ENV = "SUBFLEET_FAKE_USAGE"
+USAGE_PATH = "/api/oauth/usage"
+
+
+def usage_body(shared: float, fable: float | None = None) -> bytes:
+    """The usage endpoint's payload as observed on 2026-09-06, in percent."""
+    limits = [
+        {"kind": "session", "group": "session", "percent": 10, "severity": "normal",
+         "resets_at": "2026-09-06T17:00:00+00:00", "scope": None, "is_active": True},
+        {"kind": "weekly_all", "group": "weekly", "percent": shared, "severity": "warning",
+         "resets_at": "2026-09-10T16:00:00+00:00", "scope": None, "is_active": False},
+    ]
+    if fable is not None:
+        limits.append({"kind": "weekly_scoped", "group": "weekly", "percent": fable, "severity": "normal",
+                       "resets_at": "2026-09-10T16:00:00+00:00",
+                       "scope": {"model": {"id": None, "display_name": "Fable"}, "surface": None},
+                       "is_active": False})
+    return json.dumps({
+        "five_hour": {"utilization": 10.0, "resets_at": "2026-09-06T17:00:00+00:00"},
+        "seven_day": {"utilization": float(shared), "resets_at": "2026-09-10T16:00:00+00:00"},
+        "seven_day_opus": None, "nimbus_quill": {"utilization": 0.0, "resets_at": None},
+        "extra_usage": {"utilization": None}, "limits": limits,
+    }).encode("utf-8")
+
+
+def usage_response(token: str, spec: str | None) -> tuple[int, bytes]:
+    """What the usage endpoint (C-9.9) tells a bearer.
+
+    `SUBFLEET_FAKE_USAGE` is a comma-separated list of `<key>=<value>` (or a bare
+    `<value>` for every bearer): `<shared>/<fable>` percentages, `<shared>` alone
+    for an account with no Fable window, or a status `401`, `403`, `429` (the
+    last raises HTTPError with `Retry-After: 3035`, as the real endpoint did on
+    2026-09-06). With no entry a bearer gets 403: a setup token has no usage
+    scope, which is what every enrolled lane answered that day.
+    """
+    value = chosen_fixture(token, spec)
+    if value is None or value == "403":
+        return 403, b""
+    if value == "401":
+        return 401, b""
+    if value == "429":
+        import urllib.error
+        from email.message import Message
+        headers = Message()
+        headers["Retry-After"] = "3035"
+        raise urllib.error.HTTPError("https://api.anthropic.com" + USAGE_PATH, 429, "rate limited", headers, None)
+    shared, _, fable = value.partition("/")
+    return 200, usage_body(float(shared), float(fable) if fable else None)
+
+
 def bearer(request) -> str:
     value = request.headers.get("Authorization") or ""
     return value.partition(" ")[2] or value
@@ -94,10 +144,14 @@ def opener(spec: str | None = None, *, seen: list | None = None):
     if spec is None:
         spec = os.environ.get(ENV_VAR)
 
+    usage_spec = os.environ.get(USAGE_ENV)
+
     def open_profile(request, timeout):
         token = bearer(request)
         if seen is not None:
             seen.append((request.full_url, token_suffix(token)))
+        if request.full_url.endswith(USAGE_PATH):
+            return usage_response(token, usage_spec)
         return response_for(token, spec)
 
     return open_profile

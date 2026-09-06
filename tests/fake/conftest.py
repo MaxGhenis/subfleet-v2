@@ -27,6 +27,11 @@ class Harness:
         self.root = root = root.resolve()
         self.workdir = root / "work"
         self.workdir.mkdir()
+        # C-11.7 is covered end to end by tests/e2e/test_reserve.py; the fake-daemon
+        # cases describe mechanics the rule sits on top of, so the policy starts with it off.
+        policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
+        policy.setdefault("reserve", {})["models"] = []
+        (root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
         self.process: subprocess.Popen | None = None
         self.logs = []
         self.root.joinpath("lanes.json").write_text(json.dumps([{

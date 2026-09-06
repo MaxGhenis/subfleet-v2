@@ -78,6 +78,9 @@ class E2E:
         self.process: subprocess.Popen | None = None
         self.logs = []
         shutil.copyfile(REPO / "subfleet/default_policy.json", self.root / "policy.json")
+        # C-11.7's reserve rule is exercised by tests/e2e/test_reserve.py; every other case
+        # here describes admission mechanics the rule sits on top of, so it starts off.
+        self.policy_update(lambda policy: policy.setdefault("reserve", {}).update(models=[]))
         binary_dir = self.root / "bin"
         binary_dir.mkdir()
         for provider in ("codex", "claude"):
@@ -188,6 +191,20 @@ class E2E:
 
         self.until(ready)
         return self
+
+    def policy_update(self, change):
+        """Edit policy.json in place before the daemon starts; `change(policy)` mutates it."""
+        path = self.root / "policy.json"
+        policy = json.loads(path.read_text())
+        change(policy)
+        path.write_text(json.dumps(policy, indent=2) + "\n")
+
+    def enable_reserve(self, *, probe_interval_s=1):
+        """C-11.7 on, with a fast probe cycle so the usage sensor reads within a test."""
+        def change(policy):
+            policy["reserve"] = {**policy.get("reserve", {}), "models": ["fable"], "usage_spacing_s": 0}
+            policy.setdefault("timers", {})["probe_interval_s"] = probe_interval_s
+        self.policy_update(change)
 
     def cli(self, *argv, timeout=20):
         result = subprocess.run([sys.executable, "-m", "subfleet.cli", *map(str, argv)],
