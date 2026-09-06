@@ -443,3 +443,38 @@ def test_the_daemon_op_carries_the_refusal_code(world):
                                 confirm_v1_edit=coerced.confirm_v1_edit,
                                 roster_dir=world["roster"], home=world["home"])
     assert int(raised.value.code) == int(Exit.REFUSED)
+
+
+def test_a_forward_transfer_interrupted_after_the_rename_finishes_on_rerun(world):
+    """Peer round 3: the lever landed but the flip did not; the re-run must not refuse."""
+    src, dst = world["home"] / ".codex-1", world["root"] / "lanes" / "codex-1"
+    dst.parent.mkdir(parents=True)
+    src.rename(dst)                      # what a failed first attempt (or the operator's mv) leaves
+    result = transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+    assert result["applied"] is True and result["home_move"] is None and result["new_home"] == str(dst)
+    assert "already relocated" in " ".join(result["follow_up"])
+    row = lane_row(world, "codex-1")
+    assert row["owner"] == "v2" and row["home"] == str(dst) and row["credential_ref"] == str(dst)
+    assert [r for r in lanes_json(world) if r["lane_id"] == "codex-1"][0]["home"] == str(dst)
+
+
+def test_a_rollback_finished_by_hand_leaves_lanes_json_consistent(world, monkeypatch):
+    """Peer round 3: after a failed rename on the way back, the operator's mv plus a re-run rewrite everything."""
+    src, dst = world["home"] / ".codex-1", world["root"] / "lanes" / "codex-1"
+    transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+
+    def refuse(a, b):
+        raise OSError("simulated rename failure")
+    monkeypatch.setattr(lanes_transfer.os, "rename", refuse)
+    with pytest.raises(lanes_transfer.TransferError) as raised:
+        transfer(world, "codex-1", "v1", confirm_v1_edit=True)
+    assert "mv" in (raised.value.fix or "")
+    monkeypatch.undo()
+    assert owner(world, "codex-1") == "v1" and dst.is_dir()      # flipped, not moved
+    dst.rename(src)                                               # the operator finishes the mv
+    result = transfer(world, "codex-1", "v1", confirm_v1_edit=True)
+    assert result["applied"] is True and result["home_move"] is None
+    row = lane_row(world, "codex-1")
+    assert row["home"] == str(src) and row["credential_ref"] == str(src)
+    assert [r for r in lanes_json(world) if r["lane_id"] == "codex-1"][0]["home"] == str(src)
+    assert "transferred_to_v2" not in roster_json(world, "codex-accounts.json")

@@ -63,7 +63,8 @@ def report(root: Path, date: str, canary_like: str, since: str | None = None) ->
     historical = rows(db, "SELECT state, count(*) n FROM attempts WHERE evidence_json LIKE ? GROUP BY state ORDER BY state", (IMPORTED,))
     unknown_actions = rows(db, "SELECT action_id, kind, subject, state, updated_at FROM actions WHERE state='unknown'")
     stuck_actions = rows(db, "SELECT action_id, kind, subject, state, updated_at FROM actions WHERE state IN ('pending','executing') AND updated_at<?", ((dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),))
-    events = rows(db, "SELECT kind, count(*) n FROM events WHERE ts>=? AND ts<? AND ts>=? AND kind NOT LIKE 'import.%' GROUP BY kind ORDER BY kind", (start, end, since))
+    # The importer's events are `import.cursor`, `import.run`, and `<table>.imported`, all stamped at import time.
+    events = rows(db, "SELECT kind, count(*) n FROM events WHERE ts>=? AND ts<? AND ts>=? AND kind NOT LIKE 'import.%' AND kind NOT LIKE '%.imported' GROUP BY kind ORDER BY kind", (start, end, since))
     timer_kinds = [e for e in events if e["kind"].split(".")[0] in ("probe", "closure", "keepalive", "reset", "timer", "lane", "identity", "service", "notice")]
     canary = rows(db, "SELECT state, count(*) n FROM jobs WHERE job_id LIKE ? GROUP BY state ORDER BY state", (canary_like,))
     canary_total = sum(c["n"] for c in canary)

@@ -126,12 +126,13 @@ class TransferPlan:
     follow_up: list[str] = field(default_factory=list)
     blocker: str | None = None      # why v2 must not take this account yet
     home_move: tuple[str, str] | None = None   # (from, to): the Codex home relocation
+    new_home: str | None = None                # the lane's home after this transfer, when it changes
     live_v1_runs: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
         return (self.from_owner != self.to_owner or any(edit.changed for edit in self.edits)
-                or self.home_move is not None)
+                or self.home_move is not None or self.new_home is not None)
 
     def diff(self) -> str:
         return "".join(edit.diff() for edit in self.edits if edit.changed)
@@ -147,6 +148,7 @@ class TransferPlan:
                       for edit in self.edits],
             "follow_up": self.follow_up, "blocker": self.blocker,
             "home_move": list(self.home_move) if self.home_move else None,
+            "new_home": self.new_home,
             "live_v1_runs": list(self.live_v1_runs),
         }
 
@@ -453,6 +455,13 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
         if plan.live_v1_runs:
             plan.blocker = (f"v1 run(s) {', '.join(plan.live_v1_runs)} are live on {src}; "
                             "wait for them or `subfleet kill` them, then run this again")
+        elif not src.is_dir() and dst.is_dir():
+            # An earlier attempt renamed the home and failed before the flip, or the
+            # operator finished the `mv` by hand: the lever is in place, the record and
+            # the flip are not. Finish without moving anything (peer round 3, finding 3).
+            new_home = str(dst)
+            plan.follow_up.append(f"{src} is already relocated to {dst}; finishing the transfer "
+                                  "without moving anything")
         elif not src.is_dir():
             plan.blocker = f"{src} is not a directory; there is no home to relocate"
         elif dst.exists():
@@ -482,7 +491,12 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
                             "them or `sf2 kill` them, then run this again")
         elif original and str(current) != str(Path(original).expanduser()):
             back = Path(original).expanduser()
-            if back.exists():
+            if back.is_dir() and not current.is_dir():
+                # The operator finished the way back by hand after a failed rename.
+                new_home = str(back)
+                plan.follow_up.append(f"{current} is already back at {back}; finishing the transfer "
+                                      "without moving anything")
+            elif back.exists():
                 plan.blocker = f"{back} already exists; refusing to overwrite it with the lane home"
             elif not current.is_dir():
                 plan.blocker = f"{current} is not a directory; the lane home is missing"
@@ -491,7 +505,12 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
                 new_home = str(back)
                 plan.follow_up.append(f"{current} is moved back to {back} after ownership "
                                       "flips to v1; v1's glob finds it again from there.")
-    plan.edits.insert(0, _v2_roster_edit(Path(state_root), row, to_owner, home=new_home))
+    if new_home == lane_home:
+        new_home = None
+    plan.new_home = new_home
+    # lanes.json always carries the store's truth about the home, so a transfer
+    # re-run after a hand-finished move rewrites it too (peer round 3, finding 4).
+    plan.edits.insert(0, _v2_roster_edit(Path(state_root), row, to_owner, home=new_home or lane_home))
     plan.edits.append(edit)
     return plan
 
@@ -526,7 +545,8 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
             os.rename(src, dst)
         except OSError as exc:
             raise TransferError(f"could not relocate {src} to {dst}: {exc}", Exit.OPERATIONAL,
-                                f"move it by hand (`mv {src} {dst}`) and run this again") from exc
+                                f"move it by hand (`mv {src} {dst}`) and run this again; the re-run "
+                                "sees the home already in place and finishes the record and the flip") from exc
 
     def flip() -> None:
         """C-10.4: ownership changes here and records an event.
@@ -541,15 +561,16 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
                 "account_key": plan.account_key, "rosters": rosters,
                 "follow_up": plan.follow_up,
                 "home_move": list(plan.home_move) if plan.home_move else None}
-        if plan.from_owner != plan.to_owner:
+        if plan.from_owner != plan.to_owner or plan.new_home:
             with store.transaction("lane.transferred", lane_id=plan.lane_id, data=data) as tx:
-                store.update_lane(plan.lane_id, owner=plan.to_owner)
-                if plan.home_move:
+                if plan.from_owner != plan.to_owner:
+                    store.update_lane(plan.lane_id, owner=plan.to_owner)
+                if plan.new_home:
                     # The lane keeps its id: the credential is unchanged, only its
                     # path moved (C-10.4). `update_lane` refuses rebinding by
                     # design, so this one relocation writes the columns directly.
                     tx.execute("UPDATE lanes SET home=?, credential_ref=? WHERE lane_id=?",
-                               (plan.home_move[1], plan.home_move[1], plan.lane_id))
+                               (plan.new_home, plan.new_home, plan.lane_id))
         elif rosters:
             # One row, not the two `Store.add_event` writes (it logs its own
             # transaction as well), and no state change to wrap it in.

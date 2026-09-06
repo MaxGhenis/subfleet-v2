@@ -3,7 +3,7 @@
 
 Samples 100 prompt.md files deterministically from the v1 ledger (sorted run ids, evenly
 spaced), prefixes each with the canary preamble, writes them under the canary directory, and
-submits each with `sf2 run -m astra -s read-only -I -D <clone> -C <clone> -p <prompt> -n canary-NNN`:
+submits each with `sf2 run -d -m astra -s read-only -I -D <clone> -C <clone> -p <prompt> -n canary-NNN`:
 the isolated-review path (C-23.2, C-23.4) launches Codex with `--ephemeral --ignore-user-config
 --ignore-rules` and every MCP server, plugin, and hook disabled, so read-only is a verified
 capability restriction and not only the shell sandbox.
@@ -59,7 +59,8 @@ def main() -> int:
         name = f"canary-{i:03d}"
         target = prompt_dir / f"{name}.md"
         target.write_text(PREAMBLE + source.read_text(errors="replace"))
-        cmd = [args.sf2, "run", "-m", "astra", "-s", "read-only", "-I", "-D", str(clone), "-C", str(clone),
+        # -d: outside a Claude session `run` would otherwise wait for the job to finish (cli.launch_mode).
+        cmd = [args.sf2, "run", "-d", "-m", "astra", "-s", "read-only", "-I", "-D", str(clone), "-C", str(clone),
                "-p", str(target), "-n", name, "--no-wait-queue"]
         if args.dry_run:
             print(" ".join(cmd))
