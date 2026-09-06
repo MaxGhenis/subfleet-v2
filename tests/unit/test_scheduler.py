@@ -438,12 +438,12 @@ def test_c11_7_slack_decides_and_is_recorded(reserve_policy):
 def test_c11_7_fable_jobs_see_both_windows_and_ignore_the_reserve(reserve_policy):
     """The reserved model itself is bounded by min(shared, Fable) headroom, never by slack."""
     lanes = [lane("claude-1"), lane("claude-2")]
-    rows = usage("claude-1", .80, .49) + usage("claude-2", .60, .90)
+    rows = usage("claude-1", .80, .49) + usage("claude-2", .60, .82)      # floor is 15 percent
     decision = decision_for(reserve_policy, lanes, rows, pinned_model="fable", task=None, tier=None)
-    assert decision.chosen_lane == "claude-1"      # headroom .20 beats claude-2's Fable headroom .10
+    assert decision.chosen_lane == "claude-1"      # headroom .20 beats claude-2's Fable headroom .18
     details = next(e for e in decision.evaluations if e["model"] == "fable")["candidate_details"]
     assert "reserve" not in details["claude-1"] and details["claude-1"]["headroom"] == pytest.approx(.20)
-    assert details["claude-2"]["headroom"] == pytest.approx(.10)
+    assert details["claude-2"]["headroom"] == pytest.approx(.18)
 
 
 def test_c11_7_an_account_without_a_reserved_window_is_free(reserve_policy):
