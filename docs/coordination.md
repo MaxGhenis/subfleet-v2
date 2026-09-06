@@ -15,8 +15,27 @@ Started 2026-09-06 07:20 EDT. During the shadow week v1 (`~/chief-of-staff/subfl
 
 | When | Session (branch) | What changes | Files | v2 impact | v2 action | Status |
 |---|---|---|---|---|---|---|
-| 2026-09-06 | "Make subfleet report real login usage, not inferred percentages" (`claude/nifty-rubin-204883`) | Every Claude percentage names its source; inferred figures say so | `subfleet/claude.py`, `render.py`, `snapshot.py`, `paths.py`, `bin/subfleet-statusline`, tests | If `capacity-live-cache.json` or `claude-oauth-raw.json` gain or rename keys, the importer's capacity rows and the shadow compare must read them; v2's sensor already labels readings by source | Awaiting the session's key list; align names with C-9.1 labels | open |
+| 2026-09-06 | "Make subfleet report real login usage, not inferred percentages" (`claude/nifty-rubin-204883`, 09a49e16 + follow-ups, unmerged) | Every Claude percentage names its source; inferred figures say so | `subfleet/claude.py`, `render.py`, `snapshot.py`, `paths.py`, `bin/subfleet-statusline`, tests | None on the importer: `claude-oauth-raw.json`, `capacity-live-cache.json`, `claude-accounts.json` are unchanged (verified by the session by diff). Additive keys elsewhere: `claude-statusline.json` (+`entrypoint`, `auth_source`, `subscription_type`, `rate_limits_available`; history lines +`session_id`, `auth_source`), `snapshot.json` (`claude.live` +reset times, `model_week_resets`, `account_verified`, weekly-scoped `limits[]`; new `claude.panel`; `claude.statusline_attributable`; lanes +`five_hour_confidence`, `weekly_confidence`, `panel`), and one new read-only input outside v1: `~/Library/Application Support/Claude/plan-usage-history.json` (desktop app sampler, org-scoped, no reset times) | Vocabulary map below adopted for the shadow compare; nothing to port until merge | keys received 07:40; awaiting merge |
 | 2026-09-06 | "Fix subfleet revive: persistent host, no template causes, independent liveness alert" (`claude/vibrant-hypatia-a0021e`) | Revive semantics in v1's sessions kit | v1 `sessions`/`revive` code (not yet committed) | Live in v2 through delegation until milestone 6; v2's `subfleet/sessions/` port must mirror it (C-23.30 to C-23.36); a liveness alert that reads `ps` must treat an inspection failure as unknown, never as dead (v2 defect fixed 2026-09-05, C-4.2) | Awaiting a summary of the behaviour change on merge | open |
+
+## Vocabulary map: v1 provenance words to v2 reading labels (C-9.1)
+
+Decided 2026-09-06 07:45 from the usage-instrument session's list and the contract text. C-9.1 has five labels and a percentage is rendered only from `provider` or `stale-provider`.
+
+| v1 word (as printed after the change) | v2 label | Note |
+|---|---|---|
+| "endpoint" (snapshot `live.source` oauth), "endpoint, cached" (oauth-cache, capacity-cache), `stale=false` | `provider` | source and age recorded; the compare relabels stale by v2's own `reading_ttl_s`, not v1's 180 minutes |
+| the same with `stale=true` | `stale-provider` | marked stale in v2 output |
+| "app panel" (desktop app's org-scoped fetch, principal = org uuid) | `provider` for the desktop lane only (C-10.3: the lane whose identity org equals the panel's org); no reading for any other lane | the compare carries the org uuid and prints "panel: different principal" where it does not apply |
+| "statusline tap, session <id8>" with `account_verified` (auth_source keychain) | `provider` for the keychain login's lane | |
+| statusline tap without `account_verified` | no reading (`unknown`) | C-9.1 has no reading for an unidentified principal; a percentage is never rendered from it |
+| v1 "observed" (lane sums over a capacity learned from an observed hard limit or a keepalive-observed reset) | `unknown` for the percentage; the hard limit itself is a closure plus an `admission-observed` reading for that lane and model | `admission-observed` is an event label ("recently succeeded or was rejected"), not a percentage source |
+| v1 "estimated", "inferred from session activity", "(provenance unknown)", "?" | `unknown` | no percentage rendered |
+
+## Flags raised for Max (from the usage-instrument session, 2026-09-06 07:40; verified here)
+
+- The v1 main checkout `~/chief-of-staff` runs production with large uncommitted changes to `subfleet/subfleet/capacity.py`, `cli.py`, `consensus.py`, `delegate.py` (135 insertions, a "measured_only" gating change from another session; `git status` confirms). That is why the checkout shows 13 of 14 Claude lanes dispatchable while committed HEAD shows 8 of 14. v2's gate runs and dispatches yesterday and today went through that uncommitted code. Nobody in this ledger owns it; it needs a commit or a revert by whoever wrote it.
+- The "orchestrator" tmux server was started with `-e CLAUDE_CODE_OAUTH_TOKEN=…` on its command line, so the token is visible to any local `ps`. v2's census reads process command lines and environments for containment markers and, by C-5.5, retains none of it; that does not make the exposure smaller. Flagged, not acted on.
 
 ## v2 state other sessions should know
 
