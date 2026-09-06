@@ -32,6 +32,8 @@ Decided 2026-09-06 07:45 from the usage-instrument session's list and the contra
 | v1 "observed" (lane sums over a capacity learned from an observed hard limit or a keepalive-observed reset) | `unknown` for the percentage; the hard limit itself is a closure plus an `admission-observed` reading for that lane and model | `admission-observed` is an event label ("recently succeeded or was rejected"), not a percentage source |
 | v1 "estimated", "inferred from session activity", "(provenance unknown)", "?" | `unknown` | no percentage rendered |
 
+Two nuances confirmed by the usage-instrument session (07:55): (a) "endpoint, cached" readings from `capacity-live-cache.json` carry `as_of` equal to that file's `probed_at`, not the endpoint's response time, so v2's staleness keys off `probed_at`; (b) a v1 "observed" hard limit lives in the lane ledger per model scope (cooldowns keyed `"*"` or a model id), so the derived closure is model-scoped unless the key is `"*"`, which is account-wide. The session will message when the branch merges and the statusline tap's `auth_source` starts flowing.
+
 ## Flags raised for Max (from the usage-instrument session, 2026-09-06 07:40; verified here)
 
 - The v1 main checkout `~/chief-of-staff` runs production with large uncommitted changes to `subfleet/subfleet/capacity.py`, `cli.py`, `consensus.py`, `delegate.py` (135 insertions, a "measured_only" gating change from another session; `git status` confirms). That is why the checkout shows 13 of 14 Claude lanes dispatchable while committed HEAD shows 8 of 14. v2's gate runs and dispatches yesterday and today went through that uncommitted code. Nobody in this ledger owns it; it needs a commit or a revert by whoever wrote it.
