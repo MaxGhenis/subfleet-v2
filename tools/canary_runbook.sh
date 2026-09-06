@@ -42,6 +42,21 @@ case "${1:-}" in
     "$SF2" lanes list --json 2>/dev/null | "$PY" -c "import json,sys; rows=json.load(sys.stdin); rows=rows.get('lanes', rows) if isinstance(rows, dict) else rows; print([ (r['lane_id'], r['owner'], r.get('home')) for r in rows if r['lane_id']=='$LANE'])"
     "$PY" -c "import json; print(json.load(open('$HOME/chief-of-staff/subfleet/codex-accounts.json')).get('transferred_to_v2'))"
     ;;
+  enroll-logins)
+    # Each completed full-scope login under ~/.subfleet/logins/<email>/ becomes a v2 home lane
+    # (C-10.2), held until its account transfers from v1 (C-9.6 operator hold): measured by the
+    # usage sensor every cycle, never a dispatch candidate while v1 still owns the account.
+    for d in "$HOME"/.subfleet/logins/*/; do
+      e="$(basename "$d")"
+      who="$(CLAUDE_CONFIG_DIR="$d" claude auth status --json 2>/dev/null | "$PY" -c 'import json,sys; d=json.load(sys.stdin); print(d.get("email") or "" if d.get("loggedIn") else "")')"
+      if [ "$who" != "$e" ]; then echo "skip $e: $( [ -n "$who" ] && echo "logged in as $who" || echo "not logged in")"; continue; fi
+      if "$SF2" lanes list --json 2>/dev/null | "$PY" -c 'import json,sys; rows=json.load(sys.stdin); rows=rows.get("lanes", rows) if isinstance(rows, dict) else rows; sys.exit(0 if any(r.get("credential_ref")==sys.argv[1] for r in rows) else 1)' "${d%/}"; then echo "already enrolled: $e"; continue; fi
+      line="$("$SF2" lanes enroll "${d%/}")" || { echo "enroll failed: $e"; continue; }
+      echo "$line"; lane="${line%% *}"
+      "$SF2" lanes hold "$lane" --until 2027-01-01T00:00:00Z
+    done
+    "$SF2" status | head -40
+    ;;
   canary)
     [ -d "$CANARY/work/.git" ] || git clone -q https://github.com/MaxGhenis/subfleet-v2.git "$CANARY/work"
     "$PY" "$REPO/tools/canary_submit.py" --dry-run | head -3
@@ -71,5 +86,5 @@ PLIST
     "$PY" -E -P "$REPO/tools/soak_report.py" || echo "soak report: not clean (exit $?)"
     ;;
   *)
-    echo "usage: $0 import | daemon | transfer-dry-run | transfer | canary | live | soak | verify"; exit 2 ;;
+    echo "usage: $0 import | daemon | enroll-logins | transfer-dry-run | transfer | canary | live | soak | verify"; exit 2 ;;
 esac

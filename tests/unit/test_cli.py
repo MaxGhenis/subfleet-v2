@@ -90,13 +90,24 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
     """C-17.1 lanes list|probe|enroll|hold|release|transfer reach op `lanes`."""
     # A `transfer` answer carries the transfer it performed; the CLI refuses to
     # report one the daemon did not do (subfleet/lanes_transfer.py).
-    server = daemon({"lanes": lambda request: {
-        "lanes": [],
-        **({"transfer": {"lane_id": request.args.get("lane_id"), "from": "v2",
-                         "to": request.args.get("owner"), "changed": True,
-                         "applied": True, "dry_run": False, "diff": "", "edits": [],
-                         "follow_up": []}}
-           if request.args.get("action") == "transfer" else {})}})
+    # Likewise an `enroll` answer carries the lane it made and a `hold`/`release`
+    # answer names the lane it acted on; the CLI refuses to report a no-op as done.
+    def answer(request):
+        action = request.args.get("action")
+        result = {"lanes": []}
+        if action == "transfer":
+            result["transfer"] = {"lane_id": request.args.get("lane_id"), "from": "v2",
+                                  "to": request.args.get("owner"), "changed": True,
+                                  "applied": True, "dry_run": False, "diff": "", "edits": [],
+                                  "follow_up": []}
+        elif action == "enroll":
+            result["enrolled"] = {"lane_id": "claude-9", "provider": "claude", "owner": "v2",
+                                  "account_key": "claude:a:o", "label": request.args.get("credential")}
+        elif action in ("hold", "release"):
+            result["held" if action == "hold" else "released"] = request.args.get("lane_id")
+            result["closures"] = []
+        return result
+    server = daemon({"lanes": answer})
     cases = [
         (["lanes"], {"action": "list"}),
         (["lanes", "list"], {"action": "list"}),

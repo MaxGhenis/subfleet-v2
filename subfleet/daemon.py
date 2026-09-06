@@ -32,7 +32,7 @@ from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
-    EXIT_SETTLE_S, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
+    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
     START_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -208,6 +208,109 @@ class Daemon:
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
+
+    # --- lanes: enroll, hold, release (C-10.2, C-9.6) --------------------------
+
+    def _next_lane_id(self, provider: str) -> str:
+        """C-1.3: `<provider>-<n>`, the next free n after every lane the store knows."""
+        used = []
+        for row in self.store.query("SELECT lane_id FROM lanes WHERE provider=?", (provider,)):
+            prefix, _, number = row["lane_id"].rpartition("-")
+            if prefix == provider and number.isdigit():
+                used.append(int(number))
+        return f"{provider}-{max(used, default=0) + 1}"
+
+    def _append_lanes_json(self, lane: Lane) -> None:
+        """Keep the seed file (`lanes.json`, C-2.2) in step so a rebuilt store gets the lane back."""
+        row = {"lane_id": lane.lane_id, "provider": lane.provider, "account_key": lane.account_key,
+               "credential_ref": lane.credential.ref, "credential_kind": lane.credential.kind,
+               "credential_epoch": lane.credential.epoch, "home": lane.home, "desktop": lane.desktop,
+               "enabled": lane.enabled, "identity": lane.identity, "label": lane.label}
+        edit = lanes_transfer._v2_roster_edit(self.root, row, lane.owner.value)
+        if edit.changed:
+            lanes_transfer._publish(edit.path, edit.after)
+
+    def _enroll_lane(self, a: protocol.LanesArgs) -> dict:
+        """`lanes enroll <credential>` (C-10.2): a Claude home directory (a config
+        directory holding a `claude auth login`), a Codex home (holds `auth.json`),
+        or a `claude-quota-<email>` keychain item. The adapter's enrol turn decides
+        that the credential authenticates and names the account (C-1.4, C-10.6);
+        the lane is stored, its enrol readings with it, and `lanes.json` follows.
+        `owner` defaults to v2; an account v1 still dispatches on is enrolled `v1`
+        or enrolled `v2` and held (`lanes hold`) until its transfer.
+        """
+        text = (a.credential or "").strip()
+        if not text:
+            raise protocol.ProtocolError("lanes enroll: name a credential (a home directory or a "
+                                         "claude-quota-<email> keychain item)", Exit.INVALID_INPUT)
+        path = Path(text).expanduser()
+        if path.is_dir():
+            provider = "codex" if (path / "auth.json").is_file() else "claude"
+            credential = Credential(provider, str(path), "home")
+        elif text.startswith("claude-quota-"):
+            credential = Credential("claude", text, "keychain-token")
+        else:
+            raise protocol.ProtocolError(
+                f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> item",
+                Exit.INVALID_INPUT)
+        try:
+            owner = LaneOwner(a.owner or "v2")
+        except ValueError:
+            raise protocol.ProtocolError("lanes enroll: owner must be v1 or v2", Exit.INVALID_INPUT) from None
+        existing = self.store.one("SELECT lane_id FROM lanes WHERE credential_ref=?", (credential.ref,))
+        if existing:
+            raise protocol.ProtocolError(
+                f"lanes enroll: {credential.ref} is already lane {existing['lane_id']}",
+                Exit.INVALID_INPUT, "subfleet lanes list")
+        try:
+            info = get_adapter(credential.provider).enroll(credential)
+        except AdapterError as exc:
+            raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+        lane_id = self._next_lane_id(credential.provider)
+        lane = Lane(lane_id, credential.provider, info.account_key, credential,
+                    info.home or (str(path) if credential.kind == "home" else None), owner, False, True,
+                    info.identity, info.label)
+        with self.store.transaction("lane.enrolled", lane_id=lane_id, data={
+                "account_key": info.account_key, "kind": credential.kind, "owner": owner.value,
+                "label": info.label, "identity_status": info.identity_status}):
+            self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
+            for reading in info.readings:
+                self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
+        self._append_lanes_json(lane)
+        self._notify()
+        return {"enrolled": self.store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)),
+                "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
+
+    def _hold_lane(self, a: protocol.LanesArgs) -> dict:
+        """`lanes hold <lane> --until <iso>` records an operator closure on the account
+        scope (C-9.6 `operator-hold`, clock `reported`); `lanes release <lane>` releases
+        every open operator hold. A held lane is never a candidate (C-11.2) but is
+        still probed, so a held account keeps being measured."""
+        if not a.lane_id or not self.store.get_lane(a.lane_id):
+            raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
+                                         Exit.INVALID_INPUT, "subfleet lanes list")
+        if a.action == "hold":
+            until = (a.until or "").strip()
+            try:
+                instant = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            except ValueError:
+                raise protocol.ProtocolError("lanes hold: --until must be an ISO 8601 instant",
+                                             Exit.INVALID_INPUT) from None
+            if instant.tzinfo is None:
+                instant = instant.replace(tzinfo=timezone.utc)
+            until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            with self.store.transaction("lane.held", lane_id=a.lane_id, data={"until": until_utc}):
+                self.store.add_closure(Closure(a.lane_id, "account", until_utc, ClosureReason.OPERATOR_HOLD,
+                                               ClockSource.REPORTED, "operator"))
+        else:
+            with self.store.transaction("lane.released", lane_id=a.lane_id) as tx:
+                tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
+                           "AND released_at IS NULL", (utcnow(), a.lane_id))
+        self._notify()
+        view = self._capacity_view(self._desktop_identity())
+        return {"held": a.lane_id if a.action == "hold" else None,
+                "released": a.lane_id if a.action == "release" else None,
+                "lanes": view["lanes"], "closures": view["closures"]}
 
     def _seed_lanes(self) -> None:
         path = self.root / "lanes.json"
@@ -618,6 +721,10 @@ class Daemon:
                     raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
                 return {"transfer": result,
                         "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
+            if a.action == "enroll":
+                return self._enroll_lane(a)
+            if a.action in ("hold", "release"):
+                return self._hold_lane(a)
             return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":

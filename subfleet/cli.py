@@ -1306,6 +1306,20 @@ def cmd_lanes(args: argparse.Namespace) -> int:
     if action == "transfer":
         out(_format_transfer(result["transfer"]))
         return int(Exit.OK)
+    if action == "enroll":
+        row = result.get("enrolled") or {}
+        if not row:
+            return fail(Exit.DAEMON_UNAVAILABLE, "the daemon did not enroll the lane; it is older than this CLI",
+                        "subfleet daemon stop && subfleet daemon start")
+        out(f"{row.get('lane_id')}  {row.get('provider')}  {row.get('account_key')}  owner={row.get('owner')}"
+            f"  label={row.get('label') or '-'}  home={row.get('home') or '-'}")
+        return int(Exit.OK)
+    if action in ("hold", "release"):
+        if not (result.get("held") or result.get("released")):
+            return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
+                        "subfleet daemon stop && subfleet daemon start")
+        out(f"{action}: {result.get('held') or result.get('released')}")
+        return int(Exit.OK)
     out(_format_lanes(result))
     return int(Exit.OK)
 
