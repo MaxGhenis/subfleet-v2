@@ -505,6 +505,17 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
                 new_home = str(back)
                 plan.follow_up.append(f"{current} is moved back to {back} after ownership "
                                       "flips to v1; v1's glob finds it again from there.")
+    if to_owner == "v1" and row["owner"] == "v1" and plan.home_move is None:
+        # A way back whose rename failed after the flip: the store already says v1
+        # and ~/.codex-<n>, the directory is still parked under the state root.
+        # Finish the move rather than report a success disk does not show
+        # (confirmation round 3, finding 1).
+        parked = Path(state_root) / LANE_HOMES_DIR / lane_id
+        current = Path(lane_home).expanduser()
+        if parked.is_dir() and not current.exists():
+            plan.home_move = (str(parked), str(current))
+            plan.follow_up.append(f"{parked} is still parked; moving it back to {current} "
+                                  "to match the store")
     if new_home == lane_home:
         new_home = None
     plan.new_home = new_home

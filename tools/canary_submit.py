@@ -54,24 +54,31 @@ def main() -> int:
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=clone, capture_output=True, text=True, check=True).stdout.strip()
     since = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     (canary / "baseline.json").write_text(json.dumps({"head": head, "count": args.count, "since": since}, indent=2) + "\n")
-    submitted = []
+    # Safe to re-run: the cohort file is rewritten after every submission, a name already
+    # recorded with a job id is skipped, and each request id is deterministic
+    # (canary-NNN plus the baseline head), so a repeated submission of the same name
+    # is the daemon's duplicate-request case (C-6.2) and yields the same job, not a second one.
+    jobs_file = canary / "jobs.json"
+    recorded = {row["name"]: row for row in json.loads(jobs_file.read_text())} if jobs_file.exists() else {}
     for i, source in enumerate(chosen, 1):
         name = f"canary-{i:03d}"
+        if recorded.get(name, {}).get("job_id"):
+            print(f"{name} already {recorded[name]['job_id']}")
+            continue
         target = prompt_dir / f"{name}.md"
         target.write_text(PREAMBLE + source.read_text(errors="replace"))
         # -d: outside a Claude session `run` would otherwise wait for the job to finish (cli.launch_mode).
         cmd = [args.sf2, "run", "-d", "-m", "astra", "-s", "read-only", "-I", "-D", str(clone), "-C", str(clone),
-               "-p", str(target), "-n", name, "--no-wait-queue"]
+               "-p", str(target), "-n", name, "--request-id", f"{name}-{head[:8]}", "--no-wait-queue"]
         if args.dry_run:
             print(" ".join(cmd))
             continue
         result = subprocess.run(cmd, capture_output=True, text=True)
         job_id = result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else None
-        submitted.append({"name": name, "source": str(source), "job_id": job_id, "rc": result.returncode,
-                          "stderr": result.stderr.strip()[-400:]})
+        recorded[name] = {"name": name, "source": str(source), "job_id": job_id, "rc": result.returncode,
+                          "stderr": result.stderr.strip()[-400:]}
+        jobs_file.write_text(json.dumps(sorted(recorded.values(), key=lambda r: r["name"]), indent=2) + "\n")
         print(f"{name} -> {job_id or 'rc ' + str(result.returncode)}")
-    if not args.dry_run:
-        (canary / "jobs.json").write_text(json.dumps(submitted, indent=2) + "\n")
     return 0
 
 

@@ -478,3 +478,24 @@ def test_a_rollback_finished_by_hand_leaves_lanes_json_consistent(world, monkeyp
     assert row["home"] == str(src) and row["credential_ref"] == str(src)
     assert [r for r in lanes_json(world) if r["lane_id"] == "codex-1"][0]["home"] == str(src)
     assert "transferred_to_v2" not in roster_json(world, "codex-accounts.json")
+
+
+def test_a_rollback_rerun_without_the_operators_mv_finishes_the_move(world, monkeypatch):
+    """Confirmation round 3: the re-run must not report success while the home is still parked."""
+    src, dst = world["home"] / ".codex-1", world["root"] / "lanes" / "codex-1"
+    transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+
+    def refuse(a, b):
+        raise OSError("simulated rename failure")
+    monkeypatch.setattr(lanes_transfer.os, "rename", refuse)
+    with pytest.raises(lanes_transfer.TransferError):
+        transfer(world, "codex-1", "v1", confirm_v1_edit=True)
+    monkeypatch.undo()
+    assert owner(world, "codex-1") == "v1" and dst.is_dir() and not src.exists()
+    result = transfer(world, "codex-1", "v1", confirm_v1_edit=True)     # no mv by hand this time
+    assert result["applied"] is True and result["home_move"] == [str(dst), str(src)]
+    assert (src / "auth.json").exists() and not dst.exists()
+    row = lane_row(world, "codex-1")
+    assert row["owner"] == "v1" and row["home"] == str(src)
+    assert "transferred_to_v2" not in roster_json(world, "codex-accounts.json")
+    assert [r for r in lanes_json(world) if r["lane_id"] == "codex-1"][0]["home"] == str(src)

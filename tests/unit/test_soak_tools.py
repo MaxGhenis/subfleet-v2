@@ -54,12 +54,16 @@ def test_soak_report_ignores_imported_history_and_stops_on_a_fresh_loss(tmp_path
     store = seed(tmp_path)
     job(store, "20260901-100000-old", "lost", imported=True, reserved_at="2026-09-01T10:00:00Z",
         finished_at="2026-09-06T00:30:00Z")
-    store.add_event("job.imported", job_id="20260901-100000-old")      # stamped now, at import time
-    store.add_event("import.cursor")
+    # Importer events are stamped at import time, inside the reported day here by construction.
+    for kind in ("job.imported", "import.cursor", "attempt.accepted"):
+        store.conn.execute("INSERT INTO events(ts,kind,job_id,data_json) VALUES (?,?,?,?)",
+                           ("2026-09-06T02:00:00Z", kind, "20260901-100000-old", "{}"))
+    store.conn.commit()
     text, clean = soak_report.report(tmp_path, "2026-09-06", "%-canary-%", SINCE)
     assert clean and "CLEAN" in text
     events_section = text.split("## Events today")[1].split("##")[0]
     assert "job.imported" not in events_section and "import.cursor" not in events_section
+    assert "| attempt.accepted | 1 |" in events_section      # positive control: same day, not an import kind
     assert "History imported from v1" in text and "- lost: 1" in text.split("History imported")[1]
     job(store, "20260906-010000-canary-001", "lost", finished_at="2026-09-06T01:05:00Z")
     text, clean = soak_report.report(tmp_path, "2026-09-06", "%-canary-%", SINCE)
