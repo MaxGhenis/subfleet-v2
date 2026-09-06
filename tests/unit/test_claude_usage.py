@@ -10,8 +10,10 @@ from email.message import Message
 
 import pytest
 
+from subfleet.adapters import claude as claude_module
 from subfleet.adapters.claude import (
     OAUTH_USAGE_URL, SOURCE_OAUTH_USAGE, ClaudeAdapter, IdentityCheck, IdentityStatus, UsageResult,
+    home_login, keychain_service_for_home, login_expired,
 )
 from subfleet.contracts import Credential, Lane, LaneOwner, ReadingLabel
 
@@ -116,3 +118,59 @@ def test_c10_6_readings_are_returned_only_when_the_identity_binds():
 def test_c9_9_no_token_is_unavailable_without_a_request():
     result = adapter(lambda r, t: (_ for _ in ()).throw(AssertionError("no request"))).probe_usage(lane(), {})
     assert result.status == "unavailable" and result.detail == "no-token"
+
+
+# --- home lanes on macOS: the per-directory keychain item (C-9.9, C-23.47) ------
+
+NOW_MS = NOW.timestamp() * 1000
+
+
+def blob(expires_ms, refresh=True):
+    oauth = {"accessToken": "home-access-token", "expiresAt": expires_ms, "scopes": ["user:profile"],
+             "subscriptionType": "max"}
+    if refresh:
+        oauth["refreshToken"] = "home-refresh-token"
+    return json.dumps({"claudeAiOauth": oauth})
+
+
+def test_keychain_service_is_the_directory_hash_claude_code_uses(tmp_path):
+    import hashlib
+    home = tmp_path / "logins" / "max@farness.ai"
+    assert keychain_service_for_home(home) == "Claude Code-credentials-" + hashlib.sha256(str(home).encode()).hexdigest()[:8]
+
+
+def test_home_login_falls_back_to_the_keychain_item_when_the_file_is_absent(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    asked = []
+    def fake_blob(service, *, security_bin="security"):
+        asked.append(service)
+        return blob(NOW_MS + 3_600_000)
+    monkeypatch.setattr(claude_module, "_keychain_blob", fake_blob)
+    oauth = home_login(home)
+    assert asked == [keychain_service_for_home(home)]
+    assert oauth["accessToken"] == "home-access-token"
+    assert ClaudeAdapter._bearer({"CLAUDE_CONFIG_DIR": str(home)}) == "home-access-token"
+    (home / ".credentials.json").write_text(blob(NOW_MS + 10, refresh=False).replace("home-access-token", "file-token"))
+    assert ClaudeAdapter._bearer({"CLAUDE_CONFIG_DIR": str(home)}) == "file-token"   # the file wins when present
+
+
+def test_an_expired_home_login_is_expired_token_without_a_request(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(claude_module, "_keychain_blob", lambda service, **k: blob(NOW_MS - 1000))
+    assert login_expired(home_login(home), NOW_MS)
+    made = adapter(lambda r, t: (_ for _ in ()).throw(AssertionError("no request with an expired token")))
+    result = made.probe_usage(lane(), {"CLAUDE_CONFIG_DIR": str(home)})
+    assert result.status == "expired-token" and result.readings == ()
+
+
+def test_a_401_on_a_home_lane_with_a_refresh_token_is_expired_token_not_auth_dead(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(claude_module, "_keychain_blob", lambda service, **k: blob(NOW_MS + 3_600_000))
+    result = adapter(http_error(401)).probe_usage(lane(), {"CLAUDE_CONFIG_DIR": str(home)})
+    assert result.status == "expired-token"
+    monkeypatch.setattr(claude_module, "_keychain_blob", lambda service, **k: blob(NOW_MS + 3_600_000, refresh=False))
+    result = adapter(http_error(401)).probe_usage(lane(), {"CLAUDE_CONFIG_DIR": str(home)})
+    assert result.status == "auth-dead"

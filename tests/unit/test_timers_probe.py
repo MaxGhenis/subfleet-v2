@@ -321,3 +321,31 @@ def test_c9_9_retry_after_holds_the_lane_until_the_server_said_so(rig, monkeypat
     clock.advance(3000)
     timer.probe_cycle()
     assert adapter.calls == ["claude-1", "claude-1"]
+
+
+def test_c23_47_an_expired_claude_home_login_gets_one_heal_turn_then_a_re_read(rig, tmp_path, monkeypatch):
+    timer, store, clock, adapter, enroll = rig
+    home = tmp_path / "claude-home"
+    home.mkdir()
+    store.put_lane(Lane("claude-1", "claude", "claude:uuid-a:uuid-o", Credential("claude", str(home), "home"),
+                        str(home), LaneOwner.V2, False, True))
+    turns = []
+    class Outcome:
+        evidence = {}
+    timer.turn = lambda lane, purpose, *args, **kwargs: turns.append((lane.lane_id, purpose)) or Outcome()
+    timer._turn = lambda lane, purpose, holder, timeout: turns.append((lane.lane_id, purpose)) or Outcome()
+    adapter.responses["claude-1"] = [
+        {"status": "expired-token", "readings": ()},
+        {"status": "ok", "limit_reached": False, "readings": (
+            Reading("claude-1", "account", "seven_day", .5, iso(clock() + timedelta(days=3)),
+                    ReadingLabel.PROVIDER, "oauth-usage", iso(clock())),)},
+        {"status": "expired-token", "readings": ()},
+    ]
+    timer.probe_cycle()
+    assert turns == [("claude-1", "heal")]
+    assert adapter.calls == ["claude-1", "claude-1"]          # read, heal, read again
+    assert store.query("SELECT 1 FROM readings WHERE lane_id='claude-1' AND source='oauth-usage'")
+    clock.advance(600)                                        # ten minutes later: expired again, no second heal yet
+    timer.probe_cycle()
+    assert turns == [("claude-1", "heal")]
+    assert timer.metadata["claude-1"]["probe_status"] == "expired-token"

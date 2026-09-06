@@ -305,6 +305,19 @@ class Timers:
                 env = resolve_credential(lane.credential)
                 self._pace_usage()
                 probe = self._read_probe(adapter, lane, env)
+                if probe.get('status') == 'expired-token' and lane.credential.kind == 'home':
+                    # C-23.47 for Claude homes: the CLI refreshes its own keychain
+                    # login when it runs, so one minimal turn under this home heals
+                    # it; at most one such turn per 20 minutes per credential epoch.
+                    heals = self._latest('timer.heal')
+                    prior = heals.get(lane.lane_id, {})
+                    if prior.get('epoch') != epoch or (not prior.get('at') or (self.now() - instant(prior['at'])).total_seconds() >= 1200):
+                        self.store.add_event('timer.heal', lane_id=lane.lane_id, data={'epoch': epoch, 'at': iso(self.now())})
+                        outcome = self._turn(lane, 'heal', holder, 60)
+                        quarantined = outcome.evidence.get('probe_quarantined', False)
+                        if not quarantined:
+                            self._pace_usage()
+                            probe = self._read_probe(adapter, lane, env)
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
             return lane, {**probe, 'probed_at': iso(self.now())}

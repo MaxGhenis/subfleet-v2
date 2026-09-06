@@ -358,6 +358,58 @@ class UsageResult:
                 "detail": self.detail}
 
 
+#: Claude Code on macOS keeps a config directory's login in the keychain, not in
+#: `.credentials.json`: service `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`,
+#: same JSON shape as the file (observed 2026-09-06 with three fresh logins).
+KEYCHAIN_HOME_PREFIX = "Claude Code-credentials-"
+
+
+def keychain_service_for_home(home: str | Path) -> str:
+    digest = hashlib.sha256(str(Path(home).expanduser()).encode("utf-8")).hexdigest()[:8]
+    return KEYCHAIN_HOME_PREFIX + digest
+
+
+def _keychain_blob(service: str, *, security_bin: str = "security") -> str | None:
+    """One targeted keychain read of a login blob; None when absent or unreadable.
+    The value is returned to the caller and never logged (C-10.5)."""
+    try:
+        done = subprocess.run([security_bin, "find-generic-password", "-s", service, "-w"],
+                              capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    value = done.stdout.strip()
+    return value or None
+
+
+def home_login(home: str | Path) -> dict[str, Any] | None:
+    """The `claudeAiOauth` block of a config directory's login, from its
+    `.credentials.json` or, on macOS, its keychain item. None when there is none."""
+    path = Path(home).expanduser()
+    text: str | None = None
+    try:
+        text = (path / ".credentials.json").read_text(encoding="utf-8")
+    except OSError:
+        text = _keychain_blob(keychain_service_for_home(path))
+    if not text:
+        return None
+    try:
+        blob = json.loads(text)
+    except ValueError:
+        return None
+    oauth = blob.get("claudeAiOauth") if isinstance(blob, dict) else None
+    return oauth if isinstance(oauth, dict) else None
+
+
+def login_expired(oauth: Mapping[str, Any] | None, now_ms: float) -> bool:
+    """True when the login's access token has an `expiresAt` (ms epoch) in the past."""
+    if not oauth:
+        return False
+    expires = oauth.get("expiresAt")
+    return isinstance(expires, (int, float)) and not isinstance(expires, bool) and expires <= now_ms
+
+
 def _iso_or_none(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -575,8 +627,9 @@ class ClaudeAdapter(Adapter):
 
         A keychain or environment lane already has it under
         `CLAUDE_CODE_OAUTH_TOKEN`; a home lane keeps it in the config directory's
-        own `.credentials.json`, which is the provider CLI's store and is only
-        ever read here (C-23.47). Returns None rather than raising: an
+        own `.credentials.json` or, on macOS, in that directory's keychain item
+        (`keychain_service_for_home`), both the provider CLI's store and only ever
+        read here (C-23.47). Returns None rather than raising: an
         unanswerable profile is `unavailable`, not a crash.
         """
         token = (credential_env or {}).get("CLAUDE_CODE_OAUTH_TOKEN")
@@ -585,14 +638,8 @@ class ClaudeAdapter(Adapter):
         home = (credential_env or {}).get("CLAUDE_CONFIG_DIR")
         if not home:
             return None
-        try:
-            blob = json.loads(
-                (Path(home).expanduser() / ".credentials.json").read_text(encoding="utf-8")
-            )
-        except (OSError, ValueError):
-            return None
-        oauth = blob.get("claudeAiOauth") if isinstance(blob, dict) else None
-        value = oauth.get("accessToken") if isinstance(oauth, dict) else None
+        oauth = home_login(home)
+        value = oauth.get("accessToken") if oauth else None
         return str(value) if isinstance(value, str) and value.strip() else None
 
     def _fetch_profile(self, token: str) -> ProfileResult:
@@ -978,6 +1025,12 @@ class ClaudeAdapter(Adapter):
         token = self._bearer(credential_env)
         if not token:
             return UsageResult("unavailable", detail="no-token")
+        home = (credential_env or {}).get("CLAUDE_CONFIG_DIR")
+        login = home_login(home) if home else None
+        if login_expired(login, self._now().timestamp() * 1_000):
+            # C-23.47: the CLI refreshes its own store; a heal turn under this home
+            # does it. No request is sent with a token known to be expired.
+            return UsageResult("expired-token", detail="access token past expiresAt")
         check = self.lane_identity_check(lane, credential_env)
         if not check.binds:
             return UsageResult("identity-unbound",
@@ -1002,6 +1055,10 @@ class ClaudeAdapter(Adapter):
         if status == 429:
             return UsageResult("rate-limited", retry_after_s=retry_after, detail="HTTP 429")
         if status == 401:
+            if login and login.get("refreshToken"):
+                # A home lane with a refresh token: the access token lapsed, the
+                # login did not. One heal turn (C-23.47) is the answer, not a latch.
+                return UsageResult("expired-token", detail="HTTP 401 with a refresh token on file")
             return UsageResult("auth-dead", detail="HTTP 401")
         if status == 403:
             return UsageResult("no-scope", detail="HTTP 403")
@@ -1922,6 +1979,9 @@ __all__ = [
     "ADMISSION_WINDOW",
     "SOURCE_RATE_LIMIT_EVENT",
     "SOURCE_OAUTH_USAGE",
+    "home_login",
+    "keychain_service_for_home",
+    "login_expired",
     "UsageResult",
     "OAUTH_USAGE_URL",
     "SCOPED_MODEL_IDS",
