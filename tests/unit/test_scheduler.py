@@ -20,6 +20,16 @@ SIX_DAYS = "2026-09-11T10:33:00Z"
 
 @pytest.fixture
 def policy():
+    """The shipped policy with the reserve rule (C-11.7) switched off: these cases
+    describe admission mechanics that the rule sits on top of. `reserve_policy`
+    below is the policy as shipped, for the reserve cases."""
+    loaded = load_policy(DEFAULT_POLICY_PATH)
+    loaded["reserve"] = {**loaded.get("reserve", {}), "models": []}
+    return loaded
+
+
+@pytest.fixture
+def reserve_policy():
     return load_policy(DEFAULT_POLICY_PATH)
 
 
@@ -373,3 +383,108 @@ def test_c17_2_an_email_pin_still_resolves_when_the_key_is_two_uuids(policy):
     excluded = evaluate(policy, view, job(pinned_model="haiku",
                                           exclusions=["max@axiom.org"]))
     assert excluded.chosen_lane is None
+
+
+# --- C-11.7: the reserve rule ------------------------------------------------
+
+FABLE = "claude-fable-5-1"
+
+
+def usage(identity, shared, fable=None, **changes):
+    """Fresh readings as the usage endpoint reports them (C-9.9): the shared week and,
+    when the account has one, the Fable week."""
+    rows = [reading(identity, shared, source="oauth-usage", **changes)]
+    if fable is not None:
+        rows.append(reading(identity, fable, source="oauth-usage", scope=FABLE, **changes))
+    return rows
+
+
+def decision_for(policy, lanes, readings, **job_changes):
+    return evaluate(policy, view(lanes, readings), job(**job_changes))
+
+
+def rejection(decision, model, identity):
+    evaluation = next(e for e in decision.evaluations if e["model"] == model)
+    return next((r for r in evaluation["rejections"] if r["lane_id"] == identity), None)
+
+
+def test_c11_7_opus_is_refused_on_an_unmeasured_claude_lane_and_fable_is_not(reserve_policy):
+    """Until the usage endpoint has been read, a non-reserved model gets no Claude lane."""
+    lanes = [lane("claude-1"), lane("codex-1")]
+    opus = decision_for(reserve_policy, lanes, [], pinned_model="opus", task=None, tier=None)
+    assert opus.chosen_lane is None
+    assert rejection(opus, "opus", "claude-1")["reasons"] == ["reserve:fable:unmeasured"]
+    assert rejection(opus, "opus", "claude-1")["reserve"]["state"] == "unmeasured"
+    fable = decision_for(reserve_policy, lanes, [], pinned_model="fable", task=None, tier=None)
+    assert fable.chosen_lane == "claude-1"        # C-11.4 still probes it before launch
+
+
+def test_c11_7_slack_decides_and_is_recorded(reserve_policy):
+    """slack = (1 - shared) - cap_ratio * (1 - fable); below min_slack the lane is reserved."""
+    lanes = [lane("claude-1"), lane("claude-2")]
+    # claude-1: shared 94, Fable 49 (the incident's account): slack = .06 - 2 * .51 < 0
+    # claude-2: shared 60, Fable 97: slack = .40 - 2 * .03 = .34
+    rows = usage("claude-1", .94, .49) + usage("claude-2", .60, .97)
+    decision = decision_for(reserve_policy, lanes, rows, pinned_model="opus", task=None, tier=None)
+    assert decision.chosen_lane == "claude-2"
+    reserved = rejection(decision, "opus", "claude-1")
+    assert "reserve:fable:reserved" in reserved["reasons"]      # beside below-floor at 94
+    assert reserved["reserve"] == {"model": "fable", "state": "reserved", "all_remaining": .06,
+                                   "reserved_remaining": .51, "slack": -.96, "cap_ratio": 2.0, "min_slack": .05}
+    chosen = next(e for e in decision.evaluations if e["model"] == "opus")["candidate_details"]["claude-2"]
+    assert chosen["reserve"]["state"] == "slack" and chosen["reserve"]["slack"] == .34
+
+
+def test_c11_7_fable_jobs_see_both_windows_and_ignore_the_reserve(reserve_policy):
+    """The reserved model itself is bounded by min(shared, Fable) headroom, never by slack."""
+    lanes = [lane("claude-1"), lane("claude-2")]
+    rows = usage("claude-1", .80, .49) + usage("claude-2", .60, .90)
+    decision = decision_for(reserve_policy, lanes, rows, pinned_model="fable", task=None, tier=None)
+    assert decision.chosen_lane == "claude-1"      # headroom .20 beats claude-2's Fable headroom .10
+    details = next(e for e in decision.evaluations if e["model"] == "fable")["candidate_details"]
+    assert "reserve" not in details["claude-1"] and details["claude-1"]["headroom"] == pytest.approx(.20)
+    assert details["claude-2"]["headroom"] == pytest.approx(.10)
+
+
+def test_c11_7_an_account_without_a_reserved_window_is_free(reserve_policy):
+    lanes = [lane("claude-1")]
+    decision = decision_for(reserve_policy, lanes, usage("claude-1", .30), pinned_model="opus", task=None, tier=None)
+    assert decision.chosen_lane == "claude-1"
+    detail = next(e for e in decision.evaluations if e["model"] == "opus")["candidate_details"]["claude-1"]["reserve"]
+    assert detail["state"] == "slack" and detail["slack"] == .7 and detail["reserved_remaining"] is None
+
+
+def test_c11_7_only_the_usage_sensor_measures_the_shared_window(reserve_policy):
+    """A seven_day reading from a rate_limit_event carries no scoped window, so it cannot
+    prove the lane free: without a usage read the lane stays unmeasured for Opus."""
+    lanes = [lane("claude-1")]
+    rows = [reading("claude-1", .30, source="rate_limit_event")]
+    decision = decision_for(reserve_policy, lanes, rows, pinned_model="opus", task=None, tier=None)
+    assert decision.chosen_lane is None
+    assert rejection(decision, "opus", "claude-1")["reasons"] == ["reserve:fable:unmeasured"]
+
+
+def test_c11_7_non_reserved_work_orders_lanes_by_slack(reserve_policy):
+    lanes = [lane("claude-1"), lane("claude-2"), lane("claude-3")]
+    rows = (usage("claude-1", .50, .95) + usage("claude-2", .20, .95) + usage("claude-3", .10, .60))
+    decision = decision_for(reserve_policy, lanes, rows, pinned_model="sonnet", task=None, tier=None)
+    evaluation = next(e for e in decision.evaluations if e["model"] == "sonnet")
+    # slack: claude-1 .50-.10=.40; claude-2 .80-.10=.70; claude-3 .90-.80=.10
+    assert evaluation["candidates"] == ["claude-2", "claude-1", "claude-3"]
+    assert decision.chosen_lane == "claude-2"
+
+
+def test_c11_7_a_stale_usage_read_does_not_count(reserve_policy):
+    lanes = [lane("claude-1")]
+    rows = usage("claude-1", .30, .90, observed_at="2026-09-05T10:00:00Z")   # 33 minutes old, ttl 120 s
+    decision = decision_for(reserve_policy, lanes, rows, pinned_model="opus", task=None, tier=None)
+    assert rejection(decision, "opus", "claude-1")["reasons"] == ["reserve:fable:unmeasured"]
+
+
+def test_c11_7_a_pinned_lane_is_still_reserved(reserve_policy):
+    """An operator's pin does not spend Fable either; the job waits for the usage read."""
+    lanes = [lane("claude-1")]
+    decision = evaluate(reserve_policy, view(lanes, usage("claude-1", .94, .49)),
+                        job(pinned_lane="claude-1", pinned_model="opus", task=None, tier=None))
+    assert decision.chosen_lane is None
+    assert "reserve:fable:reserved" in rejection(decision, "opus", "claude-1")["reasons"]

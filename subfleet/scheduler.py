@@ -214,6 +214,18 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                 reasons.append("no-slot")
             if any(row["utilization"] >= 1 - floor for row in measured_readings):
                 reasons.append("below-floor")
+            # C-11.7: a model that is not reserved may only spend a lane's slack above
+            # what the reserved model could still use of the shared weekly window.
+            for reserved in (policy.get("reserve") or {}).get("models", ()):
+                r_model = policy["models"].get(reserved)
+                if not r_model or r_model["provider"] != model["provider"] or r_model["id"] == model["id"]:
+                    continue
+                verdict = reserve_verdict(identity, r_model["id"], readings, now=now,
+                                          reading_ttl_s=caps["reading_ttl_s"],
+                                          reserve=policy.get("reserve") or {})
+                detail["reserve"] = {"model": reserved, **verdict}
+                if verdict["state"] != "slack":
+                    reasons.append(f"reserve:{reserved}:{verdict['state']}")
             if reasons:
                 rejections.append({"lane_id": identity, "reason": reasons[0], "reasons": reasons, **detail})
             else:
@@ -224,6 +236,10 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
             row = details[identity]
             if model["provider"] == "codex":
                 return (not row["measured"], row["seven_day_reset"] or "9999", identity)
+            reserve = row.get("reserve") or {}
+            if reserve.get("slack") is not None:
+                # C-11.7: non-reserved work lands where the reserved bucket is most spent.
+                return (not row["measured"], -reserve["slack"], row["in_flight"], identity)
             return (not row["measured"], -(row["headroom"] or 0), row["in_flight"], identity)
 
         candidates.sort(key=comparator)
@@ -250,6 +266,39 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     digest = job.get("policy_hash") or policy.get("_policy_hash", "")
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations),
                     chosen_lane, chosen_model, "; ".join(messages), digest)
+
+
+def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[str, Any]], *,
+                    now: datetime, reading_ttl_s: int, reserve: Mapping[str, Any]) -> dict[str, Any]:
+    """C-11.7: how much of a lane's shared weekly window a non-reserved model may spend.
+
+    Reads only fresh `provider` readings of window `seven_day`: the account one from
+    the usage endpoint (source `oauth-usage`, the sensor that also reports scoped
+    windows) and the reserved model's scoped one. slack = (1 - shared utilization)
+    - cap_ratio * (1 - reserved utilization). States: `unmeasured` (no fresh
+    usage read of the shared window), `reserved` (slack below `min_slack`),
+    `slack` (may spend `slack`; a usage read that shows no reserved window makes
+    the whole remainder slack).
+    """
+    ratio = float(reserve.get("cap_ratio", 1.0))
+    min_slack = float(reserve.get("min_slack", 0.05))
+    fresh = [row for row in readings if row["lane_id"] == identity and row.get("window") == "seven_day"
+             and fresh_provider(row, now=now, reading_ttl_s=reading_ttl_s)]
+    account = next((row for row in fresh if row["scope"] == "account"
+                    and row.get("source") == "oauth-usage"), None)
+    if account is None:
+        return {"state": "unmeasured", "cap_ratio": ratio, "min_slack": min_slack}
+    all_remaining = round(1 - float(account["utilization"]), 4)
+    scoped = next((row for row in fresh if row["scope"] == reserved_id), None)
+    if scoped is None:
+        return {"state": "slack", "all_remaining": all_remaining, "reserved_remaining": None,
+                "slack": all_remaining, "cap_ratio": ratio, "min_slack": min_slack,
+                "note": "no reserved window on this account"}
+    reserved_remaining = round(1 - float(scoped["utilization"]), 4)
+    slack = round(all_remaining - ratio * reserved_remaining, 4)
+    return {"state": "slack" if slack >= min_slack else "reserved", "all_remaining": all_remaining,
+            "reserved_remaining": reserved_remaining, "slack": slack, "cap_ratio": ratio,
+            "min_slack": min_slack}
 
 
 def probe_required(decision: Decision, job: Any) -> bool:

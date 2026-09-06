@@ -146,5 +146,13 @@
       "progress": 32000,
       "repository": 16000
     }
+  },
+  "reserve": {
+    "models": [
+      "fable"
+    ],
+    "cap_ratio": 2.0,
+    "min_slack": 0.05,
+    "usage_spacing_s": 3
   }
 }

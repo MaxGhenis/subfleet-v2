@@ -202,7 +202,8 @@ def test_a_mismatched_lane_is_not_a_candidate():
     view = build_view(lanes, now=NOW)
     assert identity_blocked(view["lanes"][0])
     assert not identity_blocked(view["lanes"][1])
-    decision = evaluate(policy, view, {"job_id": "j", "pinned_model": "haiku",
+    # The reserved model: C-11.7 would otherwise hold an unmeasured lane for Haiku.
+    decision = evaluate(policy, view, {"job_id": "j", "pinned_model": "fable",
                                        "sandbox": "read-only", "exclusions": "[]"})
     assert decision.chosen_lane == "claude-2"
     rejected = {row["lane_id"]: row for row in decision.evaluations[0]["rejections"]}

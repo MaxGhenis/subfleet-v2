@@ -72,6 +72,16 @@ KEYCHAIN_PREFIX = "claude-quota-"
 #: own profile loader reads `account.{email,uuid}` and `organization.uuid` here.
 OAUTH_PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 PROFILE_TIMEOUT_S = 15.0
+#: C-9.9: the usage sensor that costs no model turn, read with the lane's own token.
+OAUTH_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+OAUTH_USAGE_BETA = "oauth-2025-04-20"
+SOURCE_OAUTH_USAGE = "oauth-usage"
+USAGE_TIMEOUT_S = 15.0
+#: `limits[].scope.model.display_name` -> policy model id for the model-scoped weekly
+#: windows the usage endpoint reports (C-9.9, C-11.7). An unknown name keeps its
+#: lower-cased display name as scope; the scheduler ignores scopes it has no model for.
+SCOPED_MODEL_IDS = {"fable": "claude-fable-5-1", "opus": "claude-opus-5",
+                    "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5-20251001"}
 PROFILE_MAX_BYTES = 1 << 20
 
 #: The keychain item the Claude desktop app keeps its own login in — the same item
@@ -331,6 +341,33 @@ def _urlopen(request: urllib.request.Request, timeout: float) -> tuple[int, byte
 
 
 @dataclass(frozen=True)
+class UsageResult:
+    """What the usage endpoint said about a lane's windows (C-9.9). Never carries
+    the token or an exception's text."""
+
+    status: str                 # ok | rate-limited | auth-dead | no-scope | unavailable | identity-unbound
+    readings: tuple[Reading, ...] = ()
+    limit_reached: bool | None = None
+    retry_after_s: int | None = None
+    detail: str | None = None
+
+    def as_probe(self) -> dict[str, Any]:
+        """The shape `timers._read_probe` stores: status, readings, limit_reached."""
+        return {"status": self.status, "readings": self.readings,
+                "limit_reached": self.limit_reached, "retry_after_s": self.retry_after_s,
+                "detail": self.detail}
+
+
+def _iso_or_none(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return iso_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
 class ProfileResult:
     """What `https://api.anthropic.com/api/oauth/profile` said about a credential.
 
@@ -430,6 +467,7 @@ class ClaudeAdapter(Adapter):
         security_bin: str = "security",
         profile_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
         reading_ttl_s: int = READING_TTL_S,
+        usage_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
     ) -> None:
         self.claude_bin = claude_bin
         self._runner = runner
@@ -439,6 +477,7 @@ class ClaudeAdapter(Adapter):
         self._security_bin = security_bin
         self._profile_opener = profile_opener
         self._reading_ttl_s = reading_ttl_s
+        self._usage_opener = usage_opener
         # C-10.6: one profile request per credential per reading window, so the
         # identity beside a reading was fetched in the same probe cycle. Keyed by
         # a digest of the token: the cache never holds the credential itself.
@@ -920,6 +959,90 @@ class ClaudeAdapter(Adapter):
             summary.rate_limit, lane_id=lane_id, model_id=model_id,
             observed_at=observed_at, attempt_id=attempt_id,
         )
+
+    # --- the usage endpoint (C-9.9) ------------------------------------------
+
+    def probe_usage(self, lane: Lane, credential_env: Mapping[str, str] | None, *,
+                    scoped_models: Mapping[str, str] | None = None) -> UsageResult:
+        """C-9.9: the lane's windows from `/api/oauth/usage`, no model turn spent.
+
+        Account windows `five_hour` and `seven_day` become `provider` readings with
+        scope `account`; every `limits[]` row of kind `weekly_scoped` becomes a
+        `provider` reading whose scope is the policy model id for the row's
+        display name (window `seven_day`). Utilization is normalised to a fraction.
+        HTTP 429 yields no reading and the server's `Retry-After`; 401 is
+        `auth-dead`; 403 is `no-scope`; anything else `unavailable`. C-10.6 holds:
+        readings are returned only when the profile endpoint, asked with the same
+        credential, binds the lane.
+        """
+        token = self._bearer(credential_env)
+        if not token:
+            return UsageResult("unavailable", detail="no-token")
+        check = self.lane_identity_check(lane, credential_env)
+        if not check.binds:
+            return UsageResult("identity-unbound",
+                               detail=check.status.value if check.status else None)
+        request = urllib.request.Request(OAUTH_USAGE_URL, headers={
+            "Authorization": f"Bearer {token}",
+            "anthropic-beta": OAUTH_USAGE_BETA,
+            "Accept": "application/json",
+            "Cache-Control": "no-cache",
+        })
+        opener = self._usage_opener or _urlopen
+        retry_after: int | None = None
+        try:
+            status, body = opener(request, USAGE_TIMEOUT_S)
+        except urllib.error.HTTPError as error:
+            status, body = int(error.code), b""
+            header = error.headers.get("Retry-After") if error.headers else None
+            retry_after = int(header) if isinstance(header, str) and header.strip().isdigit() else None
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            # Only the exception's type: its text can quote the request headers.
+            return UsageResult("unavailable", detail=type(error).__name__)
+        if status == 429:
+            return UsageResult("rate-limited", retry_after_s=retry_after, detail="HTTP 429")
+        if status == 401:
+            return UsageResult("auth-dead", detail="HTTP 401")
+        if status == 403:
+            return UsageResult("no-scope", detail="HTTP 403")
+        if status != 200:
+            return UsageResult("unavailable", detail=f"HTTP {status}")
+        try:
+            payload = json.loads(body.decode("utf-8", "replace"))
+        except ValueError:
+            return UsageResult("unavailable", detail="malformed")
+        if not isinstance(payload, dict):
+            return UsageResult("unavailable", detail="malformed")
+        observed_at = iso_utc(self._now())
+        readings: list[Reading] = []
+        for window in ("five_hour", "seven_day"):
+            entry = payload.get(window)
+            value = entry.get("utilization") if isinstance(entry, dict) else None
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                readings.append(Reading(lane.lane_id, "account", window, float(value) / 100.0,
+                                        _iso_or_none(entry.get("resets_at")), ReadingLabel.PROVIDER,
+                                        SOURCE_OAUTH_USAGE, observed_at))
+        names = {k.lower(): v for k, v in (scoped_models or SCOPED_MODEL_IDS).items()}
+        for limit in payload.get("limits") or []:
+            if not isinstance(limit, dict) or limit.get("kind") != "weekly_scoped":
+                continue
+            scope = limit.get("scope") if isinstance(limit.get("scope"), dict) else {}
+            model = scope.get("model") if isinstance(scope.get("model"), dict) else {}
+            name = str(model.get("display_name") or "").strip()
+            percent = limit.get("percent")
+            if not name or not isinstance(percent, (int, float)) or isinstance(percent, bool):
+                continue
+            readings.append(Reading(lane.lane_id, names.get(name.lower(), name.lower()), "seven_day",
+                                    float(percent) / 100.0, _iso_or_none(limit.get("resets_at")),
+                                    ReadingLabel.PROVIDER, SOURCE_OAUTH_USAGE, observed_at))
+        limit_reached = any(r.scope == "account" and r.utilization is not None and r.utilization >= 1.0
+                            for r in readings)
+        return UsageResult("ok", tuple(readings), limit_reached)
+
+    def probe_status(self, lane: Lane, credential_env: Mapping[str, str] | None) -> dict[str, Any]:
+        """What the timer's probe cycle reads for a Claude lane: the usage endpoint
+        (C-9.9), never a model turn. Same shape as the Codex adapter's."""
+        return self.probe_usage(lane, credential_env).as_probe()
 
     def probe(self, lane: Lane, credential_env: dict[str, str]) -> tuple[Reading, ...]:
         """C-9.1, C-11.4: one Haiku turn on the lane, read the sensor, return
@@ -1798,6 +1921,10 @@ __all__ = [
     "HEADLESS_BLOCK",
     "ADMISSION_WINDOW",
     "SOURCE_RATE_LIMIT_EVENT",
+    "SOURCE_OAUTH_USAGE",
+    "UsageResult",
+    "OAUTH_USAGE_URL",
+    "SCOPED_MODEL_IDS",
     "apply_headless_block",
     "encode_project_dir",
     "iso_from_epoch",

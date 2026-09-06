@@ -54,6 +54,9 @@ class Timers:
         self._due = {}
         self._io_busy = set()
         self._io_slots = threading.BoundedSemaphore(4)
+        # C-9.9: the usage endpoint penalises bursts; Claude usage reads are spaced.
+        self._usage_lock = threading.Lock()
+        self._usage_next = 0.0
         self.started = False
         self.actions = ResetCredits(store, policy, adapter_factory=lambda lane: self.adapter_factory(lane.provider))
         self.alerts = Alerts(store, policy, deliver or (lambda notice: False))
@@ -266,6 +269,9 @@ class Timers:
         last = previous.get('probed_at')
         if last and (self.now() - instant(last)).total_seconds() < self.intervals['probe']:
             return None
+        until = previous.get('retry_after_until')
+        if until and self.now() < instant(until):
+            return None     # C-9.9: the usage endpoint asked us to wait
         holder = self._reserve(lane, 'probe')
         if not holder:
             return None
@@ -292,10 +298,15 @@ class Timers:
                 if probe.get('status') in ('revoked', 'auth-revoked'):
                     probe['revoked_epoch'] = epoch
             else:
-                outcome = self._turn(lane, 'probe', holder, 60)
-                quarantined = outcome.evidence.get('probe_quarantined', False)
-                probe = {'status': outcome.cls.value, 'readings': outcome.readings,
-                         'outcome': outcome, 'requested_at': outcome.evidence.get('requested_at')}
+                # C-9.9: the periodic Claude probe is the usage endpoint, never a
+                # model turn (a turn on a Fable-bearing account spends the shared
+                # week). The pre-launch probe (C-11.4) and keepalive still spend one.
+                adapter = self.adapter_factory('claude')
+                env = resolve_credential(lane.credential)
+                self._pace_usage()
+                probe = self._read_probe(adapter, lane, env)
+                if probe.get('retry_after_s'):
+                    probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
             return lane, {**probe, 'probed_at': iso(self.now())}
         except (TimeoutError, OSError) as exc:
             return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
@@ -303,6 +314,16 @@ class Timers:
             return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
         finally:
             self._probe_holders[lane.lane_id] = (holder, quarantined)
+
+    def _pace_usage(self):
+        """C-9.9: one usage read at a time, `reserve.usage_spacing_s` apart."""
+        spacing = float((self.policy.get('reserve') or {}).get('usage_spacing_s', 3))
+        with self._usage_lock:
+            now = time.monotonic()
+            wait = max(0.0, self._usage_next - now)
+            self._usage_next = max(now, self._usage_next) + spacing
+        if wait > 0:
+            self.cancel.wait(wait)
 
     def _persist(self, lane, probe):
         at = iso(self.now())

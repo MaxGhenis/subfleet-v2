@@ -284,3 +284,40 @@ def test_duplicate_account_disables_later_binding_and_alerts_both_homes(rig):
     assert duplicate["duplicate_of"] == first.home
     assert any(notice["severity"] == "critical" and first.home in notice["body"]
                and later.home in notice["body"] for notice in notices)
+
+
+def test_c9_9_a_claude_lane_is_probed_through_the_usage_endpoint_never_a_model_turn(rig, monkeypatch):
+    timer, store, clock, adapter, enroll = rig
+    monkeypatch.setenv("SF_TEST_TOKEN", "token-value")
+    lane = Lane("claude-1", "claude", "claude:uuid-a:uuid-o", Credential("claude", "SF_TEST_TOKEN", "env"),
+                None, LaneOwner.V2, False, True)
+    store.put_lane(lane)
+    timer.turn = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("a model turn was spent"))
+    adapter.responses["claude-1"] = [{"status": "ok", "limit_reached": False, "readings": (
+        Reading("claude-1", "account", "seven_day", .88, iso(clock() + timedelta(days=4)),
+                ReadingLabel.PROVIDER, "oauth-usage", iso(clock())),
+        Reading("claude-1", "claude-fable-5-1", "seven_day", .24, iso(clock() + timedelta(days=4)),
+                ReadingLabel.PROVIDER, "oauth-usage", iso(clock())))}]
+    timer.probe_cycle()
+    assert adapter.calls == ["claude-1"]
+    rows = store.query("SELECT scope, window, utilization, source FROM readings WHERE lane_id='claude-1' ORDER BY scope")
+    assert [(r["scope"], r["window"], r["utilization"], r["source"]) for r in rows] == [
+        ("account", "seven_day", .88, "oauth-usage"), ("claude-fable-5-1", "seven_day", .24, "oauth-usage")]
+
+
+def test_c9_9_retry_after_holds_the_lane_until_the_server_said_so(rig, monkeypatch):
+    timer, store, clock, adapter, enroll = rig
+    monkeypatch.setenv("SF_TEST_TOKEN", "token-value")
+    store.put_lane(Lane("claude-1", "claude", "claude:uuid-a:uuid-o", Credential("claude", "SF_TEST_TOKEN", "env"),
+                        None, LaneOwner.V2, False, True))
+    adapter.responses["claude-1"] = [{"status": "rate-limited", "readings": (), "retry_after_s": 3035}]
+    timer.probe_cycle()
+    assert adapter.calls == ["claude-1"]
+    assert timer.metadata["claude-1"]["retry_after_until"] == iso(clock() + timedelta(seconds=3035))
+    assert not store.query("SELECT 1 FROM closures WHERE lane_id='claude-1'")
+    clock.advance(600)
+    timer.probe_cycle()
+    assert adapter.calls == ["claude-1"]          # inside Retry-After: not asked again
+    clock.advance(3000)
+    timer.probe_cycle()
+    assert adapter.calls == ["claude-1", "claude-1"]
