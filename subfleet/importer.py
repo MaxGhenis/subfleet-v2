@@ -559,12 +559,26 @@ def import_roster(writer: _Writer, report: StoreReport, *, roster_dir: Path, hom
 
     def enrol(lane_id: str, provider: str, account_key: str, credential_ref: str,
               credential_kind: str, home_path: str | None, desktop: bool, enabled: bool,
-              reason: str | None = None) -> None:
+              reason: str | None = None, label: str | None = None) -> None:
         report.seen += 1
         binding = (provider, account_key, credential_ref)
         if binding in by_binding:
             row = by_binding[binding]
-            report.skip("already-imported")
+            if label and not row.get("label"):
+                # Older imports omitted the operator's email claim, leaving the
+                # adapter nothing to compare its profile response against. Learn
+                # that label once, never an identity or a replacement binding.
+                values = {"label": label, "updated_at": now}
+                if not row.get("identity") and row.get("identity_status") is None:
+                    values["identity_status"] = "unverified"
+                with writer.transaction("lane.import-label", lane_id=row["lane_id"],
+                                        data={"label": label, "source": CLAUDE_ROSTER}):
+                    writer.update("lanes", "lane_id", row["lane_id"], values)
+                row.update(values)
+                report.imported += 1
+                report.count("missing-operator-label-repaired")
+            else:
+                report.skip("already-imported")
             if bool(row["desktop"]) != desktop:
                 report.note(f"{row['lane_id']}: desktop flag differs from v1's current login; "
                             "the daemon re-reads it each probe cycle (C-10.3)")
@@ -579,9 +593,11 @@ def import_roster(writer: _Writer, report: StoreReport, *, roster_dir: Path, hom
             "credential_ref": credential_ref, "credential_kind": credential_kind,
             "credential_epoch": 1, "home": home_path, "owner": "v1",
             "desktop": int(desktop), "enabled": int(enabled), "plan": None,
+            "label": label, "identity": None,
+            "identity_status": "unverified" if label else None,
             "created_at": now, "updated_at": now,
         }, kind="lane.imported")
-        existing[lane_id] = {"lane_id": lane_id, "desktop": int(desktop)}
+        existing[lane_id] = {"lane_id": lane_id, "desktop": int(desktop), "label": label}
         by_binding[binding] = existing[lane_id]
         report.imported += 1
         if reason:
@@ -601,8 +617,10 @@ def import_roster(writer: _Writer, report: StoreReport, *, roster_dir: Path, hom
         report.note(f"{CLAUDE_ROSTER} is absent or malformed; no Claude lane imported")
         roster = {}
     enrolled = roster.get("enrolled") if isinstance(roster.get("enrolled"), dict) else {}
+    transferred = (roster.get("transferred_to_v2")
+                   if isinstance(roster.get("transferred_to_v2"), dict) else {})
     listed = [str(email) for email in (roster.get("accounts") or []) if isinstance(email, str)]
-    order = list(dict.fromkeys(listed + list(enrolled)))
+    order = list(dict.fromkeys(listed + list(enrolled) + list(transferred)))
     def next_claude_id() -> str:
         """C-1.3: `claude-<n>`, the first free n.
 
@@ -620,10 +638,10 @@ def import_roster(writer: _Writer, report: StoreReport, *, roster_dir: Path, hom
         # C-10.1: the credential reference is a keychain item name, `claude-quota-<email>`
         # as v1. An account with no setup token has no item yet; the lane records
         # the name v1 would use and stays disabled until enrolment (C-10.2).
-        reference = enrolled.get(email) or f"claude-quota-{key}"
+        reference = enrolled.get(email) or transferred.get(email) or f"claude-quota-{key}"
         enrol(next_claude_id(), "claude", f"claude:{key}", str(reference), "keychain-token",
               None, key == desktop_account, email in enrolled,
-              None if email in enrolled else "not-enrolled-in-v1")
+              None if email in enrolled else "not-enrolled-in-v1", label=key)
 
     for path in _codex_homes(home):
         auth = _read_json(path / "auth.json")
@@ -654,7 +672,8 @@ def import_roster(writer: _Writer, report: StoreReport, *, roster_dir: Path, hom
 def _lane_index(writer: _Writer, home: Path) -> dict[str, str]:
     """Every name a v1 file uses for a lane, to the v2 lane id."""
     index: dict[str, str] = {}
-    for row in writer.query("SELECT * FROM lanes"):
+    lanes = {row["lane_id"]: row for row in writer.query("SELECT * FROM lanes")}
+    for row in lanes.values():
         lane_id = row["lane_id"]
         for name in (lane_id, row["account_key"], row["credential_ref"], row["home"]):
             if name:
@@ -665,6 +684,35 @@ def _lane_index(writer: _Writer, home: Path) -> dict[str, str]:
         for path in (row["home"], row["credential_ref"]):
             if path and str(path).startswith(str(home)):
                 index.setdefault(_tilde(path, home).lower(), lane_id)
+    # Moving a Codex home must not disconnect v1 history from its account. The
+    # journal records both paths and the account at the ownership flip. Accept
+    # only a move into this lane's still-current binding, never an inferred
+    # ~/.codex-N name or an alias that another current lane now owns.
+    old_names: dict[str, set[str]] = {}
+    for event in writer.query("SELECT lane_id,data_json FROM events WHERE kind='lane.transferred' ORDER BY event_id"):
+        lane = lanes.get(event["lane_id"])
+        if lane is None or lane["provider"] != "codex":
+            continue
+        try:
+            data = json.loads(event["data_json"])
+        except (TypeError, ValueError):
+            continue
+        if (not isinstance(data, dict) or data.get("from") != "v1" or data.get("to") != "v2"
+                or data.get("account_key") != lane["account_key"]):
+            continue
+        move = data.get("home_move")
+        if (not isinstance(move, list) or len(move) != 2
+                or not all(isinstance(path, str) and Path(path).is_absolute() for path in move)
+                or move[1] != lane["home"] or move[1] != lane["credential_ref"]):
+            continue
+        for name in (move[0], _tilde(move[0], home)):
+            old_names.setdefault(name.lower(), set()).add(lane["lane_id"])
+    for name, candidates in old_names.items():
+        # A numbered home can later host another account and be transferred
+        # again. Without a source timestamp/account binding, neither the first
+        # nor the latest historical owner can safely claim all records there.
+        if len(candidates) == 1:
+            index.setdefault(name, next(iter(candidates)))
     return index
 
 
@@ -929,6 +977,14 @@ def import_reset_policy(writer: _Writer, report: StoreReport, *, v1_state: Path,
         report.seen += 1
         lane_id = _lane_of(index, lane, home)
         row = writer.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)) if lane_id else None
+        if row is None and ("/" in lane or lane.startswith("~")):
+            # A moved, reused or unknown home is not an account identity. Keep
+            # unresolved evidence in v1 and report it instead of fabricating an
+            # account-key action that cannot deduplicate the actual redemption.
+            report.skip("reset-home-without-account-binding")
+            report.note(f"{_tilde(lane, home)}: no unambiguous account binding; "
+                        "reset-credit history left in v1")
+            continue
         account_key = row["account_key"] if row else lane
         op_keys = reset_credit_op_keys(account_key, credit_id or 'at-' + redeemed_at)
         op_key = op_keys[0]
