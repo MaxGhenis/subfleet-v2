@@ -27,6 +27,12 @@ WHAM_RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-
 WHAM_RESET_CREDITS_CONSUME_URL = WHAM_RESET_CREDITS_URL + "/consume"
 RESET_CREDIT_URLS = frozenset({WHAM_RESET_CREDITS_URL, WHAM_RESET_CREDITS_CONSUME_URL})
 USER_AGENT = "subfleet/2 (codex_cli_rs compatible)"
+ROLLOUT_THREAD_RE = re.compile(
+    r"^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-"
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$",
+    re.I,
+)
+ATTESTATION_CANDIDATE_LIMIT = 32
 AUTH_RE = re.compile(
     r"refresh[ _-]token.{0,60}revoked|"
     r"(?:organi[sz]ation|organization_id).{0,60}(?:blocked|disabled|deactivated)|"
@@ -576,8 +582,23 @@ class CodexAdapter(Adapter):
             if interval is None:
                 return AttestationResult(Attestation.UNATTESTED, None,
                                          "Native resume needs valid start/exit receipt clocks")
-        matches = []
+        # Codex names rollouts with the native thread UUID. Enumerate paths,
+        # but do not open thousands of unrelated historical transcripts merely
+        # to rediscover their IDs. Filename matches still need session_meta and
+        # model evidence below; the filename never supplies an attestation.
+        candidates = []
         for path in (Path(home).expanduser() / "sessions").rglob("*.jsonl"):
+            named = ROLLOUT_THREAD_RE.fullmatch(path.name)
+            if named and named[1].casefold() != session_id.casefold():
+                continue
+            candidates.append(path)
+            # Keep opaque legacy filenames usable, but never assert uniqueness
+            # from a truncated search of a large or ambiguous candidate set.
+            if len(candidates) > ATTESTATION_CANDIDATE_LIMIT:
+                return AttestationResult(Attestation.UNATTESTED, None,
+                                         "Rollout candidate limit exceeded; thread evidence is ambiguous")
+        matches = []
+        for path in sorted(candidates):
             records = _events(path)
             first = next(records, {})
             payload = first.get("payload", {})

@@ -340,6 +340,79 @@ def test_roster_accounts_become_lanes_owned_by_v1(v1):
         f"codex:{CODEX_ONE}", f"codex:{CODEX_TWO}"}
 
 
+@pytest.mark.parametrize("profile_matches", [True, False])
+def test_imported_claude_label_allows_profile_comparison_without_claiming_identity(v1, profile_matches):
+    from subfleet.adapters.claude import ClaudeAdapter
+    from tests.fake.profile import usage_body
+
+    run_import(v1)
+    row = rows(v1["root"], "SELECT * FROM lanes WHERE account_key=?", (f"claude:{ENROLLED}",))[0]
+    assert row["label"] == ENROLLED and row["identity"] is None
+    assert row["identity_status"] == "unverified"
+    calls = []
+
+    def profile(request, timeout):
+        calls.append("profile")
+        return 200, json.dumps({"account": {"email": ENROLLED if profile_matches else SECOND,
+                                            "uuid": "fixture-account"},
+                                "organization": {"uuid": "fixture-org"}}).encode()
+
+    def usage(request, timeout):
+        calls.append("usage")
+        return 200, usage_body(.25)
+
+    adapter = ClaudeAdapter(profile_opener=profile, usage_opener=usage)
+    with Store(v1["root"] / "state.sqlite3") as store:
+        result = adapter.probe_usage(store.get_lane(row["lane_id"]), {"CLAUDE_CODE_OAUTH_TOKEN": "fake-only"})
+    assert result.status == ("ok" if profile_matches else "identity-unbound")
+    assert calls == (["profile", "usage"] if profile_matches else ["profile"])
+    assert rows(v1["root"], "SELECT * FROM lanes WHERE lane_id=?", (row["lane_id"],))[0] == row
+
+
+@pytest.mark.parametrize("identity_status", [None, "mismatch", "verified"])
+def test_incremental_import_repairs_missing_claude_label_after_transfer_only_once(v1, identity_status):
+    from subfleet.lanes_transfer import transfer
+
+    roster_path = v1["roster"] / "claude-accounts.json"
+    roster = json.loads(roster_path.read_text())
+    roster["enrolled"][ENROLLED] = "custom-imported-reference"
+    write_json(roster_path, roster)
+    run_import(v1)
+    with Store(v1["root"] / "state.sqlite3") as store:
+        row = store.one("SELECT * FROM lanes WHERE account_key=?", (f"claude:{ENROLLED}",))
+        transfer(store, v1["root"], row["lane_id"], "v2", roster_dir=v1["roster"],
+                 home=v1["home"], v1_state=v1["state"], confirm_v1_edit=True)
+        # Recreate the omitted fields of an earlier import without overwriting
+        # a later mismatch/verified profile finding or changing account ownership.
+        with store.transaction("test.old-import") as conn:
+            conn.execute("UPDATE lanes SET label=NULL,identity_status=?,enabled=0 WHERE lane_id=?",
+                         (identity_status, row["lane_id"]))
+        before = store.one("SELECT * FROM lanes WHERE lane_id=?", (row["lane_id"],))
+        before_actions = store.query("SELECT * FROM actions ORDER BY action_id")
+    report = run_import(v1)
+    after = rows(v1["root"], "SELECT * FROM lanes WHERE lane_id=?", (row["lane_id"],))[0]
+    expected = {**before, "label": ENROLLED, "updated_at": after["updated_at"],
+                "identity_status": identity_status or "unverified"}
+    assert after == expected and after["owner"] == "v2" and after["enabled"] == 0
+    assert report.stores["roster"].reasons["missing-operator-label-repaired"] == 1
+    assert len(rows(v1["root"], "SELECT * FROM lanes WHERE account_key=?", (f"claude:{ENROLLED}",))) == 1
+    assert rows(v1["root"], "SELECT * FROM actions ORDER BY action_id") == before_actions
+    again = run_import(v1)
+    assert again.stores["roster"].reasons.get("missing-operator-label-repaired", 0) == 0
+    assert rows(v1["root"], "SELECT * FROM lanes WHERE lane_id=?", (row["lane_id"],))[0] == after
+
+
+def test_reimport_preserves_recorded_claude_label_and_identity(v1):
+    run_import(v1)
+    with Store(v1["root"] / "state.sqlite3") as store:
+        row = store.one("SELECT * FROM lanes WHERE account_key=?", (f"claude:{ENROLLED}",))
+        store.update_lane(row["lane_id"], label="operator-recorded@example.test",
+                          identity="account-uuid:org-uuid", identity_status="verified")
+        before = store.one("SELECT * FROM lanes WHERE lane_id=?", (row["lane_id"],))
+    run_import(v1)
+    assert rows(v1["root"], "SELECT * FROM lanes WHERE lane_id=?", (row["lane_id"],))[0] == before
+
+
 def test_credential_refs_are_copied_never_values(v1):
     """Manifest row: "credential refs copied, never values" (C-10.1, C-10.5)."""
     run_import(v1)
@@ -402,6 +475,90 @@ def test_reimport_never_takes_an_account_back_from_v2(v1):
         store.update_lane("codex-1", owner="v2")
     run_import(v1)
     assert rows(v1["root"], "SELECT owner FROM lanes WHERE lane_id='codex-1'")[0]["owner"] == "v2"
+
+
+def test_reimport_after_codex_move_keeps_reset_history_and_new_runs_on_original_account(v1):
+    from subfleet.lanes_transfer import transfer
+
+    run_import(v1)
+    for path in (v1["state"] / "runs").glob("*/meta.json"):
+        meta = json.loads(path.read_text())
+        if meta.get("rc") is None:
+            meta.update(rc=0, finished_at=offset_now(-5))
+            write_json(path, meta)
+    before_actions = rows(v1["root"], "SELECT * FROM actions ORDER BY action_id")
+    with Store(v1["root"] / "state.sqlite3") as store:
+        transfer(store, v1["root"], "codex-1", "v2", roster_dir=v1["roster"],
+                 home=v1["home"], v1_state=v1["state"], agents_dir=v1["root"] / "no-agents",
+                 confirm_v1_edit=True)
+        lane_before = store.one("SELECT * FROM lanes WHERE lane_id='codex-1'")
+    run_id = "20260905-101200-transferred"
+    write_json(v1["state"] / "runs" / run_id / "meta.json",
+               run_meta(run_id, lane=str(v1["home"] / ".codex-1"),
+                        codex_home=str(v1["home"] / ".codex-1")))
+    cache = json.loads((v1["state"] / "capacity-live-cache.json").read_text())
+    cache["probed_at"] = offset_now(-1)
+    write_json(v1["state"] / "capacity-live-cache.json", cache)
+    run_import(v1)
+    assert rows(v1["root"], "SELECT * FROM actions ORDER BY action_id") == before_actions
+    assert rows(v1["root"], "SELECT lane_id FROM attempts WHERE job_id=?", (run_id,)) == [{"lane_id": "codex-1"}]
+    assert rows(v1["root"], "SELECT * FROM lanes WHERE lane_id='codex-1'")[0] == lane_before
+    assert len(rows(v1["root"], "SELECT * FROM readings WHERE lane_id='codex-1' AND source='wham'")) == 2
+    run_import(v1)
+    assert rows(v1["root"], "SELECT * FROM actions ORDER BY action_id") == before_actions
+
+
+@pytest.mark.parametrize("bad_evidence", ["absent", "wrong-account", "wrong-destination", "wrong-direction"])
+def test_old_codex_home_alias_requires_matching_transfer_evidence(v1, bad_evidence):
+    run_import(v1)
+    old = str(v1["home"] / ".codex-1")
+    parked = str(v1["root"] / "lanes" / "codex-1")
+    with Store(v1["root"] / "state.sqlite3") as store:
+        with store.transaction("test.relocated") as conn:
+            conn.execute("UPDATE lanes SET home=?,credential_ref=?,owner='v2' WHERE lane_id='codex-1'", (parked, parked))
+        data = {"from": "v1", "to": "v2", "account_key": f"codex:{CODEX_ONE}", "home_move": [old, parked]}
+        if bad_evidence == "wrong-account":
+            data["account_key"] = f"codex:{CODEX_TWO}"
+        elif bad_evidence == "wrong-destination":
+            data["home_move"][1] = parked + "-other"
+        elif bad_evidence == "wrong-direction":
+            data["from"], data["to"] = "v2", "v1"
+        if bad_evidence != "absent":
+            store.add_event("lane.transferred", lane_id="codex-1", data=data)
+        index = importer._lane_index(importer._Writer(store, False), v1["home"])
+        assert importer._lane_of(index, old, v1["home"]) is None
+        assert importer._lane_of(index, "~/.codex-1", v1["home"]) is None
+
+
+@pytest.mark.parametrize("current_binding", [False, True])
+def test_reused_codex_home_cannot_choose_between_historical_account_bindings(v1, current_binding):
+    from subfleet.contracts import Credential, Lane, LaneOwner
+
+    run_import(v1)
+    old = str(v1["home"] / ".codex-1")
+    with Store(v1["root"] / "state.sqlite3") as store:
+        for lane_id, account in (("codex-1", CODEX_ONE), ("codex-2", CODEX_TWO)):
+            parked = str(v1["root"] / "lanes" / lane_id)
+            with store.transaction("test.relocated") as conn:
+                conn.execute("UPDATE lanes SET home=?,credential_ref=?,owner='v2' WHERE lane_id=?",
+                             (parked, parked, lane_id))
+            store.add_event("lane.transferred", lane_id=lane_id,
+                            data={"from": "v1", "to": "v2", "account_key": f"codex:{account}",
+                                  "home_move": [old, parked]})
+        if current_binding:
+            store.put_lane(Lane("current", "codex", "codex:current-account",
+                                Credential("codex", old, "home"), old, LaneOwner.V1, False))
+        index = importer._lane_index(importer._Writer(store, False), v1["home"])
+        expected = "current" if current_binding else None
+        assert importer._lane_of(index, old, v1["home"]) == expected
+        assert importer._lane_of(index, "~/.codex-1", v1["home"]) == expected
+        if not current_binding:
+            before_actions = store.query("SELECT * FROM actions ORDER BY action_id")
+            report = importer.StoreReport("reset-policy", "import", "actions")
+            importer.import_reset_policy(importer._Writer(store, False), report,
+                                         v1_state=v1["state"], home=v1["home"], cursor={})
+            assert report.reasons["reset-home-without-account-binding"] >= 1
+            assert store.query("SELECT * FROM actions ORDER BY action_id") == before_actions
 
 
 # --- the runs row -------------------------------------------------------------
@@ -609,6 +766,18 @@ def test_a_lane_keepalive_never_opened_is_not_evidence(v1):
 
 
 # --- actions and closures -----------------------------------------------------
+
+@pytest.mark.parametrize("home_name", ["/missing/.codex-1", "~/.codex-8", "relative/codex-home"])
+def test_unknown_reset_home_is_reported_without_fabricating_account_action(v1, home_name):
+    write_json(v1["state"] / "reset-policy.json", {
+        "lane": home_name, "credit_id": "unbound-credit", "last_redeemed_at": offset_now(-3600),
+        "last_redemptions": {home_name: offset_now(-3600)},
+    })
+    report = run_import(v1)
+    assert not rows(v1["root"], "SELECT * FROM actions WHERE kind='reset-credit'")
+    assert report.stores["reset-policy"].reasons["reset-home-without-account-binding"] == 1
+    assert "no unambiguous account binding" in report.stores["reset-policy"].notes[0]
+
 
 def test_reset_redemptions_become_confirmed_actions(v1):
     """Manifest row `S/reset-policy.json`: kind reset-credit, state confirmed,

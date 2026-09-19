@@ -80,7 +80,7 @@ class Runner:
 
     def __call__(self, argv, **kwargs):
         self.calls.append(argv)
-        if argv[0].endswith("security"):
+        if argv[0].endswith("security") or argv[1:2] == ["get"]:
             return subprocess.CompletedProcess(argv, 0, self.token, "")
         return subprocess.CompletedProcess(argv, self.rc, self.stdout, "")
 

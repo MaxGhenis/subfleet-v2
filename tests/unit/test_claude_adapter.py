@@ -659,7 +659,7 @@ class _Runner:
 
     def __call__(self, argv, **kwargs):
         self.calls.append(list(argv))
-        if argv[0].endswith("security"):
+        if argv[0].endswith("security") or argv[1:2] == ["get"]:
             return subprocess.CompletedProcess(argv, self.token_rc, self.token, "")
         return subprocess.CompletedProcess(argv, self.rc, self.stdout, self.stderr)
 
@@ -701,7 +701,7 @@ def test_enroll_runs_one_haiku_turn_and_reads_the_sensor(tmp_path):
     assert {r.window: r.utilization for r in lane_info.readings} == {
         "five_hour": 0.05, "seven_day": 0.25
     }
-    turn = [c for c in runner.calls if c[0] != "security"][0]
+    turn = [c for c in runner.calls if c[0] == adapter.claude_bin][0]
     assert turn[1:] == [
         "-p", ENROLL_PROMPT, "--model", ENROLL_MODEL,
         "--output-format", "stream-json", "--verbose", "--max-turns", "1",
