@@ -29,11 +29,14 @@ on macOS with Python 3.12 and 3.14. It explicitly disables live tests. Actions
 are pinned to verified commit IDs, and uv 0.12.17 was verified against the
 official `astral-sh/uv` release API on this date.
 
-The final local default suite passed **3,635 tests with five skips** in 181.65
-seconds. The first hosted Python 3.14 run exposed an existing wall-clock race
-in a simulated termination test: its census could become empty during TERM
-grace before the expected KILL. The test now controls its clock and starts
-drainage when KILL is observed, preserving the repeated-census assertion.
+The local default suite passed **3,635 tests with five skips** in 181.65
+seconds after the implementation changes. Hosted CI also exposed fixture
+races: simulated termination now uses a controlled clock, reset-cycle tests
+retain the production cooldown instead of assuming observation within 0.6
+seconds, and session fixtures reap their owned guardians before deleting
+temporary state. Production daemon shutdown still preserves running jobs for
+recovery. Regression coverage retains the escalation, repeated-census,
+single-action, and native-session assertions.
 CI actions use their verified Node 24 releases to avoid the hosted runner's
 deprecated-runtime fallback.
 
