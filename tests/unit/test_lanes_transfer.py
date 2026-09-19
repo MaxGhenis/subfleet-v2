@@ -235,9 +235,14 @@ def test_a_codex_transfer_relocates_the_home_so_v1_cannot_discover_it(world):
     assert "relocation is what fences them" in " ".join(result["follow_up"])
 
 
-def test_a_codex_transfer_is_refused_while_a_v1_run_is_live_on_the_home(world):
+@pytest.mark.parametrize("home_field", ["codex_home", "lane"])
+def test_a_codex_transfer_is_refused_while_a_v1_run_is_live_on_the_home(world, home_field):
     """Relocating the home under a live v1 run would strand its CODEX_HOME."""
-    live_v1_run(world, "20260905-100000-live", world["home"] / ".codex-1")
+    meta_path = live_v1_run(world, "20260905-100000-live", world["home"] / ".codex-1")
+    if home_field == "lane":
+        meta = json.loads(meta_path.read_text())
+        meta["lane"] = meta.pop("codex_home")
+        meta_path.write_text(json.dumps(meta))
     live_v1_run(world, "20260905-090000-done", world["home"] / ".codex-1", finished=True)
     plan = lanes_transfer.plan_transfer(world["store"], world["root"], "codex-1", "v2",
                                         roster_dir=world["roster"], home=world["home"],
@@ -249,6 +254,34 @@ def test_a_codex_transfer_is_refused_while_a_v1_run_is_live_on_the_home(world):
     assert raised.value.code == Exit.REFUSED
     assert owner(world, "codex-1") == "v1" and (world["home"] / ".codex-1").is_dir()
     assert "transferred_to_v2" not in roster_json(world, "codex-accounts.json")
+
+
+@pytest.mark.parametrize("identity", [CLAUDE_EMAIL.upper(), "claude-1", "claude:" + CLAUDE_EMAIL])
+def test_claude_transfer_waits_for_matching_unfinished_v1_work(world, identity):
+    path = live_v1_run(world, "claude-live", world["home"] / "unused")
+    path.write_text(json.dumps({"family": "claude", "lane": identity}))
+    before = (world["roster"] / "claude-accounts.json").read_bytes()
+    dry = transfer(world, "claude-1", "v2", dry_run=True)
+    assert dry["live_v1_runs"] == ["claude-live"] and dry["blocker"]
+    with pytest.raises(lanes_transfer.TransferError, match="claude-live") as raised:
+        transfer(world, "claude-1", "v2", confirm_v1_edit=True)
+    assert raised.value.code == Exit.REFUSED
+    assert owner(world, "claude-1") == "v1"
+    assert (world["roster"] / "claude-accounts.json").read_bytes() == before
+    assert not (world["root"] / "lanes.json").exists()
+    assert not list(world["roster"].glob("*.bak-*"))
+
+
+def test_other_accounts_and_finished_v1_work_do_not_block_claude_transfer(world):
+    for run_id, meta in {
+        "other": {"family": "claude", "lane": OTHER_EMAIL},
+        "finished": {"family": "claude", "lane": CLAUDE_EMAIL, "finished_at": "2026-09-05T12:00:00Z"},
+        "rc-written": {"family": "claude", "lane": CLAUDE_EMAIL, "rc": 0},
+        "other-provider": {"family": "codex", "lane": CLAUDE_EMAIL},
+    }.items():
+        path = live_v1_run(world, run_id, world["home"] / "unused")
+        path.write_text(json.dumps(meta))
+    assert transfer(world, "claude-1", "v2", confirm_v1_edit=True)["applied"]
 
 
 def test_a_codex_transfer_is_refused_when_the_destination_exists(world):
@@ -279,16 +312,99 @@ def test_transferring_back_moves_the_home_to_its_original_path(world):
     assert seeded["home"] == str(src)
 
 
-def test_transferring_back_is_refused_while_a_v2_attempt_is_live(world):
-    transfer(world, "codex-1", "v2", confirm_v1_edit=True)
+@pytest.mark.parametrize("lane_id", ["codex-1", "claude-1"])
+@pytest.mark.parametrize("state", ["reserved", "starting", "running", "finalizing", "quarantined"])
+def test_transferring_back_is_refused_while_a_v2_attempt_is_live(world, lane_id, state):
+    transfer(world, lane_id, "v2", confirm_v1_edit=True)
+    before = snapshot(list(world["roster"].iterdir()) + [world["root"] / "lanes.json"])
     world["store"].add_job(job_id="20260905-100000-x", request_id="x", payload_digest="d", kind="run",
                            state="running", workdir="/tmp/w", prompt_path="/tmp/p", sandbox="read-only")
     world["store"].add_attempt(attempt_id="20260905-100000-x/a1", job_id="20260905-100000-x", seq=1,
-                               lane_id="codex-1", model_requested="astra", state="running")
+                               lane_id=lane_id, model_requested="astra", state=state)
     with pytest.raises(lanes_transfer.TransferError) as raised:
-        transfer(world, "codex-1", "v1", confirm_v1_edit=True)
+        transfer(world, lane_id, "v1", confirm_v1_edit=True)
     assert raised.value.code == Exit.REFUSED and "20260905-100000-x/a1" in str(raised.value)
-    assert owner(world, "codex-1") == "v2" and (world["root"] / "lanes" / "codex-1").is_dir()
+    assert owner(world, lane_id) == "v2"
+    assert snapshot(list(world["roster"].iterdir()) + [world["root"] / "lanes.json"]) == before
+    if lane_id == "codex-1":
+        assert (world["root"] / "lanes" / "codex-1").is_dir()
+
+
+@pytest.mark.parametrize("lane_id", ["codex-1", "claude-1"])
+@pytest.mark.parametrize("state", ["reserved", "starting", "running", "finalizing", "quarantined"])
+@pytest.mark.parametrize("retry", [False, True])
+def test_rollback_rechecks_attempts_admitted_after_plan_before_any_mutation(world, lane_id, state, retry):
+    transfer(world, lane_id, "v2", confirm_v1_edit=True)
+    if retry:
+        # A previous rollback flipped ownership but did not finish its move or
+        # roster publication. Re-running must not evade the census.
+        world["store"].update_lane(lane_id, owner="v1")
+        if lane_id == "codex-1":
+            original = str(world["home"] / ".codex-1")
+            with world["store"].transaction("test.partial-rollback") as conn:
+                conn.execute("UPDATE lanes SET home=?,credential_ref=? WHERE lane_id=?",
+                             (original, original, lane_id))
+    plan = lanes_transfer.plan_transfer(world["store"], world["root"], lane_id, "v1",
+                                        roster_dir=world["roster"], home=world["home"],
+                                        agents_dir=world["agents"], v1_state=world["v1_state"])
+    assert plan.blocker is None
+    if lane_id == "codex-1":
+        assert plan.home_move
+    world["store"].add_job(job_id="racing-job", request_id="racing", payload_digest="d", kind="run",
+                           state="running", workdir="/tmp/w", prompt_path="/tmp/p", sandbox="read-only")
+    world["store"].add_attempt(attempt_id="racing-job/a1", job_id="racing-job", seq=1,
+                               lane_id=lane_id, model_requested="astra", state=state)
+    before_lane = lane_row(world, lane_id)
+    before_events = world["store"].query("SELECT * FROM events")
+    before_files = snapshot(list(world["roster"].iterdir()) + [world["root"] / "lanes.json"])
+    with pytest.raises(lanes_transfer.TransferError, match="racing-job/a1") as raised:
+        lanes_transfer.apply_transfer(world["store"], plan, confirm_v1_edit=True)
+    assert raised.value.code == Exit.REFUSED
+    assert lane_row(world, lane_id) == before_lane
+    assert world["store"].query("SELECT * FROM events") == before_events
+    assert snapshot(list(world["roster"].iterdir()) + [world["root"] / "lanes.json"]) == before_files
+    if lane_id == "codex-1":
+        assert (world["root"] / "lanes" / "codex-1").is_dir()
+        assert not (world["home"] / ".codex-1").exists()
+
+
+@pytest.mark.parametrize("lane_id", ["codex-1", "claude-1"])
+@pytest.mark.parametrize("after_plan", [False, True])
+@pytest.mark.parametrize("retry", [False, True])
+def test_rollback_refuses_probe_slot_leases_without_attempt_rows(world, lane_id, after_plan, retry):
+    transfer(world, lane_id, "v2", confirm_v1_edit=True)
+    if retry:
+        world["store"].update_lane(lane_id, owner="v1")
+    before = lane_row(world, lane_id)
+    before_files = snapshot(list(world["roster"].iterdir()) + [world["root"] / "lanes.json"])
+
+    def reserve():
+        # An expired timestamp cannot authorize moving a quarantined guardian's
+        # provider home. Only containment and lease release can do that.
+        assert world["store"].acquire_lease(f"lane:{lane_id}:slot:0", "probe:active", "2020-01-01T00:00:00Z")
+
+    if not after_plan:
+        reserve()
+    plan = lanes_transfer.plan_transfer(world["store"], world["root"], lane_id, "v1",
+                                        roster_dir=world["roster"], home=world["home"],
+                                        agents_dir=world["agents"], v1_state=world["v1_state"])
+    assert bool(plan.blocker) is not after_plan
+    if after_plan:
+        reserve()
+    with pytest.raises(lanes_transfer.TransferError, match="probe:active") as raised:
+        lanes_transfer.apply_transfer(world["store"], plan, confirm_v1_edit=True)
+    assert raised.value.code == Exit.REFUSED
+    assert lane_row(world, lane_id) == before
+    assert snapshot(list(world["roster"].iterdir()) + [world["root"] / "lanes.json"]) == before_files
+    assert not world["store"].query("SELECT * FROM attempts")
+    if lane_id == "codex-1":
+        assert (world["root"] / "lanes" / "codex-1").is_dir()
+
+
+def test_other_lane_slot_leases_do_not_block_rollback(world):
+    transfer(world, "claude-1", "v2", confirm_v1_edit=True)
+    assert world["store"].acquire_lease("lane:claude-10:slot:0", "probe:other")
+    assert transfer(world, "claude-1", "v1", confirm_v1_edit=True)["applied"]
 
 
 def test_a_launch_agent_that_does_not_run_v1_is_not_consulted(world):

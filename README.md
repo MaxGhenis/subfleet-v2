@@ -14,9 +14,11 @@ Python 3.12+, standard library only. `uv sync --group dev && uv run pytest`.
 
 The implementation includes durable submission and cancellation, guardian receipts
 and recovery, both provider adapters, policy-based routing, immutable artifacts,
-notices, timers, session continuity, and exact-revision agreement gates. Live rollout
-remains subject to the [release gates](docs/release-gates.md): passing the fake-provider
-suite does not substitute for the 100-job canary or seven-day shadow period.
+notices, timers, session continuity, and exact-revision agreement gates. The
+[release record](docs/release-gates.md) distinguishes verified checks from the
+original 100-job canary and seven-day shadow policy. On 2026-09-19 the operator
+explicitly requested a direct cutover with rollback and preservation of running
+jobs; this overrides the staged rollout, without claiming those observations passed.
 
 To build and verify locally:
 
@@ -31,6 +33,20 @@ require explicit opt-in. GitHub Actions runs the suite on macOS with Python 3.12
 and 3.14; process containment is tested on the same operating system as deployment.
 `bin/sf2` uses this checkout's environment and ignores inherited Python paths from
 v1. Keep it separate from the installed `subfleet` command during validation.
+
+The native macOS menu bar app reads the daemon's `status.json` from
+`$SUBFLEET_HOME` (default `~/.subfleet`). Build it with the macOS Swift developer
+tools; this creates a local bundle and never installs or launches it:
+
+```sh
+app/build.sh                         # build/Subfleet.app
+app/build.sh /path/to/build-output   # custom local output directory
+uv run pytest -q tests/frontend      # Foundation-only model checks; no GUI
+```
+
+The frontend tests decode real daemon JSON for both providers, including stale
+or missing readings, offline status, ownership, and identity mismatches. CI also
+compiles the full app. Installation and launch remain separate cutover steps.
 
 With an explicitly configured v2 daemon and v2-owned lane, the ordinary flow is:
 

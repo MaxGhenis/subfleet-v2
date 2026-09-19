@@ -620,9 +620,59 @@ def test_reset_redemptions_become_confirmed_actions(v1):
     assert {row["state"] for row in actions} == {"confirmed"}
     with_credit = [row for row in actions if "RateLimitResetCredit" in row["op_key"]]
     assert with_credit[0]["op_key"] == (
-        f"reset-credit:codex:{CODEX_ONE}:RateLimitResetCredit_26c531af84688191afcbab1b15c7ec69")
+        f"codex:{CODEX_ONE}:RateLimitResetCredit_26c531af84688191afcbab1b15c7ec69")
     without = [row for row in actions if row not in with_credit][0]
     assert json.loads(without["request_json"])["credit_id_absent_in_v1"] is True
+
+
+def test_reimport_preserves_existing_legacy_prefixed_credit_evidence(v1):
+    """Older imports keep their identity; a corrected importer cannot duplicate them."""
+    run_import(v1)
+    with Store(v1["root"] / "state.sqlite3") as store:
+        # Model a database produced by the previous importer, including its IDs.
+        with store.transaction("test.legacy-import") as conn:
+            conn.execute("UPDATE actions SET action_id='reset-credit:'||action_id, "
+                         "op_key='reset-credit:'||op_key")
+        before = store.query("SELECT * FROM actions ORDER BY action_id")
+    # Even a changed timestamp must not create a second action for this credit.
+    policy = json.loads((v1["state"] / "reset-policy.json").read_text())
+    policy["last_redeemed_at"] = offset_now(-3000)
+    write_json(v1["state"] / "reset-policy.json", policy)
+    run_import(v1)
+    assert rows(v1["root"], "SELECT * FROM actions ORDER BY action_id") == before
+
+
+def test_imported_credit_cannot_be_spent_after_its_interval_and_override_expire(v1):
+    from subfleet.actions import ResetCredits
+
+    now = datetime.now(timezone.utc)
+    policy = json.loads((v1["state"] / "reset-policy.json").read_text())
+    old = (now - timedelta(days=8)).isoformat()
+    policy["last_redeemed_at"] = old
+    policy["last_redemptions"] = {policy["lane"]: old}
+    write_json(v1["state"] / "reset-policy.json", policy)
+    run_import(v1)
+    calls = []
+
+    class Credits:
+        def list_reset_credits(self, *args, **kwargs):
+            calls.append("list")
+            return {"status": "ok", "credits": [{"id": policy["credit_id"],
+                    "reset_type": "codex_rate_limits", "status": "available"}]}
+
+        def consume_reset_credit(self, *args, **kwargs):
+            pytest.fail("a previously redeemed imported credit must never be consumed")
+
+    with Store(v1["root"] / "state.sqlite3") as store:
+        row = store.one("SELECT * FROM lanes WHERE account_key=?", (f"codex:{CODEX_ONE}",))
+        store.update_lane(row["lane_id"], owner="v2")
+        row.update(owner="v2", dispatchable=False, probe={"status": "limited", "limit_reached": True,
+                   "checked_at": now.isoformat(), "account_key": row["account_key"]})
+        resets = ResetCredits(store, {}, lambda lane: Credits())
+        assert resets.confirmed_override(row["lane_id"], now=now) is None
+        assert resets.evaluate({"lanes": [row]}, now=now)["status"] == "no-concrete-credit"
+        assert len(store.query("SELECT * FROM actions")) == 1
+    assert calls == ["list"]
 
 
 def test_a_redemption_is_one_action_however_v1_remembers_it(v1):

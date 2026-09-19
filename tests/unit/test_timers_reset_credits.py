@@ -283,6 +283,46 @@ def test_op_key_is_unique_across_components_and_attempted_credits_never_retry(st
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
 
 
+@pytest.mark.parametrize("prefix", ["", "reset-credit:"])
+def test_imported_credit_keys_never_retry_after_eight_days(store, tmp_path, prefix):
+    target = lane(store, tmp_path)
+    old = (NOW - timedelta(days=8)).isoformat()
+    store.add_action(action_id="imported", kind="reset-credit",
+                     op_key=prefix + target.account_key + ":" + GIFT["id"],
+                     subject=target.account_key, state="confirmed", created_at=old, updated_at=old,
+                     request_json=json.dumps({"source": "v1-reset-policy", "credit_id": GIFT["id"]}))
+    before = store.get_action("imported")
+    http = HTTP()
+    resets = component(store, http)
+    assert resets.confirmed_override(target.lane_id, now=NOW) is None
+    assert resets.evaluate(snapshot(store), now=NOW)["status"] == "no-concrete-credit"
+    assert [request.get_method() for request, _ in http.calls] == ["GET"]
+    assert store.query("SELECT * FROM actions") == [before]
+
+
+def test_credit_claim_rechecks_legacy_import_added_after_listing(store, tmp_path, monkeypatch):
+    from contextlib import contextmanager
+
+    target = lane(store, tmp_path)
+    old = (NOW - timedelta(days=8)).isoformat()
+    transaction = store.transaction
+
+    @contextmanager
+    def import_before_claim(kind, **kwargs):
+        if kind == "action.pending":
+            store.add_action(action_id="imported", kind="reset-credit", state="confirmed",
+                             op_key="reset-credit:" + target.account_key + ":" + GIFT["id"],
+                             subject=target.account_key, created_at=old, updated_at=old, request_json="{}")
+        with transaction(kind, **kwargs) as conn:
+            yield conn
+
+    monkeypatch.setattr(store, "transaction", import_before_claim)
+    http = HTTP()
+    assert component(store, http).evaluate(snapshot(store), now=NOW)["status"] == "already-attempted"
+    assert [request.get_method() for request, _ in http.calls] == ["GET"]
+    assert len(store.query("SELECT * FROM actions")) == 1
+
+
 def test_only_holder_publishes_and_terminal_result_is_immutable(store):
     """C-23.13: stale holders and late successes are discarded with explicit audit evidence."""
     store.add_action(action_id="action", kind="reset-credit", op_key="account:credit", subject="lane", request_json="{}")

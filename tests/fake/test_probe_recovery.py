@@ -5,8 +5,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from subfleet import daemon as daemon_module, procs
-from subfleet.contracts import Launch, OutcomeClass
+from subfleet.contracts import Launch, Outcome, OutcomeClass
 from subfleet.daemon import after, utcnow
 from tests.fake.test_routing_end_to_end import routing_state
 from tests.fake_adapter import FakeAdapter
@@ -36,6 +38,37 @@ def exit_receipts(record):
     value.pop("env_add")
     (directory / "launch.json").write_text(json.dumps(value))
     (directory / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "wall_s": .1, "child_pid": 900002}))
+
+
+@pytest.mark.parametrize("change", [{"owner": "v1"}, {"enabled": False}, {"desktop": True}])
+def test_c11_probe_rechecks_lane_before_reserving_after_selection(routing_state, monkeypatch, change):
+    """C-10.3, C-11.2: rollback or an operator change wins before the probe lease."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    original_pick = service._pick
+    selected = []
+    calls = []
+
+    def pick_then_change(*args, **kwargs):
+        decision = original_pick(*args, **kwargs)
+        assert decision.chosen_lane == "codex-1"
+        assert not service.store.conn.in_transaction
+        service.store.update_lane(decision.chosen_lane, **change)
+        selected.append(decision.chosen_lane)
+        return decision
+
+    def probe(*args):
+        calls.append(args)
+        return Outcome(OutcomeClass.UNKNOWN, "unexpected provider call")
+
+    monkeypatch.setattr(service, "_pick", pick_then_change)
+    monkeypatch.setattr(service, "_execute_probe", probe)
+    service._admit()
+    assert selected == ["codex-1"]
+    assert calls == []
+    assert service.store.list_leases() == []
+    assert service.store.list_attempts(job_id) == []
+    assert service.store.query("SELECT 1 FROM events WHERE kind='probe.reserved'") == []
 
 
 def test_c5_probe_restart_accepts_receipt_only_after_verified_empty(routing_state, monkeypatch):

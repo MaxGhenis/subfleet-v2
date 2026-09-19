@@ -59,6 +59,7 @@ from pathlib import Path
 from typing import Any
 
 from . import procs
+from .actions import reset_credit_op_keys
 from .contracts import READING_TTL_S, WINDOW_KEYS
 from .policy import DEFAULT_POLICY_PATH
 from .store import Store, utc_now
@@ -929,12 +930,13 @@ def import_reset_policy(writer: _Writer, report: StoreReport, *, v1_state: Path,
         lane_id = _lane_of(index, lane, home)
         row = writer.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)) if lane_id else None
         account_key = row["account_key"] if row else lane
-        op_key = f"reset-credit:{account_key}:{credit_id or 'at-' + redeemed_at}"
+        op_keys = reset_credit_op_keys(account_key, credit_id or 'at-' + redeemed_at)
+        op_key = op_keys[0]
         # v1 remembers the credit id of the most recent redemption only, so the
         # same redemption is named `:<credit id>` on one pass and `:at-<utc>` on
         # the next, once v1 redeems somewhere else. One redemption is one action,
         # so the subject and the instant decide, not the op_key alone (C-19.1).
-        if writer.exists("SELECT 1 FROM actions WHERE op_key=?", (op_key,)) or writer.exists(
+        if writer.exists("SELECT 1 FROM actions WHERE op_key IN (?,?)", op_keys) or writer.exists(
                 "SELECT 1 FROM actions WHERE kind='reset-credit' AND subject=? AND created_at=?",
                 (account_key, redeemed_at)):
             report.skip("already-imported")

@@ -83,7 +83,7 @@ V1_STATE_DIR = Path("~/chief-of-staff/state/subfleet").expanduser()
 #: `<state root>/lanes/<lane id>/` holds a lane's provider home (C-2.2). A Codex
 #: home moves here on `--to v2` so v1's directory glob cannot find it anywhere.
 LANE_HOMES_DIR = "lanes"
-V2_LIVE_STATES = ("reserved", "starting", "running", "finalizing")
+V2_LIVE_STATES = ("reserved", "starting", "running", "finalizing", "quarantined")
 
 
 class TransferError(Exception):
@@ -385,28 +385,45 @@ def _codex_roster_edit(roster_dir: Path, lane: dict[str, Any], to_owner: str,
     return RosterEdit(path, before, _restyle(before, roster), "v1"), follow_up, remaining
 
 
-def v1_live_runs_on_home(v1_state: Path, home: str) -> list[str]:
-    """v1 run ids still live on this Codex home, read from v1's own ledger.
-
-    A v1 run is live while its `meta.json` has neither `finished_at` nor `rc`;
-    v1 writes both at the end of a run. Relocating the home under a live run
-    would strand that run's CODEX_HOME, so the transfer waits for it.
-    """
+def _v1_unfinished_runs(v1_state: Path):
+    """Unfinished ledger evidence blocks transfer until v1 records completion."""
     runs = Path(v1_state).expanduser() / "runs"
-    if not runs.is_dir():
-        return []
-    target = str(Path(home).expanduser())
-    live: list[str] = []
     for meta_path in sorted(runs.glob("*/meta.json")):
         try:
             meta = json.loads(meta_path.read_text())
         except (OSError, ValueError):
             continue
-        if str(meta.get("codex_home") or "") != target:
+        if not isinstance(meta, dict):
             continue
         if meta.get("finished_at") is None and meta.get("rc") is None:
-            live.append(meta_path.parent.name)
-    return live
+            yield meta_path.parent.name, meta
+
+
+def v1_live_runs_on_home(v1_state: Path, home: str) -> list[str]:
+    """Unfinished Codex runs, including older ledger rows with only `lane`.
+
+    Relocating the home under a live run would strand its CODEX_HOME. A missing
+    PID is not evidence of completion; v1 must finish or reap the row first.
+    """
+    target = Path(home).expanduser().resolve()
+    return [run_id for run_id, meta in _v1_unfinished_runs(v1_state)
+            if meta.get("family") in (None, "codex")
+            and isinstance(candidate := meta.get("codex_home") or meta.get("lane"), str)
+            and candidate and Path(candidate).expanduser().resolve() == target]
+
+
+def v1_live_runs_on_claude_lane(v1_state: Path, lane: dict[str, Any]) -> list[str]:
+    """v1 records Claude runs by email; also recognize explicit lane/account IDs."""
+    identities = {str(value).casefold() for value in (
+        lane["lane_id"], lane["account_key"], lane["account_key"].split(":", 1)[-1],
+        lane["credential_ref"], lane.get("label")) if value}
+    reference = lane["credential_ref"]
+    if reference.startswith("claude-quota-"):
+        identities.add(reference.removeprefix("claude-quota-").casefold())
+    return [run_id for run_id, meta in _v1_unfinished_runs(v1_state)
+            if meta.get("family") in (None, "claude")
+            and any(isinstance(meta.get(key), str) and meta[key].casefold() in identities
+                    for key in ("lane", "account_key"))]
 
 
 def _parked_home(roster_dir: Path, lane_id: str) -> str | None:
@@ -423,6 +440,26 @@ def _parked_home(roster_dir: Path, lane_id: str) -> str | None:
 
 # --- planning and applying ----------------------------------------------------
 
+def _rollback_blocker(store: Store, lane_id: str) -> str | None:
+    live = [row["attempt_id"] for row in store.query(
+        "SELECT attempt_id FROM attempts WHERE lane_id=? AND state IN (?,?,?,?,?)",
+        (lane_id, *V2_LIVE_STATES))]
+    if live:
+        return (f"v2 attempt(s) {', '.join(live)} are live on {lane_id}; wait for "
+                "them or `sf2 kill` them, then run this again")
+    # Probes have a durable slot lease but no attempt row. Expiration alone
+    # does not prove their descendants are contained, so every held slot fences
+    # rollback until its owning component releases it.
+    prefix = f"lane:{lane_id}:slot:"
+    holders = [row["holder"] for row in store.query(
+        "SELECT DISTINCT holder FROM leases WHERE substr(lease_key,1,?)=? ORDER BY holder",
+        (len(prefix), prefix))]
+    if holders:
+        return (f"v2 lane lease(s) held by {', '.join(holders)} are live on {lane_id}; "
+                "wait for their work or containment to finish, then run this again")
+    return None
+
+
 def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *,
                   roster_dir: Path | None = None, home: Path | None = None,
                   agents_dir: Path | None = None, v1_state: Path | None = None) -> TransferPlan:
@@ -436,7 +473,14 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
     roster_dir = Path(roster_dir) if roster_dir else V1_ROSTER_DIR
     home = Path(home) if home else Path.home()
     plan = TransferPlan(lane_id, row["provider"], row["account_key"], row["owner"], to_owner)
+    if to_owner == "v1":
+        plan.blocker = _rollback_blocker(store, lane_id)
     if row["provider"] == "claude":
+        if to_owner == "v2":
+            plan.live_v1_runs = v1_live_runs_on_claude_lane(v1_state or V1_STATE_DIR, row)
+            if plan.live_v1_runs:
+                plan.blocker = (f"v1 run(s) {', '.join(plan.live_v1_runs)} are live on {lane_id}; "
+                                "wait for them or `subfleet kill` them, then run this again")
         plan.edits.append(_v2_roster_edit(Path(state_root), row, to_owner))
         plan.edits.append(_claude_roster_edit(roster_dir, row, to_owner))
         return plan
@@ -481,15 +525,9 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
                     f"launch agent(s) {', '.join(reaching)} glob without {CODEX_HOMES_ENV}; "
                     "the relocation is what fences them, no plist edit is needed")
     elif to_owner == "v1" and row["owner"] != "v1":
-        live = [r["attempt_id"] for r in store.query(
-            "SELECT attempt_id FROM attempts WHERE lane_id=? AND state IN (?,?,?,?)",
-            (lane_id, *V2_LIVE_STATES))]
         original = _parked_home(roster_dir, lane_id)
         current = Path(lane_home).expanduser()
-        if live:
-            plan.blocker = (f"v2 attempt(s) {', '.join(live)} are live on {lane_id}; wait for "
-                            "them or `sf2 kill` them, then run this again")
-        elif original and str(current) != str(Path(original).expanduser()):
+        if not plan.blocker and original and str(current) != str(Path(original).expanduser()):
             back = Path(original).expanduser()
             if back.is_dir() and not current.is_dir():
                 # The operator finished the way back by hand after a failed rename.
@@ -572,23 +610,24 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
                 "account_key": plan.account_key, "rosters": rosters,
                 "follow_up": plan.follow_up,
                 "home_move": list(plan.home_move) if plan.home_move else None}
-        if plan.from_owner != plan.to_owner or plan.new_home:
-            with store.transaction("lane.transferred", lane_id=plan.lane_id, data=data) as tx:
-                if plan.from_owner != plan.to_owner:
-                    store.update_lane(plan.lane_id, owner=plan.to_owner)
+        with store.transaction("lane.transferred", lane_id=plan.lane_id, data=data) as tx:
+            if plan.to_owner == "v1":
+                # Admission can reserve after the plan was read. Serialize this
+                # census with the ownership write, so admission either precedes
+                # us (and blocks rollback) or sees owner=v1. Partial retries and
+                # roster-only repairs must pass the same guard before any move.
+                if blocker := _rollback_blocker(store, plan.lane_id):
+                    raise TransferError(blocker, Exit.REFUSED)
+            if plan.changed:
+                # Reaffirm ownership on a roster-only repair too. This records
+                # the transfer once through the enclosing transaction.
+                store.update_lane(plan.lane_id, owner=plan.to_owner)
                 if plan.new_home:
                     # The lane keeps its id: the credential is unchanged, only its
                     # path moved (C-10.4). `update_lane` refuses rebinding by
                     # design, so this one relocation writes the columns directly.
                     tx.execute("UPDATE lanes SET home=?, credential_ref=? WHERE lane_id=?",
                                (plan.new_home, plan.new_home, plan.lane_id))
-        elif rosters:
-            # One row, not the two `Store.add_event` writes (it logs its own
-            # transaction as well), and no state change to wrap it in.
-            store.conn.execute(
-                "INSERT INTO events(ts,kind,lane_id,data_json) VALUES (?,?,?,?)",
-                (utc_now(), "lane.transferred", plan.lane_id,
-                 json.dumps(data, sort_keys=True, separators=(",", ":"))))
 
     if plan.to_owner == "v2":
         publish(v1_edits)       # the record first

@@ -18,6 +18,16 @@ DEFAULTS = {"enabled": True, "headroom_floor_pct": 15.0, "min_interval_min": 30.
 TERMINAL = frozenset({"confirmed", "failed", "unknown"})
 
 
+def reset_credit_op_keys(account_key: str, credit_id: str) -> tuple[str, str]:
+    """Canonical identity plus the prefix used by older v1 imports.
+
+    Existing action evidence is immutable; both spellings must fence the same
+    credit even after its temporary reopening and minimum interval expire.
+    """
+    canonical = account_key + ":" + credit_id
+    return canonical, "reset-credit:" + canonical
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
                       default=lambda item: asdict(item) if is_dataclass(item) else str(item))
@@ -291,7 +301,8 @@ class ResetCredits:
                 if row["lane_id"] not in candidate_ids and gifts:
                     return {**result, "status": "shadow-excluded"}
                 concrete = [credit for credit in gifts if not self.store.one(
-                    "SELECT action_id FROM actions WHERE op_key=?", (lane.account_key + ":" + credit["id"],))]
+                    "SELECT action_id FROM actions WHERE op_key IN (?,?)",
+                    reset_credit_op_keys(lane.account_key, credit["id"]))]
                 if concrete:
                     selected = (row, lane, adapter, concrete[0])
                     break
@@ -315,7 +326,8 @@ class ResetCredits:
                                     if item["state"] == "confirmed" or item["action_id"] in reconciled), default=None)
                 if current_last is not None and (instant - current_last).total_seconds() < settings["min_interval_min"] * 60:
                     return {**result, "status": "interval-blocked"}
-                if conn.execute("SELECT 1 FROM actions WHERE op_key=?", (lane.account_key + ":" + credit["id"],)).fetchone():
+                if conn.execute("SELECT 1 FROM actions WHERE op_key IN (?,?)",
+                                reset_credit_op_keys(lane.account_key, credit["id"])).fetchone():
                     return {**result, "status": "already-attempted"}
                 self.store.add_action(action_id=action_id, kind="reset-credit", op_key=lane.account_key + ":" + credit["id"],
                                       subject=lane.lane_id, request_json=_json(request), created_at=stamp, updated_at=stamp)

@@ -1,10 +1,34 @@
 # Release gates
 
-Plan amendment 10 and contract C-20.4. The `run` verb does not cut over from v1 to v2 until every row is green. Measurements are taken on this Mac against the fake providers unless the row says canary.
+Plan amendment 10 and contract C-20.4 define the original release gates below.
+Measurements are taken on this Mac against the fake providers unless the row
+says canary. The operator's 2026-09-19 direct-cutover decision in `docs/plan.md`
+overrides the staged rollout schedule for this installation; it does not turn
+unperformed canary or soak observations into passes.
 
 ## Current evidence, 2026-09-19
 
-**Cutover remains blocked.** The real 100-job canary, seven-day soak, and reviewed nightly shadow comparisons have no verified completion record. A read-only inspection on this date found no `state.sqlite3` or `soak.json` under `~/.subfleet`; the directory contains login and temporary directories. Historical plans and September 5 measurements below do not establish that a live shadow week happened or certify the current checkout.
+**Direct cutover authorized; staged rollout waived.** Max explicitly requested
+a clean cutover after the implementation review. The real 100-job canary,
+seven-day soak, and nightly shadow comparisons have no verified completion
+record and remain unperformed. Before migration, a read-only inspection found
+no `state.sqlite3` or `soak.json` under `~/.subfleet`; the directory contained
+login and temporary directories. Historical plans and September 5 measurements
+do not establish that a live shadow week happened or certify the current checkout.
+
+Cutover preparation backs up the command target, existing app, rosters,
+launch-agent files, hook settings, and v1 run metadata. Running v1 jobs keep
+their original runners and account ownership until they finish. The retained
+Swift menu app now reads v2 `status.json`, marks stale/offline and identity or
+ownership problems, and reloads the snapshot without invoking v1's watchdog.
+Its Foundation-only tests decode actual Python-generated status projections;
+the full app is compiled and signed without launching it during tests.
+
+Migration regressions cover canonical reset-credit operation keys, recognition
+of legacy imported keys, and refusal to transfer busy Claude or Codex accounts.
+Initial migration keeps automatic redemption disabled until imported action
+history and sole ownership have been verified. Operational backup and cutover
+records are kept under `~/.subfleet/cutovers/`.
 
 The release tools now fail incomplete or unverifiable evidence: `canary_check.py` returns nonzero for `PENDING`, verifies deliverable bytes against their stored size and SHA-256, and requires a matching accepted attempt, the complete isolation configuration, and a verified unchanged clone. Each job must record isolated read-only execution, with its workdir and review root resolving to that clone; every recorded launch must use the same cwd without a directory override. The submitter freezes every sampled prompt and its SHA-256 before committing the first baseline and submitting any job. Reruns verify and reuse those exact bytes, even if the source ledger changes, preserve the original baseline, and fail rejected submissions. Transfer verification requires the relocated credential, a readable v1 status, and a matching v2 owner/home; a rerun preserves the soak start.
 

@@ -1441,6 +1441,16 @@ class Daemon:
                       "directory": str(directory), "state": "reserved", "created_at": utcnow(),
                       "deadline_at": after(60), "owned_identities": {}}
             with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
+                # Selection precedes this transaction. Ownership transfer and
+                # probe admission must serialize on the same current lane row.
+                lane = self.store.get_lane(decision.chosen_lane)
+                if not lane or lane.owner != "v2" or not lane.enabled:
+                    return None, desktop
+                is_desktop = lane.desktop
+                if lane.provider == "claude" and desktop.decisive:
+                    is_desktop = desktop.owns(dataclasses.asdict(lane))
+                if is_desktop and not decision_job.get("allow_desktop"):
+                    return None, desktop
                 if not self.store.acquire_lease(f"lane:{decision.chosen_lane}:slot:0", holder):
                     return None, desktop
                 self._save_probe(record)
