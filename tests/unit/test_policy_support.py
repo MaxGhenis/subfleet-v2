@@ -79,6 +79,8 @@ def test_unmeasured_stale_lane_and_fleet_caps():
 
 def test_keychain_secret_only_enters_environment(monkeypatch, tmp_path):
     """C-10.5: keychain argv has only the reference; failures disclose no token."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_LANE_AGENT_SECRET", raising=False)
     calls = []
     def run(argv, **kwargs):
         calls.append((argv, kwargs))

@@ -541,17 +541,18 @@ class ClaudeAdapter(Adapter):
     def _resolve_keychain_token(self, ref: str) -> str:
         """One targeted keychain item read. The value is returned to the caller and
         never logged, never stored, never placed in argv."""
+        from ..credentials import keychain_command
         try:
             done = self._runner(
-                [self._security_bin, "find-generic-password", "-s", ref, "-w"],
+                keychain_command(ref, self._security_bin),
                 capture_output=True, text=True, timeout=15,
             )
-        except (OSError, subprocess.SubprocessError) as exc:
+        except (OSError, subprocess.SubprocessError):
             raise AdapterError(
-                f"claude: could not read the keychain item {ref}: {exc}",
+                f"claude: could not read the keychain item {ref}",
                 code=5,
                 fix=f"agent-secret get {ref}",
-            ) from exc
+            ) from None
         if getattr(done, "returncode", 1) != 0:
             raise AdapterError(
                 f"claude: no keychain token for {ref}",
@@ -582,9 +583,10 @@ class ClaudeAdapter(Adapter):
     def _plan_from_keychain(self, ref: str) -> str | None:
         """The subscription tier, when the stored blob carries one. Best effort:
         a bare setup-token says nothing about the plan."""
+        from ..credentials import keychain_command
         try:
             done = self._runner(
-                [self._security_bin, "find-generic-password", "-s", ref, "-w"],
+                keychain_command(ref, self._security_bin),
                 capture_output=True, text=True, timeout=15,
             )
         except (OSError, subprocess.SubprocessError):

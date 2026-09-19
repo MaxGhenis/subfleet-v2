@@ -10,6 +10,21 @@ from .adapters.base import AdapterError
 from .contracts import Credential
 
 
+def keychain_command(reference: str, security_bin: str = "security") -> list[str]:
+    """Keep v1's dedicated agent keychain when its helper is installed.
+
+    A failed helper read must not fall through to a same-named, stale credential
+    in the login keychain. Hosts without the helper retain the native backend.
+    """
+    helper = os.environ.get("CLAUDE_LANE_AGENT_SECRET")
+    default = Path.home() / "bin" / "agent-secret"
+    # Provider-owned desktop/home OAuth blobs stay in their native keychain.
+    # Only the explicit per-lane setup-token namespace belongs to agent-secret.
+    if reference.startswith("claude-quota-") and (helper or default.is_file()):
+        return [helper or str(default), "get", reference]
+    return [security_bin, "find-generic-password", "-s", reference, "-w"]
+
+
 def resolve_credential(credential: Credential) -> dict[str, str]:
     """C-10.5: credential values appear only in the returned child environment."""
     if credential.kind == "home" and credential.provider in ("codex", "claude"):
@@ -24,14 +39,14 @@ def resolve_credential(credential: Credential) -> dict[str, str]:
     if credential.kind != "keychain-token" or credential.provider != "claude":
         raise AdapterError("unsupported credential kind for provider", code=7)
     try:
-        result = subprocess.run(["security", "find-generic-password", "-s", credential.ref, "-w"],
+        result = subprocess.run(keychain_command(credential.ref),
                                 capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.SubprocessError):
         raise AdapterError("could not resolve lane keychain credential", code=7,
-                           fix="unlock the login keychain and verify the lane credential reference") from None
+                           fix="unlock the configured credential store and verify the lane reference with agent-secret") from None
     if result.returncode or not result.stdout.strip():
         raise AdapterError("could not resolve lane keychain credential", code=7,
-                           fix="unlock the login keychain and verify the lane credential reference")
+                           fix="unlock the configured credential store and verify the lane reference with agent-secret")
     return {"CLAUDE_CODE_OAUTH_TOKEN": result.stdout.rstrip("\r\n")}
 
 
