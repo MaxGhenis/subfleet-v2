@@ -31,3 +31,13 @@ Go as the implementation language (Python and uv are the operator's stack). A co
 ## Open decisions still with Max
 
 Numbered as in plan B: 1 (Claude sensor: stream event, decided by experiment 0), 2 (desktop login never: standing order), 3 (sessions and gates as separate entry points), 4 (freeze public repo; see amendment 16), 5 (Traycer events only), 6 (keep the name), 7 (automatic revive off by default for desktop-owned sessions), 8 (sidebar mirror kept). The build proceeds on the recommendations; any of them can be reversed as a policy change.
+
+## Execution decision, 2026-09-19
+
+After reviewing the rebuild and the proposed seven-day soak, Max requested:
+"lets just do a clean cutover". For this installation, direct cutover replaces
+the staged canary/shadow schedule in amendments 8–10. Automated correctness and
+performance checks still apply. Preserve running v1 jobs, fence old scheduled
+services, transfer accounts only when idle, keep rollback evidence, and verify
+the installed daemon, CLI, and retained native menu bar app. A waived rollout
+observation remains unperformed; it is not recorded as a passed gate.

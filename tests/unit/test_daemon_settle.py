@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import signal
 import threading
 import time
 from types import SimpleNamespace
@@ -93,14 +94,49 @@ def draining(core, busy_for_s: float, busy=BUSY) -> list[float]:
     return calls
 
 
-def test_c5_6_kill_re_reads_a_draining_census_within_the_settle_window(daemon):
+def test_c5_6_kill_re_reads_a_draining_census_within_the_settle_window(daemon, monkeypatch):
     """C-5.6 pids still being torn down after SIGKILL are re-read for kill_settle_s, not quarantined."""
-    calls = draining(daemon, .15)
+    now = 0.0
+    killed_at = None
+    signals = []
+    calls = []
+
+    def wait(timeout):
+        nonlocal now
+        now += timeout
+        return False
+
+    def signal_group(pgid, sig, **identity):
+        nonlocal killed_at
+        signals.append(sig)
+        if sig == signal.SIGKILL:
+            killed_at = now
+        return True
+
+    def contain(a):
+        # The process ignores TERM and starts draining only after KILL. An
+        # overloaded host must not make it disappear before escalation occurs.
+        elapsed = None if killed_at is None else now - killed_at
+        census = EMPTY if elapsed is not None and elapsed >= .15 else BUSY
+        calls.append((elapsed, census.verified_empty))
+        return census
+
+    # Replace only this daemon module's clock, not the shared time module or
+    # real threading primitives used by pytest and filesystem publication.
+    monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(daemon_module.procs, "signal_group", signal_group)
+    daemon.stopping = SimpleNamespace(wait=wait)
+    daemon._contain = contain
     daemon._kill_attempt(attempt(daemon))
     a = attempt(daemon)
     assert a["state"] == "finalizing", a
     assert a["quarantine_reason"] is None
-    assert len(calls) >= 3 and calls[-1] >= .15
+    assert signals == [signal.SIGTERM, signal.SIGKILL]
+    after_kill = [(elapsed, empty) for elapsed, empty in calls if elapsed is not None]
+    assert len(after_kill) >= 3
+    assert all(not empty for _, empty in after_kill[:-1])
+    assert after_kill[-1][1] is True
+    assert .15 <= after_kill[-1][0] <= daemon.kill_settle_s
     receipt = json.loads((attempt_dir(daemon.root, JOB, 1) / "exit.json").read_text())
     assert receipt["signal"] == 9 and receipt["killed_by"] == "operator"
 

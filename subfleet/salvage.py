@@ -41,6 +41,16 @@ def git_branch(workdir: str | Path) -> str | None:
     return _git(workdir, "symbolic-ref", "--quiet", "--short", "HEAD", optional=True)
 
 
+def working_tree(workdir: str | Path, baseline_commit: str) -> str:
+    """Snapshot tracked and untracked files without changing the real index."""
+    gitdir = _git(workdir, "rev-parse", "--absolute-git-dir")
+    with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+        _git(workdir, "read-tree", baseline_commit, env=env)
+        _git(workdir, "add", "-A", env=env)
+        return _git(workdir, "write-tree", env=env)
+
+
 def validate_writable_workdir(workdir: str | Path) -> None:
     """Refuse writable admission on main/master while permitting private refs."""
     branch = git_branch(workdir)
@@ -70,11 +80,13 @@ def _stamp(timestamp: str | datetime | None) -> str:
 
 
 def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bool = True,
-            state: str = "finalizing", timestamp: str | datetime | None = None) -> SalvageResult | None:
+            state: str = "finalizing", timestamp: str | datetime | None = None,
+            baseline_tree: str | None = None) -> SalvageResult | None:
     """C-13.1: commit a differing working tree beneath a private salvage ref.
 
-    ``baseline_commit`` is the HEAD recorded at reservation; its tree is the
-    comparison point and that commit is always the snapshot's parent. Supply
+    ``baseline_commit`` is the HEAD recorded at reservation and always the
+    snapshot's parent. ``baseline_tree`` is the reservation's working tree,
+    including any pre-existing dirty files; older callers default to HEAD. Supply
     the recorded attempt timestamp to make a finalization replay idempotent.
     Private refs are permitted even when the current branch is main (C-13.2).
     """
@@ -85,17 +97,12 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
     if seq < 1:
         raise ValueError("attempt sequence must be positive")
     baseline = _git(workdir, "rev-parse", "--verify", f"{baseline_commit}^{{commit}}")
-    baseline_tree = _git(workdir, "rev-parse", "--verify", f"{baseline}^{{tree}}")
-    gitdir = _git(workdir, "rev-parse", "--absolute-git-dir")
+    baseline_tree = _git(workdir, "rev-parse", "--verify", f"{baseline_tree or baseline}^{{tree}}")
     branch = re.sub(r"[^A-Za-z0-9_-]+", "-", git_branch(workdir) or "detached").strip("-") or "detached"
     ref = f"refs/subfleet-salvage/{branch}-{_stamp(timestamp)}-a{seq}"
     # A private temporary directory avoids index-name races and never points
     # git at the user's real index, including in linked worktrees.
-    with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
-        _git(workdir, "read-tree", baseline, env=env)
-        _git(workdir, "add", "-A", env=env)
-        tree = _git(workdir, "write-tree", env=env)
+    tree = working_tree(workdir, baseline)
     if tree == baseline_tree:
         return None
     previous = _git(workdir, "rev-parse", "--verify", ref, optional=True)

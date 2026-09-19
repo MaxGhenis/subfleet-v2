@@ -99,6 +99,26 @@ def _future_closure(closure: Mapping[str, Any], now: datetime) -> bool:
     return not closure.get("released_at") and _time(closure["until_at"]) > now
 
 
+def _higher_model_scopes(policy: Mapping[str, Any], short: str) -> set[str]:
+    """C-23.37: stronger models come from policy, never provider name guesses.
+
+    Explicit priorities compare models across separate task chains (Fable's
+    writing chain and the general-work chain). Older policies still express
+    ordering within their upward-only chains.
+    """
+    model = policy["models"][short]
+    higher = set()
+    for chain in policy["chains"].values():
+        if short in chain:
+            higher.update(chain[chain.index(short) + 1:])
+    priority = model.get("priority")
+    if priority is not None:
+        higher.update(name for name, other in policy["models"].items()
+                      if other.get("priority", -1) > priority)
+    return {policy["models"][name]["id"] for name in higher if name != short
+            and policy["models"][name]["provider"] == model["provider"]}
+
+
 def _earliest_reset(evaluations: Iterable[Mapping[str, Any]], now: datetime) -> str | None:
     clocks: list[datetime] = []
     for evaluation in evaluations:
@@ -168,6 +188,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     chosen_lane = chosen_model = None
     for index, short in enumerate(chain):
         model = policy["models"][short]
+        higher_scopes = _higher_model_scopes(policy, short)
         model_lanes = [lane for lane in lanes if lane["provider"] == model["provider"]
                        and (not pin or selected and lane["lane_id"] == selected["lane_id"])]
         lane_ids = {lane["lane_id"] for lane in model_lanes}
@@ -190,6 +211,10 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                       "in_flight": in_flight.get(identity, 0),
                       "seven_day_reset": _iso(min(resets)) if resets else None,
                       "status": "eligible" if measured else "eligible but unmeasured"}
+            if model["provider"] == "claude":
+                detail["stranded_scopes"] = sorted({row["scope"] for row in closures
+                    if row["lane_id"] == identity and row["scope"] in higher_scopes
+                    and _future_closure(row, now)})
             if _identities(lane) & excluded:
                 reasons.append("excluded")
             if lane.get("desktop") and not job.get("allow_desktop"):
@@ -237,10 +262,11 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
             if model["provider"] == "codex":
                 return (not row["measured"], row["seven_day_reset"] or "9999", identity)
             reserve = row.get("reserve") or {}
+            stranded = bool(row.get("stranded_scopes"))
             if reserve.get("slack") is not None:
                 # C-11.7: non-reserved work lands where the reserved bucket is most spent.
-                return (not row["measured"], -reserve["slack"], row["in_flight"], identity)
-            return (not row["measured"], -(row["headroom"] or 0), row["in_flight"], identity)
+                return (not stranded, not row["measured"], -reserve["slack"], row["in_flight"], identity)
+            return (not stranded, not row["measured"], -(row["headroom"] or 0), row["in_flight"], identity)
 
         candidates.sort(key=comparator)
         if candidates:
@@ -257,6 +283,8 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                             "readings": scoped_readings,
                             "capacity_readings": [row for row in readings if row["lane_id"] in lane_ids],
                             "closures": scoped_closures, "capacity_blocks": list(capacity_blocks),
+                            "stranding_closures": [row for row in closures if row["lane_id"] in lane_ids
+                                and row["scope"] in higher_scopes and _future_closure(row, now)],
                             "reason": reason, "evaluated_at": _iso(now)})
         messages.append(reason)
         if candidates:
@@ -282,6 +310,7 @@ def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[
     """
     ratio = float(reserve.get("cap_ratio", 1.0))
     min_slack = float(reserve.get("min_slack", 0.05))
+    readings = list(readings)
     fresh = [row for row in readings if row["lane_id"] == identity and row.get("window") == "seven_day"
              and fresh_provider(row, now=now, reading_ttl_s=reading_ttl_s)]
     account = next((row for row in fresh if row["scope"] == "account"
@@ -289,7 +318,17 @@ def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[
     if account is None:
         return {"state": "unmeasured", "cap_ratio": ratio, "min_slack": min_slack}
     all_remaining = round(1 - float(account["utilization"]), 4)
-    scoped = next((row for row in fresh if row["scope"] == reserved_id), None)
+    scoped_evidence = [row for row in readings if row["lane_id"] == identity
+                       and row.get("window") == "seven_day" and row["scope"] == reserved_id
+                       and _time(row["observed_at"]) >= _time(account["observed_at"])]
+    scoped = next((row for row in scoped_evidence if row in fresh
+                   and row.get("source") == "oauth-usage"), None)
+    if scoped is None and scoped_evidence:
+        # Same-snapshot or newer uncertain evidence is not absence. An older
+        # scoped row, however, is superseded by a newer complete usage payload.
+        # The sensor rejects incomplete snapshots before publishing readings.
+        return {"state": "unmeasured", "cap_ratio": ratio, "min_slack": min_slack,
+                "note": "reserved window has no fresh usage reading"}
     if scoped is None:
         return {"state": "slack", "all_remaining": all_remaining, "reserved_remaining": None,
                 "slack": all_remaining, "cap_ratio": ratio, "min_slack": min_slack,

@@ -488,3 +488,82 @@ def test_c11_7_a_pinned_lane_is_still_reserved(reserve_policy):
                         job(pinned_lane="claude-1", pinned_model="opus", task=None, tier=None))
     assert decision.chosen_lane is None
     assert "reserve:fable:reserved" in rejection(decision, "opus", "claude-1")["reasons"]
+
+
+def test_c23_37_stranded_claude_capacity_precedes_otherwise_better_lane(policy):
+    """C-23.37: a Fable-limited lane spends its remaining Opus capacity first."""
+    blocked = closure("claude-2", FABLE)
+    snapshot = view([lane("claude-1"), lane("claude-2")],
+                    [reading("claude-1", .1), reading("claude-2", .7)], [blocked])
+    result = evaluate(policy, snapshot, job(pinned_model="opus"))
+    assert result.chosen_lane == "claude-2"
+    details = result.evaluations[0]["candidate_details"]["claude-2"]
+    assert details["stranded_scopes"] == [FABLE]
+    assert result.evaluations[0]["stranding_closures"] == [blocked]
+
+
+@pytest.mark.parametrize("scope,changes", [
+    ("claude-haiku-4-5-20251001", {}),
+    (FABLE, {"until_at": "2026-09-05T10:32:00Z"}),
+    (FABLE, {"released_at": NOW}),
+    ("unknown-model", {}),
+])
+def test_c23_37_only_live_higher_model_closures_strand(policy, scope, changes):
+    """C-23.37: lower, unknown, expired, and released limits confer no preference."""
+    snapshot = view([lane("claude-1"), lane("claude-2")],
+                    [reading("claude-1", .1), reading("claude-2", .7)],
+                    [closure("claude-2", scope, **changes)])
+    assert evaluate(policy, snapshot, job(pinned_model="opus")).chosen_lane == "claude-1"
+
+
+def test_c23_37_stranding_cannot_bypass_reserve_or_account_closure(reserve_policy):
+    """C-23.37, C-11.7: ordering changes neither eligibility nor reserved headroom."""
+    for extra in ([], [closure("claude-2", "account")]):
+        snapshot = view([lane("claude-1"), lane("claude-2")],
+                        usage("claude-1", .3, .99) + usage("claude-2", .3, .2),
+                        [closure("claude-2", FABLE), *extra])
+        assert evaluate(reserve_policy, snapshot, job(pinned_model="opus")).chosen_lane == "claude-1"
+
+
+def test_c23_37_older_policy_uses_its_upward_chain(policy):
+    """C-11.1, C-23.37: old policy files derive relative strength from tier chains."""
+    for model in policy["models"].values():
+        model.pop("priority", None)
+    snapshot = view([lane("claude-1"), lane("claude-2")],
+                    [reading("claude-1", .1), reading("claude-2", .7)],
+                    [closure("claude-2", "claude-opus-5")])
+    assert evaluate(policy, snapshot, job(pinned_model="sonnet")).chosen_lane == "claude-2"
+
+
+@pytest.mark.parametrize("changes", [
+    {"observed_at": "2026-09-05T10:34:00Z"},
+    {"label": "unknown", "utilization": None},
+    {"source": "rate_limit_event"},
+])
+def test_c11_7_unknown_reserved_window_is_not_an_absent_window(reserve_policy, changes):
+    """C-11.7: fresh shared usage cannot erase uncertain reserved-model evidence."""
+    rows = usage("claude-1", .3) + [{**reading("claude-1", .1, scope=FABLE,
+        source="oauth-usage"), **changes}]
+    result = decision_for(reserve_policy, [lane()], rows, pinned_model="opus")
+    assert result.chosen_lane is None
+    assert "reserve:fable:unmeasured" in rejection(result, "opus", "claude-1")["reasons"]
+
+
+def test_c11_2_compat_picker_uses_reserve_and_upward_routing(reserve_policy):
+    """C-11.2, C-11.7: every public picker evaluates the daemon's routing rules."""
+    from subfleet.policy import pick
+    lanes = [lane("claude-1"), lane("codex-1")]
+    result = pick(reserve_policy, lanes, task="research", tier="standard", now=NOW)
+    assert result.chosen_lane == "codex-1"
+    assert "reserve:fable:unmeasured" in rejection(result, "opus", "claude-1")["reasons"]
+    assert pick(reserve_policy, lanes, pinned_model="opus", now=NOW).chosen_lane is None
+
+
+def test_c11_7_new_usage_snapshot_can_remove_a_reserved_window(reserve_policy):
+    """C-11.7: a newer complete endpoint response supersedes a removed scoped bucket."""
+    rows = usage("claude-1", .3) + [reading("claude-1", .1, scope=FABLE,
+        source="oauth-usage", observed_at="2026-09-05T10:30:00Z")]
+    result = decision_for(reserve_policy, [lane()], rows, pinned_model="opus")
+    assert result.chosen_lane == "claude-1"
+    reserve = result.evaluations[0]["candidate_details"]["claude-1"]["reserve"]
+    assert reserve["reserved_remaining"] is None

@@ -18,7 +18,7 @@ Four dispositions, and the reasoning for each:
   working commands.
 
 * **note** — the spelling is accepted but deprecated, so exactly one line goes
-  to stderr naming the replacement (C-17.2). `enroll`, `hooks install`,
+  to stderr naming the replacement (C-17.2). `hooks install`,
   `hooks status`, and `run --status` are here. Flag-level deprecations
   (`-t CLASS`, `--overflow`, `-m sol`) are NOT re-noted here: `cli.py`'s
   `_apply_deprecations` already prints them, and two notes for one flag reads
@@ -124,6 +124,7 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("ping",): ["ping"],
     ("run",): ["run"],
     ("lanes",): ["lanes"],
+    ("enroll",): ["lanes", "enroll"],
     ("why",): ["why"],
     ("daemon",): ["daemon"],
     ("doctor",): ["doctor"],
@@ -148,8 +149,6 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
 
 #: Deprecated v1 spellings: accepted, rewritten, and noted exactly once.
 RENAMED: dict[tuple[str, ...], tuple[list[str], str]] = {
-    ("enroll",): (["lanes", "enroll"],
-                  "`enroll <credential>` is now `lanes enroll <credential>`"),
     ("hooks", "install"): (["daemon", "install", "--hooks"],
                            "`hooks install` is now `daemon install --hooks`, "
                            "which prints the settings diff before writing"),
@@ -241,6 +240,18 @@ def _refuse(why: str, *, takes_value: bool = False) -> V1Flag:
 #: test_compat.py::test_no_v1_flag_is_unaccounted_for` redoes that diff and
 #: fails if v1 ever grows a flag this table has not decided about.
 V1_ONLY_FLAGS: dict[str, dict[str, V1Flag]] = {
+    "enroll": {
+        "--mint": _refuse(
+            "v1 starts `claude setup-token` to mint a credential; v2 never "
+            "performs provider login (C-23.52) — run `claude setup-token` "
+            "yourself, store the token with `agent-secret`, then use "
+            "`subfleet lanes enroll claude-quota-<email>`"),
+        "--paste": _refuse(
+            "v1 accepts a browser callback code for `enroll --mint`; v2 "
+            "never performs provider login (C-23.52) — run `claude setup-token` "
+            "yourself, store the token with `agent-secret`, then use "
+            "`subfleet lanes enroll claude-quota-<email>`"),
+    },
     "status": {
         "--cached": _drop(
             "v1 read the last watchdog snapshot; v2's `status` reads the daemon, "
@@ -319,6 +330,7 @@ FLAG_TABLE_ALIASES = {"capacity": "status", "jobs": "runs", "show": "runs show",
 #: Where each flag-table key lands in v2's parser, so the abbreviation matcher
 #: can leave v2's own options alone.
 FLAG_TABLE_V2_PATH = {"status": "status", "runs reap": "runs.reap",
+                      "enroll": "lanes.enroll",
                       "wait": "wait", "kill": "kill", "notify": "ping",
                       "run": "run", "revive": "sessions.continue",
                       "mirror": "sessions.mirror"}

@@ -1,6 +1,46 @@
 # Release gates
 
-Plan amendment 10 and contract C-20.4. The `run` verb does not cut over from v1 to v2 until every row is green. Measurements are taken on this Mac against the fake providers unless the row says canary.
+Plan amendment 10 and contract C-20.4 define the original release gates below.
+Measurements are taken on this Mac against the fake providers unless the row
+says canary. The operator's 2026-09-19 direct-cutover decision in `docs/plan.md`
+overrides the staged rollout schedule for this installation; it does not turn
+unperformed canary or soak observations into passes.
+
+## Current evidence, 2026-09-19
+
+**Direct cutover authorized; staged rollout waived.** Max explicitly requested
+a clean cutover after the implementation review. The real 100-job canary,
+seven-day soak, and nightly shadow comparisons have no verified completion
+record and remain unperformed. Before migration, a read-only inspection found
+no `state.sqlite3` or `soak.json` under `~/.subfleet`; the directory contained
+login and temporary directories. Historical plans and September 5 measurements
+do not establish that a live shadow week happened or certify the current checkout.
+
+Cutover preparation backs up the command target, existing app, rosters,
+launch-agent files, hook settings, and v1 run metadata. Running v1 jobs keep
+their original runners and account ownership until they finish. The retained
+Swift menu app now reads v2 `status.json`, marks stale/offline and identity or
+ownership problems, and reloads the snapshot without invoking v1's watchdog.
+Its Foundation-only tests decode actual Python-generated status projections;
+the full app is compiled and signed without launching it during tests.
+
+Migration regressions cover canonical reset-credit operation keys, recognition
+of legacy imported keys, and refusal to transfer busy Claude or Codex accounts.
+Initial migration keeps automatic redemption disabled until imported action
+history and sole ownership have been verified. Operational backup and cutover
+records are kept under `~/.subfleet/cutovers/`.
+
+The release tools now fail incomplete or unverifiable evidence: `canary_check.py` returns nonzero for `PENDING`, verifies deliverable bytes against their stored size and SHA-256, and requires a matching accepted attempt, the complete isolation configuration, and a verified unchanged clone. Each job must record isolated read-only execution, with its workdir and review root resolving to that clone; every recorded launch must use the same cwd without a directory override. The submitter freezes every sampled prompt and its SHA-256 before committing the first baseline and submitting any job. Reruns verify and reuse those exact bytes, even if the source ledger changes, preserve the original baseline, and fail rejected submissions. Transfer verification requires the relocated credential, a readable v1 status, and a matching v2 owner/home; a rerun preserves the soak start.
+
+`soak_report.py` defaults to the previous complete UTC day. A clean observation requires a recorded UTC start and a successful scheduled probe cycle. Losses and quarantines remain blockers across day boundaries, including quarantines without a finish timestamp. Identity mismatches and unknown or stuck actions also block. Imported history is identified by JSON value, independent of whitespace. A clean report is one observation, **not proof of seven continuous clean days**. Ownership continuity, explained anomalies, coverage of the complete seven-day window, and shadow decision differences still need operator review.
+
+`measure_release_gates.py` checks every measured CLI exit status, uses a distinct verified fixture identity for each Claude lane, and returns nonzero when any latency threshold fails or SIGKILL recovery does not end with one succeeded attempt. Socket latency is diagnostic; it cannot substitute for the end-to-end CLI status threshold.
+
+The numeric gates were remeasured on this Mac on 2026-09-19 at 08:26 EDT with `uv run python tools/measure_release_gates.py --jobs 300 --calls 200`: **PASS, exit 0**. End-to-end status p95 was 83 ms, submit p95 was 119 ms, and SIGKILL recovery took 3.4 s with one succeeded attempt. [Recorded measurements](reports/2026-09-19-release-measurements.md) supersede the September 5 numbers for these gates only.
+
+Regression verification: `uv run pytest -q tests/unit/test_soak_tools.py` — 49 passed (2026-09-19); `sh -n tools/canary_runbook.sh` passed. All fixtures use temporary state roots, fake providers, and temporary git repositories. No account transfer, provider call, installed-daemon change, or CLI cutover was performed for these checks.
+
+## Measurements and outstanding operational gates
 
 | Gate | How it is measured | Test or record | Result |
 |---|---|---|---|
@@ -8,9 +48,9 @@ Plan amendment 10 and contract C-20.4. The `run` verb does not cut over from v1 
 | Zero duplicate accepted results | the crash suite asserts one `accepted_attempt_id` per job after every recovery; `tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job` | test | green 2026-09-05 |
 | Zero results accepted from a stale attempt | `tests/fake/test_finalization_replay.py::test_c4_3_stale_attempt_cannot_publish_or_accept`; `test_c4_2_classification_and_attestation_are_frozen_before_acceptance` (C-4.3) | test | green 2026-09-05 |
 | Zero workspace reuse after an unverified termination | `tests/fake/test_daemon_contract.py::test_c5_5_nested_setsid_quarantines_and_force_release_records_override`; `tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace`; `test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited` (C-5.6, C-5.7) | test | green 2026-09-05 |
-| Cached `status` p95 under 100 ms | `tools/measure_release_gates.py --jobs 300 --calls 200`: 200 `status` calls against a store with 300 terminal jobs and 14 lanes, measured two ways: the CLI end to end (a fresh Python process per call) and the socket round trip from one in-process client (the three requests `subfleet status` makes: `daemon.status`, `lanes`, `readings`) | record | Green. 2026-09-05 17:20, load average 10 to 16: CLI end to end 91 ms p95, socket round trip 26 ms p95, interpreter start plus CLI import 63 ms p95. Earlier the same day under load average 20 to 75 the CLI number read 106 and 117 ms with the socket at 27 ms; the end-to-end figure is load-bound (interpreter start), the daemon's own response is not. If the CLI figure matters on a loaded machine, the lever is a lazier CLI import path, not the daemon. |
-| `submit` p95 under 250 ms excluding probes | same run, 200 submits on measured lanes (no probe) | record | 119 ms on 2026-09-05 17:20 (142 ms at 14:40, 187 ms under load at 16:32). Green. |
-| Recovery after a daemon SIGKILL under 30 s | same run: a running slow job, SIGKILL the daemon, restart, time to the job's terminal state | record | 3.3 s on 2026-09-05 17:20 (3.2 s at 14:40 and 16:32); one attempt, re-adopted, succeeded. Green. |
+| Cached `status` p95 under 100 ms | `tools/measure_release_gates.py --jobs 300 --calls 200`: 200 `status` calls against a store with 300 terminal jobs and 14 lanes, measured two ways: the CLI end to end (a fresh Python process per call) and the socket round trip from one in-process client (the three requests `subfleet status` makes: `daemon.status`, `lanes`, `readings`) | record | Green 2026-09-19 08:26 EDT: CLI 83 ms p95; socket 24 ms p95; interpreter start plus CLI import 59 ms p95 (diagnostic). Supersedes September 5 measurements. |
+| `submit` p95 under 250 ms excluding probes | same run, 200 submits on measured lanes (no probe) | record | Green 2026-09-19 08:26 EDT: 119 ms p95. Supersedes September 5 measurements. |
+| Recovery after a daemon SIGKILL under 30 s | same run: a running slow job, SIGKILL the daemon, restart, time to the job's terminal state | record | Green 2026-09-19 08:26 EDT: 3.4 s; one attempt, re-adopted, succeeded. Supersedes September 5 measurements. |
 | Guard trust preflight blocks a mismatched hash | `tests/unit/test_guard_trust.py` (C-14.2) | test | green 2026-09-05 (part of an 84-test run with the isolation matrix, 10 s) |
 | Isolation matrix | `tests/process/test_claude_isolation.py`, `tests/process/test_codex_isolation.py`, `tests/e2e/test_guard_and_isolation.py` (C-14.4) | test | green 2026-09-05; the Claude workspace-write case flakes under full-suite load, see the watch list |
 | 100 representative canary jobs | one v2-owned Codex lane runs 100 real read-only jobs drawn from the v1 ledger's prompts; every job terminal with a deliverable or a classified failure; no `quarantined`, no `lost` | record | pending |

@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ..contracts import Exit
+from ..ids import request_id as validate_request_id
 from . import handoff as handoff_module
 from . import mirror as mirror_module
 from . import nudge as nudge_module
@@ -141,11 +142,11 @@ def cmd_list(args: argparse.Namespace) -> int:
                if value.get("retired")}
     listing = registry.sessions(lane_ids=lane_ids, include_lanes=bool(args.all),
                                 live_only=not args.all)
+    # C-23.35 excludes retired sessions even when the caller includes dead or
+    # headless lane rows. Keep duplicate diagnostics subject to the same filter.
+    listing = [item for item in listing if item.session_id not in retired]
     rows = []
     for item in listing:
-        if item.session_id in retired and not args.all:
-            # C-23.35: a retired session is absent from every listing.
-            continue
         path = transcripts.transcript_path(item.session_id)
         state = transcripts.turn_state(path)
         rows.append({**item.to_dict(), "state": state.state, "detail": state.detail,
@@ -467,7 +468,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
     cli = _cli()
     sessions = _sessions(args)
     policy = _policy(args)
-    request_id = (getattr(args, "request_id", None) or str(uuid.uuid4()))[:128]
+    request_id = getattr(args, "request_id", None) or str(uuid.uuid4())
     result = handoff_module.handoff(
         sessions, policy,
         session_id=getattr(args, "session_id", None),
@@ -551,7 +552,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="subfleet-sessions", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--all", action="store_true",
-                        help="include lane runs, retired and dead rows")
+                        help="include lane runs and dead rows")
     parser.set_defaults(handler=cmd_list, json=False, sessions_command=None)
     sub = parser.add_subparsers(dest="sessions_command")
     add_verbs(sub, nested=False)
@@ -575,8 +576,8 @@ def add_verbs(sub, *, nested: bool = True) -> None:
                                 help="one JSON object per line (C-17.4)")
 
     p_list = sub.add_parser("list", help="live Claude Code sessions and their state")
-    p_list.add_argument("--all", action="store_true",
-                        help="include lane runs, retired and dead rows")
+    p_list.add_argument("--all", action="store_true", default=argparse.SUPPRESS,
+                        help="include lane runs and dead rows")
     add_json(p_list)
 
     p_continue = sub.add_parser("continue", help="nudge, roll-call, or recover sessions")
@@ -662,7 +663,8 @@ def add_handoff_flags(parser: argparse.ArgumentParser) -> None:
                         help="sandbox (default: the task's policy permission)")
     parser.add_argument("-o", dest="o", metavar="OUT",
                         help="export the deliverable here")
-    parser.add_argument("--request-id", metavar="ID", dest="request_id")
+    parser.add_argument("--request-id", metavar="ID", dest="request_id",
+                        type=validate_request_id)
     parser.add_argument("--dry-run", action="store_true",
                         help="print the brief; dispatch nothing")
 

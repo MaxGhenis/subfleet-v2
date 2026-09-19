@@ -174,3 +174,42 @@ def test_a_401_on_a_home_lane_with_a_refresh_token_is_expired_token_not_auth_dea
     monkeypatch.setattr(claude_module, "_keychain_blob", lambda service, **k: blob(NOW_MS + 3_600_000, refresh=False))
     result = adapter(http_error(401)).probe_usage(lane(), {"CLAUDE_CONFIG_DIR": str(home)})
     assert result.status == "auth-dead"
+
+
+@pytest.mark.parametrize('limits', [None, {}, 'unavailable', [None], [{}],
+    [{'percent': 25, 'scope': {'model': {'display_name': 'Fable'}}}],
+    [{'kind': 'weekly_scoped_v2', 'percent': 25, 'scope': {'model': {'display_name': 'Fable'}}}],
+    [{'kind': [], 'percent': 25}],
+    [{'kind': 'weekly_scoped', 'percent': 25, 'scope': {'model': {'display_name': 'renamed-model'}}}],
+    [{'kind': 'weekly_scoped', 'percent': 25, 'scope': None}],
+    [{'kind': 'weekly_scoped', 'percent': None, 'scope': {'model': {'display_name': 'Fable'}}}],
+    [{'kind': 'weekly_scoped', 'percent': float('nan'), 'scope': {'model': {'display_name': 'Fable'}}}],
+    [{'kind': 'weekly_scoped', 'percent': 110, 'scope': {'model': {'display_name': 'Fable'}}}],
+])
+def test_c11_7_incomplete_usage_snapshot_cannot_release_reserved_quota(limits):
+    """C-9.9, C-11.7: publish no shared reading from a broken scoped inventory."""
+    payload = {**PAYLOAD, 'limits': limits}
+    result = adapter(lambda *args: (200, json.dumps(payload).encode())).probe_usage(
+        lane(), {'CLAUDE_CODE_OAUTH_TOKEN': 'secret-token'})
+    assert result.status == 'unavailable'
+    assert result.readings == ()
+
+
+def test_c11_7_complete_shared_only_snapshot_releases_removed_reserved_window():
+    """C-11.7: a successful later endpoint snapshot can remove an old Fable bucket."""
+    from dataclasses import asdict
+    from subfleet.capacity import build_view
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+    from subfleet.scheduler import evaluate
+
+    earlier = asdict(adapter(ok_opener).probe_usage(lane(),
+        {'CLAUDE_CODE_OAUTH_TOKEN': 'secret-token'}).readings[-1])
+    earlier['observed_at'] = '2026-09-06T12:04:00Z'
+    payload = {**PAYLOAD, 'five_hour': {**PAYLOAD['five_hour'], 'utilization': 10},
+               'seven_day': {**PAYLOAD['seven_day'], 'utilization': 20}, 'limits': []}
+    result = adapter(lambda *args: (200, json.dumps(payload).encode())).probe_usage(
+        lane(), {'CLAUDE_CODE_OAUTH_TOKEN': 'secret-token'})
+    assert result.status == 'ok'
+    snapshot = build_view([lane()], [earlier, *result.readings], now=NOW)
+    decision = evaluate(load_policy(DEFAULT_POLICY_PATH), snapshot, {'pinned_model': 'opus'})
+    assert decision.chosen_lane == lane().lane_id

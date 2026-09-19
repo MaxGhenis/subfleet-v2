@@ -763,16 +763,21 @@ def test_usage_errors_return_two_and_help_returns_zero(capsys):
     assert capsys.readouterr().out.startswith("subfleet 2.")
 
 
-def test_show_out_online_prefers_the_accepted_attempt(daemon, root, capsys):
+@pytest.mark.parametrize("envelope", [False, True])
+def test_show_out_online_prefers_the_accepted_attempt(daemon, root, capsys, envelope):
     """C-8.2, C-4.3 a job with two attempts shows the accepted one's deliverable."""
     first, second = root / "a1.md", root / "a2.md"
     first.write_text("# the failed attempt\n")
     second.write_text("# the accepted attempt\n")
-    daemon({"show": lambda request: {
+    response = {
         "job_id": JOB, "state": "succeeded", "accepted_attempt_id": f"{JOB}/a2",
         "artifacts": [
             {"role": "deliverable", "path": str(first), "attempt_id": f"{JOB}/a1"},
-            {"role": "deliverable", "path": str(second), "attempt_id": f"{JOB}/a2"}]}})
+            {"role": "deliverable", "path": str(second), "attempt_id": f"{JOB}/a2"}]}
+    if envelope:
+        artifacts = response.pop("artifacts")
+        response = {"job": response, "artifacts": artifacts}
+    daemon({"show": lambda request: response})
     assert run_cli(["runs", "show", JOB, "--out"]) == 0
     assert capsys.readouterr().out == "# the accepted attempt\n"
 
@@ -965,6 +970,36 @@ def test_the_request_id_reaches_the_wire_unchanged(daemon, root, workdir, capsys
     capsys.readouterr()
 
 
+@pytest.mark.parametrize("second_prompt", ["first prompt", "different prompt"])
+def test_pending_submission_prompts_never_overwrite_each_other(root, second_prompt):
+    """C-6.2: repeated request ids preserve both inputs until digest comparison."""
+    first = cli.stage_prompt("first prompt", "same-request", root)
+    second = cli.stage_prompt(second_prompt, "same-request", root)
+    # The first CLI can still be waiting for the daemon to read this path.
+    assert first != second
+    assert first.read_text() == "first prompt\n"
+    assert second.read_text() == second_prompt + "\n"
+    assert first.stat().st_mode & 0o777 == second.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("argv", [
+    ["run", "-m", "opus", "hello"],
+    ["resume", JOB],
+    ["handoff", "--last", "--to", "astra"],
+])
+@pytest.mark.parametrize("identity", ["", "x" * 129])
+def test_invalid_request_ids_are_rejected_without_truncation(
+        argv, identity, root, monkeypatch, capsys):
+    """C-1.5, C-6.2: invalid caller ids cannot silently alias a different request."""
+    def no_transport(*args, **kwargs):
+        pytest.fail("invalid identity reached the daemon")
+
+    monkeypatch.setattr(cli, "_client", no_transport)
+    assert run_cli([*argv, "--request-id", identity]) == 2
+    assert "--request-id" in capsys.readouterr().err
+    assert not (root / "inbox").exists()
+
+
 def test_a_relative_out_path_is_resolved_for_the_daemon(daemon, workdir, monkeypatch,
                                                         capsys):
     """C-6.1 the daemon writes -o, and its cwd is not the caller's."""
@@ -1092,6 +1127,28 @@ def test_resume_carries_the_source_routing_and_its_lane(daemon, root, capsys):
     assert args["task"] == "build" and args["tier"] == "hard"
     assert args["pinned_model"] == "astra" and args["exclusions"] == ["a@b.c"]
     assert args["sandbox"] == "workspace-write"
+    capsys.readouterr()
+
+
+def test_resume_unwraps_daemon_show_and_keeps_actual_workspace(daemon, root, capsys):
+    """C-12.3/4: the real show envelope must resume the source lane and worktree."""
+    server = daemon({
+        "show": lambda request: {
+            "job": {"job_id": JOB, "workdir": str(root / "source"),
+                    "worktree": str(root / "allocated"), "sandbox": "workspace-write",
+                    "state": "cancelled", "task": "build", "tier": "hard",
+                    "exclusions": '["excluded@example.com"]',
+                    "accepted_attempt_id": f"{JOB}/a2"},
+            "attempts": [{"attempt_id": f"{JOB}/a1", "lane_id": "codex-1"},
+                         {"attempt_id": f"{JOB}/a2", "lane_id": "codex-9"}]},
+        "submit": submit_ok})
+    assert run_cli(["resume", JOB]) == 0
+    args = server.args("submit")
+    assert args["workdir"] == str(root / "allocated")
+    assert args["pinned_lane"] == "codex-9"
+    assert args["sandbox"] == "workspace-write"
+    assert args["exclusions"] == ["excluded@example.com"]
+    assert args["parent_job_id"] == JOB and args["independent"] is True
     capsys.readouterr()
 
 

@@ -34,7 +34,9 @@ def daemon(tmp_path, monkeypatch):
     monkeypatch.setattr('subfleet.daemon.procs.proc_start', lambda pid: 'fake-start')
     policy = json.loads(Path('subfleet/default_policy.json').read_text())
     policy['timers'] = {'probe_interval_s': .15, 'keepalive_interval_s': .12}
-    policy['reset_credits']['min_interval_min'] = .01
+    # Keep the production reset cooldown. A 0.6-second cooldown permits a
+    # second account's gift while an overloaded test observer is still waiting
+    # to inspect the first cycle; that is valid policy behavior, not a duplicate.
     policy['alerts']['operator_session'] = 'test-operator'
     with tempfile.TemporaryDirectory(prefix='sft-', dir='/tmp') as temporary:
         root = Path(temporary)
@@ -54,14 +56,15 @@ def codex(daemon, number):
 
 
 @pytest.mark.parametrize('consume_timeout', [False, True])
-def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout):
+@pytest.mark.parametrize('observe_late', [False, True])
+def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
     """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
     codex(daemon, 1)
     codex(daemon, 2)
     dead = codex(daemon, 3)
     claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
     daemon.store.put_lane(claude)
-    state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0}
+    state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
 
     def opener(request, timeout):
         account = request.get_header('Chatgpt-account-id')
@@ -78,7 +81,9 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeou
             return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
         assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
         state['consumes'] += 1
-        assert daemon.store.query('SELECT state FROM actions')[0]['state'] == 'executing'
+        state['consume_accounts'].append(account)
+        action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+        assert action['state'] == 'executing'
         if consume_timeout:
             raise TimeoutError('fake timeout after submission')
         return 200, b'{"code":"reset","windows_reset":2}'
@@ -97,7 +102,14 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeou
     try:
         until(lambda: daemon.store.query('SELECT * FROM actions'))
         until(lambda: daemon.store.query("SELECT * FROM events WHERE kind='timer.cycle'"))
-        assert daemon.store.query('SELECT state FROM actions')[0]['state'] == ('unknown' if consume_timeout else 'confirmed')
+        if observe_late:
+            # Reproduce a hosted runner that lets several real timer cycles
+            # finish before this test thread observes the initial result.
+            time.sleep(1.1)
+        actions = daemon.store.query('SELECT action_id,op_key,state FROM actions')
+        assert len(actions) == 1
+        assert actions[0]['state'] == ('unknown' if consume_timeout else 'confirmed')
+        assert actions[0]['op_key'] == f"codex:{state['consume_accounts'][0]}:gift"
         assert not daemon.store.get_lane(dead.lane_id).enabled
         assert state['consumes'] == 1
         until(lambda: state['keepalives'] == 1)
@@ -111,6 +123,7 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeou
             assert daemon.store.query('SELECT state FROM actions')[0]['state'] == 'unknown'
         time.sleep(.35)
         assert state['consumes'] == 1 and state['dead_probes'] == 1 and state['keepalives'] == 1
+        assert daemon.store.query('SELECT action_id,op_key,state FROM actions') == actions
         events = daemon.store.query("SELECT data_json FROM events WHERE kind='timer.keepalive'")
         assert any('skipped-open' in row['data_json'] for row in events)
         payload = json.loads((daemon.root / 'status.json').read_bytes())

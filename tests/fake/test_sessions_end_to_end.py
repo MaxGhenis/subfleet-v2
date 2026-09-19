@@ -8,9 +8,13 @@ fixture ones the daemon's own tests already start.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
+import signal
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -114,7 +118,32 @@ def world(tmp_path, monkeypatch):
             # way for the same two reasons.
             yield service, Client(service), home, store_dir, root, policy, tmp_path
         finally:
-            service.close()
+            close_world(service)
+
+
+def close_world(service: Daemon) -> None:
+    """Stop daemon workers, then reap this fixture's detached guardians.
+
+    Production shutdown deliberately leaves guardians running for recovery.
+    TemporaryDirectory must wait for their final receipt writes even when the
+    test fails before its job completes. Popen handles identify only children
+    this fixture launched; no machine-wide process search is involved.
+    """
+    service.close()
+    for child in tuple(service._children.values()):
+        try:
+            child.wait(timeout=10)
+        except subprocess.TimeoutExpired:                # failed/blocked fixture
+            # Guardians start their own session before spawning providers.
+            # An unreaped direct child cannot have had its PID reused.
+            try:
+                if os.getpgid(child.pid) == child.pid:
+                    os.killpg(child.pid, signal.SIGKILL)
+                else:                                   # before guardian setsid
+                    child.kill()
+            except ProcessLookupError:
+                pass
+            child.wait(timeout=5)
 
 
 def run(service: Daemon) -> Daemon:
@@ -176,6 +205,45 @@ def stage(root: Path):
         path.write_text(text, encoding="utf-8")
         return path
     return write
+
+
+def test_world_shutdown_reaps_a_provider_still_writing_receipts(world, monkeypatch):
+    """Fixture cleanup waits for detached writers before deleting their root."""
+    service, _client, _home, _store, root, _policy, base = world
+    release = root / "release-provider"
+
+    class HeldProvider(FakeAdapter):
+        def build_launch(self, *args, **kwargs):
+            launch = super().build_launch(*args, **kwargs)
+            program = ("from pathlib import Path\nimport sys, time\n"
+                       "print('fake provider ready', flush=True)\n"
+                       "while not Path(sys.argv[1]).exists(): time.sleep(.01)\n"
+                       "print('fake deliverable', flush=True)\n")
+            return replace(launch, argv=(sys.executable, "-c", program, str(release)))
+
+    monkeypatch.setitem(adapter_registry._factories, "codex", HeldProvider)
+    run(service)
+    prompt = stage(root)("Exercise fixture shutdown.")
+    result = service.dispatch("submit", {
+        "request_id": str(uuid.uuid4()), "kind": "dispatch", "workdir": str(base),
+        "prompt_path": str(prompt), "sandbox": "read-only", "pinned_model": "astra",
+        "allow_tmp": True,
+    })
+    adir = root / "jobs" / result["job_id"] / "a1"
+    until(lambda: (adir / "stdout").is_file() and "ready" in (adir / "stdout").read_text())
+    child = service._children[result["job_id"] + "/a1"]
+    assert child.poll() is None
+    wait = child.wait
+
+    def release_and_wait(*args, **kwargs):
+        # Hold the writer until cleanup actually waits, regardless of host load.
+        release.touch()
+        return wait(*args, **kwargs)
+
+    monkeypatch.setattr(child, "wait", release_and_wait)
+    close_world(service)
+    assert child.poll() == 0
+    assert json.loads((adir / "exit.json").read_text())["rc"] == 0
 
 
 # --- `sessions continue --scope interrupted` (C-23.33, C-23.31) ---------------
@@ -479,6 +547,8 @@ def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world
     assert job["sandbox"] == Sandbox.WORKSPACE_WRITE.value
     assert job["in_place"] == 1
     assert job["worktree"] == str(repo), "in place: the session's own worktree"
+    until(lambda: service.store.get_job(result.job_id)["state"] in
+          ("succeeded", "failed", "cancelled", "lost"), timeout=20)
 
 
 def test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job(world):

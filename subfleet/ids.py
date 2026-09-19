@@ -58,7 +58,7 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
                    exclusions: Collection[str] = (), out_path: str | Path | None = None,
                    allow_desktop: bool = False, policy_hash: str = "",
                    isolated_review: bool = False, review_root: str | None = None,
-                   round_lease: str | None = None) -> str:
+                   round_lease: str | None = None, resume: Mapping[str, Any] | None = None) -> str:
     """Hash the exact C-6.2 payload, excluding caller identity and display name.
 
     A mapping is accepted for callers that have already assembled these canonical
@@ -82,6 +82,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
         if isolated_review or review_root or round_lease:
             payload.update(isolated_review=isolated_review, review_root=review_root,
                            round_lease=round_lease)
+        if resume is not None:
+            payload["resume"] = dict(resume)
     return hashlib.sha256(canonical_json(payload)).hexdigest()
 
 

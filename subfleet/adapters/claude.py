@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -1070,26 +1071,37 @@ class ClaudeAdapter(Adapter):
             return UsageResult("unavailable", detail="malformed")
         if not isinstance(payload, dict):
             return UsageResult("unavailable", detail="malformed")
+        # Reserve admission treats a newer usage response as a complete snapshot:
+        # an omitted scoped bucket means the account no longer has that bucket.
+        # Never publish the shared quota from an incomplete/malformed snapshot,
+        # which could otherwise erase the reserved model's headroom.
+        limits = payload.get("limits")
+        if not isinstance(limits, list) or any(
+                not isinstance(item, dict) or item.get("kind") not in ("session", "weekly_all", "weekly_scoped")
+                for item in limits):
+            return UsageResult("unavailable", detail="malformed limits")
         observed_at = iso_utc(self._now())
         readings: list[Reading] = []
         for window in ("five_hour", "seven_day"):
             entry = payload.get(window)
             value = entry.get("utilization") if isinstance(entry, dict) else None
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 100:
                 readings.append(Reading(lane.lane_id, "account", window, float(value) / 100.0,
                                         _iso_or_none(entry.get("resets_at")), ReadingLabel.PROVIDER,
                                         SOURCE_OAUTH_USAGE, observed_at))
         names = {k.lower(): v for k, v in (scoped_models or SCOPED_MODEL_IDS).items()}
-        for limit in payload.get("limits") or []:
-            if not isinstance(limit, dict) or limit.get("kind") != "weekly_scoped":
+        for limit in limits:
+            if limit.get("kind") != "weekly_scoped":
                 continue
             scope = limit.get("scope") if isinstance(limit.get("scope"), dict) else {}
             model = scope.get("model") if isinstance(scope.get("model"), dict) else {}
-            name = str(model.get("display_name") or "").strip()
+            raw_name = model.get("display_name")
+            name = raw_name.strip() if isinstance(raw_name, str) else ""
             percent = limit.get("percent")
-            if not name or not isinstance(percent, (int, float)) or isinstance(percent, bool):
-                continue
-            readings.append(Reading(lane.lane_id, names.get(name.lower(), name.lower()), "seven_day",
+            if (name.lower() not in names or not isinstance(percent, (int, float)) or isinstance(percent, bool)
+                    or not math.isfinite(percent) or not 0 <= percent <= 100):
+                return UsageResult("unavailable", detail="malformed scoped window")
+            readings.append(Reading(lane.lane_id, names[name.lower()], "seven_day",
                                     float(percent) / 100.0, _iso_or_none(limit.get("resets_at")),
                                     ReadingLabel.PROVIDER, SOURCE_OAUTH_USAGE, observed_at))
         limit_reached = any(r.scope == "account" and r.utilization is not None and r.utilization >= 1.0

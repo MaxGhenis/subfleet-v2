@@ -896,7 +896,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "note",
+    "disposition": "map",
     "argv": [
      "lanes",
      "enroll",
@@ -904,8 +904,8 @@
     ],
     "verb": "lanes.enroll",
     "exit_code": null,
-    "rule": "renamed:enroll",
-    "note_count": 1,
+    "rule": "permanent:enroll",
+    "note_count": 0,
     "env": {}
    }
   },

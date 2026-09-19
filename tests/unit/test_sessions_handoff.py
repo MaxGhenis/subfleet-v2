@@ -141,10 +141,13 @@ def test_a_system_reminder_never_reaches_the_brief(home, repo, policy):
 @pytest.mark.parametrize("command", [
     "agent-secret get claude-quota-max@axiom.org",
     "security find-generic-password -s subfleet -w",
+    "security find-generic-password -s subfleet -g",
+    "security find-internet-password -s example.test -w",
     "printenv | grep TOKEN",
     "cat ~/.codex/auth.json",
     "cat .env.production",
-], ids=["agent-secret", "keychain", "printenv", "auth-json", "dotenv"])
+], ids=["agent-secret", "keychain", "keychain-stderr", "keychain-internet",
+        "printenv", "auth-json", "dotenv"])
 def test_handoff_suppresses_credential_reading_tool_results(home, repo, policy, command):
     """C-23.14: the result of a credential-reading tool call is omitted by
     pattern rather than redacted, so a secret never reaches the excerpt even
