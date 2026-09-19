@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from subfleet.adapters import codex as codex_module
 from subfleet.adapters.base import AdapterError
 from subfleet.adapters.codex import CodexAdapter
 from subfleet.contracts import (
@@ -393,6 +395,86 @@ def test_attestation_does_not_trust_thread_id_only_in_filename(tmp_path):
     result = CodexAdapter().attest(tmp_path, _launch(tmp_path, home),
                                   Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
     assert result.status == Attestation.UNATTESTED
+
+
+@pytest.mark.parametrize("persisted", [False, True])
+def test_attestation_opens_only_candidate_rollouts_in_large_home(tmp_path, monkeypatch, persisted):
+    """C-12.5: a fleet-sized history cannot delay a known thread or an ephemeral miss."""
+    home = tmp_path / "home"
+    sessions = home / "sessions" / "2026" / "09" / "05"
+    sessions.mkdir(parents=True)
+    for index in range(2500):
+        (sessions / f"rollout-2026-09-05T10-00-00-{uuid.UUID(int=index)}.jsonl").touch()
+    target = sessions / f"rollout-2026-09-05T12-00-00-{THREAD}.jsonl"
+    if persisted:
+        target.write_text(json.dumps({"type": "session_meta", "payload": {"id": THREAD}}) + "\n" +
+                          json.dumps({"type": "turn_context", "payload": {"model": MODEL}}) + "\n")
+    original_events = codex_module._events
+    opened = []
+
+    def candidate_events(path):
+        opened.append(path)
+        assert path == target, "attestation opened an unrelated historical transcript"
+        yield from original_events(path)
+
+    monkeypatch.setattr(codex_module, "_events", candidate_events)
+    launch = _launch(tmp_path, home)
+    if not persisted:
+        launch = replace(launch, argv=(*launch.argv, "--ephemeral"))
+    result = CodexAdapter().attest(tmp_path, launch,
+                                  Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
+    assert opened == ([target] if persisted else [])
+    assert result.status == (Attestation.ATTESTED if persisted else Attestation.UNATTESTED)
+
+
+@pytest.mark.parametrize("legacy_duplicate", [False, True])
+def test_attestation_duplicate_matching_rollouts_remain_unattested(tmp_path, legacy_duplicate):
+    """C-12.5: targeted filenames and legacy names must not conceal duplicate evidence."""
+    home = tmp_path / "home"
+    sessions = home / "sessions"
+    sessions.mkdir(parents=True)
+    names = [f"rollout-2026-09-05T12-00-00-{THREAD}.jsonl",
+             "rollout.jsonl" if legacy_duplicate else f"rollout-2026-09-05T13-00-00-{THREAD}.jsonl"]
+    for name in names:
+        (sessions / name).write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": THREAD, "model": MODEL}}) + "\n")
+    result = CodexAdapter().attest(tmp_path, _launch(tmp_path, home),
+                                  Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
+    assert result.status == Attestation.UNATTESTED
+
+
+@pytest.mark.parametrize("canonical_copy", [False, True])
+def test_attestation_opaque_legacy_name_keeps_metadata_as_identity(tmp_path, canonical_copy):
+    """C-12.5: a renamed legacy transcript's UUID suffix is not a provider filename."""
+    home = tmp_path / "home"
+    sessions = home / "sessions"
+    sessions.mkdir(parents=True)
+    contents = json.dumps({"type": "session_meta", "payload": {"id": THREAD, "model": MODEL}}) + "\n"
+    (sessions / f"rollout-copy-{uuid.UUID(int=1)}.jsonl").write_text(contents)
+    if canonical_copy:
+        (sessions / f"rollout-2026-09-05T12-00-00-{THREAD}.jsonl").write_text(contents)
+    result = CodexAdapter().attest(tmp_path, _launch(tmp_path, home),
+                                  Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
+    assert result.status == (Attestation.UNATTESTED if canonical_copy else Attestation.ATTESTED)
+
+
+def test_attestation_large_opaque_history_is_unattested_without_partial_search(tmp_path, monkeypatch):
+    """C-12.5: a bounded legacy fallback must not assert uniqueness from a partial scan."""
+    home = tmp_path / "home"
+    sessions = home / "sessions"
+    sessions.mkdir(parents=True)
+    for index in range(40):
+        (sessions / f"legacy-{index}.jsonl").write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": THREAD if index == 0 else "other", "model": MODEL}}) + "\n")
+
+    def forbidden(path):
+        raise AssertionError("an ambiguous oversized candidate set must not be partially searched")
+
+    monkeypatch.setattr(codex_module, "_events", forbidden)
+    result = CodexAdapter().attest(tmp_path, _launch(tmp_path, home),
+                                  Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
+    assert result.status == Attestation.UNATTESTED
+    assert "candidate limit" in result.evidence
 
 
 def test_subscription_upgrade_link_is_not_an_old_cli_error(tmp_path):
