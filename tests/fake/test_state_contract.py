@@ -125,8 +125,8 @@ def test_c15_1_state_terminal_and_notice_roll_back_together(state_daemon, monkey
     assert len(daemon.store.list_notices()) == 1
 
 
-def test_c15_3_state_notice_ack_is_session_scoped_and_show_acknowledges(state_daemon):
-    """C-15.3 notice ack belongs to the caller session and show acknowledges the job's notice once."""
+def test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only(state_daemon):
+    """C-15.3 only the recipient's explicit acknowledgement consumes a notice; show may serve other callers."""
     daemon, harness = state_daemon
     job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
     daemon.dispatch("kill", {"job_id": job_id})
@@ -134,6 +134,8 @@ def test_c15_3_state_notice_ack_is_session_scoped_and_show_acknowledges(state_da
     daemon.dispatch("notice.ack", {"session_id": "other-session", "notice_ids": [notice["notice_id"]]})
     assert daemon.store.list_notices()[0]["state"] == "pending"
     daemon.dispatch("show", {"job_id": job_id})
+    assert daemon.store.list_notices()[0]["state"] == "pending"
+    daemon.dispatch("notice.ack", {"session_id": "fake-session", "notice_ids": [notice["notice_id"]]})
     assert daemon.store.list_notices()[0]["state"] == "acknowledged"
     assert daemon.dispatch("notice.pending", {"session_id": "fake-session"})["notices"] == []
 

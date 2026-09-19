@@ -55,7 +55,7 @@ def test_minimal_pick_filters_and_pins():
     closures = [{"lane_id": "codex-5", "scope": "gpt-6-astra", "until_at": "2026-09-05T13:00:00Z"}]
     decision = pick(policy, lanes, pinned_model="astra", exclusions=["codex-4"], closures=closures, now=NOW)
     assert decision.chosen_lane == "codex-6"
-    assert [row["reason"] for row in decision.evaluations[0]["rejections"]] == ["disabled", "owner is not v2", "desktop excluded", "excluded", "closure:gpt-6-astra"]
+    assert [row["reason"] for row in decision.evaluations[0]["rejections"]] == ["disabled", "owner-v1", "desktop", "excluded", "closed:gpt-6-astra:2026-09-05T13:00:00Z"]
     assert pick(policy, lanes, pinned_model="astra", pinned_lane="codex-3", now=NOW).chosen_lane is None
     assert pick(policy, lanes, pinned_model="astra", pinned_lane="codex-3", allow_desktop=True, now=NOW).chosen_lane == "codex-3"
     with pytest.raises(ValueError, match="different providers"):
@@ -65,14 +65,16 @@ def test_minimal_pick_filters_and_pins():
 def test_unmeasured_stale_lane_and_fleet_caps():
     """C-6.4: one unmeasured slot expands only for fresh provider evidence."""
     policy = load_policy(DEFAULT_POLICY_PATH)
-    reading = {"lane_id": "codex-1", "label": "provider", "observed_at": "2026-09-05T11:59:00Z", "resets_at": "2026-09-05T13:00:00Z"}
+    reading = {"lane_id": "codex-1", "scope": "account", "window": "seven_day", "utilization": .2,
+               "label": "provider", "observed_at": "2026-09-05T11:59:00Z", "resets_at": "2026-09-05T13:00:00Z"}
     assert lane_capacity(policy, "codex-1", [], now=NOW) == 1
     assert lane_capacity(policy, "codex-1", [reading], now=NOW) == 2
     assert lane_capacity(policy, "codex-1", [{**reading, "observed_at": "2026-09-05T11:57:00Z"}], now=NOW) == 1
     assert lane_capacity(policy, "codex-1", [{**reading, "label": "admission-observed"}], now=NOW) == 1
-    assert pick(policy, [lane()], pinned_model="astra", in_flight={"codex-1": 1}, now=NOW).reason == "capacity"
+    assert lane_capacity(policy, "codex-1", [{**reading, "utilization": None}], now=NOW) == 1
+    assert pick(policy, [lane()], pinned_model="astra", in_flight={"codex-1": 1}, now=NOW).chosen_lane is None
     assert pick(policy, [lane()], pinned_model="astra", in_flight={"codex-1": 1}, readings=[reading], now=NOW).chosen_lane == "codex-1"
-    assert pick(policy, [lane()], pinned_model="astra", in_flight={"codex-9": 4}, now=NOW).reason == "capacity"
+    assert pick(policy, [lane()], pinned_model="astra", in_flight={"codex-9": 4}, now=NOW).chosen_lane is None
 
 
 def test_keychain_secret_only_enters_environment(monkeypatch, tmp_path):

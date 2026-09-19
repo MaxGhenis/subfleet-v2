@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -233,6 +234,25 @@ def test_the_nested_json_flag_does_not_overwrite_the_parents():
     assert parse(["sessions", "--json", "list"]).json is True
     assert parse(["sessions", "list", "--json"]).json is True
     assert parse(["sessions", "list"]).json is False
+
+
+@pytest.mark.parametrize("argv", [
+    ["sessions", "--all", "--json"],
+    ["sessions", "list", "--all", "--json"],
+    ["sessions", "--all", "list", "--json"],
+])
+def test_retired_sessions_are_absent_even_when_listing_all(argv, monkeypatch, tmp_path):
+    """C-23.35: --all includes dead/lane rows but never retired sessions."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    other = "8f2c1d90-4a7b-4f31-9c22-0d5b6e7a1234"
+    fx.register(home, ALICE, os.getpid(), started_at=1.0)
+    fx.register(home, other, 99999999, started_at=2.0)
+    daemon = fx.FakeSessions(retired={ALICE: {"reason": "replaced"}})
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
+    code, output, errors = run(argv, monkeypatch)
+    assert code == int(Exit.OK)
+    assert [json.loads(row)["session_id"] for row in output.splitlines()] == [other]
+    assert ALICE not in output + errors
 
 
 def test_a_daemon_that_is_older_than_the_op_says_so(monkeypatch, tmp_path):

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 IDENTITY_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "claude" / "identity"
@@ -90,20 +91,23 @@ USAGE_PATH = "/api/oauth/usage"
 
 def usage_body(shared: float, fable: float | None = None) -> bytes:
     """The usage endpoint's payload as observed on 2026-09-06, in percent."""
+    now = datetime.now(timezone.utc)
+    session_reset = (now + timedelta(hours=5)).isoformat()
+    weekly_reset = (now + timedelta(days=7)).isoformat()
     limits = [
         {"kind": "session", "group": "session", "percent": 10, "severity": "normal",
-         "resets_at": "2026-09-06T17:00:00+00:00", "scope": None, "is_active": True},
+         "resets_at": session_reset, "scope": None, "is_active": True},
         {"kind": "weekly_all", "group": "weekly", "percent": shared, "severity": "warning",
-         "resets_at": "2026-09-10T16:00:00+00:00", "scope": None, "is_active": False},
+         "resets_at": weekly_reset, "scope": None, "is_active": False},
     ]
     if fable is not None:
         limits.append({"kind": "weekly_scoped", "group": "weekly", "percent": fable, "severity": "normal",
-                       "resets_at": "2026-09-10T16:00:00+00:00",
+                       "resets_at": weekly_reset,
                        "scope": {"model": {"id": None, "display_name": "Fable"}, "surface": None},
                        "is_active": False})
     return json.dumps({
-        "five_hour": {"utilization": 10.0, "resets_at": "2026-09-06T17:00:00+00:00"},
-        "seven_day": {"utilization": float(shared), "resets_at": "2026-09-10T16:00:00+00:00"},
+        "five_hour": {"utilization": 10.0, "resets_at": session_reset},
+        "seven_day": {"utilization": float(shared), "resets_at": weekly_reset},
         "seven_day_opus": None, "nimbus_quill": {"utilization": 0.0, "resets_at": None},
         "extra_usage": {"utilization": None}, "limits": limits,
     }).encode("utf-8")

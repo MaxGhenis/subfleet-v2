@@ -133,6 +133,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         for optional in ("effort", "scope"):
             if optional in model and not _name(model[optional]):
                 fail(f"{key}.{optional}", "must be a nonempty string when provided")
+        if "priority" in model and (type(model["priority"]) is not int or model["priority"] < 0):
+            fail(f"{key}.priority", "must be a nonnegative integer when provided")
 
     chains = value["chains"]
     if not isinstance(chains, dict) or not chains:
@@ -293,6 +295,8 @@ def _time(value: str | datetime) -> datetime:
 def lane_capacity(policy: Mapping[str, Any], lane_id: str,
                   readings: Iterable[Reading | Mapping[str, Any]], *, now: datetime | str | None = None) -> int:
     """C-6.4: an unmeasured or stale lane is limited to one in-flight attempt."""
+    from .capacity import fresh_provider
+
     instant = _time(now) if now is not None else datetime.now(timezone.utc)
     caps = {**DEFAULT_CAPS, "reading_ttl_s": READING_TTL_S, **policy.get("caps", {})}
     measured = False
@@ -301,8 +305,7 @@ def lane_capacity(policy: Mapping[str, Any], lane_id: str,
         if row.get("lane_id") != lane_id or row.get("label") != "provider":
             continue
         try:
-            age = (instant - _time(row["observed_at"])).total_seconds()
-            if 0 <= age <= caps["reading_ttl_s"] and (not row.get("resets_at") or _time(row["resets_at"]) > instant):
+            if fresh_provider(row, now=instant, reading_ttl_s=caps["reading_ttl_s"]):
                 measured = True
                 break
         except (ValueError, TypeError, KeyError):
@@ -316,63 +319,19 @@ def pick(policy: Mapping[str, Any], lanes: Iterable[Lane | Mapping[str, Any]], *
          allow_desktop: bool = False, closures: Iterable[Closure | Mapping[str, Any]] = (),
          readings: Iterable[Reading | Mapping[str, Any]] = (), in_flight: Mapping[str, int] | None = None,
          policy_digest: str = "", now: datetime | str | None = None) -> Decision:
-    """Pick a pinned lane or the first eligible lane for one model (C-11.2 subset)."""
-    instant = _time(now) if now is not None else datetime.now(timezone.utc)
-    roster = [_row(lane) for lane in lanes]
-    readings, closures = list(readings), [_row(closure) for closure in closures]
-    in_flight, excluded = in_flight or {}, set(exclusions)
-    models = policy["models"]
-    selected = next((lane for lane in roster if lane["lane_id"] == pinned_lane), None) if pinned_lane else None
-    if pinned_lane and selected is None:
-        raise ValueError(f"unknown pinned lane {pinned_lane!r}")
-    if task is not None and task not in policy["chains"]:
-        raise ValueError(f"unknown task {task!r}")
-    if tier is not None and tier not in policy["tiers"]:
-        raise ValueError(f"unknown tier {tier!r}")
-    if pinned_model:
-        short = resolve_model(policy, pinned_model)
-    elif task:
-        default_tier = "standard" if "standard" in policy["tiers"] else policy["tiers"][0]
-        short = policy["chains"][task][policy["tiers"].index(tier or default_tier)]
-    elif selected:
-        short = next(name for name, model in models.items() if model["provider"] == selected["provider"])
-    else:
-        short = next(iter(models))
-    model = models[short]
-    if selected and selected["provider"] != model["provider"]:
-        raise ValueError("pinned lane and model have different providers")
-    caps = {**DEFAULT_CAPS, **policy.get("caps", {})}
-    candidates, rejections = [], []
-    fleet_full = sum(in_flight.values()) >= caps["max_active_attempts"]
-    for lane in roster:
-        identity = lane["lane_id"]
-        reason = None
-        if pinned_lane and identity != pinned_lane:
-            reason = "not pinned lane"
-        elif lane["provider"] != model["provider"]:
-            reason = "different provider"
-        elif not lane.get("enabled", True):
-            reason = "disabled"
-        elif lane.get("owner") != "v2":
-            reason = "owner is not v2"
-        elif lane.get("desktop", False) and not allow_desktop:
-            reason = "desktop excluded"
-        elif identity in excluded or lane.get("account_key") in excluded:
-            reason = "excluded"
-        else:
-            for closure in closures:
-                if (closure["lane_id"] == identity and closure["scope"] in ("account", model["id"])
-                        and not closure.get("released_at") and _time(closure["until_at"]) > instant):
-                    reason = f"closure:{closure['scope']}"
-                    break
-        if reason is None and (fleet_full or in_flight.get(identity, 0) >= lane_capacity(policy, identity, readings, now=instant)):
-            reason = "capacity"
-        if reason:
-            rejections.append({"lane_id": identity, "reason": reason})
-        else:
-            candidates.append(identity)
-    evaluation = {"model": short, "model_id": model["id"], "candidates": candidates,
-                  "rejections": rejections, "readings": [_row(reading) for reading in readings], "closures": closures}
-    reason = "first eligible lane" if candidates else ("capacity" if any(item["reason"] == "capacity" for item in rejections) else "no eligible lane")
-    return Decision((short,), (evaluation,), candidates[0] if candidates else None,
-                    short if candidates else None, reason, policy_digest)
+    """C-11.2: compatibility entry point for the daemon's single evaluator.
+
+    Callers of the original helper get the same reserve, capacity, ordering,
+    and fallback decisions as submissions and `why`.
+    """
+    from .capacity import build_view
+    from .scheduler import evaluate
+
+    snapshot = build_view(lanes, readings, closures, now=now,
+                          reading_ttl_s=policy.get("caps", {}).get("reading_ttl_s", READING_TTL_S))
+    snapshot["in_flight"] = dict(in_flight or {})
+    return evaluate(policy, snapshot, {
+        "pinned_model": pinned_model, "pinned_lane": pinned_lane,
+        "task": task, "tier": tier, "exclusions": tuple(exclusions),
+        "allow_desktop": allow_desktop, "policy_hash": policy_digest or policy.get("_policy_hash", ""),
+    })

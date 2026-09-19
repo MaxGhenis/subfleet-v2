@@ -42,7 +42,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .policy import load_policy, policy_hash, resolve_model
 from .retention import maintenance
-from .salvage import git_head, salvage, validate_writable_workdir
+from .salvage import SalvageError, git_head, salvage, validate_writable_workdir, working_tree
 from .store import Store
 
 #: "not asked yet", distinct from "asked, and there was no answer".
@@ -75,6 +75,11 @@ def audit_kind(event: str) -> str:
 #: having one writer — but nothing reads that namespace by prefix.
 def revive_lease_key(session_id: str) -> str:
     return f"session:{session_id}:revive"
+
+
+def native_session_lease_key(lane_id: str, session_id: str) -> str:
+    """A read-only continuation still writes its provider's native transcript."""
+    return f"native-session:{lane_id}:{session_id}"
 
 
 def imported_external(attempt: dict) -> bool:
@@ -481,6 +486,9 @@ class Daemon:
     def submit(self, args: protocol.SubmitArgs) -> dict:
         # Called on a filesystem worker, never on the socket reader pool.
         with self._submit_lock:
+            resume = None
+            if args.kind == "resume":
+                args, resume = self._resume_submission(args)
             try:
                 ids.request_id(args.request_id)
                 sandbox = Sandbox(args.sandbox)
@@ -553,7 +561,7 @@ class Daemon:
                     sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
-                    round_lease=args.round_lease)
+                    round_lease=args.round_lease, resume=resume)
             except (OSError, ValueError, TypeError) as exc:
                 raise protocol.ProtocolError(str(exc)) from exc
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
@@ -579,6 +587,8 @@ class Daemon:
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
             manifest = {"job": values}
+            if resume:
+                manifest["resume"] = resume
             if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
                 prepared_path = jobdir / "prompt.prepared.md"
                 self._publish("prompt-prepared", prepared_path, WRITE_PREAMBLE.encode() + prompt)
@@ -592,6 +602,66 @@ class Daemon:
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
             self._notify()
             return {"job_id": job_id, "request_id": args.request_id, "created": True}
+
+    def _resume_submission(self, args: protocol.SubmitArgs) -> tuple[protocol.SubmitArgs, dict]:
+        """Resolve the native session on its original lane before persisting a resume."""
+        if not args.parent_job_id:
+            raise protocol.ProtocolError("resume requires its source parent_job_id")
+        source = self._job(args.parent_job_id)
+        if source["state"] not in TERMINAL or self.store.one(
+                "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
+                "('reserved','starting','running','finalizing','quarantined')", (source["job_id"],)):
+            raise AdapterError("source job is still active or quarantined",
+                               fix="wait for its completion or resolve containment before resuming")
+        if source["isolated_review"]:
+            raise AdapterError("isolated review cannot resume a contextual session",
+                               fix="submit a fresh isolated review job")
+        attempt = (self.store.get_attempt(source["accepted_attempt_id"])
+                   if source["accepted_attempt_id"] else self.store.one(
+                       "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (source["job_id"],)))
+        if not attempt:
+            raise AdapterError("source job has no provider attempt", fix="submit a fresh job")
+        native = attempt["native_session_id"] or self._legacy_resume_identity(attempt)
+        if not native:
+            raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job")
+        # A continuation belongs to the source execution workspace, even when
+        # that was an allocated worktree containing uncommitted provider work.
+        # Independent allows continuing a cancelled source without reviving its
+        # parent's old cancellation request (C-7.3).
+        args = dataclasses.replace(args, workdir=source["worktree"] or source["workdir"],
+            sandbox=source["sandbox"], in_place=source["sandbox"] == "workspace-write",
+            pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
+            task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
+            exclusions=json.loads(source["exclusions"] or "[]"),
+            independent=True, allow_tmp=True,
+            no_preamble=not (self.root / "jobs" / source["job_id"] / "prompt.prepared.md").is_file())
+        return args, {"source_job_id": source["job_id"], "source_attempt_id": attempt["attempt_id"],
+                      "native_session_id": native, "lane_id": attempt["lane_id"],
+                      "model_id": attempt["model_requested"]}
+
+    def _legacy_resume_identity(self, attempt: dict) -> str | None:
+        """C-23.32: recover old Codex identity in memory, never rewriting imported evidence."""
+        import re
+        evidence = json.loads(attempt["evidence_json"] or "{}")
+        lane = self.store.get_lane(attempt["lane_id"])
+        if not evidence.get("imported") or not lane or lane.provider != "codex":
+            return None
+        uuid = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
+        found = set()
+        for artifact in self.store.list_artifacts(attempt["attempt_id"]):
+            if artifact["role"] != "stderr":
+                continue
+            try:
+                with Path(artifact["path"]).open("rb") as stream:
+                    text = stream.read(4_000_000).decode("utf-8", "replace")
+                found.update(re.findall(r"(?m)^session id:\s*(" + uuid + r")\s*$", text))
+            except OSError:
+                continue
+        if attempt["transcript_path"]:
+            match = re.fullmatch(r"rollout-.+-(" + uuid + r")\.jsonl", Path(attempt["transcript_path"]).name)
+            if match:
+                found.add(match[1])
+        return next(iter(found)) if len(found) == 1 else None
 
     def _validate_conflicts(self, job: dict) -> None:
         if job.get("round_lease"):
@@ -697,9 +767,9 @@ class Daemon:
         if op == "show":
             a = protocol.coerce_args(protocol.ShowArgs, args)
             job = self._job(a.job_id)
-            with self.store.transaction("notice.acknowledged", job_id=a.job_id) as tx:
-                tx.execute("UPDATE notices SET state='acknowledged',acknowledged_at=? WHERE job_id=? "
-                           "AND state!='acknowledged'", (utcnow(), a.job_id))
+            # Show also serves resume and inspection by unrelated sessions. The
+            # CLI sends notice.ack for its own session after displaying a result;
+            # this sessionless read must not consume another caller's notice.
             return {"job": job, "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
@@ -1084,6 +1154,10 @@ class Daemon:
 
     def _workspace(self, job: dict) -> tuple[str, str | None, str | None]:
         workdir = job.get("worktree") or job["workdir"]
+        if job["sandbox"] == "workspace-write":
+            # Submission may have waited for capacity while the caller changed
+            # branches. Refuse again at admission, including writable retries.
+            validate_writable_workdir(workdir)
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
             if not Path(workdir).exists():
@@ -1094,7 +1168,9 @@ class Daemon:
             os.chmod(workdir, 0o700)
         head = git_head(workdir)
         baseline = None
-        if head:
+        if head and job["sandbox"] == "workspace-write":
+            baseline = working_tree(workdir, head)
+        elif head:
             result = subprocess.run(["git", "-C", workdir, "rev-parse", f"{head}^{{tree}}"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 baseline = result.stdout.strip()
@@ -1402,7 +1478,17 @@ class Daemon:
                 continue
             try:
                 workspace, head, baseline = self._workspace(job)
-            except (OSError, subprocess.SubprocessError, AdapterError):
+                native_session = job["caller_session"] if job["kind"] == "revive" else None
+                if job["kind"] == "resume":
+                    manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
+                    native_session = (manifest.get("resume") or {}).get("native_session_id")
+                    if not native_session:
+                        raise AdapterError("resume source identity is missing",
+                                           fix="resubmit the resume from the original job")
+            except AdapterError as exc:
+                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                continue
+            except (OSError, subprocess.SubprocessError, SalvageError):
                 self._fail_queued(job, "workspace preparation failed")
                 continue
             previous = self.store.list_attempts(job["job_id"])
@@ -1446,6 +1532,11 @@ class Daemon:
                 while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane_id}:slot:{slot}",)).fetchone():
                     slot += 1
                 leases = [(f"lane:{lane_id}:slot:{slot}", aid)]
+                if native_session:
+                    # C-12.3/4, C-12.6: filesystem read-only permissions do not
+                    # isolate a provider transcript. Resume and revive share
+                    # this job-held lease through retry, export and quarantine.
+                    leases.append((native_session_lease_key(lane_id, native_session), job["job_id"]))
                 if job.get("round_lease"):
                     leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
                 if job["out_path"]:
@@ -1512,12 +1603,12 @@ class Daemon:
                      f"skipped: session {job['caller_session']} already has a live "
                      f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}")
 
-    def _fail_queued(self, job: dict, detail: str) -> None:
+    def _fail_queued(self, job: dict, detail: str, *, rc: int = 1) -> None:
         with self.store.transaction("job.failed", job_id=job["job_id"]) as tx:
             job = self._job(job["job_id"])
             if job["state"] in TERMINAL:
                 return
-            state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("failed", 1)
+            state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("failed", rc)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), job["job_id"]))
             tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
             self._notice(tx, job, "unknown", rc, None, detail)
@@ -1546,11 +1637,22 @@ class Daemon:
             prompt_path = adir / "prompt.md"
             self._publish("prompt", prompt_path, prompt)
         try:
+            if job["sandbox"] == "workspace-write":
+                # Close the reservation-to-launch window as well: the caller
+                # can switch an in-place checkout after its attempt is reserved.
+                validate_writable_workdir(job.get("worktree") or job["workdir"])
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
             spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review else self._guard_override(adapter, lane, spec.workdir)
-            if job["kind"] == "revive" and job["caller_session"]:
+            resume = None
+            if job["kind"] == "resume":
+                manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
+                resume = manifest.get("resume")
+                if not resume or resume["lane_id"] != lane.lane_id or resume["model_id"] != model["id"]:
+                    raise AdapterError("resume source identity is missing or does not match this attempt",
+                                       fix="resubmit the resume from the original job")
+            if resume or (job["kind"] == "revive" and job["caller_session"]):
                 # C-23.54: a revive is an ordinary submission, but the launch it
                 # asks for is `--resume <session id>` — continuing the session
                 # named by `caller_session`, which for a revive IS the session
@@ -1558,7 +1660,7 @@ class Daemon:
                 # under a fresh `--session-id`, which looks like a revive and is
                 # not one.
                 launch = adapter.resume_launch(spec, a["attempt_id"], adir, lane,
-                                               credential_env, job["caller_session"],
+                                               credential_env, resume["native_session_id"] if resume else job["caller_session"],
                                                prompt_path, guard_override, model["id"])
                 if launch is None:
                     raise AdapterError(
@@ -1747,7 +1849,7 @@ class Daemon:
     def _begin_finalizing(self, a: dict, receipt: dict) -> None:
         with self.store.transaction("attempt.finalizing", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             tx.execute("UPDATE attempts SET state='finalizing',rc=?,signal=?,child_pid=?,finished_at=? WHERE attempt_id=? AND state IN ('reserved','starting','running')",
-                       (receipt["rc"], receipt.get("signal"), receipt.get("child_pid"), receipt.get("finished_at", utcnow()), a["attempt_id"]))
+                       (receipt.get("rc"), receipt.get("signal"), receipt.get("child_pid"), receipt.get("finished_at", utcnow()), a["attempt_id"]))
         self._boundary("finalizing", a["job_id"], a["attempt_id"])
         self._notify()
 
@@ -1875,7 +1977,8 @@ class Daemon:
         if receipt is None:
             baseline = json.loads(a["evidence_json"] or "{}").get("baseline_commit") or job["workdir_head"]
             result = salvage(job.get("worktree") or job["workdir"], baseline, a["seq"],
-                             writable=True, state="finalizing", timestamp=a["reserved_at"])
+                             writable=True, state="finalizing", timestamp=a["reserved_at"],
+                             baseline_tree=a.get("baseline_tree"))
             receipt = {"result": dataclasses.asdict(result) if result else None,
                        "checkpoint": git_head(job.get("worktree") or job["workdir"])}
             self._publish("salvage", receipt_path, json_bytes(receipt))
@@ -1939,13 +2042,15 @@ class Daemon:
         receipt = self._read_json(adir / "exit.json")
         # The receipt on disk decides, not the verdict the caller reached before
         # reading it: a guardian found dead a moment after it published exit.json
-        # completed its attempt (C-4.2). Only a missing receipt is a loss.
-        lost = receipt is None
+        # completed its attempt (C-4.2). A missing receipt or missing return code
+        # is a loss; the existence of a receipt alone cannot prove completion.
+        lost = receipt is None or receipt.get("rc") is None
         if receipt and actual["state"] != "finalizing":
             self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
         if lost:
-            outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt")
+            outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
+                              else "guardian exit receipt has no return code")
             attest_status, served_model = "unattested", None
         else:
             result_path = adir / "finalization.json"

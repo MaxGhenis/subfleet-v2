@@ -30,12 +30,13 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, protocol
+from . import capacity, ids, protocol
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -471,13 +472,18 @@ def stage_prompt(text: str, request_id: str, root: Path) -> Path:
                 stale.unlink()
         except OSError:
             pass
-    # The request id is caller-supplied (C-1.5); it names the wire, never a
-    # path. A digest keeps the staging inside the state root (C-2.1).
+    # A caller may submit the same request id concurrently (C-6.2), including
+    # with a different payload. Each submission needs its own immutable input
+    # until the daemon has read it and compared the digest. Reusing a filename
+    # here can silently replace the first submission's prompt before that read.
+    # The digest is only a private filename prefix, never the caller's path.
     digest = hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:32]
-    path = inbox / f"{digest}.md"
-    handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(handle, "w") as stream:
+    handle, filename = tempfile.mkstemp(prefix=f"{digest}-", suffix=".md", dir=inbox)
+    path = Path(filename)
+    with os.fdopen(handle, "w", encoding="utf-8") as stream:
         stream.write(text if text.endswith("\n") else text + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
     return path
 
 
@@ -553,7 +559,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     workdir, error = _validate_run(args)
     if error is not None:
         return error
-    request_id = (args.request_id or str(uuid.uuid4()))[:128]
+    request_id = args.request_id or str(uuid.uuid4())
     root = _root(args)
     prompt_path, error = _prompt_path(args, request_id, root)
     if error is not None:
@@ -861,6 +867,8 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
     A job that failed once and then succeeded has two rows for the same role;
     only the accepted attempt's is the result.
     """
+    if isinstance(job.get("job"), dict):
+        job = {**job, **job["job"]}
     artifacts = rows_of(job.get("artifacts"))
     accepted = job.get("accepted_attempt_id")
     for wanted in ((accepted,) if accepted else ()) + (None,):
@@ -1181,7 +1189,20 @@ def cmd_resume(args: argparse.Namespace) -> int:
         return fail(exc.code, str(exc))
     if not source:
         return fail(Exit.INVALID_INPUT, f"resume: no job {args.id!r}")
-    request_id = (args.request_id or str(uuid.uuid4()))[:128]
+    # The socket's show response separates the job row from its attempts.
+    # Keep the legacy flat shape for older daemons, but never substitute the
+    # CLI's cwd when the real job/worktree was inside the envelope.
+    if isinstance(source.get("job"), dict):
+        source = {**source, **source["job"]}
+    exclusions = source.get("exclusions", source.get("exclusions_json", []))
+    if isinstance(exclusions, str):
+        try:
+            exclusions = json.loads(exclusions)
+        except (TypeError, ValueError):
+            return fail(Exit.OPERATIONAL, "resume: source exclusions are malformed")
+    if not isinstance(exclusions, list) or any(not isinstance(item, str) for item in exclusions):
+        return fail(Exit.OPERATIONAL, "resume: source exclusions are malformed")
+    request_id = args.request_id or str(uuid.uuid4())
     root = _root(args)
     try:
         prompt_path = stage_prompt(args.prompt or RESUME_PROMPT, request_id, root)
@@ -1190,18 +1211,19 @@ def cmd_resume(args: argparse.Namespace) -> int:
     submit = protocol.SubmitArgs(
         request_id=request_id,
         kind="resume",
-        workdir=source.get("workdir") or os.getcwd(),
+        workdir=source.get("worktree") or source.get("workdir") or os.getcwd(),
         prompt_path=str(prompt_path),
         sandbox=source.get("sandbox") or Sandbox.READ_ONLY.value,
         task=source.get("task"),
         tier=source.get("tier"),
         pinned_model=source.get("pinned_model"),
-        exclusions=list(source.get("exclusions") or []),
+        exclusions=exclusions,
         pinned_lane=_source_lane(source),
         out_path=str(Path(args.output).expanduser().absolute()) if args.output
                  else source.get("out_path"),
         name=source.get("name"),
         parent_job_id=args.id,
+        independent=True,  # a continuation may follow an explicitly cancelled job
         caller_session=session_id(),
         caller_pid=caller_pid(),
     )
@@ -1908,7 +1930,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--independent", action="store_true",
                        help="a parent's cancel does not cancel this child (C-7.3)")
     p_run.add_argument("--parent", metavar="JOB", help="parent job id")
-    p_run.add_argument("--request-id", metavar="ID",
+    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id,
                        help="idempotency key (default: a UUID4, printed back)")
     p_run.add_argument("--wait", "--attach", dest="attach", action="store_true",
                        help="block until the job is terminal and return its rc")
@@ -1971,7 +1993,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("id")
     p_resume.add_argument("prompt", nargs="?")
     p_resume.add_argument("-o", "--output", help="also write the final response here")
-    p_resume.add_argument("--request-id", metavar="ID")
+    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id)
     _add_json(p_resume)
     p_resume.set_defaults(handler=cmd_resume)
 
@@ -2059,7 +2081,7 @@ def build_parser() -> argparse.ArgumentParser:
     # A bare `subfleet sessions` is `sessions list`, so the parent carries that
     # verb's flags — v1's `subfleet sessions --all` is a spelling C-17.1 keeps.
     p_sessions.add_argument("--all", action="store_true",
-                            help="include lane runs, retired and dead rows")
+                            help="include lane runs and dead rows")
     _add_json(p_sessions)
     p_sessions.set_defaults(handler=cmd_sessions, sessions_command=None)
     sessions_cli.add_verbs(p_sessions.add_subparsers(dest="sessions_command"))

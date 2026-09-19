@@ -29,17 +29,24 @@ case "${1:-}" in
     "$SF2" lanes transfer "$LANE" --to v2 --dry-run
     ;;
   transfer)
+    if [ -e "$SUBFLEET_HOME/soak.json" ]; then
+      "$PY" -c 'import datetime,json,sys; record=json.load(open(sys.argv[1])); assert record.get("lane")==sys.argv[2], "existing soak belongs to another lane"; start=datetime.datetime.fromisoformat(record["since"].replace("Z", "+00:00")); assert start.utcoffset()==datetime.timedelta(0), "invalid UTC soak start"' "$SUBFLEET_HOME/soak.json" "$LANE"
+    fi
     "$SF2" lanes transfer "$LANE" --to v2 --i-understand-v1-edit
-    date -u +'{"since": "%Y-%m-%dT%H:%M:%SZ", "lane": "'"$LANE"'"}' > "$SUBFLEET_HOME/soak.json"
+    if [ ! -e "$SUBFLEET_HOME/soak.json" ]; then
+      date -u +'{"since": "%Y-%m-%dT%H:%M:%SZ", "lane": "'"$LANE"'"}' > "$SUBFLEET_HOME/soak.json"
+    fi
     cat "$SUBFLEET_HOME/soak.json"
     "$0" verify
     ;;
   verify)
     n="${LANE#codex-}"
     if [ -d "$HOME/.codex-$n" ]; then echo "FAIL: $HOME/.codex-$n still exists"; exit 1; fi
-    [ -f "$SUBFLEET_HOME/lanes/$LANE/auth.json" ] && echo "ok: home relocated to $SUBFLEET_HOME/lanes/$LANE"
-    if subfleet status 2>/dev/null | /usr/bin/grep -q "codex-$n"; then echo "FAIL: v1 status still lists ~/.codex-$n"; exit 1; else echo "ok: v1 status no longer lists ~/.codex-$n"; fi
-    "$SF2" lanes list --json 2>/dev/null | "$PY" -c "import json,sys; rows=json.load(sys.stdin); rows=rows.get('lanes', rows) if isinstance(rows, dict) else rows; print([ (r['lane_id'], r['owner'], r.get('home')) for r in rows if r['lane_id']=='$LANE'])"
+    if [ ! -f "$SUBFLEET_HOME/lanes/$LANE/auth.json" ]; then echo "FAIL: relocated lane credential is missing"; exit 1; fi
+    echo "ok: home relocated to $SUBFLEET_HOME/lanes/$LANE"
+    v1_status="$(subfleet status)" || { echo "FAIL: v1 status could not be read"; exit 1; }
+    if printf '%s\n' "$v1_status" | /usr/bin/grep -q "codex-$n"; then echo "FAIL: v1 status still lists ~/.codex-$n"; exit 1; else echo "ok: v1 status no longer lists ~/.codex-$n"; fi
+    "$SF2" lanes list --json | "$PY" -c 'import json,sys; rows=json.load(sys.stdin); rows=rows.get("lanes", rows) if isinstance(rows, dict) else rows; matches=[r for r in rows if r["lane_id"]==sys.argv[1]]; assert len(matches)==1 and matches[0]["owner"]=="v2" and matches[0].get("home")==sys.argv[2], "lane ownership or home does not match the transfer"; print("ok: v2 owns", sys.argv[1])' "$LANE" "$SUBFLEET_HOME/lanes/$LANE"
     "$PY" -c "import json; print(json.load(open('$HOME/chief-of-staff/subfleet/codex-accounts.json')).get('transferred_to_v2'))"
     ;;
   enroll-logins)
@@ -83,7 +90,7 @@ PLIST
     launchctl bootout "gui/$(id -u)/com.subfleet.soak-report" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$PLIST"
     launchctl print "gui/$(id -u)/com.subfleet.soak-report" | /usr/bin/grep -E "state|program" | head -3
-    "$PY" -E -P "$REPO/tools/soak_report.py" || echo "soak report: not clean (exit $?)"
+    "$PY" -E -P "$REPO/tools/soak_report.py"
     ;;
   *)
     echo "usage: $0 import | daemon | enroll-logins | transfer-dry-run | transfer | canary | live | soak | verify"; exit 2 ;;

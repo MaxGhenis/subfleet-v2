@@ -11,3 +11,57 @@ This tree is the from-scratch rebuild. The v1 tree at `~/chief-of-staff/subfleet
 Native exact-revision agreement gates: [usage and integration notes](docs/gates.md).
 
 Python 3.12+, standard library only. `uv sync --group dev && uv run pytest`.
+
+The implementation includes durable submission and cancellation, guardian receipts
+and recovery, both provider adapters, policy-based routing, immutable artifacts,
+notices, timers, session continuity, and exact-revision agreement gates. Live rollout
+remains subject to the [release gates](docs/release-gates.md): passing the fake-provider
+suite does not substitute for the 100-job canary or seven-day shadow period.
+
+To build and verify locally:
+
+```sh
+uv sync --locked --group dev
+PATH=/usr/sbin:/sbin:$PATH uv run pytest -q
+bin/sf2 --help
+```
+
+The default suite uses temporary stores and fake providers. Real-provider tests
+require explicit opt-in. GitHub Actions runs the suite on macOS with Python 3.12
+and 3.14; process containment is tested on the same operating system as deployment.
+`bin/sf2` uses this checkout's environment and ignores inherited Python paths from
+v1. Keep it separate from the installed `subfleet` command during validation.
+
+With an explicitly configured v2 daemon and v2-owned lane, the ordinary flow is:
+
+```sh
+bin/sf2 run --task research --tier standard -C /path/to/work -p prompt.md --json
+bin/sf2 why JOB_ID
+bin/sf2 wait JOB_ID
+bin/sf2 runs show JOB_ID --out
+bin/sf2 resume JOB_ID 'Continue with these additional instructions.'
+```
+
+Resume binds to the source attempt's provider session, lane, model, and workspace.
+It refuses unavailable native sessions and active or quarantined source jobs.
+For new work, routing only promotes along the task's configured chain. Claude
+lanes limited on a stronger model are preferred for eligible cheaper work;
+`models.<name>.priority` defines strength across separate task chains. Reserved
+Fable capacity, account closures, exclusions, and ownership still control eligibility.
+
+The [migration procedure](docs/migration.md) and
+[canary runbook](tools/canary_runbook.sh) cover account transfer and rollback.
+They change machine state and must be applied phase by phase after inspecting
+the current roster. Read-only validation commands are:
+
+```sh
+uv run python tools/canary_check.py --help
+uv run python tools/soak_report.py --help
+uv run python tools/compare_decisions.py --help
+uv run python tools/measure_release_gates.py --jobs 300 --calls 200
+```
+
+The measurement command uses a temporary fake-provider fleet. A missing or
+incomplete canary/soak record cannot pass, and a failed numeric gate returns a
+nonzero exit status. Historical dates in planning documents are provenance;
+current evidence belongs in `docs/release-gates.md`.

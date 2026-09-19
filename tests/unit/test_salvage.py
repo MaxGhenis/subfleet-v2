@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from subfleet.adapters.base import AdapterError
-from subfleet.salvage import git_head, salvage, validate_writable_workdir
+from subfleet.salvage import git_head, salvage, validate_writable_workdir, working_tree
 
 
 def git(path, *args):
@@ -70,6 +70,26 @@ def test_salvage_unchanged_baseline_has_no_ref(repository):
     """C-13.1 unchanged working trees do not create redundant private commits."""
     assert salvage(repository, git_head(repository), 1) is None
     assert git(repository, "for-each-ref", "refs/subfleet-salvage/") == ""
+
+
+def test_salvage_uses_reserved_dirty_tree_without_mutating_index(repository):
+    """C-13.1 only changes after reservation produce salvage, even with a dirty baseline."""
+    baseline = git_head(repository)
+    (repository / "tracked.txt").write_text("pre-existing staged work\n")
+    git(repository, "add", "tracked.txt")
+    (repository / "untracked.txt").write_text("pre-existing untracked work\n")
+    index = (repository / ".git" / "index").read_bytes()
+    baseline_tree = working_tree(repository, baseline)
+    assert baseline_tree != git(repository, "rev-parse", "HEAD^{tree}")
+    assert salvage(repository, baseline, 1, baseline_tree=baseline_tree) is None
+    (repository / "tracked.txt").write_text("provider progress\n")
+    result = salvage(repository, baseline, 1, baseline_tree=baseline_tree)
+    assert result is not None
+    assert git(repository, "show", f"{result.ref}:tracked.txt") == "provider progress"
+    assert git(repository, "show", f"{result.ref}:untracked.txt") == "pre-existing untracked work"
+    assert git(repository, "rev-parse", f"{result.commit}^") == baseline
+    assert git_head(repository) == baseline
+    assert (repository / ".git" / "index").read_bytes() == index
 
 
 @pytest.mark.parametrize("branch", ["main", "master"])

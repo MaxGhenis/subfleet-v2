@@ -125,7 +125,7 @@ _SENSITIVE_TOOL_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE | re.DOTALL | re.MULTILINE)
     for pattern in (
         r"\bagent-secret\s+(?:get|show)\b",
-        r"\bsecurity\s+(?:dump-keychain|find-generic-password\b.*(?:\s-w\b|--password\b))",
+        r"\bsecurity\s+(?:dump-keychain|find-generic-password|find-internet-password)\b",
         r"(?:^[ \t]*|[;&|(]\s*|\bsudo\s+|[\"']command[\"']\s*:\s*[\"'])"
         r"(?:env|printenv)(?=[\s;&|)\"']|$)",
         r"(?:auth\.json|credentials(?:\.json)?|(?:^|[/\s])\.env"

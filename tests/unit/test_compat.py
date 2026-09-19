@@ -32,7 +32,7 @@ BY_ID = {case["id"]: case for case in CASES}
 #: spellings — neither string exists anywhere in the v1 tree.
 PERMANENT_HEADS = {"status", "capacity", "runs", "jobs", "show", "wait", "kill",
                    "resume", "resume-codex", "notify", "ping", "run", "lanes",
-                   "why", "daemon", "doctor", "hook", "gate",
+                   "why", "daemon", "doctor", "hook", "gate", "enroll",
                    # milestone 6: the sessions kit. `sessions` and `handoff` are
                    # first-class in C-17.1; `tickle`, `muster`, `revive` and
                    # `mirror` are v1 spellings amendment 1 keeps, mapped onto
@@ -146,6 +146,7 @@ def test_a_permanent_spelling_is_never_noted_for_being_a_permanent_spelling(case
     (["kill", "x"], ["kill", "x"]),
     (["resume-codex", "x"], ["resume", "x"]),
     (["notify", "hi"], ["ping", "hi"]),
+    (["enroll", "person@example.com"], ["lanes", "enroll", "person@example.com"]),
     (["run", "-p", "p.md"], ["run", "-p", "p.md"]),
     ([], ["status"]),
 ])
@@ -324,6 +325,16 @@ def test_a_flag_whose_absence_would_change_what_happens_is_refused(argv, flag):
     assert mapping.disposition == "refuse"
     assert mapping.exit_code == int(Exit.INVALID_INPUT) == 2
     assert any(flag in note for note in mapping.notes)
+
+
+@pytest.mark.parametrize("flags", [["--mint"], ["--paste"], ["--mint", "--paste"]])
+def test_enroll_login_flags_name_the_manual_credential_flow(flags):
+    """C-23.52: compatibility never mints a provider login or drops its flags."""
+    mapping = compat.translate(["enroll", "person@example.com", *flags], env={})
+    assert mapping.disposition == "refuse"
+    assert mapping.exit_code == int(Exit.INVALID_INPUT)
+    assert "claude setup-token" in " ".join(mapping.notes)
+    assert "subfleet lanes enroll claude-quota-<email>" in " ".join(mapping.notes)
 
 
 def test_run_status_resolves_v1s_abbreviations_of_it():
