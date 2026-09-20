@@ -46,6 +46,7 @@ class Timers:
         # during app churn; sharing the two-slot cycle pool would let it hold a
         # probe or a keepalive behind it for minutes (C-23.28).
         self._mirror = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-mirror')
+        self._session_mirror = None
         self._lanes = ThreadPoolExecutor(max_workers=min(4, policy.get('caps', {}).get('keepalive_workers', 4)),
                                          thread_name_prefix='subfleet-timer-lane')
         self._running = set()
@@ -61,7 +62,7 @@ class Timers:
         self.actions = ResetCredits(store, policy, adapter_factory=lambda lane: self.adapter_factory(lane.provider))
         self.alerts = Alerts(store, policy, deliver or (lambda notice: False))
         settings = policy.get('timers', {})
-        self.intervals = {'probe': settings.get('probe_interval_s', 300),
+        self.intervals = {'probe': settings.get('probe_interval_s', 60),
                           'keepalive': settings.get('keepalive_interval_s', 18300)}
         # C-23.28 and plan decision 8: the desktop sidebar mirror is a 60 s
         # file-copy timer. Its interval lives under `sessions`, not `timers`,
@@ -135,6 +136,22 @@ class Timers:
             error = type(exc).__name__
             self.store.add_event('timer.error', data={'timer': name, 'error_type': error})
         finally:
+            if name == 'probe':
+                # Each lane's durable debounce starts when its probe finishes.
+                # Scheduling from cycle start could therefore skip the entire
+                # next cycle whenever a request took nonzero time.
+                with self._lock:
+                    interval = self.intervals[name]
+                    self._due[name] = time.monotonic() + interval
+                    next_due = iso(self.now() + timedelta(seconds=interval))
+                    self._status[name]['next_due'] = next_due
+                    # These passes run inside probe_cycle, so their displayed
+                    # deadlines must follow its completion-based schedule too.
+                    # Preserve last_run/error if the cycle failed before them.
+                    for companion in ('reset_credits', 'alerts'):
+                        self._status[companion]['next_due'] = next_due
+                        self.store.add_event('timer.run', data={
+                            'timer': companion, **self._status[companion]})
             self.mark(name, error=error)
             with self._lock:
                 self._running.discard(name)
@@ -148,7 +165,9 @@ class Timers:
         minutes, not as a timer that merely has not reported yet.
         """
         from .sessions.mirror import Mirror, options_from
-        Mirror(self.root, self.policy, now=self.now).run_once(options_from(self.policy))
+        if self._session_mirror is None:
+            self._session_mirror = Mirror(self.root, self.policy, now=self.now, cancel=self.cancel)
+        self._session_mirror.run_once(options_from(self.policy))
 
     def stop(self):
         self.cancel.set()

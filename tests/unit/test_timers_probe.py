@@ -221,6 +221,113 @@ def test_tick_is_nonblocking_and_does_not_overlap_one_cycle(rig):
     assert timer.status()["probe"]["last_run"] is not None
 
 
+@pytest.mark.parametrize("interval", [60, 300])
+@pytest.mark.parametrize("probe_duration", [10, 360])
+def test_scheduled_probe_waits_configured_interval_after_completion(rig, monkeypatch, interval, probe_duration):
+    """C-18.1: slow probes neither skip the next cycle nor immediately run another."""
+    timer, store, clock, adapter, enroll = rig
+    enroll()
+    timer.intervals = {"probe": interval}
+    monkeypatch.setattr("subfleet.timers.time.monotonic", lambda: clock().timestamp())
+    # Drain callbacks after tick releases its lock, keeping time deterministic
+    # while provider reads still use the real bounded reader and fake adapter.
+    pending = []
+    monkeypatch.setattr(timer._cycles, "submit", lambda fn, *args: pending.append((fn, args)))
+
+    def tick():
+        timer.tick()
+        while pending:
+            fn, args = pending.pop(0)
+            fn(*args)
+    original = adapter.probe_status
+
+    def delayed(lane, env):
+        clock.advance(probe_duration)
+        return original(lane, env)
+
+    adapter.probe_status = delayed
+    timer.start()
+    clock.advance(interval)
+    tick()
+    assert adapter.calls == ["codex-1"]
+    completed = clock()
+    assert timer.status()["probe"]["next_due"] == iso(completed + timedelta(seconds=interval))
+    recorded = events(store, "timer.run")[-1]
+    assert recorded["timer"] == "probe"
+    assert recorded["next_due"] == timer.status()["probe"]["next_due"]
+    for companion in ("reset_credits", "alerts"):
+        status = timer.status()[companion]
+        assert status["next_due"] == timer.status()["probe"]["next_due"]
+        durable = [row for row in events(store, "timer.run") if row["timer"] == companion][-1]
+        assert durable == {"timer": companion, **status}
+    clock.advance(interval - 1)
+    tick()
+    assert adapter.calls == ["codex-1"]
+    clock.advance(1)
+    tick()
+    assert adapter.calls == ["codex-1", "codex-1"]
+    assert len(store.list_readings()) == 2
+
+
+def test_probe_failure_rearms_companions_without_claiming_they_ran(rig, monkeypatch):
+    """An early probe failure moves the next due time, never the prior run's facts."""
+    timer, store, clock, _, _ = rig
+    previous = iso(clock() - timedelta(minutes=5))
+    for companion in ("reset_credits", "alerts"):
+        timer._status[companion].update(last_run=previous, last_error_type="EarlierError")
+
+    def fail():
+        clock.advance(10)
+        raise ValueError("synthetic probe failure")
+
+    monkeypatch.setattr(timer, "probe_cycle", fail)
+    timer._run("probe")
+    for companion in ("reset_credits", "alerts"):
+        expected = {"last_run": previous, "last_error_type": "EarlierError",
+                    "next_due": timer.status()["probe"]["next_due"]}
+        assert timer.status()[companion] == expected
+        durable = [row for row in events(store, "timer.run") if row["timer"] == companion][-1]
+        assert durable == {"timer": companion, **expected}
+
+
+@pytest.mark.parametrize("ttl", [20, 120, 600])
+def test_configured_ttl_still_marks_old_readings_stale(rig, ttl):
+    """C-9.1: a slow configured cadence never stretches the reading's truth TTL."""
+    timer, _, clock, adapter, enroll = rig
+    enroll()
+    timer.policy["caps"]["reading_ttl_s"] = ttl
+    timer.probe_cycle()
+    assert timer.intervals["probe"] == 300
+    clock.advance(ttl)
+    assert timer.snapshot()["lanes"][0]["readings"][0]["label"] == "provider"
+    clock.advance(1)
+    assert timer.snapshot()["lanes"][0]["readings"][0]["label"] == "stale-provider"
+    assert adapter.calls == ["codex-1"]
+
+
+def test_timer_reuses_mirror_instance_and_passes_shutdown_cancellation(rig, monkeypatch):
+    """C-23.28: inventory caches survive passes and the owned worker can stop."""
+    timer, _, _, _, _ = rig
+    instances, passes = [], []
+
+    class Mirror:
+        def __init__(self, root, policy, *, now, cancel):
+            self.cancel = cancel
+            instances.append(self)
+
+        def run_once(self, options):
+            passes.append(self.cancel.is_set())
+
+    monkeypatch.setattr("subfleet.sessions.mirror.Mirror", Mirror)
+    timer.mirror_cycle()
+    timer.mirror_cycle()
+    timer.cancel.set()
+    timer.mirror_cycle()
+    assert len(instances) == 1
+    assert instances[0].cancel is timer.cancel
+    assert passes == [False, False, True]
+
+
 def test_usage_timeout_does_not_block_cycle_or_shutdown(rig):
     """C-16.4, C-18.1: an uncooperative usage read cannot hold the cycle or shutdown past its deadline."""
     timer, _, _, adapter, enroll = rig

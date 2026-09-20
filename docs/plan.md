@@ -54,3 +54,17 @@ represented as exhaustion or available quota. Measured reserve restrictions and
 all known closures, identity, ownership, desktop, and concurrency checks remain
 in force. Authorization does not become a policy default or transfer to a new
 job or resumed session.
+
+## Refresh follow-up, 2026-09-20
+
+Live menu verification confirmed that the account list and reload feedback work,
+but exposed stale usage between scheduled probes. C-18.1 now defaults to a
+60-second wait after probe-cycle completion. Previously its 300-second interval
+exceeded the 120-second reading TTL, and measuring the next cycle from its start
+could make the per-lane cooldown skip that cycle. Explicit configured intervals
+are respected; the change does not extend reading freshness or probe busy lanes.
+
+The desktop sidebar mirror also needs reuse of unchanged input across passes
+and cooperative shutdown at this installation's session-store size. Its health
+record must distinguish progress from completion; an incomplete pass is never
+reported as successful.

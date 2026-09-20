@@ -224,21 +224,47 @@ def test_pythonpath_row_names_the_entry_that_shadows_the_install(tmp_path,
     assert doctor.check_pythonpath()["status"] == doctor.PASS
 
 
-def test_path_shadows_row_fails_on_a_second_copy(tmp_path, monkeypatch):
-    """C-12.4 builds a Claude launch against a specific CLI's flags, so two
-    `claude` on PATH is a silent flip between one run and the next."""
+@pytest.mark.parametrize("name", ["claude", "codex", "subfleet"])
+def test_path_shadows_reports_provider_ambiguity_but_fails_duplicate_front_doors(tmp_path, monkeypatch, name):
+    """C-17.1: extra provider installs are not proven faults; extra front doors are."""
     first, second = tmp_path / "a", tmp_path / "b"
     for directory in (first, second):
         directory.mkdir()
-        binary = directory / "claude"
+        binary = directory / name
         binary.write_text("#!/bin/sh\n")
         binary.chmod(0o755)
     monkeypatch.setenv("PATH", os.pathsep.join([str(first), str(second)]))
-    item = doctor.check_path_shadows("claude")
-    assert item["status"] == doctor.FAIL and "first wins" in item["detail"]
+    item = doctor.check_path_shadows(name)
+    if name == "subfleet":
+        assert item["status"] == doctor.FAIL and "first wins" in item["detail"]
+        assert doctor.exit_code([item]) != 0
+    else:
+        assert item["status"] == doctor.UNKNOWN
+        assert f"effective: {first / name}" in item["detail"]
+        assert f"alternatives: {second / name}" in item["detail"]
+        assert doctor.exit_code([item]) == 0
+        assert "remove" not in item["fix"]
 
     monkeypatch.setenv("PATH", str(first))
-    assert doctor.check_path_shadows("claude")["status"] == doctor.PASS
+    assert doctor.check_path_shadows(name)["status"] == doctor.PASS
+
+
+def test_codex_wrapper_and_standalone_and_app_installations_report_actual_order(tmp_path, monkeypatch):
+    """No name-based allowlist blesses a wrapper or asks the user to delete an app."""
+    binaries = []
+    for directory in (tmp_path / "bin", tmp_path / ".bun/bin", tmp_path / "ChatGPT.app/Contents/Resources"):
+        directory.mkdir(parents=True)
+        binary = directory / "codex"
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(0o755)
+        binaries.append(binary)
+    for ordered in (binaries, list(reversed(binaries))):
+        monkeypatch.setenv("PATH", os.pathsep.join(str(path.parent) for path in ordered))
+        item = doctor.check_path_shadows("codex")
+        assert item["status"] == doctor.UNKNOWN
+        assert f"effective: {ordered[0]}" in item["detail"]
+        assert all(str(path) in item["detail"] for path in ordered)
+        assert "unverified" in item["detail"] and "remove" not in item["fix"]
 
 
 def test_a_missing_subfleet_on_path_fails_but_a_missing_provider_is_unknown(

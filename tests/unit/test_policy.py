@@ -149,6 +149,20 @@ def test_hash_is_stable_and_uses_exact_file_bytes(tmp_path, policy_data):
     assert load_policy(path)["_policy_hash"] == policy_hash(path)
 
 
+@pytest.mark.parametrize("configured", [None, 30, 300])
+def test_probe_cadence_defaults_below_ttl_without_overriding_config(tmp_path, policy_data, configured):
+    """C-18.1: the 60 s default fits TTL120; explicit polling intervals remain policy."""
+    assert policy_data["timers"]["probe_interval_s"] == 60
+    assert policy_data["caps"]["reading_ttl_s"] == 120
+    if configured is None:
+        policy_data.pop("timers")
+    else:
+        policy_data["timers"]["probe_interval_s"] = configured
+    policy = load_policy(write_policy(tmp_path, policy_data))
+    assert policy["timers"]["probe_interval_s"] == (60 if configured is None else configured)
+    assert policy["caps"]["reading_ttl_s"] == 120
+
+
 def test_serialized_metadata_cannot_override_file_hash(tmp_path, policy_data):
     """C-11.1: policy provenance always describes the bytes actually loaded."""
     policy_data.update(_policy_hash="spoofed", _policy_path="wrong.json")

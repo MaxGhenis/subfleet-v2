@@ -180,7 +180,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 
 ## 18. Timers (milestone 5, interface only here)
 
-- **C-18.1** Probe cycle every `probe_interval_s` (300) per lane, one probe per idle, enabled, unlatched lane per window (an `auth-dead` lane is not probed until re-enrolment and a revoked-token lane not until its credential epoch changes; C-23.44, C-23.47); keepalive as `admission-observed` evidence every 5 h 05 m; reset-credit policy as an action (C-19) with v1's rule set; alerts on transition and at most every 6 h while persisting; retention pass every hour; `status.json` for the menu bar app every probe cycle.
+- **C-18.1** Probe cycles wait `probe_interval_s` after the preceding cycle completes (default 60 seconds), with one probe per idle, enabled, unlatched lane per window (an `auth-dead` lane is not probed until re-enrolment and a revoked-token lane not until its credential epoch changes; C-23.44, C-23.47). The default leaves refresh headroom within the 120-second reading TTL; configured intervals remain authoritative, and busy or delayed lanes still display stale readings honestly. Keepalive is `admission-observed` evidence every 5 h 05 m; reset-credit policy is an action (C-19) with v1's rule set; alerts fire on transition and at most every 6 h while persisting; retention runs every hour; `status.json` is published for the menu bar app every probe cycle.
 
 ## 19. Actions
 
