@@ -83,6 +83,13 @@ USAGE_TIMEOUT_S = 15.0
 #: lower-cased display name as scope; the scheduler ignores scopes it has no model for.
 SCOPED_MODEL_IDS = {"fable": "claude-fable-5-1", "opus": "claude-opus-5",
                     "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5-20251001"}
+# Claude Code 2.1.278's own limit labels identify this as the Fable bucket,
+# distinct from the all-model seven_day window (verified 2026-09-20).
+SCOPED_RATE_LIMITS = {
+    "seven_day_overage_included": SCOPED_MODEL_IDS["fable"],
+    "seven_day_opus": SCOPED_MODEL_IDS["opus"],
+    "seven_day_sonnet": SCOPED_MODEL_IDS["sonnet"],
+}
 PROFILE_MAX_BYTES = 1 << 20
 
 #: The keychain item the Claude desktop app keeps its own login in — the same item
@@ -984,14 +991,18 @@ class ClaudeAdapter(Adapter):
         readings = []
         for window in sorted(info.windows):
             value = info.windows[window]
-            if value.utilization is None:
+            if (value.utilization is None or not math.isfinite(value.utilization)
+                    or value.utilization < 0):
                 continue
+            scope = SCOPED_RATE_LIMITS.get(window, "account")
             readings.append(
                 Reading(
                     lane_id=lane_id,
-                    scope="account",
-                    window=window,
-                    utilization=value.utilization,
+                    scope=scope,
+                    window="seven_day" if window in SCOPED_RATE_LIMITS else window,
+                    # The ledger represents exhaustion as 1; preserve the raw
+                    # over-cap value in classification evidence and the stream.
+                    utilization=min(1.0, value.utilization),
                     resets_at=iso_from_epoch(value.resets_at),
                     label=ReadingLabel.PROVIDER,
                     source=SOURCE_RATE_LIMIT_EVENT,
@@ -1542,7 +1553,8 @@ class ClaudeAdapter(Adapter):
                     f"for {scope}"
                 )
             else:
-                scope, reason = "account", ClosureReason.PROVIDER_LIMIT
+                scope = SCOPED_RATE_LIMITS.get(info.rate_limit_type, "account")
+                reason = ClosureReason.PROVIDER_LIMIT
                 window = info.rate_limit_type or "account"
                 detail = (
                     f"limited: rate_limit_event status=rejected rateLimitType={window}"

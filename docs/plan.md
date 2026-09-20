@@ -55,6 +55,18 @@ all known closures, identity, ownership, desktop, and concurrency checks remain
 in force. Authorization does not become a policy default or transfer to a new
 job or resumed session.
 
+## Scoped Fable capacity correction, 2026-09-20
+
+Max requested using spare Opus capacity after weekly Fable exhaustion as the
+first policy-encoding test. Actual provider streams and the installed Claude
+client establish that `seven_day_overage_included` is the Fable bucket. C-9.8
+therefore scopes that reading and rejection to Fable, not the whole account;
+named Opus and Sonnet rejections likewise retain their scopes. C-11.7 accepts
+paired shared/scoped weekly readings from the same provider stream event, and
+an active reported model-only exhaustion permits a supervised probe of another
+model when reserve measurement is unavailable. Fresh measured restrictions
+still apply. See the [evidence and regression record](reports/2026-09-20-fable-scoped-capacity.md).
+
 ## Refresh follow-up, 2026-09-20
 
 Live menu verification confirmed that the account list and reload feedback work,
