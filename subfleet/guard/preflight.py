@@ -33,6 +33,8 @@ HOOK_STATUS = "never-rules guard"
 HOOK_TIMEOUT = 60
 _SECRET_ENV = ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 _FIX = "Restore the reviewed guard files and pinned Codex version, then rerun subfleet doctor."
+_TIMEOUT_FIX = ("Check local CPU/I/O pressure and daemon scheduling, then repeat the guard preflight. "
+                "A timeout does not establish guard-file or version drift; trust remains unverified.")
 
 
 @dataclass(frozen=True)
@@ -242,7 +244,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
         return PreflightResult(True, 0, "Codex never-rules guard trust verified", version=version,
                                hooks_hash=hooks_hash, override=override, warnings=warnings)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
-        return PreflightResult(False, 7, f"Guard preflight refused: {exc}", _FIX,
+        fix = _TIMEOUT_FIX if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else _FIX
+        return PreflightResult(False, 7, f"Guard preflight refused: {exc}", fix,
                                version=version, hooks_hash=hooks_hash)
 
 def _scratch_root() -> str:

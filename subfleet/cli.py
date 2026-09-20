@@ -1629,7 +1629,8 @@ def _plist(root: Path) -> bytes:
         "WorkingDirectory": str(root),
         "StandardOutPath": str(root / LOG_NAME),
         "StandardErrorPath": str(root / LOG_NAME),
-        "ProcessType": "Background",
+        # Dispatch serves user requests, so use standard service resource limits.
+        "ProcessType": "Standard",
     }, sort_keys=True)
 
 
