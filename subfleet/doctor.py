@@ -202,7 +202,12 @@ def _ignores_environment() -> bool:
 
 
 def check_path_shadows(binary: str) -> dict[str, Any]:
-    """More than one `claude`/`codex`/`subfleet` on PATH is a silent version flip."""
+    """Report the effective executable without treating provider installs as faults.
+
+    A provider can intentionally have a routing wrapper, a standalone CLI, and
+    an app-bundled CLI. Their names alone cannot establish whether PATH order is
+    correct. Multiple Subfleet front doors still fail the cutover check.
+    """
     matches = path_matches(binary)
     if not matches:
         status = FAIL if binary == "subfleet" else UNKNOWN
@@ -211,6 +216,12 @@ def check_path_shadows(binary: str) -> dict[str, Any]:
     if len(matches) == 1:
         return row(f"PATH shadows for {binary}", PASS, matches[0],
                    f"`which -a {binary}` if that ever changes")
+    if binary in ("claude", "codex"):
+        return row(f"PATH shadows for {binary}", UNKNOWN,
+                   f"{len(matches)} on PATH; effective: {matches[0]}; "
+                   f"alternatives: {' , '.join(matches[1:])}; intended ordering is unverified",
+                   f"verify the effective {binary} is intended; reorder PATH only if it is not; "
+                   f"multiple installed CLIs can be intentional (`which -a {binary}`)")
     return row(f"PATH shadows for {binary}", FAIL,
                f"{len(matches)} on PATH, first wins: {' , '.join(matches)}",
                f"remove the shadowing copies or reorder PATH; `which -a {binary}`")

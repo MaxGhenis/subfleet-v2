@@ -206,7 +206,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             or not math.isfinite(interval) or interval <= 0):
         fail("reset_credits.min_interval_min", "must be a positive number of minutes")
 
-    for section, defaults in (("timers", {"probe_interval_s": 300, "keepalive_interval_s": 18300}),
+    for section, defaults in (("timers", {"probe_interval_s": 60, "keepalive_interval_s": 18300}),
                               ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):

@@ -8,6 +8,8 @@ Every test names the clause it proves (C-20.5). The desktop store lives under
 from __future__ import annotations
 
 import json
+import os
+import threading
 from datetime import timedelta
 from pathlib import Path
 
@@ -52,6 +54,196 @@ def copies(store: Path, session_id: str) -> dict[Path, dict]:
         if data.get("cliSessionId") == session_id:
             found[path] = data
     return found
+
+
+def count_entry_reads(monkeypatch):
+    read = mirror._load
+    seen = []
+
+    def counted(path, **kwargs):
+        if path.name.startswith("local_"):
+            seen.append(path)
+        return read(path, **kwargs)
+
+    monkeypatch.setattr(mirror, "_load", counted)
+    return seen
+
+
+def test_large_mirror_reuses_unchanged_entries_and_propagates_one_edit(world, monkeypatch):
+    """C-23.28: account copies share payloads; a warm pass reads only changed entries."""
+    home, store, _root = world
+    folders = [(ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B)] + [
+        (f"account-{n}", f"org-{n}") for n in range(6)]
+    identities = [f"session-{n}" for n in range(80)]
+    for identity in identities:
+        fx.transcript(home, identity, fx.completed())
+        for account, org in folders:
+            fx.index_entry(store, account, org, identity, settings={"ultracode": True},
+                           metadata={"preview": "retained conversation metadata " * 400})
+    reads = count_entry_reads(monkeypatch)
+    running = engine(world)
+    assert running.run_once().state == "ok"
+    assert len(reads) == 640
+    assert len(running._entries) == 640
+    assert len(running._payloads) == 80, "equal account copies must not multiply retained payloads"
+    assert running.run_once().entries_scanned == 640
+    assert len(reads) == 640, "a warm pass must not reopen unchanged sidebar JSON"
+
+    path = store / ACCOUNT_A / ORG_A / "local_session-0.json"
+    old_snapshot = running._entry(path)
+    data = json.loads(path.read_text())
+    data.update(isArchived=True, title="Operator title", titleSource="manual")
+    path.write_text(json.dumps(data))
+    result = running.run_once()
+    assert result.flag_synced == result.retitled == 1
+    assert reads[640:] == [path]
+    updated = copies(store, identities[0])
+    assert len(updated) == 8
+    assert all(row["isArchived"] and row["title"] == "Operator title" for row in updated.values())
+    assert old_snapshot["isArchived"] is False, "sync must not mutate interned snapshots"
+    assert old_snapshot["title"] == "a session"
+
+
+def test_atomic_replacement_invalidates_cache_even_with_same_mtime_and_size(world, monkeypatch):
+    """C-23.28: an app's atomic replacement is an edit even if its timestamp is preserved."""
+    home, store, _root = world
+    path = openable(home, store, ONE, ACCOUNT_A, ORG_A,
+                    title="old title", title_source="manual", settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    running.run_once()  # also cache the new account copy
+    before = path.stat()
+    replacement = path.with_suffix(".replacement")
+    replacement.write_text(path.read_text().replace("old title", "new title"))
+    os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+    replacement.replace(path)
+    assert path.stat().st_size == before.st_size
+    assert path.stat().st_mtime_ns == before.st_mtime_ns
+    reads = count_entry_reads(monkeypatch)
+    assert running.run_once().retitled == 1
+    assert reads == [path]
+    assert {row["title"] for row in copies(store, ONE).values()} == {"new title"}
+
+
+def test_deleted_entries_are_evicted_and_not_resurrected_from_cache(world):
+    """C-23.28: a cached historical copy is never a source after the app deletes it."""
+    home, store, _root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    running.run_once()
+    for path in copies(store, ONE):
+        path.unlink()
+    assert running.run_once().sessions == 0
+    assert not copies(store, ONE)
+    assert not running._entries and not running._payloads
+    assert running._payload_bytes == 0
+
+
+def test_transient_read_failure_is_retried_without_a_metadata_change(world, monkeypatch):
+    """C-23.28: an I/O failure must not become a cached, apparently empty entry."""
+    home, store, _root = world
+    path = openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    read = Path.read_text
+    failed = False
+
+    def fail_once(target, *args, **kwargs):
+        nonlocal failed
+        if target == path and not failed:
+            failed = True
+            raise OSError("transient read failure")
+        return read(target, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_once)
+    running = engine(world)
+    signature = running._signature(path)
+    assert running.run_once().added == 0
+    assert path not in running._entries
+    assert running._signature(path) == signature
+    assert running.run_once().added == 1
+    assert len(copies(store, ONE)) == 2
+
+
+@pytest.mark.parametrize("limit,value", [("ENTRY_CACHE_LIMIT", 1), ("PAYLOAD_CACHE_BYTES", 1)])
+def test_cache_limits_do_not_limit_mirrored_sessions(world, monkeypatch, limit, value):
+    """C-23.28: bounded retention may cost reads but cannot omit any session from a pass."""
+    home, store, _root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    openable(home, store, TWO, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    monkeypatch.setattr(mirror, limit, value)
+    running = engine(world)
+    assert running.run_once().added == 2
+    assert running.run_once().sessions == 2
+    assert len(copies(store, ONE)) == len(copies(store, TWO)) == 2
+    assert len(running._entries) <= mirror.ENTRY_CACHE_LIMIT
+    assert running._payload_bytes <= mirror.PAYLOAD_CACHE_BYTES
+
+
+def test_cancelled_inventory_reports_progress_without_advancing_last_success(world, monkeypatch):
+    """C-23.28: interruption is observable and a cancelled inventory writes no sidebar data."""
+    home, store, root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    previous_ok = running.sidecar()["last_ok_at"]
+    before = {p: p.read_bytes() for p in store.glob("*/*/local_*.json")}
+    cancel = running.cancel = threading.Event()
+    running.now = lambda: fx.NOW + timedelta(minutes=1)
+    read = running._entry
+    recorded = []
+    record = running._record
+
+    def observe(current, **kwargs):
+        recorded.append(current.to_dict())
+        return record(current, **kwargs)
+
+    def cancel_after_read(path):
+        value = read(path)
+        cancel.set()
+        return value
+
+    monkeypatch.setattr(running, "_record", observe)
+    monkeypatch.setattr(running, "_entry", cancel_after_read)
+    result = running.run_once()
+    assert result.state == "cancelled" and result.entries_scanned == 1
+    assert result.stage == "reading entries"
+    assert any(row["stage"] == "reading entries" and row["state"] == "running" for row in recorded)
+    assert running.sidecar()["last_ok_at"] == previous_ok
+    assert running.health()["status"] == "stalled"
+    assert {p: p.read_bytes() for p in before} == before
+    assert result.finished_at is not None
+    cancel.clear()
+    monkeypatch.setattr(running, "_entry", read)
+    assert running.run_once().state == "ok", "the interrupted pass released its lock"
+
+
+def test_cancellation_during_flag_publication_finishes_the_matching_merge_base(world, monkeypatch):
+    """C-23.28: shutdown cannot interrupt the dirty-copy batch before its merge base is saved."""
+    home, store, _root = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    running.run_once()
+    path = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    data = json.loads(path.read_text())
+    data["isArchived"] = True
+    path.write_text(json.dumps(data))
+    cancel = running.cancel = threading.Event()
+    write = mirror._write_json
+
+    def cancel_after_first_write(target, value, **kwargs):
+        write(target, value, **kwargs)
+        if target.name.startswith("local_"):
+            cancel.set()
+
+    monkeypatch.setattr(mirror, "_write_json", cancel_after_first_write)
+    result = running.run_once()
+    assert result.state == "cancelled"
+    assert all(row["isArchived"] for row in copies(store, ONE).values())
+    assert json.loads(running.flags_path.read_text())[ONE]["isArchived"] is True
+    cancel.clear()
+    assert running.run_once().state == "ok"
+    assert all(row["isArchived"] for row in copies(store, ONE).values())
 
 
 # --- v1's saved per-user options ---------------------------------------------

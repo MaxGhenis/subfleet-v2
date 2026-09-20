@@ -46,10 +46,13 @@ from __future__ import annotations
 
 import fcntl
 import glob as globbing
+import hashlib
 import json
 import os
 import re
 import shutil
+import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,6 +79,39 @@ LOCK_NAME = "mirror.lock"
 DEFAULT_HANG_MIN = 30.0
 #: How long after a finished pass the mirror is still considered fresh.
 DEFAULT_STALL_MIN = 10.0
+# Bound retained metadata and parsed payloads separately. Equal mirrored copies
+# share a payload; a cache limit never limits which sessions a pass processes.
+ENTRY_CACHE_LIMIT = 250_000
+PAYLOAD_CACHE_BYTES = 128 * 1024 * 1024
+PROGRESS_INTERVAL_S = 5.0
+
+
+class _Cancelled(Exception):
+    pass
+
+
+@dataclass
+class _Payload:
+    value: dict[str, Any]
+    size: int
+    refs: int = 0
+
+
+def _json_size(value: Any) -> int:
+    """Account for the retained Python objects, not only serialized bytes."""
+    pending, seen, total = [value], set(), 0
+    while pending:
+        item = pending.pop()
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        total += sys.getsizeof(item)
+        if isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return total
 
 
 def store_dir() -> Path:
@@ -99,10 +135,12 @@ def slug(cwd: str) -> str:
     return re.sub(r"[^A-Za-z0-9-]", "-", cwd)
 
 
-def _load(path: Path) -> dict[str, Any]:
+def _load(path: Path, *, strict: bool = False) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        if strict:
+            raise
         return {}
     return value if isinstance(value, dict) else {}
 
@@ -138,7 +176,7 @@ class Pass:
 
     started_at: str
     finished_at: str | None = None
-    state: str = "running"                  # running | ok | error
+    state: str = "running"                  # running | ok | error | cancelled
     added: int = 0
     repaired: int = 0
     revived: int = 0
@@ -150,12 +188,14 @@ class Pass:
     sessions: int = 0
     error: str | None = None
     dry_run: bool = False
+    stage: str = "starting"
+    entries_scanned: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {key: getattr(self, key) for key in (
             "started_at", "finished_at", "state", "added", "repaired", "revived",
             "pruned", "flag_synced", "retitled", "transcript_retitled",
-            "accounts", "sessions", "error", "dry_run")}
+            "accounts", "sessions", "error", "dry_run", "stage", "entries_scanned")}
 
     @property
     def summary(self) -> str:
@@ -232,11 +272,82 @@ class Mirror:
     """A mirroring pass against one state root and one desktop session store."""
 
     def __init__(self, root: str | Path, policy: dict[str, Any] | None = None, *,
-                 now=None):
+                 now=None, cancel=None):
         self.root = Path(root)
         self.policy = policy or {}
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.dir = self.root / "sessions"
+        self.cancel = cancel
+        self._entries: dict[Path, tuple[tuple[int, ...], bytes, int]] = {}
+        self._payloads: dict[bytes, _Payload] = {}
+        self._payload_bytes = 0
+        self._generation = 0
+        self._pass_payloads: dict[bytes, dict] = {}
+        self._progress_due = 0.0
+
+    @staticmethod
+    def _signature(path: Path) -> tuple[int, ...]:
+        info = path.stat()
+        return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size, info.st_ctime_ns)
+
+    def _forget(self, path: Path) -> None:
+        old = self._entries.pop(path, None)
+        if old is not None:
+            payload = self._payloads[old[1]]
+            payload.refs -= 1
+            if not payload.refs:
+                self._payload_bytes -= payload.size
+                del self._payloads[old[1]]
+
+    def _remember(self, path: Path, signature: tuple[int, ...], data: dict) -> dict:
+        encoded = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        digest = hashlib.sha256(encoded).digest()
+        existing = self._payloads.get(digest)
+        # The pass also shares uncached payloads: a cold scan must not retain a
+        # deep copy of the same conversation metadata for every account.
+        value = existing.value if existing else self._pass_payloads.setdefault(digest, data)
+        self._forget(path)
+        if len(self._entries) >= ENTRY_CACHE_LIMIT:
+            return value
+        payload = self._payloads.get(digest)
+        if payload is None:
+            size = _json_size(value)
+            if self._payload_bytes + size > PAYLOAD_CACHE_BYTES:
+                return value
+            payload = self._payloads[digest] = _Payload(value, size)
+            self._payload_bytes += size
+        payload.refs += 1
+        self._entries[path] = (signature, digest, self._generation)
+        return payload.value
+
+    def _entry(self, path: Path) -> dict:
+        """Read an immutable entry snapshot; only flag sync makes writable copies."""
+        try:
+            signature = self._signature(path)
+            cached = self._entries.get(path)
+            if cached is not None and cached[0] == signature:
+                self._entries[path] = (signature, cached[1], self._generation)
+                return self._payloads[cached[1]].value
+            self._forget(path)
+            data = _load(path, strict=True)
+            # A concurrent app replacement is not a valid cross-pass cache hit.
+            if self._signature(path) == signature:
+                return self._remember(path, signature, data)
+            return data
+        except (OSError, ValueError):
+            self._forget(path)
+            return {}
+
+    def _checkpoint(self, current: Pass, stage: str | None = None) -> None:
+        if self.cancel is not None and self.cancel.is_set():
+            raise _Cancelled("mirror pass cancelled; partial copies will be reconciled next pass")
+        changed = stage is not None and stage != current.stage
+        if stage is not None:
+            current.stage = stage
+        instant = time.monotonic()
+        if changed or instant >= self._progress_due:
+            self._record(current)
+            self._progress_due = instant + PROGRESS_INTERVAL_S
 
     # --- state files ---------------------------------------------------------
 
@@ -286,12 +397,13 @@ class Mirror:
                 found.append((account.name, org.name, org))
         return found
 
-    @staticmethod
-    def transcript_stems() -> dict[str, Path]:
+    def transcript_stems(self, current: Pass | None = None) -> dict[str, Path]:
         """`<session id> -> transcript`; a session is openable iff it is a key."""
         stems: dict[str, Path] = {}
         try:
             for path in projects_dir().glob("**/*.jsonl"):
+                if current is not None:
+                    self._checkpoint(current)
                 stems[path.stem] = path
         except OSError:
             return stems
@@ -329,7 +441,8 @@ class Mirror:
     # --- the steps -----------------------------------------------------------
 
     def restore_dead(self, folder_files: dict[Path, dict[str, dict]],
-                     stems: dict[str, Path], pattern: str, dry_run: bool) -> int:
+                     stems: dict[str, Path], pattern: str, dry_run: bool,
+                     current: Pass | None = None) -> int:
         """Revive dead sessions whose transcript survives in an archive.
 
         Creation-only: never overwrites, never deletes, safe every pass. Mutates
@@ -338,6 +451,8 @@ class Mirror:
         dead: dict[str, dict] = {}
         for files in folder_files.values():
             for data in files.values():
+                if current is not None:
+                    self._checkpoint(current)
                 identity = data.get("cliSessionId") or ""
                 if not identity or identity in stems:
                     continue
@@ -351,7 +466,9 @@ class Mirror:
         # Largest file wins on duplicate stems: an archive can hold several
         # snapshots of one session, and the largest is the longest conversation.
         archive: dict[str, tuple[int, Path]] = {}
-        for name in globbing.glob(os.path.expanduser(pattern), recursive=True):
+        for name in globbing.iglob(os.path.expanduser(pattern), recursive=True):
+            if current is not None:
+                self._checkpoint(current)
             path = Path(name)
             try:
                 size = path.stat().st_size
@@ -362,6 +479,8 @@ class Mirror:
                 archive[path.stem] = (size, path)
         revived = 0
         for identity, data in sorted(dead.items()):
+            if current is not None:
+                self._checkpoint(current)
             source = archive.get(identity)
             cwd = data.get("originCwd") or data.get("cwd")
             if not source or not cwd:
@@ -406,6 +525,15 @@ class Mirror:
         fresh: dict[str, dict] = {}
         dirty: set[tuple[Path, str]] = set()
 
+        def writable(path: Path, name: str) -> dict:
+            # Cached/interned snapshots are shared across accounts and passes.
+            # Copy only the entry being changed, never all of its conversation
+            # metadata. Nested settings are copied separately below.
+            if (path, name) not in dirty:
+                folder_files[path][name] = dict(folder_files[path][name])
+                dirty.add((path, name))
+            return folder_files[path][name]
+
         def title_of(data: dict) -> str:
             return data.get("title") or ""
 
@@ -416,6 +544,7 @@ class Mirror:
             return data.get("lastActivityAt") or data.get("createdAt") or 0
 
         for identity, copies in groups.items():
+            self._checkpoint(current)
             base = base_all.get(identity) or {}
             for flag, bootstrap in (("isArchived", True), ("isStarred", True)):
                 values = {bool(data.get(flag)) for _p, _n, data in copies}
@@ -426,8 +555,7 @@ class Mirror:
                     resolved = (not recorded) if isinstance(recorded, bool) else bootstrap
                     for path, name, data in copies:
                         if bool(data.get(flag)) != resolved:
-                            data[flag] = resolved
-                            dirty.add((path, name))
+                            writable(path, name)[flag] = resolved
                     current.flag_synced += 1
                 base[flag] = resolved
 
@@ -439,11 +567,9 @@ class Mirror:
                 for path, name, data in copies:
                     settings = data.get("sessionSettings")
                     if not isinstance(settings, dict):
-                        data["sessionSettings"] = {"ultracode": True}
-                        dirty.add((path, name))
+                        writable(path, name)["sessionSettings"] = {"ultracode": True}
                     elif "ultracode" not in settings:
-                        settings["ultracode"] = True
-                        dirty.add((path, name))
+                        writable(path, name)["sessionSettings"] = {**settings, "ultracode": True}
 
             title: str | None = None
             variants = {(title_of(data), source_of(data)) for _p, _n, data in copies}
@@ -457,11 +583,16 @@ class Mirror:
                     title, source = title_of(winner), source_of(winner)
                     for path, name, data in copies:
                         if (title_of(data), source_of(data)) != (title, source):
-                            data["title"], data["titleSource"] = title, source
-                            dirty.add((path, name))
+                            target = writable(path, name)
+                            target["title"], target["titleSource"] = title, source
                     current.retitled += 1
             elif variants:
                 title = next(iter(variants))[0]
+
+            # A title resolution above may have replaced shared snapshots with
+            # writable copies. The transcript anchor must compare those new
+            # values, as it did before entries were interned.
+            copies = [(path, name, folder_files[path][name]) for path, name, _data in copies]
 
             # The transcript anchor: append-only and account-agnostic, so it
             # survives an index write the app skipped. Only a CHANGE since the
@@ -485,8 +616,8 @@ class Mirror:
                 source = source_of(winner)
                 for path, name, data in copies:
                     if (title_of(data), source_of(data)) != (anchor, source):
-                        data["title"], data["titleSource"] = anchor, source
-                        dirty.add((path, name))
+                        target = writable(path, name)
+                        target["title"], target["titleSource"] = anchor, source
                 title = anchor
                 current.transcript_retitled += 1
 
@@ -500,11 +631,15 @@ class Mirror:
             fresh[identity] = record
 
         if not options.dry_run:
+            # Once writes start, finish the matching merge base. Cancellation
+            # inside this batch could mistake our partial writes for user edits.
+            self._checkpoint(current, "publishing flags")
             for path, name in sorted(dirty, key=lambda item: (str(item[0]), item[1])):
                 data = folder_files[path].get(name)
                 if data is None:
                     continue
                 try:
+                    self._forget(path / name)
                     _write_json(path / name, data, keep_mtime=True)
                 except OSError:
                     continue
@@ -544,16 +679,21 @@ class Mirror:
                 current.error = "another pass holds the lock"
                 return current           # deliberately without touching the sidecar
             self._record(current)
+            self._generation += 1
+            self._pass_payloads = {}
+            self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
             self._pass(current, options)
+            self._checkpoint(current, "complete")
             current.state = "ok"
             current.finished_at = _iso(self.now())
             self._record(current, last_ok=current.finished_at)
-        except OSError as exc:
-            current.state = "error"
+        except (_Cancelled, OSError) as exc:
+            current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
             current.error = f"{type(exc).__name__}: {exc}"
             current.finished_at = _iso(self.now())
             self._record(current)
         finally:
+            self._pass_payloads = {}
             if lock is not None:
                 try:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -575,23 +715,31 @@ class Mirror:
         return stream
 
     def _pass(self, current: Pass, options: Options) -> None:
+        self._checkpoint(current, "finding accounts")
         folders = self.folders(options.exclude)
         current.accounts = len(folders)
         if not folders:
+            for path in list(self._entries):
+                self._forget(path)
             return
-        stems = self.transcript_stems()
+        self._checkpoint(current, "finding transcripts")
+        stems = self.transcript_stems(current)
 
         folder_files: dict[Path, dict[str, dict]] = {}
         folder_ids: dict[Path, set[str]] = {}
         by_name: dict[str, dict[Path, dict]] = {}
+        self._checkpoint(current, "reading entries")
         for _account, _org, path in folders:
+            self._checkpoint(current)
             files, identities = {}, set()
             try:
                 entries = sorted(path.glob("local_*.json"))
             except OSError:
                 entries = []
             for entry in entries:
-                data = _load(entry)
+                self._checkpoint(current)
+                data = self._entry(entry)
+                current.entries_scanned += 1
                 files[entry.name] = data
                 by_name.setdefault(entry.name, {})[path] = data
                 identity = data.get("cliSessionId") or ""
@@ -600,9 +748,16 @@ class Mirror:
             folder_files[path] = files
             folder_ids[path] = identities
 
+        # Remove deleted files and excluded folders only after a full inventory.
+        # A cancelled scan must not evict entries it simply did not reach yet.
+        for path, (_signature, _digest, generation) in list(self._entries.items()):
+            if generation != self._generation:
+                self._forget(path)
+
         if options.restore and options.archive:
+            self._checkpoint(current, "restoring transcripts")
             current.revived = self.restore_dead(folder_files, stems, options.archive,
-                                                options.dry_run)
+                                                options.dry_run, current)
 
         def resolvable(data: dict) -> bool:
             identity = data.get("cliSessionId") or ""
@@ -615,6 +770,7 @@ class Mirror:
         canonical: dict[str, tuple[Any, dict, str, Path]] = {}
         for path, files in folder_files.items():
             for name, data in files.items():
+                self._checkpoint(current)
                 if not resolvable(data):
                     continue
                 identity = data["cliSessionId"]
@@ -623,21 +779,25 @@ class Mirror:
                     canonical[identity] = (score, data, name, path / name)
         current.sessions = len(canonical)
 
+        self._checkpoint(current, "copying entries")
         for identity, (_score, data, name, source) in canonical.items():
             for _account, _org, path in folders:
+                self._checkpoint(current)
                 if identity in folder_ids[path]:
                     continue                                # this account has it
                 existing = folder_files[path].get(name)
                 if existing is None:                        # the name is free
                     if not options.dry_run:
                         shutil.copy2(source, path / name)
-                        folder_files[path][name] = dict(data)
+                        self._forget(path / name)
+                        folder_files[path][name] = data
                         folder_ids[path].add(identity)
                     current.added += 1
                 elif not (existing.get("cliSessionId") or ""):   # stale empty
                     if not options.dry_run:
                         shutil.copy2(source, path / name)
-                        folder_files[path][name] = dict(data)
+                        self._forget(path / name)
+                        folder_files[path][name] = data
                         folder_ids[path].add(identity)
                     current.repaired += 1
                 else:
@@ -652,6 +812,7 @@ class Mirror:
                         body = dict(data)
                         body["sessionId"] = f"local_{identity}"   # keep it self-consistent
                         _write_json(destination, body)
+                        self._forget(destination)
                         try:                       # preserve sidebar ordering
                             stamp = source.stat().st_mtime
                             os.utime(destination, (stamp, stamp))
@@ -662,12 +823,15 @@ class Mirror:
                     current.added += 1
 
         if options.flag_sync:
+            self._checkpoint(current, "resolving flags")
             self.sync_flags(folder_files, stems, options, current)
 
         if options.prune:
+            self._checkpoint(current, "pruning entries")
             # Off by default: the Claude app prunes dead copies itself on load.
             home = next((path for _a, org, path in folders if org == options.dead_home), None)
             for name, copies in by_name.items():
+                self._checkpoint(current)
                 if any(resolvable(data) for data in copies.values()):
                     continue                                # openable somewhere
                 keep = home if home in copies else sorted(copies)[0]
@@ -677,6 +841,7 @@ class Mirror:
                     if not options.dry_run:
                         try:
                             (path / name).unlink()
+                            self._forget(path / name)
                         except OSError:
                             pass
                     current.pruned += 1
@@ -717,7 +882,7 @@ class Mirror:
                                else "a pass is in flight with no recorded start")}
         reference = _instant(data.get("updated_at")) or finished
         age_min = ((instant - reference).total_seconds() / 60) if reference else None
-        if record.get("state") == "error":
+        if record.get("state") in ("error", "cancelled"):
             return {"status": "stalled", "sidecar": str(self.sidecar_path),
                     "age_min": round(age_min, 1) if age_min is not None else None,
                     "run_min": None,

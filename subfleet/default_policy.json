@@ -117,7 +117,7 @@
     "min_interval_min": 30
   },
   "timers": {
-    "probe_interval_s": 300,
+    "probe_interval_s": 60,
     "keepalive_interval_s": 18300
   },
   "alerts": {
