@@ -112,3 +112,57 @@ def test_auth_dead_uses_existing_menu_warning_alias_without_losing_outcome():
     assert row["verdict"] == "auth-revoked"
     assert row["outcome"] == "auth-dead"
     assert not row["dispatchable"]
+
+
+# --- C-18.2: the jobs the menu shows -------------------------------------------
+
+def _job(job_id, state, **extra):
+    return {"job_id": job_id, "state": state, "name": job_id.split("-", 2)[-1], "sandbox": "workspace-write",
+            "workdir": f"/work/{job_id}", "worktree": None, "pinned_model": "fable", "created_at": f"2026-09-20T15:0{job_id[-1]}:00Z",
+            "started_at": None, "finished_at": None, "rc": None, "wait_reason": None, "next_check_at": None, **extra}
+
+
+def test_c18_2_jobs_section_orders_live_work_and_keeps_recent_results():
+    """C-18.2 running, then waiting with its reason, then queued; then the newest finished jobs."""
+    from subfleet.status_json import RECENT_JOBS
+    jobs = [_job("j-queued-3", "queued"),
+            _job("j-waiting-2", "waiting", wait_reason="workspace", next_check_at="2026-09-20T15:09:00Z"),
+            _job("j-running-1", "running", worktree="/state/worktrees/j-running-1", started_at="2026-09-20T15:01:30Z"),
+            *[_job(f"j-done-{n}", "succeeded", rc=0, finished_at=f"2026-09-20T14:{n:02d}:00Z") for n in range(12)],
+            _job("j-failed-9", "failed", rc=7, finished_at="2026-09-20T14:59:00Z", wait_reason="capacity")]
+    attempts = [{"job_id": "j-running-1", "seq": 1, "lane_id": "claude-3", "model_requested": "claude-opus-5"},
+                {"job_id": "j-running-1", "seq": 2, "lane_id": "claude-13", "model_requested": "claude-fable-5-1"}]
+    batch = {"id": "h-0920", "label": "codex handoff", "index": 1, "size": 5}
+    result = build_status({"lanes": [], "jobs": jobs, "attempts": attempts, "batches": {"j-running-1": batch}})["jobs"]
+    assert [row["job_id"] for row in result["live"]] == ["j-running-1", "j-waiting-2", "j-queued-3"]
+    assert result["counts"] == {"queued": 1, "running": 1, "waiting": 1}
+    running, waiting, queued = result["live"]
+    assert (running["lane_id"], running["model"], running["attempts"]) == ("claude-13", "claude-fable-5-1", 2)
+    assert running["workdir"] == "/state/worktrees/j-running-1" and running["batch"] == batch
+    assert (waiting["wait_reason"], waiting["next_check_at"]) == ("workspace", "2026-09-20T15:09:00Z")
+    assert (queued["model"], queued["lane_id"], queued["batch"]) == ("fable", None, None)
+    assert len(result["recent"]) == RECENT_JOBS and result["recent"][0]["job_id"] == "j-failed-9"
+    assert result["recent"][0]["rc"] == 7 and result["recent"][0]["wait_reason"] is None   # a reason belongs to a waiting job
+    assert [row["job_id"] for row in result["recent"][1:3]] == ["j-done-11", "j-done-10"]
+
+
+def test_c18_2_a_snapshot_without_jobs_still_has_the_section():
+    """C-18.2 the menu decodes one shape whether or not anything is running."""
+    assert build_status({"lanes": []})["jobs"] == {"live": [], "recent": [], "counts": {"queued": 0, "running": 0, "waiting": 0}}
+
+
+def test_c18_2_batch_labels_are_read_for_displayed_jobs_only(tmp_path):
+    """C-17.7, C-18.2 labels come from `job.submitted` events, and only for jobs the menu shows."""
+    from subfleet.status_json import attach_batches
+    from subfleet.store import Store
+    batch = {"id": "h-0920", "label": "codex handoff", "index": 2, "size": 5}
+    with Store(tmp_path / "state.sqlite3") as store:
+        store.add_event("job.submitted", job_id="j-running-1", data={"batch": batch, "write_target": "/work"})
+        store.add_event("job.submitted", job_id="j-queued-3", data={"write_target": "/work/other"})
+        store.add_event("job.submitted", job_id="j-ancient-0", data={"batch": batch})
+        snapshot = {"jobs": [_job("j-running-1", "running"), _job("j-queued-3", "queued")]}
+        attach_batches(store, snapshot)
+        assert snapshot["batches"] == {"j-running-1": batch}
+        empty = {"jobs": []}
+        attach_batches(store, empty)
+        assert empty["batches"] == {}

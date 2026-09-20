@@ -20,7 +20,17 @@ struct StatusModelProbe {
              "status": display.status, "detail": display.detail, "stale": display.stale,
              "tone": String(describing: display.tone)]
         }
+        func show(_ job: JobRow) -> [String: Any] {
+            let display = jobDisplay(job)
+            return ["title": display.title, "detail": display.detail, "status": display.status,
+                    "tone": String(describing: display.tone)]
+        }
         let result: [String: Any] = [
+            "has_jobs_section": snapshot.jobs != nil,
+            "job_groups": jobGroups(snapshot.jobs?.live ?? []).map {
+                ["title": $0.title as Any? ?? NSNull(), "jobs": $0.jobs.map(show)] as [String: Any]
+            },
+            "recent_jobs": (snapshot.jobs?.recent ?? []).map(show),
             "stale": snapshot.isStale(now: now),
             "codex": snapshot.codex.homes.map { project(codexDisplay($0, snapshot: snapshot, now: now)) },
             "claude": (snapshot.claude.accounts ?? []).map { project(claudeDisplay($0, snapshot: snapshot, now: now)) }

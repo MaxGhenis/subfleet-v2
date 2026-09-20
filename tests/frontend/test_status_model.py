@@ -126,7 +126,8 @@ def test_c2_1_frontend_resolves_custom_state_root(probe, tmp_path):
 def test_c18_1_frontend_accepts_empty_fleet(probe, tmp_path):
     """C-18.1 an empty initial daemon snapshot decodes without inventing lanes or capacity."""
     result = display(probe, tmp_path, [])
-    assert result == {"stale": False, "codex": [], "claude": []}
+    assert result == {"stale": False, "codex": [], "claude": [],
+                      "has_jobs_section": True, "job_groups": [], "recent_jobs": []}
 
 
 def test_c9_1_frontend_handles_lanes_without_usage_windows(probe, tmp_path):
@@ -153,3 +154,40 @@ def test_c18_1_frontend_snapshot_clock_is_conservative(probe, tmp_path, timestam
     assert result["stale"] is stale
     for provider in ("codex", "claude"):
         assert result[provider][0]["stale"] is stale
+
+
+def _job(job_id, state, **extra):
+    return {"job_id": job_id, "state": state, "name": extra.pop("name", job_id), "sandbox": "workspace-write",
+            "workdir": f"/work/{job_id}", "pinned_model": "fable", "created_at": "2026-09-19T11:00:00Z", **extra}
+
+
+def test_c18_2_frontend_groups_a_batch_and_says_why_a_job_waits(probe, tmp_path):
+    """C-17.7, C-18.2 the Swift model keeps a batch together and shows a waiting job's reason."""
+    batch = {"id": "h-0920", "label": "codex handoff", "size": 3}
+    jobs = [_job("a", "running", name="spm"), _job("solo", "running", name=""),
+            _job("b", "waiting", name="tariff", wait_reason="workspace"),
+            _job("c", "waiting", name="thesis", wait_reason="capacity"),
+            _job("old", "failed", rc=7, finished_at="2026-09-19T10:00:00Z")]
+    attempts = [{"job_id": "a", "seq": 1, "lane_id": "claude-13", "model_requested": "claude-fable-5-1"}]
+    payload = build_status({"lanes": [], "jobs": jobs, "attempts": attempts,
+                            "batches": {key: {**batch, "index": n} for n, key in enumerate("abc", 1)}}, now=NOW)
+    result = project(probe, tmp_path, payload)
+    assert result["has_jobs_section"] is True
+    groups = result["job_groups"]
+    assert [group["title"] for group in groups] == ["codex handoff · 3 jobs", None]
+    assert [job["title"] for job in groups[0]["jobs"]] == ["spm", "tariff", "thesis"]
+    assert groups[0]["jobs"][0] == {"title": "spm", "detail": "claude-fable-5-1 · claude-13 · a",
+                                   "status": "running", "tone": "good"}
+    assert [(job["status"], job["tone"]) for job in groups[0]["jobs"][1:]] == [
+        ("waiting: workspace", "warning"), ("waiting: capacity", "neutral")]
+    assert groups[1]["jobs"][0]["title"] == "solo"            # an unnamed job shows its id
+    assert result["recent_jobs"] == [{"title": "old", "detail": "fable · old", "status": "failed rc 7", "tone": "error"}]
+
+
+def test_c18_2_frontend_reads_a_snapshot_from_a_daemon_without_jobs(probe, tmp_path):
+    """C-18.2 an older daemon's status.json has no jobs key, and the menu still decodes it."""
+    payload = build_status({"lanes": [lane("codex")]}, now=NOW)
+    payload.pop("jobs")
+    result = project(probe, tmp_path, payload)
+    assert result["has_jobs_section"] is False and result["job_groups"] == [] and result["recent_jobs"] == []
+    assert result["codex"][0]["percentage"] == 25
