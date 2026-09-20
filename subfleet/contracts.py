@@ -287,6 +287,7 @@ class JobSpec:
     isolated_review: bool = False
     review_root: str | None = None
     round_lease: str | None = None
+    unmeasured_reserve_reason: str | None = None
 
 
 @dataclass(frozen=True)

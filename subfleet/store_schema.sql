@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   tier TEXT,
   pinned_model TEXT,
   pinned_lane TEXT,
+  unmeasured_reserve_reason TEXT,
   workdir TEXT NOT NULL,
   workdir_head TEXT,
   worktree TEXT,

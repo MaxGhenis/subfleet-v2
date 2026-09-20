@@ -135,9 +135,23 @@ def _earliest_reset(evaluations: Iterable[Mapping[str, Any]], now: datetime) -> 
     return _iso(min(clocks)) if clocks else None
 
 
+def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
+    """Validate the explicit exception independently of socket input validation."""
+    reason = job.get("unmeasured_reserve_reason")
+    if reason is None:
+        return None
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+        raise ValueError("unmeasured_reserve_reason: provide a nonblank reason of at most 2000 characters")
+    if any(not isinstance(job.get(key), str) or not job[key].strip()
+           for key in ("pinned_lane", "pinned_model")):
+        raise ValueError("unmeasured_reserve_reason: explicit pinned_lane and pinned_model are required")
+    return reason.strip()
+
+
 def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> Decision:
     """C-11.2–C-11.6: walk upward, applying every rejection before comparison."""
     job = _row(job)
+    authorization_reason = _unmeasured_reserve_reason(job)
     now = _time(view["now"]) if view.get("now") else datetime.now(timezone.utc)
     lanes = sorted((_row(lane) for lane in view.get("lanes", ())), key=lambda lane: lane["lane_id"])
     readings = [_row(item) for item in view.get("readings", ())]
@@ -148,6 +162,8 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     excluded = set(json.loads(excluded) if isinstance(excluded, str) else excluded)
     pin = job.get("pinned_lane")
     selected = resolve_lane(lanes, pin) if pin else None
+    if authorization_reason and selected and pin != selected["lane_id"]:
+        raise ValueError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
     task, tier = job.get("task"), job.get("tier")
     if task is not None and task not in policy["chains"]:
         raise ValueError(f"task: unknown task {task!r}")
@@ -249,7 +265,12 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                                           reading_ttl_s=caps["reading_ttl_s"],
                                           reserve=policy.get("reserve") or {})
                 detail["reserve"] = {"model": reserved, **verdict}
-                if verdict["state"] != "slack":
+                if verdict["state"] == "unmeasured" and authorization_reason:
+                    # This authorizes uncertainty on the explicit pinned pair;
+                    # it supplies no usage evidence and releases no other guard.
+                    detail["reserve"]["authorization"] = {
+                        "reason": authorization_reason, "lane_id": identity, "model_id": model["id"]}
+                elif verdict["state"] != "slack":
                     reasons.append(f"reserve:{reserved}:{verdict['state']}")
             if reasons:
                 rejections.append({"lane_id": identity, "reason": reasons[0], "reasons": reasons, **detail})
@@ -352,8 +373,18 @@ def probe_required(decision: Decision, job: Any) -> bool:
     short-circuits the loop.
     """
     job = _row(job)
+    authorization_reason = _unmeasured_reserve_reason(job)
     if not decision.chosen_lane:
         return False
+    if authorization_reason:
+        evaluation = next((row for row in decision.evaluations
+                           if row["model"] == decision.chosen_model), None)
+        if (decision.chosen_lane != job["pinned_lane"] or evaluation is None
+                or job["pinned_model"] not in (decision.chosen_model, evaluation["model_id"])):
+            raise ValueError("unmeasured_reserve_reason: the probe must use the authorized lane and model")
+        # An admission observation or a newly measured window cannot remove
+        # the promised same-model probe. The daemon's approved pair ends it.
+        return True
     if job.get("kind") == "revive":
         return True
     if not (job.get("sandbox") == "workspace-write" or job.get("tier") == "hard"):

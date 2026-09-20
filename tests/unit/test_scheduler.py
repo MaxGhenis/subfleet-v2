@@ -2,7 +2,7 @@
 
 import copy
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import pytest
 
@@ -488,6 +488,107 @@ def test_c11_7_a_pinned_lane_is_still_reserved(reserve_policy):
                         job(pinned_lane="claude-1", pinned_model="opus", task=None, tier=None))
     assert decision.chosen_lane is None
     assert "reserve:fable:reserved" in rejection(decision, "opus", "claude-1")["reasons"]
+
+
+AUTHORIZATION = "Operator approved Opus on this lane despite unavailable reserve telemetry."
+
+
+def authorized_job(**changes):
+    return job(**{"pinned_lane": "claude-1", "pinned_model": "opus",
+                  "unmeasured_reserve_reason": AUTHORIZATION, **changes})
+
+
+@pytest.mark.parametrize("model", ["opus", "claude-opus-5"])
+def test_unmeasured_reserve_authorization_is_exact_and_does_not_invent_quota(reserve_policy, model):
+    snapshot = view([lane("claude-1"), lane("claude-2"), lane("codex-1")])
+    spec = authorized_job(pinned_model=model)
+    decision = evaluate(reserve_policy, snapshot, spec)
+    assert decision.chain == ("opus",)
+    assert (decision.chosen_lane, decision.chosen_model) == ("claude-1", "opus")
+    evaluation, = decision.evaluations
+    assert evaluation["candidates"] == ["claude-1"]
+    details = evaluation["candidate_details"]["claude-1"]
+    assert details["reserve"] == {
+        "model": "fable", "state": "unmeasured", "cap_ratio": 2.0, "min_slack": .05,
+        "authorization": {"reason": AUTHORIZATION, "lane_id": "claude-1", "model_id": "claude-opus-5"}}
+    assert details["measured"] is False and details["headroom"] is None
+    assert evaluation["readings"] == []
+    assert probe_required(decision, spec)
+
+
+@pytest.mark.parametrize("reason", ["", " \n ", False, 1, {}, "x" * 2001])
+def test_unmeasured_reserve_authorization_rejects_invalid_reason(reserve_policy, reason):
+    with pytest.raises(ValueError, match="unmeasured_reserve_reason"):
+        evaluate(reserve_policy, view([lane()]), authorized_job(unmeasured_reserve_reason=reason))
+
+
+@pytest.mark.parametrize("changes", [
+    {"pinned_lane": None}, {"pinned_model": None}, {"pinned_lane": ""},
+    {"pinned_model": " "}, {"pinned_lane": []}, {"pinned_model": True},
+    {"pinned_lane": "claude-1@example.com"},
+])
+def test_unmeasured_reserve_authorization_requires_explicit_canonical_pair(reserve_policy, changes):
+    with pytest.raises(ValueError, match="unmeasured_reserve_reason"):
+        evaluate(reserve_policy, view([lane()]), authorized_job(**changes))
+
+
+@pytest.mark.parametrize("guard", [
+    "owner", "enabled", "desktop", "identity", "excluded", "account-closure", "model-closure",
+    "floor", "measured-reserve", "lane-slot", "fleet-cap", "probe-cap", "parent-cap", "quarantine",
+])
+def test_unmeasured_reserve_authorization_preserves_other_rejections(reserve_policy, guard):
+    target, rows, closures, attempts, jobs, changes = lane(), [], [], [], [], {}
+    expected = {"owner": "owner-v1", "enabled": "disabled", "identity": "identity-mismatch",
+                "floor": "below-floor", "measured-reserve": "reserve:fable:reserved"}.get(guard, "no-slot")
+    if guard == "owner": target["owner"] = "v1"
+    elif guard == "enabled": target["enabled"] = False
+    elif guard == "desktop": target["desktop"], expected = True, "desktop"
+    elif guard == "identity": target["identity_status"] = "mismatch"
+    elif guard == "excluded": changes["exclusions"], expected = ["claude-1"], "excluded"
+    elif guard in ("account-closure", "model-closure"):
+        scope = "account" if guard == "account-closure" else "claude-opus-5"
+        closures = [closure("claude-1", scope)]
+        expected = f"closed:{scope}:{TOMORROW}"
+    elif guard == "floor": rows = [reading("claude-1", .9)]
+    elif guard == "measured-reserve": rows = usage("claude-1", .3, .2)
+    elif guard == "lane-slot": attempts = [attempt("claude-1")]
+    elif guard == "fleet-cap": attempts = [attempt("codex-1", f"active-{i}") for i in range(4)]
+    elif guard == "parent-cap":
+        changes["parent_job_id"] = "parent"
+        attempts = [attempt("codex-1")]
+        jobs = [{"job_id": "parent"}, {"job_id": "running-job", "parent_job_id": "parent"}]
+    snapshot = view([target, lane("claude-2"), lane("codex-1")], rows, closures, attempts, jobs)
+    if guard == "quarantine": snapshot["unavailable_lanes"] = {"claude-1": "probe:quarantined"}
+    if guard == "probe-cap": snapshot["reserved_probes"] = 4
+    spec = authorized_job(**changes)
+    decision = evaluate(reserve_policy, snapshot, spec)
+    assert decision.chosen_lane is None and decision.chain == ("opus",)
+    assert expected in rejection(decision, "opus", "claude-1")["reasons"]
+    assert not probe_required(decision, spec)
+
+
+@pytest.mark.parametrize("rows", [
+    [], [reading("claude-1", None, window="admission", label="admission-observed")],
+    [reading("claude-1", .3, source="rate_limit_event")], usage("claude-1", .3, .99),
+])
+def test_unmeasured_reserve_authorization_always_requires_same_model_probe(reserve_policy, rows):
+    spec = authorized_job()
+    decision = evaluate(reserve_policy, view([lane()], rows), spec)
+    assert decision.chosen_lane == "claude-1"
+    assert probe_required(decision, spec)
+    for mismatch in ({"chosen_lane": "claude-2"}, {"chosen_model": "fable"}):
+        with pytest.raises(ValueError, match="unmeasured_reserve_reason"):
+            probe_required(replace(decision, **mismatch), spec)
+
+
+def test_unmeasured_reserve_reason_bound_and_absence_preserve_default(reserve_policy):
+    snapshot = view([lane()])
+    assert evaluate(reserve_policy, snapshot, authorized_job(unmeasured_reserve_reason="x" * 2000)).chosen_lane
+    denied = evaluate(reserve_policy, snapshot, authorized_job(unmeasured_reserve_reason=None))
+    assert denied.chosen_lane is None
+    assert rejection(denied, "opus", "claude-1")["reasons"] == ["reserve:fable:unmeasured"]
+    missing = evaluate(reserve_policy, snapshot, authorized_job(pinned_lane="claude-missing"))
+    assert missing.chosen_lane is None and missing.chain == ("opus",)
 
 
 def test_c23_37_stranded_claude_capacity_precedes_otherwise_better_lane(policy):

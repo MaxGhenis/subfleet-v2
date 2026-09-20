@@ -41,3 +41,16 @@ performance checks still apply. Preserve running v1 jobs, fence old scheduled
 services, transfer accounts only when idle, keep rollback evidence, and verify
 the installed daemon, CLI, and retained native menu bar app. A waived rollout
 observation remains unperformed; it is not recorded as a passed gate.
+
+## Operator reserve authorization, 2026-09-20
+
+Max requested using otherwise unused Opus capacity, including on accounts whose
+Fable capacity is exhausted. The Microcosm task explicitly requested a per-job
+authorization path when usage telemetry cannot establish reserve slack. This
+amends C-11.7 with an opt-in exception for **unmeasured** reserve only: a new
+dispatch must name an exact enrolled lane and model, record its operator reason
+and evidence, and pass a fresh same-model admission probe. Missing usage is never
+represented as exhaustion or available quota. Measured reserve restrictions and
+all known closures, identity, ownership, desktop, and concurrency checks remain
+in force. Authorization does not become a policy default or transfer to a new
+job or resumed session.

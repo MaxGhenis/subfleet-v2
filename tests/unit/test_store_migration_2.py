@@ -8,6 +8,8 @@ it moved — and the same code must produce an identical shape on a fresh store.
 from __future__ import annotations
 
 import sqlite3
+import json
+from pathlib import Path
 
 import pytest
 
@@ -56,6 +58,13 @@ def version_1_store(tmp_path):
     path = tmp_path / "state.sqlite3"
     conn = sqlite3.connect(path)
     conn.executescript(VERSION_1_LANES)
+    # The identity test previously omitted jobs entirely. Include its historical
+    # shape so migrations for other existing tables can run too.
+    jobs = (Path(__file__).parents[1] / "fixtures/store/version-4-jobs.sql").read_text()
+    for declaration in ("  isolated_review INTEGER NOT NULL DEFAULT 0,\n",
+                        "  review_root TEXT,\n", "  round_lease TEXT,\n"):
+        jobs = jobs.replace(declaration, "")
+    conn.executescript(jobs)
     conn.execute("INSERT INTO schema_version VALUES (1,'2026-09-01T00:00:00Z')")
     conn.execute(f"INSERT INTO lanes VALUES ({','.join('?' * len(LANE_ROW))})", LANE_ROW)
     conn.commit()
@@ -86,11 +95,10 @@ def test_the_migration_is_numbered_and_recorded(version_1_store):
     with Store(version_1_store) as store:
         versions = [row["version"] for row in
                     store.query("SELECT * FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4] and SCHEMA_VERSION == 4
+        assert versions == list(range(1, SCHEMA_VERSION + 1))
         migrated = [row for row in store.list_events() if row["kind"] == "schema.migrated"]
-        # One event per numbered step (2, 3, 4): the store says which versions it went through.
-        assert [r["data_json"].replace(" ", "") for r in migrated] == ['{"version":2}', '{"version":3}', '{"version":4}']
-    assert set(MIGRATIONS) == {4}
+        assert [json.loads(r["data_json"])["version"] for r in migrated] == list(range(2, SCHEMA_VERSION + 1))
+    assert set(MIGRATIONS) == {4, 5}
 
 
 def test_reopening_a_migrated_store_changes_nothing(version_1_store):
@@ -98,18 +106,18 @@ def test_reopening_a_migrated_store_changes_nothing(version_1_store):
     with Store(version_1_store):
         pass
     with Store(version_1_store) as store:
-        assert [row["version"] for row in store.query("SELECT * FROM schema_version")] == [1, 2, 3, 4]
+        assert [row["version"] for row in store.query("SELECT * FROM schema_version")] == list(range(1, SCHEMA_VERSION + 1))
         assert len([row for row in store.list_events()
-                    if row["kind"] == "schema.migrated"]) == 3   # the three steps, recorded once
+                    if row["kind"] == "schema.migrated"]) == SCHEMA_VERSION - 1
 
 
-def test_a_fresh_store_is_born_at_version_2_with_the_same_columns(tmp_path, version_1_store):
+def test_a_fresh_store_is_born_at_current_version_with_the_same_columns(tmp_path, version_1_store):
     """C-3.1 `store_schema.sql` describes the newest version, so a fresh database
     and a migrated one hold the same columns — the migration cannot drift from
     the file. (Order differs: `ALTER TABLE` appends. Every read is by name.)"""
     fresh = tmp_path / "fresh.sqlite3"
     with Store(fresh) as store:
-        assert [row["version"] for row in store.query("SELECT * FROM schema_version")] == [4]
+        assert [row["version"] for row in store.query("SELECT * FROM schema_version")] == [SCHEMA_VERSION]
         assert [row["kind"] for row in store.list_events()] == ["schema.applied"]
     with Store(version_1_store):
         pass

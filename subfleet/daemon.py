@@ -486,6 +486,12 @@ class Daemon:
     def submit(self, args: protocol.SubmitArgs) -> dict:
         # Called on a filesystem worker, never on the socket reader pool.
         with self._submit_lock:
+            reason = args.unmeasured_reserve_reason
+            if reason is not None:
+                if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+                    raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence")
+                if args.kind != "dispatch" or not args.pinned_lane or not args.pinned_model:
+                    raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model")
             resume = None
             if args.kind == "resume":
                 args, resume = self._resume_submission(args)
@@ -540,6 +546,9 @@ class Daemon:
                 lane = self.store.get_lane(lane_row["lane_id"]) if lane_row else None
                 if args.pinned_lane and not lane:
                     raise ValueError(f"unknown lane {args.pinned_lane}")
+                # Bind operator authorization to the enrolled lane's immutable
+                # ID, never to a label that can later resolve to another lane.
+                pinned_lane = lane.lane_id if reason is not None else args.pinned_lane
                 task_model = model or (self.policy["chains"][args.task][self.policy["tiers"].index(args.tier or "standard")]
                                        if args.task else next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None))
                 if task_model is None:
@@ -557,11 +566,12 @@ class Daemon:
                 if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
                     raise ValueError("max_wall_s must be positive and within policy caps")
                 digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
-                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=args.pinned_lane,
+                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=pinned_lane,
                     sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
-                    round_lease=args.round_lease, resume=resume)
+                    round_lease=args.round_lease, resume=resume,
+                    unmeasured_reserve_reason=reason)
             except (OSError, ValueError, TypeError) as exc:
                 raise protocol.ProtocolError(str(exc)) from exc
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
@@ -577,7 +587,7 @@ class Daemon:
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest,
                           workdir=str(workdir), workdir_head=head, out_path=out,
-                          pinned_model=model, prompt_path=str(jobdir / "prompt.md"),
+                          pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
                           max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow())
             values["review_root"] = review_root
@@ -594,7 +604,10 @@ class Daemon:
                 self._publish("prompt-prepared", prepared_path, WRITE_PREAMBLE.encode() + prompt)
                 manifest["prepared_prompt_path"] = str(prepared_path)
             self._publish("manifest", jobdir / "manifest.json", json_bytes(manifest))
-            with self.store.transaction("job.submitted", job_id=job_id) as tx:
+            authorization = ({"unmeasured_reserve_authorization": {
+                "lane_id": pinned_lane, "model_id": self.policy["models"][model]["id"],
+                "reason": reason}} if reason is not None else None)
+            with self.store.transaction("job.submitted", job_id=job_id, data=authorization) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
                 self._validate_conflicts(values)
@@ -1455,7 +1468,7 @@ class Daemon:
                     return None, desktop
                 self._save_probe(record)
             outcome = self._probe_candidate(job, decision, holder)
-            if outcome.cls == OutcomeClass.OK:
+            if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
                 approved.add(pair)
             elif outcome.cls != OutcomeClass.LIMITED:
                 with self.store.transaction("job.probe_waiting", job_id=job["job_id"]) as tx:

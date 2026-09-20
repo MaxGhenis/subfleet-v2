@@ -65,6 +65,25 @@ lanes limited on a stronger model are preferred for eligible cheaper work;
 `models.<name>.priority` defines strength across separate task chains. Reserved
 Fable capacity, account closures, exclusions, and ownership still control eligibility.
 
+If the usage endpoint cannot measure reserved capacity, an operator can authorize
+one new job on an exact enrolled lane and model, with a recorded reason and
+evidence. This does not assert that Fable is exhausted or that quota is available:
+
+```sh
+subfleet run --task research --tier standard -m opus -a claude-13 \
+  --allow-unmeasured-reserve 'Operator authorizes this Opus job despite unavailable reserve telemetry; quota remains unverified.' \
+  -C /path/to/work -p prompt.md --dry-run --json
+```
+
+Inspect the dry-run decision, then omit `--dry-run` to submit. The same lane and
+model must pass a fresh admission probe before the job can run, including for
+standard read-only work. This option bypasses only an **unmeasured** reserve
+verdict: known closures, measured reserve restrictions, identity protection,
+ownership, exclusions, desktop protection, and concurrency limits still apply.
+There is no account rotation or model promotion. The reason (up to 2,000
+characters; do not include secrets) is stored with the job and its audit event.
+Authorization is not inherited by another job or a resume.
+
 The [migration procedure](docs/migration.md) and
 [canary runbook](tools/canary_runbook.sh) cover account transfer and rollback.
 They change machine state and must be applied phase by phase after inspecting
