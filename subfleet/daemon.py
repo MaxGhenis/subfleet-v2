@@ -1725,19 +1725,26 @@ class Daemon:
         self._recover_probes()
         desktop_account = self._desktop_identity()
         queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
-        blocked_tiers = set()
+        # C-6.9: FIFO within a tier holds among jobs that compete for a model. An
+        # older job that cannot be placed holds back the later jobs that could run
+        # where it could, and nothing else: on 2026-09-20 an Opus review with no
+        # admissible lane kept three Fable-pinned jobs queued for hours beside
+        # eleven free Fable lanes.
+        waiters: dict[str, list[frozenset[str] | None]] = {}
+        saturated = False
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
                 self.kill(protocol.KillArgs(job["job_id"]))
                 continue
-            if tier in blocked_tiers:
+            models = scheduler.demand_models(self.policy, job)
+            if saturated or any(scheduler.competes(models, other) for other in waiters.get(tier, ())):
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 continue
             if job["next_check_at"] and job["next_check_at"] > utcnow():
                 if job["wait_reason"] == "capacity":
-                    blocked_tiers.add(tier)
+                    waiters.setdefault(tier, []).append(models)
                 continue
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 continue
@@ -1777,7 +1784,7 @@ class Daemon:
                                 "pinned_model": previous[-1]["model_requested"]}
             approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             if approved is None:
-                blocked_tiers.add(tier)
+                waiters.setdefault(tier, []).append(models)
                 continue
             with self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
                 job = self._job(job["job_id"])
@@ -1788,15 +1795,21 @@ class Daemon:
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision = self._pick(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
-                if not decision.chosen_lane or live >= self.policy["caps"]["max_active_attempts"]:
-                    blocked_tiers.add(tier)
+                cap = self.policy["caps"]["max_active_attempts"]
+                saturated = live >= cap
+                # A job that passes an older waiting job of its tier leaves one
+                # active slot free, so the older job can start the moment its
+                # capacity appears instead of waiting out the jobs that passed it.
+                limit = cap - 1 if waiters.get(tier) else cap
+                if not decision.chosen_lane or live >= limit:
+                    waiters.setdefault(tier, []).append(models)
                     waiting = scheduler.waiting_metadata(decision)
                     self.store.add_decision(job["job_id"], decision)
                     tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
                                (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
                     continue
                 if scheduler.probe_required(decision, job) and (decision.chosen_lane, decision.chosen_model) not in approved:
-                    blocked_tiers.add(tier)
+                    waiters.setdefault(tier, []).append(models)
                     continue  # The chosen identity changed after its probe.
                 seq = len(previous) + 1
                 aid = ids.attempt_id(job["job_id"], seq)
@@ -1835,7 +1848,7 @@ class Daemon:
                     leases.append((revive_key, job["job_id"]))
                 conflict = any((r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder for key, holder in leases)
                 if conflict:
-                    blocked_tiers.add(tier)
+                    waiters.setdefault(tier, []).append(models)
                     tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (after(1), job["job_id"]))
                     continue
                 for key, holder in leases:
