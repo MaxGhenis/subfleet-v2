@@ -498,6 +498,7 @@ class Daemon:
                     raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence")
                 if args.kind != "dispatch" or not args.pinned_lane or not args.pinned_model:
                     raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model")
+            batch = self._batch_label(args.batch)
             resume = None
             if args.kind == "resume":
                 args, resume = self._resume_submission(args)
@@ -599,7 +600,7 @@ class Daemon:
                                 existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
             jobdir = self.root / "jobs" / job_id
             values = dataclasses.asdict(args)
-            for k in ("allow_tmp", "no_preamble", "dry_run"):
+            for k in ("allow_tmp", "no_preamble", "dry_run", "batch"):
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest,
                           workdir=str(workdir), workdir_head=head, out_path=out,
@@ -619,6 +620,8 @@ class Daemon:
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
             manifest = {"job": values}
+            if batch:
+                manifest["batch"] = batch
             if resume:
                 manifest["resume"] = resume
             if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
@@ -631,7 +634,8 @@ class Daemon:
                 "reason": reason}} if reason is not None else None)
             submitted = {**(authorization or {}),
                          **({"caller_instance": instance} if instance else {}),
-                         **({"write_target": write_target} if write_target else {})}
+                         **({"write_target": write_target} if write_target else {}),
+                         **({"batch": batch} if batch else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
@@ -700,6 +704,34 @@ class Daemon:
             if match:
                 found.add(match[1])
         return next(iter(found)) if len(found) == 1 else None
+
+    @staticmethod
+    def _batch_label(value: Any) -> dict | None:
+        """C-17.7: what `run --batch` says about one of its jobs, validated."""
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise protocol.ProtocolError("batch must be an object with id, label, index and size")
+        ident, label = value.get("id"), value.get("label")
+        index, size = value.get("index"), value.get("size")
+        if not isinstance(ident, str) or not 1 <= len(ident) <= 128:
+            raise protocol.ProtocolError("batch.id must contain 1 to 128 characters")
+        if not isinstance(label, str) or not 1 <= len(label) <= 80:
+            raise protocol.ProtocolError("batch.label must contain 1 to 80 characters")
+        if (not all(isinstance(n, int) and not isinstance(n, bool) for n in (index, size))
+                or not 1 <= index <= size <= 256):
+            raise protocol.ProtocolError("batch.index and batch.size must satisfy 1 <= index <= size <= 256")
+        return {"id": ident, "label": label, "index": index, "size": size}
+
+    def _batches(self, job_ids: list[str]) -> dict[str, dict]:
+        """job id -> batch label, for the jobs that have one (C-17.7)."""
+        if not job_ids:
+            return {}
+        marks = ",".join("?" for _ in job_ids)
+        rows = self.store.query(f"SELECT job_id,data_json FROM events WHERE kind='job.submitted' "
+                                f"AND job_id IN ({marks}) AND data_json LIKE '%\"batch\"%'", job_ids)
+        found = {row["job_id"]: json.loads(row["data_json"]).get("batch") for row in rows}
+        return {job_id: batch for job_id, batch in found.items() if batch}
 
     def _submitted(self, job_id: str) -> dict:
         """What `submit` recorded beside the job row: the caller instance and write target."""
@@ -950,7 +982,10 @@ class Daemon:
                 if not isinstance(a.last, int) or a.last < 0:
                     raise protocol.ProtocolError("last must be a nonnegative integer")
                 sql += " LIMIT ?"; params.append(a.last)
-            return {"jobs": self.store.query(sql, params)}
+            jobs = self.store.query(sql, params)
+            batches = self._batches([row["job_id"] for row in jobs])
+            return {"jobs": [{**row, "batch": batches[row["job_id"]]} if row["job_id"] in batches else row
+                             for row in jobs]}
         if op == "show":
             a = protocol.coerce_args(protocol.ShowArgs, args)
             job = self._job(a.job_id)
@@ -960,7 +995,7 @@ class Daemon:
             workspace = self.store.one(
                 "SELECT ts,kind,data_json FROM events WHERE job_id=? AND kind IN "
                 "('job.workspace_deferred','job.workspace_failed') ORDER BY event_id DESC LIMIT 1", (a.job_id,))
-            return {"job": job, "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
+            return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                                **json.loads(workspace["data_json"])} if workspace else None),
                     "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),

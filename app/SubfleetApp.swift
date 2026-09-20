@@ -120,9 +120,43 @@ struct ClaudeSection: Decodable {
     var accounts: [ClaudeAccount]?
 }
 
+// C-17.7, C-18.2: jobs submitted together by `run --batch` carry one label.
+struct JobBatch: Decodable, Equatable {
+    var id: String
+    var label: String
+    var index: Int
+    var size: Int
+}
+
+struct JobRow: Decodable, Identifiable {
+    var job_id: String
+    var name: String?
+    var state: String
+    var wait_reason: String?
+    var next_check_at: String?
+    var sandbox: String?
+    var workdir: String?
+    var model: String?
+    var lane_id: String?
+    var attempts: Int?
+    var created_at: String?
+    var started_at: String?
+    var finished_at: String?
+    var rc: Int?
+    var batch: JobBatch?
+    var id: String { job_id }
+}
+
+struct JobsSection: Decodable {
+    var live: [JobRow]?
+    var recent: [JobRow]?
+}
+
 struct Snapshot: Decodable {
     var generated_at: String
     var offline: Bool?
+    // Optional: a snapshot written by a daemon that predates C-18.2 has no jobs.
+    var jobs: JobsSection?
     var codex: CodexSection
     var claude: ClaudeSection
 
@@ -145,6 +179,61 @@ struct LaneDisplay {
     var tone: LaneTone
     var fiveHourReset: Date?
     var weeklyReset: Date?
+}
+
+struct JobGroup {
+    var id: String
+    var title: String?
+    var jobs: [JobRow]
+}
+
+/// C-18.2: a batch's jobs stay together, placed where the first of them appears;
+/// a job that belongs to no batch is a group of one with no title.
+func jobGroups(_ rows: [JobRow]) -> [JobGroup] {
+    var groups: [JobGroup] = []
+    var position: [String: Int] = [:]
+    for row in rows {
+        let key = row.batch.map { "batch:" + $0.id } ?? "job:" + row.job_id
+        if let index = position[key] {
+            groups[index].jobs.append(row)
+        } else {
+            position[key] = groups.count
+            let title = row.batch.map { "\($0.label) · \($0.size) jobs" }
+            groups.append(JobGroup(id: key, title: title, jobs: [row]))
+        }
+    }
+    return groups
+}
+
+struct JobDisplay {
+    var title: String
+    var detail: String
+    var status: String
+    var tone: LaneTone
+}
+
+/// C-18.2: a waiting job says why; a failed one says its exit code.
+func jobDisplay(_ job: JobRow) -> JobDisplay {
+    let title = (job.name ?? "").isEmpty ? job.job_id : (job.name ?? job.job_id)
+    let place = job.workdir.map { URL(fileURLWithPath: $0).lastPathComponent }
+    let detail = [job.model, job.lane_id, place].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    switch job.state {
+    case "running":
+        return JobDisplay(title: title, detail: detail, status: "running", tone: .good)
+    case "waiting":
+        let reason = job.wait_reason ?? "unknown"
+        return JobDisplay(title: title, detail: detail, status: "waiting: \(reason)",
+                          tone: reason == "capacity" ? .neutral : .warning)
+    case "queued":
+        return JobDisplay(title: title, detail: detail, status: "queued", tone: .neutral)
+    case "succeeded":
+        return JobDisplay(title: title, detail: detail, status: "succeeded", tone: .good)
+    case "cancelled":
+        return JobDisplay(title: title, detail: detail, status: "cancelled", tone: .neutral)
+    default:
+        let code = job.rc.map { " rc \($0)" } ?? ""
+        return JobDisplay(title: title, detail: detail, status: job.state + code, tone: .error)
+    }
 }
 
 private func providerPercent(_ value: Double?, label: String?) -> Double? {
@@ -390,6 +479,50 @@ struct LaneRow: View {
     }
 }
 
+struct JobRowView: View {
+    let display: JobDisplay
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Circle().fill(toneColor(display.tone)).frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(display.title).font(.callout).lineLimit(1).truncationMode(.middle)
+                if !display.detail.isEmpty {
+                    Text(display.detail).font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+            }
+            Spacer()
+            Text(display.status).font(.caption).foregroundStyle(toneColor(display.tone))
+        }
+    }
+}
+
+struct JobsView: View {
+    let jobs: JobsSection?
+
+    var body: some View {
+        let live = jobs?.live ?? []
+        let recent = Array((jobs?.recent ?? []).prefix(5))
+        VStack(alignment: .leading, spacing: 6) {
+            Text("JOBS").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            if live.isEmpty {
+                Text("Nothing running or waiting.").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(jobGroups(live), id: \.id) { group in
+                if let title = group.title {
+                    Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                ForEach(group.jobs) { job in JobRowView(display: jobDisplay(job)) }
+            }
+            if !recent.isEmpty {
+                Text("RECENT").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(recent) { job in JobRowView(display: jobDisplay(job)) }
+            }
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var store: QuotaStore
 
@@ -434,6 +567,8 @@ struct ContentView: View {
                 Label("Snapshot is stale. Check that the daemon is running.", systemImage: "clock.badge.exclamationmark")
                     .font(.caption).foregroundStyle(.orange)
             }
+            Divider()
+            JobsView(jobs: snap.jobs).accessibilityIdentifier("jobs-section")
             Divider()
             Text("CODEX").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             ForEach(snap.codex.homes, id: \.id) { lane in

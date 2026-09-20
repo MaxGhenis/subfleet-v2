@@ -74,6 +74,65 @@ def _windows(lane: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return windows
 
 
+#: C-18.2: how many finished jobs the menu keeps in view.
+RECENT_JOBS = 8
+LIVE_JOB_STATES = ("queued", "running", "waiting")
+_LIVE_ORDER = {"running": 0, "waiting": 1, "queued": 2}
+
+
+def displayed_job_ids(snapshot: Mapping[str, Any]) -> list[str]:
+    """The jobs `build_status` will show, so a caller can fetch only their batch labels."""
+    live, recent = _select_jobs(snapshot)
+    return [row["job_id"] for row in (*live, *recent)]
+
+
+def attach_batches(store: Any, snapshot: dict[str, Any]) -> None:
+    """C-18.2: batch labels live in `job.submitted` events (C-17.7), not on the job row."""
+    ids = displayed_job_ids(snapshot)
+    if not ids:
+        snapshot["batches"] = {}
+        return
+    marks = ",".join("?" for _ in ids)
+    rows = store.query(f"SELECT job_id,data_json FROM events WHERE kind='job.submitted' "
+                       f"AND job_id IN ({marks}) AND data_json LIKE '%\"batch\"%'", ids)
+    found = {row["job_id"]: json.loads(row["data_json"] or "{}").get("batch") for row in rows}
+    snapshot["batches"] = {job_id: batch for job_id, batch in found.items() if isinstance(batch, dict)}
+
+
+def _select_jobs(snapshot: Mapping[str, Any]) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+    jobs = list(snapshot.get("jobs", ()))
+    live = sorted((row for row in jobs if row.get("state") in LIVE_JOB_STATES),
+                  key=lambda row: (_LIVE_ORDER[row["state"]], row.get("created_at") or "", row["job_id"]))
+    done = sorted((row for row in jobs if row.get("state") not in LIVE_JOB_STATES and row.get("finished_at")),
+                  key=lambda row: (row["finished_at"], row["job_id"]), reverse=True)
+    return live, done[:RECENT_JOBS]
+
+
+def _jobs(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    """C-18.2: what is running, what is waiting and why, and what just finished."""
+    live, recent = _select_jobs(snapshot)
+    batches = snapshot.get("batches") or {}
+    latest: dict[str, Mapping[str, Any]] = {}
+    for attempt in snapshot.get("attempts", ()):
+        held = latest.get(attempt["job_id"])
+        if held is None or (attempt.get("seq") or 0) >= (held.get("seq") or 0):
+            latest[attempt["job_id"]] = attempt
+
+    def row(job: Mapping[str, Any]) -> dict[str, Any]:
+        attempt = latest.get(job["job_id"], {})
+        return {"job_id": job["job_id"], "name": job.get("name"), "state": job["state"],
+                "wait_reason": job.get("wait_reason") if job["state"] == "waiting" else None,
+                "next_check_at": job.get("next_check_at") if job["state"] == "waiting" else None,
+                "sandbox": job.get("sandbox"), "workdir": job.get("worktree") or job.get("workdir"),
+                "model": attempt.get("model_requested") or job.get("pinned_model"),
+                "lane_id": attempt.get("lane_id"), "attempts": attempt.get("seq") or 0,
+                "created_at": job.get("created_at"), "started_at": job.get("started_at"),
+                "finished_at": job.get("finished_at"), "rc": job.get("rc"),
+                "batch": batches.get(job["job_id"])}
+    counts = {state: sum(1 for job in live if job["state"] == state) for state in LIVE_JOB_STATES}
+    return {"live": [row(job) for job in live], "recent": [row(job) for job in recent], "counts": counts}
+
+
 def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = None) -> dict[str, Any]:
     """C-18.1: retain Swift's Codex/Claude JSON shape with explicit evidence labels."""
     codex, claude = [], []
@@ -135,6 +194,7 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     credits = (sum(credit_counts) if credit_counts and all(isinstance(count, int) and not isinstance(count, bool) and count >= 0
                                        for count in credit_counts) else None)
     return {"generated_at": timestamp(now or snapshot.get("now")), "offline": bool(snapshot.get("offline", False)),
+            "jobs": _jobs(snapshot),
             "codex": {"homes": codex, "fleet": {"total_homes": len(codex), "dispatchable_now": len(available),
                        "best_home": available[0]["home"] if available else None,
                        "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits}},

@@ -89,6 +89,9 @@ class SubmitArgs:
     review_root: str | None = None
     round_lease: str | None = None
     unmeasured_reserve_reason: str | None = None
+    # C-17.7: {"id", "label", "index", "size"} for a job submitted by `run --batch`.
+    # A label for people and the app, never an input to routing or the digest.
+    batch: dict | None = None
 
 
 @dataclass
