@@ -263,7 +263,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                     continue
                 verdict = reserve_verdict(identity, r_model["id"], readings, now=now,
                                           reading_ttl_s=caps["reading_ttl_s"],
-                                          reserve=policy.get("reserve") or {})
+                                          reserve=policy.get("reserve") or {}, closures=closures)
                 detail["reserve"] = {"model": reserved, **verdict}
                 if verdict["state"] == "unmeasured" and authorization_reason:
                     # This authorizes uncertainty on the explicit pinned pair;
@@ -318,12 +318,15 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
 
 
 def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[str, Any]], *,
-                    now: datetime, reading_ttl_s: int, reserve: Mapping[str, Any]) -> dict[str, Any]:
+                    now: datetime, reading_ttl_s: int, reserve: Mapping[str, Any],
+                    closures: Iterable[Mapping[str, Any]] = ()) -> dict[str, Any]:
     """C-11.7: how much of a lane's shared weekly window a non-reserved model may spend.
 
-    Reads only fresh `provider` readings of window `seven_day`: the account one from
-    the usage endpoint (source `oauth-usage`, the sensor that also reports scoped
-    windows) and the reserved model's scoped one. slack = (1 - shared utilization)
+    Reads fresh `provider` readings of window `seven_day`: a complete OAuth
+    usage snapshot, or shared and scoped windows from the same stream event.
+    A reported, active model-only closure can instead establish that no reserve
+    is usable until reset, but requires an admission probe for the requested model.
+    slack = (1 - shared utilization)
     - cap_ratio * (1 - reserved utilization). States: `unmeasured` (no fresh
     usage read of the shared window), `reserved` (slack below `min_slack`),
     `slack` (may spend `slack`; a usage read that shows no reserved window makes
@@ -334,8 +337,28 @@ def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[
     readings = list(readings)
     fresh = [row for row in readings if row["lane_id"] == identity and row.get("window") == "seven_day"
              and fresh_provider(row, now=now, reading_ttl_s=reading_ttl_s)]
-    account = next((row for row in fresh if row["scope"] == "account"
-                    and row.get("source") == "oauth-usage"), None)
+    # A stream can measure reserve slack only when it actually carries both
+    # weekly buckets in the same event. Its missing scoped bucket is unknown,
+    # unlike absence in a validated complete OAuth usage snapshot.
+    accounts = [row for row in fresh if row["scope"] == "account" and (
+        row.get("source") == "oauth-usage" or
+        row.get("source") == "rate_limit_event" and any(
+            scoped["scope"] == reserved_id and scoped.get("source") == "rate_limit_event"
+            and scoped["observed_at"] == row["observed_at"]
+            and scoped.get("attempt_id") == row.get("attempt_id") for scoped in fresh))]
+    account = max(accounts, key=lambda row: _time(row["observed_at"]), default=None)
+    exhausted = [row for row in closures if row["lane_id"] == identity
+                 and row["scope"] == reserved_id and row.get("reason") == "provider-limit"
+                 and row.get("clock_source") == "reported" and _future_closure(row, now)]
+    if exhausted and account is None:
+        # A provider-reported model-only exhaustion protects no usable reserve
+        # before its reset. This says nothing about the other model's capacity:
+        # require its own supervised admission probe before dispatch.
+        return {"state": "slack", "reserved_remaining": 0.0,
+                "all_remaining": None,
+                "requires_probe": True, "cap_ratio": ratio, "min_slack": min_slack,
+                "note": "reserved model is closed by the provider until its reset",
+                "closure_until": max(row["until_at"] for row in exhausted)}
     if account is None:
         return {"state": "unmeasured", "cap_ratio": ratio, "min_slack": min_slack}
     all_remaining = round(1 - float(account["utilization"]), 4)
@@ -343,7 +366,10 @@ def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[
                        and row.get("window") == "seven_day" and row["scope"] == reserved_id
                        and _time(row["observed_at"]) >= _time(account["observed_at"])]
     scoped = next((row for row in scoped_evidence if row in fresh
-                   and row.get("source") == "oauth-usage"), None)
+                   and row.get("source") == account.get("source")
+                   and (account.get("source") != "rate_limit_event" or (
+                       row["observed_at"] == account["observed_at"]
+                       and row.get("attempt_id") == account.get("attempt_id")))), None)
     if scoped is None and scoped_evidence:
         # Same-snapshot or newer uncertain evidence is not absence. An older
         # scoped row, however, is superseded by a newer complete usage payload.
@@ -387,9 +413,11 @@ def probe_required(decision: Decision, job: Any) -> bool:
         return True
     if job.get("kind") == "revive":
         return True
+    evaluation = next(row for row in decision.evaluations if row["model"] == decision.chosen_model)
+    if (evaluation["candidate_details"][decision.chosen_lane].get("reserve") or {}).get("requires_probe"):
+        return True
     if not (job.get("sandbox") == "workspace-write" or job.get("tier") == "hard"):
         return False
-    evaluation = next(row for row in decision.evaluations if row["model"] == decision.chosen_model)
     return not evaluation["candidate_details"][decision.chosen_lane]["measured"]
 
 
