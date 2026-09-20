@@ -5,8 +5,8 @@
   <key>CFBundleName</key><string>Subfleet</string>
   <key>CFBundleDisplayName</key><string>Subfleet</string>
   <key>CFBundleIdentifier</key><string>org.maxghenis.subfleet</string>
-  <key>CFBundleVersion</key><string>2</string>
-  <key>CFBundleShortVersionString</key><string>2.0.0</string>
+  <key>CFBundleVersion</key><string>3</string>
+  <key>CFBundleShortVersionString</key><string>2.0.1</string>
   <key>CFBundleExecutable</key><string>Subfleet</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>

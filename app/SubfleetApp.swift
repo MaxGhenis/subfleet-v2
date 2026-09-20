@@ -248,16 +248,28 @@ final class QuotaStore: ObservableObject {
     @Published var snap: Snapshot?
     @Published var loadedAt = Date()
     @Published var readError: String?
+    @Published var reloadMessage: String?
     @Published var loginItem = SMAppService.mainApp.status == .enabled
     @Published var loginError: String?
-    let url = statusFileURL()
+    let url: URL
     private var timer: Timer?
 
-    init() {
+    init(url: URL = statusFileURL(), automaticallyReload: Bool = true) {
+        self.url = url
         load()
-        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.load() }
+        if automaticallyReload {
+            timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.load() }
+            }
         }
+    }
+
+    func reload() {
+        load()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm:ssa"
+        let checked = formatter.string(from: loadedAt).lowercased()
+        reloadMessage = readError == nil ? "Snapshot reloaded at \(checked)." : "Reload failed at \(checked)."
     }
 
     func load() {
@@ -391,7 +403,9 @@ struct ContentView: View {
                 }
             }
             if let snap = store.snap {
-                ScrollView { snapshotContent(snap) }.frame(maxHeight: 520)
+                // MenuBarExtra also asks for the minimum size. A maximum alone
+                // lets its window collapse this entire viewport to zero height.
+                ScrollView { snapshotContent(snap) }.frame(height: 520)
             } else {
                 Label("Snapshot unavailable", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
@@ -400,9 +414,14 @@ struct ContentView: View {
             }
             Divider()
             footer
+            if let message = store.reloadMessage {
+                Text(message).font(.caption2).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("snapshot-reload-result")
+            }
             if let loginError = store.loginError { Text(loginError).font(.caption2).foregroundStyle(.red) }
         }
         .padding(12).frame(width: 430)
+        .onAppear { store.load() }
     }
 
     func snapshotContent(_ snap: Snapshot) -> some View {
@@ -434,7 +453,7 @@ struct ContentView: View {
 
     var footer: some View {
         HStack {
-            Button { store.load() } label: {
+            Button { store.reload() } label: {
                 Label("Reload snapshot", systemImage: "arrow.clockwise")
             }.help("Read the daemon's latest snapshot. The daemon schedules provider probes.")
             Spacer()
@@ -446,6 +465,7 @@ struct ContentView: View {
     }
 }
 
+#if !SUBFLEET_VIEW_TEST
 @main
 struct SubfleetApp: App {
     @StateObject private var store = QuotaStore()
@@ -460,4 +480,5 @@ struct SubfleetApp: App {
         }.menuBarExtraStyle(.window)
     }
 }
+#endif
 #endif
