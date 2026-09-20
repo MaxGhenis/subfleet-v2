@@ -39,6 +39,7 @@ class WaitReason(str, enum.Enum):  # C-4.1
     DEPENDENCY = "dependency"
     APPROVAL = "approval"
     UNCERTAIN = "uncertain"
+    WORKSPACE = "workspace"  # C-6.8
 
 
 class AttemptState(str, enum.Enum):  # C-4.2
@@ -184,7 +185,16 @@ DEFAULT_CAPS: dict[str, int] = {
     "max_wall_s": 21600,
     "max_attempts": 3,
     "max_child_jobs": 8,
+    # C-6.8: one git call's cap while admission prepares a workspace, the cap on
+    # `git worktree add`, and how many consecutive transient preparation
+    # failures a job waits out before it fails.
+    "workspace_git_timeout_s": 60,
+    "worktree_add_timeout_s": 180,
+    "workspace_retry_max": 8,
 }
+# C-6.8: a transient preparation failure waits 5 s, then doubles to this ceiling.
+WORKSPACE_RETRY_BASE_S = 5
+WORKSPACE_RETRY_CEILING_S = 300
 READING_TTL_S = 120
 GUESSED_CLOSURE_S = 3600
 TRANSIENT_RETRY_DELAY_S = 60
