@@ -143,3 +143,12 @@ def test_payload_digest_canonical_and_payload_sensitive(tmp_path):
     assert first != payload_digest(b"different", exclusions=["codex-1", "codex-2"], **kwargs)
     assert canonical_json({"b": 1, "a": "é"}) == b'{"a":"\xc3\xa9","b":1}'
     assert payload_digest({"b": 1, "a": 2}) == hashlib.sha256(b'{"a":2,"b":1}').hexdigest()
+
+
+def test_reserve_authorization_changes_digest_without_changing_default_requests(tmp_path):
+    kwargs = dict(workdir=tmp_path, pinned_lane="claude-13", pinned_model="opus")
+    original = payload_digest(b"review", **kwargs)
+    assert payload_digest(b"review", unmeasured_reserve_reason=None, **kwargs) == original
+    authorized = payload_digest(b"review", unmeasured_reserve_reason="explicit reason", **kwargs)
+    assert authorized != original
+    assert authorized != payload_digest(b"review", unmeasured_reserve_reason="new evidence", **kwargs)

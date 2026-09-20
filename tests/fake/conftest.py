@@ -135,7 +135,10 @@ class Harness:
             if job["out_path"] and self.rows("SELECT * FROM leases WHERE lease_key=?",
                                               (f"out:{job['out_path']}",)):
                 return None
-            return job
+            # Export commits after terminal state. The lease may disappear
+            # between these reads, so return the row after that commit, not
+            # the pre-export snapshot (which can omit export_error).
+            return self.job(job_id)
         return self.until(match)
 
     def crash(self) -> None:

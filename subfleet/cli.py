@@ -555,6 +555,16 @@ def _hint_paths(root: Path, job_id: str, out_path: str | None,
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    # Check before legacy task flags can supply a model: this authorization
+    # requires the operator to name both the lane and the model explicitly.
+    reserve_reason = args.unmeasured_reserve_reason
+    if reserve_reason is not None:
+        if not args.m or not (args.a or args.H):
+            return fail(Exit.INVALID_INPUT,
+                        "run: --allow-unmeasured-reserve requires explicit -m and -a/-H")
+        if not reserve_reason.strip() or len(reserve_reason) > 2000:
+            return fail(Exit.INVALID_INPUT,
+                        "run: --allow-unmeasured-reserve requires a nonblank reason of at most 2000 characters")
     _apply_deprecations(args)
     workdir, error = _validate_run(args)
     if error is not None:
@@ -575,6 +585,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         tier=args.tier,
         pinned_model=args.m,
         pinned_lane=args.a or args.H,
+        unmeasured_reserve_reason=reserve_reason,
         out_path=str(Path(args.o).expanduser().absolute()) if args.o else None,
         name=args.name,
         exclusions=list(args.exclude or []),
@@ -913,6 +924,7 @@ def _format_job(job: dict[str, Any]) -> str:
                        ("sandbox", "sandbox"), ("out_path", "-o"),
                        ("created_at", "created"), ("finished_at", "finished"),
                        ("export_error", "export error"),
+                       ("unmeasured_reserve_reason", "unmeasured reserve"),
                        ("cancel_requested_at", "cancel requested")):
         value = job.get(key)
         if value not in (None, ""):
@@ -1911,6 +1923,11 @@ def build_parser() -> argparse.ArgumentParser:
     pins = p_run.add_mutually_exclusive_group()
     pins.add_argument("-a", dest="a", metavar="EMAIL", help="pin a Claude lane account")
     pins.add_argument("-H", dest="H", metavar="CODEX_HOME", help="pin a Codex lane home")
+    p_run.add_argument("--allow-unmeasured-reserve", dest="unmeasured_reserve_reason",
+                       metavar="REASON",
+                       help="authorize this job to request a same-model probe when reserve is unmeasured; "
+                            "requires explicit -m and -a/-H plus operator reason/evidence "
+                            "(1–2000 characters); does not override known limits")
     p_run.add_argument("-C", dest="C", default=os.getcwd(), metavar="DIR",
                        help="workdir (default: the current directory)")
     p_run.add_argument("-I", "--independent-review", dest="isolated_review", action="store_true")

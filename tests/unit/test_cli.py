@@ -325,6 +325,70 @@ def test_pinned_lane_comes_from_a_or_h(daemon, root, capsys, workdir):
     capsys.readouterr()
 
 
+@pytest.mark.parametrize("pins", [["-a", "operator@example.org", "-m", "fable"],
+                                  ["-H", "/Users/x/.codex-3", "-m", "astra"]])
+@pytest.mark.parametrize("reason", ["Account page checked at 09:00; allow a probe.", "x" * 2000])
+def test_unmeasured_reserve_authorization_is_explicit_and_carried_on_wire(
+        daemon, workdir, pins, reason):
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", *pins, "-C", str(workdir), "-d",
+                    "--allow-unmeasured-reserve", reason, "hi"]) == 0
+    assert server.args("submit")["unmeasured_reserve_reason"] == reason
+
+
+@pytest.mark.parametrize("pins", [[], ["-m", "fable"], ["-a", "operator@example.org"],
+                                  ["-H", "/Users/x/.codex-3"],
+                                  ["-a", "operator@example.org", "-t", "fable"]])
+def test_unmeasured_reserve_requires_explicit_model_and_lane_before_any_request(
+        daemon, workdir, root, capsys, pins):
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", *pins, "-C", str(workdir), "-d",
+                    "--allow-unmeasured-reserve", "Operator checked usage.", "hi"]) == Exit.INVALID_INPUT
+    assert "requires explicit -m and -a/-H" in capsys.readouterr().err
+    assert server.requests == []
+    assert not (root / "inbox").exists()
+
+
+@pytest.mark.parametrize("reason", ["", " \t\n", "x" * 2001])
+def test_unmeasured_reserve_requires_bounded_nonblank_evidence(
+        daemon, workdir, capsys, reason):
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", "-a", "operator@example.org", "-m", "fable", "-C", str(workdir),
+                    "-d", "--allow-unmeasured-reserve", reason, "hi"]) == Exit.INVALID_INPUT
+    assert "nonblank reason of at most 2000 characters" in capsys.readouterr().err
+    assert server.requests == []
+
+
+def test_unmeasured_reserve_has_no_environment_or_previous_run_default(
+        daemon, workdir, monkeypatch):
+    server = daemon({"submit": submit_ok})
+    monkeypatch.setenv("SUBFLEET_ALLOW_UNMEASURED_RESERVE", "Inherited reason")
+    monkeypatch.setenv("SUBFLEET_UNMEASURED_RESERVE_REASON", "Inherited reason")
+    base = ["run", "-a", "operator@example.org", "-m", "fable", "-C", str(workdir), "-d"]
+    assert run_cli([*base, "--allow-unmeasured-reserve", "This job only.", "hi"]) == 0
+    assert server.args("submit")["unmeasured_reserve_reason"] == "This job only."
+    assert run_cli([*base, "hi"]) == 0
+    assert server.args("submit")["unmeasured_reserve_reason"] is None
+
+
+def test_unmeasured_reserve_help_explains_probe_scope_and_known_limits(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.build_parser().parse_args(["run", "--help"])
+    assert exc.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "--allow-unmeasured-reserve REASON" in help_text
+    assert "same-model probe" in help_text
+    assert "does not override known limits" in help_text
+
+
+def test_unmeasured_reserve_evidence_remains_visible_in_job_metadata(daemon, capsys):
+    reason = "Operator checked account page at 09:00."
+    daemon({"show": lambda request: {"job": {"job_id": JOB, "state": "queued",
+                                              "unmeasured_reserve_reason": reason}}})
+    assert run_cli(["runs", "show", JOB, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["job"]["unmeasured_reserve_reason"] == reason
+
+
 # --- deprecations (C-17.2) ----------------------------------------------------
 
 def test_retired_sol_is_remapped_to_astra_with_a_note(daemon, root, capsys, workdir):
@@ -1150,6 +1214,19 @@ def test_resume_unwraps_daemon_show_and_keeps_actual_workspace(daemon, root, cap
     assert args["exclusions"] == ["excluded@example.com"]
     assert args["parent_job_id"] == JOB and args["independent"] is True
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("envelope", [False, True])
+def test_resume_never_inherits_unmeasured_reserve_authorization(daemon, root, envelope):
+    source = {"job_id": JOB, "workdir": str(root), "sandbox": "read-only",
+              "pinned_model": "fable", "pinned_lane": "claude-1",
+              "unmeasured_reserve_reason": "Authorized only for the previous job."}
+    server = daemon({"show": lambda request: {"job": source} if envelope else source,
+                     "submit": submit_ok})
+    assert run_cli(["resume", JOB]) == 0
+    assert server.args("submit")["pinned_model"] == "fable"
+    assert server.args("submit")["pinned_lane"] == "claude-1"
+    assert server.args("submit")["unmeasured_reserve_reason"] is None
 
 
 def test_resume_falls_back_to_the_job_rows_lane(daemon, root, capsys):

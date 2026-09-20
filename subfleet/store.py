@@ -20,7 +20,7 @@ from typing import Any
 
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 Row = dict[str, Any]
 
 #: C-3.1: migrations are additive and numbered. Each entry is the statements that
@@ -35,6 +35,8 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE lanes ADD COLUMN identity_status TEXT CHECK (identity_status IS NULL "
         "OR identity_status IN ('verified','enrolled','mismatch','unverified'))",
     ),
+    # A per-job operator authorization; old jobs retain no authorization.
+    5: ("ALTER TABLE jobs ADD COLUMN unmeasured_reserve_reason TEXT",),
 }
 
 
