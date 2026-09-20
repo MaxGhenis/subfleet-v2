@@ -76,6 +76,9 @@ def test_missing_required_key_names_file_and_key(tmp_path, policy_data, key):
     ("caps.reading_ttl_s", True, "caps.reading_ttl_s"),
     ("caps.max_in_flight_unmeasured", 1.5, "caps.max_in_flight_unmeasured"),
     ("caps.max_tokens_observed", False, "caps.max_tokens_observed"),
+    ("caps.workspace_git_timeout_s", 0, "caps.workspace_git_timeout_s"),
+    ("caps.worktree_add_timeout_s", 2.5, "caps.worktree_add_timeout_s"),
+    ("caps.workspace_retry_max", -1, "caps.workspace_retry_max"),
     ("headroom_floor", -0.1, "headroom_floor"),
     ("headroom_floor", 1.1, "headroom_floor"),
     ("headroom_floor", True, "headroom_floor"),
@@ -132,6 +135,16 @@ def test_defaults_preserve_optional_caps_and_floor(tmp_path, policy_data):
     assert policy["caps"]["max_tokens_observed"] is None
     assert policy["caps"]["max_active_attempts_per_parent"] == 2
     assert policy["headroom_floor"] == HEADROOM_FLOOR
+
+
+def test_c6_8_workspace_caps_default_and_follow_the_policy_file(tmp_path, policy_data):
+    """C-6.8 the git caps are policy data: 60 s, 180 s and 8 retries unless the file says otherwise."""
+    policy_data["caps"].pop("workspace_git_timeout_s", None)
+    caps = load_policy(write_policy(tmp_path, policy_data))["caps"]
+    assert (caps["workspace_git_timeout_s"], caps["worktree_add_timeout_s"], caps["workspace_retry_max"]) == (60, 180, 8)
+    policy_data["caps"].update(workspace_git_timeout_s=300, workspace_retry_max=20)
+    caps = load_policy(write_policy(tmp_path, policy_data))["caps"]
+    assert (caps["workspace_git_timeout_s"], caps["worktree_add_timeout_s"], caps["workspace_retry_max"]) == (300, 180, 20)
 
 
 def test_hash_is_stable_and_uses_exact_file_bytes(tmp_path, policy_data):

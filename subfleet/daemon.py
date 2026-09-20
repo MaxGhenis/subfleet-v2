@@ -34,7 +34,7 @@ from .adapters.registry import get_adapter
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
     START_GRACE_S, TERM_GRACE_S,
-    WAIT_POLL_MAX_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
+    WAIT_POLL_MAX_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
@@ -42,7 +42,10 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .policy import load_policy, policy_hash, resolve_model
 from .retention import maintenance
-from .salvage import SalvageError, git_head, salvage, validate_writable_workdir, working_tree
+from .salvage import (
+    SalvageError, git_head, git_tree, salvage, transient_os_error,
+    validate_writable_workdir, working_tree,
+)
 from .store import Store
 
 #: "not asked yet", distinct from "asked, and there was no answer".
@@ -165,6 +168,9 @@ class Daemon:
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
         self._census_next: dict[str, float] = {}
+        # C-6.8: job id -> consecutive transient workspace failures. In memory on
+        # purpose: a restart forgives the count, and the events keep the record.
+        self._workspace_deferrals: dict[str, int] = {}
         self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
@@ -517,7 +523,7 @@ class Daemon:
                     if not isinstance(args.round_lease, str) or not re.fullmatch(
                             r"gate:[A-Za-z0-9][A-Za-z0-9._-]{0,127}:round:[1-9][0-9]*", args.round_lease):
                         raise ValueError("gate-review requires gate:<gate id>:round:<n> round_lease")
-                    if self.root not in workdir.parents or git_head(workdir) is not None:
+                    if self.root not in workdir.parents or git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None:
                         raise AdapterError("gate review cwd must be a neutral directory under the state root",
                                            fix="allocate the peer cwd under SUBFLEET_HOME outside any repository")
                 elif args.round_lease:
@@ -529,8 +535,8 @@ class Daemon:
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 if sandbox == Sandbox.WORKSPACE_WRITE:
-                    validate_writable_workdir(workdir)
-                head = git_head(workdir)
+                    validate_writable_workdir(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                head = git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
                 if sandbox == Sandbox.WORKSPACE_WRITE and head is None:
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
                 model = args.pinned_model
@@ -572,6 +578,12 @@ class Daemon:
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
                     unmeasured_reserve_reason=reason)
+            except SalvageError as exc:
+                # C-6.8: nothing was submitted, so the caller retries; a timed-out
+                # `rev-parse` must not read as "not a repository" or "not on main".
+                self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
+                raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+                                   fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
             except (OSError, ValueError, TypeError) as exc:
                 raise protocol.ProtocolError(str(exc)) from exc
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
@@ -783,7 +795,12 @@ class Daemon:
             # Show also serves resume and inspection by unrelated sessions. The
             # CLI sends notice.ack for its own session after displaying a result;
             # this sessionless read must not consume another caller's notice.
-            return {"job": job, "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
+            workspace = self.store.one(
+                "SELECT ts,kind,data_json FROM events WHERE job_id=? AND kind IN "
+                "('job.workspace_deferred','job.workspace_failed') ORDER BY event_id DESC LIMIT 1", (a.job_id,))
+            return {"job": job, "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
+                                               **json.loads(workspace["data_json"])} if workspace else None),
+                    "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
         if op == "wait":
@@ -1166,28 +1183,54 @@ class Daemon:
         return dataclasses.replace(outcome, evidence=evidence)
 
     def _workspace(self, job: dict) -> tuple[str, str | None, str | None]:
+        """C-6.8: every git call here is capped by policy, and a call that did
+        not finish raises rather than answering "no HEAD" or "no branch"."""
+        cap = self.policy["caps"]["workspace_git_timeout_s"]
         workdir = job.get("worktree") or job["workdir"]
         if job["sandbox"] == "workspace-write":
             # Submission may have waited for capacity while the caller changed
             # branches. Refuse again at admission, including writable retries.
-            validate_writable_workdir(workdir)
+            validate_writable_workdir(workdir, timeout_s=cap)
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
+            if Path(workdir).exists() and (not (Path(workdir) / ".git").is_file()
+                                           or git_head(workdir, timeout_s=cap) is None):
+                # A `worktree add` killed at its cap can leave a directory that is
+                # not a worktree. `.git` is checked first because git run in a
+                # bare directory answers for whatever repository encloses it.
+                # Nothing has run here (the job has no attempt), so it is rebuilt
+                # rather than handed to a provider.
+                self._discard_worktree(job["workdir"], workdir, cap)
             if not Path(workdir).exists():
-                result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                        capture_output=True, timeout=30)
+                try:
+                    result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
+                                            capture_output=True, text=True,
+                                            timeout=self.policy["caps"]["worktree_add_timeout_s"])
+                except (OSError, subprocess.SubprocessError):
+                    self._discard_worktree(job["workdir"], workdir, cap)
+                    raise
                 if result.returncode:
-                    raise AdapterError("could not allocate worktree", fix="check repository and state-root permissions")
+                    self._discard_worktree(job["workdir"], workdir, cap)
+                    raise AdapterError("could not allocate worktree: " + (result.stderr.strip()[-300:] or f"git exited {result.returncode}"),
+                                       fix="check repository and state-root permissions")
             os.chmod(workdir, 0o700)
-        head = git_head(workdir)
+        head = git_head(workdir, timeout_s=cap)
         baseline = None
         if head and job["sandbox"] == "workspace-write":
-            baseline = working_tree(workdir, head)
+            baseline = working_tree(workdir, head, timeout_s=cap)
         elif head:
-            result = subprocess.run(["git", "-C", workdir, "rev-parse", f"{head}^{{tree}}"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                baseline = result.stdout.strip()
+            baseline = git_tree(workdir, head, timeout_s=cap)
         return workdir, head, baseline
+
+    @staticmethod
+    def _discard_worktree(repository: str, workdir: str, cap: float) -> None:
+        """Best effort: a failure here is reported by the add that follows it."""
+        shutil.rmtree(workdir, ignore_errors=True)
+        try:
+            subprocess.run(["git", "-C", repository, "worktree", "prune"],
+                           capture_output=True, timeout=cap)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
@@ -1511,9 +1554,16 @@ class Daemon:
             except AdapterError as exc:
                 self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
                 continue
-            except (OSError, subprocess.SubprocessError, SalvageError):
-                self._fail_queued(job, "workspace preparation failed")
+            except (OSError, subprocess.SubprocessError, SalvageError) as exc:
+                self._workspace_failed(job, exc)
                 continue
+            self._workspace_deferrals.pop(job["job_id"], None)
+            if job["wait_reason"] == "workspace":
+                # The workspace is ready; what the job waits for next is not it.
+                with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
+                    tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
+                               "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
+                job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
             previous = self.store.list_attempts(job["job_id"])
             extra_exclusions = tuple(a["lane_id"] for a in previous if a["outcome_class"] == "limited")
             transient_counts: dict[str, int] = {}
@@ -1626,8 +1676,54 @@ class Daemon:
                      f"skipped: session {job['caller_session']} already has a live "
                      f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}")
 
-    def _fail_queued(self, job: dict, detail: str, *, rc: int = 1) -> None:
-        with self.store.transaction("job.failed", job_id=job["job_id"]) as tx:
+    @staticmethod
+    def _workspace_error(exc: BaseException) -> tuple[bool, dict]:
+        """(transient, record) for a workspace preparation failure (C-6.8).
+
+        The text is git's verb, cap and stderr, or the `OSError`: a path and an
+        errno, never a credential, so unlike a provider error it is recorded.
+        """
+        cause = exc.__cause__ if isinstance(exc, SalvageError) and exc.__cause__ else exc
+        transient = (isinstance(exc, subprocess.TimeoutExpired) or transient_os_error(exc)
+                     or (isinstance(exc, SalvageError) and exc.transient))
+        if isinstance(exc, subprocess.TimeoutExpired):
+            command = exc.cmd if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
+            verb = next((part for part in command[3:] if not str(part).startswith("-")), "git")
+            message = f"git {verb} timed out after {exc.timeout:g} s"
+        else:
+            message = str(exc) or type(exc).__name__
+        return transient, {"error_type": type(cause).__name__, "error": message[:500]}
+
+    def _workspace_failed(self, job: dict, exc: BaseException) -> None:
+        """C-6.8: a transient failure waits with backoff; anything else, or a
+        transient one past `caps.workspace_retry_max`, fails with its cause."""
+        transient, record = self._workspace_error(exc)
+        count = self._workspace_deferrals.get(job["job_id"], 0) + 1
+        limit = self.policy["caps"]["workspace_retry_max"]
+        detail = f"{record['error_type']}: {record['error']}"
+        if transient and count <= limit:
+            self._workspace_deferrals[job["job_id"]] = count
+            delay = min(WORKSPACE_RETRY_CEILING_S, WORKSPACE_RETRY_BASE_S * 2 ** (count - 1))
+            next_check = after(delay)
+            record.update(deferrals=count, retry_max=limit, next_check_at=next_check)
+            with self.store.transaction("job.workspace_deferred", job_id=job["job_id"], data=record) as tx:
+                tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=? "
+                           "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                           (next_check, job["job_id"]))
+            self.log.warning("job %s workspace preparation deferred %d/%d, next check in %d s: %s",
+                             job["job_id"], count, limit, delay, detail)
+            self._notify()
+            return
+        self._workspace_deferrals.pop(job["job_id"], None)
+        record.update(transient=transient, deferrals=count - 1)
+        self.log.error("job %s workspace preparation failed: %s", job["job_id"], detail)
+        tail = f" after {count - 1} retries" if transient else ""
+        self._fail_queued(job, f"workspace preparation failed{tail}: {detail}",
+                          kind="job.workspace_failed", data=record)
+
+    def _fail_queued(self, job: dict, detail: str, *, rc: int = 1, kind: str = "job.failed",
+                     data: dict | None = None) -> None:
+        with self.store.transaction(kind, job_id=job["job_id"], data=data) as tx:
             job = self._job(job["job_id"])
             if job["state"] in TERMINAL:
                 return
@@ -1663,7 +1759,7 @@ class Daemon:
             if job["sandbox"] == "workspace-write":
                 # Close the reservation-to-launch window as well: the caller
                 # can switch an in-place checkout after its attempt is reserved.
-                validate_writable_workdir(job.get("worktree") or job["workdir"])
+                validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
             spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
@@ -1694,6 +1790,12 @@ class Daemon:
                                               model["id"], model.get("effort"), prompt_path, guard_override)
         except AdapterError as exc:
             self._launch_failure(a, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+            return
+        except SalvageError as exc:
+            # C-6.8: the main/master re-check did not finish. Launching anyway
+            # would skip it, so the attempt ends with the cause recorded.
+            self.log.error("attempt %s workdir branch check failed: %s", a["attempt_id"], exc)
+            self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
             return
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
@@ -1999,11 +2101,12 @@ class Daemon:
         receipt = self._read_json(receipt_path)
         if receipt is None:
             baseline = json.loads(a["evidence_json"] or "{}").get("baseline_commit") or job["workdir_head"]
+            cap = self.policy["caps"]["workspace_git_timeout_s"]
             result = salvage(job.get("worktree") or job["workdir"], baseline, a["seq"],
                              writable=True, state="finalizing", timestamp=a["reserved_at"],
-                             baseline_tree=a.get("baseline_tree"))
+                             baseline_tree=a.get("baseline_tree"), timeout_s=cap)
             receipt = {"result": dataclasses.asdict(result) if result else None,
-                       "checkpoint": git_head(job.get("worktree") or job["workdir"])}
+                       "checkpoint": git_head(job.get("worktree") or job["workdir"], timeout_s=cap)}
             self._publish("salvage", receipt_path, json_bytes(receipt))
             self._boundary("salvage", job["job_id"], a["attempt_id"])
         result = receipt["result"]

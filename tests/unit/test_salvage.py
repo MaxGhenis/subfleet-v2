@@ -1,12 +1,14 @@
 """C-13 salvage snapshots are private git objects, never worktree mutations."""
 
+import errno
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from subfleet import salvage as salvage_module
 from subfleet.adapters.base import AdapterError
-from subfleet.salvage import git_head, salvage, validate_writable_workdir, working_tree
+from subfleet.salvage import SalvageError, git_head, salvage, validate_writable_workdir, working_tree
 
 
 def git(path, *args):
@@ -136,3 +138,92 @@ def test_salvage_rejects_nonfinalizing_state(repository):
     """C-13.1 salvage starts only during finalization, loss or kill reconciliation."""
     with pytest.raises(ValueError, match="finalizing"):
         salvage(repository, git_head(repository), 1, state="running")
+
+
+# --- C-6.8: a git call that did not finish is never read as an answer ----------
+
+def _stub_run(monkeypatch, outcome):
+    seen = {}
+
+    def run(cmd, **kwargs):
+        seen.update(cmd=cmd, timeout=kwargs.get("timeout"))
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+    monkeypatch.setattr("subfleet.salvage.subprocess.run", run)
+    return seen
+
+
+@pytest.mark.parametrize("probe", [salvage_module.git_head, salvage_module.git_branch])
+def test_c6_8_timeout_raises_transient_even_for_an_optional_probe(monkeypatch, tmp_path, probe):
+    """C-6.8 "no HEAD" and "no branch" are answers; a timeout is not one."""
+    _stub_run(monkeypatch, subprocess.TimeoutExpired(["git"], 7))
+    with pytest.raises(SalvageError) as error:
+        probe(tmp_path, timeout_s=7)
+    assert error.value.transient and "timed out after 7 s" in str(error.value)
+    assert isinstance(error.value.__cause__, subprocess.TimeoutExpired)
+
+
+def test_c6_8_timeout_never_lets_a_writable_job_past_the_main_refusal(monkeypatch, tmp_path):
+    """C-6.8, C-13.2 the branch check fails closed when git does not answer."""
+    _stub_run(monkeypatch, subprocess.TimeoutExpired(["git"], 1))
+    with pytest.raises(SalvageError):
+        validate_writable_workdir(tmp_path, timeout_s=1)
+
+
+def test_c6_8_transient_oserror_is_transient_and_others_keep_their_meaning(monkeypatch, tmp_path):
+    """C-6.8 EAGAIN waits; a missing git binary is still "no HEAD" for an optional probe."""
+    _stub_run(monkeypatch, OSError(errno.EAGAIN, "Resource temporarily unavailable"))
+    with pytest.raises(SalvageError) as error:
+        git_head(tmp_path)
+    assert error.value.transient
+    _stub_run(monkeypatch, FileNotFoundError(errno.ENOENT, "No such file or directory", "git"))
+    assert git_head(tmp_path) is None
+    with pytest.raises(SalvageError) as error:
+        working_tree(tmp_path, "HEAD")
+    assert not error.value.transient and "FileNotFoundError" in str(error.value)
+
+
+def test_c6_8_a_failed_git_command_is_not_transient(repository):
+    """C-6.8 git answering "bad object" says something about the repository."""
+    with pytest.raises(SalvageError) as error:
+        working_tree(repository, "0" * 40)
+    assert not error.value.transient and "read-tree failed" in str(error.value)
+
+
+def test_c6_8_cap_is_the_argument_then_the_environment_then_sixty(monkeypatch, tmp_path):
+    """C-6.8 the default is 60 s, `SUBFLEET_GIT_TIMEOUT_S` overrides it, an argument overrides both."""
+    done = subprocess.CompletedProcess(["git"], 0, "abc\n", "")
+    monkeypatch.delenv(salvage_module.GIT_TIMEOUT_ENV, raising=False)
+    seen = _stub_run(monkeypatch, done)
+    assert git_head(tmp_path) == "abc" and seen["timeout"] == 60
+    monkeypatch.setenv(salvage_module.GIT_TIMEOUT_ENV, "240")
+    git_head(tmp_path)
+    assert seen["timeout"] == 240
+    git_head(tmp_path, timeout_s=3)
+    assert seen["timeout"] == 3
+    for junk in ("", "soon", "0", "-5"):
+        monkeypatch.setenv(salvage_module.GIT_TIMEOUT_ENV, junk)
+        git_head(tmp_path)
+        assert seen["timeout"] == 60
+
+
+def test_c6_8_salvage_threads_its_cap_through_every_git_call(monkeypatch, repository):
+    """C-6.8 finalization's snapshot runs under the same configurable cap."""
+    baseline = git_head(repository)
+    (repository / "tracked.txt").write_text("changed\n")
+    real_run, caps = subprocess.run, []
+
+    def run(cmd, **kwargs):
+        caps.append(kwargs.get("timeout"))
+        return real_run(cmd, **kwargs)
+    monkeypatch.setattr("subfleet.salvage.subprocess.run", run)
+    assert salvage(repository, baseline, 1, timestamp="2026-09-20T10:00:00Z", timeout_s=42)
+    assert caps and set(caps) == {42}
+
+
+def test_c6_8_git_tree_names_a_commits_tree_or_nothing(repository):
+    """C-6.8 the read-only baseline: a tree hash, or None when git cannot name one."""
+    head = git_head(repository)
+    assert salvage_module.git_tree(repository, head) == git(repository, "rev-parse", f"{head}^{{tree}}")
+    assert salvage_module.git_tree(repository, "0" * 40) is None
