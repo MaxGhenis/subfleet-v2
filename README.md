@@ -48,6 +48,28 @@ The frontend tests decode real daemon JSON for both providers, including stale
 or missing readings, offline status, ownership, and identity mismatches. CI also
 compiles the full app. Installation and launch remain separate cutover steps.
 
+Before every Codex launch the daemon runs the never-rules guard preflight
+(`subfleet/guard/preflight.py`, contract C-14.2): it checks the copied hook's
+bytes and the pinned Codex version against `subfleet/guard/TRUST`, then asks a
+scratch-home `codex app-server` for `hooks/list` and refuses the launch with exit
+code 7 unless the guard is listed, enabled and trusted. Two v1 settings apply:
+
+- `CODEX_GUARD_PREFLIGHT_TIMEOUT` — seconds to wait for the `hooks/list`
+  answer (default 60). Set it in the daemon's launchd environment; the daemon
+  process is what runs the probe. A probe that does not answer in time is
+  reported as a *timeout* (trust unverified), never as guard-file drift.
+- `SUBFLEET_CODEX_GUARD_CACHE` — where verified verdicts are kept (default
+  `$SUBFLEET_HOME/guard-cache`). A verdict is reused only while the Codex
+  version, the lane home, the override string and the seeded `config.toml` and
+  `hooks.json` are unchanged, and never past 30 days (C-23.5); a refusal is
+  never cached. Delete the directory to force re-verification.
+
+Every preflight writes `guard-preflight.json` into the attempt directory (kind,
+cached, elapsed seconds, probe pid, deadline, the request and response lines and
+the app-server's stderr tail) and one `guard preflight …` line to `daemon.log`.
+`subfleet doctor` reports the effective deadline and cached-verdict count;
+`subfleet doctor --live` runs the preflight for every enabled Codex lane.
+
 With an explicitly configured v2 daemon and v2-owned lane, the ordinary flow is:
 
 ```sh

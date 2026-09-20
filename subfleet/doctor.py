@@ -331,6 +331,65 @@ def check_never_rules(settings: Path | None = None) -> dict[str, Any]:
                "install the guard's PreToolUse hook; subfleet does not write it")
 
 
+def check_guard_preflight(root: Path) -> dict[str, Any]:
+    """C-14.2, C-23.5: the Codex guard preflight's deadline and cached verdicts.
+
+    Offline, this reports the effective ``CODEX_GUARD_PREFLIGHT_TIMEOUT`` and how
+    many verified markers are current; a deadline that cannot be parsed fails
+    here rather than at the next launch.
+    """
+    from .guard import preflight as guard
+    check = "codex guard preflight settings"
+    try:
+        deadline = guard.resolve_timeout()
+    except ValueError as exc:
+        return row(check, FAIL, str(exc), guard._CONFIG_FIX)
+    source = "env" if os.environ.get(guard.TIMEOUT_ENV, "").strip() else "default"
+    directory = guard.cache_dir()
+    markers = 0
+    try:
+        markers = sum(1 for path in directory.glob("guard-ok-*.json")
+                      if guard.read_cached_verdict(directory, path.name[len("guard-ok-"):-len(".json")]))
+    except OSError:
+        pass
+    return row(check, PASS,
+               f"hooks/list deadline {deadline:g}s ({source}); {markers} current verified marker(s) "
+               f"in {directory}",
+               f"set {guard.TIMEOUT_ENV} for the daemon to change the deadline; delete "
+               f"{directory} to force re-verification")
+
+
+def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
+    """C-14.2 (``--live``): run the trust preflight for every enabled Codex lane home."""
+    from .guard import preflight as guard
+    from .offline import Offline, OfflineUnavailable, SchemaTooNew
+    try:
+        lanes = Offline(root).lanes()
+    except (OfflineUnavailable, SchemaTooNew, OSError, ValueError):
+        return [row("codex guard preflight (live)", UNKNOWN,
+                    "no readable store yet (the daemon has not run here)",
+                    "start the daemon, then rerun subfleet doctor --live")]
+    rows = []
+    for lane in lanes:
+        if lane.get("provider") != "codex" or not lane.get("enabled", 1):
+            continue
+        home = lane.get("home") or lane.get("credential_ref")
+        check = f"codex guard preflight {lane.get('lane_id')}"
+        if not home:
+            rows.append(row(check, UNKNOWN, "lane has no home directory", "enroll the lane with a home"))
+            continue
+        result = guard.preflight("codex", home=home, workdir=root)
+        deadline = f"{result.timeout_s:g}s" if result.timeout_s is not None else "unset"
+        detail = (f"{result.kind or 'refused'} in {result.elapsed_s}s (deadline {deadline}"
+                  f"{', cached' if result.cached else ''}"
+                  f"{', probe pid ' + str(result.probe_pid) if result.probe_pid else ''}): {result.message}")
+        rows.append(row(check, PASS if result.ok else FAIL, detail, result.fix or "rerun subfleet doctor --live"))
+    if not rows:
+        rows.append(row("codex guard preflight (live)", PASS, "no enabled Codex lane homes to verify",
+                        "enroll a Codex lane to verify its guard"))
+    return rows
+
+
 def check_toolchain(binary: str = "uv") -> dict[str, Any]:
     """A dev-time dependency, not a runtime one: absent is `unknown`, not `fail`.
 
@@ -434,6 +493,7 @@ def checks(root: Path, *, live: bool = False,
         *(check_path_shadows(binary) for binary in ("subfleet", "claude", "codex")),
         *(check_provider(binary) for binary in ("claude", "codex")),
         check_toolchain("uv"),
+        check_guard_preflight(root),
         check_state_root(root),
         check_socket_path(root),
         check_daemon_lock(root),
@@ -443,6 +503,7 @@ def checks(root: Path, *, live: bool = False,
     ]
     if live:
         rows.append(check_live(root))
+        rows += check_guard_preflight_live(root)
     table = rows
     # C-10.3, C-10.7: the identity checks are rows of this one table. cli imports
     # doctor at module load, so the import is deferred to the call.
