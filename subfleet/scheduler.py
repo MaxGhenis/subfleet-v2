@@ -68,6 +68,32 @@ def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any]) -> list[dict[st
         rank.get(job.get("tier") or default, len(tiers)), job.get("created_at") or ""))
 
 
+def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
+    """The models a job could run on, exactly as `evaluate` builds its chain (C-11.2).
+
+    A pin is that one model; a task is its chain from the job's tier upward. None
+    means "cannot tell" (a lane pin with no model), which admission treats as
+    competing with everything.
+    """
+    job = _row(job)
+    try:
+        if job.get("pinned_model"):
+            return frozenset({resolve_model(policy, job["pinned_model"], note=False)})
+        task = job.get("task")
+        if task in policy["chains"]:
+            tiers = policy["tiers"]
+            default = "standard" if "standard" in tiers else tiers[0]
+            return frozenset(policy["chains"][task][tiers.index(job.get("tier") or default):])
+    except (PolicyError, ValueError, KeyError):
+        pass
+    return None
+
+
+def competes(models: frozenset[str] | None, other: frozenset[str] | None) -> bool:
+    """C-6.9: two jobs compete when some model could serve both, or when either is unknown."""
+    return models is None or other is None or bool(models & other)
+
+
 def _parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:
     """All descendants of every ancestor share that ancestor's concurrency cap."""
     limit = policy.get("caps", {}).get("max_active_attempts_per_parent", 1)
