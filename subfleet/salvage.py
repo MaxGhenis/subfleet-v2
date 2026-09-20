@@ -89,6 +89,16 @@ def git_branch(workdir: str | Path, *, timeout_s: float | None = None) -> str | 
                 timeout_s=timeout_s)
 
 
+def git_toplevel(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
+    """C-6.5: the real path of the worktree that holds ``workdir``, or None outside one.
+
+    Two directories of one checkout (`/repo` and `/repo/sub`) are one place to
+    write; two linked worktrees of one repository are two.
+    """
+    top = _git(workdir, "rev-parse", "--show-toplevel", optional=True, timeout_s=timeout_s)
+    return os.path.realpath(top) if top else None
+
+
 def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None) -> str | None:
     """The tree of ``commit``, or None when the repository cannot name it."""
     return _git(workdir, "rev-parse", "--verify", f"{commit}^{{tree}}", optional=True,
