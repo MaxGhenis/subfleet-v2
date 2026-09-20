@@ -535,7 +535,10 @@ class Daemon:
                 out = str(Path(args.out_path).expanduser().resolve()) if args.out_path else None
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
-                if sandbox == Sandbox.WORKSPACE_WRITE:
+                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place:
+                    # C-13.2: the refusal is about where the job writes. A job that
+                    # is not in place writes in a detached worktree the daemon cuts
+                    # for it (C-6.6), wherever its caller happens to stand.
                     validate_writable_workdir(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
                 head = git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
                 if sandbox == Sandbox.WORKSPACE_WRITE and head is None:
@@ -1384,9 +1387,11 @@ class Daemon:
         not finish raises rather than answering "no HEAD" or "no branch"."""
         cap = self.policy["caps"]["workspace_git_timeout_s"]
         workdir = job.get("worktree") or job["workdir"]
-        if job["sandbox"] == "workspace-write":
+        if job["sandbox"] == "workspace-write" and (job["in_place"] or job.get("worktree")):
             # Submission may have waited for capacity while the caller changed
-            # branches. Refuse again at admission, including writable retries.
+            # branches. Refuse again at admission, including writable retries,
+            # for the directory the job writes in (C-13.2): the caller's checkout
+            # when in place, else the worktree an earlier attempt already has.
             validate_writable_workdir(workdir, timeout_s=cap)
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
