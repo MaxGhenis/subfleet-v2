@@ -22,6 +22,7 @@ diagnosed from the attempt directory alone (2026-09-20 incident).
 
 from __future__ import annotations
 
+import collections
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -63,6 +64,8 @@ _TIMEOUT_FIX = ("Check local CPU/I/O pressure and daemon scheduling, then repeat
                 "startup is legitimately slow on this machine. A timeout does not establish guard-file "
                 "or version drift; trust remains unverified.")
 _CONFIG_FIX = f"Set {TIMEOUT_ENV} to a positive number of seconds (or unset it for the default), then retry."
+_CACHE_CONFIG_FIX = (f"Set {CACHE_ENV} to an absolute path or to a relative path inside the state root "
+                     "(or unset it for <state root>/guard-cache), then retry.")
 _PROBE_FIX = ("Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
               "`subfleet doctor --live`) for the app-server's own error; trust remains unverified.")
 _ENVIRONMENT_FIX = "Put back the missing directory or binary named in the message, then rerun subfleet doctor."
@@ -231,7 +234,12 @@ def cache_dir(state_root: str | Path | None = None) -> Path:
     override = os.environ.get(CACHE_ENV)
     if override:
         path = Path(os.path.expanduser(override))
-        return path if path.is_absolute() else root / path
+        if path.is_absolute():
+            return path  # the operator's explicit choice (v1 kept markers under ~/.cache)
+        resolved = (root / path).resolve()
+        if not resolved.is_relative_to(root.resolve()):
+            raise ValueError(f"{CACHE_ENV}={override!r} is relative and leaves the state root {root}")
+        return root / path
     return root / "guard-cache"
 
 
@@ -353,9 +361,10 @@ def _version(executable: str, *, env: dict[str, str], timeout_s: float) -> tuple
                                start_new_session=True)
     try:
         stdout, stderr = process.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         _stop_probe(process)
-        return None, "", ""
+        partial = exc.stderr if isinstance(exc.stderr, bytes) else b""
+        return None, "", partial[-STDERR_TAIL_BYTES:].decode("utf-8", errors="replace")
     except BaseException:
         _stop_probe(process)
         raise
@@ -379,8 +388,11 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
         {"jsonrpc": "2.0", "id": 2, "method": "hooks/list", "params": {"cwds": [str(workdir)]}},
     ]
     probe_env = dict(env, CODEX_HOME=str(home))
-    transcript: list[str] = []
-    diagnostics: dict[str, Any] = {"probe_pid": None, "elapsed_s": None, "transcript": transcript,
+    sent: list[str] = []
+    # The lines just before a hang, and the hooks/list answer after a chatty
+    # start, are the useful ones: keep the last responses, not the first.
+    received: collections.deque[str] = collections.deque(maxlen=max(TRANSCRIPT_LINES - 3, 1))
+    diagnostics: dict[str, Any] = {"probe_pid": None, "elapsed_s": None, "transcript": [],
                                    "stderr_tail": "", "timed_out": False, "first_byte_s": None}
     started = time.monotonic()
     # This is a metadata-only app-server probe. No exec request is ever sent.
@@ -395,7 +407,7 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
             assert process.stdin is not None and process.stdout is not None
             wire = "".join(json.dumps(request) + "\n" for request in requests).encode()
             for request in requests:
-                transcript.append("> " + _clip(json.dumps(request)))
+                sent.append("> " + _clip(json.dumps(request)))
             try:
                 process.stdin.write(wire)
                 process.stdin.flush()  # Keep stdin open until hooks/list responds.
@@ -428,8 +440,7 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
                     pending += chunk
                     while b"\n" in pending:
                         line, pending = pending.split(b"\n", 1)
-                        if len(transcript) < TRANSCRIPT_LINES:
-                            transcript.append("< " + _clip(line.decode("utf-8", errors="replace")))
+                        received.append("< " + _clip(line.decode("utf-8", errors="replace")))
                         try:
                             response = json.loads(line)
                         except (ValueError, UnicodeDecodeError):
@@ -445,6 +456,7 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
             except OSError as exc:
                 diagnostics["reap_error"] = f"{type(exc).__name__}: {exc}"
             finally:
+                diagnostics["transcript"] = [*sent, *received]
                 diagnostics["elapsed_s"] = round(time.monotonic() - started, 3)
                 diagnostics["exit_status"] = process.returncode
                 diagnostics["stderr_tail"] = _stderr_tail(stderr)
@@ -481,10 +493,16 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
         except ValueError as exc:
             raise _Refusal(CONFIG, str(exc), _CONFIG_FIX) from None
         hook = Path(hook_path) if hook_path is not None else HOOK_PATH
-        hook = hook.resolve(strict=True)
         trust_file = trust_path if trust_path is not None else os.environ.get("SUBFLEET_GUARD_TRUST") or TRUST_PATH
-        trust = json.loads(Path(trust_file).read_text())
-        if hashlib.sha256(hook.read_bytes()).hexdigest() != trust["hook_sha256"]:
+        try:
+            # A guard file that is gone or unreadable is a trust failure, not a
+            # missing-directory problem: the fix is to restore the reviewed files.
+            hook = hook.resolve(strict=True)
+            trust = json.loads(Path(trust_file).read_text())
+            hook_bytes = hook.read_bytes()
+        except OSError as exc:
+            raise _Refusal(TRUST, f"guard file unreadable: {exc}") from None
+        if hashlib.sha256(hook_bytes).hexdigest() != trust["hook_sha256"]:
             raise _Refusal(TRUST, "never-rules hook SHA-256 does not match TRUST")
         if not os.access(hook, os.X_OK):
             raise _Refusal(TRUST, "never-rules hook is not executable")
@@ -503,8 +521,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
         env = {key_name: value for key_name, value in os.environ.items() if key_name not in _SECRET_ENV}
         status, stdout, stderr_text = _version(executable, env=env, timeout_s=deadline)
         if status is None:
+            said = f"; stderr: {_clip(stderr_text.strip(), 400)}" if stderr_text.strip() else ""
             raise _Refusal(TIMEOUT, f"Codex --version did not answer before the {deadline:g}s deadline "
-                                    f"({executable}); guard trust is unverified, not mismatched",
+                                    f"({executable}); guard trust is unverified, not mismatched{said}",
                            _TIMEOUT_FIX)
         if status != 0:
             raise _Refusal(ENVIRONMENT, f"Codex --version exited {status} ({executable}): "
@@ -527,7 +546,10 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             raise _Refusal(ENVIRONMENT, "preflight Codex home must be an existing directory", _ENVIRONMENT_FIX)
         override = override_string(hook)
         hooks_hash = hooks_trust_hash(hook)
-        markers = Path(cache_directory) if cache_directory is not None else cache_dir(state_root)
+        try:
+            markers = Path(cache_directory) if cache_directory is not None else cache_dir(state_root)
+        except ValueError as exc:
+            raise _Refusal(CONFIG, str(exc), _CACHE_CONFIG_FIX) from None
         seeds: dict[str, bytes] = {}
         if source_home is not None:
             try:

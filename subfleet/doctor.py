@@ -345,7 +345,10 @@ def check_guard_preflight(root: Path) -> dict[str, Any]:
     except ValueError as exc:
         return row(check, FAIL, str(exc), guard._CONFIG_FIX)
     source = "env" if os.environ.get(guard.TIMEOUT_ENV, "").strip() else "default"
-    directory = guard.cache_dir(root)
+    try:
+        directory = guard.cache_dir(root)
+    except ValueError as exc:
+        return row(check, FAIL, str(exc), guard._CACHE_CONFIG_FIX)
     markers = 0
     try:
         markers = sum(1 for path in directory.glob("guard-ok-*.json")

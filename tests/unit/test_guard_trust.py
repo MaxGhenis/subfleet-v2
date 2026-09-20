@@ -513,7 +513,7 @@ def test_guard_preflight_terminates_then_kills_its_probe_tree_at_the_deadline(fa
     probe's own session is reaped as a group, so the child does not survive."""
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", "launcher-exits")
-    result = guard.preflight(fake, timeout_s=1)
+    result = guard.preflight(fake, timeout_s=3)
     # The child inherits the launcher's stdout, so there is no EOF: the deadline
     # passes, exactly the npm-launcher shape of the 2026-09-20 incident.
     assert not result.ok and result.kind == guard.TIMEOUT and result.exit_status == 0
@@ -571,6 +571,8 @@ def test_transcript_is_bounded_and_the_response_cap_refuses(fake_codex, monkeypa
     monkeypatch.setenv("GUARD_TEST_MODE", "chatty")
     result = guard.preflight(fake)
     assert result.ok and len(result.transcript) <= guard.TRANSCRIPT_LINES
+    assert [line[:2] for line in result.transcript[:3]] == ["> ", "> ", "> "], "the three requests stay"
+    assert '"id": 2' in result.transcript[-1], "the last responses are kept, so the answer is visible"
     assert all(len(line) <= guard.TRANSCRIPT_LINE_CHARS + 40 for line in result.transcript)
     monkeypatch.setenv("GUARD_TEST_MODE", "flood")
     result = guard.preflight(fake, timeout_s=5)
@@ -804,16 +806,27 @@ def test_unwritable_cache_directory_does_not_turn_a_verdict_into_a_refusal(fake_
 def test_answer_already_in_the_pipe_beats_an_expired_deadline(fake_codex, monkeypatch):
     """A daemon paused mid-probe (clamshell-guard SIGSTOPs subfleetd on a closed lid)
     wakes past its deadline; an answer that arrived meanwhile is still honoured."""
-    fake, _ = fake_codex
+    fake, report_path = fake_codex
     real = time.monotonic
     state = {"calls": 0}
+
+    def answered():
+        try:
+            return "request" in json.loads(report_path.read_text())
+        except (OSError, ValueError):
+            return False
 
     def paused_clock():
         state["calls"] += 1
         if state["calls"] == 1:
             return real()          # `started`
         if state["calls"] == 2:
-            time.sleep(1.0)        # the pause: the fake answers while we are stopped
+            # The pause: wait (bounded) until the fake has seen hooks/list, then
+            # a moment more for its answer to reach the pipe.
+            limit = real() + 20
+            while not answered() and real() < limit:
+                time.sleep(0.05)
+            time.sleep(0.3)
         return real() + 3600       # every later reading is past the deadline
 
     monkeypatch.setattr(guard.time, "monotonic", paused_clock)
@@ -828,3 +841,46 @@ def _scratch(fake):
     home = fake.parent / "scratch-home"
     home.mkdir(exist_ok=True)
     return home
+
+
+@pytest.mark.parametrize("missing", ["trust", "hook"])
+def test_missing_guard_file_is_a_trust_refusal(fake_codex, tmp_path, missing):
+    """Round 2: a deleted or unreadable guard file keeps the restore-the-reviewed-files advice."""
+    fake, report = fake_codex
+    options = ({"trust_path": tmp_path / "no-TRUST"} if missing == "trust"
+               else {"hook_path": tmp_path / "no-hook.sh"})
+    result = guard.preflight(fake, **options)
+    assert not result.ok and result.kind == guard.TRUST and result.fix == guard._FIX
+    assert "guard file unreadable" in result.message
+    assert not report.exists()
+
+
+def test_version_timeout_keeps_the_stderr_printed_before_the_hang(fake_codex, monkeypatch):
+    fake, _ = fake_codex
+
+    class Hung:
+        def __init__(self, *args, **kwargs):
+            self.pid, self.returncode, self.stdin, self.stdout = 0, None, None, None
+
+        def communicate(self, timeout=None):
+            raise subprocess.TimeoutExpired("codex", timeout, stderr=b"launcher: waiting for native binary\n")
+
+    stopped = []
+    monkeypatch.setattr(guard.subprocess, "Popen", Hung)
+    monkeypatch.setattr(guard, "_stop_probe", stopped.append)
+    status, stdout, stderr = guard._version(str(fake), env={}, timeout_s=1)
+    assert status is None and stdout == "" and "waiting for native binary" in stderr
+    assert len(stopped) == 1
+
+
+def test_relative_cache_override_may_not_leave_the_state_root(fake_codex, tmp_path, monkeypatch):
+    """Round 2, C-2.1: `../shared` is refused as a configuration error before any probe."""
+    fake, report = fake_codex
+    monkeypatch.setenv(guard.CACHE_ENV, "../shared")
+    with pytest.raises(ValueError):
+        guard.cache_dir(tmp_path / "root")
+    home = _lane(tmp_path)
+    result = guard.preflight(fake, home=home, workdir=tmp_path)
+    assert not result.ok and result.kind == guard.CONFIG
+    assert guard.CACHE_ENV in result.message and guard.CACHE_ENV in result.fix
+    assert not report.exists() and not (tmp_path / "shared").exists()

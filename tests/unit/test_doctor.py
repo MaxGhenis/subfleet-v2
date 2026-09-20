@@ -492,3 +492,10 @@ def test_live_guard_preflight_rows_cover_each_enabled_codex_lane(root, stub_prob
     assert "daemon scheduling" in bad["fix"]
     assert "codex guard preflight codex-2" not in rows
     assert "codex guard preflight codex-1" not in {i["check"] for i in doctor.checks(root)}, "offline runs no probe"
+
+
+def test_guard_preflight_settings_row_fails_on_a_cache_override_outside_the_root(root, stub_probes, monkeypatch):
+    from subfleet.guard import preflight as guard
+    monkeypatch.setenv(guard.CACHE_ENV, "../shared")
+    item = {i["check"]: i for i in doctor.checks(root)}["codex guard preflight settings"]
+    assert item["status"] == doctor.FAIL and guard.CACHE_ENV in item["detail"] and guard.CACHE_ENV in item["fix"]
