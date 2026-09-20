@@ -48,6 +48,39 @@ The frontend tests decode real daemon JSON for both providers, including stale
 or missing readings, offline status, ownership, and identity mismatches. CI also
 compiles the full app. Installation and launch remain separate cutover steps.
 
+Before every Codex launch except an isolated review (`-I`, which runs Codex
+with `--ephemeral --ignore-user-config` and its own inspection, C-23.3) the
+daemon runs the never-rules guard preflight (`subfleet/guard/preflight.py`,
+contract C-14.2): it checks the copied hook's bytes and the pinned Codex version
+against `subfleet/guard/TRUST`, then asks a scratch-home `codex app-server` for
+`hooks/list` and refuses the launch with exit code 7 unless the guard is listed,
+enabled and trusted. Two v1 settings apply:
+
+- `CODEX_GUARD_PREFLIGHT_TIMEOUT` — seconds allowed for each of the two Codex
+  calls, `codex --version` and the `hooks/list` answer (default 60; worst case
+  is therefore twice the value plus a two-second reap). Set it in the daemon's
+  launchd environment; the daemon process is what runs the probe. A probe that
+  does not answer in time is reported as a *timeout* (trust unverified), an
+  app-server that dies or cannot be driven as a *probe* failure with its stderr,
+  and a missing binary, home or workdir as an *environment* problem — never as
+  guard-file drift.
+- `SUBFLEET_CODEX_GUARD_CACHE` — where verified verdicts are kept (default
+  `<state root>/guard-cache`; a relative value resolves under the state root,
+  never the daemon's working directory, C-2.1). A verdict is reused only while
+  the Codex version, the lane home, the override string and the seeded
+  `config.toml` and `hooks.json` are unchanged, and never past 30 days
+  (C-23.5); a refusal is never cached, and a marker stamped in the future is
+  discarded. Delete the directory to force re-verification.
+
+Every preflight writes `guard-preflight.json` into the attempt directory (kind,
+cached, elapsed seconds, time to the app-server's first byte, probe pid and exit
+status, deadline, the request and response lines and the app-server's stderr
+tail) and one `guard preflight …` line to `daemon.log`. `subfleet doctor`
+reports the effective deadline and cached-verdict count; `subfleet doctor
+--live` runs the preflight for every enabled Codex lane with the `codex` on the
+shell's PATH, and a pass there writes the marker the daemon will reuse, because
+the key does not include the executable's path.
+
 With an explicitly configured v2 daemon and v2-owned lane, the ordinary flow is:
 
 ```sh

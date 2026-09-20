@@ -412,3 +412,90 @@ def test_pythonpath_row_passes_when_the_interpreter_ignores_its_environment(monk
     monkeypatch.setattr(doctor, "_ignores_environment", lambda: True)
     item = doctor.check_pythonpath()
     assert item["status"] == doctor.PASS and "-E" in item["detail"]
+
+
+# --- C-14.2, C-23.5: the Codex guard preflight rows -------------------------
+
+def test_guard_preflight_settings_row_reports_deadline_and_markers(root, stub_probes, monkeypatch):
+    """Offline, doctor shows the effective hooks/list deadline and how many verdicts are current."""
+    from subfleet.guard import preflight as guard
+    monkeypatch.delenv(guard.TIMEOUT_ENV, raising=False)
+    monkeypatch.setenv(guard.CACHE_ENV, str(root / "guard-cache"))
+    rows = {item["check"]: item for item in doctor.checks(root)}
+    item = rows["codex guard preflight settings"]
+    assert item["status"] == doctor.PASS
+    assert "deadline 60s (default)" in item["detail"] and "0 current verified marker" in item["detail"]
+    from datetime import datetime, timezone
+    guard.write_cached_verdict(root / "guard-cache", "a" * 64,
+                               {"verified_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+    (root / "guard-cache" / ("guard-ok-" + "b" * 64 + ".json")).write_text('{"verified_at": "2000-01-01T00:00:00+00:00"}')
+    monkeypatch.setenv(guard.TIMEOUT_ENV, "120")
+    item = {i["check"]: i for i in doctor.checks(root)}["codex guard preflight settings"]
+    assert "deadline 120s (env)" in item["detail"] and "1 current verified marker" in item["detail"]
+
+
+def test_guard_preflight_settings_row_fails_on_an_unusable_deadline(root, stub_probes, monkeypatch):
+    from subfleet.guard import preflight as guard
+    monkeypatch.setenv(guard.TIMEOUT_ENV, "soon")
+    item = {i["check"]: i for i in doctor.checks(root)}["codex guard preflight settings"]
+    assert item["status"] == doctor.FAIL
+    assert guard.TIMEOUT_ENV in item["detail"] and guard.TIMEOUT_ENV in item["fix"]
+    assert doctor.exit_code(doctor.checks(root)) == int(Exit.OPERATIONAL)
+
+
+def test_live_guard_preflight_rows_cover_each_enabled_codex_lane(root, stub_probes, monkeypatch):
+    """`doctor --live` runs the trust preflight per Codex lane home (C-14.2)."""
+    from subfleet.guard import preflight as guard
+    lanes = [
+        {"lane_id": "codex-1", "provider": "codex", "enabled": 1, "home": "/fixture/codex-1"},
+        {"lane_id": "codex-2", "provider": "codex", "enabled": 0, "home": "/fixture/codex-2"},
+        {"lane_id": "claude-1", "provider": "claude", "enabled": 1, "home": None},
+        {"lane_id": "codex-3", "provider": "codex", "enabled": 1, "home": None, "credential_ref": "/fixture/codex-3"},
+        {"lane_id": "codex-4", "provider": "codex", "enabled": 1, "home": None, "credential_ref": None},
+        {"lane_id": "codex-5", "provider": "codex", "enabled": 1, "home": "/fixture/codex-5"},
+    ]
+
+    class Roster:
+        def __init__(self, _root):
+            pass
+
+        def lanes(self):
+            return lanes
+
+    monkeypatch.setattr("subfleet.offline.Offline", Roster)
+    calls = []
+
+    def fake_preflight(binary, *, home, workdir, **kwargs):
+        calls.append(home)
+        assert kwargs.get("state_root") == root and binary == "codex"
+        if home == "/fixture/codex-5":
+            return guard.PreflightResult(False, 7, "Guard preflight refused: CODEX_GUARD_PREFLIGHT_TIMEOUT='soon'",
+                                         guard._CONFIG_FIX, kind=guard.CONFIG, timeout_s=None, elapsed_s=0.0)
+        ok = home != "/fixture/codex-3"
+        return guard.PreflightResult(ok, 0 if ok else 7,
+                                     "verified" if ok else "Guard preflight timed out: no answer",
+                                     None if ok else guard._TIMEOUT_FIX, kind=guard.CACHED if ok else guard.TIMEOUT,
+                                     cached=ok, timeout_s=60.0, elapsed_s=0.2, probe_pid=None if ok else 77)
+
+    monkeypatch.setattr(guard, "preflight", fake_preflight)
+    monkeypatch.setattr(doctor, "check_live", lambda _root: doctor.row("daemon ping", doctor.PASS, "stub", "n/a"))
+    rows = {item["check"]: item for item in doctor.checks(root, live=True)}
+    assert calls == ["/fixture/codex-1", "/fixture/codex-3", "/fixture/codex-5"], "enabled Codex lanes with a home"
+    homeless = rows["codex guard preflight codex-4"]
+    assert homeless["status"] == doctor.UNKNOWN and "no home" in homeless["detail"]
+    misconfigured = rows["codex guard preflight codex-5"]
+    assert misconfigured["status"] == doctor.FAIL and "deadline unset" in misconfigured["detail"]
+    good = rows["codex guard preflight codex-1"]
+    assert good["status"] == doctor.PASS and "cached" in good["detail"] and "deadline 60s" in good["detail"]
+    bad = rows["codex guard preflight codex-3"]
+    assert bad["status"] == doctor.FAIL and "probe pid 77" in bad["detail"] and "timed out" in bad["detail"]
+    assert "daemon scheduling" in bad["fix"]
+    assert "codex guard preflight codex-2" not in rows
+    assert "codex guard preflight codex-1" not in {i["check"] for i in doctor.checks(root)}, "offline runs no probe"
+
+
+def test_guard_preflight_settings_row_fails_on_a_cache_override_outside_the_root(root, stub_probes, monkeypatch):
+    from subfleet.guard import preflight as guard
+    monkeypatch.setenv(guard.CACHE_ENV, "../shared")
+    item = {i["check"]: i for i in doctor.checks(root)}["codex guard preflight settings"]
+    assert item["status"] == doctor.FAIL and guard.CACHE_ENV in item["detail"] and guard.CACHE_ENV in item["fix"]
