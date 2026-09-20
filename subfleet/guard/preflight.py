@@ -63,6 +63,9 @@ _TIMEOUT_FIX = ("Check local CPU/I/O pressure and daemon scheduling, then repeat
                 "startup is legitimately slow on this machine. A timeout does not establish guard-file "
                 "or version drift; trust remains unverified.")
 _CONFIG_FIX = f"Set {TIMEOUT_ENV} to a positive number of seconds (or unset it for the default), then retry."
+_PROBE_FIX = ("Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
+              "`subfleet doctor --live`) for the app-server's own error; trust remains unverified.")
+_ENVIRONMENT_FIX = "Put back the missing directory or binary named in the message, then rerun subfleet doctor."
 
 # Refusal kinds (PreflightResult.kind): what the verdict rests on.
 VERIFIED = "verified"        # hooks/list answered and matched
@@ -71,7 +74,8 @@ TIMEOUT = "timeout"          # no hooks/list answer (or no --version) before the
 TRUST = "trust"              # hook bytes, TRUST pins, or the runtime hooks/list answer mismatch
 VERSION = "version"          # installed Codex differs from the pinned version
 CONFIG = "config"            # the preflight itself was misconfigured (deadline)
-ENVIRONMENT = "environment"  # jq, the binary, the home or the workdir is missing
+ENVIRONMENT = "environment"  # jq, the binary, the home, the workdir or the scratch root is missing
+PROBE = "probe"              # app-server died, could not be started, or answered unusably
 
 
 @dataclass(frozen=True)
@@ -95,13 +99,16 @@ class PreflightResult:
     executable: str | None = None
     stderr_tail: str = ""
     transcript: tuple[str, ...] = ()
+    first_byte_s: float | None = None   # launcher start to the app-server's first stdout byte
+    exit_status: int | None = None      # the probe's exit status after reaping, when known
 
     def record(self) -> dict[str, Any]:
         """A JSON-safe diagnostic record; never contains credentials (C-10.5)."""
         return {
             "ok": self.ok, "code": self.code, "kind": self.kind, "message": self.message,
             "fix": self.fix, "cached": self.cached, "cache_key": self.cache_key,
-            "timeout_s": self.timeout_s, "elapsed_s": self.elapsed_s, "probe_pid": self.probe_pid,
+            "timeout_s": self.timeout_s, "elapsed_s": self.elapsed_s, "first_byte_s": self.first_byte_s,
+            "probe_pid": self.probe_pid, "exit_status": self.exit_status,
             "executable": self.executable, "version": self.version, "hooks_hash": self.hooks_hash,
             "warnings": list(self.warnings), "stderr_tail": self.stderr_tail,
             "transcript": list(self.transcript),
@@ -181,14 +188,30 @@ def resolve_timeout(timeout_s: float | None = None) -> float:
     return float(value)
 
 
-def seed_fingerprint(home: str | Path | None) -> str:
-    """sha256 over the seed files (name + content) present in a lane home (v1)."""
-    digest = hashlib.sha256()
+def read_seed_files(home: str | Path | None) -> dict[str, bytes]:
+    """The seed files (``config.toml``, ``hooks.json``) present in a lane home, as bytes."""
+    seeds: dict[str, bytes] = {}
     if home is not None:
         for name in SEED_FILES:
             path = Path(home) / name
             if path.is_file():
-                digest.update(name.encode() + b"\n" + path.read_bytes() + b"\n")
+                seeds[name] = path.read_bytes()
+    return seeds
+
+
+def seed_fingerprint(home: str | Path | None = None, *, seeds: dict[str, bytes] | None = None) -> str:
+    """sha256 over the seed files (name + content) present in a lane home (v1).
+
+    Pass ``seeds`` to fingerprint the exact bytes that were copied into the
+    scratch home, so a concurrent edit cannot produce a marker for content that
+    was never probed.
+    """
+    digest = hashlib.sha256()
+    if seeds is None:
+        seeds = read_seed_files(home)
+    for name in SEED_FILES:
+        if name in seeds:
+            digest.update(name.encode() + b"\n" + seeds[name] + b"\n")
     return digest.hexdigest()
 
 
@@ -197,12 +220,19 @@ def cache_key(version: str, home: str | Path, override: str, fingerprint: str) -
     return hashlib.sha256(f"{version}|{home}|{override}|{fingerprint}".encode()).hexdigest()
 
 
-def cache_dir() -> Path:
-    """``$SUBFLEET_CODEX_GUARD_CACHE`` (v1's name), else ``$SUBFLEET_HOME/guard-cache``."""
+def cache_dir(state_root: str | Path | None = None) -> Path:
+    """``$SUBFLEET_CODEX_GUARD_CACHE`` (v1's name), else ``<state root>/guard-cache``.
+
+    A relative override resolves under the state root, never the process cwd
+    (C-2.1). ``state_root`` is the daemon's root when it has one; otherwise
+    ``$SUBFLEET_HOME``.
+    """
+    root = Path(state_root) if state_root is not None else Path(_state_root())
     override = os.environ.get(CACHE_ENV)
     if override:
-        return Path(os.path.expanduser(override))
-    return Path(_state_root()) / "guard-cache"
+        path = Path(os.path.expanduser(override))
+        return path if path.is_absolute() else root / path
+    return root / "guard-cache"
 
 
 def _marker_path(directory: Path, key: str) -> Path:
@@ -219,8 +249,9 @@ def read_cached_verdict(directory: Path, key: str, *, now: datetime | None = Non
         return None
     if verified_at.tzinfo is None:
         verified_at = verified_at.replace(tzinfo=timezone.utc)
-    if (now or datetime.now(timezone.utc)) - verified_at > CACHE_TTL:
-        return None
+    age = (now or datetime.now(timezone.utc)) - verified_at
+    if age > CACHE_TTL or age < timedelta(0):
+        return None  # expired, or stamped in the future (a clock or a hand edit)
     return marker if isinstance(marker, dict) else None
 
 
@@ -270,9 +301,11 @@ def _jq_available() -> bool:
 
 def _stop_probe(process: subprocess.Popen[bytes]) -> None:
     """Reap the probe's own new session, including native-launcher children."""
+    # ESRCH: the group is gone. EPERM: macOS answers it for a group whose only
+    # member is the exited, not yet reaped, leader; wait() below reaps it.
     try:
         os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     try:
         process.wait(timeout=1)
@@ -281,12 +314,18 @@ def _stop_probe(process: subprocess.Popen[bytes]) -> None:
     # The launcher can exit before its child; target its recorded group too.
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
-    process.wait(timeout=1)
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        pass  # SIGKILL is delivered; a launcher mid page-in reaps a moment later.
     for stream in (process.stdin, process.stdout):
         if stream is not None:
-            stream.close()
+            try:
+                stream.close()
+            except OSError:
+                pass
 
 
 def _clip(text: str, limit: int = TRANSCRIPT_LINE_CHARS) -> str:
@@ -301,6 +340,27 @@ def _stderr_tail(stream) -> str:
         return stream.read().decode("utf-8", errors="replace")
     except (OSError, ValueError):
         return ""
+
+
+def _version(executable: str, *, env: dict[str, str], timeout_s: float) -> tuple[int | None, str, str]:
+    """``codex --version`` in its own session, TERM then KILL at the deadline.
+
+    Returns (exit status, stdout, stderr tail); a None status means the deadline
+    passed and the launcher and its native child were reaped.
+    """
+    process = subprocess.Popen([executable, "--version"], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                               start_new_session=True)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        _stop_probe(process)
+        return None, "", ""
+    except BaseException:
+        _stop_probe(process)
+        raise
+    return (process.returncode, stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace")[-STDERR_TAIL_BYTES:])
 
 
 def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
@@ -334,10 +394,14 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
         try:
             assert process.stdin is not None and process.stdout is not None
             wire = "".join(json.dumps(request) + "\n" for request in requests).encode()
-            process.stdin.write(wire)
-            process.stdin.flush()  # Keep stdin open until hooks/list responds.
             for request in requests:
                 transcript.append("> " + _clip(json.dumps(request)))
+            try:
+                process.stdin.write(wire)
+                process.stdin.flush()  # Keep stdin open until hooks/list responds.
+            except OSError as exc:
+                raise _ProbeError(f"Codex app-server exited before reading the request ({exc})",
+                                  diagnostics) from None
             deadline = started + timeout_s
             pending = b""
             total = 0
@@ -345,7 +409,10 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
                 selector.register(process.stdout, selectors.EVENT_READ)
                 while True:
                     remaining = deadline - time.monotonic()
-                    if remaining <= 0 or not selector.select(remaining):
+                    # A paused daemon (SIGSTOP from a lid-closed guard, a debugger,
+                    # App Nap) wakes with the deadline already past while the answer
+                    # sits in the pipe: look once, without waiting, before giving up.
+                    if not selector.select(max(remaining, 0)):
                         diagnostics["timed_out"] = True
                         raise _ProbeError(
                             f"Codex app-server did not answer hooks/list before the {timeout_s:g}s deadline",
@@ -369,25 +436,36 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
                             continue
                         if isinstance(response, dict) and response.get("id") == 2:
                             return response, diagnostics
+        except OSError as exc:
+            # Reading the pipe failed; the probe, not trust, is what is broken.
+            raise _ProbeError(f"Codex app-server probe I/O failed ({exc})", diagnostics) from None
         finally:
-            _stop_probe(process)
-            diagnostics["elapsed_s"] = round(time.monotonic() - started, 3)
-            diagnostics["exit_status"] = process.returncode
-            diagnostics["stderr_tail"] = _stderr_tail(stderr)
+            try:
+                _stop_probe(process)
+            except OSError as exc:
+                diagnostics["reap_error"] = f"{type(exc).__name__}: {exc}"
+            finally:
+                diagnostics["elapsed_s"] = round(time.monotonic() - started, 3)
+                diagnostics["exit_status"] = process.returncode
+                diagnostics["stderr_tail"] = _stderr_tail(stderr)
 
 
 def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
               workdir: str | Path | None = None, hook_path: str | Path | None = None,
               trust_path: str | Path | None = None, timeout_s: float | None = None,
-              use_cache: bool = True, cache_directory: str | Path | None = None) -> PreflightResult:
+              use_cache: bool = True, cache_directory: str | Path | None = None,
+              state_root: str | Path | None = None) -> PreflightResult:
     """Fail closed on file, version, override, or runtime hooks trust drift.
 
     Callers should pass the lane home and job workdir. Omitting ``home`` uses
     ``CODEX_HOME`` when set; without either, doctor checks a fresh empty home
     and nothing is cached. Omitting ``trust_path`` uses ``SUBFLEET_GUARD_TRUST``
     when set, then the packaged ``TRUST`` file. An explicit path takes precedence.
-    Omitting ``timeout_s`` uses ``CODEX_GUARD_PREFLIGHT_TIMEOUT``, then 60 s.
-    Every refusal has code 7, a ``kind`` and an actionable fix. No provider work is run.
+    Omitting ``timeout_s`` uses ``CODEX_GUARD_PREFLIGHT_TIMEOUT``, then 60 s; the
+    deadline bounds each of the two Codex calls (``--version`` and hooks/list).
+    ``state_root`` (the daemon's root) places the scratch home and the markers;
+    it defaults to ``$SUBFLEET_HOME``. Every refusal has code 7, a ``kind`` and an
+    actionable fix. No provider work is run.
     """
     version = None
     hooks_hash = None
@@ -420,45 +498,61 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                            "Install jq on PATH, then rerun subfleet doctor.")
         found = shutil.which(str(codex_bin))
         if found is None:
-            raise _Refusal(ENVIRONMENT, "Codex binary was not found or is not executable")
+            raise _Refusal(ENVIRONMENT, "Codex binary was not found or is not executable", _ENVIRONMENT_FIX)
         executable = str(Path(found).resolve())
         env = {key_name: value for key_name, value in os.environ.items() if key_name not in _SECRET_ENV}
-        try:
-            result = subprocess.run([executable, "--version"], capture_output=True, text=True,
-                                    env=env, timeout=deadline, check=False)
-        except subprocess.TimeoutExpired:
+        status, stdout, stderr_text = _version(executable, env=env, timeout_s=deadline)
+        if status is None:
             raise _Refusal(TIMEOUT, f"Codex --version did not answer before the {deadline:g}s deadline "
                                     f"({executable}); guard trust is unverified, not mismatched",
-                           _TIMEOUT_FIX) from None
-        version = result.stdout.strip()
-        if result.returncode != 0 or version != trust["codex_version"]:
+                           _TIMEOUT_FIX)
+        if status != 0:
+            raise _Refusal(ENVIRONMENT, f"Codex --version exited {status} ({executable}): "
+                                        f"{_clip(stderr_text.strip(), 400) or 'no stderr'}", _ENVIRONMENT_FIX)
+        version = stdout.strip()
+        if version != trust["codex_version"]:
             raise _Refusal(VERSION, f"Codex version {version!r} does not match TRUST ({trust['codex_version']})")
-        cwd = Path(workdir).resolve(strict=True) if workdir is not None else Path.cwd()
+        try:
+            cwd = Path(workdir).resolve(strict=True) if workdir is not None else Path.cwd()
+        except OSError as exc:
+            raise _Refusal(ENVIRONMENT, f"preflight workdir is missing: {exc}", _ENVIRONMENT_FIX) from None
         if not cwd.is_dir():
-            raise _Refusal(ENVIRONMENT, "preflight workdir must be an existing directory")
+            raise _Refusal(ENVIRONMENT, "preflight workdir must be an existing directory", _ENVIRONMENT_FIX)
         lane_home = home if home is not None else os.environ.get("CODEX_HOME")
-        source_home = Path(lane_home).resolve(strict=True) if lane_home is not None else None
+        try:
+            source_home = Path(lane_home).resolve(strict=True) if lane_home is not None else None
+        except OSError as exc:
+            raise _Refusal(ENVIRONMENT, f"preflight Codex home is missing: {exc}", _ENVIRONMENT_FIX) from None
         if source_home is not None and not source_home.is_dir():
-            raise _Refusal(ENVIRONMENT, "preflight Codex home must be an existing directory")
+            raise _Refusal(ENVIRONMENT, "preflight Codex home must be an existing directory", _ENVIRONMENT_FIX)
         override = override_string(hook)
         hooks_hash = hooks_trust_hash(hook)
-        markers = Path(cache_directory) if cache_directory is not None else cache_dir()
+        markers = Path(cache_directory) if cache_directory is not None else cache_dir(state_root)
+        seeds: dict[str, bytes] = {}
         if source_home is not None:
-            key = cache_key(version, source_home, override, seed_fingerprint(source_home))
+            try:
+                seeds = read_seed_files(source_home)
+            except OSError as exc:
+                raise _Refusal(ENVIRONMENT, f"preflight cannot read the lane's seed files: {exc}",
+                               _ENVIRONMENT_FIX) from None
+            fingerprint = seed_fingerprint(seeds=seeds)
+            key = cache_key(version, source_home, override, fingerprint)
             if use_cache and read_cached_verdict(markers, key) is not None:
                 return PreflightResult(True, 0, "Codex never-rules guard trust verified (cached verdict)",
                                        version=version, hooks_hash=hooks_hash, override=override,
                                        kind=CACHED, cached=True, cache_key=key, timeout_s=deadline,
                                        elapsed_s=round(time.monotonic() - started, 3), executable=executable)
-        with tempfile.TemporaryDirectory(prefix="subfleet-guard-preflight-", dir=_scratch_root()) as scratch:
+        try:
+            scratch_root = _scratch_root(state_root)
+        except OSError as exc:
+            raise _Refusal(ENVIRONMENT, f"preflight scratch root is unusable: {exc}", _ENVIRONMENT_FIX) from None
+        with tempfile.TemporaryDirectory(prefix="subfleet-guard-preflight-", dir=scratch_root) as scratch:
             scratch_home = Path(scratch) / "home"
             scratch_home.mkdir(mode=0o700)
-            if source_home is not None:
-                for name in SEED_FILES:
-                    source = source_home / name
-                    if source.is_file():
-                        shutil.copyfile(source, scratch_home / name)
-                        (scratch_home / name).chmod(0o600)
+            for name, content in seeds.items():
+                # The bytes that were fingerprinted are the bytes that are probed.
+                (scratch_home / name).write_bytes(content)
+                (scratch_home / name).chmod(0o600)
             try:
                 response, diagnostics = _hooks_list(executable, home=scratch_home, workdir=cwd,
                                                     override=override, env=env, timeout_s=deadline)
@@ -468,7 +562,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                     raise _Refusal(TIMEOUT, f"{exc} (probe pid {diagnostics.get('probe_pid')}, "
                                             f"{diagnostics.get('elapsed_s')}s elapsed, {executable}); "
                                             "guard trust is unverified, not mismatched", _TIMEOUT_FIX) from None
-                raise _Refusal(TRUST, str(exc)) from None
+                raise _Refusal(PROBE, f"{exc} (probe pid {diagnostics.get('probe_pid')}, exit status "
+                                      f"{diagnostics.get('exit_status')}, {executable}); "
+                                      "guard trust is unverified, not mismatched", _PROBE_FIX) from None
         if "error" in response:
             raise _Refusal(TRUST, "Codex hooks/list returned a JSON-RPC error")
         data = response.get("result", {}).get("data", [])
@@ -491,7 +587,7 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             try:
                 write_cached_verdict(markers, key, {
                     "version": version, "home": str(source_home), "executable": executable,
-                    "config_fingerprint": seed_fingerprint(source_home), "hooks_trust_hash": hooks_hash,
+                    "config_fingerprint": fingerprint, "hooks_trust_hash": hooks_hash,
                     "override_sha256": hashlib.sha256(override.encode()).hexdigest(),
                     "verified_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "elapsed_s": diagnostics.get("elapsed_s"),
@@ -504,12 +600,18 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                                elapsed_s=round(time.monotonic() - started, 3),
                                probe_pid=diagnostics.get("probe_pid"), executable=executable,
                                stderr_tail=diagnostics.get("stderr_tail", ""),
-                               transcript=tuple(diagnostics.get("transcript", ())))
+                               transcript=tuple(diagnostics.get("transcript", ())),
+                               first_byte_s=diagnostics.get("first_byte_s"),
+                               exit_status=diagnostics.get("exit_status"))
     except (_Refusal, OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
         if isinstance(exc, _Refusal):
             kind, fix = exc.kind, exc.fix or _FIX
         elif isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
             kind, fix = TIMEOUT, _TIMEOUT_FIX
+        elif isinstance(exc, (OSError, subprocess.SubprocessError)):
+            # A missing file, an unwritable root or a process that could not be
+            # driven says nothing about trust; only TRUST/response shape does.
+            kind, fix = (PROBE, _PROBE_FIX) if diagnostics.get("probe_pid") else (ENVIRONMENT, _ENVIRONMENT_FIX)
         else:
             kind, fix = TRUST, _FIX
         prefix = "Guard preflight timed out" if kind == TIMEOUT else "Guard preflight refused"
@@ -518,15 +620,17 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                                elapsed_s=round(time.monotonic() - started, 3),
                                probe_pid=diagnostics.get("probe_pid"), executable=executable,
                                stderr_tail=diagnostics.get("stderr_tail", ""),
-                               transcript=tuple(diagnostics.get("transcript", ())))
+                               transcript=tuple(diagnostics.get("transcript", ())),
+                               first_byte_s=diagnostics.get("first_byte_s"),
+                               exit_status=diagnostics.get("exit_status"))
 
 
 def _state_root() -> str:
     return os.path.expanduser(os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
 
 
-def _scratch_root() -> str:
+def _scratch_root(state_root: str | Path | None = None) -> str:
     """C-2.1, C-23.23: the preflight scratch home lives under the state root, never /tmp."""
-    root = os.path.join(_state_root(), "tmp")
+    root = os.path.join(str(state_root) if state_root is not None else _state_root(), "tmp")
     os.makedirs(root, mode=0o700, exist_ok=True)
     return root

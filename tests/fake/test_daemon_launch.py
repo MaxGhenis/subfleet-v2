@@ -131,7 +131,7 @@ def guarded_launch(launch_state, monkeypatch):
     seen = []
 
     def fake_preflight(binary, *, home, workdir, **kwargs):
-        seen.append({"binary": binary, "home": home, "workdir": workdir})
+        seen.append({"binary": binary, "home": home, "workdir": workdir, **kwargs})
         return fake_preflight.result
 
     fake_preflight.result = _verified()
@@ -149,7 +149,8 @@ def test_c14_2_refused_preflight_is_recorded_in_the_attempt_directory_and_daemon
     a = reserve(daemon, harness)
     daemon._launch(a)
     assert calls == [], "a refused launch starts no guardian"
-    assert seen == [{"binary": "fixture-codex", "home": str(harness.root / "home"), "workdir": str(harness.workdir)}]
+    assert seen == [{"binary": "fixture-codex", "home": str(harness.root / "home"),
+                     "workdir": str(harness.workdir), "state_root": daemon.root}]
     adir = daemon.root / "jobs" / a["job_id"] / "a1"
     record = json.loads((adir / "guard-preflight.json").read_text())
     assert record["ok"] is False and record["kind"] == "timeout" and record["code"] == 7

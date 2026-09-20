@@ -425,8 +425,10 @@ def test_guard_preflight_settings_row_reports_deadline_and_markers(root, stub_pr
     item = rows["codex guard preflight settings"]
     assert item["status"] == doctor.PASS
     assert "deadline 60s (default)" in item["detail"] and "0 current verified marker" in item["detail"]
-    guard.write_cached_verdict(root / "guard-cache", "a" * 64, {"verified_at": "2099-01-01T00:00:00+00:00"})
-    guard.write_cached_verdict(root / "guard-cache", "b" * 64, {"verified_at": "2000-01-01T00:00:00+00:00"})
+    from datetime import datetime, timezone
+    guard.write_cached_verdict(root / "guard-cache", "a" * 64,
+                               {"verified_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+    (root / "guard-cache" / ("guard-ok-" + "b" * 64 + ".json")).write_text('{"verified_at": "2000-01-01T00:00:00+00:00"}')
     monkeypatch.setenv(guard.TIMEOUT_ENV, "120")
     item = {i["check"]: i for i in doctor.checks(root)}["codex guard preflight settings"]
     assert "deadline 120s (env)" in item["detail"] and "1 current verified marker" in item["detail"]
@@ -449,6 +451,8 @@ def test_live_guard_preflight_rows_cover_each_enabled_codex_lane(root, stub_prob
         {"lane_id": "codex-2", "provider": "codex", "enabled": 0, "home": "/fixture/codex-2"},
         {"lane_id": "claude-1", "provider": "claude", "enabled": 1, "home": None},
         {"lane_id": "codex-3", "provider": "codex", "enabled": 1, "home": None, "credential_ref": "/fixture/codex-3"},
+        {"lane_id": "codex-4", "provider": "codex", "enabled": 1, "home": None, "credential_ref": None},
+        {"lane_id": "codex-5", "provider": "codex", "enabled": 1, "home": "/fixture/codex-5"},
     ]
 
     class Roster:
@@ -463,6 +467,10 @@ def test_live_guard_preflight_rows_cover_each_enabled_codex_lane(root, stub_prob
 
     def fake_preflight(binary, *, home, workdir, **kwargs):
         calls.append(home)
+        assert kwargs.get("state_root") == root and binary == "codex"
+        if home == "/fixture/codex-5":
+            return guard.PreflightResult(False, 7, "Guard preflight refused: CODEX_GUARD_PREFLIGHT_TIMEOUT='soon'",
+                                         guard._CONFIG_FIX, kind=guard.CONFIG, timeout_s=None, elapsed_s=0.0)
         ok = home != "/fixture/codex-3"
         return guard.PreflightResult(ok, 0 if ok else 7,
                                      "verified" if ok else "Guard preflight timed out: no answer",
@@ -472,7 +480,11 @@ def test_live_guard_preflight_rows_cover_each_enabled_codex_lane(root, stub_prob
     monkeypatch.setattr(guard, "preflight", fake_preflight)
     monkeypatch.setattr(doctor, "check_live", lambda _root: doctor.row("daemon ping", doctor.PASS, "stub", "n/a"))
     rows = {item["check"]: item for item in doctor.checks(root, live=True)}
-    assert calls == ["/fixture/codex-1", "/fixture/codex-3"], "enabled Codex lanes only"
+    assert calls == ["/fixture/codex-1", "/fixture/codex-3", "/fixture/codex-5"], "enabled Codex lanes with a home"
+    homeless = rows["codex guard preflight codex-4"]
+    assert homeless["status"] == doctor.UNKNOWN and "no home" in homeless["detail"]
+    misconfigured = rows["codex guard preflight codex-5"]
+    assert misconfigured["status"] == doctor.FAIL and "deadline unset" in misconfigured["detail"]
     good = rows["codex guard preflight codex-1"]
     assert good["status"] == doctor.PASS and "cached" in good["detail"] and "deadline 60s" in good["detail"]
     bad = rows["codex guard preflight codex-3"]

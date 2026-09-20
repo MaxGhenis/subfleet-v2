@@ -30,6 +30,13 @@ import sys
 import time
 
 if sys.argv[1:] == ["--version"]:
+    if os.environ.get("GUARD_TEST_VERSION_MODE") == "hang":
+        Path(os.environ["GUARD_TEST_REPORT"]).write_text(json.dumps({"version_pid": os.getpid()}))
+        time.sleep(30)
+        raise SystemExit(1)
+    if os.environ.get("GUARD_TEST_VERSION_MODE") == "fail":
+        print("fake launcher: node not found", file=sys.stderr)
+        raise SystemExit(127)
     print(os.environ.get("GUARD_TEST_VERSION", "codex-cli 0.153.3"))
     raise SystemExit(0)
 assert sys.argv[1] == "app-server", sys.argv
@@ -44,12 +51,30 @@ print("fake app-server starting in mode " + mode, file=sys.stderr, flush=True)
 if mode == "hang":
     time.sleep(30)
     raise SystemExit(1)
+if mode == "launcher-exits":
+    # The npm launcher shape: spawn the "native" child in the same session and
+    # exit at once; only a process-group kill can reap the child.
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    report["child_pid"] = child.pid
+    Path(os.environ["GUARD_TEST_REPORT"]).write_text(json.dumps(report))
+    raise SystemExit(0)
 if mode == "dies":
+    print("fake app-server: dyld: library not loaded", file=sys.stderr, flush=True)
+    raise SystemExit(3)
+if mode == "flood":
+    junk = "x" * 65536
+    for _ in range(20):
+        print(junk, flush=True)
+    time.sleep(30)
     raise SystemExit(1)
 for line in sys.stdin:
     request = json.loads(line)
     if request.get("id") == 1:
         print(json.dumps({"id": 1, "result": {"userAgent": "fake"}}), flush=True)
+        if mode == "chatty":
+            for index in range(100):
+                print(json.dumps({"method": "notice", "params": {"n": index, "pad": "y" * 3000}}), flush=True)
     if request.get("id") != 2:
         continue
     report["request"] = request
@@ -82,6 +107,8 @@ for line in sys.stdin:
     report = tmp_path / "report.json"
     monkeypatch.setenv("GUARD_TEST_REPORT", str(report))
     monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("GUARD_TEST_MODE", raising=False)
+    monkeypatch.delenv("GUARD_TEST_VERSION_MODE", raising=False)
     monkeypatch.delenv(guard.TIMEOUT_ENV, raising=False)
     # C-2.1: scratch homes and verified markers stay under this test's own root,
     # never the real state root of the machine running the suite.
@@ -264,16 +291,15 @@ def test_preflight_bounds_and_reaps_hung_probe(fake_codex, monkeypatch):
 
 def test_version_timeout_does_not_claim_version_drift(fake_codex, monkeypatch):
     fake, report_path = fake_codex
-
-    def timeout(argv, **kwargs):
-        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
-
-    monkeypatch.setattr(guard.subprocess, "run", timeout)
-    result = guard.preflight(fake)
+    monkeypatch.setenv("GUARD_TEST_VERSION_MODE", "hang")
+    result = guard.preflight(fake, timeout_s=0.5)
     assert not result.ok and result.code == 7 and result.override is None
     assert result.version is None and "daemon scheduling" in result.fix
     assert "Restore" not in result.fix
-    assert not report_path.exists(), "a version timeout must not start app-server"
+    report = json.loads(report_path.read_text())
+    assert "argv" not in report, "a version timeout must not start app-server"
+    with pytest.raises(ProcessLookupError):
+        os.kill(report["version_pid"], 0)
 
 
 def test_preflight_reports_warnings(fake_codex, monkeypatch):
@@ -395,14 +421,21 @@ def test_timeout_refusal_is_a_timeout_not_a_trust_mismatch(fake_codex, monkeypat
 
 def test_version_timeout_is_reported_as_a_timeout(fake_codex, monkeypatch):
     fake, report_path = fake_codex
-
-    def timeout(argv, **kwargs):
-        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
-
-    monkeypatch.setattr(guard.subprocess, "run", timeout)
-    result = guard.preflight(fake)
+    monkeypatch.setenv("GUARD_TEST_VERSION_MODE", "hang")
+    result = guard.preflight(fake, timeout_s=0.5)
     assert result.kind == guard.TIMEOUT and result.message.startswith("Guard preflight timed out")
     assert "--version" in result.message and "unverified, not mismatched" in result.message
+    assert "argv" not in json.loads(report_path.read_text())
+
+
+def test_failed_version_command_is_an_environment_refusal_with_its_stderr(fake_codex, monkeypatch):
+    """A launcher that cannot run is not version drift; its stderr is the diagnosis."""
+    fake, report_path = fake_codex
+    monkeypatch.setenv("GUARD_TEST_VERSION_MODE", "fail")
+    result = guard.preflight(fake)
+    assert not result.ok and result.kind == guard.ENVIRONMENT and result.version is None
+    assert "exited 127" in result.message and "node not found" in result.message
+    assert "does not match TRUST" not in result.message and "Restore" not in result.fix
     assert not report_path.exists()
 
 
@@ -419,13 +452,157 @@ def test_verified_result_carries_diagnostics_and_kind(fake_codex, tmp_path):
     assert "fake app-server starting" in result.stderr_tail
 
 
-@pytest.mark.parametrize("mode", ["hash-mismatch", "untrusted", "disabled", "missing", "dies", "rpc-error"])
+@pytest.mark.parametrize("mode", ["hash-mismatch", "untrusted", "disabled", "missing", "rpc-error",
+                                  "wrong-cwd", "duplicate", "error"])
 def test_trust_refusals_keep_the_trust_kind_and_fix(fake_codex, monkeypatch, mode):
     fake, _ = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", mode)
     result = guard.preflight(fake)
     assert not result.ok and result.kind == guard.TRUST
     assert result.message.startswith("Guard preflight refused") and result.fix == guard._FIX
+
+
+def test_app_server_death_is_a_probe_refusal_with_stderr_and_exit_status(fake_codex, monkeypatch):
+    """A crashed app-server says nothing about trust; the record carries its stderr and status."""
+    fake, report_path = fake_codex
+    monkeypatch.setenv("GUARD_TEST_MODE", "dies")
+    result = guard.preflight(fake)
+    assert not result.ok and result.code == 7 and result.kind == guard.PROBE
+    assert "exited without a hooks/list response" in result.message
+    assert "unverified, not mismatched" in result.message and "Restore" not in result.fix
+    assert "stderr_tail" in result.fix
+    assert result.exit_status == 3 and "dyld: library not loaded" in result.stderr_tail
+    assert result.probe_pid == json.loads(report_path.read_text())["pid"]
+    record = result.record()
+    assert record["exit_status"] == 3 and record["kind"] == "probe"
+
+
+def test_broken_pipe_on_the_request_write_is_a_probe_refusal(fake_codex, monkeypatch):
+    """C-14.2: an app-server gone before reading stdin is not guard-file drift."""
+    fake, _ = fake_codex
+    real_popen = guard.subprocess.Popen
+
+    class Popen(real_popen):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            if "app-server" in args[0]:
+                inner = self.stdin
+
+                class Stdin:
+                    def write(self_, data):
+                        raise BrokenPipeError(32, "Broken pipe")
+
+                    def flush(self_):
+                        return inner.flush()
+
+                    def close(self_):
+                        return inner.close()
+
+                self.stdin = Stdin()
+
+    monkeypatch.setattr(guard.subprocess, "Popen", Popen)
+    result = guard.preflight(fake)
+    assert not result.ok and result.kind == guard.PROBE
+    assert "exited before reading the request" in result.message
+    assert result.probe_pid and result.fix == guard._PROBE_FIX
+    assert any(line.startswith("> ") for line in result.transcript)
+
+
+def test_guard_preflight_terminates_then_kills_its_probe_tree_at_the_deadline(fake_codex, monkeypatch):
+    """Invariant 53, C-23.23: the launcher can exit before its native child; the
+    probe's own session is reaped as a group, so the child does not survive."""
+    fake, report_path = fake_codex
+    monkeypatch.setenv("GUARD_TEST_MODE", "launcher-exits")
+    result = guard.preflight(fake, timeout_s=1)
+    # The child inherits the launcher's stdout, so there is no EOF: the deadline
+    # passes, exactly the npm-launcher shape of the 2026-09-20 incident.
+    assert not result.ok and result.kind == guard.TIMEOUT and result.exit_status == 0
+    report = json.loads(report_path.read_text())
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        try:
+            os.kill(report["child_pid"], 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    with pytest.raises(ProcessLookupError):
+        os.kill(report["child_pid"], 0)
+
+
+@pytest.mark.parametrize("failure", ["slow-reap", "reap-error"])
+def test_reap_failure_never_hides_the_probe_diagnostics(fake_codex, monkeypatch, failure):
+    """Finding 1: a launcher that outlives its SIGKILL wait, or a reap that errors,
+    must not replace the timeout refusal or drop its diagnostics."""
+    fake, report_path = fake_codex
+    monkeypatch.setenv("GUARD_TEST_MODE", "hang")
+    real_stop = guard._stop_probe
+
+    def stop(process):
+        if failure == "slow-reap":
+            real_wait = process.wait
+            waits = []
+
+            def wait(timeout=None):
+                waits.append(timeout)
+                if len(waits) == 2:
+                    raise subprocess.TimeoutExpired("fake", timeout)
+                return real_wait(timeout=timeout)
+
+            process.wait = wait
+            real_stop(process)
+            assert len(waits) >= 2
+            return
+        real_stop(process)
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(guard, "_stop_probe", stop)
+    result = guard.preflight(fake, timeout_s=0.5)
+    assert result.kind == guard.TIMEOUT and "deadline" in result.message
+    assert "unverified, not mismatched" in result.message
+    report = json.loads(report_path.read_text())
+    assert result.probe_pid == report["pid"]
+    assert result.elapsed_s is not None and result.stderr_tail and result.transcript
+    with pytest.raises(ProcessLookupError):
+        os.kill(report["pid"], 0)
+
+
+def test_transcript_is_bounded_and_the_response_cap_refuses(fake_codex, monkeypatch):
+    fake, _ = fake_codex
+    monkeypatch.setenv("GUARD_TEST_MODE", "chatty")
+    result = guard.preflight(fake)
+    assert result.ok and len(result.transcript) <= guard.TRANSCRIPT_LINES
+    assert all(len(line) <= guard.TRANSCRIPT_LINE_CHARS + 40 for line in result.transcript)
+    monkeypatch.setenv("GUARD_TEST_MODE", "flood")
+    result = guard.preflight(fake, timeout_s=5)
+    assert not result.ok and result.kind == guard.PROBE
+    assert "exceeded the preflight limit" in result.message
+
+
+def test_missing_workdir_or_home_is_an_environment_refusal(fake_codex, tmp_path):
+    fake, report = fake_codex
+    gone = guard.preflight(fake, workdir=tmp_path / "deleted-worktree")
+    assert not gone.ok and gone.kind == guard.ENVIRONMENT and "workdir is missing" in gone.message
+    assert "Restore the reviewed" not in gone.fix
+    moved = guard.preflight(fake, home=tmp_path / "moved-lane", workdir=tmp_path)
+    assert not moved.ok and moved.kind == guard.ENVIRONMENT and "home is missing" in moved.message
+    assert not report.exists()
+
+
+def test_unusable_scratch_root_is_an_environment_refusal(fake_codex, tmp_path, monkeypatch):
+    fake, report = fake_codex
+    root = tmp_path / "root-as-file"
+    root.write_text("not a directory")
+    result = guard.preflight(fake, workdir=tmp_path, state_root=root)
+    assert not result.ok and result.kind == guard.ENVIRONMENT and "scratch root" in result.message
+    assert not report.exists()
+
+
+def test_verified_result_exposes_first_byte_and_exit_status(fake_codex, tmp_path):
+    fake, _ = fake_codex
+    result = guard.preflight(fake, workdir=tmp_path)
+    assert result.ok and result.first_byte_s is not None and 0 <= result.first_byte_s <= result.elapsed_s
+    assert result.exit_status is not None  # reaped after the answer
+    assert result.record()["first_byte_s"] == result.first_byte_s
 
 
 def test_version_drift_has_the_version_kind(fake_codex, monkeypatch):
@@ -541,10 +718,61 @@ def test_use_cache_false_neither_reads_nor_writes_a_marker(fake_codex, tmp_path)
     result = guard.preflight(fake, home=home, workdir=tmp_path, use_cache=False)
     assert result.ok and result.kind == guard.VERIFIED and result.cache_key
     assert not guard._marker_path(guard.cache_dir(), result.cache_key).exists()
-    guard.write_cached_verdict(guard.cache_dir(), result.cache_key, {"verified_at": "2099-01-01T00:00:00+00:00"})
+    from datetime import datetime, timezone
+    guard.write_cached_verdict(guard.cache_dir(), result.cache_key,
+                               {"verified_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+    assert guard.read_cached_verdict(guard.cache_dir(), result.cache_key) is not None
     report_path.unlink()
     assert guard.preflight(fake, home=home, workdir=tmp_path, use_cache=False).kind == guard.VERIFIED
     assert report_path.exists()
+
+
+def test_marker_stamped_in_the_future_is_not_a_verdict(tmp_path):
+    """Finding 7: a clock jump or a hand edit must not mint a verdict that never expires."""
+    from datetime import datetime, timedelta, timezone
+    directory = tmp_path / "cache"
+    directory.mkdir()
+    ahead = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
+    guard._marker_path(directory, "f" * 64).write_text(json.dumps({"verified_at": ahead}))
+    assert guard.read_cached_verdict(directory, "f" * 64) is None
+    assert guard.prune_cached_verdicts(directory) == 1
+    assert not guard._marker_path(directory, "f" * 64).exists()
+    guard.write_cached_verdict(directory, "e" * 64, {"verified_at": ahead})
+    assert not guard._marker_path(directory, "e" * 64).exists(), "pruned on write"
+
+
+def test_relative_cache_override_resolves_under_the_state_root(monkeypatch, tmp_path):
+    """Finding 6, C-2.1: a relative SUBFLEET_CODEX_GUARD_CACHE never lands in the daemon cwd."""
+    monkeypatch.setenv("SUBFLEET_HOME", str(tmp_path / "root"))
+    monkeypatch.setenv(guard.CACHE_ENV, "markers")
+    assert guard.cache_dir() == tmp_path / "root" / "markers"
+    assert guard.cache_dir(tmp_path / "daemon-root") == tmp_path / "daemon-root" / "markers"
+    monkeypatch.delenv(guard.CACHE_ENV)
+    assert guard.cache_dir(tmp_path / "daemon-root") == tmp_path / "daemon-root" / "guard-cache"
+
+
+def test_state_root_argument_places_scratch_home_and_markers(fake_codex, tmp_path, monkeypatch):
+    """The daemon's own root wins over $SUBFLEET_HOME for scratch and markers."""
+    fake, report_path = fake_codex
+    monkeypatch.delenv(guard.CACHE_ENV)
+    home = _lane(tmp_path)
+    root = tmp_path / "daemon-root"
+    result = guard.preflight(fake, home=home, workdir=tmp_path, state_root=root)
+    assert result.ok
+    assert guard._marker_path(root / "guard-cache", result.cache_key).is_file()
+    assert json.loads(report_path.read_text())["home"].startswith(str(root / "tmp"))
+    assert not (tmp_path / "state").exists()
+
+
+def test_marker_fingerprint_is_the_probed_bytes(fake_codex, tmp_path):
+    """Finding 8: the key names the bytes that reached the scratch home."""
+    fake, report_path = fake_codex
+    home = _lane(tmp_path, config="[features]\nhooks=true\n")
+    result = guard.preflight(fake, home=home, workdir=tmp_path)
+    marker = json.loads(guard._marker_path(guard.cache_dir(), result.cache_key).read_text())
+    probed = json.loads(report_path.read_text())["files"]
+    assert marker["config_fingerprint"] == guard.seed_fingerprint(
+        seeds={name: text.encode() for name, text in probed.items()})
 
 
 def test_cache_directory_defaults_under_the_state_root_and_honours_v1_override(monkeypatch, tmp_path):
@@ -571,3 +799,32 @@ def test_unwritable_cache_directory_does_not_turn_a_verdict_into_a_refusal(fake_
     blocked.write_text("a file, not a directory")
     result = guard.preflight(fake, home=home, workdir=tmp_path, cache_directory=blocked)
     assert result.ok and result.kind == guard.VERIFIED
+
+
+def test_answer_already_in_the_pipe_beats_an_expired_deadline(fake_codex, monkeypatch):
+    """A daemon paused mid-probe (clamshell-guard SIGSTOPs subfleetd on a closed lid)
+    wakes past its deadline; an answer that arrived meanwhile is still honoured."""
+    fake, _ = fake_codex
+    real = time.monotonic
+    state = {"calls": 0}
+
+    def paused_clock():
+        state["calls"] += 1
+        if state["calls"] == 1:
+            return real()          # `started`
+        if state["calls"] == 2:
+            time.sleep(1.0)        # the pause: the fake answers while we are stopped
+        return real() + 3600       # every later reading is past the deadline
+
+    monkeypatch.setattr(guard.time, "monotonic", paused_clock)
+    ok, diagnostics = guard._hooks_list(
+        str(fake), home=_scratch(fake), workdir=fake.parent,
+        override=guard.override_string(guard.HOOK_PATH.resolve()),
+        env=dict(os.environ), timeout_s=5)
+    assert ok.get("id") == 2 and not diagnostics["timed_out"]
+
+
+def _scratch(fake):
+    home = fake.parent / "scratch-home"
+    home.mkdir(exist_ok=True)
+    return home

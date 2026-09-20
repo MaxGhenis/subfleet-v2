@@ -345,7 +345,7 @@ def check_guard_preflight(root: Path) -> dict[str, Any]:
     except ValueError as exc:
         return row(check, FAIL, str(exc), guard._CONFIG_FIX)
     source = "env" if os.environ.get(guard.TIMEOUT_ENV, "").strip() else "default"
-    directory = guard.cache_dir()
+    directory = guard.cache_dir(root)
     markers = 0
     try:
         markers = sum(1 for path in directory.glob("guard-ok-*.json")
@@ -378,7 +378,9 @@ def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
         if not home:
             rows.append(row(check, UNKNOWN, "lane has no home directory", "enroll the lane with a home"))
             continue
-        result = guard.preflight("codex", home=home, workdir=root)
+        # The same `codex` the adapter resolves on PATH; a pass here writes the
+        # marker the daemon reuses (same key: version, home, override, seed files).
+        result = guard.preflight("codex", home=home, workdir=root, state_root=root)
         deadline = f"{result.timeout_s:g}s" if result.timeout_s is not None else "unset"
         detail = (f"{result.kind or 'refused'} in {result.elapsed_s}s (deadline {deadline}"
                   f"{', cached' if result.cached else ''}"

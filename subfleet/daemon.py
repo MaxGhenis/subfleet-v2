@@ -742,11 +742,14 @@ class Daemon:
                 raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
 
     @staticmethod
-    def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None) -> str | None:
+    def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
+                        state_root: Path | None = None) -> str | None:
         """C-14.2: run the Codex guard preflight for this launch.
 
         ``recorder`` (see ``_guard_recorder``) receives the verdict before it is
         judged, so a refusal is diagnosable from the attempt directory alone.
+        ``state_root`` places the scratch home and the verdict markers under the
+        daemon's own root (C-2.1) rather than whatever ``$SUBFLEET_HOME`` says.
         """
         # The Codex adapter lane exposes its binary as codex_bin. Registered
         # fake adapters launch their Python fixtures and do not expose it.
@@ -758,7 +761,8 @@ class Daemon:
         except ImportError:
             raise AdapterError("Codex guard preflight is not installed", code=7,
                                fix="install the Codex adapter and reviewed guard files") from None
-        result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir)
+        options = {"state_root": state_root} if state_root is not None else {}
+        result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir, **options)
         if recorder is not None:
             recorder(result)
         if not result.ok or not result.override:
@@ -1335,7 +1339,8 @@ class Daemon:
         launch = adapter.build_launch(spec, holder, directory, lane, credential_env,
                                       model["id"], model.get("effort"), prompt,
                                       self._guard_override(adapter, lane, str(directory),
-                                                           self._guard_recorder(lane, str(directory), directory)))
+                                                           self._guard_recorder(lane, str(directory), directory),
+                                                           self.root))
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
@@ -1703,7 +1708,7 @@ class Daemon:
             credential_env = resolve_credential(lane.credential)
             spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review else self._guard_override(
-                adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir))
+                adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root)
             resume = None
             if job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
