@@ -65,6 +65,39 @@ lanes limited on a stronger model are preferred for eligible cheaper work;
 `models.<name>.priority` defines strength across separate task chains. Reserved
 Fable capacity, account closures, exclusions, and ownership still control eligibility.
 
+To hand several briefs to lanes in one call, list them in a TOML or JSON manifest.
+Paths are relative to the manifest; an entry overrides `[defaults]`, which
+override the other flags on the command line:
+
+```toml
+# handoff.toml
+label = "codex handoff"
+
+[defaults]
+model = "fable"
+sandbox = "workspace-write"
+in_place = true
+
+[[jobs]]
+prompt = "spm-annual-chronicle.md"
+workdir = "~/work/chronicle-task-branch"
+out = "out/spm-annual-chronicle.md"
+
+[[jobs]]
+prompt = "tariff-p5-commerce.md"
+workdir = "~/work/tariff-task-branch"
+```
+
+```sh
+subfleet run --batch handoff.toml                       # prints one job id per line
+subfleet run --batch handoff.toml --request-id h-0920   # repeatable: entry n is h-0920-n
+```
+
+Every entry is validated before the first submit. After that a refused entry
+does not stop the others. One session may hold several writable jobs at once
+when each writes in a different checkout; a second writer in one checkout, and a
+second live instance of the same session, are refused.
+
 If the usage endpoint cannot measure reserved capacity, an operator can authorize
 one new job on an exact enrolled lane and model, with a recorded reason and
 evidence. This does not assert that Fable is exhausted or that quota is available:

@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -554,28 +555,30 @@ def _hint_paths(root: Path, job_id: str, out_path: str | None,
     return str(deliverable), str(log)
 
 
-def cmd_run(args: argparse.Namespace) -> int:
+def _prepare_submit(args: argparse.Namespace,
+                    batch: dict[str, Any] | None = None) -> tuple[protocol.SubmitArgs | None, int | None]:
+    """Everything `run` checks and builds before it talks to the daemon."""
     # Check before legacy task flags can supply a model: this authorization
     # requires the operator to name both the lane and the model explicitly.
     reserve_reason = args.unmeasured_reserve_reason
     if reserve_reason is not None:
         if not args.m or not (args.a or args.H):
-            return fail(Exit.INVALID_INPUT,
-                        "run: --allow-unmeasured-reserve requires explicit -m and -a/-H")
+            return None, fail(Exit.INVALID_INPUT,
+                              "run: --allow-unmeasured-reserve requires explicit -m and -a/-H")
         if not reserve_reason.strip() or len(reserve_reason) > 2000:
-            return fail(Exit.INVALID_INPUT,
-                        "run: --allow-unmeasured-reserve requires a nonblank reason of at most 2000 characters")
+            return None, fail(Exit.INVALID_INPUT,
+                              "run: --allow-unmeasured-reserve requires a nonblank reason of at most 2000 characters")
     _apply_deprecations(args)
     workdir, error = _validate_run(args)
     if error is not None:
-        return error
+        return None, error
     request_id = args.request_id or str(uuid.uuid4())
     root = _root(args)
     prompt_path, error = _prompt_path(args, request_id, root)
     if error is not None:
-        return error
+        return None, error
     sandbox = args.s or Sandbox.READ_ONLY.value
-    submit = protocol.SubmitArgs(
+    return protocol.SubmitArgs(
         request_id=request_id,
         kind="dispatch",
         workdir=workdir,
@@ -600,7 +603,17 @@ def cmd_run(args: argparse.Namespace) -> int:
         dry_run=bool(args.dry_run or args.why),
         isolated_review=bool(getattr(args, "isolated_review", False)),
         review_root=str(Path(args.review_root).expanduser().resolve()) if getattr(args, "review_root", None) else None,
-    )
+        batch=batch,
+    ), None
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    if getattr(args, "batch", None):
+        return cmd_run_batch(args)
+    submit, error = _prepare_submit(args)
+    if error is not None:
+        return error
+    request_id, root = submit.request_id, _root(args)
     try:
         client = _client(args)
         result = client.call("submit", _asdict(submit), request_id=request_id)
@@ -656,6 +669,184 @@ def cmd_run(args: argparse.Namespace) -> int:
             return int(Exit.QUEUED)
         return int(Exit.OK)
     return wait_jobs(args, [job_id], timeout=None, quiet=args.json)
+
+
+# --- run --batch (C-17.7) ------------------------------------------------------
+
+#: manifest key -> (the `run` option it stands for, its kind). A manifest says
+#: nothing `run` cannot: each entry becomes the argument set of one `run`.
+BATCH_KEYS: dict[str, tuple[str, str]] = {
+    "task": ("task", "str"), "tier": ("tier", "str"), "model": ("m", "str"),
+    "account": ("a", "str"), "codex_home": ("H", "path"), "workdir": ("C", "path"),
+    "prompt": ("p", "path"), "prompt_text": ("prompt", "str"), "out": ("o", "path"),
+    "name": ("name", "str"), "sandbox": ("s", "str"), "exclude": ("exclude", "list"),
+    "allow_desktop": ("allow_desktop", "bool"), "allow_tmp": ("allow_tmp", "bool"),
+    "in_place": ("in_place", "bool"), "independent": ("independent", "bool"),
+    "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
+    "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
+}
+BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
+                 "sandbox": SANDBOX_CHOICES}
+BATCH_MAX = 256
+
+
+class BatchError(ValueError):
+    """The manifest cannot be read as a list of `run` invocations."""
+
+
+def _batch_values(where: str, table: Any, base: Path) -> dict[str, Any]:
+    if not isinstance(table, dict):
+        raise BatchError(f"{where} must be a table of run options")
+    values: dict[str, Any] = {}
+    for key, value in table.items():
+        if key not in BATCH_KEYS:
+            raise BatchError(f"{where}: unknown key {key!r}; known keys: {', '.join(sorted(BATCH_KEYS))}")
+        attr, kind = BATCH_KEYS[key]
+        if kind == "bool":
+            if not isinstance(value, bool):
+                raise BatchError(f"{where}: {key} must be true or false")
+        elif kind == "list":
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                raise BatchError(f"{where}: {key} must be a list of strings")
+        elif not isinstance(value, str) or not value:
+            raise BatchError(f"{where}: {key} must be a non-empty string")
+        if key in BATCH_CHOICES and value not in BATCH_CHOICES[key]:
+            raise BatchError(f"{where}: {key} must be one of {', '.join(BATCH_CHOICES[key])}")
+        if kind == "path":
+            # Relative to the manifest, so a folder of briefs can be moved whole.
+            value = str((base / Path(value).expanduser()).resolve() if not Path(value).expanduser().is_absolute()
+                        else Path(value).expanduser())
+        values[attr] = value
+    return values
+
+
+def load_batch(path: str | Path) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+    """(label, defaults, entries) from a TOML or JSON manifest, as `run` attributes.
+
+    TOML for `.toml`, JSON otherwise: both are in the standard library, and the
+    package takes no dependencies. Shape: an optional `label`, an optional
+    `defaults` table, and `jobs`, a list of tables. A bare JSON list is `jobs`.
+    """
+    source = Path(path).expanduser()
+    try:
+        raw = source.read_bytes()
+    except OSError as exc:
+        raise BatchError(f"cannot read {source}: {exc}") from exc
+    try:
+        if source.suffix.lower() == ".toml":
+            import tomllib
+            document: Any = tomllib.loads(raw.decode("utf-8"))
+        else:
+            document = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise BatchError(f"{source.name} is not valid {'TOML' if source.suffix.lower() == '.toml' else 'JSON'}: {exc}") from exc
+    if isinstance(document, list):
+        document = {"jobs": document}
+    if not isinstance(document, dict):
+        raise BatchError("the manifest must be a table with a `jobs` list")
+    unknown = set(document) - {"label", "defaults", "jobs"}
+    if unknown:
+        raise BatchError(f"unknown top-level key {sorted(unknown)[0]!r}; expected label, defaults, jobs")
+    label = document.get("label", source.stem)
+    if not isinstance(label, str) or not 1 <= len(label) <= 80:
+        raise BatchError("label must contain 1 to 80 characters")
+    jobs = document.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        raise BatchError("`jobs` must be a non-empty list of tables")
+    if len(jobs) > BATCH_MAX:
+        raise BatchError(f"`jobs` has {len(jobs)} entries; the limit is {BATCH_MAX}")
+    base = source.resolve().parent
+    defaults = _batch_values("defaults", document.get("defaults", {}), base)
+    return label, defaults, [_batch_values(f"jobs[{n}]", job, base) for n, job in enumerate(jobs, 1)]
+
+
+def cmd_run_batch(args: argparse.Namespace) -> int:
+    """C-17.7: several `run`s from one manifest, in one call, labelled as one batch.
+
+    Every entry is validated before anything is submitted. After that the
+    entries are independent: one refusal does not stop the rest, because a
+    caller handing off K threads wants the K-1 that can run to run.
+    """
+    if args.p or args.prompt is not None:
+        return fail(Exit.INVALID_INPUT, "run --batch: prompts come from the manifest, not -p or PROMPT_TEXT")
+    if args.dry_run or args.why:
+        return fail(Exit.INVALID_INPUT, "run --batch: --dry-run and --why explain one job; run them per entry")
+    try:
+        label, defaults, entries = load_batch(args.batch)
+    except BatchError as exc:
+        return fail(Exit.INVALID_INPUT, f"run --batch: {exc}")
+    if defaults.get("p") and defaults.get("prompt"):
+        return fail(Exit.INVALID_INPUT, "run --batch: defaults may name prompt or prompt_text, not both")
+    batch_id = args.request_id or str(uuid.uuid4())
+    prepared: list[tuple[str, protocol.SubmitArgs]] = []
+    for index, entry in enumerate(entries, 1):
+        # entry, then the manifest's defaults, then this command line's own flags
+        options = {**vars(args), **defaults, **entry}
+        if (entry.get("p") and entry.get("prompt")) or not (options.get("p") or options.get("prompt")):
+            return fail(Exit.INVALID_INPUT, f"run --batch: jobs[{index}] needs exactly one of prompt or prompt_text")
+        if entry.get("prompt"):
+            options["p"] = None
+        elif entry.get("p"):
+            options["prompt"] = None
+        options["name"] = options.get("name") or (
+            Path(options["p"]).stem if options.get("p")
+            else f"{re.sub(r'[^A-Za-z0-9._-]+', '-', label).strip('-') or 'batch'}-{index}")
+        # With --request-id the batch is repeatable: entry n is always <id>-<n>,
+        # so submitting the manifest again after a partial failure adds nothing twice (C-6.2).
+        options["request_id"] = f"{args.request_id}-{index}" if args.request_id else None
+        options["batch"] = None
+        meta = {"id": batch_id, "label": label, "index": index, "size": len(entries)}
+        submit, error = _prepare_submit(argparse.Namespace(**options), meta)
+        if error is not None:
+            note(f"{PROG} run --batch: jobs[{index}] ({options['name']}) is invalid; nothing was submitted")
+            return error
+        prepared.append((options["name"], submit))
+
+    client, root = _client(args), _root(args)
+    rows: list[dict[str, Any]] = []
+    worst = int(Exit.OK)
+    for name, submit in prepared:
+        row: dict[str, Any] = {"batch": batch_id, "label": label, "index": submit.batch["index"], "name": name,
+                               "workdir": submit.workdir, "request_id": submit.request_id}
+        try:
+            result = client.call("submit", _asdict(submit), request_id=submit.request_id)
+            job_id = result.get("job_id") or result.get("id") or ""
+            deliverable, log = _hint_paths(root, job_id, submit.out_path, result)
+            row.update(job_id=job_id, created=bool(result.get("created", True)), out=deliverable, log=log, rc=int(Exit.OK))
+        except DaemonUnavailable as exc:
+            if args.json:
+                for left in rows:
+                    emit(left)
+            note(f"{PROG} run --batch: the daemon went away after {sum(1 for r in rows if r.get('job_id'))} of {len(prepared)} submissions")
+            return _daemon_down(exc)
+        except (DaemonError, ProtocolError) as exc:
+            row.update(job_id=None, rc=int(exc.code), error=str(exc), fix=getattr(exc, "fix", None))
+            worst = worst or int(exc.code)
+        rows.append(row)
+
+    submitted = [row["job_id"] for row in rows if row["job_id"]]
+    for row in rows:
+        if args.json:
+            emit(row)
+        elif row["job_id"]:
+            out(row["job_id"])
+    if not args.json:
+        note(f"{PROG} run --batch: {label} · {len(submitted)} of {len(rows)} submitted · batch {batch_id}")
+        for row in rows:
+            if row["job_id"]:
+                note(f"  [{row['index']}] {row['job_id']}" + ("" if row["created"] else " (existing job for this request id)")
+                     + f" · {row['workdir']} · out: {row['out']}")
+            else:
+                note(f"  [{row['index']}] {row['name']} NOT submitted (rc {row['rc']}): {row['error']}"
+                     + (f" · fix: {row['fix']}" if row.get("fix") else ""))
+        if submitted:
+            note(f"  done → {PROG} wait {' '.join(submitted)}   (blocks; ok under run_in_background)")
+            note(f"  status: {PROG} runs --mine")
+    mode, _reason = launch_mode(args)
+    if submitted and (bool(args.attach) or mode == "sync"):
+        waited = wait_jobs(args, submitted, timeout=None, quiet=args.json)
+        return worst or waited
+    return worst
 
 
 def _format_decision(decision: dict[str, Any]) -> str:
@@ -1964,6 +2155,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="print the full routing decision; dispatch nothing (C-11.5)")
     p_run.add_argument("--overflow", action="store_true", help=argparse.SUPPRESS)
     _add_json(p_run)
+    p_run.add_argument("--batch", metavar="FILE",
+                       help="submit every job in a TOML or JSON manifest as one labelled batch; "
+                            "other flags here are defaults for its entries (C-17.7)")
     source = p_run.add_mutually_exclusive_group()
     source.add_argument("-p", dest="p", metavar="PROMPTFILE")
     source.add_argument("prompt", nargs="?")
