@@ -40,6 +40,7 @@ def core(tmp_path, monkeypatch):
     daemon._pending_launches = set()
     daemon._export_locks = {}
     daemon._exit_settle = {}
+    daemon._workspace_deferrals = {}                      # C-6.8: consecutive transient workspace failures
     daemon._desktop_cache = (0.0, daemon_module._UNSET)   # C-10.3: the identity lane's per-window profile cache
     daemon._notify = lambda: None
     daemon._boundary = lambda *args: None
@@ -104,7 +105,7 @@ def test_gate_job_requires_isolation_and_valid_round(core, changes):
 
 def test_gate_review_refuses_repository_workdir(core, monkeypatch):
     """C-23.10: a state-root path inside a checkout is not a neutral review cwd."""
-    monkeypatch.setattr(daemon_module, "git_head", lambda path: "a" * 40)
+    monkeypatch.setattr(daemon_module, "git_head", lambda path, **_: "a" * 40)
     with pytest.raises(AdapterError, match="neutral"):
         core.submit(args(core))
 

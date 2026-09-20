@@ -68,3 +68,17 @@ The desktop sidebar mirror also needs reuse of unchanged input across passes
 and cooperative shutdown at this installation's session-store size. Its health
 record must distinguish progress from completion; an incomplete pass is never
 reported as successful.
+
+## Handoff fan-out, 2026-09-20
+
+A session tried to hand five stalled threads to parallel writable lanes and got
+one. Max asked: "should we fix subfleet to do this right", and later granted
+"feel free to make any changes to subfleet without my approval ... only
+potential worry is loss of user data". C-6.5 is corrected to what it always
+said: the refusal is for a second live *instance* of a session (the 2026-09-04
+twin), not for a second job. The hold moves to where a job writes, keyed on the
+checkout so a subdirectory cannot slip past it. Identity that cannot be
+established still refuses. The instance and the write target are recorded in
+the `job.submitted` event rather than in new columns, so the installed release
+can still open the store after a rollback. C-6.8 (same day) stops a transient
+git timeout during workspace preparation from failing a job without a trace.

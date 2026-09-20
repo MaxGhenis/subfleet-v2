@@ -35,7 +35,7 @@ def launch_state(tmp_path, monkeypatch):
         return Child()
     monkeypatch.setattr(module.subprocess, "Popen", record)
     # Workdir git inspection is deliberately separate from guardian Popen.
-    monkeypatch.setattr(module, "git_head", lambda path: None)
+    monkeypatch.setattr(module, "git_head", lambda path, **_: None)
     try:
         yield daemon, harness, calls
     finally:

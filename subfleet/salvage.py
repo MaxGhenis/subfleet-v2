@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import subprocess
@@ -12,20 +13,66 @@ from pathlib import Path
 
 from .adapters.base import AdapterError
 
+#: One git call's wall-clock cap when the caller names none. The 15 s this
+#: replaced failed jobs whose repository was healthy: on 2026-09-20, under a
+#: load average near 10, a snapshot that takes 0.6 s on an idle machine ran past
+#: it. `caps.workspace_git_timeout_s` is the daemon's setting; this variable is
+#: for callers that have no policy in hand.
+DEFAULT_GIT_TIMEOUT_S = 60
+GIT_TIMEOUT_ENV = "SUBFLEET_GIT_TIMEOUT_S"
+
+#: `OSError`s that describe the machine at this moment, not the repository: the
+#: same call is expected to succeed once the pressure passes.
+TRANSIENT_ERRNOS = frozenset({
+    errno.EAGAIN, errno.EINTR, errno.ENOMEM, errno.EMFILE, errno.ENFILE,
+    errno.EBUSY, errno.ETIMEDOUT, errno.ENOBUFS,
+})
+
 
 class SalvageError(RuntimeError):
-    """A snapshot failed; callers must retain the workspace for reconciliation."""
+    """A snapshot failed; callers must retain the workspace for reconciliation.
+
+    ``transient`` is true when the failure says nothing about the repository (a
+    timeout, or an `OSError` in `TRANSIENT_ERRNOS`), so the caller may retry.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False):
+        super().__init__(message)
+        self.transient = transient
+
+
+def git_timeout_s(timeout_s: float | None = None) -> float:
+    """The explicit cap, else `SUBFLEET_GIT_TIMEOUT_S`, else the default."""
+    if timeout_s is not None:
+        return timeout_s
+    try:
+        value = float(os.environ.get(GIT_TIMEOUT_ENV, ""))
+    except ValueError:
+        return DEFAULT_GIT_TIMEOUT_S
+    return value if value > 0 else DEFAULT_GIT_TIMEOUT_S
+
+
+def transient_os_error(exc: BaseException) -> bool:
+    return isinstance(exc, OSError) and exc.errno in TRANSIENT_ERRNOS
 
 
 def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
-         optional: bool = False) -> str | None:
+         optional: bool = False, timeout_s: float | None = None) -> str | None:
+    cap = git_timeout_s(timeout_s)
     try:
         result = subprocess.run(["git", "-C", str(workdir), *args], env=env,
-                                capture_output=True, text=True, timeout=15)
+                                capture_output=True, text=True, timeout=cap)
+    except subprocess.TimeoutExpired as exc:
+        # Never `optional`: a call that did not finish has not said "no HEAD" or
+        # "no branch", and reading it that way admits a writable job with no
+        # baseline or lets one past the main/master refusal.
+        raise SalvageError(f"git {args[0]} timed out after {cap:g} s", transient=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
+        if transient_os_error(exc):
+            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
         if optional:
             return None
-        raise SalvageError(f"git {args[0]} unavailable") from exc
+        raise SalvageError(f"git {args[0]} unavailable: {type(exc).__name__}: {exc}") from exc
     if result.returncode:
         if optional:
             return None
@@ -33,27 +80,45 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
     return result.stdout.strip()
 
 
-def git_head(workdir: str | Path) -> str | None:
-    return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True)
+def git_head(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
+    return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True, timeout_s=timeout_s)
 
 
-def git_branch(workdir: str | Path) -> str | None:
-    return _git(workdir, "symbolic-ref", "--quiet", "--short", "HEAD", optional=True)
+def git_branch(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
+    return _git(workdir, "symbolic-ref", "--quiet", "--short", "HEAD", optional=True,
+                timeout_s=timeout_s)
 
 
-def working_tree(workdir: str | Path, baseline_commit: str) -> str:
+def git_toplevel(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
+    """C-6.5: the real path of the worktree that holds ``workdir``, or None outside one.
+
+    Two directories of one checkout (`/repo` and `/repo/sub`) are one place to
+    write; two linked worktrees of one repository are two.
+    """
+    top = _git(workdir, "rev-parse", "--show-toplevel", optional=True, timeout_s=timeout_s)
+    return os.path.realpath(top) if top else None
+
+
+def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None) -> str | None:
+    """The tree of ``commit``, or None when the repository cannot name it."""
+    return _git(workdir, "rev-parse", "--verify", f"{commit}^{{tree}}", optional=True,
+                timeout_s=timeout_s)
+
+
+def working_tree(workdir: str | Path, baseline_commit: str, *,
+                 timeout_s: float | None = None) -> str:
     """Snapshot tracked and untracked files without changing the real index."""
-    gitdir = _git(workdir, "rev-parse", "--absolute-git-dir")
+    gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
-        _git(workdir, "read-tree", baseline_commit, env=env)
-        _git(workdir, "add", "-A", env=env)
-        return _git(workdir, "write-tree", env=env)
+        _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
+        _git(workdir, "add", "-A", env=env, timeout_s=timeout_s)
+        return _git(workdir, "write-tree", env=env, timeout_s=timeout_s)
 
 
-def validate_writable_workdir(workdir: str | Path) -> None:
+def validate_writable_workdir(workdir: str | Path, *, timeout_s: float | None = None) -> None:
     """Refuse writable admission on main/master while permitting private refs."""
-    branch = git_branch(workdir)
+    branch = git_branch(workdir, timeout_s=timeout_s)
     if branch in {"main", "master"}:
         raise AdapterError(f"writable job refused on {branch}", code=7,
                            fix="Check out a task branch before submitting a writable job.")
@@ -81,7 +146,8 @@ def _stamp(timestamp: str | datetime | None) -> str:
 
 def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bool = True,
             state: str = "finalizing", timestamp: str | datetime | None = None,
-            baseline_tree: str | None = None) -> SalvageResult | None:
+            baseline_tree: str | None = None,
+            timeout_s: float | None = None) -> SalvageResult | None:
     """C-13.1: commit a differing working tree beneath a private salvage ref.
 
     ``baseline_commit`` is the HEAD recorded at reservation and always the
@@ -89,6 +155,7 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
     including any pre-existing dirty files; older callers default to HEAD. Supply
     the recorded attempt timestamp to make a finalization replay idempotent.
     Private refs are permitted even when the current branch is main (C-13.2).
+    ``timeout_s`` caps each git call (`git_timeout_s`).
     """
     if not writable:
         return None
@@ -96,30 +163,30 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
         raise ValueError("salvage requires finalizing, lost or kill state")
     if seq < 1:
         raise ValueError("attempt sequence must be positive")
-    baseline = _git(workdir, "rev-parse", "--verify", f"{baseline_commit}^{{commit}}")
-    baseline_tree = _git(workdir, "rev-parse", "--verify", f"{baseline_tree or baseline}^{{tree}}")
-    branch = re.sub(r"[^A-Za-z0-9_-]+", "-", git_branch(workdir) or "detached").strip("-") or "detached"
+    baseline = _git(workdir, "rev-parse", "--verify", f"{baseline_commit}^{{commit}}", timeout_s=timeout_s)
+    baseline_tree = _git(workdir, "rev-parse", "--verify", f"{baseline_tree or baseline}^{{tree}}", timeout_s=timeout_s)
+    branch = re.sub(r"[^A-Za-z0-9_-]+", "-", git_branch(workdir, timeout_s=timeout_s) or "detached").strip("-") or "detached"
     ref = f"refs/subfleet-salvage/{branch}-{_stamp(timestamp)}-a{seq}"
     # A private temporary directory avoids index-name races and never points
     # git at the user's real index, including in linked worktrees.
-    tree = working_tree(workdir, baseline)
+    tree = working_tree(workdir, baseline, timeout_s=timeout_s)
     if tree == baseline_tree:
         return None
-    previous = _git(workdir, "rev-parse", "--verify", ref, optional=True)
+    previous = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
     if previous:
-        previous_tree = _git(workdir, "rev-parse", f"{previous}^{{tree}}")
-        previous_parent = _git(workdir, "rev-parse", f"{previous}^", optional=True)
+        previous_tree = _git(workdir, "rev-parse", f"{previous}^{{tree}}", timeout_s=timeout_s)
+        previous_parent = _git(workdir, "rev-parse", f"{previous}^", optional=True, timeout_s=timeout_s)
         if previous_tree == tree and previous_parent == baseline:
             return SalvageResult(ref, previous, tree, baseline)
         # Never overwrite a previous snapshot with different bytes.
         ref = f"{ref}-{tree[:12]}"
     commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
-                  "commit-tree", tree, "-p", baseline, "-m", f"subfleet salvage attempt a{seq}")
-    existing = _git(workdir, "rev-parse", "--verify", ref, optional=True)
+                  "commit-tree", tree, "-p", baseline, "-m", f"subfleet salvage attempt a{seq}", timeout_s=timeout_s)
+    existing = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
     if existing:
-        if (_git(workdir, "rev-parse", f"{existing}^{{tree}}") == tree
-                and _git(workdir, "rev-parse", f"{existing}^") == baseline):
+        if (_git(workdir, "rev-parse", f"{existing}^{{tree}}", timeout_s=timeout_s) == tree
+                and _git(workdir, "rev-parse", f"{existing}^", timeout_s=timeout_s) == baseline):
             return SalvageResult(ref, existing, tree, baseline)
         raise SalvageError("salvage reference already names a different snapshot")
-    _git(workdir, "update-ref", ref, commit, "0" * 40)
+    _git(workdir, "update-ref", ref, commit, "0" * 40, timeout_s=timeout_s)
     return SalvageResult(ref, commit, tree, baseline)
