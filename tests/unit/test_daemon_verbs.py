@@ -195,6 +195,7 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
     plist = plistlib.loads(captured.out.encode())
     assert plist["Label"] == "com.subfleet.daemon"
     assert plist["KeepAlive"] is True and plist["RunAtLoad"] is True
+    assert plist["ProcessType"] == "Standard"
     assert plist["ProgramArguments"] == [str(tmp_path / "subfleetd"),
                                          "--state-root", str(root)]
     assert plist["EnvironmentVariables"]["SUBFLEET_HOME"] == str(root)

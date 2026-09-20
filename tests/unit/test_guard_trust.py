@@ -247,10 +247,27 @@ def test_preflight_bounds_and_reaps_hung_probe(fake_codex, monkeypatch):
     result = guard.preflight(fake, timeout_s=0.5)
     assert time.monotonic() - started < 3
     assert not result.ok and result.code == 7 and "deadline" in result.message
+    assert result.override is None
+    assert "daemon scheduling" in result.fix and "trust remains unverified" in result.fix
+    assert "Restore" not in result.fix
     report = json.loads(report_path.read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(report["pid"], 0)
     assert not Path(report["home"]).exists()
+
+
+def test_version_timeout_does_not_claim_version_drift(fake_codex, monkeypatch):
+    fake, report_path = fake_codex
+
+    def timeout(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(guard.subprocess, "run", timeout)
+    result = guard.preflight(fake)
+    assert not result.ok and result.code == 7 and result.override is None
+    assert result.version is None and "daemon scheduling" in result.fix
+    assert "Restore" not in result.fix
+    assert not report_path.exists(), "a version timeout must not start app-server"
 
 
 def test_preflight_reports_warnings(fake_codex, monkeypatch):
