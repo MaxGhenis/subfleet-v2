@@ -233,7 +233,8 @@ class ResetCredits:
                 action["op_key"].startswith(lane.account_key + ":"))
 
     def evaluate(self, snapshot: dict, *, now: str | datetime | None = None,
-                 cancel: threading.Event | None = None, deadline: float | None = None) -> dict:
+                 cancel: threading.Event | None = None, deadline: float | None = None,
+                 target_lane_id: str | None = None, dry_run: bool = False) -> dict:
         """C-18.1, C-23.16–18, C-23.38, C-23.46: at most one credit per pass."""
         instant = _time(now or snapshot.get("now") or datetime.now(timezone.utc))
         stamp, settings = _iso(instant), self._settings()
@@ -268,6 +269,14 @@ class ResetCredits:
                                  and self._fresh_usage(row.get("probe") or {}, instant)
                                  and (row.get("probe") or {}).get("account_key", row["account_key"]) == row["account_key"]
                                  and self.confirmed_override(row["lane_id"], now=instant) is None], key=_order)
+            # A pin narrows spending, never the fleet trigger or shadow checks.
+            if target_lane_id is not None:
+                candidates = [row for row in candidates if row['lane_id'] == target_lane_id]
+            if dry_run:
+                return {**result, 'status': 'would-evaluate' if candidates else 'no-eligible-lane',
+                        'candidate_lanes': [row['lane_id'] for row in candidates],
+                        'dry_run': True, 'credit_verified': False,
+                        'detail': 'Cached eligibility only; execution must list a concrete gifted credit.'}
             # Shadowing excludes while ANY eligible unshadowed lane has a concrete gift.
             def shadowed(row):
                 return bool(row.get("app_shadowed") or row.get("shadowed_by_app"))
@@ -286,7 +295,7 @@ class ResetCredits:
                 if (cancel is not None and cancel.is_set()) or time.monotonic() >= deadline:
                     return {**result, "status": "cancelled"}
                 lane = self.store.get_lane(row["lane_id"])
-                if lane is None:
+                if lane is None or lane.owner != 'v2' or not lane.enabled:
                     continue
                 adapter = self.adapter_factory(lane)
                 timeout = max(.001, min(15., deadline - time.monotonic()))
@@ -318,6 +327,11 @@ class ResetCredits:
                        "weekly_reset_at": _weekly(row).get("resets_at")}}
             with self.store.transaction("action.pending", lane_id=lane.lane_id,
                                         data={"action_id": action_id}) as conn:
+                bound = self.store.get_lane(lane.lane_id)
+                if (bound is None or bound.owner != 'v2' or not bound.enabled
+                        or bound.account_key != lane.account_key
+                        or bound.credential != lane.credential):
+                    return {**result, 'status': 'lane-changed'}
                 # A second ResetCredits component cannot cross the persisted fleet gate.
                 current = self._history()
                 if any(item["state"] in ("pending", "executing", "unknown") and item["action_id"] not in reconciled for item in current):

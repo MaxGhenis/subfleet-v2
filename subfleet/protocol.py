@@ -19,7 +19,7 @@ OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
-    "sessions",
+    "sessions", "pick", "operations",
 )
 
 
@@ -204,6 +204,22 @@ class LanesArgs:
 class ReadingsArgs:
     lane_id: str | None = None
     scope: str | None = None
+
+
+@dataclass
+class PickArgs:
+    family: str = "codex"
+    model: str | None = None
+    exclusions: list[str] = field(default_factory=list)
+    min_headroom: float | None = None
+
+
+@dataclass
+class OperationsArgs:
+    command: str
+    dry_run: bool = False
+    target: str | None = None
+    hours: float = 24
 
 
 @dataclass

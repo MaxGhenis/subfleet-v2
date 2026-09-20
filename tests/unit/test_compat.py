@@ -32,7 +32,8 @@ BY_ID = {case["id"]: case for case in CASES}
 #: spellings — neither string exists anywhere in the v1 tree.
 PERMANENT_HEADS = {"status", "capacity", "runs", "jobs", "show", "wait", "kill",
                    "resume", "resume-codex", "notify", "ping", "run", "lanes",
-                   "why", "daemon", "doctor", "hook", "gate", "enroll",
+                   "why", "daemon", "doctor", "hook", "gate", "enroll", "pick", "_api-lane-check",
+                   "errors", "brief", "watch", "keepalive", "reset", "login", "_canonical-model", "_session-hook",
                    # milestone 6: the sessions kit. `sessions` and `handoff` are
                    # first-class in C-17.1; `tickle`, `muster`, `revive` and
                    # `mirror` are v1 spellings amendment 1 keeps, mapped onto
@@ -469,8 +470,7 @@ def test_a_delegated_case_hands_v1_the_argv_it_was_given(case):
 
 
 @pytest.mark.parametrize("verb", ["_record-run", "_record-lane-run",
-                                  "_canonical-model", "_api-lane-check",
-                                  "_record-codex-cooldown", "_session-hook",
+                                  "_record-codex-cooldown",
                                   "_tickle"])
 def test_the_hidden_verbs_are_delegated_without_a_word_on_stderr(verb):
     """C-17.4 stdout carries the contract and stderr the prose — but v1's
