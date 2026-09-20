@@ -43,7 +43,7 @@ from .guardian import atomic_publish
 from .policy import load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
-    SalvageError, git_head, git_tree, salvage, transient_os_error,
+    SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
 from .store import Store
@@ -73,9 +73,9 @@ def audit_kind(event: str) -> str:
 
 #: C-23.55: one live revive per session. The key is session-scoped, not
 #: caller-scoped, and its holder is the revive job id so every existing
-#: holder-keyed release site frees it. It shares the `session:` namespace with
-#: C-6.5's writable-job lease, which is deliberate — both are about one session
-#: having one writer — but nothing reads that namespace by prefix.
+#: holder-keyed release site frees it. It is the only lease in the `session:`
+#: namespace: C-6.5 tells a session's instances apart at submit and leases the
+#: worktree, not the session. Nothing reads the namespace by prefix.
 def revive_lease_key(session_id: str) -> str:
     return f"session:{session_id}:revive"
 
@@ -539,6 +539,10 @@ class Daemon:
                 head = git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
                 if sandbox == Sandbox.WORKSPACE_WRITE and head is None:
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
+                # C-6.5: an in-place job's hold is its checkout, not the directory
+                # named by -C, so `/repo` and `/repo/sub` are one place to write.
+                write_target = (git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
+                                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
                 model = args.pinned_model
                 if model:
                     model = resolve_model(self.policy, model)
@@ -605,7 +609,13 @@ class Daemon:
             values["review_root"] = review_root
             if args.dry_run:
                 return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values, desktop=self._desktop_identity()))}
-            self._validate_conflicts(values)
+            # C-3.3: the instance and worktree questions need `ps` and `git`, so
+            # they are answered here, under the submit lock and outside the
+            # transaction; the transaction below re-checks with SQL alone.
+            instance = (self._caller_instance(args.caller_pid)
+                        if sandbox == Sandbox.WORKSPACE_WRITE and args.caller_session else None)
+            cleared = self._writable_precheck(values, instance, write_target)
+            self._validate_conflicts(values, cleared, write_target)
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
             manifest = {"job": values}
@@ -619,10 +629,13 @@ class Daemon:
             authorization = ({"unmeasured_reserve_authorization": {
                 "lane_id": pinned_lane, "model_id": self.policy["models"][model]["id"],
                 "reason": reason}} if reason is not None else None)
-            with self.store.transaction("job.submitted", job_id=job_id, data=authorization) as tx:
+            submitted = {**(authorization or {}),
+                         **({"caller_instance": instance} if instance else {}),
+                         **({"write_target": write_target} if write_target else {})}
+            with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
-                self._validate_conflicts(values)
+                self._validate_conflicts(values, cleared, write_target)
                 columns = ",".join(values)
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
             self._notify()
@@ -688,7 +701,125 @@ class Daemon:
                 found.add(match[1])
         return next(iter(found)) if len(found) == 1 else None
 
-    def _validate_conflicts(self, job: dict) -> None:
+    def _submitted(self, job_id: str) -> dict:
+        """What `submit` recorded beside the job row: the caller instance and write target."""
+        row = self.store.one("SELECT data_json FROM events WHERE job_id=? AND kind='job.submitted' "
+                             "ORDER BY event_id LIMIT 1", (job_id,))
+        return json.loads(row["data_json"] or "{}") if row else {}
+
+    @staticmethod
+    def _caller_instance(pid: Any) -> dict | None:
+        """C-6.5: the submitting process as pid, boot id and start time (C-5.3),
+        or None when that cannot be established; a bare pid can be reused."""
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return None
+        try:
+            found = procs.identity(pid)
+        except procs.InspectionError:
+            return None
+        return dataclasses.asdict(found) if found else None
+
+    @staticmethod
+    def _instance_alive(recorded: dict) -> bool | None:
+        """True while the recorded process still runs, False once it is provably
+        gone (no such pid, or the pid now belongs to a later process), None when
+        the operating system would not say."""
+        try:
+            found = procs.identity(int(recorded["pid"]))
+        except (procs.InspectionError, KeyError, TypeError, ValueError):
+            return None
+        return found is not None and dataclasses.asdict(found) == recorded
+
+    def _write_target(self, job: dict, workspace: str) -> str:
+        """The worktree lease's subject: the checkout for an in-place job, the
+        allocated worktree otherwise (C-6.5, C-6.6)."""
+        if not job.get("in_place"):
+            return workspace
+        return self._submitted(job["job_id"]).get("write_target") or workspace
+
+    def _writable_precheck(self, job: dict, instance: dict | None, write_target: str | None) -> frozenset[str]:
+        """C-6.5: refuse a second writer in one worktree and a second live
+        instance of one session; permit one instance any number of writable jobs
+        up to `caps.max_writable_per_session` when their worktrees differ.
+
+        Returns the session's live writable jobs this submission was cleared
+        against, for the SQL-only re-check inside the inserting transaction.
+        The 2026-09-04 incident this keeps refusing: a second live instance of a
+        session re-dispatching the first one's work. Anything that cannot be
+        identified is treated as that second instance.
+        """
+        if job["sandbox"] != "workspace-write":
+            return frozenset()
+        self._refuse_second_revive(job)      # the more specific refusal names itself first
+        live = self.store.query(
+            "SELECT job_id,kind,workdir,worktree,in_place,caller_session FROM jobs WHERE sandbox='workspace-write' "
+            "AND state NOT IN ('succeeded','failed','cancelled','lost') AND job_id!=? ORDER BY created_at,rowid",
+            (job["job_id"],))
+        recorded = {row["job_id"]: self._submitted(row["job_id"]) for row in live}
+        if write_target:
+            cap = self.policy["caps"]["workspace_git_timeout_s"]
+            for row in live:
+                try:
+                    held = {recorded[row["job_id"]].get("write_target"),
+                            os.path.realpath(row["worktree"]) if row["worktree"] else None}
+                    if row["in_place"] and not recorded[row["job_id"]].get("write_target"):
+                        # Submitted before targets were recorded: ask git once.
+                        held.add(git_toplevel(row["worktree"] or row["workdir"], timeout_s=cap) or row["workdir"])
+                except SalvageError as exc:
+                    raise AdapterError(f"could not inspect the worktree of {row['job_id']}: {exc}",
+                                       code=int(Exit.OPERATIONAL), fix="submit again") from exc
+                if write_target in held:
+                    raise AdapterError(f"worktree {write_target} is held by a live writable job ({row['job_id']})",
+                                       fix="wait for the current writer or choose another worktree")
+        session = job.get("caller_session")
+        if not session:
+            return frozenset()
+        mine = [row for row in live if row["caller_session"] == session]
+        for row in mine:
+            holder = row["job_id"]
+            if job.get("kind") == "revive" or row["kind"] == "revive":
+                # C-23.54: a revive IS another instance of the session it continues.
+                raise AdapterError(f"session {session} has a live writable job ({holder}) and a revive is a second instance of it",
+                                   fix=f"wait for {holder}, or kill it before reviving or dispatching")
+            theirs = recorded[holder].get("caller_instance")
+            if instance is not None and theirs == instance:
+                continue
+            if instance is None:
+                raise AdapterError(f"session {session} has a live writable job ({holder}) and the submitting instance cannot be identified",
+                                   fix=f"submit from the session's own shell (CLAUDE_PID), or wait for {holder}")
+            alive = self._instance_alive(theirs) if theirs else None
+            if alive is False:
+                continue        # its instance is gone: a resumed session is one instance, not two
+            who = f"another live instance (pid {theirs['pid']})" if alive else "an instance that cannot be identified"
+            raise AdapterError(f"session {session} already has a live writable job ({holder}) from {who}",
+                               fix=f"dispatch from that instance, or wait for or kill {holder}")
+        limit = self.policy["caps"]["max_writable_per_session"]
+        if len(mine) >= limit:
+            raise AdapterError(f"session {session} already holds {len(mine)} live writable jobs (caps.max_writable_per_session {limit})",
+                               fix="wait for one to finish, or raise the cap in policy.json")
+        return frozenset(row["job_id"] for row in mine)
+
+    def _refuse_second_revive(self, job: dict) -> None:
+        if job.get("kind") == "revive" and job.get("caller_session"):
+            # C-23.55: one live revive per session. The lease below is taken in
+            # the admission transaction, but admission treats a lease conflict as
+            # a wait, and a revive that waits for its own twin is exactly the
+            # 2026-09-04 incident dressed as patience. Refuse at submit instead,
+            # so the second attempt is skipped rather than queued (C-6.5).
+            session = job["caller_session"]
+            lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?",
+                                   (revive_lease_key(session),))
+            live = self.store.one(
+                "SELECT job_id FROM jobs WHERE kind='revive' AND caller_session=? "
+                "AND state NOT IN ('succeeded','failed','cancelled','lost')", (session,))
+            if lease or live:
+                holder = (lease or {}).get("holder") or (live or {}).get("job_id")
+                raise AdapterError(
+                    f"session {session} already has a live revive ({holder})", code=7,
+                    fix=f"subfleet runs show {holder}, or kill it before reviving again")
+
+    def _validate_conflicts(self, job: dict, cleared: frozenset[str] = frozenset(),
+                            write_target: str | None = None) -> None:
         if job.get("round_lease"):
             prefix = job["round_lease"].rsplit(":", 1)[0] + ":"
             lease = self.store.one("SELECT holder FROM leases WHERE substr(lease_key,1,?)=?",
@@ -707,23 +838,7 @@ class Daemon:
             count = self.store.one("SELECT count(*) AS n FROM jobs WHERE parent_job_id=?", (parent["job_id"],))["n"]
             if count >= self.policy["caps"]["max_child_jobs"]:
                 raise AdapterError("parent child budget exhausted", fix="use a new parent job")
-        if job.get("kind") == "revive" and job.get("caller_session"):
-            # C-23.55: one live revive per session. The lease below is taken in
-            # the admission transaction, but admission treats a lease conflict as
-            # a wait, and a revive that waits for its own twin is exactly the
-            # 2026-09-04 incident dressed as patience. Refuse at submit instead,
-            # so the second attempt is skipped rather than queued (C-6.5).
-            session = job["caller_session"]
-            lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?",
-                                   (revive_lease_key(session),))
-            live = self.store.one(
-                "SELECT job_id FROM jobs WHERE kind='revive' AND caller_session=? "
-                "AND state NOT IN ('succeeded','failed','cancelled','lost')", (session,))
-            if lease or live:
-                holder = (lease or {}).get("holder") or (live or {}).get("job_id")
-                raise AdapterError(
-                    f"session {session} already has a live revive ({holder})", code=7,
-                    fix=f"subfleet runs show {holder}, or kill it before reviving again")
+        self._refuse_second_revive(job)
         conflicts: list[tuple[str, Any, str]] = []
         if job.get("out_path"):
             conflicts.append(("out_path", job["out_path"], "use a different -o path or wait for its owner"))
@@ -733,10 +848,19 @@ class Daemon:
         if job["sandbox"] == "workspace-write":
             if job.get("in_place"):
                 conflicts.append(("workdir", job["workdir"], "wait for the current writer or choose another worktree"))
-                if self.store.one("SELECT * FROM leases WHERE lease_key=?", (f"worktree:{job['workdir']}",)):
-                    raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace")
+                for key in {f"worktree:{job['workdir']}", f"worktree:{write_target or job['workdir']}"}:
+                    if self.store.one("SELECT * FROM leases WHERE lease_key=?", (key,)):
+                        raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace")
             if job.get("caller_session"):
-                conflicts.append(("caller_session", job["caller_session"], "wait for this session's writable job"))
+                # C-6.5, SQL only (C-3.3): `_writable_precheck` judged every job
+                # in `cleared`; one that is not there was never judged.
+                for row in self.store.query(
+                        "SELECT job_id FROM jobs WHERE caller_session=? AND sandbox='workspace-write' AND job_id!=? "
+                        "AND state NOT IN ('succeeded','failed','cancelled','lost')",
+                        (job["caller_session"], job["job_id"])):
+                    if row["job_id"] not in cleared:
+                        raise AdapterError(f"session {job['caller_session']} has a live writable job ({row['job_id']}) this submission was not checked against",
+                                           fix="submit again")
         for column, value, fix in conflicts:
             writable = " AND sandbox='workspace-write'" if column != "out_path" else ""
             if self.store.one(f"SELECT job_id FROM jobs WHERE {column}=? AND state NOT IN "
@@ -1558,6 +1682,7 @@ class Daemon:
                 self._workspace_failed(job, exc)
                 continue
             self._workspace_deferrals.pop(job["job_id"], None)
+            write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
             if job["wait_reason"] == "workspace":
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
@@ -1615,9 +1740,10 @@ class Daemon:
                 if job["out_path"]:
                     leases.append((f"out:{job['out_path']}", job["job_id"]))
                 if job["sandbox"] == "workspace-write":
-                    leases.append((f"worktree:{workspace}", job["job_id"]))
-                    if job["caller_session"]:
-                        leases.append((f"session:{job['caller_session']}", job["job_id"]))
+                    # C-6.5: the hold is where the job writes. A session is not a
+                    # place, so it takes no lease; its instances are told apart
+                    # at submit.
+                    leases.append((f"worktree:{write_target}", job["job_id"]))
                 revive_key = (revive_lease_key(job["caller_session"])
                               if job["kind"] == "revive" and job["caller_session"] else None)
                 if revive_key:

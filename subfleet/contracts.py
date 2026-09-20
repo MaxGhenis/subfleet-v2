@@ -191,6 +191,9 @@ DEFAULT_CAPS: dict[str, int] = {
     "workspace_git_timeout_s": 60,
     "worktree_add_timeout_s": 180,
     "workspace_retry_max": 8,
+    # C-6.5: live writable jobs one session may hold at once; a runaway backstop,
+    # not a throttle (`max_active_attempts` bounds what runs).
+    "max_writable_per_session": 8,
 }
 # C-6.8: a transient preparation failure waits 5 s, then doubles to this ceiling.
 WORKSPACE_RETRY_BASE_S = 5

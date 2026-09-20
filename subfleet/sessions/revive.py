@@ -279,7 +279,8 @@ def submit_args(candidate: Candidate, *, model: str | None, request_id: str,
     * `workspace-write` because the session was doing work and a read-only
       resume would plan rather than act; it is also what makes C-6.5's
       writable-job rules — the main/master refusal, the committed-repository
-      requirement, the one-writer-per-session lease — apply to a revive.
+      requirement, the worktree hold, and the refusal of a second instance of
+      the session (which a revive always is) — apply to a revive.
     * `in_place` because a revive continues the session in its own worktree; a
       fresh worktree would resume the conversation somewhere it has never been.
     * `no_preamble` because the prompt IS the continuation instruction.
