@@ -532,7 +532,7 @@ def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir)
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
     captured = capsys.readouterr()
     assert "is stale" in captured.err
-    assert "the machine booted at" in captured.err     # a reboot ended that pid
+    assert "no live process with pid 999999" in captured.err
     assert "subfleet daemon start" in captured.err
     from subfleet.client import boot_id
     (root / "daemon.lock").write_text(json.dumps(
@@ -682,14 +682,14 @@ def test_the_identity_check_runs_once_per_client(root, monkeypatch):
 
 
 def test_boot_id_is_read_once(monkeypatch):
-    """C-5.3 boot time cannot change under a running process, so it is read once."""
+    """C-5.3 the stable boot-session UUID can be cached."""
     from subfleet import client as client_module
     monkeypatch.setattr(client_module, "_BOOT_ID", [])
     reads: list[int] = []
     monkeypatch.setattr(client_module, "_read_boot_id",
-                        lambda: reads.append(1) or "1788531275")
-    assert client_module.boot_id() == "1788531275"
-    assert client_module.boot_id() == "1788531275"
+                        lambda: reads.append(1) or "66355737-51db-46d4-8f31-c928bc955e16")
+    assert client_module.boot_id() == "66355737-51db-46d4-8f31-c928bc955e16"
+    assert client_module.boot_id() == "66355737-51db-46d4-8f31-c928bc955e16"
     assert len(reads) == 1
 
 

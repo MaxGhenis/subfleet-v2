@@ -760,10 +760,10 @@ class Daemon:
         gone (no such pid, or the pid now belongs to a later process), None when
         the operating system would not say."""
         try:
-            found = procs.identity(int(recorded["pid"]))
+            state = procs.liveness(int(recorded["pid"]), recorded["boot_id"], recorded["proc_start"])
         except (procs.InspectionError, KeyError, TypeError, ValueError):
             return None
-        return found is not None and dataclasses.asdict(found) == recorded
+        return True if state == "alive" else False if state == "dead" else None
 
     def _write_target(self, job: dict, workspace: str) -> str:
         """The worktree lease's subject: the checkout for an in-place job, the
@@ -823,6 +823,9 @@ class Daemon:
                 raise AdapterError(f"session {session} has a live writable job ({holder}) and the submitting instance cannot be identified",
                                    fix=f"submit from the session's own shell (CLAUDE_PID), or wait for {holder}")
             alive = self._instance_alive(theirs) if theirs else None
+            if (alive is True and instance.get("pid") == theirs.get("pid")
+                    and instance.get("proc_start") == theirs.get("proc_start")):
+                continue        # the same live caller, including a legacy boot timestamp
             if alive is False:
                 continue        # its instance is gone: a resumed session is one instance, not two
             who = f"another live instance (pid {theirs['pid']})" if alive else "an instance that cannot be identified"

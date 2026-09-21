@@ -252,8 +252,10 @@ def test_offline_kill_json_emits_one_object(store, capsys):
 
 # --- reap ---------------------------------------------------------------------
 
-def test_reap_names_the_orphans_without_writing(store, capsys):
+def test_reap_names_the_orphans_without_writing(store, capsys, monkeypatch):
     """C-4.2, C-3.4 `runs reap` reports jobs whose runner is gone; the daemon writes."""
+    from subfleet import procs
+    monkeypatch.setattr(procs, "liveness", lambda *args: "dead")
     assert cli.main(["runs", "reap"]) == 0
     captured = capsys.readouterr()
     assert JOB in captured.out and "runner is gone" in captured.out
