@@ -204,7 +204,7 @@ def cmd(args) -> int:
             cli.out(f"No recorded errors in the last {args.hours:g}h.")
     else:
         cli.emit(result)
-    return int(Exit.OPERATIONAL) if result.get('status') == 'stopping' else int(Exit.OK)
+    return int(Exit.OPERATIONAL) if result.get('status') in ('stopping', 'recovering') else int(Exit.OK)
 
 
 def cmd_uninstall_hooks(args) -> int:

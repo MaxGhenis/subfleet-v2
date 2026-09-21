@@ -76,6 +76,7 @@ def test_read_and_preview_commands_never_refresh_desktop_or_execute(rig, monkeyp
 
 def test_manual_timer_request_coalesces_with_probe_and_observes_shutdown(rig, monkeypatch):
     timer, store, clock, adapter, enroll = rig
+    timer.start()
     entered, release = threading.Event(), threading.Event()
     def reset(*, target):
         assert target == 'codex-2'
