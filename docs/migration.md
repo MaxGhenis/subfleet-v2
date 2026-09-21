@@ -85,6 +85,34 @@ In this order: stop v2 admissions; stop the daemon's timers; restore the v1 hook
 
 Stop admission; drain or re-adopt attempts; `VACUUM INTO '<state root>/backups/state-<utc>.sqlite3'`; apply additive migrations; `PRAGMA integrity_check`; resume. A CLI newer than the daemon refuses to write and prints both versions (C-3.5).
 
+## Pruning redundant decision rows (one-off)
+
+`python -m subfleet.prune_decisions` deletes the redundant `decisions` rows of terminal jobs — in practice the ones the admission pass wrote while a job waited for capacity. It has not been run against `~/.subfleet`; the numbers below are what that store held when the incident was recorded.
+
+**When it is needed.** The admission pass wrote a whole routing decision for every job that was merely waiting, once per re-check. Recorded 2026-09-20: 97,816 `decisions` rows, 97,623 of them with no attempt id, 2.17 GB of `decision_json` in a 2.33 GB database, over 97 jobs that were all terminal. Retention does not reach them: its unit is a whole job (C-8.4), and the bytes it counts are `<state root>/jobs/<id>/` and an owned worktree, not the database file, so a 2 GB `decisions` table exerts no pressure on it at all. The write path is a separate fix; this pass is the one-off that gives the space back.
+
+**What is kept.** Every row with an `attempt_id` (C-11.5); per job the row `subfleet why` selects (`ORDER BY decision_id DESC LIMIT 1`) and the row offline `runs show` selects (`ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1`), and the same two over the attempt-less rows alone; and every row of a job that is not terminal — a waiting job's history belongs to the daemon. Everything else is deleted. Nothing outside `decisions` is written but the one `events` row per delete batch that C-3.2 requires.
+
+**The commands.**
+
+```
+python -m subfleet.prune_decisions                       # dry run: the plan, nothing written
+subfleet daemon stop                                     # the daemon is the store's writer (C-3.4)
+launchctl unload ~/Library/LaunchAgents/com.subfleet.daemon.plist   # if installed: KeepAlive restarts it
+python -m subfleet.prune_decisions --apply --i-understand-this-deletes-decisions --vacuum
+launchctl load -w ~/Library/LaunchAgents/com.subfleet.daemon.plist  # or `subfleet daemon start`
+subfleet doctor
+```
+
+The dry run is the default and computes the real keep and delete sets, the exact bytes, and the free-space verdict. A real pass holds `daemon.lock` for its whole length and refuses (exit 7) while a daemon holds it, with too little free space for the backups, or without both `--apply` and `--i-understand-this-deletes-decisions`. `--vacuum` is optional and belongs on the pass that deletes, which is the pass that took the backups: leave it off and the freed pages stay in the file as a freelist, which the report prints; a later pass has nothing to delete and rebuilds nothing. `--backup-dir` puts the backups on another volume. Every pass saves `<state root>/decisions-prune-report-<utc>.json`.
+
+**The backups, and restoring from them.** Before the first delete a real pass writes both of these to `<state root>/backups/` (0700, files 0600) and verifies them:
+
+- `state-<utc>.sqlite3` — a whole `VACUUM INTO` copy of the store, checked with `PRAGMA integrity_check`. To restore: stop the daemon, move `state.sqlite3` aside, copy this file over it, then `subfleet doctor`.
+- `decisions-pruned-<utc>.jsonl.gz` — every deleted row as one JSON object per line with every column, re-read and checked against the row count and digest recorded while writing. Its SHA-256 is in the report (`shasum -a 256` confirms it later). To put rows back without restoring the whole store, `INSERT` them from the file.
+
+**What the pass proves before it reports success.** Every table other than `decisions` and `events` is counted and digested before and after and must match; the tables are enumerated from `sqlite_master`, so one added later is covered. `events` must hold its existing rows unchanged and gain exactly one `decisions.pruned` row per batch. The surviving `decisions` rows must be byte-identical to the rows the plan kept, `COUNT(DISTINCT job_id)` unchanged, and both reader queries must return identical `decision_json` for every affected job. `PRAGMA integrity_check` and `PRAGMA foreign_key_check` must be clean. Any mismatch exits non-zero, saves the report, and names the copy to restore from. A second pass is a no-op: the keep set is everything that is left.
+
 ## Dry run against the real v1 state, 2026-09-05 16:21 EDT
 
 `SUBFLEET_HOME=~/.subfleet-dryrun uv run python -m subfleet.importer --dry-run`, read-only toward v1, 0.7 s. Counts are what a real pass would write.
