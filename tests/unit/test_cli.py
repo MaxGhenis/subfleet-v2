@@ -145,6 +145,44 @@ def test_why_and_ping_reach_their_ops(daemon, capsys):
     assert server.args("ping") == {"text": "hello", "session_id": "s-1"}
 
 
+def test_c6_11_why_never_prints_null(daemon, capsys):
+    """C-6.11 incident 2026-09-20: a queued job with no decision row printed `null`."""
+    answers = iter([
+        {"decision": None, "text": "No decision recorded."},                       # a daemon that predates `queue`
+        {"decision": None, "queue": [f"Job: {JOB} is cancelled"], "text": "unused"},
+        {"decision": {"chain": ["opus"], "chosen_model": None, "chosen_lane": None, "reason": "no lane"},
+         "queue": [f"Job: {JOB} is queued", "Held: held behind 20260920-155803-older, an older standard job"]},
+    ])
+    daemon({"why": lambda request: next(answers)})
+    assert run_cli(["why", JOB]) == 0
+    assert capsys.readouterr().out.strip() == "No decision recorded."
+    assert run_cli(["why", JOB]) == 0
+    assert capsys.readouterr().out.strip().splitlines() == [f"Job: {JOB} is cancelled", "No decision recorded."]
+    assert run_cli(["why", JOB]) == 0
+    shown = capsys.readouterr().out
+    assert shown.startswith(f"Job: {JOB} is queued\nHeld: held behind 20260920-155803-older")
+    assert "chain: opus" in shown and "null" not in shown
+
+
+def test_c6_11_status_counts_live_jobs_not_the_whole_store():
+    """C-6.11 incident 2026-09-20: `daemon.status` carries every job as `jobs`; status said `running jobs: 519`."""
+    rows = ([{"job_id": f"done-{n}", "state": state} for n, state in
+             enumerate(["succeeded"] * 5 + ["failed", "cancelled", "lost"])]
+            + [{"job_id": "live-running", "state": "running"}, {"job_id": "live-waiting", "state": "waiting"},
+               {"job_id": "live-queued", "state": "queued"}])
+    text = cli.format_status({"lanes": [], "jobs": rows})
+    assert "running jobs: 3" in text
+    assert "live-queued" in text and "done-0" not in text
+    assert "admission:" not in text                                   # nothing pending and idle: no line
+    idle = cli.format_status({"lanes": [], "jobs": rows, "admission": {
+        "pending": 2, "idle_for_s": 4210, "reasons": {"reserve:fable:unmeasured": 9, "behind-older-job": 4},
+        "open_lanes": ["claude-2", "claude-3"]}})
+    assert ("admission: 2 pending, none placed for 4210 s; 2 lanes open; "
+            "reserve:fable:unmeasured x9, behind-older-job x4") in idle
+    assert "admission:" not in cli.format_status({"lanes": [], "jobs": rows, "admission": {
+        "pending": 0, "idle_for_s": None, "reasons": {}, "open_lanes": []}})
+
+
 def test_why_renders_exclusion_from_real_policy_decision():
     """C-11.5 why prints the actual policy decision's rejected lane and reason."""
     from dataclasses import asdict
@@ -532,7 +570,7 @@ def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir)
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
     captured = capsys.readouterr()
     assert "is stale" in captured.err
-    assert "the machine booted at" in captured.err     # a reboot ended that pid
+    assert "no live process with pid 999999" in captured.err
     assert "subfleet daemon start" in captured.err
     from subfleet.client import boot_id
     (root / "daemon.lock").write_text(json.dumps(
@@ -682,14 +720,14 @@ def test_the_identity_check_runs_once_per_client(root, monkeypatch):
 
 
 def test_boot_id_is_read_once(monkeypatch):
-    """C-5.3 boot time cannot change under a running process, so it is read once."""
+    """C-5.3 the stable boot-session UUID can be cached."""
     from subfleet import client as client_module
     monkeypatch.setattr(client_module, "_BOOT_ID", [])
     reads: list[int] = []
     monkeypatch.setattr(client_module, "_read_boot_id",
-                        lambda: reads.append(1) or "1788531275")
-    assert client_module.boot_id() == "1788531275"
-    assert client_module.boot_id() == "1788531275"
+                        lambda: reads.append(1) or "66355737-51db-46d4-8f31-c928bc955e16")
+    assert client_module.boot_id() == "66355737-51db-46d4-8f31-c928bc955e16"
+    assert client_module.boot_id() == "66355737-51db-46d4-8f31-c928bc955e16"
     assert len(reads) == 1
 
 

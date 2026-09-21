@@ -110,6 +110,30 @@ def test_c6_5_a_resumed_session_is_one_instance_not_two(fleet):
     assert writable(daemon, harness, make_repo(harness.root / "d"), pid=300)
 
 
+@pytest.mark.parametrize("pid,seconds,expected", [
+    (100, "1789915544", "allowed"),
+    (200, "1789915544", "another live instance"),
+    (100, "1789915542", "cannot be identified"),
+    (200, "1789915542", "cannot be identified"),
+])
+def test_c6_5_legacy_caller_identity_keeps_writer_protection(fleet, monkeypatch, pid, seconds, expected):
+    """A UUID upgrade or clock correction must not manufacture a dead caller."""
+    daemon, harness, table = fleet
+    start = table[100].proc_start
+    table[100] = ProcessIdentity(100, "1789915544", start)
+    first = writable(daemon, harness, make_repo(harness.root / "legacy"))
+    boot = "66355737-51db-46d4-8f31-c928bc955e16"
+    table[100] = ProcessIdentity(100, boot, start)
+    table[200] = ProcessIdentity(200, boot, table[200].proc_start)
+    monkeypatch.setattr(daemon_module.procs, "_read", lambda argv: "{ sec = " + seconds + " }")
+    target = make_repo(harness.root / "new")
+    if expected == "allowed":
+        assert writable(daemon, harness, target, pid=pid)
+    else:
+        message = refusal(daemon, harness, target, pid=pid)
+        assert first in message and expected in message
+
+
 @pytest.mark.parametrize("case", ["no-pid", "caller-uninspectable", "holder-uninspectable", "holder-unrecorded"])
 def test_c6_5_an_instance_that_cannot_be_identified_is_refused(fleet, case):
     """C-6.5 fails closed: what cannot be told apart from the twin is treated as the twin."""

@@ -6,6 +6,7 @@ admission transaction. Evaluation never probes, writes the store, or runs ps.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, is_dataclass
@@ -13,7 +14,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .capacity import fresh_provider, identity_blocked
-from .contracts import DEFAULT_CAPS, HEADROOM_FLOOR, Decision, Exit
+from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
+                        HEADROOM_FLOOR, Decision, Exit)
 from .policy import PolicyError, resolve_model
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
@@ -452,11 +454,89 @@ def exit_code(decision: Decision) -> Exit:
     return Exit.OK if decision.chosen_lane else Exit.NO_LANE
 
 
-def waiting_metadata(decision: Decision, now: str | datetime | None = None) -> dict[str, str]:
-    """C-4.1; plan amendment 11: capacity waits always have a recheck clock."""
+def capacity_recheck_delay(rechecks: int, ceiling_s: float = CAPACITY_RECHECK_CEILING_S) -> float:
+    """C-6.10: seconds until the next look at a job whose verdict has held `rechecks` times."""
+    # The exponent is bounded so a job that waits for days cannot overflow a float.
+    return min(ceiling_s, CAPACITY_RECHECK_BASE_S * 2 ** min(max(rechecks, 0), 16))
+
+
+def waiting_metadata(decision: Decision, now: str | datetime | None = None, *,
+                     rechecks: int = 0, ceiling_s: float = CAPACITY_RECHECK_CEILING_S) -> dict[str, str]:
+    """C-4.1; plan amendment 11: capacity waits always have a recheck clock.
+
+    C-6.10: the clock backs off while the verdict repeats, and a known reset
+    that falls sooner than the backed-off clock is still checked on time.
+    """
     instant = _time(now) if now is not None else datetime.now(timezone.utc)
-    next_check = instant + timedelta(seconds=1)
+    next_check = instant + timedelta(seconds=capacity_recheck_delay(rechecks, ceiling_s))
     earliest = _earliest_reset(decision.evaluations, instant)
     if earliest:
         next_check = min(next_check, _time(earliest))
     return {"wait_reason": "capacity", "next_check_at": _iso(next_check)}
+
+
+def verdict_signature(decision: Decision | Mapping[str, Any]) -> str:
+    """C-6.10: what a decision concluded, without the evidence it consulted.
+
+    Two evaluations with the same signature walked the same chain, chose the
+    same lane and model, and rejected the same lanes for the same reasons.
+    Readings, their utilization, and `evaluated_at` change every probe cycle
+    without changing the verdict, so they are left out. So is `no-slot` on a
+    lane that is rejected for another reason as well: a lane that is closed,
+    reserved, or excluded is no nearer to taking the job when its slot empties.
+    Slots fill and empty all day, and a probe's reservation counts toward the
+    fleet cap, so each probe cycle (C-18.1) marks every lane `no-slot` for the
+    second it runs. A lane whose only reason is `no-slot` keeps it: that job is
+    waiting for a slot, and that is its verdict.
+    """
+    value = _row(decision)
+    walked = []
+    for evaluation in value.get("evaluations", ()):
+        rejections = []
+        for row in evaluation.get("rejections", ()):
+            reasons = list(row.get("reasons") or [row.get("reason")])
+            standing = [reason for reason in reasons if reason != "no-slot"]
+            rejections.append((str(row.get("lane_id")), tuple(standing or reasons)))
+        rejections.sort()
+        candidates = sorted(row if isinstance(row, str) else str(row.get("lane_id"))
+                            for row in evaluation.get("candidates", ()))
+        walked.append([evaluation.get("model"), candidates, rejections])
+    material = [list(value.get("chain", ())), value.get("chosen_lane"), value.get("chosen_model"),
+                value.get("policy_hash"), walked]
+    return hashlib.sha256(json.dumps(material, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
+    """C-6.11: what keeps a job out of every lane, as one short label.
+
+    A lane rejected only for `no-slot` would take the job if it had room, so
+    room is the cause: `fleet-full` when the fleet cap made it so, `parent-cap`
+    for a parent's, else `no-slot`. When every lane has a standing reason the
+    label is the commonest of those, and the cap is beside the point: a probe's
+    reservation counts toward the fleet cap, so a job that no lane admits anyway
+    would otherwise read `fleet-full` for the second each probe runs.
+    """
+    if decision is None:
+        return "not-evaluated"
+    value = _row(decision)
+    blocks = [block for evaluation in value.get("evaluations", ())
+              for block in evaluation.get("capacity_blocks", ())]
+    counts: dict[str, int] = {}
+    room_only = False
+    for evaluation in value.get("evaluations", ()):
+        for row in evaluation.get("rejections", ()):
+            reasons = [str(reason) for reason in (row.get("reasons") or [row.get("reason") or "unknown"])]
+            standing = [reason for reason in reasons if reason != "no-slot"]
+            if not standing:
+                room_only = True
+                continue
+            # A closure's reason carries its own expiry; the label groups them.
+            label = ":".join(standing[0].split(":")[:2]) if standing[0].startswith("closed:") else standing[0]
+            counts[label] = counts.get(label, 0) + 1
+    if room_only:
+        if "fleet" in blocks:
+            return "fleet-full"
+        return "parent-cap" if any(str(block).startswith("parent:") for block in blocks) else "no-slot"
+    if not counts:
+        return "no-lanes"
+    return max(sorted(counts), key=lambda label: counts[label])
