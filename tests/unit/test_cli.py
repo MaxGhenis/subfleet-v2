@@ -5,9 +5,12 @@ Every test names the clause it proves (C-20.5).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -24,6 +27,17 @@ def submit_ok(request: protocol.Request) -> dict:
 
 def terminal(state: str = "succeeded", **extra) -> dict:
     return {"jobs": {JOB: {"job_id": JOB, "state": state, **extra}}}
+
+
+def ping_ok(request: protocol.Request) -> dict:
+    """What the daemon's `ping` op really answers (subfleet/daemon.py).
+
+    There is no `delivered` and no `name` in it: the text becomes a service
+    notice the target session collects, and the answer says so (C-17.8).
+    """
+    return {"pong": True, "version": "test",
+            "session_id": request.args.get("session_id") or "operator",
+            "text": request.args.get("text"), "notice_id": -7}
 
 
 def run_cli(argv: list[str]) -> int:
@@ -151,7 +165,7 @@ def test_why_and_ping_reach_their_ops(daemon, capsys):
         "why": lambda request: {"decision": {"chosen_model": "astra",
                                              "chosen_lane": "codex-2",
                                              "reason": "opus: no candidate lanes"}},
-        "ping": lambda request: {"delivered": True, "name": "cli-1"},
+        "ping": ping_ok,
     })
     assert run_cli(["why", "--task", "build", "--tier", "hard", "-x", "a@b.c"]) == 0
     assert server.args("why")["task"] == "build"
@@ -732,8 +746,10 @@ def test_the_identity_check_runs_once_per_client(root, monkeypatch):
     from subfleet import client as client_module
     (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
     calls: list[int] = []
-    monkeypatch.setattr(client_module, "identity_report",
-                        lambda *a, **k: calls.append(1) or (None, "stubbed"))
+    # The `ps` itself is counted: it is the same read that answers the
+    # stopped-holder question of C-5.11, and neither may run twice.
+    monkeypatch.setattr(client_module, "proc_status",
+                        lambda *a, **k: calls.append(1) or (None, None))
     probe = client_module.Client(root)
     for _ in range(4):
         probe.check_available()
@@ -858,11 +874,121 @@ def test_wait_summary_names_the_deliverable(daemon, root, capsys):
 
 def test_ping_joins_unquoted_words(daemon, monkeypatch, capsys):
     """C-17.1 `ping TEXT` takes the rest of the line as the message."""
-    server = daemon({"ping": lambda request: {"delivered": True}})
+    server = daemon({"ping": ping_ok})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
     assert run_cli(["ping", "the", "build", "is", "green"]) == 0
     assert server.args("ping")["text"] == "the build is green"
     capsys.readouterr()
+
+
+def test_ping_prints_the_notice_the_daemon_actually_queued(daemon, capsys):
+    """C-17.8 the output is the answer's own keys, not a delivery it never claimed."""
+    daemon({"ping": ping_ok})
+    assert run_cli(["ping", "--session", "sess-1", "the build is green"]) == 0
+    assert capsys.readouterr().out.strip() == "queued notice -7 for sess-1"
+
+
+def test_ping_still_renders_a_transport_that_reports_a_delivery(daemon, capsys):
+    """C-15.2 the v1 socket push is kept until `ping` has a tested replacement,
+    and it is the transport that would answer `delivered`."""
+    daemon({"ping": lambda request: {"delivered": True, "name": "cli-1"}})
+    assert run_cli(["ping", "--session", "sess-1", "hi"]) == 0
+    assert capsys.readouterr().out.strip() == "delivered to cli-1"
+
+
+# --- ping's stdin (C-17.8) ----------------------------------------------------
+
+@pytest.fixture
+def pipe(monkeypatch):
+    """Factory: stdin is a real pipe, with bytes in it or with nobody writing.
+
+    With no payload the write end is held open for the whole test, which is the
+    shape that hung: a pipe that is neither written to nor closed.
+    """
+    opened: list[Any] = []
+
+    def make(payload: bytes | None = None) -> None:
+        read_fd, write_fd = os.pipe()
+        if payload is None:
+            opened.append(write_fd)
+        else:
+            os.write(write_fd, payload)
+            os.close(write_fd)
+        stream = os.fdopen(read_fd, "rb")        # the reader owns read_fd now
+        opened.append(stream)
+        monkeypatch.setattr(cli.sys, "stdin", stream)
+
+    yield make
+    for item in opened:
+        with contextlib.suppress(OSError):
+            os.close(item) if isinstance(item, int) else item.close()
+
+
+def test_ping_refuses_a_pipe_nobody_ever_writes_to(pipe, monkeypatch, capsys):
+    """C-17.8 the harness pipe that hung for two hours is exit 2, quickly."""
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "0.05")
+    pipe()
+    started = time.monotonic()
+    assert run_cli(["ping", "--session", "sess-1"]) == int(Exit.INVALID_INPUT)
+    assert time.monotonic() - started < 5.0
+    captured = capsys.readouterr()
+    assert "open pipe nobody wrote to" in captured.err
+    assert "subfleet daemon status" in captured.err
+    assert "not a health check" in captured.err
+
+
+def test_ping_reads_a_pipe_that_has_a_message_in_it(pipe, daemon, capsys):
+    """C-17.8 v1's stdin form is kept: a piped message is still sent."""
+    server = daemon({"ping": ping_ok})
+    pipe(b"the sweep finished\n")
+    assert run_cli(["ping", "--session", "sess-1"]) == 0
+    assert server.args("ping")["text"] == "the sweep finished\n"
+    capsys.readouterr()
+
+
+def test_ping_refuses_dev_null_without_waiting(monkeypatch, capsys):
+    """C-17.8 a character device cannot block, and an empty message is exit 2."""
+    with open(os.devnull, "rb") as devnull:
+        monkeypatch.setattr(cli.sys, "stdin", devnull)
+        assert run_cli(["ping", "--session", "sess-1"]) == int(Exit.INVALID_INPUT)
+    captured = capsys.readouterr()
+    assert "stdin was empty" in captured.err and "daemon status" in captured.err
+
+
+def test_ping_refuses_a_terminal_at_once(capsys):
+    """C-17.8 a terminal reaches no end of file on its own, so it is not a message."""
+    class Terminal:
+        def isatty(self):
+            return True
+
+        def read(self):                  # pragma: no cover - never reached
+            raise AssertionError("a terminal must not be read")
+
+    text, why_not = cli._stdin_message(stream=Terminal())
+    assert text is None and "terminal" in why_not
+
+
+def test_ping_dash_blocks_on_stdin_however_long_it_takes(pipe, daemon, capsys):
+    """C-17.8 `-` is the caller who means stdin; no readiness check applies."""
+    server = daemon({"ping": ping_ok})
+    pipe(b"a long notice\n")
+    assert run_cli(["ping", "--session", "sess-1", "-"]) == 0
+    assert server.args("ping")["text"] == "a long notice\n"
+    capsys.readouterr()
+
+
+def test_ping_refuses_a_blank_message_on_the_command_line(capsys):
+    """C-17.8 whitespace is not a message, whichever way it arrives."""
+    assert run_cli(["ping", "--session", "sess-1", "   "]) == int(Exit.INVALID_INPUT)
+    assert "the message is blank" in capsys.readouterr().err
+
+
+def test_the_stdin_wait_is_overridable_by_the_environment(monkeypatch):
+    """C-17.8 `SUBFLEET_PING_STDIN_WAIT_S` is for a producer slower than the default."""
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "7.5")
+    assert cli._ping_stdin_wait_s() == 7.5
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "not a number")
+    assert cli._ping_stdin_wait_s() == cli.PING_STDIN_WAIT_S
 
 
 def test_reap_blames_the_store_not_the_daemon_when_the_daemon_is_up(daemon, capsys):

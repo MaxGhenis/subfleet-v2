@@ -348,6 +348,17 @@ def test_live_pings_the_daemon(daemon, root):
     assert item["status"] == doctor.PASS and "2.0.0a0" in item["detail"]
 
 
+def test_live_pings_with_empty_text_so_it_leaves_no_notice(daemon, root):
+    """C-16.2 the daemon's `ping` writes a `service_notices` row for any
+    non-empty text, so the probe that only asks whether it answers sends none."""
+    server = daemon({"ping": lambda request: {"pong": True, "version": "t",
+                                              "session_id": "operator",
+                                              "text": request.args.get("text"),
+                                              "notice_id": None}})
+    assert doctor.check_live(root)["status"] == doctor.PASS
+    assert server.args("ping") == {"text": ""}
+
+
 def test_live_fails_when_nothing_is_listening(root):
     """C-17.5 everything that needs the daemon exits 69 when it is not there,
     and `--live` is exactly the check that needs it."""

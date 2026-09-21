@@ -14,6 +14,11 @@ support for older wall-clock boot timestamps. Process inspection is pinned to
 `LC_ALL=C` and `TZ=UTC` because `lstart` is rendered in the reader's locale and
 whoever recorded the value rendered it in theirs. It is kept small and local here
 so the CLI does not import the daemon-side `procs` module.
+
+That one `ps` reads the state column as well, so the third condition of C-5.11
+costs nothing to notice: a holder that is alive but stopped holds the lock and
+the socket and answers nothing until it is continued. It is refused before the
+socket is touched, and again after a timeout, as `DaemonStopped`.
 """
 
 from __future__ import annotations
@@ -42,6 +47,11 @@ DEFAULT_TIMEOUT_S = 15.0
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 DEFAULT_STATE_ROOT = "~/.subfleet"
 START_DAEMON_FIX = "subfleet daemon start"
+#: What to do about a daemon that holds the lock and answers nothing for a
+#: reason `ps` cannot see. Never "start one": the flock would refuse it (C-5.8).
+SILENT_DAEMON_FIX = ("subfleet daemon logs -n 40, then subfleet daemon stop if it "
+                     "is wedged; the recorded holder is running, so starting a "
+                     "second daemon would only fail the lock")
 
 
 def state_root(env: dict[str, str] | None = None) -> Path:
@@ -63,6 +73,21 @@ class DaemonUnavailable(Exception):
     def __init__(self, message: str, fix: str = START_DAEMON_FIX):
         super().__init__(message)
         self.fix = fix
+
+
+class DaemonStopped(DaemonUnavailable):
+    """The lock holder is alive but stopped, so it will never answer (C-5.11).
+
+    Unavailable in exactly the sense C-17.5 means: the read verbs fall back to
+    the store. The fix is the signal that continues this daemon, never a second
+    one, which would fail the flock of C-5.8.
+    """
+
+    def __init__(self, pid: int, state: str | None):
+        message, fix = stopped_report(pid, state)
+        super().__init__(message, fix)
+        self.pid = pid
+        self.state = state
 
 
 class DaemonError(Exception):
@@ -115,6 +140,32 @@ def _boot_read(argv: list[str]) -> str:
 
 
 ZOMBIE_STATES = ("Z",)
+#: BSD `ps` prints the state letter with its flags attached (`T`, `T+`, `TN`),
+#: so the letter is matched as a prefix. `T` is SIGSTOP, SIGTSTP, or a debugger.
+STOPPED_STATES = ("T",)
+
+
+def proc_status(pid: int) -> tuple[str | None, str | None]:
+    """The `state` and `lstart` columns for `pid`, from one `ps`.
+
+    `(None, None)`: `ps` could not answer, which is never evidence about the
+    pid. `("", "")`: there is no such process. Otherwise the raw state string
+    (`S`, `T+`, `Z`, …) and the start time as `ps` rendered it under `PS_ENV`.
+    """
+    rc, out = _run(["/bin/ps", "-p", str(int(pid)), "-o", "state=,lstart="])
+    if rc < 0:
+        return None, None                # ps itself did not run: unverifiable
+    line = " ".join(out.split())
+    if not line:
+        # rc 1 with no output is "no such process"; anything else is unverifiable.
+        return ("", "") if rc == 1 else (None, None)
+    state, _, started = line.partition(" ")
+    return state, started
+
+
+def is_stopped(state: str | None) -> bool:
+    """Does this `ps` state say the process is stopped rather than running?"""
+    return bool(state) and state.startswith(STOPPED_STATES)
 
 
 def proc_start(pid: int) -> str | None:
@@ -124,28 +175,30 @@ def proc_start(pid: int) -> str | None:
     saying "no such process" (rc 1 with no output) is death; any other failure
     is unverifiable, because a refused `ps` is not evidence that a pid is free.
     """
-    rc, out = _run(["/bin/ps", "-p", str(int(pid)), "-o", "state=,lstart="])
-    if rc < 0:
-        return None                      # ps itself did not run: unverifiable
-    line = " ".join(out.split())
-    if not line:
-        return "" if rc == 1 else None   # rc 1 with no output is "no such process"
-    state, _, started = line.partition(" ")
+    return _live_start(*proc_status(pid))
+
+
+def _live_start(state: str | None, started: str | None) -> str | None:
+    """`proc_status`'s answer as `proc_start` reports it: the zombie rule."""
+    if state is None:
+        return None
+    if state == "":
+        return ""
     if state.startswith(ZOMBIE_STATES):
         return ""                        # exited, not yet reaped: not live
     return started
 
 
-def identity_report(pid: int | None, recorded_boot: str | None,
-                    recorded_start: str | None) -> tuple[bool | None, str]:
-    """The identity verdict of C-5.3 with the reason it was reached.
+def identity_status(pid: int | None, recorded_boot: str | None,
+                    recorded_start: str | None) -> tuple[bool | None, str, str | None]:
+    """`identity_report`, and the raw `ps` state the verdict was read from.
 
-    True: the recorded process is running. False: it is provably gone (no such
-    pid, a different start time, or a reboot since the record). None: the check
-    could not be made, which is never treated as death.
+    The state is None whenever no `ps` was run or it could not answer; it is
+    reported even for a verdict that did not depend on it, because C-5.11 asks
+    a second question of the same process and this is the read that answers it.
     """
     if not pid:
-        return None, "no pid was recorded"
+        return None, "no pid was recorded", None
     boot_match = True
     if recorded_boot:
         current = boot_id()
@@ -156,29 +209,85 @@ def identity_report(pid: int | None, recorded_boot: str | None,
                                                lambda: boot_identity.boot_seconds(_boot_read))
         if boot_match is False:
             return False, (f"the machine booted at {current}, not at "
-                           f"{recorded_boot} as recorded, so pid {pid} is gone")
-    start = proc_start(int(pid))
+                           f"{recorded_boot} as recorded, so pid {pid} is gone"), None
+    state, started = proc_status(int(pid))
+    start = _live_start(state, started)
     if start is None:
-        return None, f"ps could not report on pid {pid}"
+        return None, f"ps could not report on pid {pid}", state
     if start == "":
-        return False, f"there is no live process with pid {pid}"
+        return False, f"there is no live process with pid {pid}", state
     if not recorded_start:
-        return None, f"pid {pid} is alive but no start time was recorded"
+        return None, f"pid {pid} is alive but no start time was recorded", state
     if " ".join(str(recorded_start).split()) == start:
         if boot_match is None:
             return None, (f"pid {pid} has the recorded start time, but the legacy boot "
-                          "timestamp changed or boot identity is unavailable; process death is unproven")
-        return True, f"pid {pid} started at {start}, as recorded"
+                          "timestamp changed or boot identity is unavailable; process death is unproven"), state
+        return True, f"pid {pid} started at {start}, as recorded", state
     return False, (f"pid {pid} started at {start!r}, not {recorded_start!r} as "
                    f"recorded — either the pid was reused, or the two sides "
                    f"rendered the start time differently (C-5.3 wants "
-                   f"LC_ALL=C and TZ=UTC on both)")
+                   f"LC_ALL=C and TZ=UTC on both)"), state
+
+
+def identity_report(pid: int | None, recorded_boot: str | None,
+                    recorded_start: str | None) -> tuple[bool | None, str]:
+    """The identity verdict of C-5.3 with the reason it was reached.
+
+    True: the recorded process is running. False: it is provably gone (no such
+    pid, a different start time, or a reboot since the record). None: the check
+    could not be made, which is never treated as death.
+    """
+    return identity_status(pid, recorded_boot, recorded_start)[:2]
 
 
 def same_process(pid: int | None, recorded_boot: str | None,
                  recorded_start: str | None) -> bool | None:
     """Tri-state identity check (C-5.3); see `identity_report` for the reason."""
     return identity_report(pid, recorded_boot, recorded_start)[0]
+
+
+# --- Who stopped it (C-5.11) --------------------------------------------------
+
+#: Programs that stop other processes on purpose, each with the file it writes
+#: the pids it paused into, one per line. A SIGSTOP leaves nothing on its target
+#: that names the sender, so this table is the only way an attribution can be
+#: made at all, and only for a pid the pauser's own file lists. Tests point
+#: `marker` at a temp file by replacing this tuple.
+KNOWN_PAUSERS: tuple[dict[str, str], ...] = (
+    {"name": "clamshell-guard",
+     "marker": "~/.local/state/clamshell-guard/paused.pids",
+     "detail": "clamshell-guard paused it (it pauses heavy processes while the lid "
+               "is closed on battery, and resumes them when the lid opens or power "
+               "returns; see ~/bin/clamshell-guard-status)",
+     # Not `kill -CONT`: the guard is the operator's thermal policy and would
+     # stop it again on its next pass.
+     "fix": "open the lid or connect power; ~/bin/clamshell-guard-resume resumes "
+            "everything it paused"},
+)
+
+
+def paused_by(pid: int) -> dict[str, str] | None:
+    """The `KNOWN_PAUSERS` entry whose marker file lists `pid`, or None."""
+    for pauser in KNOWN_PAUSERS:
+        try:
+            text = Path(pauser["marker"]).expanduser().read_text()
+        except OSError:
+            continue
+        if any(line.strip() == str(pid) for line in text.splitlines()):
+            return pauser
+    return None
+
+
+def stopped_report(pid: int, state: str | None) -> tuple[str, str]:
+    """The message and fix for a lock holder that is stopped (C-5.11)."""
+    message = (f"daemon pid {pid} is stopped (process state {state!r}: SIGSTOP or a "
+               f"debugger); it holds {LOCK_NAME} and {SOCKET_NAME} but cannot answer "
+               f"until it is continued")
+    fix = f"kill -CONT {pid}"
+    pauser = paused_by(pid)
+    if pauser is not None:
+        return f"{message}; {pauser['detail']}", pauser["fix"]
+    return message, fix
 
 
 def _read_line(conn: socket.socket, deadline_at: float) -> bytes:
@@ -247,34 +356,58 @@ class Client:
             return None
         return data if isinstance(data, dict) else None
 
-    def lock_report(self) -> tuple[bool | None, str]:
-        """Liveness of the recorded lock holder, with the reason (C-5.8)."""
+    def holder_report(self) -> tuple[int | None, bool | None, str, str | None]:
+        """The recorded holder's pid, liveness, reason, and `ps` state (C-5.8).
+
+        One `ps` per call, the same one the identity check makes, so the
+        stopped-holder question of C-5.11 is answered at no extra cost.
+        """
         info = self.lock_info()
         if info is None:
-            return None, f"there is no {self.lock_path}"
+            return None, None, f"there is no {self.lock_path}", None
         pid = info.get("pid")
         try:
             pid = int(pid)
         except (TypeError, ValueError):
-            return None, f"{self.lock_path} records no usable pid"
-        return identity_report(pid, info.get("boot_id"), info.get("proc_start"))
+            return None, None, f"{self.lock_path} records no usable pid", None
+        alive, reason, state = identity_status(pid, info.get("boot_id"),
+                                               info.get("proc_start"))
+        return pid, alive, reason, state
+
+    def lock_report(self) -> tuple[bool | None, str]:
+        """Liveness of the recorded lock holder, with the reason (C-5.8)."""
+        return self.holder_report()[1:3]
 
     def lock_holder_alive(self) -> bool | None:
         """Tri-state liveness of the recorded lock holder (C-5.8)."""
-        return self.lock_report()[0]
+        return self.holder_report()[1]
+
+    def stopped_holder(self) -> DaemonStopped | None:
+        """`DaemonStopped` when the verified lock holder is stopped (C-5.11).
+
+        Only a holder whose identity checks out is diagnosed: a state read for
+        a pid that is not provably the recorded daemon says nothing about it.
+        """
+        pid, alive, _reason, state = self.holder_report()
+        return DaemonStopped(pid, state) if alive and is_stopped(state) else None
 
     def check_available(self) -> None:
-        """Raise `DaemonUnavailable` when the lock says the daemon is dead.
+        """Raise `DaemonUnavailable` when the lock says the daemon cannot answer.
 
         Checked once per client: the check costs a `ps` and a `sysctl`, and a
         daemon that dies mid-conversation shows up as a refused connection
-        anyway, which is the stronger signal.
+        anyway, which is the stronger signal. A stopped holder is caught here
+        rather than on the wire, because it accepts the connection into its
+        backlog and then answers nothing, so the whole timeout would be spent
+        learning what this `ps` already said (C-5.11).
         """
         if self._checked:
             return
-        alive, reason = self.lock_report()
+        pid, alive, reason, state = self.holder_report()
         if alive is False:
             raise DaemonUnavailable(f"{self.lock_path} is stale: {reason}")
+        if alive and is_stopped(state):
+            raise DaemonStopped(pid, state)
         self._checked = True
 
     # --- the wire ------------------------------------------------------------
@@ -294,14 +427,23 @@ class Client:
                     NotADirectoryError) as exc:
                 raise DaemonUnavailable(f"no daemon at {self.socket_path}: {exc}") from exc
             except OSError as exc:
-                raise DaemonUnavailable(f"cannot reach {self.socket_path}: {exc}") from exc
+                # A connect that times out is a backlog nobody is accepting
+                # from, which is what a stopped daemon looks like (C-5.11).
+                raise (self.stopped_holder()
+                       or DaemonUnavailable(f"cannot reach {self.socket_path}: "
+                                            f"{exc}")) from exc
             try:
                 conn.sendall(encode(request))
                 line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
+                # The holder is asked again, not remembered from
+                # `check_available`: it may have been stopped mid-call.
+                stopped = self.stopped_holder()
+                if stopped is not None:
+                    raise stopped from exc
                 raise ProtocolError(
                     f"no response from the daemon within {deadline:g}s",
-                    Exit.OPERATIONAL) from exc
+                    Exit.OPERATIONAL, SILENT_DAEMON_FIX) from exc
             except OSError as exc:
                 raise ProtocolError(f"daemon connection failed: {exc}",
                                     Exit.OPERATIONAL) from exc

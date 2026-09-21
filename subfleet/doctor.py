@@ -31,7 +31,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .client import Client, DaemonError, DaemonUnavailable, LOCK_NAME, SOCKET_NAME
+from .client import (Client, DaemonError, DaemonStopped, DaemonUnavailable,
+                     LOCK_NAME, SOCKET_NAME, is_stopped)
 from .offline import Offline, OfflineUnavailable, SchemaTooNew
 from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
@@ -247,7 +248,12 @@ def check_state_root(root: Path) -> dict[str, Any]:
 
 
 def check_daemon_lock(root: Path) -> dict[str, Any]:
-    """Does `daemon.lock` name a process that is actually alive (C-5.8)?"""
+    """Does `daemon.lock` name a process that is actually alive (C-5.8, C-5.11)?
+
+    Alive is not enough: a holder that is stopped answers nothing, and this row
+    passing while the fleet was frozen is what let `doctor` exit 0 through the
+    2026-09-20 incident.
+    """
     client = Client(root)
     info = client.lock_info()
     socket_present = client.socket_path.exists()
@@ -259,7 +265,7 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
         return row("daemon.lock names a live process", PASS,
                    "no lock and no socket: no daemon is running",
                    "`subfleet daemon start` when you want one")
-    alive, reason = client.lock_report()
+    pid, alive, reason, state = client.holder_report()
     if alive is False:
         return row("daemon.lock names a live process", FAIL,
                    f"pid {info.get('pid')} is gone: {reason}"
@@ -268,6 +274,9 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
                       if socket_present else ""),
                    "`subfleet daemon start` — a CLI may start one over a dead "
                    "holder, never over a live one (plan amendment 3)")
+    if alive and is_stopped(state):
+        stopped = DaemonStopped(pid, state)
+        return row("daemon.lock names a live process", FAIL, str(stopped), stopped.fix)
     if alive is None:
         return row("daemon.lock names a live process", UNKNOWN,
                    f"pid {info.get('pid')}: {reason}",
@@ -466,14 +475,22 @@ def check_module(name: str) -> dict[str, Any]:
 
 
 def check_live(root: Path) -> dict[str, Any]:
-    """`--live`: one `ping` against the daemon (C-16.2)."""
+    """`--live`: one `ping` against the daemon (C-16.2).
+
+    The text is empty on purpose. The daemon's `ping` op inserts a
+    `service_notices` row for any non-empty text (subfleet/daemon.py), so a
+    probe carrying a message would leave one notice behind per run; empty text
+    returns the same `{pong, version}` and writes nothing.
+    """
     try:
-        result = Client(root, timeout=5).call("ping", {"text": "doctor"})
+        result = Client(root, timeout=5).call("ping", {"text": ""})
+    except DaemonStopped as exc:
+        return row("ping the daemon", FAIL, str(exc), exc.fix)
     except DaemonUnavailable as exc:
         return row("ping the daemon", FAIL, str(exc), "`subfleet daemon start`")
     except (DaemonError, ProtocolError, OSError) as exc:
         return row("ping the daemon", FAIL, f"{exc.__class__.__name__}: {exc}",
-                   "`subfleet daemon logs -n 40`")
+                   getattr(exc, "fix", None) or "`subfleet daemon logs -n 40`")
     if not result.get("pong"):
         return row("ping the daemon", FAIL, f"unexpected reply: {result}",
                    "`subfleet daemon logs -n 40`")
