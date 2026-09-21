@@ -54,7 +54,7 @@ from ..contracts import (
 from .base import Adapter, AdapterError
 from .claude_stream import (
     AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
-    parse_stream,
+    parse_lines, parse_stream,
 )
 
 # --- constants ---------------------------------------------------------------
@@ -1405,6 +1405,28 @@ class ClaudeAdapter(Adapter):
                 return text
         return ""
 
+    def stream_summary(self, attempt_dir: Path, launch: Launch | None = None) -> StreamSummary:
+        """Parse the complete attempt, including a terminal result beyond 4 MB.
+
+        `Adapter.read_text` is a bounded diagnostic prefix, not an authoritative
+        stream reader. Never use it to decide whether a long attempt succeeded.
+        """
+        attempt_dir = Path(attempt_dir)
+        candidates = [Path(launch.raw_stream_path)] if launch and launch.raw_stream_path else []
+        candidates.append(attempt_dir / "stream.jsonl")
+        if launch and launch.stdout_path:
+            candidates.append(Path(launch.stdout_path))
+        candidates.append(attempt_dir / "stdout")
+        for path in dict.fromkeys(candidates):
+            try:
+                with path.open(encoding="utf-8", errors="replace") as handle:
+                    summary = parse_lines(handle)
+            except FileNotFoundError:
+                continue
+            if summary.lines_total:
+                return summary
+        return parse_stream("")
+
     def stderr_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
         attempt_dir = Path(attempt_dir)
         if launch is not None and launch.stderr_path:
@@ -1431,9 +1453,8 @@ class ClaudeAdapter(Adapter):
         now = self._now()
         observed_at = iso_utc(now)
 
-        stream_text = self.raw_stream_text(attempt_dir, launch)
         stderr = self.stderr_text(attempt_dir, launch)
-        summary = parse_stream(stream_text)
+        summary = self.stream_summary(attempt_dir, launch)
         info = summary.rate_limit
 
         readings = self.readings_from_rate_limit(
@@ -1865,7 +1886,7 @@ class ClaudeAdapter(Adapter):
     ) -> bytes | None:
         """C-12.6: the attempt's own final assistant text, transcript first."""
         notes = dict(launch.notes) if launch is not None else {}
-        summary = parse_stream(self.raw_stream_text(Path(attempt_dir), launch))
+        summary = self.stream_summary(Path(attempt_dir), launch)
         session_id = (
             summary.session_id
             or (launch.native_session_id if launch is not None else None)

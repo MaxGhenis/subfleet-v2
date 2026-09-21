@@ -345,6 +345,12 @@ def _rows(text: str) -> tuple[list[tuple[Any, bool]], int, int, bool]:
 def parse_stream(text: str) -> StreamSummary:
     """Parse one attempt's raw stream into a `StreamSummary`. Never raises."""
     rows, total, parsed, truncated = _rows(text or "")
+    return _summarize((row for row, _ok in rows),
+                      {"total": total, "parsed": parsed, "truncated": truncated})
+
+
+def _summarize(rows: Iterable[Any], counts: dict[str, Any]) -> StreamSummary:
+    """Consume decoded events without retaining unrelated tool/user payloads."""
 
     init: InitEvent | None = None
     assistants: list[AssistantMessage] = []
@@ -352,10 +358,10 @@ def parse_stream(text: str) -> StreamSummary:
     result: ResultEvent | None = None
     retries: list[ApiRetry] = []
     unknown: list[str] = []
-    bad = total - parsed - (1 if truncated else 0)
+    bad = 0
     session_id: str | None = None
 
-    for row, _ok in rows:
+    for row in rows:
         if not isinstance(row, dict):
             bad += 1
             continue
@@ -443,14 +449,47 @@ def parse_stream(text: str) -> StreamSummary:
         result=result,
         api_retries=tuple(retries),
         session_id=session_id,
-        lines_total=total,
-        lines_parsed=parsed,
-        bad_lines=max(0, bad),
-        truncated_tail=truncated,
+        lines_total=counts["total"],
+        lines_parsed=counts["parsed"],
+        bad_lines=max(0, bad + counts["total"] - counts["parsed"] - (1 if counts["truncated"] else 0)),
+        truncated_tail=counts["truncated"],
         unknown_types=tuple(dict.fromkeys(unknown)),
     )
 
 
 def parse_lines(lines: Iterable[str]) -> StreamSummary:
-    """`parse_stream` for an iterable of lines (a file handle, say)."""
-    return parse_stream("\n".join(lines))
+    """Read JSONL through EOF without materializing the complete raw stream.
+
+    Every assistant and provider verdict is retained. Large unrelated tool/user
+    frames are released after their line is parsed. A legacy pretty-printed JSON
+    object keeps the whole-object compatibility of `parse_stream`.
+    """
+    from itertools import chain
+
+    iterator = iter(lines)
+    first = next((line for line in iterator if line.strip()), "")
+    if first.lstrip().startswith("{"):
+        try:
+            json.loads(first)
+        except ValueError:
+            # Legacy whole-object JSON may put fields before its first newline.
+            # Keep its established decoder/fallback rather than misread it as
+            # truncated JSONL. Ordinary complete JSONL rows stay incremental.
+            return parse_stream("\n".join(chain((first,), iterator)))
+    counts = {"total": 0, "parsed": 0, "truncated": False}
+
+    def decoded():
+        for line in chain((first,), iterator):
+            if not line.strip():
+                continue
+            counts["total"] += 1
+            counts["truncated"] = False
+            try:
+                row = json.loads(line)
+            except ValueError:
+                counts["truncated"] = True
+                continue
+            counts["parsed"] += 1
+            yield row
+
+    return _summarize(decoded(), counts)
