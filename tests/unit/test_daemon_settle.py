@@ -340,3 +340,20 @@ def test_c5_12_members_are_recorded_only_while_the_recorded_guardian_leads_the_g
                            4243: (4242, 4242, "S", STARTED)}, "boot")
     daemon._record_owned(attempt(daemon), reused)
     assert "owned_identities" not in json.loads(attempt(daemon)["evidence_json"])
+
+
+def test_c5_12_a_failed_process_table_read_is_rationed_like_a_good_one(daemon, monkeypatch):
+    """C-5.12 `ps` failing costs one read per interval, not one per attempt that asks."""
+    from subfleet import procs
+    reads = []
+
+    def failing():
+        reads.append(1)
+        raise procs.InspectionError("ps timed out")
+    monkeypatch.setattr(daemon_module.procs, "snapshot", failing)
+    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
+    assert [Daemon._process_table(daemon) for _ in range(6)] == [None] * 6
+    assert reads == [1]
+    daemon._table_next = 0.0                                      # the interval ends
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table_showing((4242, 1, 4242, "Ss")))
+    assert Daemon._process_table(daemon).is_process(4242, "boot", STARTED)

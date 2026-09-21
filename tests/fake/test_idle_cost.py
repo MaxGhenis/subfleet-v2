@@ -16,8 +16,8 @@ import pytest
 
 from subfleet import procs
 from subfleet.adapters.registry import register
-from subfleet.contracts import (ClockSource, Closure, ClosureReason, Reading, ReadingLabel,
-                                attempt_dir)
+from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
+                                Reading, ReadingLabel, attempt_dir)
 from subfleet.daemon import Daemon, after, utcnow
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -128,6 +128,48 @@ def test_c6_8_a_job_waiting_on_its_workspace_is_still_prepared_whatever_capacity
     assert "job.workspace_ready" in kinds(daemon, job)
 
 
+def test_c6_12_a_workspace_wait_is_ended_even_under_a_full_fleet_and_is_not_probed(service, spawns, tmp_path):
+    """C-6.12, C-6.8 a full fleet ends the pass for every job but the one whose workspace is what it waits for."""
+    daemon, harness = service
+    daemon.policy["caps"]["max_active_attempts"] = 1
+    daemon.dispatch("submit", harness.submit_args())
+    daemon._admit()                                               # the fleet is now full
+    job = daemon.dispatch("submit", harness.submit_args(workdir=str(repository(tmp_path / "repo")), tier="hard",
+                                                        sandbox="workspace-write", in_place=True,
+                                                        caller_session=None))["job_id"]
+    daemon.store.update_job(job, state="waiting", wait_reason="workspace", next_check_at=after(-1))
+    daemon._prepare_route = lambda *args: pytest.fail("no probe for a job the fleet cannot take")
+    spawns.clear()
+    daemon._admit()
+    assert any(call[0] == "git" for call in spawns)
+    row = daemon.store.get_job(job)
+    assert (row["state"], row["wait_reason"]) == ("waiting", "capacity") and "job.workspace_ready" in kinds(daemon, job)
+    spawns.clear()
+    due(daemon)
+    daemon._admit()                                               # a capacity wait now: the full fleet ends the pass
+    assert spawns == []
+
+
+def test_c3_6_a_pass_that_only_records_exclusions_says_so(service):
+    """C-3.6, C-6.12 a lane that frees between the check and the transaction records no wait that did not happen."""
+    daemon, harness = service
+    home = harness.root / "home-2"
+    home.mkdir()
+    daemon.store.put_lane(Lane("codex-2", "codex", "codex:second", Credential("codex", str(home), "home"),
+                               str(home), LaneOwner.V2, False))
+    job = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    daemon.store.add_attempt(attempt_id=f"{job}/a1", job_id=job, seq=1, lane_id="codex-2", model_requested="gpt-6-astra",
+                             state="failed", outcome_class="limited", evidence_json="{}")
+    daemon._placeable = lambda *args, **kwargs: False             # the check saw no room; the transaction will
+    daemon._admit()
+    row = daemon.store.get_job(job)
+    assert (row["state"], row["wait_reason"]) == ("queued", None) and "codex-2" in row["exclusions"]
+    assert kinds(daemon, job)[-1] == "job.exclusions_recorded" and "job.capacity_waiting" not in kinds(daemon, job)
+    del daemon._placeable
+    daemon._admit()                                               # one tick later it is prepared and admitted
+    assert [a["state"] for a in daemon.store.list_attempts(job)][-1] == "reserved"
+
+
 def test_c3_6_an_event_says_reserved_only_when_an_attempt_was(service):
     """C-3.6, C-3.2, C-6.3 a pass that leaves a job waiting records the wait, never a reservation."""
     daemon, harness = service
@@ -184,11 +226,14 @@ def test_c5_12_running_attempts_share_one_ps_per_interval(service, spawns):
             daemon.store.add_attempt(attempt_id=aid, job_id=job_id, seq=1, lane_id="codex-1",
                                      model_requested="gpt-6-astra", state="running",
                                      guardian_pid=child.pid, child_pid=child.pid, pgid=child.pid,
-                                     boot_id=procs.boot_id(), proc_start=procs.proc_start(child.pid),
+                                     boot_id=procs.boot_id(),
+                                     # `ps` can miss a pid for a few milliseconds after the fork.
+                                     proc_start=procs.proc_start_retry(child.pid, alive=lambda: child.poll() is None),
                                      started_at=utcnow(), evidence_json="{}")
             daemon.store.update_job(job_id, state="running", started_at=utcnow())
             attempts.append(aid)
-        procs.forget_boot_id()
+        assert all(daemon.store.get_attempt(aid)["proc_start"] for aid in attempts)
+        getattr(procs, "forget_boot_id", lambda: None)()          # absent before C-5.12; the count below is the test
         daemon.inspect_interval_s = 30           # one interval spans the whole loop below
         spawns.clear()
         for _ in range(20):
@@ -203,7 +248,7 @@ def test_c5_12_running_attempts_share_one_ps_per_interval(service, spawns):
         guardians[0].kill()
         guardians[0].wait()
         daemon._inspect_next.clear()
-        daemon._table = None
+        daemon._table_next = 0.0
         daemon._process_attempt(attempts[0])
         assert daemon.store.get_attempt(attempts[0])["state"] != "running"
     finally:

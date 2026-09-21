@@ -96,7 +96,9 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
                 daemon.store.add_attempt(attempt_id=f"{job_id}/a1", job_id=job_id, seq=1, lane_id="codex-1",
                                          model_requested="gpt-6-astra", state="running",
                                          guardian_pid=child.pid, child_pid=child.pid, pgid=child.pid,
-                                         boot_id=procs.boot_id(), proc_start=procs.proc_start(child.pid),
+                                         boot_id=procs.boot_id(),
+                                         # `ps` can miss a pid for a few milliseconds after the fork.
+                                         proc_start=procs.proc_start_retry(child.pid, alive=lambda c=child: c.poll() is None),
                                          started_at=utcnow(), evidence_json="{}")
                 daemon.store.update_job(job_id, state="running", started_at=utcnow())
             for index in range(waiting):

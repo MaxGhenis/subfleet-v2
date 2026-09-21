@@ -187,6 +187,7 @@ class Daemon:
         # one process table those inspections share.
         self._inspect_next: dict[str, float] = {}
         self._table: procs.ProcessTable | None = None
+        self._table_next = 0.0                       # when `ps` may be run again, read or not
         self._table_lock = threading.Lock()
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
@@ -1936,9 +1937,11 @@ class Daemon:
             models = scheduler.demand_models(self.policy, job)
             behind = next((older for older, theirs in waiters.get(tier, ())
                            if scheduler.competes(models, theirs)), None)
-            if saturated or behind:
-                holds[job["job_id"]] = ({"reason": "fleet-full", "max_active_attempts": cap} if saturated else
-                                        {"reason": "behind-older-job", "behind": behind, "tier": tier})
+            # C-6.12: a full fleet ends the pass for every job but one waiting on
+            # its own workspace, whose wait is preparation's to end (C-6.8).
+            if behind or (saturated and job["wait_reason"] != "workspace"):
+                holds[job["job_id"]] = ({"reason": "behind-older-job", "behind": behind, "tier": tier} if behind else
+                                        {"reason": "fleet-full", "max_active_attempts": cap})
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
@@ -1967,13 +1970,13 @@ class Daemon:
             # C-6.12: a job with nowhere to go is not prepared. Git and a probe
             # are spent only on a pass that could place the job; one that could
             # not goes straight to the transaction below, which records the wait.
-            # A job waiting on its own workspace is always prepared: that wait
-            # is C-6.8's to end, whatever capacity says.
-            placeable = job["wait_reason"] == "workspace" or self._placeable(
-                decision_job, extra_exclusions, desktop_account, held_back=bool(waiters.get(tier)))
+            # A job waiting on its own workspace is prepared all the same: that
+            # wait is C-6.8's to end, whatever capacity says. It is not probed.
+            placeable = self._placeable(decision_job, extra_exclusions, desktop_account,
+                                        held_back=bool(waiters.get(tier)))
             workspace = head = baseline = native_session = write_target = None
             approved: set = set()
-            if placeable:
+            if placeable or job["wait_reason"] == "workspace":
                 try:
                     workspace, head, baseline = self._workspace(job)
                     native_session = job["caller_session"] if job["kind"] == "revive" else None
@@ -1999,6 +2002,7 @@ class Daemon:
                                    "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
                     job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
                     decision_job = {**decision_job, "state": "queued", "wait_reason": None, "next_check_at": None}
+            if placeable:
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
                 if approved is None:
                     waiters.setdefault(tier, []).append((job["job_id"], models))
@@ -2042,12 +2046,15 @@ class Daemon:
                     continue
                 if not placeable:
                     # C-6.12: a lane came free after the check that skipped this
-                    # job's preparation. Nothing is written; the next pass, one
-                    # tick away, prepares it and admits it.
+                    # job's preparation. No wait is recorded; the next pass, one
+                    # tick away, prepares it and admits it. If the exclusions
+                    # above were new, that write is all this transaction did.
+                    self.store.retitle("job.exclusions_recorded")     # C-3.6
                     waiters.setdefault(tier, []).append((job["job_id"], models))
                     holds[job["job_id"]] = {"reason": "preparing"}
                     continue
                 if scheduler.probe_required(decision, job) and (decision.chosen_lane, decision.chosen_model) not in approved:
+                    self.store.retitle("job.exclusions_recorded")     # C-3.6: the only write there can have been
                     waiters.setdefault(tier, []).append((job["job_id"], models))
                     holds[job["job_id"]] = {"reason": "probe-pending"}
                     continue  # The chosen identity changed after its probe.
@@ -2420,15 +2427,20 @@ class Daemon:
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
     def _process_table(self) -> procs.ProcessTable | None:
-        """C-5.12: one `ps` per `inspect_interval_s`, whoever asks; None if it failed."""
+        """C-5.12: one `ps` per `inspect_interval_s`, whoever asks; None if it failed.
+
+        A read that failed is rationed like one that worked. `ps` can take its
+        whole 10 s cap to fail, under this lock, and every attempt asks: retried
+        per caller, an outage would hold a worker per running attempt in turn.
+        """
         with self._table_lock:
-            table = self._table
-            if table is None or time.monotonic() - table.taken_at > self.inspect_interval_s:
+            if time.monotonic() >= self._table_next:
                 try:
-                    table = self._table = procs.snapshot()
+                    self._table = procs.snapshot()
                 except procs.InspectionError:
-                    table = self._table = None
-            return table
+                    self._table = None
+                self._table_next = time.monotonic() + self.inspect_interval_s
+            return self._table
 
     def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
         """C-5.6: remember the group's members while the recorded guardian leads it.

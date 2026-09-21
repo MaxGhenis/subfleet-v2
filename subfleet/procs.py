@@ -39,7 +39,9 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
         # daemon costs in proportion to its memory (measured 2026-09-21 at 1 GB
         # resident and 40 threads: 8.2 ms of daemon CPU per fork, 0.17 ms per
         # spawn). Nothing leaks: every descriptor Python opens is close-on-exec
-        # (PEP 446) and this package never makes one inheritable.
+        # (PEP 446) and the daemon makes none inheritable. The one this package
+        # does hand down, the guardian's launch gate (`pass_fds`), is closed by
+        # the guardian before it inspects anything; a second one must be too.
         result = subprocess.run(argv, capture_output=True, text=True, timeout=10, env=env,
                                 close_fds=False)
     except (OSError, subprocess.SubprocessError) as exc:
