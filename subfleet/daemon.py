@@ -1528,6 +1528,8 @@ class Daemon:
                     count = self._worker_failures[key] = self._worker_failures.get(key, 0) + 1
                     delay = worker_retry_delay(count)
                     self._worker_retry_at[key] = time.monotonic() + delay
+                if key == "retention":
+                    self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))
                 if count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
                     self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
                                    key, type(exc).__name__, count, delay)
@@ -1556,7 +1558,6 @@ class Daemon:
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
                 if time.monotonic() - self._last_maintenance >= 3600:
-                    self._last_maintenance = time.monotonic()
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -1568,17 +1569,18 @@ class Daemon:
         return result.get("notice_id") is not None
 
     def _retention(self):
-        try:
-            result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
-            if result.get("interrupted"):
-                self.timers.mark("retention", error="CancelledError" if result["interrupted"] == "cancelled" else "TimeoutError", next_due=after(3600))
+        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        if result.get("interrupted"):
+            if result["interrupted"] == "cancelled":
+                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
                 return
-            with self.store.transaction("service-notice.retention") as tx:
-                tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
-        except Exception as exc:
-            self.timers.mark("retention", error=type(exc).__name__, next_due=after(3600))
-            raise
+            raise TimeoutError("retention deadline reached")
+        with self.store.transaction("service-notice.retention") as tx:
+            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
         self.timers.mark("retention", next_due=after(3600))
+        # A raising pass remains due so the worker retry clock can re-offer it.
+        # Only a completed pass rearms the ordinary hourly interval.
+        self._last_maintenance = time.monotonic()
 
     def _recover_then_start_timers(self):
         # HTTP reservations have no provider process and can be released on restart.

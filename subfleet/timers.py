@@ -134,6 +134,10 @@ class Timers:
         with self._lock:
             if self.cancel.is_set():
                 return {'status': 'stopping', 'timer': name}
+            if not self.started:
+                return {'status': 'recovering', 'timer': name,
+                        'detail': 'Daemon recovery has not finished; no maintenance was queued.',
+                        'fix': 'Retry this command after startup recovery finishes; inspect subfleet daemon logs if it persists.'}
             if (name in self._running or name == 'reset_credits' and 'probe' in self._running
                     or name == 'probe' and 'reset_credits' in self._running):
                 return {'status': 'already-running', 'timer': name}

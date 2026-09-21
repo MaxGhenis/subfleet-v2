@@ -2,7 +2,7 @@
 
 The remaining public operations now execute in v2. The compatibility fixture
 replays every recorded v1 invocation and asserts that none delegates to v1.
-Private `_record-run`, `_record-lane`, `_record-cooldown`, and `_tickle` callbacks
+Private `_record-run`, `_record-lane-run`, `_record-codex-cooldown`, and `_tickle` callbacks
 refuse with an actionable explanation; they cannot record a fabricated result
 or revive an old worker. Public `tickle`, sessions, handoff, and gates remain
 native operations.
