@@ -40,6 +40,25 @@ def age(service, seconds):
             state[key] -= seconds
 
 
+class Inline:
+    """A worker pool that runs the work in the caller, so no test waits on a thread or a clock."""
+
+    def __init__(self, real):
+        self.real = real
+
+    def submit(self, fn, *args):
+        from concurrent.futures import Future
+        future = Future()
+        try:
+            future.set_result(fn(*args))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+
+    def shutdown(self, **options):
+        self.real.shutdown(**options)
+
+
 def log_lines(service):
     service._log_handler.flush()
     return [line for line in (service.root / "daemon.log").read_text().splitlines() if line.startswith("admission:")]
@@ -247,7 +266,8 @@ def test_c6_11_status_reports_admission_and_counts_only_live_jobs(fleet):
 def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(fleet, monkeypatch):
     """C-5.10 the control loop offers a live key every 50 ms; forty SalvageError lines were one attempt."""
     service, _ = fleet
-    # No wall clock in this test: the retry time is an hour off until the test says it has come.
+    # No thread and no wall clock: the work runs inline, and the retry time is an hour off until the test says it has come.
+    service.workers = Inline(service.workers)
     monkeypatch.setattr(daemon_module, "worker_retry_delay", lambda failures: 3600.0)
     calls = []
 
@@ -255,24 +275,19 @@ def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(
         calls.append(len(calls))
         raise RuntimeError("secret-bearing detail that must not be logged")
 
-    def offer(times):
-        for _ in range(times):
-            service._schedule("fixture/a1", boom, paced=True)
-            deadline = time.monotonic() + 5
-            while "fixture/a1" in service._busy and time.monotonic() < deadline:
-                time.sleep(.001)
-
-    offer(40)
+    for _ in range(40):
+        service._schedule("fixture/a1", boom, paced=True)
     assert len(calls) == 1                                           # not forty
     for expected in (2, 3, 4, 5):
         service._worker_retry_at["fixture/a1"] = 0                   # its retry time arrives
-        offer(10)
+        for _ in range(10):
+            service._schedule("fixture/a1", boom, paced=True)
         assert len(calls) == expected
     service._log_handler.flush()
     lines = [line for line in (service.root / "daemon.log").read_text().splitlines() if "fixture/a1" in line]
     assert [line.split("(")[1].split(",")[0] for line in lines] == ["1 in a row", "2 in a row", "4 in a row"]
     assert "secret" not in "\n".join(lines) and all("RuntimeError" in line for line in lines)
-    assert service._worker_failures["fixture/a1"] == 5
+    assert service._worker_failures["fixture/a1"] == 5 and "fixture/a1" not in service._busy
 
 
 @pytest.mark.parametrize("failures,expected", [(1, .5), (2, 1), (3, 2), (4, 4), (7, 32), (8, 60), (500, 60), (0, .5)])
@@ -282,6 +297,7 @@ def test_c5_10_retry_delay(failures, expected):
 
 def test_c5_10_a_success_forgives_the_failures(fleet):
     service, _ = fleet
+    service.workers = Inline(service.workers)
     state = {"fail": True}
 
     def flaky():
@@ -291,9 +307,6 @@ def test_c5_10_a_success_forgives_the_failures(fleet):
     def run_once():
         service._worker_retry_at.pop("fixture/a2", None)
         service._schedule("fixture/a2", flaky, paced=True)
-        deadline = time.monotonic() + 2
-        while "fixture/a2" in service._busy and time.monotonic() < deadline:
-            time.sleep(.005)
 
     run_once(); run_once()
     assert service._worker_failures["fixture/a2"] == 2
@@ -306,6 +319,7 @@ def test_c5_10_a_one_shot_request_is_never_held_back(fleet):
     """C-5.10 review of cb83e1b: `kill --confirm-dead` schedules `resolve:<job>` once and answers
     "resolution requested". Pacing it dropped the operator's retry: nothing offers that key again."""
     service, _ = fleet
+    service.workers = Inline(service.workers)
     calls = []
 
     def resolve():
@@ -315,9 +329,6 @@ def test_c5_10_a_one_shot_request_is_never_held_back(fleet):
 
     for _ in range(2):
         service._schedule("resolve:fixture", resolve)                # as `kill` calls it: not paced
-        deadline = time.monotonic() + 5
-        while "resolve:fixture" in service._busy and time.monotonic() < deadline:
-            time.sleep(.001)
     assert calls == [0, 1]                                           # the retry ran at once
     assert "resolve:fixture" not in service._worker_retry_at
 
@@ -374,3 +385,62 @@ def test_c6_11_the_reason_is_the_latest_looks_even_when_the_verdict_repeats(flee
     service._admit()                                                 # a pass that does not look reports the last look
     assert service._holds[stuck]["reason"] == "reserve:fable:unmeasured"
     assert service._admission["reasons"] == {"reserve:fable:unmeasured": 1}
+
+
+
+# --- review of be171d5 --------------------------------------------------------------------------
+
+def test_c6_11_the_slot_kept_for_an_older_job_is_not_called_a_full_fleet(fleet):
+    """C-6.11, C-6.9: with a cap of 2, one attempt running and an older job waiting, a later job is
+    held one short of the cap. `why` said "the fleet is at max_active_attempts (2)" beside a free slot."""
+    service, harness = fleet
+    service.policy["caps"]["max_active_attempts"] = 2
+    submit(service, harness, pinned_model="terra")
+    service._admit()
+    older = submit(service, harness, pinned_model="astra")
+    passer = submit(service, harness, pinned_model="terra")
+    service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(3600))
+    service._admit()
+    hold = service._holds[passer]
+    assert (hold["reason"], hold["kept_for"], hold["live"], hold["max_active_attempts"]) == ("slot-kept", older, 1, 2)
+    text = service.dispatch("why", {"job_id": passer})["text"]
+    assert f"1 of 2 attempts are running and the last slot is kept for {older}" in text and "fleet is at" not in text
+    assert "slot-kept" in daemon_module.EXPECTED_HOLDS               # ordinary queueing: never a warning
+
+
+def test_c6_11_a_workspace_retry_is_reported_as_one_even_behind_a_full_fleet(fleet):
+    """C-6.11: the full-fleet branch came first, so a C-6.8 retry was counted as `fleet-full`, and as pending."""
+    service, harness = fleet
+    service.policy["caps"]["max_active_attempts"] = 1
+    submit(service, harness, pinned_model="terra")                   # takes the only slot
+    blocked = submit(service, harness, pinned_model="terra")         # looked at, finds the fleet full: the pass ends
+    retrying = submit(service, harness, pinned_model="astra")
+    service.store.update_job(retrying, state="waiting", wait_reason="workspace", next_check_at=after(3600))
+    service._admit()
+    assert service._holds[blocked]["reason"] == "fleet-full"
+    assert service._holds[retrying] == {"reason": "workspace"}       # reached by the full-fleet branch, reported as itself
+    assert service._admission["pending"] == 1                        # `blocked` only: a retry is not admission's to place
+
+
+def test_c6_11_a_pass_that_raises_publishes_nothing(fleet):
+    """C-6.11: half a hold set read as "nothing left pending" and ended the idle stretch, queue untouched."""
+    service, harness = fleet
+    stuck = submit(service, harness, pinned_model="opus")
+    service._admit()
+    age(service, 61)
+    service._admit()
+    assert len(log_lines(service)) == 1
+    holds, snapshot = service._holds, service._admission
+    real = service._admit_pass
+
+    def raising(holds, tally):
+        raise OSError("no space left on device")
+
+    service._admit_pass = raising
+    with pytest.raises(OSError):
+        service._admit()
+    assert service._holds is holds and service._admission is snapshot
+    assert len(log_lines(service)) == 1                              # no "nothing left pending"
+    service._admit_pass = real
+    service._admit()
+    assert service._holds[stuck]["reason"] == "no-lanes"

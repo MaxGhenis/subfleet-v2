@@ -111,15 +111,34 @@ def test_c6_10_a_known_reset_sooner_than_the_backoff_is_checked_on_time(fleet):
     from tests.fake.test_routing_end_to_end import claude_lane
     from subfleet.contracts import ClockSource, Closure, ClosureReason
     service, harness = fleet
+    until = after(20)
     service.store.put_lane(claude_lane("claude-2"))
-    service.store.add_closure(Closure("claude-2", "claude-opus-5", after(20),
+    service.store.add_closure(Closure("claude-2", "claude-opus-5", until,
                                       ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
     stuck = submit(service, harness, pinned_model="opus")
-    for _ in range(6):                                            # 1, 2, 4, 8, 16, then 30 s without the rule
-        service._admit()
-        assert backoff(service, stuck) <= 20
-        make_due(service, stuck)
-    assert service._capacity_waits[stuck]["rechecks"] == 5        # the sixth look is the one the closure caps
+    service._admit()
+    assert backoff(service, stuck) <= 2                           # 1 s: sooner than the closure
+    # The same verdict for the tenth time would wait 30 s. Two passes, so this machine's speed plays no part.
+    service._capacity_waits[stuck] = {**service._capacity_waits[stuck], "rechecks": 8}
+    make_due(service, stuck)
+    service._admit()
+    assert service._capacity_waits[stuck]["rechecks"] == 9
+    assert service.store.get_job(stuck)["next_check_at"] == until  # the closure's clock exactly, not 30 s
+
+
+def test_c6_10_waiting_metadata_takes_the_sooner_of_the_backoff_and_the_reset():
+    """C-6.10 the pure rule, with a fixed clock."""
+    now = "2026-09-20T21:00:00Z"
+    closes = lambda when: {"chain": ["opus"], "chosen_lane": None, "chosen_model": None, "policy_hash": "p",
+                           "reason": "-", "evaluations": [{"model": "opus", "closures": [{"until_at": when}]}]}
+    from subfleet.contracts import Decision
+    as_decision = lambda value: Decision(tuple(value["chain"]), tuple(value["evaluations"]), None, None, "-", "p")
+    sooner = scheduler.waiting_metadata(as_decision(closes("2026-09-20T21:00:05Z")), now, rechecks=9)
+    later = scheduler.waiting_metadata(as_decision(closes("2026-09-20T22:20:00Z")), now, rechecks=9)
+    first = scheduler.waiting_metadata(as_decision(closes("2026-09-20T22:20:00Z")), now)
+    assert sooner["next_check_at"] == "2026-09-20T21:00:05Z"
+    assert later["next_check_at"] == "2026-09-20T21:00:30Z"        # the incident: an hour off, rechecked every second
+    assert first["next_check_at"] == "2026-09-20T21:00:01Z"
 
 
 def test_c6_10_capacity_that_comes_free_is_seen_on_the_next_pass(fleet):
@@ -292,6 +311,61 @@ def test_c6_10_a_restart_looks_at_every_capacity_wait_once(fleet):
     service._recover_capacity_waits()
     assert service.store.get_job(capacity_wait)["next_check_at"] <= utcnow()
     assert service.store.get_job(approval)["next_check_at"] > utcnow()      # only capacity waits
+
+
+# --- review of be171d5 --------------------------------------------------------------------------
+
+def test_c6_10_a_pair_that_changed_after_its_probe_waits_on_a_clock(fleet, monkeypatch):
+    """C-6.10: this branch recorded `probe-pending` and set no clock, so a lane whose state kept
+    moving was prepared, and probed, on every tick."""
+    from subfleet import daemon as daemon_module
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model="astra")
+    monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda decision, job: True)
+    service._prepare_route = lambda job, decision_job, exclusions: (set(), service._desktop_identity())
+    looked = []
+    real = service._workspace
+    service._workspace = lambda job: looked.append(job["job_id"]) or real(job)
+    service._admit()
+    job = service.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "capacity") and job["next_check_at"]
+    assert service._holds[job_id]["reason"] == "probe-pending" and service._holds[job_id]["next_check_at"]
+    service.store.update_job(job_id, next_check_at=after(3600))
+    for _ in range(20):
+        service._admit()
+    assert looked == [job_id]
+
+
+def test_c6_10_a_reservation_that_does_not_happen_leaves_no_probe_directory(fleet, monkeypatch):
+    """C-6.10: the directory was made before the reservation and every early return left it behind.
+    The reviewer's case: a two-slot lane with slot 0 busy is still chosen, and the probe wants slot 0."""
+    from subfleet import daemon as daemon_module
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model="astra")
+    monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda decision, job: bool(decision.chosen_lane))
+    assert service.store.acquire_lease("lane:codex-1:slot:0", "another-job/a1")
+    job = service.store.get_job(job_id)
+    approved, _ = service._prepare_route(job, job, ())
+    assert approved is None
+    probes = service.root / "lanes" / "codex-1" / "probes"
+    assert not probes.exists() or list(probes.iterdir()) == []
+
+
+def test_c6_11_a_hurried_look_that_ends_at_the_route_still_reports_itself(fleet):
+    """C-6.11: a look brought forward found the route unprepared and the clock already set; the hold
+    had no `next_check_at` and the record kept the previous look's label."""
+    service, harness = fleet
+    stuck = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert service._capacity_waits[stuck]["label"] == "no-lanes"
+    service.store.update_job(stuck, next_check_at=after(3600))
+    service._prepare_route = lambda job, decision_job, exclusions: (None, service._desktop_identity())
+    release_a_lease(service)
+    service._admit()                                              # hurried by the release; the clock is an hour off
+    hold = service._holds[stuck]
+    assert hold["reason"] == "probe-pending" and hold["next_check_at"] == service.store.get_job(stuck)["next_check_at"]
+    assert service._capacity_waits[stuck]["label"] == "probe-pending"
+    assert service._capacity_waits[stuck]["signature"].endswith(":False")     # the verdict and its count are untouched
 
 
 # --- the pure rules -----------------------------------------------------------------------------

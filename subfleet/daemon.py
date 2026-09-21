@@ -64,8 +64,8 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 #: C-6.11: waits that are a person's or a retry's to end, not admission's.
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
-EXPECTED_HOLDS = frozenset({"fleet-full", "parent-cap", "no-slot", "lease-held", "probe-pending",
-                            "behind-older-job"})
+EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
+                            "probe-pending", "behind-older-job"})
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
@@ -257,7 +257,7 @@ class Daemon:
         self._holds: dict[str, dict] = {}
         self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
                                            "idle_since_at": None, "checked_at": None, "logged_at": None,
-                                           "warned": False, "reasons": {}}
+                                           "reasons": {}}
 
     # --- lanes: enroll, hold, release (C-10.2, C-9.6) --------------------------
 
@@ -1810,20 +1810,31 @@ class Daemon:
                       "model_id": self.policy["models"][decision.chosen_model]["id"],
                       "directory": str(directory), "state": "reserved", "created_at": utcnow(),
                       "deadline_at": after(60), "owned_identities": {}}
-            with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
-                # Selection precedes this transaction. Ownership transfer and
-                # probe admission must serialize on the same current lane row.
-                lane = self.store.get_lane(decision.chosen_lane)
-                if not lane or lane.owner != "v2" or not lane.enabled:
-                    return None, desktop
-                is_desktop = lane.desktop
-                if lane.provider == "claude" and desktop.decisive:
-                    is_desktop = desktop.owns(dataclasses.asdict(lane))
-                if is_desktop and not decision_job.get("allow_desktop"):
-                    return None, desktop
-                if not self.store.acquire_lease(f"lane:{decision.chosen_lane}:slot:0", holder):
-                    return None, desktop
-                self._save_probe(record)
+            reserved = False
+            try:
+                with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
+                    # Selection precedes this transaction. Ownership transfer and
+                    # probe admission must serialize on the same current lane row.
+                    lane = self.store.get_lane(decision.chosen_lane)
+                    if not lane or lane.owner != "v2" or not lane.enabled:
+                        return None, desktop
+                    is_desktop = lane.desktop
+                    if lane.provider == "claude" and desktop.decisive:
+                        is_desktop = desktop.owns(dataclasses.asdict(lane))
+                    if is_desktop and not decision_job.get("allow_desktop"):
+                        return None, desktop
+                    if not self.store.acquire_lease(f"lane:{decision.chosen_lane}:slot:0", holder):
+                        return None, desktop
+                    self._save_probe(record)
+                    reserved = True
+            finally:
+                if not reserved:
+                    # No record names this directory, so recovery would never
+                    # collect it, and a held slot is tried again at every recheck.
+                    try:
+                        directory.rmdir()
+                    except OSError:
+                        pass
             outcome = self._probe_candidate(job, decision, holder)
             if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
                 approved.add(pair)
@@ -1846,11 +1857,12 @@ class Daemon:
         """One admission pass, then the record of what it left unplaced (C-6.11)."""
         holds: dict[str, dict] = {}
         tally = {"placed": 0}
-        try:
-            self._admit_pass(holds, tally)
-        finally:
-            self._holds = holds
-            self._note_admission(tally, holds)
+        # A pass that raises leaves both as the last whole pass left them: half
+        # a hold set would read as "nothing left pending" and end the idle
+        # stretch with the queue untouched. C-5.10 logs and paces the failure.
+        self._admit_pass(holds, tally)
+        self._holds = holds
+        self._note_admission(tally, holds)
 
     def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True) -> int:
         """C-6.10: how many times in a row this job's wait has reached this verdict.
@@ -1873,6 +1885,12 @@ class Daemon:
             "label": hold["reason"], "hold": dict(hold), "expedite": expedite}
         return self._capacity_waits[job_id]["rechecks"]
 
+    def _refresh_hold(self, job_id: str, hold: dict) -> None:
+        """C-6.11: a look that changed no verdict and no clock still reports what it found."""
+        wait = self._capacity_waits.get(job_id)
+        if wait:
+            self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold)}
+
     def _note_admission(self, tally: dict, holds: dict[str, dict]) -> None:
         """C-6.11: say so in `daemon.log` when jobs are pending and nothing is placed.
 
@@ -1893,7 +1911,7 @@ class Daemon:
                                   "admission: nothing left pending after %d s idle", now - state["idle_since"])
                 if tally["placed"]:
                     state["placed_at"] = utcnow()
-                state.update(idle_since=None, idle_since_at=None, checked_at=None, logged_at=None, warned=False)
+                state.update(idle_since=None, idle_since_at=None, checked_at=None, logged_at=None)
                 return
             if state["idle_since"] is None:
                 state.update(idle_since=now, idle_since_at=utcnow())
@@ -1917,7 +1935,7 @@ class Daemon:
             if (state["logged_at"] is not None and not warn
                     and now - state["logged_at"] < ADMISSION_IDLE_REPEAT_EXPECTED_S):
                 return
-            state.update(logged_at=now, warned=warn)
+            state["logged_at"] = now
             summary = ", ".join(f"{reason} x{n}" for reason, n in
                                 sorted(reasons.items(), key=lambda item: (-item[1], item[0])))
             self.log.log(logging.WARNING if warn else logging.INFO,
@@ -1958,7 +1976,8 @@ class Daemon:
             behind = next((older for older, theirs in waiters.get(tier, ())
                            if scheduler.competes(models, theirs)), None)
             if saturated or behind:
-                holds[job["job_id"]] = ({"reason": "fleet-full", "max_active_attempts": cap} if saturated else
+                holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
+                                        {"reason": "fleet-full", "max_active_attempts": cap} if saturated else
                                         {"reason": "behind-older-job", "behind": behind, "tier": tier})
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
@@ -2036,6 +2055,9 @@ class Daemon:
                                    "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
                                    (next_check, job["job_id"]))
                     holds[job["job_id"]]["next_check_at"] = next_check
+                elif clocked:
+                    holds[job["job_id"]]["next_check_at"] = current["next_check_at"]
+                    self._refresh_hold(job["job_id"], holds[job["job_id"]])
                 continue
             with self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
                 job = self._job(job["job_id"])
@@ -2058,8 +2080,16 @@ class Daemon:
                     # 2026-09-20 three such jobs were each re-evaluated every
                     # second for hours: 2.7 rows of 22 KB a second, 681 MB of a
                     # 709 MB store, and a daemon at a full core doing it.
-                    label = scheduler.dominant_rejection(decision) if not decision.chosen_lane else "fleet-full"
-                    hold = {"reason": label, **({"max_active_attempts": cap} if label == "fleet-full" else {})}
+                    if not decision.chosen_lane:
+                        label = scheduler.dominant_rejection(decision)
+                    else:
+                        # A lane would take it. Either the fleet is at its cap, or
+                        # C-6.9 keeps the last slot for an older job of this tier.
+                        label = "fleet-full" if live >= cap else "slot-kept"
+                    hold = {"reason": label,
+                            **({"max_active_attempts": cap} if label == "fleet-full" else {}),
+                            **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
+                                "max_active_attempts": cap} if label == "slot-kept" else {})}
                     rechecks = self._capacity_wait(
                         job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", hold)
                     waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
@@ -2070,10 +2100,15 @@ class Daemon:
                     holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
                     continue
                 if scheduler.probe_required(decision, job) and (decision.chosen_lane, decision.chosen_model) not in approved:
-                    # The chosen identity changed after its probe. The job stays
-                    # queued and the next pass probes the new pair (`_prepare_route`).
+                    # The chosen identity changed after its probe; a later pass
+                    # probes the new pair (`_prepare_route`). C-6.10: on a clock,
+                    # or a lane whose state keeps moving is probed every tick.
                     waiters.setdefault(tier, []).append((job["job_id"], models))
-                    holds[job["job_id"]] = {"reason": "probe-pending"}
+                    hold = {"reason": "probe-pending"}
+                    rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
+                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                     continue
                 seq = len(previous) + 1
                 aid = ids.attempt_id(job["job_id"], seq)

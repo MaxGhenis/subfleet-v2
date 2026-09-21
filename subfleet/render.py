@@ -114,6 +114,7 @@ def status(view: Mapping[str, Any]) -> str:
 _HOLD_TEXT = {
     "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
     "fleet-full": "the fleet is at max_active_attempts ({max_active_attempts}); nothing later is evaluated until a slot frees",
+    "slot-kept": "{live} of {max_active_attempts} attempts are running and the last slot is kept for {kept_for}, an older {tier} job that is waiting (C-6.9)",
     "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
     "lease-held": "a lease this job needs is held by another job: {leases}",
     "probe-pending": "its lane is being probed before the job may start on it",
@@ -142,7 +143,7 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-"}
             lines.append("Held: " + template.format_map({**dict.fromkeys(
-                ("behind", "tier", "max_active_attempts"), "?"), **fields}))
+                ("behind", "tier", "max_active_attempts", "kept_for", "live"), "?"), **fields}))
         else:
             lines.append(f"Held: no lane admits it ({reason})")
     else:
