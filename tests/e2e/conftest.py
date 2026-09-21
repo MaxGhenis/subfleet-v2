@@ -24,8 +24,8 @@ REPO = Path(__file__).resolve().parents[2]
 TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 
 # Loaded only in the actual subfleetd entry point. These observers use existing
-# constructor hooks, retain real adapters/process inspection, and never fabricate
-# a receipt, store row, provider response, or publication operation.
+# constructor hooks and local HTTP fixtures, retain real adapters/process
+# inspection, and never fabricate a receipt, store row, or publication operation.
 OBSERVERS = '''\
 import os
 from pathlib import Path
@@ -36,12 +36,17 @@ if Path(sys.argv[0]).name == "subfleetd":
     import time
     from subfleet.daemon import Daemon
     from tests.fake.run_daemon import audit_publication
-    from tests.fake import profile as fake_profile
+    from tests.fake import profile as fake_profile, codex_http
     root = Path(os.environ["SUBFLEET_HOME"])
     audit_publication(root / "publication.jsonl")
     # C-10.6: the profile endpoint answers from a fixture, never the network.
     # C-10.3: no desktop credential exists in a test HOME, and none is read.
     fake_profile.install()
+    # A long run reaches periodic Codex usage checks, too. Keep the real
+    # adapter and timer path, but no fixture bearer may leave this process.
+    codex_http.install()
+    import urllib.request
+    urllib.request.urlopen = codex_http.reject_network
     original_init = Daemon.__init__
     def observed_init(self, *args, **kwargs):
         kwargs.setdefault("desktop_prober", lambda: None)
@@ -119,7 +124,7 @@ class E2E:
             home = self.root / f"codex-{number}"
             home.mkdir()
             # Unsigned fixture JWT: the real enroll parser accepts paid-plan and
-            # account claims. No enrollment/probe HTTP request runs in this suite.
+            # account claims. Enrollment/probe HTTP uses local fixture responses.
             claims = {"https://api.openai.com/auth": {
                 "chatgpt_plan_type": "plus", "chatgpt_account_id": f"fake-{number}"}}
             token = "fixture." + base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=") + ".fixture"
