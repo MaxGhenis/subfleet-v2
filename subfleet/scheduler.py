@@ -507,24 +507,36 @@ def verdict_signature(decision: Decision | Mapping[str, Any]) -> str:
 
 
 def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
-    """C-6.11: the commonest first reason lanes were rejected for, as one short label."""
+    """C-6.11: what keeps a job out of every lane, as one short label.
+
+    A lane rejected only for `no-slot` would take the job if it had room, so
+    room is the cause: `fleet-full` when the fleet cap made it so, `parent-cap`
+    for a parent's, else `no-slot`. When every lane has a standing reason the
+    label is the commonest of those, and the cap is beside the point: a probe's
+    reservation counts toward the fleet cap, so a job that no lane admits anyway
+    would otherwise read `fleet-full` for the second each probe runs.
+    """
     if decision is None:
         return "not-evaluated"
     value = _row(decision)
-    # A fleet or parent cap rejects every lane as `no-slot`; the cap is the cause.
     blocks = [block for evaluation in value.get("evaluations", ())
               for block in evaluation.get("capacity_blocks", ())]
-    if "fleet" in blocks:
-        return "fleet-full"
-    if any(str(block).startswith("parent:") for block in blocks):
-        return "parent-cap"
     counts: dict[str, int] = {}
+    room_only = False
     for evaluation in value.get("evaluations", ()):
         for row in evaluation.get("rejections", ()):
-            reason = str((row.get("reasons") or [row.get("reason") or "unknown"])[0])
+            reasons = [str(reason) for reason in (row.get("reasons") or [row.get("reason") or "unknown"])]
+            standing = [reason for reason in reasons if reason != "no-slot"]
+            if not standing:
+                room_only = True
+                continue
             # A closure's reason carries its own expiry; the label groups them.
-            label = ":".join(reason.split(":")[:2]) if reason.startswith("closed:") else reason
+            label = ":".join(standing[0].split(":")[:2]) if standing[0].startswith("closed:") else standing[0]
             counts[label] = counts.get(label, 0) + 1
+    if room_only:
+        if "fleet" in blocks:
+            return "fleet-full"
+        return "parent-cap" if any(str(block).startswith("parent:") for block in blocks) else "no-slot"
     if not counts:
         return "no-lanes"
     return max(sorted(counts), key=lambda label: counts[label])

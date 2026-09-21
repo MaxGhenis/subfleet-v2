@@ -8,6 +8,7 @@ whole store. `daemon.log` had not gained a line since the daemon started.
 """
 
 import logging
+import re
 import time
 
 import pytest
@@ -29,6 +30,14 @@ def fleet(routing_state):  # noqa: F811
 
 def submit(service, harness, **changes):
     return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+
+
+def age(service, seconds):
+    """Move the idle stretch `seconds` into the past: no test here waits on a real clock."""
+    state = service._admission
+    for key in ("idle_since", "checked_at", "logged_at"):
+        if state.get(key) is not None:
+            state[key] -= seconds
 
 
 def log_lines(service):
@@ -112,15 +121,15 @@ def test_c6_11_the_log_says_when_jobs_are_pending_and_nothing_is_placed(fleet):
     behind = submit(service, harness, pinned_model="opus")
     service._admit()
     assert log_lines(service) == []                                  # under a minute: nothing yet
-    service._admission["idle_since"] = time.monotonic() - 61
+    age(service, 61)
     for _ in range(50):
         service._admit()
     lines = log_lines(service)
     assert len(lines) == 1
-    assert "2 jobs pending, none placed for 61 s" in lines[0]
+    assert re.search(r"2 jobs pending, none placed for 6\d s", lines[0])      # 61 s, or 62 on a slow runner
     assert "1 lanes open (codex-1)" in lines[0]
-    assert "behind-older-job x1" in lines[0] and "no-lanes x1" in lines[0] and f"oldest {stuck}" in lines[0]
-    service._admission["logged_at"] = time.monotonic() - daemon_module.ADMISSION_IDLE_REPEAT_S - 1
+    assert "behind-older-job x1" in lines[0] and "no-lanes x1" in lines[0] and f"first in line {stuck}" in lines[0]
+    age(service, daemon_module.ADMISSION_IDLE_REPEAT_S + 1)
     service._admit()
     assert len(log_lines(service)) == 2                              # and again every ten minutes while it lasts
     for job_id in (stuck, behind):
@@ -137,14 +146,37 @@ def test_c6_11_open_lanes_make_it_a_warning_and_none_make_it_information(fleet):
     service.log.addHandler(type("Catch", (logging.Handler,), {"emit": lambda self, record: seen.append(record)})())
     submit(service, harness, pinned_model="opus")
     service._admit()
-    service._admission["idle_since"] = time.monotonic() - 61
+    age(service, 61)
     service._admit()
     with service.store.transaction("fixture.disable") as tx:
         tx.execute("UPDATE lanes SET enabled=0")
-    service._admission["logged_at"] = time.monotonic() - daemon_module.ADMISSION_IDLE_REPEAT_S - 1
+    age(service, daemon_module.ADMISSION_IDLE_REPEAT_S + 1)
+    service._admit()
+    assert [record.levelno for record in seen] == [logging.WARNING]  # no lane open now: expected, and said within the hour
+    age(service, daemon_module.ADMISSION_IDLE_REPEAT_EXPECTED_S + 1)
     service._admit()
     assert [record.levelno for record in seen] == [logging.WARNING, logging.INFO]
     assert "0 lanes open (-)" in seen[1].getMessage()
+
+
+def test_c6_11_a_wait_that_becomes_a_warning_is_one_within_ten_minutes(fleet):
+    """C-6.11 review of cb83e1b: the interval was chosen from the last line's severity, so an expected
+    wait that turned into the incident stayed silent for the rest of the hour."""
+    service, harness = fleet
+    seen = []
+    service.log.addHandler(type("Catch", (logging.Handler,), {"emit": lambda self, record: seen.append(record)})())
+    with service.store.transaction("fixture.disable") as tx:
+        tx.execute("UPDATE lanes SET enabled=0")
+    submit(service, harness, pinned_model="opus")
+    service._admit()
+    age(service, 61)
+    service._admit()
+    assert [record.levelno for record in seen] == [logging.INFO]     # no lane open: waiting is expected
+    with service.store.transaction("fixture.enable") as tx:
+        tx.execute("UPDATE lanes SET enabled=1")
+    age(service, daemon_module.ADMISSION_IDLE_REPEAT_S + 1)
+    service._admit()
+    assert [record.levelno for record in seen] == [logging.INFO, logging.WARNING]
 
 
 def test_c6_11_a_fleet_at_its_cap_is_ordinary_queueing_not_a_warning(fleet):
@@ -159,14 +191,14 @@ def test_c6_11_a_fleet_at_its_cap_is_ordinary_queueing_not_a_warning(fleet):
     service._admit()
     service._admit()                                                 # a pass that places nothing starts the idle stretch
     assert service._admission["reasons"] == {"fleet-full": 2}
-    service._admission["idle_since"] = time.monotonic() - 61
+    age(service, 61)
     service._admit()
     assert [record.levelno for record in seen] == [logging.INFO] and "fleet-full x2" in seen[0].getMessage()
     assert "1 lanes open (codex-1)" in seen[0].getMessage()          # the second slot of a measured lane
-    service._admission["logged_at"] = time.monotonic() - daemon_module.ADMISSION_IDLE_REPEAT_S - 1
+    age(service, daemon_module.ADMISSION_IDLE_REPEAT_S + 1)
     service._admit()
-    assert len(seen) == 1                                            # ten minutes on: still nothing to say
-    service._admission["logged_at"] = time.monotonic() - daemon_module.ADMISSION_IDLE_REPEAT_EXPECTED_S - 1
+    assert len(seen) == 1                                            # ten minutes on: looked at, still nothing to say
+    age(service, daemon_module.ADMISSION_IDLE_REPEAT_EXPECTED_S)
     service._admit()
     assert len(seen) == 2
 
@@ -200,7 +232,7 @@ def test_c6_11_status_reports_admission_and_counts_only_live_jobs(fleet):
     service.kill(protocol.KillArgs(done))
     stuck = submit(service, harness, pinned_model="opus")
     service._admit()
-    service._admission["idle_since"] = time.monotonic() - 3700
+    age(service, 3700)
     data = service.dispatch("daemon.status", {})
     assert data["admission"]["pending"] == 1 and data["admission"]["open_lanes"] == ["codex-1"]
     assert data["admission"]["reasons"] == {"no-lanes": 1} and data["admission"]["idle_for_s"] >= 3700
@@ -212,34 +244,40 @@ def test_c6_11_status_reports_admission_and_counts_only_live_jobs(fleet):
 
 # --- a worker that raises (C-5.10) --------------------------------------------------------------
 
-def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(fleet):
+def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(fleet, monkeypatch):
     """C-5.10 the control loop offers a live key every 50 ms; forty SalvageError lines were one attempt."""
     service, _ = fleet
+    # No wall clock in this test: the retry time is an hour off until the test says it has come.
+    monkeypatch.setattr(daemon_module, "worker_retry_delay", lambda failures: 3600.0)
     calls = []
 
     def boom():
-        calls.append(time.monotonic())
+        calls.append(len(calls))
         raise RuntimeError("secret-bearing detail that must not be logged")
 
     def offer(times):
         for _ in range(times):
-            service._schedule("fixture/a1", boom)
-            time.sleep(.002)
-        deadline = time.monotonic() + 2
-        while "fixture/a1" in service._busy and time.monotonic() < deadline:
-            time.sleep(.005)
+            service._schedule("fixture/a1", boom, paced=True)
+            deadline = time.monotonic() + 5
+            while "fixture/a1" in service._busy and time.monotonic() < deadline:
+                time.sleep(.001)
 
     offer(40)
     assert len(calls) == 1                                           # not forty
-    for expected in (2, 3, 4):
+    for expected in (2, 3, 4, 5):
         service._worker_retry_at["fixture/a1"] = 0                   # its retry time arrives
         offer(10)
         assert len(calls) == expected
     service._log_handler.flush()
     lines = [line for line in (service.root / "daemon.log").read_text().splitlines() if "fixture/a1" in line]
     assert [line.split("(")[1].split(",")[0] for line in lines] == ["1 in a row", "2 in a row", "4 in a row"]
-    assert "secret" not in "\n".join(lines)
-    assert service._worker_retry_at["fixture/a1"] - time.monotonic() > 3    # .5, 1, 2, then 4 s
+    assert "secret" not in "\n".join(lines) and all("RuntimeError" in line for line in lines)
+    assert service._worker_failures["fixture/a1"] == 5
+
+
+@pytest.mark.parametrize("failures,expected", [(1, .5), (2, 1), (3, 2), (4, 4), (7, 32), (8, 60), (500, 60), (0, .5)])
+def test_c5_10_retry_delay(failures, expected):
+    assert daemon_module.worker_retry_delay(failures) == expected
 
 
 def test_c5_10_a_success_forgives_the_failures(fleet):
@@ -252,7 +290,7 @@ def test_c5_10_a_success_forgives_the_failures(fleet):
 
     def run_once():
         service._worker_retry_at.pop("fixture/a2", None)
-        service._schedule("fixture/a2", flaky)
+        service._schedule("fixture/a2", flaky, paced=True)
         deadline = time.monotonic() + 2
         while "fixture/a2" in service._busy and time.monotonic() < deadline:
             time.sleep(.005)
@@ -262,3 +300,77 @@ def test_c5_10_a_success_forgives_the_failures(fleet):
     state["fail"] = False
     run_once()
     assert "fixture/a2" not in service._worker_failures and "fixture/a2" not in service._worker_retry_at
+
+
+def test_c5_10_a_one_shot_request_is_never_held_back(fleet):
+    """C-5.10 review of cb83e1b: `kill --confirm-dead` schedules `resolve:<job>` once and answers
+    "resolution requested". Pacing it dropped the operator's retry: nothing offers that key again."""
+    service, _ = fleet
+    calls = []
+
+    def resolve():
+        calls.append(len(calls))
+        if len(calls) == 1:
+            raise RuntimeError("the first resolution fails")
+
+    for _ in range(2):
+        service._schedule("resolve:fixture", resolve)                # as `kill` calls it: not paced
+        deadline = time.monotonic() + 5
+        while "resolve:fixture" in service._busy and time.monotonic() < deadline:
+            time.sleep(.001)
+    assert calls == [0, 1]                                           # the retry ran at once
+    assert "resolve:fixture" not in service._worker_retry_at
+
+
+# --- what another thread reads (C-6.11) ---------------------------------------------------------
+
+def test_c6_11_status_reads_one_snapshot_that_admission_never_changes_under_it(fleet):
+    """C-6.11 review of cb83e1b: `daemon.status` read `idle_since` twice and admission could clear it
+    between the reads (`float - None`). The snapshot is replaced whole and the old one is left alone."""
+    service, harness = fleet
+    stuck = submit(service, harness, pinned_model="opus")
+    service._admit()
+    service._admit()
+    before = service._admission
+    frozen = dict(before)
+    assert before["idle_since"] is not None
+    service.kill(protocol.KillArgs(stuck))
+    service._admit()                                                 # the stretch ends: idle_since goes to None
+    assert service._admission is not before and service._admission["idle_since"] is None
+    assert before == frozen                                          # a reader holding the old one saw no half-update
+    assert service.dispatch("daemon.status", {})["admission"]["idle_for_s"] is None
+
+
+def test_c6_11_a_pass_that_does_not_look_keeps_the_whole_hold(fleet):
+    """C-6.11 review of cb83e1b: the pass after the look kept only the label, and `why` printed
+    `held by another job: -` and `max_active_attempts (?)`."""
+    service, harness = fleet
+    out = str(harness.root / "report.md")
+    waiting = submit(service, harness, pinned_model="terra", out_path=out)
+    with service.store.transaction("fixture.lease") as tx:
+        tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                   (f"out:{out}", "some-other-job", utcnow()))
+    service._admit()
+    service.store.update_job(waiting, next_check_at=after(3600))
+    service._admit()                                                 # not due: nothing is looked at
+    assert service._holds[waiting]["leases"] == [f"out:{out}"]
+    assert f"held by another job: out:{out}" in service.dispatch("why", {"job_id": waiting})["text"]
+
+
+def test_c6_11_the_reason_is_the_latest_looks_even_when_the_verdict_repeats(fleet, monkeypatch):
+    """C-6.11 review of cb83e1b: a probe counts toward the fleet cap, so one verdict read `fleet-full`
+    on one look and the real reason on the next; the first label stuck and hid the warning."""
+    service, harness = fleet
+    labels = iter(["fleet-full", "reserve:fable:unmeasured"])
+    monkeypatch.setattr(daemon_module.scheduler, "dominant_rejection", lambda decision: next(labels))
+    stuck = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert service._holds[stuck]["reason"] == "fleet-full"
+    service.store.update_job(stuck, next_check_at=utcnow())
+    service._admit()
+    assert service._capacity_waits[stuck]["rechecks"] == 1           # the same verdict: no new row
+    assert len(service.store.list_decisions(stuck)) == 1
+    service.store.update_job(stuck, next_check_at=after(3600))
+    service._admit()                                                 # a pass that does not look reports the last look
+    assert service._holds[stuck]["reason"] == "reserve:fable:unmeasured"
+    assert service._admission["reasons"] == {"reserve:fable:unmeasured": 1}

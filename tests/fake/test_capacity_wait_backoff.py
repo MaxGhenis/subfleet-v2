@@ -6,7 +6,7 @@ and wrote a 22 KB decision row: 1,628 rows in ten minutes with zero attempts
 reserved, 681 MB of a 709 MB store, and a daemon at a full core doing it.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 
@@ -33,9 +33,11 @@ def make_due(service, job_id):
     service.store.update_job(job_id, next_check_at=utcnow())
 
 
-def seconds_until(timestamp):
-    due = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    return (due - datetime.now(timezone.utc)).total_seconds()
+def backoff(service, job_id):
+    """Seconds from the look to the next one. Both stamps come from one pass, so no wall clock is involved."""
+    looked = datetime.fromisoformat(service._capacity_waits[job_id]["checked_at"].replace("Z", "+00:00"))
+    due = datetime.fromisoformat(service.store.get_job(job_id)["next_check_at"].replace("Z", "+00:00"))
+    return (due - looked).total_seconds()
 
 
 def decisions(service, job_id):
@@ -61,11 +63,11 @@ def test_c6_10_the_recheck_clock_doubles_to_a_ceiling(fleet):
     waits = []
     for _ in range(8):
         service._admit()
-        waits.append(seconds_until(service.store.get_job(stuck)["next_check_at"]))
+        waits.append(backoff(service, stuck))
         make_due(service, stuck)
     for found, expected in zip(waits, (1, 2, 4, 8, 16, 30, 30, 30)):
-        assert expected - 1.5 <= found <= expected + .5           # timestamps are whole seconds
-    assert waits[-1] > 25                                          # the incident's cadence was 1 s, forever
+        assert abs(found - expected) <= 1                          # stamps are whole seconds
+    assert waits == sorted(waits) and waits[-1] >= 29              # the incident's cadence was 1 s, forever
 
 
 def test_c6_10_a_wait_that_is_not_due_is_not_looked_at(fleet):
@@ -74,7 +76,8 @@ def test_c6_10_a_wait_that_is_not_due_is_not_looked_at(fleet):
     stuck = submit(service, harness, pinned_model="opus")
     service._admit()
     make_due(service, stuck)
-    service._admit()                                              # next check is now 2 s out
+    service._admit()
+    service.store.update_job(stuck, next_check_at=after(3600))   # not due, however slow this machine is
     looked = []
     real = service._workspace
     service._workspace = lambda job: looked.append(job["job_id"]) or real(job)
@@ -100,7 +103,7 @@ def test_c6_10_a_new_verdict_is_recorded_and_restarts_the_clock(fleet):
     service._admit()
     assert decisions(service, stuck) == 2
     assert service._capacity_waits[stuck]["rechecks"] == 0
-    assert seconds_until(service.store.get_job(stuck)["next_check_at"]) <= 1.5
+    assert backoff(service, stuck) <= 2
 
 
 def test_c6_10_a_known_reset_sooner_than_the_backoff_is_checked_on_time(fleet):
@@ -109,13 +112,14 @@ def test_c6_10_a_known_reset_sooner_than_the_backoff_is_checked_on_time(fleet):
     from subfleet.contracts import ClockSource, Closure, ClosureReason
     service, harness = fleet
     service.store.put_lane(claude_lane("claude-2"))
-    service.store.add_closure(Closure("claude-2", "claude-opus-5", after(5),
+    service.store.add_closure(Closure("claude-2", "claude-opus-5", after(20),
                                       ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
     stuck = submit(service, harness, pinned_model="opus")
-    for _ in range(6):                                            # backed off to 30 s
+    for _ in range(6):                                            # 1, 2, 4, 8, 16, then 30 s without the rule
         service._admit()
-        assert seconds_until(service.store.get_job(stuck)["next_check_at"]) <= 5.5
+        assert backoff(service, stuck) <= 20
         make_due(service, stuck)
+    assert service._capacity_waits[stuck]["rechecks"] == 5        # the sixth look is the one the closure caps
 
 
 def test_c6_10_capacity_that_comes_free_is_seen_on_the_next_pass(fleet):
@@ -129,7 +133,8 @@ def test_c6_10_capacity_that_comes_free_is_seen_on_the_next_pass(fleet):
         make_due(service, second)
         service._admit()
     assert service.store.get_job(second)["state"] == "waiting"
-    assert seconds_until(service.store.get_job(second)["next_check_at"]) > 25
+    assert backoff(service, second) >= 29
+    service.store.update_job(second, next_check_at=after(3600))   # far off, however slow this machine is
     attempt = service.store.list_attempts(first)[0]["attempt_id"]
     with service.store.transaction("fixture.attempt_ended") as tx:
         tx.execute("UPDATE attempts SET state='failed' WHERE attempt_id=?", (attempt,))
@@ -147,6 +152,7 @@ def test_c6_10_a_probe_reservation_coming_and_going_frees_nothing(fleet):
     service._admit()
     make_due(service, stuck)
     service._admit()
+    service.store.update_job(stuck, next_check_at=after(3600))   # not due, however slow this machine is
     assert service.store.acquire_lease("lane:codex-1:slot:0", "probe:timer:fixture")
     service._admit()
     service.store.release_leases("probe:timer:fixture")
@@ -183,6 +189,109 @@ def test_c6_10_a_placed_or_finished_job_leaves_no_wait_record(fleet):
     service.kill(__import__("subfleet.protocol", fromlist=["KillArgs"]).KillArgs(stuck))
     service._admit()
     assert stuck not in service._capacity_waits
+
+
+# --- review of cb83e1b --------------------------------------------------------------------------
+
+def release_a_lease(service):
+    """An unrelated lease appears on one pass and is gone on the next: freed capacity, as admission sees it."""
+    with service.store.transaction("fixture.lease") as tx:
+        tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES('out:/elsewhere','another-job',?)", (utcnow(),))
+    service._admit()
+    with service.store.transaction("fixture.release") as tx:
+        tx.execute("DELETE FROM leases WHERE holder='another-job'")
+
+
+def test_c6_10_freed_capacity_never_spends_a_workspace_retry(fleet):
+    """C-6.10, C-6.8 (P1): a capacity wait whose workspace then failed kept its record, so every
+    unrelated release brought its workspace retry forward; eight of them ended the job."""
+    import errno
+    service, harness = fleet
+    stuck = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert stuck in service._capacity_waits
+    make_due(service, stuck)
+    real = service._workspace
+    tries = []
+
+    def failing(job):
+        tries.append(job["job_id"])
+        raise OSError(errno.EAGAIN, "resource temporarily unavailable")
+
+    service._workspace = failing
+    service._admit()
+    job = service.store.get_job(stuck)
+    assert job["wait_reason"] == "workspace" and len(tries) == 1
+    assert stuck not in service._capacity_waits                    # the wait is C-6.8's now
+    for _ in range(9):                                            # nine releases: one more than `workspace_retry_max`
+        release_a_lease(service)
+        service._admit()
+    assert len(tries) == 1 and service.store.get_job(stuck)["state"] == "waiting"
+    service._workspace = real
+
+
+def test_c6_10_a_route_that_cannot_be_prepared_backs_off_instead_of_spinning(fleet):
+    """C-6.10: `_prepare_route` gave up without setting a clock (its probe's slot was held), so the
+    job stayed `queued` and was prepared again, with a new probe directory, on every tick."""
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model="astra")
+    service._prepare_route = lambda job, decision_job, exclusions: (None, service._desktop_identity())
+    looked = []
+    real = service._workspace
+    service._workspace = lambda job: looked.append(job["job_id"]) or real(job)
+    service._admit()
+    job = service.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "capacity") and job["next_check_at"]
+    assert service._holds[job_id]["reason"] == "probe-pending"
+    service.store.update_job(job_id, next_check_at=after(3600))
+    for _ in range(20):
+        service._admit()
+    assert looked == [job_id]                                     # once, not once a tick
+
+
+def test_c6_10_a_probes_own_wait_is_never_brought_forward(fleet):
+    """C-6.10: the 60 s wait after an inconclusive probe keeps its clock, or every release re-probes."""
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model="astra")
+    service.store.update_job(job_id, state="waiting", wait_reason="capacity", next_check_at=after(3600))
+    assert service._capacity_wait(job_id, "probe-wait:x", {"reason": "probe-pending"}, expedite=False) == 0
+    assert service._capacity_wait(job_id, "probe-wait:x", {"reason": "probe-pending"}, expedite=False) == 1
+    release_a_lease(service)
+    looked = []
+    real = service._workspace
+    service._workspace = lambda job: looked.append(job["job_id"]) or real(job)
+    service._admit()
+    assert looked == []
+
+
+def test_c6_10_a_lease_taken_and_lost_between_two_passes_is_still_a_release(fleet):
+    """C-6.10: the snapshot is taken before the pass places anything, so an attempt that was placed
+    and ended before the next pass was in neither snapshot and freed nothing."""
+    service, harness = fleet
+    service.policy["caps"]["max_active_attempts"] = 1
+    first = submit(service, harness, pinned_model="terra")
+    second = submit(service, harness, pinned_model="terra")
+    service._admit()                                              # places `first`; `second` waits
+    service.store.update_job(second, next_check_at=after(3600))
+    attempt = service.store.list_attempts(first)[0]["attempt_id"]
+    with service.store.transaction("fixture.attempt_ended") as tx:
+        tx.execute("UPDATE attempts SET state='failed' WHERE attempt_id=?", (attempt,))
+        tx.execute("UPDATE jobs SET state='failed' WHERE job_id=?", (first,))
+        tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (attempt, first))
+    service._admit()                                              # the very next pass
+    assert [row["state"] for row in service.store.list_attempts(second)] == ["reserved"]
+
+
+def test_c6_10_a_restart_looks_at_every_capacity_wait_once(fleet):
+    """C-6.10: the wait records are in memory; after a restart nothing could bring a persisted wait forward."""
+    service, harness = fleet
+    capacity_wait = submit(service, harness, pinned_model="opus")
+    approval = submit(service, harness, pinned_model="astra")
+    service.store.update_job(capacity_wait, state="waiting", wait_reason="capacity", next_check_at=after(3600))
+    service.store.update_job(approval, state="waiting", wait_reason="approval", next_check_at=after(3600))
+    service._recover_capacity_waits()
+    assert service.store.get_job(capacity_wait)["next_check_at"] <= utcnow()
+    assert service.store.get_job(approval)["next_check_at"] > utcnow()      # only capacity waits
 
 
 # --- the pure rules -----------------------------------------------------------------------------
@@ -230,7 +339,7 @@ def test_c6_10_recheck_delay(rechecks, expected):
     assert scheduler.capacity_recheck_delay(rechecks) == expected
 
 
-def test_c6_10_dominant_rejection_names_what_most_lanes_said():
+def test_c6_11_dominant_rejection_names_what_keeps_the_job_out():
     """C-6.11 the label `status` and the log group jobs by."""
     found = scheduler.dominant_rejection(decision([
         rejected("claude-1", "reserve:fable:unmeasured"), rejected("claude-2", "reserve:fable:unmeasured"),
@@ -242,3 +351,20 @@ def test_c6_10_dominant_rejection_names_what_most_lanes_said():
                                                   rejected("claude-1", "desktop")])) == "closed:account"
     assert scheduler.dominant_rejection(decision([])) == "no-lanes"
     assert scheduler.dominant_rejection(None) == "not-evaluated"
+
+
+def test_c6_11_the_cap_is_the_cause_only_when_a_lane_would_otherwise_take_the_job():
+    """C-6.11 review of cb83e1b: a probe counts toward the fleet cap, so a job no lane admits anyway
+    read `fleet-full` for the second each probe ran, which is ordinary queueing and hid the warning."""
+    def capped(rejections, blocks):
+        value = decision(rejections)
+        value["evaluations"][0]["capacity_blocks"] = blocks
+        return value
+    no_lane_would = capped([rejected("claude-1", "no-slot", "reserve:fable:unmeasured"),
+                            rejected("codex-1", "closed:account:T", "no-slot")], ["fleet"])
+    assert scheduler.dominant_rejection(no_lane_would) in ("reserve:fable:unmeasured", "closed:account")
+    a_lane_would = capped([rejected("claude-1", "no-slot", "reserve:fable:unmeasured"),
+                           rejected("codex-1", "no-slot")], ["fleet"])
+    assert scheduler.dominant_rejection(a_lane_would) == "fleet-full"
+    assert scheduler.dominant_rejection(capped([rejected("codex-1", "no-slot")], ["parent:j"])) == "parent-cap"
+    assert scheduler.dominant_rejection(capped([rejected("codex-1", "no-slot")], [])) == "no-slot"
