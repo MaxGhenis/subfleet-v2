@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 import weakref
+from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -179,6 +180,7 @@ class Daemon:
         self.stopping = threading.Event()
         self.changed = threading.Condition()
         self._submit_lock = threading.Lock()
+        self._enroll_lock = threading.Lock()
         self._busy_lock = threading.Lock()
         self._busy: set[str] = set()
         self._launches: dict[str, Launch] = {}
@@ -281,6 +283,10 @@ class Daemon:
             lanes_transfer._publish(edit.path, edit.after)
 
     def _enroll_lane(self, a: protocol.LanesArgs) -> dict:
+        with self._enroll_lock:
+            return self._enroll_lane_locked(a)
+
+    def _enroll_lane_locked(self, a: protocol.LanesArgs) -> dict:
         """`lanes enroll <credential>` (C-10.2): a Claude home directory (a config
         directory holding a `claude auth login`), a Codex home (holds `auth.json`),
         or a `claude-quota-<email>` keychain item. The adapter's enrol turn decides
@@ -295,6 +301,7 @@ class Daemon:
                                          "claude-quota-<email> keychain item)", Exit.INVALID_INPUT)
         path = Path(text).expanduser()
         if path.is_dir():
+            path = path.resolve()
             provider = "codex" if (path / "auth.json").is_file() else "claude"
             credential = Credential(provider, str(path), "home")
         elif text.startswith("claude-quota-"):
@@ -307,29 +314,152 @@ class Daemon:
             owner = LaneOwner(a.owner or "v2")
         except ValueError:
             raise protocol.ProtocolError("lanes enroll: owner must be v1 or v2", Exit.INVALID_INPUT) from None
-        existing = self.store.one("SELECT lane_id FROM lanes WHERE credential_ref=?", (credential.ref,))
+        bindings = self.store.query("SELECT * FROM lanes WHERE credential_ref=? ORDER BY created_at,rowid", (credential.ref,))
+        existing = bindings[-1] if bindings else None
+        enrollment_holder = None
         if existing:
-            raise protocol.ProtocolError(
-                f"lanes enroll: {credential.ref} is already lane {existing['lane_id']}",
-                Exit.INVALID_INPUT, "subfleet lanes list")
+            if any(row['enabled'] for row in bindings):
+                raise protocol.ProtocolError(
+                    f"lanes enroll: {credential.ref} is already lane {existing['lane_id']}",
+                    Exit.INVALID_INPUT, "subfleet lanes list")
+            if existing['desktop'] or existing['owner'] != 'v2':
+                raise protocol.ProtocolError('re-enrollment requires a non-desktop v2-owned lane', Exit.REFUSED)
+            if a.owner is not None and a.owner != existing['owner']:
+                raise protocol.ProtocolError('re-enrollment cannot change ownership; use lanes transfer', Exit.REFUSED)
+            owner = LaneOwner(existing['owner'])
+            credential = dataclasses.replace(credential, epoch=max(row['credential_epoch'] for row in bindings) + 1)
+            enrollment_holder = 'probe:timer:enroll:' + str(uuid4())
+            self.timers.active_holders.add(enrollment_holder)
+            try:
+                with self.store.transaction('lane.reenroll-reserved', lane_id=existing['lane_id']):
+                    for row in bindings:
+                        current = self.store.get_lane(row['lane_id'])
+                        if current.enabled or current.desktop or current.owner != owner:
+                            raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
+                        if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
+                                          "('reserved','starting','running','finalizing','quarantined')", (row['lane_id'],)):
+                            raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED)
+                        if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ?", (f"lane:{row['lane_id']}:slot:%",)):
+                            raise protocol.ProtocolError('lane still has an execution lease', Exit.REFUSED)
+                    for row in bindings:
+                        self.store.acquire_lease(f"lane:{row['lane_id']}:slot:0", enrollment_holder)
+            except BaseException:
+                self.timers.active_holders.discard(enrollment_holder)
+                raise
         try:
-            info = get_adapter(credential.provider).enroll(credential)
-        except AdapterError as exc:
-            raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
-        lane_id = self._next_lane_id(credential.provider)
-        lane = Lane(lane_id, credential.provider, info.account_key, credential,
-                    info.home or (str(path) if credential.kind == "home" else None), owner, False, True,
-                    info.identity, info.label)
-        with self.store.transaction("lane.enrolled", lane_id=lane_id, data={
-                "account_key": info.account_key, "kind": credential.kind, "owner": owner.value,
-                "label": info.label, "identity_status": info.identity_status}):
-            self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
-            for reading in info.readings:
-                self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
-        self._append_lanes_json(lane)
-        self._notify()
-        return {"enrolled": self.store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)),
-                "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
+            try:
+                adapter = get_adapter(credential.provider)
+                if enrollment_holder:
+                    from .adapters.claude import ClaudeAdapter
+                    if isinstance(adapter, ClaudeAdapter):
+                        adapter._runner = lambda argv, **kwargs: self._enrollment_turn(
+                            existing['lane_id'], enrollment_holder, argv, **kwargs)
+                info = adapter.enroll(credential)
+            except AdapterError as exc:
+                raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+            if existing and existing.get('identity') and (
+                    info.identity_status != 'verified' or info.identity != existing['identity']):
+                raise protocol.ProtocolError('re-enrollment could not verify the existing account identity', Exit.REFUSED)
+            if existing and info.account_key != existing['account_key']:
+                raise protocol.ProtocolError('re-enrollment found a different account; use a separate credential reference', Exit.REFUSED)
+            lane_id = self._next_lane_id(credential.provider)
+            lane = Lane(lane_id, credential.provider, info.account_key, credential,
+                        info.home or (str(path) if credential.kind == "home" else None), owner, False, True,
+                        info.identity, info.label)
+            with self.store.transaction("lane.enrolled", lane_id=lane_id, data={
+                    "account_key": info.account_key, "kind": credential.kind, "owner": owner.value,
+                    "label": info.label, "identity_status": info.identity_status,
+                    "supersedes": existing['lane_id'] if existing else None}):
+                # Keep the old binding fenced through publication, and re-read
+                # facts under the same transaction that creates its successor.
+                for row in bindings:
+                    current = self.store.get_lane(row['lane_id'])
+                    if (current is None or current.enabled or current.desktop or current.owner != owner
+                            or current.account_key != row['account_key'] or current.identity != row['identity']
+                            or current.credential.ref != credential.ref):
+                        raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
+                    if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
+                                      "('reserved','starting','running','finalizing','quarantined')", (row['lane_id'],)):
+                        raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED)
+                    if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ? AND holder!=?",
+                                      (f"lane:{row['lane_id']}:slot:%", enrollment_holder)):
+                        raise protocol.ProtocolError('lane acquired an execution lease during re-enrollment', Exit.REFUSED)
+                self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
+                for reading in info.readings:
+                    self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
+                # Re-authentication clears only the authentication latch. A new
+                # binding to the same account cannot erase a hold or limit.
+                for old in bindings:
+                    for closure in self.store.list_closures(old['lane_id'], active_at=utcnow()):
+                        if closure['reason'] != 'auth-dead':
+                            self.store.add_closure(Closure(
+                                lane_id, closure['scope'], closure['until_at'],
+                                ClosureReason(closure['reason']), ClockSource(closure['clock_source']),
+                                closure['source_event']))
+            self._append_lanes_json(lane)
+            self._notify()
+            return {"enrolled": self.store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)),
+                    "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
+        finally:
+            if enrollment_holder:
+                self.timers.active_holders.discard(enrollment_holder)
+                record = self._probe_record(enrollment_holder)
+                if not record or record['state'] in ('contained', 'completed', 'reserved'):
+                    self.store.release_leases(enrollment_holder)
+                    if record:
+                        shutil.rmtree(record['directory'], ignore_errors=True)
+
+    def _enrollment_turn(self, lane_id, holder, argv, *, cwd, env, timeout, **_):
+        """Run re-authentication through the recoverable guardian process fence.
+
+        The adapter still parses its real stream. A restart contains the same
+        recorded process before releasing its probe lease; no timer admission
+        reading or lane identity is published from an incomplete enrollment.
+        """
+        directory = self.root / 'lanes' / lane_id / 'probes' / holder.rsplit(':', 1)[-1]
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        stdout, stderr = directory / 'stdout.txt', directory / 'stderr.txt'
+        record = {'holder': holder, 'job_id': None, 'lane_id': lane_id,
+                  'timer_kind': 'enroll', 'model_id': 'enrollment',
+                  'directory': str(directory), 'state': 'reserved', 'created_at': utcnow(),
+                  'owned_identities': {}, 'deadline_at': after(timeout)}
+        self._save_probe(record)
+        package_root = str(Path(__file__).resolve().parent.parent)
+        env = {**env, 'SUBFLEET_ATTEMPT': holder, 'SUBFLEET_ROOT': str(self.root), 'SUBFLEET_PROBE': '1'}
+        env['PYTHONPATH'] = package_root + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
+        read_fd, write_fd = os.pipe()
+        command = [sys.executable, '-m', 'subfleet.guardian', '--attempt-dir', str(directory),
+                   '--cwd', cwd, '--stdout-path', str(stdout), '--stderr-path', str(stderr),
+                   '--launch-fd', str(read_fd), '--', *argv]
+        child = None
+        try:
+            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            identity_deadline = time.monotonic() + 2
+            started = procs.proc_start(child.pid)
+            while not started and child.poll() is None and time.monotonic() < identity_deadline:
+                time.sleep(.01)
+                started = procs.proc_start(child.pid)
+            if not started:
+                raise procs.InspectionError('enrollment guardian identity is absent')
+            record.update(state='starting', guardian_pid=child.pid, pgid=child.pid,
+                          boot_id=procs.boot_id(), proc_start=started)
+            self._save_probe(record)
+            if not self.stopping.is_set():
+                os.write(write_fd, b'1')
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+        safe, receipt = self._await_probe(record, child)
+        if not safe:
+            raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7)
+        if not receipt:
+            raise AdapterError('enrollment ended without an exit receipt', code=5)
+        rc = receipt.get('rc')
+        if rc is None:
+            rc = -receipt['signal'] if receipt.get('signal') else 1
+        return subprocess.CompletedProcess(argv, rc, stdout.read_text(), stderr.read_text())
 
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
@@ -423,6 +553,17 @@ class Daemon:
             if holder := view["unavailable_lanes"].get(lane["lane_id"]):
                 lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
         return self.timers.enrich_view(view)
+
+    def _cached_desktop_identity(self) -> capacity.DesktopIdentity:
+        """Read-only advisory identity: a warm profile or conservative cached hints."""
+        last = capacity.last_desktop_identity(self.store.query(
+            "SELECT * FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 8",
+            (capacity.DESKTOP_IDENTITY_EVENT,))) or {}
+        cached_at, cached = self._desktop_cache
+        profile = (cached if cached is not _UNSET and
+                   time.monotonic() - cached_at <= self.policy['caps']['reading_ttl_s'] else None)
+        return capacity.desktop_identity(profile, cached_label=capacity.read_desktop_account(),
+                                         last_label=last.get('label'))
 
     def _desktop_identity(self) -> capacity.DesktopIdentity:
         """C-10.3: who the Claude desktop app is, asked of its own credential.
@@ -1010,6 +1151,15 @@ class Daemon:
         return record
 
     def dispatch(self, op: str, args: dict) -> dict:
+        if op == "pick":
+            from . import picker
+            a = protocol.coerce_args(protocol.PickArgs, args)
+            view = self._capacity_view(self._cached_desktop_identity())
+            view["lane_leases"] = self.store.query("SELECT lease_key,holder FROM leases WHERE lease_key LIKE 'lane:%'")
+            return picker.rank(self.policy, view, **dataclasses.asdict(a))
+        if op == "operations":
+            from . import operations
+            return operations.dispatch(self, protocol.coerce_args(protocol.OperationsArgs, args))
         if op in ("gate.start", "gate.poll", "gate.continue"):
             from .gate.service import dispatch
             return dispatch(self, op, args)
@@ -1378,6 +1528,8 @@ class Daemon:
                     count = self._worker_failures[key] = self._worker_failures.get(key, 0) + 1
                     delay = worker_retry_delay(count)
                     self._worker_retry_at[key] = time.monotonic() + delay
+                if key == "retention":
+                    self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))
                 if count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
                     self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
                                    key, type(exc).__name__, count, delay)
@@ -1406,7 +1558,6 @@ class Daemon:
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
                 if time.monotonic() - self._last_maintenance >= 3600:
-                    self._last_maintenance = time.monotonic()
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -1418,22 +1569,23 @@ class Daemon:
         return result.get("notice_id") is not None
 
     def _retention(self):
-        try:
-            result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
-            if result.get("interrupted"):
-                self.timers.mark("retention", error="CancelledError" if result["interrupted"] == "cancelled" else "TimeoutError", next_due=after(3600))
+        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        if result.get("interrupted"):
+            if result["interrupted"] == "cancelled":
+                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
                 return
-            with self.store.transaction("service-notice.retention") as tx:
-                tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
-        except Exception as exc:
-            self.timers.mark("retention", error=type(exc).__name__, next_due=after(3600))
-            raise
+            raise TimeoutError("retention deadline reached")
+        with self.store.transaction("service-notice.retention") as tx:
+            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
         self.timers.mark("retention", next_due=after(3600))
+        # A raising pass remains due so the worker retry clock can re-offer it.
+        # Only a completed pass rearms the ordinary hourly interval.
+        self._last_maintenance = time.monotonic()
 
     def _recover_then_start_timers(self):
         # HTTP reservations have no provider process and can be released on restart.
         for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:timer:%'"):
-            if not self._probe_record(lease["holder"]):
+            if lease["holder"] not in self.timers.active_holders and not self._probe_record(lease["holder"]):
                 self.store.release_leases(lease["holder"])
         self._recover_probes()
         self.timers.actions.recover()

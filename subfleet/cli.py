@@ -444,6 +444,49 @@ def cmd_status(args: argparse.Namespace) -> int:
     return int(Exit.OK)
 
 
+# --- native lane picker (plan amendment 1) -----------------------------------
+
+def cmd_pick(args: argparse.Namespace) -> int:
+    """Permanent v1 path/email output; routing evidence and authority are v2's."""
+    try:
+        data = _client(args).call("pick", {"family": args.family, "model": args.model,
+            "exclusions": args.exclude, "min_headroom": args.min_headroom})
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    if args.json:
+        emit({**data, "ranked": data["ranked"] if args.all else data["ranked"][:1]})
+    elif data.get("best"):
+        out(data["best"])
+        note(f"{PROG} pick: advisory only; no lane slot is reserved")
+        if args.all:
+            key = "home" if args.family == "codex" else "email"
+            for lane in data["ranked"][1:]:
+                note(f"  next: {lane[key]}")
+    else:
+        note(f"{PROG} pick: no dispatchable {args.family} lane"
+             + (f" (earliest reset {data['earliest_reset']})" if data.get("earliest_reset") else ""))
+        note("  use --model MODEL for exact scope, or subfleet run for supervised admission")
+    if not args.json and (args.no_handicap or args.handicap != 10):
+        note(f"{PROG} pick: legacy handicap flags do not override desktop protection")
+    # V1's picker has its own permanent boolean shell contract (unlike run).
+    return 0 if data.get("best") else 1
+
+
+def cmd_api_lane_check(args: argparse.Namespace) -> int:
+    """Private PATH-shim contract: silent success; known API-key homes return 7."""
+    from .adapters.codex import api_key_login
+    if not api_key_login(args.home):
+        return int(Exit.OK)
+    message = f"{Path(args.home).expanduser()} is an OpenAI API-key login; v2 lanes use subscriptions only"
+    if os.environ.get("SUBFLEET_ALLOW_API_LANE") == "1":
+        message += "; the legacy SUBFLEET_ALLOW_API_LANE override is not supported"
+    return fail(Exit.REFUSED, message, "log this lane into a ChatGPT subscription account")
+
+
 # --- run (C-17.2, C-17.6) -----------------------------------------------------
 
 def _apply_deprecations(args: argparse.Namespace) -> None:
@@ -2135,6 +2178,23 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p_status)
     p_status.set_defaults(handler=cmd_status)
 
+    p_pick = sub.add_parser("pick", help="recommend a v2 Codex home or Claude email")
+    p_pick.add_argument("family", nargs="?", choices=("codex", "claude"), default="codex")
+    p_pick.add_argument("--model", help="exact policy model; omission requires all family models to qualify")
+    p_pick.add_argument("--all", action="store_true")
+    p_pick.add_argument("--cached", action="store_true", help="accepted; picks always use recorded v2 readings")
+    p_pick.add_argument("--min-headroom", type=float)
+    p_pick.add_argument("--exclude", action="append", default=[])
+    p_pick.add_argument("--handicap", type=float, default=10,
+                        help="legacy ranking flag; v2 desktop protection remains mandatory")
+    p_pick.add_argument("--no-handicap", action="store_true")
+    _add_json(p_pick)
+    p_pick.set_defaults(handler=cmd_pick)
+
+    p_api_lane = sub.add_parser("_api-lane-check", help=argparse.SUPPRESS)
+    p_api_lane.add_argument("home")
+    p_api_lane.set_defaults(handler=cmd_api_lane_check)
+
     p_run = sub.add_parser("run", help="submit a job to the daemon")
     task = p_run.add_mutually_exclusive_group()
     task.add_argument("--task", choices=TASK_CHOICES, help="what kind of work this is")
@@ -2335,6 +2395,8 @@ def build_parser() -> argparse.ArgumentParser:
     sessions_cli.add_handoff_flags(p_handoff)
     _add_json(p_handoff)
     p_handoff.set_defaults(handler=cmd_handoff)
+    from . import operations
+    operations.add_verbs(sub)
     return parser
 
 
@@ -2360,6 +2422,11 @@ def rewrite_aliases(argv: Sequence[str]) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
+    # Internal v1 workers must also refuse when this module is invoked directly.
+    from .compat import RETIRED
+    if argv and argv[0] in RETIRED:
+        why, fix = RETIRED[argv[0]]
+        return fail(Exit.REFUSED, f"{argv[0]}: {why}", fix)
     parser = build_parser()
     try:
         args = parser.parse_args(rewrite_aliases(argv))

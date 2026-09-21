@@ -48,6 +48,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -68,6 +69,9 @@ EVENTS = {
     "posttooluse": "PostToolUse",
     "post-tool-use": "PostToolUse",
     "post-bash": "PostToolUse",
+    "pretooluse": "PreToolUse",
+    "pre-tool-use": "PreToolUse",
+    "pre-bash": "PreToolUse",
 }
 SESSION_EVENTS = ("SessionStart", "UserPromptSubmit")
 
@@ -523,6 +527,83 @@ def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any) 
     return int(Exit.INVALID_INPUT)          # 2: the harness's "show this to Claude"
 
 
+def attached_runner(command: str) -> str | None:
+    """Recognise direct runner launches, not quoted mentions or file arguments.
+
+    This is a convenience guard for ordinary shell commands, not a shell
+    sandbox. Indirect launches through scripts remain the caller's responsibility.
+    """
+    # Ignore heredoc bodies: prompt examples are data, not commands. Match only
+    # literal delimiters; the shell's broader grammar is intentionally not run.
+    lines, delimiters = [], []
+    for line in command.splitlines(keepends=True):
+        if delimiters:
+            if line.strip() == delimiters[0]:
+                delimiters.pop(0)
+            continue
+        lines.append(line)
+        delimiters.extend(match[1] for match in re.findall(
+            r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", line))
+    lexer = shlex.shlex(''.join(lines), posix=True, punctuation_chars=';&|()\n')
+    lexer.whitespace = ' \t\r'
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return None
+    segments, words = [], []
+    for token in tokens:
+        if token and all(ch in ';&|()\n' for ch in token):
+            if words:
+                segments.append(words)
+            words = []
+        else:
+            words.append(token)
+    if words:
+        segments.append(words)
+    for words in segments:
+        override = False
+        while words:
+            first = words[0]
+            if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', first, re.S):
+                override = override or first == 'SUBFLEET_ATTACHED_OK=1'
+                words = words[1:]
+            elif Path(first).name in ('env', 'nohup', 'exec', 'time', 'command'):
+                words = words[1:]
+                while words and words[0] == '--':
+                    words = words[1:]
+            else:
+                break
+        if not words or override:
+            continue
+        binary = Path(words[0]).name
+        offender = None
+        if binary == 'subfleet' and len(words) > 1 and words[1] in ('codex', 'claude'):
+            offender = 'subfleet ' + words[1]
+        elif binary in ('codex-run', 'claude-lane', 'subfleet-codex', 'subfleet-claude'):
+            offender = binary
+        elif binary == 'codex' and len(words) > 1 and words[1] in ('exec', 'e', 'review'):
+            offender = 'codex ' + words[1]
+        if offender and (binary == 'codex' or '-d' not in words[1:]):
+            return offender
+    return None
+
+
+def pre_tool_use(payload: dict[str, Any], *, stdout=None) -> int:
+    if payload.get('tool_name', 'Bash') != 'Bash':
+        return 0
+    offender = attached_runner(tool_command(payload))
+    if offender:
+        reason = (f"{offender} runs attached to this session and can die when it restarts. "
+                  "Use subfleet run --task build|review|research --tier trivial|easy|standard|hard "
+                  "-C <dir> -p prompt.md -o out.md, then subfleet wait <job-id>. "
+                  "For an intentional short attached call, prefix that command with SUBFLEET_ATTACHED_OK=1.")
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+                                                'permissionDecision': 'deny',
+                                                'permissionDecisionReason': reason}}), file=stdout or sys.stdout)
+    return 0
+
+
 def run(event: str, argv: Sequence[str] = (), *, stream: Any = None,
         root: Path | None = None, client: Client | None = None) -> int:
     """`subfleet hook <event>` — dispatch one hook invocation."""
@@ -535,6 +616,8 @@ def run(event: str, argv: Sequence[str] = (), *, stream: Any = None,
     if name == "PostToolUse" and not payload.get("hook_event_name"):
         payload = {**payload, "hook_event_name": name}
     root = state_root() if root is None else root
+    if name == "PreToolUse":
+        return pre_tool_use(payload)
     if name in SESSION_EVENTS:
         return session_event(name, payload, root, client=client)
     return post_tool_use(payload, root, client=client)
@@ -544,7 +627,7 @@ def run(event: str, argv: Sequence[str] = (), *, stream: Any = None,
 
 def desired_groups(command: str | None = None,
                    timeout: int | None = None) -> dict[str, dict[str, Any]]:
-    """The three entries `daemon install --hooks` writes.
+    """The four entries `daemon install --hooks` writes.
 
     `timeout` is written explicitly on every entry rather than inherited: the
     documented `command` default is 600 s and this hook's own budget is derived
@@ -553,6 +636,8 @@ def desired_groups(command: str | None = None,
     command = command or hook_command()
     seconds = timeout_s() if timeout is None else timeout
     return {
+        "PreToolUse": {"matcher": "Bash", "hooks": [
+            {"type": "command", "command": f"{command} PreToolUse", "timeout": min(seconds, 5)}]},
         "SessionStart": {"hooks": [
             {"type": "command", "command": f"{command} SessionStart",
              "timeout": min(seconds, 30)}]},
@@ -585,9 +670,9 @@ def _is_ours(hook: Any, event: str, command: str) -> bool:
 
     v1's entries end in `session-start` / `user-prompt` / `pre-bash`, never in a
     v2 event name, and carry `V1_MARKER` rather than `MARKER`, so none of the
-    three matches them. That is deliberate: v1's PreToolUse guard is the only
-    thing enforcing the front-door rule inside a session until v1 is
-    uninstalled (`subfleet/compat.py` refuses the same commands at the CLI).
+    three matches them. That is deliberate: installation owns only v2 entries. The native
+    PreToolUse guard now preserves the attached-runner protection independently
+    of any old entries an operator has retained.
     """
     if not isinstance(hook, dict):
         return False
@@ -628,7 +713,7 @@ def load_settings(path: Path) -> dict[str, Any]:
 
 
 def plan(path: Path | None = None, *, command: str | None = None,
-         timeout: int | None = None) -> dict[str, Any]:
+         timeout: int | None = None, remove: bool = False) -> dict[str, Any]:
     """What `--hooks` would do: the current file, the proposed file, the diff.
 
     Nothing is written here. `daemon install --hooks` prints this diff first and
@@ -648,10 +733,11 @@ def plan(path: Path | None = None, *, command: str | None = None,
     for event, group in desired_groups(command, timeout).items():
         existing = hooks.get(event) if isinstance(hooks.get(event), list) else []
         stripped = _strip_ours(list(existing), event, resolved)
-        updated = [*stripped, group]
+        updated = stripped if remove else [*stripped, group]
         if updated != list(existing):
             changed.append(event)
-        proposed_hooks[event] = updated
+        if updated or event in hooks:
+            proposed_hooks[event] = updated
     proposed = {**current, "hooks": proposed_hooks}
     return {
         "ok": True, "path": str(path), "changed_events": changed,
@@ -664,8 +750,8 @@ def plan(path: Path | None = None, *, command: str | None = None,
 def v1_entries(settings: dict[str, Any]) -> dict[str, list[str]]:
     """Which v1 `bin/subfleet-hook` entries are still installed, by event.
 
-    They are reported, never rewritten: v1's PreToolUse guard is the only thing
-    enforcing the front-door rule inside a session until v1 is uninstalled.
+    They are reported, never rewritten; uninstalling v2 does not claim ownership
+    of a separately installed v1 hook.
     """
     found: dict[str, list[str]] = {}
     hooks = settings.get("hooks")
@@ -694,11 +780,11 @@ def _diff(current: dict[str, Any], proposed: dict[str, Any], label: str) -> str:
 
 
 def apply(path: Path | None = None, *, command: str | None = None,
-          timeout: int | None = None) -> dict[str, Any]:
+          timeout: int | None = None, remove: bool = False) -> dict[str, Any]:
     """Write the proposed settings, keeping a timestamped backup as v1 does."""
     from datetime import datetime
     path = settings_path() if path is None else path
-    report = plan(path, command=command, timeout=timeout)
+    report = plan(path, command=command, timeout=timeout, remove=remove)
     if not report.get("ok") or not report["changed_events"]:
         return {**report, "written": False}
     backup = None

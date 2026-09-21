@@ -32,7 +32,8 @@ BY_ID = {case["id"]: case for case in CASES}
 #: spellings — neither string exists anywhere in the v1 tree.
 PERMANENT_HEADS = {"status", "capacity", "runs", "jobs", "show", "wait", "kill",
                    "resume", "resume-codex", "notify", "ping", "run", "lanes",
-                   "why", "daemon", "doctor", "hook", "gate", "enroll",
+                   "why", "daemon", "doctor", "hook", "gate", "enroll", "pick", "_api-lane-check",
+                   "errors", "brief", "watch", "keepalive", "reset", "login", "_canonical-model", "_session-hook",
                    # milestone 6: the sessions kit. `sessions` and `handoff` are
                    # first-class in C-17.1; `tickle`, `muster`, `revive` and
                    # `mirror` are v1 spellings amendment 1 keeps, mapped onto
@@ -57,7 +58,7 @@ def test_no_v1_command_that_worked_is_refused_for_a_reason_that_is_not_recorded(
     there are exactly two kinds: the direct provider verbs the agent contract forbids, and
     the flags whose absence would change what happens. Anything else in this
     list would be an accident."""
-    deliberate = set(compat.REFUSED)
+    deliberate = set(compat.REFUSED) | set(compat.RETIRED)
     for case in CASES:
         if not case["v1_parses"] or case["expect"]["disposition"] != "refuse":
             continue
@@ -454,30 +455,31 @@ def test_run_status_was_never_a_dispatch():
         ["status", "--json"]
 
 
-# --- delegation ---------------------------------------------------------------
+# --- retired internal callbacks ---------------------------------------------
 
-DELEGATED_CASES = [case for case in CASES
-                   if case["expect"]["disposition"] == "delegate"]
-
-
-@pytest.mark.parametrize("case", DELEGATED_CASES, ids=ids(DELEGATED_CASES))
-def test_a_delegated_case_hands_v1_the_argv_it_was_given(case):
-    """C-17.1 the argv is not rewritten on the way to v1: v1 parses what the
-    caller typed, so its own verb table decides."""
-    mapping = compat.translate(case["argv"], env=case["env"])
-    assert mapping.argv == case["argv"]
+def test_no_compatibility_invocation_delegates_to_v1():
+    """Completed cutover: every retained spelling is native or explicitly refused."""
+    assert not compat.DELEGATED and not compat.DELEGATED_PAIRS and not compat.HIDDEN
+    for case in CASES:
+        assert compat.translate(case["argv"], env=case["env"]).disposition != "delegate"
 
 
 @pytest.mark.parametrize("verb", ["_record-run", "_record-lane-run",
-                                  "_canonical-model", "_api-lane-check",
-                                  "_record-codex-cooldown", "_session-hook",
+                                  "_record-codex-cooldown",
                                   "_tickle"])
-def test_the_hidden_verbs_are_delegated_without_a_word_on_stderr(verb):
-    """C-17.4 stdout carries the contract and stderr the prose — but v1's
-    runners call these back through $SUBFLEET_RUN_SUBFLEET on every record they
-    write, so a note per call would land in a captured err.log."""
-    mapping = compat.translate([verb, "arg"], env={})
-    assert mapping.disposition == "delegate" and mapping.notes == []
+@pytest.mark.parametrize("direct", [False, True])
+def test_obsolete_workers_refuse_without_executing_or_claiming_success(verb, direct, monkeypatch, capsys):
+    """C-17.3: a retired callback must not fabricate ledger writes or delivery."""
+    monkeypatch.setattr(compat, "delegate", lambda *a, **kw: pytest.fail("v1 fallback"))
+    monkeypatch.setattr(cli, "_client", lambda *a, **kw: pytest.fail("daemon mutation"))
+    argv = [verb, "--session", "old-session", "--delay", "3", "--await-inbox", "60"]
+    run = cli.main if direct else compat.dispatch
+    assert run(argv) == 7
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert verb in captured.err and "retired" in captured.err and "fix:" in captured.err
+    assert "no " in captured.err
+    assert compat.translate(argv, env={}).rule == f"retired:{verb}"
 
 
 @pytest.mark.parametrize("code", range(6))
@@ -675,7 +677,7 @@ def test_no_verb_is_in_two_tables_at_once():
     table order rather than by intent."""
     heads = [{tokens[0] for tokens in compat.PERMANENT},
              {tokens[0] for tokens in compat.RENAMED},
-             set(compat.REFUSED), set(compat.DELEGATED), set(compat.HIDDEN)]
+             set(compat.REFUSED), set(compat.RETIRED), set(compat.DELEGATED), set(compat.HIDDEN)]
     for index, first in enumerate(heads):
         for second in heads[index + 1:]:
             overlap = first & second
