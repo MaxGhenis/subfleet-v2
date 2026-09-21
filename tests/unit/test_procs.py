@@ -11,15 +11,15 @@ import os
 from subfleet import client, procs
 
 
-def census(monkeypatch, *, groups="", parents="", markers="", fail=None):
+def census(monkeypatch, *, groups="", parents="", markers="", fail=None, boot="100"):
     def read(argv, *, empty_ok=False):
         if fail is not None and any(os.path.basename(str(a)) == fail for a in argv):
             raise procs.InspectionError("unavailable")
         if os.path.basename(argv[0]) == "sysctl" and argv[1:2] == ["-n"]:
-            return "{ sec = 100, usec = 123 }"
+            return "{ sec = %s, usec = 123 }" % boot
         if "pid=,stat=" in argv:
             return groups
-        if "pid=,ppid=,pgid=,stat=" in argv:
+        if "pid=,ppid=,pgid=,stat=,lstart=" in argv:
             return parents
         if "pid=,command=" in argv:
             return markers
@@ -102,7 +102,7 @@ def test_containment_three_sources_find_setsid_escape(monkeypatch):
     assert "PRIVATE_TOKEN" not in json.dumps(result.to_dict())
 
 
-@pytest.mark.parametrize("failed", ["pid=,ppid=,pgid=,stat=", "pid=,command="])
+@pytest.mark.parametrize("failed", ["pid=,ppid=,pgid=,stat=,lstart=", "pid=,command="])
 def test_containment_failed_source_is_unverifiable(monkeypatch, failed):
     """C-5.5 every enumeration source must succeed before releasing a workspace."""
     census(monkeypatch, fail=failed)
@@ -218,7 +218,7 @@ def test_containment_group_and_walk_share_one_snapshot(monkeypatch):
     assert result.descendant_pids == {42, 43}
     assert result.live_pids == {42, 43, 50}
     assert result.shapes[50] == {"ppid": 1, "pgid": 42, "stat": "S"}
-    assert sum(1 for argv in reads if "pid=,ppid=,pgid=,stat=" in argv) == 1
+    assert sum(1 for argv in reads if "pid=,ppid=,pgid=,stat=,lstart=" in argv) == 1
     assert not any("-g" in argv for argv in reads)
     assert "command" not in json.dumps(result.to_dict()["shapes"])
 
@@ -240,3 +240,108 @@ def test_liveness_has_three_answers_and_unknown_never_means_dead(monkeypatch):
     census(monkeypatch, fail="ps")
     assert procs.liveness(42, "100", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.same_process(42, "100", "Sat Sep  5 10:00:00 2026") is False
+
+
+START = "Sat Sep  5 10:00:00 2026"
+
+
+def test_c5_12_a_census_is_two_ps_reads_however_many_processes_it_finds(monkeypatch):
+    """C-5.5, C-5.12 identities come from the snapshot's `lstart`, not from a `ps` per pid."""
+    reads = []
+    rows = "".join(f"{pid} 42 42 S    {START}    \n" for pid in range(43, 63))
+    census(monkeypatch, parents=f"42 1 42 Ss   {START}    \n" + rows)
+    inner = procs._read
+
+    def counting(argv, **kwargs):
+        reads.append(list(argv))
+        return inner(argv, **kwargs)
+    monkeypatch.setattr(procs, "_read", counting)
+    result = procs.containment(42, 42, None, "job/a1")
+    assert result.group_pids == set(range(42, 63)) and not result.unverifiable
+    assert result.identities[50] == procs.ProcessIdentity(50, "100", START)
+    assert [os.path.basename(argv[0]) for argv in reads] == ["ps", "sysctl", "ps"]
+
+
+def test_c5_12_a_pid_the_snapshot_cannot_describe_is_asked_about_singly(monkeypatch):
+    """C-5.5 a marker process born after the snapshot still gets an identity, or leaves the census."""
+    census(monkeypatch, parents=f"42 1 42 S {START}\n",
+           markers="77 provider SUBFLEET_ATTEMPT=job/a1\n")
+    result = procs.containment(42, 42, None, "job/a1")
+    assert result.marker_pids == {77}
+    assert result.identities[77] == procs.ProcessIdentity(77, "100", START)
+
+
+def test_c5_12_one_table_answers_identity_for_every_recorded_process(monkeypatch):
+    """C-5.3, C-5.12 a table matches pid, boot and start; a zombie, a reused pid and a gone pid do not."""
+    census(monkeypatch, parents=f"42 1 42 Ss   {START}    \n43 42 42 Z    {START}\n"
+                                f"44 1 44 S    Sun Sep  6 11:00:00 2026\n")
+    table = procs.snapshot()
+    assert table.is_process(42, "100", START)
+    assert not table.is_process(42, "99", START)          # another boot
+    assert not table.is_process(43, "100", START)         # a zombie is not live
+    assert not table.is_process(44, "100", START)         # the pid was reused
+    assert not table.is_process(45, "100", START)         # gone
+    assert not table.is_process(0, "100", START) and not table.is_process(42, None, None)
+    assert table.group(42) == {42} and table.group(None) == frozenset()
+    assert table.identity(44) == procs.ProcessIdentity(44, "100", "Sun Sep  6 11:00:00 2026")
+
+
+def test_c5_12_an_unreadable_process_table_is_an_inspection_failure(monkeypatch):
+    """C-5.5 a table that cannot be read or parsed proves nothing."""
+    census(monkeypatch, fail="ps")
+    with pytest.raises(procs.InspectionError):
+        procs.snapshot()
+    census(monkeypatch, parents="not a process row at all\n")
+    with pytest.raises(procs.InspectionError):
+        procs.snapshot()
+
+
+def test_c5_12_boot_id_is_read_once_per_window_and_never_cached_on_failure(monkeypatch):
+    """C-5.3, C-5.12 one `sysctl` serves BOOT_ID_TTL_S; a failed read is not remembered."""
+    reads = []
+    census(monkeypatch)
+    inner = procs._read
+
+    def counting(argv, **kwargs):
+        reads.append(os.path.basename(argv[0]))
+        return inner(argv, **kwargs)
+    monkeypatch.setattr(procs, "_read", counting)
+    assert [procs.boot_id() for _ in range(5)] == ["100"] * 5
+    assert reads == ["sysctl"]
+    clock = procs.time.monotonic()
+    monkeypatch.setattr(procs.time, "monotonic", lambda: clock + procs.BOOT_ID_TTL_S + 1)
+    assert procs.boot_id() == "100" and reads == ["sysctl", "sysctl"]
+    procs.forget_boot_id()
+    census(monkeypatch, fail="sysctl")
+    with pytest.raises(procs.InspectionError):
+        procs.boot_id()
+    census(monkeypatch, boot="200")
+    assert procs.boot_id() == "200"
+
+
+def test_c5_12_a_boot_id_mismatch_is_rechecked_before_a_process_is_called_dead(monkeypatch):
+    """C-5.3, C-5.12 a cached boot id may be stale: only a fresh read can say "another boot"."""
+    census(monkeypatch, boot="100")
+    assert procs.boot_id() == "100"                       # cached
+    census(monkeypatch, boot="200")                       # the value moved inside the window
+    assert procs.liveness(42, "200", START) == "alive"
+    procs.forget_boot_id()
+    census(monkeypatch, boot="100")
+    assert procs.boot_id() == "100"
+    census(monkeypatch, boot="200")
+    assert procs.same_process(42, "200", START) is True
+    assert procs.liveness(42, "300", START) == "dead"     # a real mismatch stays one
+
+
+def test_c5_12_ps_and_sysctl_are_started_without_a_fork(monkeypatch):
+    """C-5.12 `close_fds=False` is the condition under which CPython uses posix_spawn on macOS."""
+    seen = {}
+
+    def run(argv, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "ok", "")
+    monkeypatch.setattr(procs.subprocess, "run", run)
+    assert procs._read(["/bin/ps"]) == "ok"
+    assert seen["close_fds"] is False
+    # posix_spawn also needs an executable named by path, not found on PATH.
+    assert os.path.isabs(procs.TABLE_ARGV[0])

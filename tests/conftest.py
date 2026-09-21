@@ -165,6 +165,16 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_boot_id():
+    """C-5.12: one `kern.boottime` read serves a few seconds, and tests stub the
+    reader with boot ids of their own, so none may inherit another's."""
+    from subfleet import procs
+    procs.forget_boot_id()
+    yield
+    procs.forget_boot_id()
+
+
+@pytest.fixture(autouse=True)
 def no_desktop_login(monkeypatch):
     """`~/.claude.json` belongs to whoever runs the tests, and the desktop app's
     keychain item holds their real credential. No test reads either by accident
