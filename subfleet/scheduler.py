@@ -6,6 +6,7 @@ admission transaction. Evaluation never probes, writes the store, or runs ps.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, is_dataclass
@@ -452,11 +453,81 @@ def exit_code(decision: Decision) -> Exit:
     return Exit.OK if decision.chosen_lane else Exit.NO_LANE
 
 
-def waiting_metadata(decision: Decision, now: str | datetime | None = None) -> dict[str, str]:
-    """C-4.1; plan amendment 11: capacity waits always have a recheck clock."""
+#: C-6.10: a capacity wait is rechecked 1 s out, doubling for each consecutive
+#: recheck that reaches the same verdict, to this ceiling.
+CAPACITY_RECHECK_BASE_S = 1
+CAPACITY_RECHECK_CEILING_S = 30
+
+
+def capacity_recheck_delay(rechecks: int, ceiling_s: float = CAPACITY_RECHECK_CEILING_S) -> float:
+    """C-6.10: seconds until the next look at a job whose verdict has held `rechecks` times."""
+    # The exponent is bounded so a job that waits for days cannot overflow a float.
+    return min(ceiling_s, CAPACITY_RECHECK_BASE_S * 2 ** min(max(rechecks, 0), 16))
+
+
+def waiting_metadata(decision: Decision, now: str | datetime | None = None, *,
+                     rechecks: int = 0, ceiling_s: float = CAPACITY_RECHECK_CEILING_S) -> dict[str, str]:
+    """C-4.1; plan amendment 11: capacity waits always have a recheck clock.
+
+    C-6.10: the clock backs off while the verdict repeats, and a known reset
+    that falls sooner than the backed-off clock is still checked on time.
+    """
     instant = _time(now) if now is not None else datetime.now(timezone.utc)
-    next_check = instant + timedelta(seconds=1)
+    next_check = instant + timedelta(seconds=capacity_recheck_delay(rechecks, ceiling_s))
     earliest = _earliest_reset(decision.evaluations, instant)
     if earliest:
         next_check = min(next_check, _time(earliest))
     return {"wait_reason": "capacity", "next_check_at": _iso(next_check)}
+
+
+def verdict_signature(decision: Decision | Mapping[str, Any]) -> str:
+    """C-6.10: what a decision concluded, without the evidence it consulted.
+
+    Two evaluations with the same signature walked the same chain, chose the
+    same lane and model, and rejected the same lanes for the same reasons.
+    Readings, their utilization, and `evaluated_at` change every probe cycle
+    without changing the verdict, so they are left out. So is a `no-slot` that
+    only a probe's reservation caused: probes visit every idle lane each cycle
+    (C-18.1), and counting them would make a standing verdict look new for the
+    second each one runs.
+    """
+    value = _row(decision)
+    walked = []
+    for evaluation in value.get("evaluations", ()):
+        rejections = []
+        for row in evaluation.get("rejections", ()):
+            reasons = list(row.get("reasons") or [row.get("reason")])
+            if str(row.get("slot_block") or "").startswith("probe:") and len(reasons) > 1:
+                reasons = [reason for reason in reasons if reason != "no-slot"]
+            rejections.append((str(row.get("lane_id")), tuple(reasons)))
+        rejections.sort()
+        candidates = sorted(row if isinstance(row, str) else str(row.get("lane_id"))
+                            for row in evaluation.get("candidates", ()))
+        walked.append([evaluation.get("model"), candidates, rejections])
+    material = [list(value.get("chain", ())), value.get("chosen_lane"), value.get("chosen_model"),
+                value.get("policy_hash"), walked]
+    return hashlib.sha256(json.dumps(material, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
+    """C-6.11: the commonest first reason lanes were rejected for, as one short label."""
+    if decision is None:
+        return "not-evaluated"
+    value = _row(decision)
+    # A fleet or parent cap rejects every lane as `no-slot`; the cap is the cause.
+    blocks = [block for evaluation in value.get("evaluations", ())
+              for block in evaluation.get("capacity_blocks", ())]
+    if "fleet" in blocks:
+        return "fleet-full"
+    if any(str(block).startswith("parent:") for block in blocks):
+        return "parent-cap"
+    counts: dict[str, int] = {}
+    for evaluation in value.get("evaluations", ()):
+        for row in evaluation.get("rejections", ()):
+            reason = str((row.get("reasons") or [row.get("reason") or "unknown"])[0])
+            # A closure's reason carries its own expiry; the label groups them.
+            label = ":".join(reason.split(":")[:2]) if reason.startswith("closed:") else reason
+            counts[label] = counts.get(label, 0) + 1
+    if not counts:
+        return "no-lanes"
+    return max(sorted(counts), key=lambda label: counts[label])

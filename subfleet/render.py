@@ -110,6 +110,55 @@ def status(view: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+#: C-6.11: one line per reason admission can leave a job unplaced.
+_HOLD_TEXT = {
+    "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
+    "fleet-full": "the fleet is at max_active_attempts ({max_active_attempts}); nothing later is evaluated until a slot frees",
+    "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
+    "lease-held": "a lease this job needs is held by another job: {leases}",
+    "probe-pending": "its lane is being probed before the job may start on it",
+    "attempt-live": "an earlier attempt of this job is still live or quarantined; the next waits for it",
+    "approval": "waiting for an operator's approval",
+    "uncertain": "a probe was quarantined; an operator must resolve it",
+    "workspace": "its workspace could not be prepared; it is retried with backoff (C-6.8)",
+}
+
+
+def why_queue(standing: Mapping[str, Any]) -> list[str]:
+    """C-6.11: where a job stands in admission, in lines a person can act on.
+
+    `standing` is the `job` object of the `why` result: the job's state, the
+    hold the last admission pass recorded for it, and its recheck history.
+    """
+    state = standing.get("state")
+    lines = [f"Job: {standing.get('job_id')} is {state}"
+             + (f" ({standing['wait_reason']})" if standing.get("wait_reason") else "")]
+    hold, recheck = standing.get("hold"), standing.get("recheck")
+    if state not in ("queued", "waiting"):
+        return lines
+    if hold:
+        reason = hold.get("reason", "unknown")
+        template = _HOLD_TEXT.get(reason)
+        if template:
+            fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-"}
+            lines.append("Held: " + template.format_map({**dict.fromkeys(
+                ("behind", "tier", "max_active_attempts"), "?"), **fields}))
+        else:
+            lines.append(f"Held: no lane admits it ({reason})")
+    else:
+        lines.append("Held: no admission pass has reached this job yet")
+    if recheck:
+        lines.append(f"Rechecks: same verdict {recheck['rechecks'] + 1} times since {recheck['since']}, "
+                     f"last {recheck['checked_at']}")
+    if standing.get("next_check_at"):
+        lines.append(f"Next check: {standing['next_check_at']}")
+    if standing.get("decision_source") == "evaluated-now":
+        lines.append("Decision: none recorded; evaluated now for this answer, not by admission")
+    elif standing.get("decided_at"):
+        lines.append(f"Decision: recorded {standing['decided_at']}")
+    return lines
+
+
 def why(decision: Any) -> str:
     """C-11.5–6: render the recorded model walk without another evaluation."""
     value = _row(decision)
