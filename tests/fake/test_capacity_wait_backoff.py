@@ -121,23 +121,25 @@ def test_c6_10_a_known_reset_sooner_than_the_backoff_is_checked_on_time(fleet):
 def test_c6_10_capacity_that_comes_free_is_seen_on_the_next_pass(fleet):
     """C-6.10 a backed-off job does not wait out its clock once an attempt ends and a slot frees."""
     service, harness = fleet
-    service.policy["caps"]["max_active_attempts"] = 1
     first = submit(service, harness, pinned_model="terra")
-    second = submit(service, harness, pinned_model="terra")
+    submit(service, harness, pinned_model="terra")
+    third = submit(service, harness, pinned_model="terra")
     service._admit()
-    for _ in range(6):                                            # `second` backs off to 30 s behind a full fleet
-        make_due(service, second)
+    # `third` backs off to 30 s behind a lane with both slots taken. A full fleet
+    # would not do: C-6.9 ends that pass before its first job, so nothing backs off.
+    for _ in range(6):
+        make_due(service, third)
         service._admit()
-    assert service.store.get_job(second)["state"] == "waiting"
-    assert seconds_until(service.store.get_job(second)["next_check_at"]) > 25
+    assert service.store.get_job(third)["state"] == "waiting"
+    assert seconds_until(service.store.get_job(third)["next_check_at"]) > 25
     attempt = service.store.list_attempts(first)[0]["attempt_id"]
     with service.store.transaction("fixture.attempt_ended") as tx:
         tx.execute("UPDATE attempts SET state='failed' WHERE attempt_id=?", (attempt,))
         tx.execute("UPDATE jobs SET state='failed' WHERE job_id=?", (first,))
         tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (attempt, first))
     service._admit()
-    assert [row["state"] for row in service.store.list_attempts(second)] == ["reserved"]
-    assert second not in service._capacity_waits
+    assert [row["state"] for row in service.store.list_attempts(third)] == ["reserved"]
+    assert third not in service._capacity_waits
 
 
 def test_c6_10_a_probe_reservation_coming_and_going_frees_nothing(fleet):

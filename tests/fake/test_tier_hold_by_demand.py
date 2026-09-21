@@ -111,8 +111,10 @@ def test_c6_9_a_full_fleet_stops_the_pass(fleet):
     real = service._workspace
     service._workspace = lambda job: calls.append(job["job_id"]) or real(job)
     service._admit()
-    assert admitted(service, first) and calls == [first, second]   # the second finds the fleet full; the third is not looked at
-    assert not service.store.list_attempts(third)
+    # The second finds the fleet full before anything is prepared for it (C-6.12); the third is not looked at.
+    assert admitted(service, first) and calls == [first]
+    assert (service.store.get_job(second)["state"], service.store.get_job(second)["wait_reason"]) == ("waiting", "capacity")
+    assert service.store.get_job(third)["state"] == "queued" and not service.store.list_attempts(third)
 
 
 @pytest.mark.parametrize("job,expected", [

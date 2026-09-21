@@ -49,12 +49,16 @@ def test_c11_probe_rechecks_lane_before_reserving_after_selection(routing_state,
     selected = []
     calls = []
 
+    picks = []
+
     def pick_then_change(*args, **kwargs):
         decision = original_pick(*args, **kwargs)
-        assert decision.chosen_lane == "codex-1"
-        assert not service.store.conn.in_transaction
-        service.store.update_lane(decision.chosen_lane, **change)
-        selected.append(decision.chosen_lane)
+        picks.append(decision.chosen_lane)
+        if len(picks) == 2:     # the first pick only earns the job its preparation (C-6.12); this one selects the lane to probe
+            assert decision.chosen_lane == "codex-1"
+            assert not service.store.conn.in_transaction
+            service.store.update_lane(decision.chosen_lane, **change)
+            selected.append(decision.chosen_lane)
         return decision
 
     def probe(*args):

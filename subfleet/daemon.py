@@ -32,7 +32,7 @@ from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
-    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
+    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     START_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -64,7 +64,8 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 #: C-6.11: waits that are a person's or a retry's to end, not admission's.
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
-EXPECTED_HOLDS = frozenset({"fleet-full", "parent-cap", "lease-held", "probe-pending", "behind-older-job"})
+EXPECTED_HOLDS = frozenset({"fleet-full", "parent-cap", "lease-held", "probe-pending", "behind-older-job",
+                            "preparing"})
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
@@ -151,6 +152,7 @@ class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
+                 inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
@@ -160,6 +162,7 @@ class Daemon:
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
+        self.inspect_interval_s = inspect_interval_s
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
@@ -180,7 +183,11 @@ class Daemon:
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
-        self._census_next: dict[str, float] = {}
+        # C-5.12: attempt id -> when its processes are next inspected, and the
+        # one process table those inspections share.
+        self._inspect_next: dict[str, float] = {}
+        self._table: procs.ProcessTable | None = None
+        self._table_lock = threading.Lock()
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -1373,13 +1380,18 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                for a in self.store.query(LIVE_ATTEMPTS):
+                live = self.store.query(LIVE_ATTEMPTS)
+                for a in live:
                     if imported_external(a):
                         continue                    # v1 still owns it (principle 3)
                     self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"])
-                for j in self.store.query("SELECT * FROM jobs WHERE accepted_attempt_id IS NOT NULL"):
-                    if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):
-                        self._schedule("export:" + j["job_id"], self._export, j["job_id"])
+                for gone in set(self._inspect_next) - {a["attempt_id"] for a in live}:
+                    self._inspect_next.pop(gone, None)
+                # C-5.12: one query over the few leases held, not one per job the
+                # store has ever accepted.
+                for j in self.store.query("SELECT DISTINCT jobs.job_id FROM leases JOIN jobs ON jobs.job_id=leases.holder "
+                                          "WHERE jobs.accepted_attempt_id IS NOT NULL"):
+                    self._schedule("export:" + j["job_id"], self._export, j["job_id"])
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit)
                     self.timers.tick()
@@ -1806,6 +1818,26 @@ class Daemon:
                 return None, desktop
         return None, desktop
 
+    def _placeable(self, decision_job: dict, exclusions: tuple[str, ...], desktop, *,
+                   held_back: bool) -> bool:
+        """C-6.12: could this pass place the job? Rows and arithmetic only.
+
+        The same two questions the admission transaction asks, asked first and
+        without its authority: is the fleet below the limit this job would be
+        held to, and does the evaluation choose a lane. "No" sends the job to
+        that transaction unprepared, where the answer that counts is taken and
+        the wait recorded; "yes" only earns the job its preparation.
+        """
+        cap = self.policy["caps"]["max_active_attempts"]
+        if self._fleet_live() >= (cap - 1 if held_back else cap):
+            return False
+        return bool(self._pick(decision_job, extra_exclusions=exclusions, desktop=desktop).chosen_lane)
+
+    def _fleet_live(self) -> int:
+        """Attempts that count against `max_active_attempts` (C-6.4)."""
+        return self.store.one("SELECT count(*) n FROM attempts WHERE state IN "
+                              "('reserved','starting','running','finalizing')")["n"]
+
     def _admit(self) -> None:
         """One admission pass, then the record of what it left unplaced (C-6.11)."""
         holds: dict[str, dict] = {}
@@ -1891,7 +1923,11 @@ class Daemon:
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
         waiters: dict[str, list[tuple[str, frozenset[str] | None]]] = {}
-        saturated = False
+        # C-6.9: a fleet already at its cap ends the pass before its first job
+        # rather than after it, so a full fleet costs one count per pass and
+        # writes nothing. Found inside the first job's transaction instead, the
+        # same fact cost that job a decision row a second for as long as it held.
+        saturated = bool(queued) and self._fleet_live() >= cap
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
@@ -1917,30 +1953,6 @@ class Daemon:
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
-            try:
-                workspace, head, baseline = self._workspace(job)
-                native_session = job["caller_session"] if job["kind"] == "revive" else None
-                if job["kind"] == "resume":
-                    manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
-                    native_session = (manifest.get("resume") or {}).get("native_session_id")
-                    if not native_session:
-                        raise AdapterError("resume source identity is missing",
-                                           fix="resubmit the resume from the original job")
-            except AdapterError as exc:
-                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
-                continue
-            except (OSError, subprocess.SubprocessError, SalvageError) as exc:
-                self._workspace_failed(job, exc)
-                holds[job["job_id"]] = {"reason": "workspace"}
-                continue
-            self._workspace_deferrals.pop(job["job_id"], None)
-            write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
-            if job["wait_reason"] == "workspace":
-                # The workspace is ready; what the job waits for next is not it.
-                with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
-                    tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
-                               "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
-                job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
             previous = self.store.list_attempts(job["job_id"])
             extra_exclusions = tuple(a["lane_id"] for a in previous if a["outcome_class"] == "limited")
             transient_counts: dict[str, int] = {}
@@ -1952,18 +1964,57 @@ class Daemon:
             if previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1:
                 decision_job = {**job, "pinned_lane": previous[-1]["lane_id"],
                                 "pinned_model": previous[-1]["model_requested"]}
-            approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
-            if approved is None:
-                waiters.setdefault(tier, []).append((job["job_id"], models))
-                holds[job["job_id"]] = {"reason": "probe-pending"}
-                continue
-            with self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+            # C-6.12: a job with nowhere to go is not prepared. Git and a probe
+            # are spent only on a pass that could place the job; one that could
+            # not goes straight to the transaction below, which records the wait.
+            # A job waiting on its own workspace is always prepared: that wait
+            # is C-6.8's to end, whatever capacity says.
+            placeable = job["wait_reason"] == "workspace" or self._placeable(
+                decision_job, extra_exclusions, desktop_account, held_back=bool(waiters.get(tier)))
+            workspace = head = baseline = native_session = write_target = None
+            approved: set = set()
+            if placeable:
+                try:
+                    workspace, head, baseline = self._workspace(job)
+                    native_session = job["caller_session"] if job["kind"] == "revive" else None
+                    if job["kind"] == "resume":
+                        manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
+                        native_session = (manifest.get("resume") or {}).get("native_session_id")
+                        if not native_session:
+                            raise AdapterError("resume source identity is missing",
+                                               fix="resubmit the resume from the original job")
+                except AdapterError as exc:
+                    self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                    continue
+                except (OSError, subprocess.SubprocessError, SalvageError) as exc:
+                    self._workspace_failed(job, exc)
+                    holds[job["job_id"]] = {"reason": "workspace"}
+                    continue
+                self._workspace_deferrals.pop(job["job_id"], None)
+                write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
+                if job["wait_reason"] == "workspace":
+                    # The workspace is ready; what the job waits for next is not it.
+                    with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
+                        tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
+                                   "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
+                    job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
+                    decision_job = {**decision_job, "state": "queued", "wait_reason": None, "next_check_at": None}
+                approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
+                if approved is None:
+                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    holds[job["job_id"]] = {"reason": "probe-pending"}
+                    continue
+            # C-3.6: the event is named for what the transaction turns out to do.
+            # It opens as the wait, which is all it writes unless it reserves.
+            with self.store.transaction("job.capacity_waiting", job_id=job["job_id"]) as tx:
                 job = self._job(job["job_id"])
                 if job["cancel_requested_at"] or job["state"] in TERMINAL:
                     continue
                 if extra_exclusions:
-                    job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
-                    tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
+                    exclusions = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                    if exclusions != job["exclusions"]:     # written when it changes, not on every pass
+                        tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (exclusions, job["job_id"]))
+                    job["exclusions"] = exclusions
                 decision = self._pick(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
                 saturated = live >= cap
@@ -1988,6 +2039,13 @@ class Daemon:
                                (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
                     holds[job["job_id"]] = {"reason": label, "next_check_at": waiting["next_check_at"],
                                             **({"max_active_attempts": cap} if label == "fleet-full" else {})}
+                    continue
+                if not placeable:
+                    # C-6.12: a lane came free after the check that skipped this
+                    # job's preparation. Nothing is written; the next pass, one
+                    # tick away, prepares it and admits it.
+                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    holds[job["job_id"]] = {"reason": "preparing"}
                     continue
                 if scheduler.probe_required(decision, job) and (decision.chosen_lane, decision.chosen_model) not in approved:
                     waiters.setdefault(tier, []).append((job["job_id"], models))
@@ -2042,6 +2100,7 @@ class Daemon:
                 tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                            (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
                             json.dumps({"baseline_commit": head, "model_short": decision.chosen_model}), utcnow()))
+                self.store.retitle("attempt.reserved", attempt_id=aid, lane_id=lane_id)     # C-3.6
                 tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
                            (job["job_id"], aid, utcnow(), self.policy_digest, json.dumps(dataclasses.asdict(decision))))
                 tx.execute("UPDATE jobs SET state='running',wait_reason=NULL,next_check_at=NULL,worktree=?,started_at=COALESCE(started_at,?) WHERE job_id=?",
@@ -2070,6 +2129,7 @@ class Daemon:
         would hide the refusal C-17.3 numbers 7. Submit refuses the ordinary
         case; this path is the submit/admission race, and it says the same thing.
         """
+        self.store.retitle("job.revive_skipped")     # C-3.6
         tx.execute("UPDATE jobs SET state='failed',rc=7,wait_reason=NULL,"
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))
@@ -2318,12 +2378,25 @@ class Daemon:
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
+        # C-5.12: everything above is files and rows and runs every tick. What
+        # follows asks the operating system, so a healthy attempt is inspected
+        # once per interval, from one process table shared by every attempt.
+        if time.monotonic() < self._inspect_next.get(aid, 0):
+            return
+        self._inspect_next[aid] = time.monotonic() + self.inspect_interval_s
+        table = self._process_table()
+        if table is not None and table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+            self._record_owned(a, table)
+            return  # Re-adopted solely by receipt identity, not parentage.
+        # A shared table can say "alive" and nothing else: a guardian it does
+        # not show is asked about afresh before anything is decided from it.
         alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if alive == "alive":
-            if time.monotonic() >= self._census_next.get(aid, 0):
-                self._record_owned(a)
-                self._census_next[aid] = time.monotonic() + .5
-            return  # Re-adopted solely by receipt identity, not parentage.
+            try:
+                self._record_owned(a, procs.snapshot())
+            except procs.InspectionError:
+                pass
+            return
         if alive == "unknown":
             # ps failed or timed out (load, or an inspection outage). A guardian
             # that cannot be inspected is neither dead nor an escape; nothing is
@@ -2346,14 +2419,31 @@ class Daemon:
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
-    def _record_owned(self, a: dict) -> None:
-        census = self._contain(a)
-        if not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+    def _process_table(self) -> procs.ProcessTable | None:
+        """C-5.12: one `ps` per `inspect_interval_s`, whoever asks; None if it failed."""
+        with self._table_lock:
+            table = self._table
+            if table is None or time.monotonic() - table.taken_at > self.inspect_interval_s:
+                try:
+                    table = self._table = procs.snapshot()
+                except procs.InspectionError:
+                    table = self._table = None
+            return table
+
+    def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
+        """C-5.6: remember the group's members while the recorded guardian leads it.
+
+        Both facts come from the one table, so the leader is known to be ours at
+        the instant its members were listed. Only group members are recorded,
+        which is why the marker scan of a full census is not run here.
+        """
+        if not table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
             return
+        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
         evidence = json.loads(a["evidence_json"] or "{}")
         before = dict(evidence.get("owned_identities", {}))
         owned = dict(before)
-        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items() if pid in census.group_pids})
+        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
         if owned != before:
             evidence["owned_identities"] = owned
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:

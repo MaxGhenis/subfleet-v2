@@ -117,6 +117,7 @@ _HOLD_TEXT = {
     "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
     "lease-held": "a lease this job needs is held by another job: {leases}",
     "probe-pending": "its lane is being probed before the job may start on it",
+    "preparing": "a lane came free during the last pass; the next pass prepares its workspace and admits it (C-6.12)",
     "attempt-live": "an earlier attempt of this job is still live or quarantined; the next waits for it",
     "approval": "waiting for an operator's approval",
     "uncertain": "a probe was quarantined; an operator must resolve it",
