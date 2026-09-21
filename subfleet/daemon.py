@@ -40,7 +40,7 @@ from .contracts import (
 )
 from .credentials import resolve_credential
 from .guardian import atomic_publish
-from .policy import load_policy, policy_hash, resolve_model
+from .policy import PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
@@ -55,6 +55,19 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+
+#: C-6.11: how long admission may place nothing while jobs are pending before
+#: `daemon.log` says so, and how often it repeats while that lasts.
+ADMISSION_IDLE_LOG_S = 60
+ADMISSION_IDLE_REPEAT_S = 600
+ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
+#: C-6.11: waits that are a person's or a retry's to end, not admission's.
+NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
+#: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
+EXPECTED_HOLDS = frozenset({"fleet-full", "parent-cap", "lease-held", "probe-pending", "behind-older-job"})
+#: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
+WORKER_RETRY_BASE_S = .5
+WORKER_RETRY_CEILING_S = 60
 
 #: The sessions kit's durable facts, as `events` kinds (C-23.33, C-23.35). They
 #: are events rather than a table because each is an append-only record of one
@@ -171,6 +184,10 @@ class Daemon:
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
+        self._reset_admission_state()
+        # C-5.10: worker key -> consecutive failures, and the earliest next try.
+        self._worker_failures: dict[str, int] = {}
+        self._worker_retry_at: dict[str, float] = {}
         self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
@@ -219,6 +236,22 @@ class Daemon:
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
+
+    def _reset_admission_state(self) -> None:
+        """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
+        # C-6.10: job id -> the verdict a capacity wait keeps reaching, and how
+        # often. In memory as C-6.8's count is: a restart forgives the count and
+        # costs one decision row per waiting job.
+        self._capacity_waits: dict[str, dict] = {}
+        # C-6.10: the leases the last pass saw that no probe holds. One that has
+        # gone since is capacity that came free.
+        self._leases_seen: frozenset[tuple[str, str]] = frozenset()
+        # C-6.11: why the last pass did not place each job it left, and when
+        # admission last placed anything. Replaced whole at the end of a pass.
+        self._holds: dict[str, dict] = {}
+        self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
+                                           "idle_since_at": None, "logged_at": None, "warned": False,
+                                           "reasons": {}}
 
     # --- lanes: enroll, hold, release (C-10.2, C-9.6) --------------------------
 
@@ -1033,12 +1066,9 @@ class Daemon:
         if op == "why":
             a = protocol.coerce_args(protocol.WhyArgs, args)
             if a.job_id:
-                self._job(a.job_id)
-                row = self.store.one("SELECT decision_json FROM decisions WHERE job_id=? ORDER BY decision_id DESC LIMIT 1", (a.job_id,))
-                decision = json.loads(row["decision_json"]) if row else None
-            else:
-                decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
-            return {"decision": decision, "text": render.why(decision) if decision else "No decision recorded."}
+                return self._why_job(self._job(a.job_id))
+            decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
+            return {"decision": decision, "text": render.why(decision)}
         if op.startswith("notice."):
             a = protocol.coerce_args(
                 protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
@@ -1087,8 +1117,45 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
-                    "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"]}
+                    "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
+                    "admission": self._admission_status(view)}
         raise protocol.ProtocolError(f"unknown op {op}")
+
+    def _why_job(self, job: dict) -> dict:
+        """C-6.11: `why <job>` always says where the job stands, decision or not.
+
+        A job that admission has not evaluated has no decision row: it was held
+        behind an older job, the fleet was full, or no pass has reached it. It
+        is evaluated here instead, marked `evaluated-now`, so the answer is the
+        routing it would get and the reason it has not had it.
+        """
+        row = self.store.one("SELECT decision_json,evaluated_at FROM decisions WHERE job_id=? ORDER BY decision_id DESC LIMIT 1", (job["job_id"],))
+        decision, source = (json.loads(row["decision_json"]), "recorded") if row else (None, None)
+        pending = job["state"] in ("queued", "waiting") and not job["cancel_requested_at"]
+        if decision is None and pending:
+            try:
+                decision, source = dataclasses.asdict(self._pick(job, desktop=self._desktop_identity())), "evaluated-now"
+            except (ValueError, KeyError, PolicyError) as exc:
+                self.log.debug("why %s: evaluation failed: %s", job["job_id"], type(exc).__name__)
+        hold = self._holds.get(job["job_id"]) if pending else None
+        wait = self._capacity_waits.get(job["job_id"]) if pending else None
+        recheck = ({key: wait[key] for key in ("rechecks", "since", "checked_at", "label")} if wait else None)
+        standing = {"job_id": job["job_id"], "state": job["state"], "tier": job["tier"],
+                    "wait_reason": job["wait_reason"], "next_check_at": job["next_check_at"],
+                    "hold": hold, "recheck": recheck, "decision_source": source,
+                    "decided_at": row["evaluated_at"] if row else None}
+        queue = render.why_queue(standing)
+        text = render.why(decision) if decision else "No decision recorded."
+        return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
+                "text": "\n".join([*queue, text])}
+
+    def _admission_status(self, view: dict) -> dict:
+        """C-6.11: what admission is holding and for how long, for `status`."""
+        state = self._admission
+        idle = None if state["idle_since"] is None else round(time.monotonic() - state["idle_since"])
+        return {"pending": state["pending"], "placed_at": state["placed_at"], "idle_for_s": idle,
+                "idle_since": state["idle_since_at"], "reasons": dict(state["reasons"]),
+                "open_lanes": capacity.open_lanes(view, self.policy["caps"])}
 
     # --- the sessions kit's store seam (C-23.33, C-23.35, C-23.55) ------------
 
@@ -1270,17 +1337,30 @@ class Daemon:
 
     def _schedule(self, key: str, fn: Callable, *args) -> None:
         with self._busy_lock:
-            if key in self._busy or self.stopping.is_set():
+            if (key in self._busy or self.stopping.is_set()
+                    or time.monotonic() < self._worker_retry_at.get(key, 0)):
                 return
             self._busy.add(key)
         future = self.workers.submit(fn, *args)
         def done(f):
             try:
                 f.result()
+                with self._busy_lock:
+                    self._worker_failures.pop(key, None)
+                    self._worker_retry_at.pop(key, None)
             except Exception as exc:
+                # C-5.10: the control loop offers every live key again each tick,
+                # so a worker that raises at once would otherwise be retried, and
+                # logged, twenty times a second for as long as the cause lasts.
+                with self._busy_lock:
+                    count = self._worker_failures[key] = self._worker_failures.get(key, 0) + 1
+                    delay = min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(count - 1, 16))
+                    self._worker_retry_at[key] = time.monotonic() + delay
                 # Provider/keychain errors can contain secrets; log the error
                 # type only. Safe details belong in structured outcome rows.
-                self.log.error("worker %s failed: %s", key, type(exc).__name__)
+                if count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
+                    self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
+                                   key, type(exc).__name__, count, delay)
             finally:
                 with self._busy_lock:
                     self._busy.discard(key)
@@ -1727,15 +1807,90 @@ class Daemon:
         return None, desktop
 
     def _admit(self) -> None:
+        """One admission pass, then the record of what it left unplaced (C-6.11)."""
+        holds: dict[str, dict] = {}
+        tally = {"placed": 0}
+        try:
+            self._admit_pass(holds, tally)
+        finally:
+            self._holds = holds
+            self._note_admission(tally, holds)
+
+    def _capacity_wait(self, job_id: str, signature: str, label: str) -> int:
+        """C-6.10: how many times in a row this job's wait has reached this verdict."""
+        now = utcnow()
+        wait = self._capacity_waits.get(job_id)
+        if wait and wait["signature"] == signature:
+            wait["rechecks"] += 1
+            wait["checked_at"] = now
+        else:
+            wait = self._capacity_waits[job_id] = {"signature": signature, "rechecks": 0, "since": now,
+                                                   "checked_at": now, "label": label}
+        return wait["rechecks"]
+
+    def _note_admission(self, tally: dict, holds: dict[str, dict]) -> None:
+        """C-6.11: say so in `daemon.log` when jobs are pending and nothing is placed."""
+        mine = {job_id: hold for job_id, hold in holds.items()
+                if hold["reason"] not in NOT_ADMISSIONS_TO_PLACE}
+        reasons: dict[str, int] = {}
+        for hold in mine.values():
+            reasons[hold["reason"]] = reasons.get(hold["reason"], 0) + 1
+        state = self._admission
+        state["pending"], state["reasons"] = len(mine), reasons
+        now = time.monotonic()
+        if tally["placed"] or not mine:
+            if state["logged_at"] is not None:
+                self.log.info("admission: placing again after %d s idle" if tally["placed"] else
+                              "admission: nothing left pending after %d s idle", now - state["idle_since"])
+            if tally["placed"]:
+                state["placed_at"] = utcnow()
+            state["idle_since"] = state["idle_since_at"] = state["logged_at"] = None
+            return
+        if state["idle_since"] is None:
+            state["idle_since"], state["idle_since_at"] = now, utcnow()
+        due = (ADMISSION_IDLE_LOG_S if state["logged_at"] is None else
+               ADMISSION_IDLE_REPEAT_S if state.get("warned") else ADMISSION_IDLE_REPEAT_EXPECTED_S)
+        if now - (state["logged_at"] or state["idle_since"]) < due:
+            return
+        state["logged_at"] = now
+        try:
+            lanes = capacity.open_lanes(self._capacity_view(self._desktop_identity()), self.policy["caps"])
+        except Exception as exc:                          # the line matters more than its lane count
+            lanes = None
+            self.log.debug("admission: open lanes unreadable: %s", type(exc).__name__)
+        summary = ", ".join(f"{reason} x{n}" for reason, n in
+                            sorted(reasons.items(), key=lambda item: (-item[1], item[0])))
+        # Open lanes, nothing placed, and a job held for a reason that is not
+        # ordinary queueing is the case worth a warning: either every lane refuses
+        # it for the reason named here, or admission is wrong. With no lane open,
+        # or a fleet at its cap, waiting is the expected answer.
+        state["warned"] = bool(lanes) and not set(reasons) <= EXPECTED_HOLDS
+        self.log.log(logging.WARNING if state["warned"] else logging.INFO,
+                     "admission: %d jobs pending, none placed for %d s; %s lanes open (%s); %s; oldest %s",
+                     len(mine), now - state["idle_since"], "?" if lanes is None else len(lanes),
+                     " ".join(lanes or ()) or "-", summary, next(iter(mine)))
+
+    def _admit_pass(self, holds: dict[str, dict], tally: dict) -> None:
         self._recover_probes()
         desktop_account = self._desktop_identity()
         queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+        for gone in set(self._capacity_waits) - {job["job_id"] for job in queued}:
+            self._capacity_waits.pop(gone, None)
+        # C-6.10: a lease that was held at the last pass and is not now is capacity
+        # that came free (an attempt ended, a job let go of its worktree or its
+        # output path), so backed-off capacity waits are looked at on this pass
+        # rather than up to 30 s later. Probe reservations come and go every cycle
+        # and free nothing a job was waiting for.
+        leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
+            "SELECT lease_key,holder FROM leases WHERE holder NOT LIKE 'probe:%'"))
+        freed, self._leases_seen = bool(self._leases_seen - leases_now), leases_now
+        cap = self.policy["caps"]["max_active_attempts"]
         # C-6.9: FIFO within a tier holds among jobs that compete for a model. An
         # older job that cannot be placed holds back the later jobs that could run
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
-        waiters: dict[str, list[frozenset[str] | None]] = {}
+        waiters: dict[str, list[tuple[str, frozenset[str] | None]]] = {}
         saturated = False
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
@@ -1743,15 +1898,24 @@ class Daemon:
                 self.kill(protocol.KillArgs(job["job_id"]))
                 continue
             models = scheduler.demand_models(self.policy, job)
-            if saturated or any(scheduler.competes(models, other) for other in waiters.get(tier, ())):
+            behind = next((older for older, theirs in waiters.get(tier, ())
+                           if scheduler.competes(models, theirs)), None)
+            if saturated or behind:
+                holds[job["job_id"]] = ({"reason": "fleet-full", "max_active_attempts": cap} if saturated else
+                                        {"reason": "behind-older-job", "behind": behind, "tier": tier})
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
+                holds[job["job_id"]] = {"reason": job["wait_reason"]}
                 continue
-            if job["next_check_at"] and job["next_check_at"] > utcnow():
+            known = self._capacity_waits.get(job["job_id"])
+            if job["next_check_at"] and job["next_check_at"] > utcnow() and not (freed and known):
                 if job["wait_reason"] == "capacity":
-                    waiters.setdefault(tier, []).append(models)
+                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                holds[job["job_id"]] = {"reason": (known or {}).get("label") or job["wait_reason"] or "waiting",
+                                        "next_check_at": job["next_check_at"]}
                 continue
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
+                holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
             try:
                 workspace, head, baseline = self._workspace(job)
@@ -1767,6 +1931,7 @@ class Daemon:
                 continue
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
                 self._workspace_failed(job, exc)
+                holds[job["job_id"]] = {"reason": "workspace"}
                 continue
             self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
@@ -1789,7 +1954,8 @@ class Daemon:
                                 "pinned_model": previous[-1]["model_requested"]}
             approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             if approved is None:
-                waiters.setdefault(tier, []).append(models)
+                waiters.setdefault(tier, []).append((job["job_id"], models))
+                holds[job["job_id"]] = {"reason": "probe-pending"}
                 continue
             with self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
                 job = self._job(job["job_id"])
@@ -1800,21 +1966,32 @@ class Daemon:
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision = self._pick(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
-                cap = self.policy["caps"]["max_active_attempts"]
                 saturated = live >= cap
                 # A job that passes an older waiting job of its tier leaves one
                 # active slot free, so the older job can start the moment its
                 # capacity appears instead of waiting out the jobs that passed it.
                 limit = cap - 1 if waiters.get(tier) else cap
                 if not decision.chosen_lane or live >= limit:
-                    waiters.setdefault(tier, []).append(models)
-                    waiting = scheduler.waiting_metadata(decision)
-                    self.store.add_decision(job["job_id"], decision)
+                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    # C-6.10: a wait that reaches the verdict it reached last time
+                    # is rechecked later each time and adds no decision row. On
+                    # 2026-09-20 three such jobs were each re-evaluated every
+                    # second for hours: 2.7 rows of 22 KB a second, 681 MB of a
+                    # 709 MB store, and a daemon at a full core doing it.
+                    label = scheduler.dominant_rejection(decision) if not decision.chosen_lane else "fleet-full"
+                    rechecks = self._capacity_wait(
+                        job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", label)
+                    waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
+                    if not rechecks:
+                        self.store.add_decision(job["job_id"], decision)
                     tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
                                (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
+                    holds[job["job_id"]] = {"reason": label, "next_check_at": waiting["next_check_at"],
+                                            **({"max_active_attempts": cap} if label == "fleet-full" else {})}
                     continue
                 if scheduler.probe_required(decision, job) and (decision.chosen_lane, decision.chosen_model) not in approved:
-                    waiters.setdefault(tier, []).append(models)
+                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    holds[job["job_id"]] = {"reason": "probe-pending"}
                     continue  # The chosen identity changed after its probe.
                 seq = len(previous) + 1
                 aid = ids.attempt_id(job["job_id"], seq)
@@ -1851,10 +2028,14 @@ class Daemon:
                         self._skip_revive(tx, job, held[0])
                         continue
                     leases.append((revive_key, job["job_id"]))
-                conflict = any((r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder for key, holder in leases)
-                if conflict:
-                    waiters.setdefault(tier, []).append(models)
-                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (after(1), job["job_id"]))
+                contested = [key for key, holder in leases
+                             if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder]
+                if contested:
+                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested)), "lease-held")
+                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                    holds[job["job_id"]] = {"reason": "lease-held", "leases": contested, "next_check_at": next_check}
                     continue
                 for key, holder in leases:
                     tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
@@ -1867,6 +2048,8 @@ class Daemon:
                            (workspace if job["sandbox"] == "workspace-write" else None, utcnow(), job["job_id"]))
                 with self._busy_lock:
                     self._busy.add(aid)
+            tally["placed"] += 1
+            self._capacity_waits.pop(job["job_id"], None)
             try:
                 self._boundary("reserved", job["job_id"], aid)
                 self._pending_launches.add(aid)

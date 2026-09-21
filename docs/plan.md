@@ -94,3 +94,18 @@ established still refuses. The instance and the write target are recorded in
 the `job.submitted` event rather than in new columns, so the installed release
 can still open the store after a rollback. C-6.8 (same day) stops a transient
 git timeout during workspace preparation from failing a job without a trace.
+
+## A stalled queue that said nothing, 2026-09-20
+
+The same afternoon, fifteen jobs sat queued for more than three hours. C-6.9
+(above, another session's fix) is why nothing was admitted. Three further
+faults made it invisible and expensive, and are corrected together. C-6.10: a
+capacity wait was rechecked one second later for ever, and every recheck wrote
+a full decision row, so three unplaceable jobs cost a core and 681 MB of a
+709 MB store; the recheck now backs off to 30 s while the verdict repeats, a
+repeat adds no row, and freed capacity is still seen on the next pass. C-6.11:
+`why` printed `null` for a queued job, `status` counted the whole store as
+running, and `daemon.log` was silent; every unplaced job now has a stated
+reason, and a fleet that places nothing for a minute says so. C-5.10: a worker
+that raises is retried with backoff rather than on every 50 ms tick. No schema
+change: the new state is in memory, so rollback stays possible.

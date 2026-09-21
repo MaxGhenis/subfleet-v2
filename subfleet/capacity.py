@@ -282,6 +282,28 @@ def identity_blocked(lane: Mapping[str, Any]) -> bool:
     return str(lane.get("identity_status") or "") == IdentityStatus.MISMATCH.value
 
 
+def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:
+    """C-6.11: the lanes that could take some job now, whatever its model.
+
+    Owned by v2, enabled, not the desktop login, identity not mismatched, under
+    no account-wide closure, with a slot free and no probe holding it. A lane
+    closed for one model only is open: another model may still run there. A
+    job can still be refused an open lane (a model-scoped closure, the reserve,
+    its own exclusions); the count says capacity exists, not that it fits.
+    """
+    found = []
+    for lane in view["lanes"]:
+        slots = (caps["max_in_flight_per_lane"] if lane.get("measured") else
+                 min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
+        if (lane.get("owner") == "v2" and lane.get("enabled", True) and not lane.get("desktop")
+                and not identity_blocked(lane)
+                and not any(row.get("scope") == "account" for row in lane.get("closures", ()))
+                and lane.get("in_flight", 0) < slots
+                and lane["lane_id"] not in view.get("unavailable_lanes", {})):
+            found.append(lane["lane_id"])
+    return sorted(found)
+
+
 def owned_lanes(view: Mapping[str, Any], owner: str = "v2") -> list[dict[str, Any]]:
     """C-10.4: select owner-bound rows without mutating the visible roster."""
     return [lane for lane in view["lanes"] if lane.get("owner") == owner]

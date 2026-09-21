@@ -198,6 +198,10 @@ DEFAULT_CAPS: dict[str, int] = {
 # C-6.8: a transient preparation failure waits 5 s, then doubles to this ceiling.
 WORKSPACE_RETRY_BASE_S = 5
 WORKSPACE_RETRY_CEILING_S = 300
+#: C-6.10: a capacity wait is rechecked this long after, doubling for each
+#: consecutive recheck that reaches the same verdict, to the ceiling.
+CAPACITY_RECHECK_BASE_S = 1
+CAPACITY_RECHECK_CEILING_S = 30
 READING_TTL_S = 120
 GUESSED_CLOSURE_S = 3600
 TRANSIENT_RETRY_DELAY_S = 60

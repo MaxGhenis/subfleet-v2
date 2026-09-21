@@ -298,7 +298,10 @@ def format_status(data: dict[str, Any]) -> str:
     lanes = rows_of(data.get("lanes"))
     readings = rows_of(data.get("readings"))
     closures = rows_of(data.get("closures"))
-    running = rows_of(data.get("running") or data.get("jobs"))
+    # `daemon.status` carries every job the store holds as `jobs` (it is the
+    # capacity view); only the live ones belong under this heading.
+    running = [row for row in rows_of(data.get("running") or data.get("jobs"))
+               if row.get("state") not in TERMINAL_STATES]
     by_lane: dict[str, list[dict[str, Any]]] = {}
     for reading in readings:
         by_lane.setdefault(str(reading.get("lane_id")), []).append(reading)
@@ -346,6 +349,17 @@ def format_status(data: dict[str, Any]) -> str:
                          f"until {closure.get('until_at')} "
                          f"({closure.get('reason')}, {closure.get('clock_source')})")
     lines.append("")
+    admission = data.get("admission")
+    if isinstance(admission, dict) and admission.get("idle_for_s") is not None:
+        # C-6.11: jobs are pending and admission has placed none of them.
+        reasons = admission.get("reasons") if isinstance(admission.get("reasons"), dict) else {}
+        named = ", ".join(f"{reason} x{count}" for reason, count in
+                          sorted(reasons.items(), key=lambda item: (-int(as_number(item[1]) or 0), item[0])))
+        open_lanes = admission.get("open_lanes")
+        lines.append(f"admission: {admission.get('pending')} pending, none placed for "
+                     f"{int(as_number(admission.get('idle_for_s')) or 0)} s; "
+                     f"{len(open_lanes) if isinstance(open_lanes, list) else '?'} lanes open"
+                     + (f"; {named}" if named else "") + " — subfleet why <job>")
     lines.append(f"running jobs: {len(running)}")
     if running:
         lines.append(format_runs(running))
@@ -1568,7 +1582,18 @@ def cmd_why(args: argparse.Namespace) -> int:
     if args.json:
         emit(result)
         return int(Exit.OK)
-    out(_format_decision(result.get("decision", result)))
+    # C-6.11: a job with no decision is still answered. A daemon that predates
+    # `queue` sends `decision: null` with a `text`; neither prints as "null".
+    lines = [str(line) for line in result.get("queue") or () if isinstance(line, str)]
+    decision = (result["decision"] if "decision" in result else
+                result if {"chain", "evaluations", "chosen_lane"} & set(result) else None)
+    if isinstance(decision, dict):
+        lines.append(_format_decision(decision))
+    elif not lines:
+        lines.append(str(result.get("text") or "No decision recorded."))
+    else:
+        lines.append("No decision recorded.")
+    out("\n".join(lines))
     return int(Exit.OK)
 
 
