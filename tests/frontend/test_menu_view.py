@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from tests.frontend.test_status_model import NOW, ROOT, lane, pytestmark
+from tests.frontend.test_status_model import NOW, ROOT, _job, lane, pytestmark
 from subfleet.status_json import build_status
 
 
@@ -49,6 +49,33 @@ def test_menu_missing_snapshot_still_fits_error_and_controls(menu_probe, tmp_pat
     assert result["has_snapshot"] is False
     assert result["minimum_width"] == 430
     assert 80 <= result["minimum_height"] <= 350
+    assert result["visible_windows"] == 0
+
+
+@pytest.mark.parametrize("oversized_snapshot", [False, True])
+def test_c18_2_menu_shows_eight_recent_jobs_with_completed_batches(menu_probe, tmp_path, oversized_snapshot):
+    # The daemon projects eight results. The view used to truncate that to five
+    # and omit batch headings, despite the model correctly decoding every row.
+    jobs = [_job(f"job-{i}", ("succeeded", "failed", "cancelled")[i % 3],
+                 finished_at=(NOW - timedelta(minutes=i)).isoformat()) for i in range(9)]
+    batch = {"id": "completed-batch", "label": "migration checks", "size": 4}
+    payload = build_status({"lanes": [], "jobs": jobs,
+                            "batches": {f"job-{i}": {**batch, "index": n}
+                                        for n, i in enumerate((0, 2, 7, 8), 1)}}, now=NOW)
+    assert [job["job_id"] for job in payload["jobs"]["recent"]] == [f"job-{i}" for i in range(8)]
+    if oversized_snapshot:
+        # Keep the menu's limit correct if a future daemon includes extra rows.
+        older = build_status({"lanes": [], "jobs": jobs[-1:],
+                              "batches": {"job-8": {**batch, "index": 4}}}, now=NOW)
+        payload["jobs"]["recent"].extend(older["jobs"]["recent"])
+    path = tmp_path / "status.json"
+    path.write_text(json.dumps(payload))
+    result = invoke(menu_probe, path)
+    assert result["recent_groups"] == [
+        {"title": "migration checks · 4 jobs", "job_ids": ["job-0", "job-2", "job-7"]},
+        *({"title": None, "job_ids": [f"job-{i}"]} for i in (1, 3, 4, 5, 6)),
+    ]
+    assert sum(len(group["job_ids"]) for group in result["recent_groups"]) == 8
     assert result["visible_windows"] == 0
 
 
