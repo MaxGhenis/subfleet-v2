@@ -1,6 +1,7 @@
 """C-23.2–4, C-23.10: gates use durable job admission and fresh isolation."""
 from dataclasses import replace
 import json
+import logging
 from pathlib import Path
 import sqlite3
 import threading
@@ -41,6 +42,8 @@ def core(tmp_path, monkeypatch):
     daemon._export_locks = {}
     daemon._exit_settle = {}
     daemon._workspace_deferrals = {}                      # C-6.8: consecutive transient workspace failures
+    daemon._reset_admission_state()                       # C-6.10, C-6.11: what admission remembers between passes
+    daemon.log = logging.getLogger("subfleet.test.gate-admission")
     daemon._desktop_cache = (0.0, daemon_module._UNSET)   # C-10.3: the identity lane's per-window profile cache
     daemon._notify = lambda: None
     daemon._boundary = lambda *args: None
