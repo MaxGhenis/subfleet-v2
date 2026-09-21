@@ -28,14 +28,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_api-lane-check",
      "/Users/maxghenis/.codex-api"
     ],
-    "verb": "",
+    "verb": "_api-lane-check",
     "exit_code": null,
-    "rule": "hidden:_api-lane-check",
+    "rule": "permanent:_api-lane-check",
     "note_count": 0,
     "env": {}
    }
@@ -55,14 +55,14 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_api-lane-check",
      "/Users/maxghenis/.codex-api"
     ],
-    "verb": "",
+    "verb": "_api-lane-check",
     "exit_code": null,
-    "rule": "hidden:_api-lane-check",
+    "rule": "permanent:_api-lane-check",
     "note_count": 0,
     "env": {}
    }
@@ -105,14 +105,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "brief"
     ],
-    "verb": "",
+    "verb": "brief",
     "exit_code": null,
-    "rule": "delegate:brief",
-    "note_count": 1,
+    "rule": "permanent:brief",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -179,14 +179,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_canonical-model",
      "claude-fable-5"
     ],
-    "verb": "",
+    "verb": "_canonical-model",
     "exit_code": null,
-    "rule": "hidden:_canonical-model",
+    "rule": "permanent:_canonical-model",
     "note_count": 0,
     "env": {}
    }
@@ -204,14 +204,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_canonical-model",
      "claude-fable-5-1[1m]"
     ],
-    "verb": "",
+    "verb": "_canonical-model",
     "exit_code": null,
-    "rule": "hidden:_canonical-model",
+    "rule": "permanent:_canonical-model",
     "note_count": 0,
     "env": {}
    }
@@ -229,14 +229,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_canonical-model",
      "fable"
     ],
-    "verb": "",
+    "verb": "_canonical-model",
     "exit_code": null,
-    "rule": "hidden:_canonical-model",
+    "rule": "permanent:_canonical-model",
     "note_count": 0,
     "env": {}
    }
@@ -923,16 +923,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "errors",
      "--hours",
      "12"
     ],
-    "verb": "",
+    "verb": "errors",
     "exit_code": null,
-    "rule": "delegate:errors",
-    "note_count": 1,
+    "rule": "permanent:errors",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -950,16 +950,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "errors",
      "--hours",
      "48"
     ],
-    "verb": "",
+    "verb": "errors",
     "exit_code": null,
-    "rule": "delegate:errors",
-    "note_count": 1,
+    "rule": "permanent:errors",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -976,15 +976,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "errors",
      "--json"
     ],
-    "verb": "",
+    "verb": "errors",
     "exit_code": null,
-    "rule": "delegate:errors",
-    "note_count": 1,
+    "rule": "permanent:errors",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2705,15 +2705,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "hooks",
-     "uninstall"
+     "_hooks-uninstall"
     ],
-    "verb": "",
+    "verb": "_hooks-uninstall",
     "exit_code": null,
-    "rule": "delegate:hooks uninstall",
-    "note_count": 1,
+    "rule": "permanent:hooks uninstall",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2733,16 +2732,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "hooks",
-     "uninstall",
+     "_hooks-uninstall",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "_hooks-uninstall",
     "exit_code": null,
-    "rule": "delegate:hooks uninstall",
-    "note_count": 1,
+    "rule": "permanent:hooks uninstall",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2807,14 +2805,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "keepalive"
     ],
-    "verb": "",
+    "verb": "keepalive",
     "exit_code": null,
-    "rule": "delegate:keepalive",
-    "note_count": 1,
+    "rule": "permanent:keepalive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2831,15 +2829,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "keepalive",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "keepalive",
     "exit_code": null,
-    "rule": "delegate:keepalive",
-    "note_count": 1,
+    "rule": "permanent:keepalive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2858,17 +2856,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "keepalive",
      "--dry-run",
      "--family",
      "claude"
     ],
-    "verb": "",
+    "verb": "keepalive",
     "exit_code": null,
-    "rule": "delegate:keepalive",
-    "note_count": 1,
+    "rule": "permanent:keepalive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2886,16 +2884,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "keepalive",
      "--family",
      "claude"
     ],
-    "verb": "",
+    "verb": "keepalive",
     "exit_code": null,
-    "rule": "delegate:keepalive",
-    "note_count": 1,
+    "rule": "permanent:keepalive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3191,16 +3189,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "login",
      "codex",
      "3"
     ],
-    "verb": "",
+    "verb": "login",
     "exit_code": null,
-    "rule": "delegate:login",
-    "note_count": 1,
+    "rule": "permanent:login",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3218,16 +3216,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "login",
      "codex",
      "app"
     ],
-    "verb": "",
+    "verb": "login",
     "exit_code": null,
-    "rule": "delegate:login",
-    "note_count": 1,
+    "rule": "permanent:login",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3247,7 +3245,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "login",
      "codex",
@@ -3255,10 +3253,10 @@
      "--no-watch",
      "--no-open"
     ],
-    "verb": "",
+    "verb": "login",
     "exit_code": null,
-    "rule": "delegate:login",
-    "note_count": 1,
+    "rule": "permanent:login",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4041,14 +4039,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4067,15 +4065,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4096,17 +4094,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude",
      "--json",
      "--all"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4130,7 +4128,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude",
@@ -4142,10 +4140,10 @@
      "--exclude",
      "max@example.com"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4164,17 +4162,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude",
      "--model",
      "claude-fable-5"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4193,17 +4191,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude",
      "--model",
      "fable"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4222,15 +4220,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "codex"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4248,16 +4246,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "codex",
      "--cached"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4276,15 +4274,15 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "codex"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4303,17 +4301,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "codex",
      "--json",
      "--all"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4389,18 +4387,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-codex-cooldown",
-     "--home",
-     "/Users/maxghenis/.codex-3",
-     "--minutes",
-     "15"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-codex-cooldown",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-codex-cooldown",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4430,28 +4422,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-lane-run",
-     "--email",
-     "max@example.com",
-     "--session-id",
-     "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50",
-     "--rc",
-     "0",
-     "--workdir",
-     "/repo",
-     "--model",
-     "claude-opus-5",
-     "--err-file",
-     "/tmp/err.log",
-     "--raw-file",
-     "/tmp/raw.log"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-lane-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-lane-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4481,28 +4457,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-run",
-     "--phase",
-     "adopt",
-     "--run-id",
-     "20260905-120000-demo",
-     "--pid",
-     "41234",
-     "--lane",
-     "max@example.com",
-     "--out",
-     "/repo/out.md",
-     "--err",
-     "/repo/err.log",
-     "--resumed-from",
-     "20260904-090000-demo"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4534,28 +4494,12 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-run",
-     "--phase",
-     "adopt",
-     "--run-id",
-     "20260905-120000-demo",
-     "--pid",
-     "41234",
-     "--out",
-     "/repo/out.md",
-     "--err",
-     "/repo/err.log",
-     "--lane-log",
-     "/repo/lane.log",
-     "--lane",
-     "max@example.com"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4583,26 +4527,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-run",
-     "--phase",
-     "finish",
-     "--run-id",
-     "20260905-120000-demo",
-     "--rc",
-     "0",
-     "--lane",
-     "max@example.com",
-     "--finished",
-     "2026-09-05T12:34:56-04:00",
-     "--transcript-path",
-     "/Users/maxghenis/.claude/projects/-repo/6f1d5f2a.jsonl"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4636,32 +4566,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-run",
-     "--phase",
-     "start",
-     "--family",
-     "claude",
-     "--model",
-     "claude-opus-5",
-     "--workdir",
-     "/repo",
-     "--prompt",
-     "/repo/prompt.md",
-     "--out",
-     "/repo/out.md",
-     "--err",
-     "/repo/err.log",
-     "--lane",
-     "max@example.com",
-     "--pid",
-     "41234"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4701,38 +4611,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-run",
-     "--phase",
-     "start",
-     "--family",
-     "codex",
-     "--model",
-     "gpt-6-astra",
-     "--lane",
-     "/Users/maxghenis/.codex-3",
-     "--workdir",
-     "/repo",
-     "--prompt",
-     "/repo/prompt.md",
-     "--out",
-     "/repo/out.md",
-     "--err",
-     "/repo/err.log",
-     "--original-out",
-     "/repo/caller-out.md",
-     "--pid",
-     "41234",
-     "--launcher",
-     "subfleet codex",
-     "--lane-log",
-     "/repo/lane.log"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4762,26 +4646,12 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-run",
-     "--phase",
-     "start",
-     "--family",
-     "codex",
-     "--model",
-     "gpt-6-astra",
-     "--workdir",
-     "/repo",
-     "--prompt",
-     "/repo/prompt.md",
-     "--out",
-     "/repo/out.md"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4813,28 +4683,12 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-run",
-     "--phase",
-     "start",
-     "--family",
-     "codex",
-     "--model",
-     "gpt-6-astra",
-     "--workdir",
-     "/repo",
-     "--prompt",
-     "/repo/prompt.md",
-     "--out",
-     "/repo/out.md",
-     "--decision-json",
-     "{\"task\":\"build\",\"tier\":\"hard\"}"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4860,24 +4714,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_record-run",
-     "--phase",
-     "update",
-     "--run-id",
-     "20260905-120000-demo",
-     "--session-id",
-     "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50",
-     "--lane",
-     "max@example.com",
-     "--pid",
-     "41234"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_record-run",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_record-run",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -4897,16 +4739,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "3"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4925,17 +4767,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "3",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4953,16 +4795,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "all"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4981,17 +4823,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "all",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5011,16 +4853,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "--policy"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5039,17 +4881,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "--policy",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12185,14 +12027,14 @@
    "env": {},
    "v1_parses": false,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "_session-hook",
+     "hook",
      "pre-bash"
     ],
-    "verb": "",
+    "verb": "hook",
     "exit_code": null,
-    "rule": "hidden:_session-hook",
+    "rule": "permanent:_session-hook",
     "note_count": 0,
     "env": {}
    }
@@ -12210,14 +12052,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "_session-hook",
+     "hook",
      "session-start"
     ],
-    "verb": "",
+    "verb": "hook",
     "exit_code": null,
-    "rule": "hidden:_session-hook",
+    "rule": "permanent:_session-hook",
     "note_count": 0,
     "env": {}
    }
@@ -12237,14 +12079,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "_session-hook",
+     "hook",
      "user-prompt"
     ],
-    "verb": "",
+    "verb": "hook",
     "exit_code": null,
-    "rule": "hidden:_session-hook",
+    "rule": "permanent:_session-hook",
     "note_count": 0,
     "env": {}
    }
@@ -12847,20 +12689,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_tickle",
-     "--session",
-     "3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01",
-     "--transcript",
-     "/Users/maxghenis/.claude/projects/-Users-maxghenis/3f9c0b12-77ad-4f21-9a55-1c2b4d6e8a01.jsonl",
-     "--delay",
-     "6.0"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_tickle",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_tickle",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -12948,18 +12782,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_tickle",
-     "--session",
-     "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50",
-     "--delay",
-     "8.0"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_tickle",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_tickle",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -13012,19 +12840,12 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
-    "argv": [
-     "_tickle",
-     "--session",
-     "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50",
-     "--transcript",
-     "/Users/maxghenis/.claude/projects/-repo/6f1d5f2a.jsonl",
-     "--force"
-    ],
+    "disposition": "refuse",
+    "argv": [],
     "verb": "",
-    "exit_code": null,
-    "rule": "hidden:_tickle",
-    "note_count": 0,
+    "exit_code": 7,
+    "rule": "retired:_tickle",
+    "note_count": 2,
     "env": {}
    }
   },
@@ -13472,14 +13293,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "watch"
     ],
-    "verb": "",
+    "verb": "watch",
     "exit_code": null,
-    "rule": "delegate:watch",
-    "note_count": 1,
+    "rule": "permanent:watch",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -13498,15 +13319,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "watch",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "watch",
     "exit_code": null,
-    "rule": "delegate:watch",
-    "note_count": 1,
+    "rule": "permanent:watch",
+    "note_count": 0,
     "env": {}
    }
   },

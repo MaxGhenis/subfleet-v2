@@ -8,9 +8,9 @@ dependencies = []
 
 [project.scripts]
 # The front door is the compatibility layer, not the parser: every v1
-# invocation is mapped, delegated, or refused by `subfleet/compat.py` before
-# `cli.main` sees a v2 argv (C-17.1, plan.md amendment 1). `cli.main` itself is
-# unchanged and is still what the tests call directly.
+# invocation is mapped to native code or explicitly refused by `subfleet/compat.py`
+# before `cli.main` sees a v2 argv (C-17.1, plan.md amendment 1). Obsolete private
+# v1 workers are retired; no command delegates back to v1.
 subfleet = "subfleet.compat:dispatch"
 subfleet-gate = "subfleet.gate.cli:main"
 subfleetd = "subfleet.daemon:main"

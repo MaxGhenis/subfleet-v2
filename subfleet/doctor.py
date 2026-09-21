@@ -121,7 +121,7 @@ def check_hook_entries(settings: Path | None = None) -> dict[str, Any]:
                f"{', '.join(sorted(v1))} (left in place on purpose)" if v1 else "")
     if report.get("matches"):
         return row("hook entries in ~/.claude/settings.json", PASS,
-                   f"{path}: the three v2 entries are present{v1_note}",
+                   f"{path}: all native v2 hook entries are present{v1_note}",
                    "`subfleet daemon install --hooks --dry-run` prints the diff")
     return row("hook entries in ~/.claude/settings.json", FAIL,
                f"{path}: {', '.join(report['missing_events'])} would change{v1_note}",

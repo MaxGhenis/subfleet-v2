@@ -24,14 +24,9 @@ Four dispositions, and the reasoning for each:
   `_apply_deprecations` already prints them, and two notes for one flag reads
   like two problems.
 
-* **delegate** — v2 has no home for the verb yet, but v1 does, and during the
-  shadow period v1 is still installed (plan amendment 8). The whole argv goes to
-  the v1 binary and its exit code comes back unchanged. This is not a
-  convenience: `_record-run`, `_record-lane-run`, `_canonical-model` and the
-  other hidden verbs are called BY v1's own runners through
-  `$SUBFLEET_RUN_SUBFLEET` and `$DELEGATE_SUBFLEET`, so a symlink flip that
-  broke them would break every v1 run already in flight. `gate` is native in v2
-  and preserves its separate 0-to-5 exit meanings (v1 README:717-720).
+* **delegate** — retained only as a historical mapping type. The completed
+  cutover has no delegated verbs. Public operations are native; obsolete v1
+  worker callbacks refuse explicitly after the old runners have drained.
 
 * **refuse** — `subfleet codex` and `subfleet claude` are the direct provider
   verbs the agent contract tells sessions never to call (`~/.claude/CLAUDE.md`
@@ -108,6 +103,17 @@ class Mapping:
 #: C-17.1's own additions, not v1 spellings — v1 has no `jobs` anywhere and
 #: `show` only as `runs show` — so they cannot break a v1 command, only add one.
 PERMANENT: dict[tuple[str, ...], list[str]] = {
+    ("pick",): ["pick"],
+    ("_api-lane-check",): ["_api-lane-check"],
+    ("errors",): ["errors"],
+    ("brief",): ["brief"],
+    ("watch",): ["watch"],
+    ("keepalive",): ["keepalive"],
+    ("reset",): ["reset"],
+    ("login",): ["login"],
+    ("_canonical-model",): ["_canonical-model"],
+    ("_session-hook",): ["hook"],
+    ("hooks", "uninstall"): ["_hooks-uninstall"],
     ("gate",): ["gate"],
     ("status",): ["status"],
     ("capacity",): ["status"],
@@ -160,16 +166,9 @@ RENAMED: dict[tuple[str, ...], tuple[list[str], str]] = {
                  "`doctor` row"),
 }
 
-#: `hooks uninstall` removes v1's OWN entries from ~/.claude/settings.json
-#: (v1 `hooks.py:166` walks every event and drops each command containing
-#: `subfleet-hook`). That is v1 tidying up after itself, which is exactly right
-#: during the shadow period and is not something v2 can do on its behalf — so it
-#: is delegated whole rather than rewritten into a v2 verb. Without this row the
-#: `("hooks",)` rule above would quietly turn an uninstall into a `doctor` run.
-DELEGATED_PAIRS: dict[tuple[str, ...], str] = {
-    ("hooks", "uninstall"): "`hooks uninstall` removes v1's own hook entries; "
-                            "v1 owns them, so v1 removes them",
-}
+#: Kept for the historical compatibility inventory; the completed cutover has
+#: no executable v1 fallback. Hooks uninstall is now native and narrowly scoped.
+DELEGATED_PAIRS: dict[tuple[str, ...], str] = {}
 
 #: Direct provider verbs. The agent contract says never to call these from a
 #: session and v1's PreToolUse guard denies them; v2 refuses them outright.
@@ -191,25 +190,25 @@ REFUSED: dict[str, str] = {
               "setsid, and v2 has no such runner",
 }
 
-#: v1 verbs v2 has not built yet, delegated to the v1 binary with one note.
-#: The value is the sentence the note carries after "not a v2 verb yet".
-DELEGATED: dict[str, str] = {
-    "pick": "lane picking belongs to whichever side owns the lane "
-            "(`subfleet lanes list` shows the owner)",
-    "login": "lane credentials stay with v1 until `lanes transfer --to v2`",
-    "reset": "lane resets stay with v1 until `lanes transfer --to v2`",
-    "errors": "the error ledger is v1's",
-    "watch": "the watchdog is v1's",
-    "keepalive": "keepalive is v1's",
-    "brief": "the morning brief is v1's",
-}
+DELEGATED: dict[str, str] = {}
+HIDDEN: tuple[str, ...] = ()
 
-#: v1's hidden verbs. Delegated like the rest but SILENTLY: every one of these
-#: is called by a v1 runner through `$SUBFLEET_RUN_SUBFLEET`,
-#: `$DELEGATE_SUBFLEET`, or `$SUBFLEET_CODEX_PICK`, and a note on stderr would
-#: land in a runner's captured `err.log` on every single record it writes.
-HIDDEN = ("_session-hook", "_tickle", "_canonical-model", "_api-lane-check",
-          "_record-lane-run", "_record-run", "_record-codex-cooldown")
+#: Private v1 workers are not public verb promises. Retiring them must neither
+#: pretend to record a result nor restart an old worker against v1 state.
+RETIRED: dict[str, tuple[str, str]] = {
+    "_record-run": (
+        "v1 runner callback retired; v2 records jobs and receipts in the daemon and no result was recorded",
+        "remove the obsolete runner callback; use subfleet run for new work and subfleet runs show ID for existing results"),
+    "_record-lane-run": (
+        "v1 lane callback retired; v2 derives attempt usage from provider evidence and no usage was recorded",
+        "remove the obsolete runner callback; submit new work with subfleet run and inspect subfleet status"),
+    "_record-codex-cooldown": (
+        "v1 cooldown callback retired; v2 owns scoped closures and no cooldown was recorded",
+        "remove the obsolete runner callback; inspect subfleet errors and subfleet why ID for native limit evidence"),
+    "_tickle": (
+        "v1 detached inbox worker retired; its private wait/dedupe contract is not a v2 continuation request and no nudge was sent",
+        "replace the old worker with subfleet tickle --session ID; update hooks with subfleet daemon install --hooks"),
+}
 
 @dataclass(frozen=True)
 class V1Flag:
@@ -450,8 +449,8 @@ NOTED_ENV: dict[str, str] = {
     "DELEGATE_ACCOUNTS_FILE": "names v1's claude-accounts.json; v2 reads lanes "
                               "from its own store (`subfleet lanes list`)",
     "DELEGATE_SUBFLEET": "names the v1 `subfleet` binary a v1 runner calls back "
-                         "into; v2 ignores it (set SUBFLEET_V1_BIN to steer "
-                         "what v2 delegates to)",
+                         "into; v2 ignores it after cutover and never delegates "
+                         "commands to v1",
     "DELEGATE_CODEX_RUN": "names v1's `subfleet-codex` runner; v2's Codex "
                           "adapter launches `codex` itself (C-12)",
     "DELEGATE_CLAUDE_LANE": "names v1's `subfleet-claude` runner; v2's Claude "
@@ -667,6 +666,10 @@ def translate(argv: Sequence[str], env: dict[str, str] | None = None) -> Mapping
 
     if head in REFUSED:
         return finish(_refusal(head, REFUSED[head]))
+    if head in RETIRED:
+        why, fix = RETIRED[head]
+        return finish(Mapping("refuse", exit_code=int(Exit.REFUSED), rule=f"retired:{head}",
+                              notes=[f"{PROG}: {head}: {why}", f"  fix: {fix}"]))
     if head in HIDDEN:
         return finish(Mapping("delegate", list(argv), rule=f"hidden:{head}"))
 
@@ -802,10 +805,10 @@ def self_check() -> dict[str, Any]:
         if _target_path(target) not in paths:
             unreachable.append(f"{' '.join(tokens)} -> {' '.join(target)}")
     return {
-        "rules": len(PERMANENT) + len(RENAMED) + len(REFUSED) + len(DELEGATED)
+        "rules": len(PERMANENT) + len(RENAMED) + len(REFUSED) + len(RETIRED) + len(DELEGATED)
         + len(DELEGATED_PAIRS) + len(HIDDEN)
         + sum(len(flags) for flags in V1_ONLY_FLAGS.values()),
-        "verbs": len(PERMANENT) + len(RENAMED) + len(REFUSED) + len(DELEGATED)
+        "verbs": len(PERMANENT) + len(RENAMED) + len(REFUSED) + len(RETIRED) + len(DELEGATED)
         + len(DELEGATED_PAIRS) + len(HIDDEN),
         "env": len(NOTED_ENV) + len(CARPOOL_EXTRA),
         "unreachable": unreachable,

@@ -2,6 +2,16 @@
 
 Plan B rev 4 "Migration and cutover" as amended by plan amendment 8 (ownership per account as well as per capability) and 12 (store upgrade path). This document is the import manifest and the transfer procedure for milestone 4. Every v1 store found on 2026-09-05 is classified; nothing is imported by guesswork.
 
+The historical shadow-week procedure below was superseded for this installation
+by Max's September 19 direct-cutover decision in `plan.md`. Native completion
+retains the public command spellings without executing the v1 binary. `pick`,
+operator maintenance, diagnostics, login instructions, and the attached-runner
+hook now use v2; `_record-*` and private `_tickle` callbacks refuse explicitly.
+The tracked `bin/codex` shim and native PreToolUse entry replace the final v1
+runtime dependencies. Preserve the old stores, receipts, settings backup, and
+shim for rollback evidence; do not run both schedulers. See
+`reports/2026-09-21-native-completion.md` for the current verification scope.
+
 ## Principles
 
 1. **One owner per account and per capability.** During the shadow period every account has `owner: v1` or `owner: v2` in `lanes.json`; v2 never dispatches, probes for dispatch, redeems, or keeps alive on a v1-owned account, and v1's roster loses an account the moment v2 takes it. Capabilities (dispatch and notices, timers, sessions, gates) also transfer one at a time, each fenced before the next is enabled.

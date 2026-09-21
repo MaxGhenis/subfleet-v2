@@ -463,7 +463,7 @@ def test_run_dispatches_each_event_spelling(daemon, root):
 
 def test_run_rejects_an_unknown_event(root, capsys):
     """C-17.3 exit 2 is invalid input; the message names the three events."""
-    assert hooks.run("PreToolUse", stream=io.StringIO("{}"), root=root) == 2
+    assert hooks.run("NotAHook", stream=io.StringIO("{}"), root=root) == 2
     assert "PostToolUse" in capsys.readouterr().err
 
 
@@ -482,13 +482,13 @@ def settings_file(tmp_path: Path, data: dict) -> Path:
     return path
 
 
-def test_plan_proposes_the_three_entries_and_writes_nothing(tmp_path):
+def test_plan_proposes_delivery_and_guard_entries_and_writes_nothing(tmp_path):
     """C-15.2 the three delivery entries; nothing touches the file to find out."""
     path = settings_file(tmp_path, {"statusLine": {"type": "command"}})
     before = path.read_text()
     report = hooks.plan(path, command="/bin/sf hook", timeout=600)
     assert report["ok"] and set(report["changed_events"]) == {
-        "SessionStart", "UserPromptSubmit", "PostToolUse"}
+        "SessionStart", "UserPromptSubmit", "PostToolUse", "PreToolUse"}
     assert path.read_text() == before
     groups = report["proposed"]["hooks"]
     assert groups["PostToolUse"][0]["matcher"] == "Bash"
@@ -526,7 +526,8 @@ def test_v1_entries_are_reported_and_never_rewritten(tmp_path):
     assert set(report["v1_entries"]) == {"PreToolUse", "SessionStart"}
     hooks.apply(path, command="/bin/sf hook")
     after = json.loads(path.read_text())
-    assert after["hooks"]["PreToolUse"] == v1["hooks"]["PreToolUse"]
+    assert after["hooks"]["PreToolUse"][0] == v1["hooks"]["PreToolUse"][0]
+    assert after["hooks"]["PreToolUse"][1]["hooks"][0]["command"] == "/bin/sf hook PreToolUse"
     commands = [hook["command"] for group in after["hooks"]["SessionStart"]
                 for hook in group["hooks"]]
     assert "~/cos/subfleet/bin/subfleet-hook session-start" in commands
@@ -587,7 +588,7 @@ def test_daemon_install_hooks_writes_after_printing_the_diff(tmp_path, monkeypat
     captured = capsys.readouterr()
     assert str(path) in captured.out and "PostToolUse" in captured.out
     assert set(json.loads(path.read_text())["hooks"]) == {
-        "SessionStart", "UserPromptSubmit", "PostToolUse"}
+        "SessionStart", "UserPromptSubmit", "PostToolUse", "PreToolUse"}
     assert cli.main(["daemon", "install", "--hooks"]) == 0
     assert "already matches" in capsys.readouterr().err
 

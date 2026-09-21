@@ -2,7 +2,9 @@
 
 One supervised daemon that dispatches delegated agent work across several Claude and Codex subscription accounts, keeps every run as a durable row it owns, and tells the truth about capacity.
 
-This tree is the from-scratch rebuild. The v1 tree at `~/chief-of-staff/subfleet` keeps running until cutover.
+This tree is the from-scratch rebuild. Retained public commands use native v2
+implementations; obsolete private v1 worker callbacks refuse explicitly. Historical
+v1 records remain available without delegating commands to the old installation.
 
 - Plan of record: `docs/plan.md` (plan B revision 4 as amended by the grafts from plan A and the round-2 reviews).
 - Binding contract for implementation: `docs/acceptance-contract.md`. Every module is built against it; every acceptance test names the clause it proves.
@@ -33,6 +35,26 @@ require explicit opt-in. GitHub Actions runs the suite on macOS with Python 3.12
 and 3.14; process containment is tested on the same operating system as deployment.
 `bin/sf2` uses this checkout's environment and ignores inherited Python paths from
 v1. Keep it separate from the installed `subfleet` command during validation.
+
+The tracked `bin/codex` PATH shim uses the installed native entrypoint at
+`~/.local/share/subfleet/current/venv/bin/subfleet`. After installing and verifying
+that release, replace the old shim from the reviewed checkout:
+
+```sh
+cp -P ~/bin/codex ~/bin/codex.before-v2.$(date +%Y%m%dT%H%M%S)
+install -m 755 bin/codex ~/bin/codex.v2
+mv -f ~/bin/codex.v2 ~/bin/codex
+```
+
+Interactive Codex passes through. For `exec`, `e`, and `review`, a missing
+`CODEX_HOME` requires a successful native `pick codex`; explicit `-m`/`--model`
+flags scope the recommendation. A failed pick never starts Codex. Picking is
+advisory and reserves no slot; use `subfleet run` for supervised work. Every
+noninteractive home passes the subscription-only API-key check, including when
+the retired `SUBFLEET_ALLOW_API_LANE` override is set. Noninteractive launches also
+remove inherited `CODEX_API_KEY` and `OPENAI_API_KEY`, matching daemon launches.
+`SUBFLEET_NO_AUTOPICK` requires an explicit home. Raw `exec resume` and `exec fork` also require their
+original `CODEX_HOME`; managed continuations use `subfleet resume JOB_ID`.
 
 The native macOS menu bar app reads the daemon's `status.json` from
 `$SUBFLEET_HOME` (default `~/.subfleet`). Build it with the macOS Swift developer
