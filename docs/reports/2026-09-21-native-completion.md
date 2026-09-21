@@ -27,8 +27,9 @@ work, and requires the original home for raw continuations. Interactive Codex
 retains its behavior. The native PreToolUse guard replaces the old attached
 runner hook; settings updates preserve unrelated hooks.
 
-The installed Swift app includes account rows, reload feedback, running and
-waiting jobs, recent results, and batch groups. It reads daemon snapshots.
+The Swift app includes account rows, reload feedback, running and waiting jobs,
+and the eight most recently completed jobs. Both live and completed batches
+appear under label-and-size headings. It reads daemon snapshots.
 Frontend model tests and the macOS CI build verify its data contract and
 compilation. Native accessibility inspection timed out on this machine, so a
 new visual pass is not claimed. The earlier user-guided check confirmed account
@@ -39,8 +40,11 @@ the versioned release under `~/.local/share/subfleet/releases/` and its matching
 `~/.subfleet/cutovers/` backup. The seven-day soak and 100-job canary were waived
 by the direct-cutover decision; they are not passed checks.
 
-The first substantive policy test is job
-`20260921-191451-nz-super-waiver-exit`, pinned to Opus and submitted September 21.
-It targets NZ Super core's validation waiver with the real pinned Axiom runtime.
-This job's outcome must be checked separately; submission alone proves neither
-a completed waiver exit nor complete coverage of New Zealand benefits.
+The first policy-test submission, `20260921-191451-nz-super-waiver-exit`, was
+cancelled with zero attempts so its verification brief could be refreshed. Its replacement,
+`20260921-194824-nz-super-waiver-exit`, was submitted September 21 after the Claude
+stream fix was installed. It is pinned to Opus and was queued for spare capacity
+with zero attempts when this note was updated. It targets NZ Super core's
+validation waiver with the real pinned Axiom runtime. This job's outcome must be
+checked separately; submission alone proves neither a completed waiver exit nor
+complete coverage of New Zealand benefits.

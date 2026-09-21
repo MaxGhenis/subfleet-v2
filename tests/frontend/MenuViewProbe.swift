@@ -17,6 +17,11 @@ struct MenuViewProbe {
             "proposed_height": proposed.height,
             "lanes": (store.snap?.codex.homes.count ?? 0) + (store.snap?.claude.accounts?.count ?? 0),
             "has_snapshot": store.snap != nil,
+            // Inspect the actual view's selected/grouped rows, not the raw
+            // snapshot (which missed its former extra five-result truncation).
+            "recent_groups": JobsView(jobs: store.snap?.jobs).recentGroups.map {
+                ["title": $0.title as Any? ?? NSNull(), "job_ids": $0.jobs.map(\.job_id)] as [String: Any]
+            },
             "initial_feedback": store.reloadMessage as Any? ?? NSNull()
         ]
         if arguments.count > 2 {

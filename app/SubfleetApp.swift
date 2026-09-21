@@ -501,9 +501,14 @@ struct JobRowView: View {
 struct JobsView: View {
     let jobs: JobsSection?
 
+    // Select recent jobs before grouping so batch headings don't reduce the
+    // C-18.2 limit of eight results or pull older batch members into the menu.
+    var recentGroups: [JobGroup] {
+        jobGroups(Array((jobs?.recent ?? []).prefix(8)))
+    }
+
     var body: some View {
         let live = jobs?.live ?? []
-        let recent = Array((jobs?.recent ?? []).prefix(5))
         VStack(alignment: .leading, spacing: 6) {
             Text("JOBS").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             if live.isEmpty {
@@ -515,9 +520,14 @@ struct JobsView: View {
                 }
                 ForEach(group.jobs) { job in JobRowView(display: jobDisplay(job)) }
             }
-            if !recent.isEmpty {
+            if !recentGroups.isEmpty {
                 Text("RECENT").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                ForEach(recent) { job in JobRowView(display: jobDisplay(job)) }
+                ForEach(recentGroups, id: \.id) { group in
+                    if let title = group.title {
+                        Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    }
+                    ForEach(group.jobs) { job in JobRowView(display: jobDisplay(job)) }
+                }
             }
         }
     }
