@@ -9,7 +9,8 @@ weak one is `daemon.lock`, whose recorded identity the CLI treats as no daemon
 when the recorded process is provably gone (C-5.8): a stale socket file left by
 a killed daemon otherwise looks like a daemon that is merely slow. The identity
 check is `ps -p <pid> -o state=,lstart=` against the recorded `proc_start` and
-`sysctl -n kern.boottime` against the recorded `boot_id` (C-5.3); it is pinned to
+`kern.bootsessionuuid` against the recorded `boot_id` (C-5.3), with conservative
+support for older wall-clock boot timestamps. Process inspection is pinned to
 `LC_ALL=C` and `TZ=UTC` because `lstart` is rendered in the reader's locale and
 whoever recorded the value rendered it in theirs. It is kept small and local here
 so the CLI does not import the daemon-side `procs` module.
@@ -25,6 +26,8 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any
+
+from . import boot_identity
 
 from .contracts import Exit
 from .protocol import (PROTOCOL_VERSION, ProtocolError, Request, Response,
@@ -89,27 +92,26 @@ def _run(argv: list[str], timeout: float = 5.0) -> tuple[int, str]:
     return done.returncode, done.stdout
 
 
-_BOOT_ID: list[str | None] = []          # boot time cannot change under us
+_BOOT_ID: list[str | None] = []          # only boot-session UUIDs are immutable
 
 
 def boot_id() -> str | None:
-    """`kern.boottime` seconds as a string, or None when it cannot be read."""
+    """The boot-session UUID, with legacy seconds only when UUID is unavailable."""
     if _BOOT_ID:
         return _BOOT_ID[0]
     value = _read_boot_id()
-    _BOOT_ID.append(value)
+    if value and boot_identity.session_uuid(value):
+        _BOOT_ID.append(value)
     return value
 
 
 def _read_boot_id() -> str | None:
-    rc, out = _run(["/usr/sbin/sysctl", "-n", "kern.boottime"])
-    if rc != 0 or not out.strip():
-        return None
-    match = re.search(r"sec\s*=\s*(\d+)", out)
-    if match:
-        return match.group(1)
-    digits = re.findall(r"\d+", out)
-    return digits[0] if digits else None
+    return boot_identity.read_identity(_boot_read)
+
+
+def _boot_read(argv: list[str]) -> str:
+    rc, out = _run(argv)
+    return out if rc == 0 else ""
 
 
 ZOMBIE_STATES = ("Z",)
@@ -144,11 +146,15 @@ def identity_report(pid: int | None, recorded_boot: str | None,
     """
     if not pid:
         return None, "no pid was recorded"
+    boot_match = True
     if recorded_boot:
         current = boot_id()
         if current is None:
-            pass                         # cannot read boot time; fall through
-        elif str(current) != str(recorded_boot):
+            boot_match = None
+        else:
+            boot_match = boot_identity.matches(str(recorded_boot), str(current),
+                                               lambda: boot_identity.boot_seconds(_boot_read))
+        if boot_match is False:
             return False, (f"the machine booted at {current}, not at "
                            f"{recorded_boot} as recorded, so pid {pid} is gone")
     start = proc_start(int(pid))
@@ -159,6 +165,9 @@ def identity_report(pid: int | None, recorded_boot: str | None,
     if not recorded_start:
         return None, f"pid {pid} is alive but no start time was recorded"
     if " ".join(str(recorded_start).split()) == start:
+        if boot_match is None:
+            return None, (f"pid {pid} has the recorded start time, but the legacy boot "
+                          "timestamp changed or boot identity is unavailable; process death is unproven")
         return True, f"pid {pid} started at {start}, as recorded"
     return False, (f"pid {pid} started at {start!r}, not {recorded_start!r} as "
                    f"recorded — either the pid was reused, or the two sides "

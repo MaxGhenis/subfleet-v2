@@ -1232,11 +1232,18 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
 
 
 def _same_process():
-    """`procs.same_process` when the core lane has landed it, else the client's."""
+    """Preserve unknown liveness for reap; boolean identity checks gate signals."""
+    import importlib
     try:
-        from . import procs                                # noqa: PLC0415
+        procs = importlib.import_module(".procs", __package__)
     except ImportError:
         return same_process, "subfleet.client"
+    liveness = getattr(procs, "liveness", None)
+    if liveness is not None:
+        def check(pid, boot, start):
+            return {"alive": True, "dead": False}.get(liveness(pid, boot, start))
+        return check, "subfleet.procs"
+    # Older or injected checkers retain the original boolean/None interface.
     checker = getattr(procs, "same_process", None)
     if checker is None:
         return same_process, "subfleet.client"

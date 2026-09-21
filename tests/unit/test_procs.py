@@ -234,7 +234,7 @@ def test_liveness_has_three_answers_and_unknown_never_means_dead(monkeypatch):
     census(monkeypatch)
     assert procs.liveness(42, "100", "Sat Sep  5 10:00:00 2026") == "alive"
     assert procs.liveness(42, "100", "Fri Sep  4 09:00:00 2026") == "dead"
-    assert procs.liveness(42, "99", "Sat Sep  5 10:00:00 2026") == "dead"
+    assert procs.liveness(42, "99", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.liveness(0, "100", "Sat Sep  5 10:00:00 2026") == "dead"
     assert procs.liveness(42, None, None) == "dead"
     census(monkeypatch, fail="ps")

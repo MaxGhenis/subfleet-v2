@@ -16,6 +16,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from . import boot_identity
+
 
 class InspectionError(RuntimeError):
     """The operating system could not establish process ownership."""
@@ -40,14 +42,16 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
 
 
 def boot_id() -> str:
-    """Return kern.boottime seconds, the identity required by C-5.3."""
-    value = _read(["/usr/sbin/sysctl", "-n", "kern.boottime"]).strip()
-    match = re.search(r"\bsec\s*=\s*(\d+)", value)
-    if match:
-        return match.group(1)
-    if value.isdecimal():
+    """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction."""
+    def optional_read(argv):
+        try:
+            return _read(argv)
+        except InspectionError:
+            return ""
+    value = boot_identity.read_identity(optional_read)
+    if value:
         return value
-    raise InspectionError("kern.boottime did not contain boot seconds")
+    raise InspectionError("macOS boot identity is unavailable")
 
 
 def proc_start(pid: int) -> str | None:
@@ -119,17 +123,19 @@ def liveness(pid: int | None, boot_id: str | None, proc_start: str | None) -> st
         return "unknown"
     if current is None:
         return "dead"
-    return "alive" if current == ProcessIdentity(pid, str(boot_id), proc_start) else "dead"
+    if current.proc_start != proc_start:
+        return "dead"
+    try:
+        match = boot_identity.matches(str(boot_id), current.boot_id,
+                                      lambda: boot_identity.boot_seconds(_read))
+    except InspectionError:
+        return "unknown"
+    return "alive" if match is True else "dead" if match is False else "unknown"
 
 
 def same_process(pid: int, boot_id: str, proc_start: str) -> bool:
     """C-5.3: pid reuse, a different boot and zombies never match."""
-    if not boot_id or not proc_start:
-        return False
-    try:
-        return identity(pid) == ProcessIdentity(pid, str(boot_id), proc_start)
-    except InspectionError:
-        return False
+    return liveness(pid, boot_id, proc_start) == "alive"
 
 
 @dataclass(frozen=True)
