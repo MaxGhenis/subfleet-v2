@@ -91,9 +91,30 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
     return None
 
 
-def competes(models: frozenset[str] | None, other: frozenset[str] | None) -> bool:
-    """C-6.9: two jobs compete when some model could serve both, or when either is unknown."""
-    return models is None or other is None or bool(models & other)
+def demand_lanes(lanes: Iterable[Any], job: Any) -> frozenset[str] | None:
+    """The lanes a job could run on: its pin, resolved to one lane id (C-11.2).
+
+    None means any lane, or a pin that cannot be resolved here, which admission
+    treats as competing with everything.
+    """
+    pin = _row(job).get("pinned_lane")
+    if not pin:
+        return None
+    try:
+        found = resolve_lane(lanes, pin)
+    except ValueError:
+        return None
+    return frozenset({found["lane_id"]}) if found else None
+
+
+def competes(models: frozenset[str] | None, other: frozenset[str] | None,
+             lanes: frozenset[str] | None = None, other_lanes: frozenset[str] | None = None) -> bool:
+    """C-6.9: two jobs compete when some model could serve both AND some lane could
+    serve both; either side unknown counts as overlap. Two jobs pinned to
+    different lanes never compete: neither can take a slot the other waits for."""
+    if models is not None and other is not None and not models & other:
+        return False
+    return lanes is None or other_lanes is None or bool(lanes & other_lanes)
 
 
 def _parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:

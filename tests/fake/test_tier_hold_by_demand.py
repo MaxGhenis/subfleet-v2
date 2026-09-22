@@ -138,3 +138,66 @@ def test_c6_9_competes_is_overlap_or_unknown():
     assert scheduler.competes(frozenset({"opus", "astra"}), frozenset({"astra"}))
     assert not scheduler.competes(frozenset({"opus", "astra"}), frozenset({"fable"}))
     assert scheduler.competes(None, frozenset({"fable"})) and scheduler.competes(frozenset({"fable"}), None)
+
+
+# --- C-6.9: lane pins ----------------------------------------------------------------------
+
+from subfleet.contracts import Credential, Lane, LaneOwner
+
+
+@pytest.fixture
+def pinned_fleet(fleet):
+    """Two measured Claude lanes for lane-pinned Fable work."""
+    service, harness = fleet
+    for lane_id in ("claude-a", "claude-b"):
+        service.store.put_lane(Lane(lane_id, "claude", f"claude:{lane_id}@example.invalid",
+                                    Credential("claude", f"/fake/{lane_id}", "home"), f"/fake/{lane_id}",
+                                    LaneOwner.V2, False))
+        service.store.add_reading(Reading(lane_id, "account", "seven_day", .2, after(86400),
+                                          ReadingLabel.PROVIDER, "fixture", utcnow()))
+    return service, harness
+
+
+def test_c6_9_a_waiter_pinned_to_one_lane_does_not_hold_a_job_pinned_to_another(pinned_fleet):
+    """C-6.9 the 2026-09-22 gates: the older job can only use lane a, so it holds nothing pinned to lane b."""
+    service, harness = pinned_fleet
+    older = submit(service, harness, pinned_model="fable", pinned_lane="claude-a")
+    other = submit(service, harness, pinned_model="fable", pinned_lane="claude-b")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert admitted(service, other) and not service.store.list_attempts(older)
+
+
+@pytest.mark.parametrize("case", ["same-lane", "newer-unpinned", "older-unpinned", "newer-unknown-pin"])
+def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case):
+    """C-6.9 only two different pins are disjoint; a free choice, a shared pin, or an unresolvable pin competes."""
+    service, harness = pinned_fleet
+    older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "newer-unpinned": ("claude-a", None),
+                            "older-unpinned": (None, "claude-b"), "newer-unknown-pin": ("claude-a", None)}[case]
+    older = submit(service, harness, pinned_model="fable", pinned_lane=older_pin)
+    newer = submit(service, harness, pinned_model="fable", pinned_lane=newer_pin)
+    if case == "newer-unknown-pin":
+        service.store.update_job(newer, pinned_lane="nobody@example.invalid")   # a pin the roster cannot resolve
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(newer)
+    assert service.store.get_job(newer)["state"] == "queued"
+
+
+def test_c6_9_demand_lanes_resolves_a_pin_to_its_lane_id():
+    """C-11.2 an account label or a lane id names one lane; nothing, or an unknown label, is any lane."""
+    roster = [{"lane_id": "claude-a", "account_key": "claude:a@example.invalid", "email": "a@example.invalid"},
+              {"lane_id": "claude-b", "account_key": "claude:b@example.invalid", "email": "b@example.invalid"}]
+    assert scheduler.demand_lanes(roster, {"pinned_lane": "claude-b"}) == frozenset({"claude-b"})
+    assert scheduler.demand_lanes(roster, {"pinned_lane": "a@example.invalid"}) == frozenset({"claude-a"})
+    assert scheduler.demand_lanes(roster, {"pinned_lane": None}) is None
+    assert scheduler.demand_lanes(roster, {"pinned_lane": "nobody@example.invalid"}) is None
+
+
+def test_c6_9_competes_needs_a_shared_model_and_a_shared_lane():
+    """C-6.9 disjoint models or disjoint pins do not compete; an unknown side counts as overlap."""
+    f, a, b = frozenset({"fable"}), frozenset({"claude-a"}), frozenset({"claude-b"})
+    assert not scheduler.competes(f, f, a, b)
+    assert scheduler.competes(f, f, a, a) and scheduler.competes(f, f, a, None) and scheduler.competes(f, f, None, b)
+    assert not scheduler.competes(f, frozenset({"opus"}), a, a)
+    assert scheduler.competes(None, f, a, b) is False                                  # lanes disjoint wins even with unknown models
