@@ -925,3 +925,42 @@ def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet):
     younger = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
     service._admit()                                                  # the retry's clock runs; the younger job waits
     assert service._holds[younger]["reason"] == "behind-older-job" and service._holds[younger]["behind"] == retry
+
+
+def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):
+    """C-4.5 the one same-pair retry survives a refusal that ends: the next due look evaluates the pair,
+    with or without a restart in between (the look's verdict is in memory)."""
+    service, harness = fleet
+    service.store.add_closure(Closure("codex-1", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    fable = service.policy["models"]["fable"]["id"]
+    _transient_on(service, job_id, "claude-a", fable)                  # the pair: fable, not the chain's opus
+    service.store.update_lane("claude-a", desktop=1)
+    service._admit()
+    assert [row["state"] for row in service.store.list_attempts(job_id)] == ["failed"]
+    assert service._retry_verdicts[job_id][1] is False
+    service.store.update_lane("claude-a", desktop=0)
+    service.store.update_job(job_id, next_check_at=utcnow())
+    service._admit()
+    last = service.store.list_attempts(job_id)[-1]
+    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", fable)
+
+
+def test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated(fleet):
+    """C-6.9 a due look evaluates the pair, so until then the job's demand is the pair: an older waiter
+    pinned to another lane does not hold it, whatever the last look decided."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    service.store.add_closure(Closure("codex-1", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(600))
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    fable = service.policy["models"]["fable"]["id"]
+    _transient_on(service, job_id, "claude-a", fable)
+    service._retry_verdicts[job_id] = (job_id + "/a1", False)         # a look let the pin go
+    service._admit()
+    last = service.store.list_attempts(job_id)[-1]
+    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", fable)

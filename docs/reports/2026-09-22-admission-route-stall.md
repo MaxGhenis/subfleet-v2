@@ -178,7 +178,10 @@ lane lacks a slot; otherwise the job routes as submitted (C-4.5 "then next
 candidate"). While pinned, its C-6.9 demand is the pair. One doc correction.
 A fifth round found that a retry which let its pin go still carried the pin's
 narrow demand, so it could pass an older job it competed with. Once the pin
-is let go, the job's demand is its own again.
+is let go, the job's demand is its own again while its clock runs. A sixth
+round found that the first fix made a let-go permanent until a restart. Every
+due look now evaluates the pair again, so a lane that recovers still gets its
+one retry, and a restart changes nothing.
 
 The production-safety reviewer in round three and the install-safety reviewer
 in round two found nothing.

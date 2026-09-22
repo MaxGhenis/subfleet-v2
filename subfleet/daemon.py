@@ -272,8 +272,9 @@ class Daemon:
         # one's error, replaced whole on each. In memory as C-6.8's count is.
         self._route_deferrals: dict[str, dict] = {}
         # C-4.5, C-6.9: job id -> (its last attempt id, whether the last due look
-        # kept its transient retry on that attempt's lane). A pin that was let go
-        # is not the job's demand while its clock runs.
+        # kept its transient retry on that attempt's lane). A pin that look let go
+        # is not the job's demand while its clock runs; the next due look
+        # evaluates the pair again, so a restart, which forgets this, changes nothing.
         self._retry_verdicts: dict[str, tuple[str, bool]] = {}
         # C-6.10: the leases the last pass saw that no probe holds. One that has
         # gone since is capacity that came free.
@@ -2384,10 +2385,10 @@ class Daemon:
             # job can run only there, and its demand is that one model on that lane.
             previous, extra_exclusions, retry = self._retry_pin(job)
             verdict = self._retry_verdicts.get(job["job_id"])
-            if retry and verdict and verdict[0] == previous[-1]["attempt_id"] and not verdict[1]:
-                retry = None                    # its last look let the pin go: it routes as submitted
-            models = scheduler.demand_models(self.policy, retry or job)
-            lanes = scheduler.demand_lanes(roster, retry or job, self.policy)
+            let_go = bool(retry and verdict and verdict[0] == previous[-1]["attempt_id"] and not verdict[1]
+                          and job["next_check_at"] and job["next_check_at"] > utcnow())
+            models = scheduler.demand_models(self.policy, job if let_go else retry or job)
+            lanes = scheduler.demand_lanes(roster, job if let_go else retry or job, self.policy)
             behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
                            if scheduler.competes(models, theirs, lanes, their_lanes)), None)
             if saturated or behind:
@@ -2448,6 +2449,8 @@ class Daemon:
                 self._retry_verdicts[job["job_id"]] = (previous[-1]["attempt_id"], kept)
                 if kept:
                     decision_job = retry
+                    models = scheduler.demand_models(self.policy, retry)
+                    lanes = scheduler.demand_lanes(roster, retry, self.policy)
                 else:
                     # C-4.5 "then next candidate": the pair's lane refuses it for
                     # something a slot will not end, so the job routes as submitted,
