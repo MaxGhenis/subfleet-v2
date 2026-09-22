@@ -704,12 +704,23 @@ class Daemon:
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
 
-    def _known_model(self, model_id: str | None) -> bool:
-        """Whether the running policy resolves a recorded model id (a current id or a retired alias)."""
+    def _retry_pair_routable(self, attempt: dict) -> bool:
+        """C-4.5, C-6.12: can a transient attempt's lane and model be tried once more?
+
+        The running policy must still resolve the model id (a current id or a
+        `retired` alias), and the lane (or the lane a re-enrolment bound to its
+        credential) must be enabled, v2-owned, not identity-blocked, and of that
+        model's provider. A lane disabled since (auth-dead, a mismatch) is never
+        re-enabled, and an id renamed or retired to another provider's model
+        never resolves back: a retry pinned to either would never be placed.
+        """
         try:
-            return bool(model_id) and bool(resolve_model(self.policy, model_id, note=False))
-        except PolicyError:
+            short = resolve_model(self.policy, attempt["model_requested"], note=False)
+            lane = scheduler.resolve_lane(self._pin_roster(), attempt["lane_id"])
+        except (PolicyError, ValueError, KeyError):
             return False
+        return bool(lane) and bool(lane.get("enabled", True)) and lane.get("owner") == "v2" \
+            and not capacity.identity_blocked(lane) and self.policy["models"][short]["provider"] == lane["provider"]
 
     def _resume_lane(self, recorded: str, lane: Lane) -> bool:
         """C-12.3, C-11.2: may a resume recorded on `recorded` run on `lane`?
@@ -2382,10 +2393,10 @@ class Daemon:
             extra_exclusions += tuple(l for l, n in transient_counts.items() if n >= 2)
             decision_job = job
             if (previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1
-                    and self._known_model(previous[-1]["model_requested"])):
-                # One retry of the same pair. A model id the running policy no
-                # longer carries (an id renamed since) routes the job itself: this
-                # pair is the daemon's, and a route wait on it would never end (C-6.12).
+                    and self._retry_pair_routable(previous[-1])):
+                # One retry of the same pair (C-4.5, C-9.5). The pair is the
+                # daemon's choice, not the job's: when it can no longer run, the
+                # job routes as submitted rather than wait on it (C-6.12).
                 decision_job = {**job, "pinned_lane": previous[-1]["lane_id"],
                                 "pinned_model": previous[-1]["model_requested"]}
             try:

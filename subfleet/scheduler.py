@@ -89,7 +89,7 @@ def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None, *,
     drops lanes of the other provider, a disabled binding is dropped when an
     enabled lane that matches is bound to the same credential, and a lane whose
     credential proved to hold another account (C-10.6) is dropped when another
-    lane also matches. A name that still matches several lanes raises
+    lane of the same provider also matches. A name that still matches several lanes raises
     `RouteError` naming them. None means the pin names no lane.
     """
     roster = [_row(lane) for lane in lanes]
@@ -105,8 +105,10 @@ def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None, *,
     if len(matches) > 1:
         live = {_binding(lane) for lane in matches if lane.get("enabled", True)}
         matches = [lane for lane in matches if lane.get("enabled", True) or _binding(lane) not in live]
-    if len(matches) > 1:
-        # C-10.6: a credential that proved to hold another account never takes a job again.
+    if len(matches) > 1 and len({lane.get("provider") for lane in matches}) == 1:
+        # C-10.6: a credential that proved to hold another account never takes a
+        # job again. Only a tie within one provider: across providers the name is
+        # still ambiguous, and dropping one side would pick the provider.
         matches = [lane for lane in matches if not identity_blocked(lane)] or matches
     if len(matches) > 1:
         names = ", ".join(sorted(str(lane["lane_id"]) for lane in matches))

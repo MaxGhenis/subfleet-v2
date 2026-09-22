@@ -783,3 +783,44 @@ def test_c11_2_a_lane_that_proved_to_hold_another_account_does_not_answer_to_its
     stale = [{**lane, "email": "bob@example.invalid"} if lane["lane_id"] == "codex-1" else lane
              for lane in service._pin_roster()]                           # a verdict stored before this rule
     assert scheduler.resolve_lane(stale, "bob@example.invalid", "codex")["lane_id"] == "codex-2"
+
+
+def test_c6_12_a_transient_retry_whose_id_is_retired_to_another_provider_routes_the_job_itself(fleet):
+    """C-6.12 a `retired` alias may point at another provider's model; the retry pair then can never
+    run on its lane, so the job routes as submitted instead of waiting until `max_wall_s`."""
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    service.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="claude-a",
+                              model_requested="claude-old-haiku", state="failed", outcome_class="transient")
+    service.policy["retired"]["claude-old-haiku"] = "astra"
+    service.policy_digest = "edited-and-restarted"
+    service._admit()
+    assert [row["state"] for row in service.store.list_attempts(job_id)] == ["failed", "reserved"]
+    assert job_id not in service._route_deferrals
+
+
+def test_c6_12_a_transient_retry_whose_lane_was_disabled_since_routes_the_job_itself(fleet):
+    """C-4.5 an auth-dead lane is never re-enabled; a retry pinned to it would never be placed."""
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    service.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="claude-a",
+                              model_requested=service.policy["models"]["opus"]["id"], state="failed",
+                              outcome_class="transient")
+    service.store.update_lane("claude-a", enabled=0)
+    service.timers.record_auth_dead("claude-a")
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    service._admit()
+    assert service.store.list_attempts(job_id)[-1]["lane_id"] == "claude-b"
+
+
+def test_c11_2_a_mismatched_lane_is_dropped_only_within_one_provider(incident):
+    """C-11.2 across providers a name stays ambiguous: a provider-less legacy pin whose Claude lane is
+    identity-blocked is left for admission to refuse, never moved to the Codex lane and its first model."""
+    service, harness = incident
+    job_id = legacy(service, harness, EMAIL, pinned_model=None)
+    service.store.update_lane("claude-a", identity_status="mismatch")
+    service._canonicalize_pins()
+    assert service.store.get_job(job_id)["pinned_lane"] == EMAIL
+    service._admit()
+    assert service.store.get_job(job_id)["state"] == "failed" and not service.store.list_attempts(job_id)

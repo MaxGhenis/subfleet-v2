@@ -2,13 +2,16 @@
 
 ## What happened
 
-On September 22 no session could get a job placed from 10:45 to 14:03 EDT:
-the store has no attempt reserved between 14:45:05Z and 18:02:45Z (198
-minutes). The stall was noticed around 11:40 EDT. `daemon.log` repeated
+On September 22 no job was placed from 10:45 to 14:03 EDT: the store has no
+attempt reserved between 14:45:05Z and 18:02:45Z (198 minutes). Each pass still
+placed the jobs ahead of the stuck one in admission order and stopped at it.
+Every job pending in that window was a standard-tier job submitted after it, or
+a hard-tier job, so all of them waited. The stall was noticed around 11:40 EDT. `daemon.log` repeated
 `worker admission failed: ValueError` up to `(128 in a row, next try in 60 s)`.
 `subfleet why` pointed nowhere: the five jobs that caused it printed
-`No decision recorded.`, and every other held job showed an ordinary decision
-evaluated for the answer.
+`No decision recorded.`, and every other held job showed an ordinary decision,
+either one recorded before the stall (for example
+`20260922-092535-corpus728-base-layer-plan`) or one evaluated for the answer.
 
 The same resolution had stalled admission once already that day, from 09:24 to
 09:50 EDT. No attempt was reserved from 13:24:08Z to 13:50:32Z. The cause was
@@ -93,9 +96,11 @@ C-6.11's `route` hold.
    against the lanes admission uses, named as the capacity view names them:
    each lane row with its latest probe verdict merged in, as
    `Timers.enrich_view` merges it. It leaves out the readings, which cost
-   about 50 ms per view on the live store. It then stores the lane id. No later roster change can make an accepted pin ambiguous. The
-   pin as the caller typed it stays in the request digest, so retries remain
-   idempotent. It also stays in the `job.submitted` event.
+   about 50 ms per view on the live store. It then stores the lane id. No
+   later roster change can make an accepted pin ambiguous. The pin as the
+   caller typed it stays in the `job.submitted` event and, except for a job
+   with an unmeasured-reserve authorization (bound to its lane id), in the
+   request digest, so retries remain idempotent.
 3. **One resolver, narrowed by provider (C-11.2).** A pinned job evaluates one
    model, so a name that two providers share is narrowed to the provider of
    that model: the pinned model, or else the first model of the task's chain
@@ -153,3 +158,14 @@ findings, all now fixed and tested the same way:
   account's email. It now keeps that address as `observed_email` and is
   dropped from a name's matches.
 - Two corrections to docs.
+
+A third round found six more, all now fixed:
+- The transient-retry pair is now used only while it can run: its model must
+  resolve to the lane's provider, and the lane must be enabled, v2-owned and
+  not identity-blocked. A lane disabled since the attempt had pinned the retry
+  on main as well.
+- The identity-mismatch narrowing now applies only within one provider.
+- Three corrections to docs.
+
+The production-safety reviewer in round three and the install-safety reviewer
+in round two found nothing.
