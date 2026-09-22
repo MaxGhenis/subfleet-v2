@@ -90,15 +90,27 @@ _DATA_URI_RE = re.compile(
 _LONG_BASE64_RE = re.compile(
     r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{160,}={0,2})(?![A-Za-z0-9+/])"
 )
-_URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)")
-_HEADER_RE = re.compile(r"(?im)^(\s*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
+# A scheme is at most 64 characters: unbounded, `[a-z0-9+.-]*` rescans a long
+# run such as `a-a-a-...` from every letter in it, which is quadratic.
+_URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]{0,63}://[^\s/:@]+:)([^\s/@]+)(@)")
+# The header's value is the rest of the line wherever the header starts: in an
+# exception message, a `curl -H '...'` argument, or a subprocess command's repr
+# it follows other text on its line, and its value (`Basic <token>`) has a space
+# that would end a plain assignment's value one word early.
+_HEADER_RE = re.compile(
+    r"(?im)(\b(?:proxy-authorization|authorization|cookie|set-cookie)\s*[:=]\s*).+$")
+# The key names match anywhere, so `MY_API_KEY=` is found at `API_KEY=` and the
+# text before it is kept as it was. A compound-name alternative,
+# `[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*[_-](?:api[_-]?key|token|...)`, used to
+# match from the start of such a name. Every suffix it allowed is a key name
+# here, and a match ends at the same place from either start, so it changed no
+# output. It backtracked through every identifier-shaped run, though: a
+# 6,000-character one took over a second to scrub (2026-09-22, PR #26 review).
 _SENSITIVE_KEY = (
-    r"(?:(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
+    r"(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
     r"credential|credentials|private[_-]?key|signing[_-]?key|"
     r"secret[_-]?access[_-]?key|access[_-]?key[_-]?id|access[_-]?token|"
-    r"refresh[_-]?token|client[_-]?secret|oauth[_-]?token|auth[_-]?token)|"
-    r"(?:[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*)[_-](?:api[_-]?key|token|secret|"
-    r"password|passwd|private[_-]?key|signing[_-]?key))"
+    r"refresh[_-]?token|client[_-]?secret|oauth[_-]?token|auth[_-]?token)"
 )
 _QUOTED_ASSIGN_RE = re.compile(
     rf"(?im)(?P<prefix>[\"']?{_SENSITIVE_KEY}[\"']?\s*[:=]\s*)"

@@ -9,6 +9,7 @@ whole store. `daemon.log` had not gained a line since the daemon started.
 
 import logging
 import re
+import subprocess
 import time
 
 import pytest
@@ -387,6 +388,107 @@ def test_c5_10_a_long_cause_is_bounded(fleet, monkeypatch):
     assert CAUSE in record and "end of message" in record and "characters omitted" in record
 
 
+#: A credential with no shape of its own: only the name before it marks it. Not a real one.
+PLAIN_CREDENTIAL = "q7Wd9Zk2Lp4Xv8Nm3Rt6Yh1Bs5Gc0Jf"
+
+
+def windows(secret: str, width: int = 8) -> list[str]:
+    return [secret[i:i + width] for i in range(len(secret) - width + 1)]
+
+
+def chained() -> Exception:
+    try:
+        try:
+            raise OSError(f"proxy said Authorization: Basic {PLAIN_CREDENTIAL}")
+        except OSError as inner:
+            raise RuntimeError("the provider call failed") from inner
+    except RuntimeError as outer:
+        return outer
+
+
+def grouped() -> Exception:
+    group = ExceptionGroup("two lanes failed", [ValueError("first"), KeyError("second")])
+    group.add_note(f"retry with Authorization: Token {PLAIN_CREDENTIAL}")
+    return group
+
+
+@pytest.mark.parametrize("make", [
+    lambda: RuntimeError(f"refused: Authorization: Basic {PLAIN_CREDENTIAL}"),
+    chained,
+    grouped,
+    lambda: subprocess.CalledProcessError(
+        22, ["curl", "-fsS", "-H", f"Authorization: Basic {PLAIN_CREDENTIAL}", "https://x.test"]),
+    lambda: OSError(f"git fetch https://max:{PLAIN_CREDENTIAL}@github.test/r.git: timed out"),
+    lambda: ValueError(f"lane config {{'client_secret': '{PLAIN_CREDENTIAL}', 'lane': 'codex-2'}}"),
+    lambda: ValueError(f"AUTHORIZATION={PLAIN_CREDENTIAL} COOKIE=session={PLAIN_CREDENTIAL}"),
+], ids=["header-mid-line", "chained-cause", "group-note", "subprocess-command", "url-password",
+        "dict-repr", "env-style"])
+def test_c5_10_a_credential_in_the_cause_never_reaches_the_log(fleet, make):
+    """C-5.10 review of PR #26: the scrub list matched a header only at the start of a line, and a
+    traceback puts `RuntimeError: ` (or a group's margin, or a command repr) in front of it."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    exc = make()
+
+    def boom():
+        raise exc
+
+    fail_repeatedly(service, "fixture/a6", boom, 1)
+    text = worker_log(service)
+    assert CAUSE in text and type(exc).__name__ in text
+    assert not [w for w in windows(PLAIN_CREDENTIAL) if w in text], text
+
+
+def test_c5_10_the_cause_is_scrubbed_before_it_is_cut():
+    """C-5.10 review of PR #26: cut first, and the cut at the start of the kept tail can split a
+    credential from its name, which leaves the rest of it bare. Scrubbed first, every copy is
+    replaced whole. The padding moves the cut through every part of the repeated assignment."""
+    credential = PLAIN_CREDENTIAL + PLAIN_CREDENTIAL[::-1]                 # 64 characters, no shape
+    unit = f"api_key={credential} "
+    for pad in range(0, len(unit), 4):
+        body = "p" * pad + unit * 700
+        assert daemon_module.WORKER_CAUSE_MAX_CHARS < len(body) < daemon_module.WORKER_CAUSE_SCRUB_MAX_CHARS
+        try:
+            raise ValueError(body)
+        except ValueError as exc:
+            cause = daemon_module.worker_failure_cause(exc)
+        assert "characters omitted" in cause and "api_key=[REDACTED]" in cause
+        assert not [w for w in windows(credential) if w in cause], pad
+
+
+@pytest.mark.parametrize("unit", ["x_", "a-", "a", "eyJa."])
+def test_c5_10_scrubbing_a_long_identifier_run_takes_milliseconds(unit):
+    """C-5.10 review of PR #26: `ValueError("x_" * 3000)` took 4.5 s to scrub on the worker's completion
+    path, and the time grew with the square of the length. Under the bound it is now linear."""
+    message = unit * ((daemon_module.WORKER_CAUSE_SCRUB_MAX_CHARS - 2000) // len(unit))
+    try:
+        raise ValueError(message)                                    # raised, so it has frames
+    except ValueError as exc:
+        error = exc
+    started = time.perf_counter()
+    cause = daemon_module.worker_failure_cause(error)
+    assert time.perf_counter() - started < 2.0                      # quadratic took minutes at this size
+    assert cause.startswith(CAUSE) and len(cause) <= daemon_module.WORKER_CAUSE_MAX_CHARS
+
+
+def test_c5_10_a_cause_over_the_scrub_bound_keeps_its_frames_and_omits_its_message(fleet):
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    message = "salvage stderr: " + "fatal: unable to read tree " * 5000 + f"password={PLAIN_CREDENTIAL}"
+
+    def recurse(depth):
+        if depth:
+            return recurse(depth - 1)
+        raise OSError(message)
+
+    fail_repeatedly(service, "fixture/a8", lambda: recurse(60), 1)
+    text = worker_log(service)
+    assert summaries(text, "fixture/a8") == [1]
+    assert "OSError: message omitted: the cause is" in text and "scrub bound" in text
+    assert "in recurse" in text and "frames omitted" in text          # 40 of the 60+ frames, and the gap said
+    assert "unable to read tree" not in text and PLAIN_CREDENTIAL not in text
+
+
 @pytest.mark.parametrize("failures,expected", [(1, .5), (2, 1), (3, 2), (4, 4), (7, 32), (8, 60), (500, 60), (0, .5)])
 def test_c5_10_retry_delay(failures, expected):
     assert daemon_module.worker_retry_delay(failures) == expected
@@ -431,6 +533,22 @@ def test_c5_10_a_one_shot_request_is_never_held_back(fleet):
     text = worker_log(service)                                       # its failure logs its cause
     assert "worker resolve:fixture failed: RuntimeError\n" + CAUSE in text
     assert "RuntimeError: the first resolution fails" in text
+
+
+def test_c5_10_every_failure_of_a_one_shot_request_logs_its_cause(fleet):
+    """C-5.10 review of PR #26: nothing paces a one-shot key, so no failure of it is a retry."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+
+    def resolve():
+        raise RuntimeError("the operator's resolution fails")
+
+    for _ in range(3):
+        service._schedule("resolve:fixture2", resolve)
+    text = worker_log(service)
+    assert text.count("worker resolve:fixture2 failed: RuntimeError\n" + CAUSE) == 3
+    assert text.count("RuntimeError: the operator's resolution fails") == 3
+    assert "resolve:fixture2" not in service._worker_failures
 
 
 # --- what another thread reads (C-6.11) ---------------------------------------------------------

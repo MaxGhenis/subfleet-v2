@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -543,6 +544,47 @@ def test_a_url_password_is_replaced_but_the_url_survives(home):
     text, count = handoff.scrub_secrets("psql postgres://app:s3cr3tpw@db.test/main")
     assert "s3cr3tpw" not in text and "postgres://app:" in text and "@db.test/main" in text
     assert count == 1
+
+
+#: A credential with no shape of its own: only the header or key before it marks it.
+UNSHAPED = "q7Wd9Zk2Lp4Xv8Nm3Rt6Yh1Bs5Gc0Jf"
+
+
+@pytest.mark.parametrize("line", [
+    f"curl -fsS -H 'Authorization: Basic {UNSHAPED}' https://example.test",
+    f"RuntimeError: refused: Authorization: Basic {UNSHAPED}",
+    f"    | ValueError: retry with Proxy-Authorization: Digest username=u, response={UNSHAPED}",
+    f"AUTHORIZATION={UNSHAPED} ./run.sh",
+    f"x-request: 1; Cookie: session={UNSHAPED}; theme=dark",
+    f"Set-Cookie: sid={UNSHAPED}; Path=/",
+])
+def test_a_header_value_is_replaced_wherever_the_header_starts_on_its_line(line):
+    """C-23.14, found in the PR #26 review: the header rule was anchored to the start of a line, so a
+    header after other text lost only its scheme word (`Basic`) and kept the credential."""
+    text, count = handoff.scrub_secrets(line)
+    assert UNSHAPED not in text and count >= 1
+    assert "[REDACTED]" in text
+
+
+@pytest.mark.parametrize("assignment", [
+    f"MY_API_KEY={UNSHAPED}", f"db-password: {UNSHAPED}", f'"client_secret": "{UNSHAPED}"',
+    f"{{'github_token': '{UNSHAPED}'}}", f"export SERVICE_SIGNING_KEY='{UNSHAPED}'", f"x.private-key = {UNSHAPED}",
+])
+def test_a_compound_key_name_is_still_found_by_its_suffix(assignment):
+    """C-23.14: the compound-name alternative was dropped for its cost; its suffixes are key names."""
+    text, count = handoff.scrub_secrets(assignment)
+    assert UNSHAPED not in text and count == 1
+
+
+@pytest.mark.parametrize("unit", ["x_", "a-", "a:", "a=", "eyJa.", "api_", "'"])
+def test_scrubbing_takes_time_linear_in_the_text(unit):
+    """C-23.14, found in the PR #26 review: two assignment rules backtracked through every
+    identifier-shaped run, and a URL rule rescanned scheme-shaped runs. `"x_" * 3000` took over a
+    second, growing with the square of the length; this input is 67 times longer."""
+    text = unit * (200_000 // len(unit))
+    started = time.perf_counter()
+    handoff.scrub_secrets(text)
+    assert time.perf_counter() - started < 2.0
 
 
 def test_truncation_keeps_the_head_and_the_tail(home):

@@ -138,6 +138,13 @@ def worker_retry_delay(failures: int) -> float:
 WORKER_CAUSE_EVERY = 32
 #: C-5.10: the most of one cause that reaches `daemon.log`, its head and tail kept.
 WORKER_CAUSE_MAX_CHARS = 8000
+#: C-5.10: the longest cause scrubbed on a worker's completion path (tens of ms).
+#: A longer one keeps its frames and loses its message: cutting the message to
+#: fit would have to happen before the scrub, and a cut can separate a
+#: credential from the name that marks it.
+WORKER_CAUSE_SCRUB_MAX_CHARS = 65_536
+#: C-5.10: frames kept from each end of a cause whose message is omitted.
+WORKER_CAUSE_FRAMES = 20
 
 
 def worker_failure_cause(exc: BaseException) -> str:
@@ -148,11 +155,21 @@ def worker_failure_cause(exc: BaseException) -> str:
     named the cause (`pinned_lane: ambiguous lane ...`) was nowhere. A traceback
     carries source lines and never local values, but a provider or keychain
     error can put a credential in its message, so the text goes through the
-    handoff scrub list (C-23.14) and is bounded. Formatting never raises: a
-    cause that cannot be rendered is logged as its type.
+    handoff scrub list (C-23.14) and is bounded. A cause too long to scrub on
+    the completion path keeps its frames and omits its message. Formatting
+    never raises: a cause that cannot be rendered is logged as its type.
     """
     try:
         text = "".join(traceback.format_exception(exc))
+        if len(text) > WORKER_CAUSE_SCRUB_MAX_CHARS:
+            frames = traceback.extract_tb(exc.__traceback__)
+            keep = WORKER_CAUSE_FRAMES
+            shown = "".join(traceback.format_list(frames if len(frames) <= 2 * keep else frames[:keep]))
+            if len(frames) > 2 * keep:
+                shown += f"  ... {len(frames) - 2 * keep} frames omitted ...\n"
+                shown += "".join(traceback.format_list(frames[-keep:]))
+            text = (f"Traceback (most recent call last):\n{shown}{type(exc).__name__}: message omitted: "
+                    f"the cause is {len(text):,} characters, over the {WORKER_CAUSE_SCRUB_MAX_CHARS:,}-character scrub bound")
         return truncate(scrub_secrets(text)[0], WORKER_CAUSE_MAX_CHARS)
     except Exception:
         return f"{type(exc).__name__} (cause could not be rendered)"
