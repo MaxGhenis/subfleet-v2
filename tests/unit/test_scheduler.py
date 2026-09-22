@@ -362,7 +362,7 @@ def test_no_lane_with_admission_evidence_reports_unknown_reset(policy):
     """C-9.1, C-11.4, C-17.3: admission success supplies no invented reset clock."""
     snapshot = view([lane(desktop=True)], [reading("claude-1", utilization=None,
                     reset=None, label="admission-observed", window="admission",
-                    scope="claude-opus-5")])
+                    scope=OPUS)])
     decision = evaluate(policy, snapshot, job(pinned_model="opus"))
     assert exit_code(decision) == Exit.NO_LANE
     assert "earliest reset: unknown" in decision.reason
@@ -388,6 +388,7 @@ def test_c17_2_an_email_pin_still_resolves_when_the_key_is_two_uuids(policy):
 # --- C-11.7: the reserve rule ------------------------------------------------
 
 FABLE = "claude-fable-5-1"
+OPUS = "claude-opus-5-5"
 
 
 def usage(identity, shared, fable=None, **changes):
@@ -498,7 +499,7 @@ def authorized_job(**changes):
                   "unmeasured_reserve_reason": AUTHORIZATION, **changes})
 
 
-@pytest.mark.parametrize("model", ["opus", "claude-opus-5"])
+@pytest.mark.parametrize("model", ["opus", OPUS])
 def test_unmeasured_reserve_authorization_is_exact_and_does_not_invent_quota(reserve_policy, model):
     snapshot = view([lane("claude-1"), lane("claude-2"), lane("codex-1")])
     spec = authorized_job(pinned_model=model)
@@ -510,7 +511,7 @@ def test_unmeasured_reserve_authorization_is_exact_and_does_not_invent_quota(res
     details = evaluation["candidate_details"]["claude-1"]
     assert details["reserve"] == {
         "model": "fable", "state": "unmeasured", "cap_ratio": 2.0, "min_slack": .05,
-        "authorization": {"reason": AUTHORIZATION, "lane_id": "claude-1", "model_id": "claude-opus-5"}}
+        "authorization": {"reason": AUTHORIZATION, "lane_id": "claude-1", "model_id": OPUS}}
     assert details["measured"] is False and details["headroom"] is None
     assert evaluation["readings"] == []
     assert probe_required(decision, spec)
@@ -546,7 +547,7 @@ def test_unmeasured_reserve_authorization_preserves_other_rejections(reserve_pol
     elif guard == "identity": target["identity_status"] = "mismatch"
     elif guard == "excluded": changes["exclusions"], expected = ["claude-1"], "excluded"
     elif guard in ("account-closure", "model-closure"):
-        scope = "account" if guard == "account-closure" else "claude-opus-5"
+        scope = "account" if guard == "account-closure" else OPUS
         closures = [closure("claude-1", scope)]
         expected = f"closed:{scope}:{TOMORROW}"
     elif guard == "floor": rows = [reading("claude-1", .9)]
@@ -632,7 +633,7 @@ def test_c23_37_older_policy_uses_its_upward_chain(policy):
         model.pop("priority", None)
     snapshot = view([lane("claude-1"), lane("claude-2")],
                     [reading("claude-1", .1), reading("claude-2", .7)],
-                    [closure("claude-2", "claude-opus-5")])
+                    [closure("claude-2", OPUS)])
     assert evaluate(policy, snapshot, job(pinned_model="sonnet")).chosen_lane == "claude-2"
 
 
