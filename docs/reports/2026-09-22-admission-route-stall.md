@@ -181,7 +181,12 @@ narrow demand, so it could pass an older job it competed with. Once the pin
 is let go, the job's demand is its own again while its clock runs. A sixth
 round found that the first fix made a let-go permanent until a restart. Every
 due look now evaluates the pair again, so a lane that recovers still gets its
-one retry, and a restart changes nothing.
+one retry, and a restart changes nothing. A seventh round found that a
+let-go retry held behind an older job had no clock, so it was re-prepared on
+every tick. It now waits on a C-6.10 clock like every other hold made after a
+look. An eighth round audited every hold for a clock and found none missing.
+It also found that a lane and its re-enrolled successor were counted as two
+lanes for retries; they are now counted as one.
 
 The production-safety reviewer in round three and the install-safety reviewer
 in round two found nothing.

@@ -718,15 +718,21 @@ class Daemon:
         (`_retry_pair_routable`); the pin is a job dict carrying the pair.
         """
         previous = self.store.list_attempts(job["job_id"])
-        exclusions = tuple(a["lane_id"] for a in previous if a["outcome_class"] == "limited")
+        roster = self._pin_roster() if previous else []
+        follow = not job.get("unmeasured_reserve_reason")
+        # Attempts on a lane and on its re-enrolled successor count as one lane.
+        lane_of = {a["lane_id"]: scheduler.current_lane_id(roster, a["lane_id"], follow=follow) for a in previous}
+        exclusions = tuple(dict.fromkeys(lane for a in previous if a["outcome_class"] == "limited"
+                                         for lane in (a["lane_id"], lane_of[a["lane_id"]])))
         transient: dict[str, int] = {}
         for a in previous:
             if a["outcome_class"] == "transient":
-                transient[a["lane_id"]] = transient.get(a["lane_id"], 0) + 1
-        exclusions += tuple(lane for lane, count in transient.items() if count >= 2)
+                transient[lane_of[a["lane_id"]]] = transient.get(lane_of[a["lane_id"]], 0) + 1
+        exclusions += tuple(dict.fromkeys(lane for a in previous if transient.get(lane_of[a["lane_id"]], 0) >= 2
+                                          for lane in (a["lane_id"], lane_of[a["lane_id"]])))
         last = previous[-1] if previous else None
         pin = ({**job, "pinned_lane": last["lane_id"], "pinned_model": last["model_requested"]}
-               if last and last["outcome_class"] == "transient" and transient[last["lane_id"]] == 1
+               if last and last["outcome_class"] == "transient" and transient[lane_of[last["lane_id"]]] == 1
                and self._retry_pair_routable(last) else None)
         return previous, exclusions, pin
 
@@ -749,6 +755,18 @@ class Daemon:
         rejections = [row for evaluation in decision.evaluations for row in evaluation["rejections"]]
         return len(rejections) == 1 and set(rejections[0]["reasons"]) == {"no-slot"} \
             and rejections[0].get("slot_block") != "credential-latched"
+
+    def _earlier_transients(self, conn, job_id: str, attempt: dict) -> int:
+        """C-4.5: the job's earlier transient attempts on this attempt's lane.
+
+        A lane and its re-enrolled successor are one lane here (C-11.2), so a
+        retry that followed a re-enrolment is not a first transient again.
+        """
+        roster = self._pin_roster()
+        here = scheduler.current_lane_id(roster, attempt["lane_id"])
+        return sum(1 for (lane_id,) in conn.execute(
+            "SELECT lane_id FROM attempts WHERE job_id=? AND outcome_class='transient' AND attempt_id!=?",
+            (job_id, attempt["attempt_id"])) if scheduler.current_lane_id(roster, lane_id) == here)
 
     def _retry_pair_routable(self, attempt: dict) -> bool:
         """C-4.5, C-6.12: could a transient attempt's lane and model be tried once more at all?
@@ -3265,7 +3283,7 @@ class Daemon:
                 return
             cancel = bool(job["cancel_requested_at"])
             ok = not lost and rc == 0 and outcome.cls == OutcomeClass.OK
-            previous_transient = tx.execute("SELECT count(*) FROM attempts WHERE job_id=? AND lane_id=? AND outcome_class='transient' AND attempt_id!=?", (job["job_id"], a["lane_id"], a["attempt_id"])).fetchone()[0]
+            previous_transient = self._earlier_transients(tx, job["job_id"], a)
             retry = (not cancel and a["seq"] < job["max_attempts"] and
                      ((lost and job["sandbox"] == "read-only") or
                       (outcome.cls == OutcomeClass.LIMITED and not job["pinned_lane"]) or

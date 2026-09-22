@@ -117,6 +117,20 @@ def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None, *,
     return matches[0] if matches else None
 
 
+def current_lane_id(lanes: Iterable[Any], lane_id: str, *, follow: bool = True) -> str:
+    """C-4.5, C-11.2: the lane an attempt's lane id names now, as a pin to it resolves.
+
+    A re-enrolment gives the same account on the same credential a new lane
+    id; attempts on the old id and on its successor are attempts on one lane
+    when retries and exclusions are counted.
+    """
+    try:
+        found = resolve_lane(lanes, lane_id, follow=follow)
+    except ValueError:
+        found = None
+    return str(found["lane_id"]) if found else lane_id
+
+
 def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
     """C-11.2: the provider a lane-pinned job must run on, as `evaluate` decides it.
 

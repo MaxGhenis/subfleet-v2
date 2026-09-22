@@ -977,3 +977,44 @@ def test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated(fleet)
     service._admit()
     last = service.store.list_attempts(job_id)[-1]
     assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", fable)
+
+
+def test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once(fleet):
+    """C-4.5 "same lane, once, then next candidate": attempts on a lane and on its re-enrolled successor
+    are attempts on one lane, so a second transient there excludes it and the job moves on."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    opus = service.policy["models"]["opus"]["id"]
+    _transient_on(service, job_id, "claude-a", opus)
+    service.store.update_lane("claude-a", enabled=0)
+    service.store.put_lane(claude_lane("claude-a2", credential="/fake/claude-a"))   # re-enrolled
+    measured(service, "claude-a2")
+    service._admit()
+    second = service.store.list_attempts(job_id)[-1]
+    assert second["lane_id"] == "claude-a2"                          # the one retry followed the lane
+    service.store.update_attempt(second["attempt_id"], state="failed", outcome_class="transient")
+    service.store.update_job(job_id, state="waiting", wait_reason="capacity", next_check_at=utcnow())
+    with service.store.transaction("fixture.release") as tx:
+        tx.execute("DELETE FROM leases WHERE holder=?", (second["attempt_id"],))
+    service._admit()
+    assert service.store.list_attempts(job_id)[-1]["lane_id"] == "claude-b"
+    assert scheduler.current_lane_id(service._pin_roster(), "claude-a") == "claude-a2"
+
+
+def test_c4_5_finalization_counts_transients_on_a_lane_and_its_successor_as_one(fleet):
+    """C-4.5 a lane-pinned job gets one same-lane retry, also across a re-enrolment of its lane."""
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    opus = service.policy["models"]["opus"]["id"]
+    _transient_on(service, job_id, "claude-a", opus)
+    service.store.update_lane("claude-a", enabled=0)
+    service.store.put_lane(claude_lane("claude-a2", credential="/fake/claude-a"))
+    service.store.add_attempt(attempt_id=job_id + "/a2", job_id=job_id, seq=2, lane_id="claude-a2",
+                              model_requested=opus, state="finalizing")
+    second = service.store.get_attempt(job_id + "/a2")
+    assert service._earlier_transients(service.store.connection, job_id, second) == 1
+    service.store.put_lane(claude_lane("claude-z", label="z@example.invalid"))
+    elsewhere = {**second, "lane_id": "claude-z"}
+    assert service._earlier_transients(service.store.connection, job_id, elsewhere) == 0
