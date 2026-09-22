@@ -27,7 +27,7 @@ def seed_closed_opus(store):
     store.put_lane(claude_lane("claude-1", account="max@rulesfoundation.org", desktop=True))
     for identity in ("claude-2", "claude-3"):
         store.put_lane(claude_lane(identity))
-        store.add_closure(Closure(identity, "claude-opus-5", after(3600),
+        store.add_closure(Closure(identity, "claude-opus-5-5", after(3600),
                                   ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
     store.add_reading(Reading("codex-1", "account", "seven_day", .4, after(86400),
                               ReadingLabel.PROVIDER, "fixture", utcnow()))
@@ -184,10 +184,10 @@ def test_c11_4_limited_probe_closes_opus_and_promotes_without_work_attempt(routi
     service.policy["chains"]["research"] = ["haiku", "sonnet", "opus", "opus", "astra"]
     job_id = service.dispatch("submit", harness.submit_args(pinned_model=None, task="research", tier="hard"))["job_id"]
     service._admit()
-    assert calls == ["claude-opus-5"]
+    assert calls == ["claude-opus-5-5"]
     attempts = service.store.list_attempts(job_id)
     assert len(attempts) == 1 and attempts[0]["model_requested"] == "gpt-6-astra"
-    assert service.store.list_closures()[0]["scope"] == "claude-opus-5"
+    assert service.store.list_closures()[0]["scope"] == "claude-opus-5-5"
     assert "promoted" in service.dispatch("why", {"job_id": job_id})["text"]
 
 

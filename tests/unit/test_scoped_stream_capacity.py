@@ -27,7 +27,7 @@ def stream(status="allowed", window="seven_day_overage_included"):
 
 @pytest.mark.parametrize("window,scope", [
     ("seven_day_overage_included", "claude-fable-5-1"),
-    ("seven_day_opus", "claude-opus-5"),
+    ("seven_day_opus", "claude-opus-5-5"),
     ("seven_day_sonnet", "claude-sonnet-5"),
     ("seven_day", "account"), ("five_hour", "account"), ("unknown", "account"),
 ])
@@ -46,7 +46,7 @@ def test_provider_rejection_closes_its_named_bucket(tmp_path, window, scope):
 def test_same_stream_measures_spare_opus_without_spending_fable(tmp_path):
     adapter = ClaudeAdapter(projects_dir=tmp_path)
     rows = [asdict(r) for r in adapter.readings_from_rate_limit(
-        parse_stream(stream()).rate_limit, lane_id="claude-1", model_id="claude-opus-5",
+        parse_stream(stream()).rate_limit, lane_id="claude-1", model_id=SCOPED_MODEL_IDS["opus"],
         observed_at=NOW, attempt_id="probe/a1")]
     assert [(r["scope"], r["window"], r["utilization"]) for r in rows] == [
         ("account", "five_hour", 0), ("account", "seven_day", .55),
@@ -97,3 +97,11 @@ def test_shared_exhaustion_still_blocks_opus_with_fable_closed():
     result = evaluate(load_policy(DEFAULT_POLICY_PATH), state, job(pinned_model="opus"))
     assert result.chosen_lane is None
     assert "below-floor" in result.evaluations[0]["rejected"][0]["reasons"]
+
+
+def test_scoped_model_ids_name_the_shipped_policy_models():
+    """C-11.7: a weekly window scoped to an id no policy model carries is ignored, so the
+    adapter's names must resolve to the shipped policy's ids (Opus moved to 5.5 on 2026-09-22)."""
+    models = load_policy(DEFAULT_POLICY_PATH)["models"]
+    assert SCOPED_MODEL_IDS == {name: models[name]["id"] for name in SCOPED_MODEL_IDS}
+    assert SCOPED_MODEL_IDS["opus"] == "claude-opus-5-5"

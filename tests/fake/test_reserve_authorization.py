@@ -21,7 +21,7 @@ from tests.fake_adapter import FakeAdapter
 
 LANE = "claude-reserve"
 EMAIL = "reserve@example.test"
-MODEL = "claude-opus-5"
+MODEL = "claude-opus-5-5"
 REASON = "Operator accepts unknown Fable reserve for this exact Opus job."
 
 

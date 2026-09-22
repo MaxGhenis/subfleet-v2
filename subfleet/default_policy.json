@@ -69,7 +69,7 @@
     },
     "opus": {
       "provider": "claude",
-      "id": "claude-opus-5",
+      "id": "claude-opus-5-5",
       "priority": 3
     },
     "sonnet": {

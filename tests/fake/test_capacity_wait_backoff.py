@@ -98,7 +98,7 @@ def test_c6_10_a_new_verdict_is_recorded_and_restarts_the_clock(fleet):
         make_due(service, stuck)
     assert decisions(service, stuck) == 1 and service._capacity_waits[stuck]["rechecks"] == 4
     service.store.put_lane(claude_lane("claude-2"))               # a lane appears, closed for Opus
-    service.store.add_closure(Closure("claude-2", "claude-opus-5", after(3600),
+    service.store.add_closure(Closure("claude-2", "claude-opus-5-5", after(3600),
                                       ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
     service._admit()
     assert decisions(service, stuck) == 2
@@ -113,7 +113,7 @@ def test_c6_10_a_known_reset_sooner_than_the_backoff_is_checked_on_time(fleet):
     service, harness = fleet
     until = after(20)
     service.store.put_lane(claude_lane("claude-2"))
-    service.store.add_closure(Closure("claude-2", "claude-opus-5", until,
+    service.store.add_closure(Closure("claude-2", "claude-opus-5-5", until,
                                       ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
     stuck = submit(service, harness, pinned_model="opus")
     service._admit()
