@@ -176,6 +176,9 @@ this branch, and both sit in the retry path it had changed. The pinned pair is
 now evaluated when the job is due. The retry keeps its lane only while the
 lane lacks a slot; otherwise the job routes as submitted (C-4.5 "then next
 candidate"). While pinned, its C-6.9 demand is the pair. One doc correction.
+A fifth round found that a retry which let its pin go still carried the pin's
+narrow demand, so it could pass an older job it competed with. Once the pin
+is let go, the job's demand is its own again.
 
 The production-safety reviewer in round three and the install-safety reviewer
 in round two found nothing.

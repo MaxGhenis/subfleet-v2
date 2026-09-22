@@ -891,3 +891,37 @@ def test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate(fle
     service.timers.metadata["codex-1"] = {"probe_status": "revoked", "revoked_epoch": 1}
     service._admit()
     assert service.store.list_attempts(job_id)[-1]["lane_id"] == "codex-2"
+
+
+def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fleet):
+    """C-6.9 routed as submitted, a fallen-back retry competes as submitted: it does not pass an older
+    waiter it competes with, and a younger job it competes with does not pass it."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(600))
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
+    service.store.add_closure(Closure("claude-a", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+    service._admit()
+    assert service._holds[retry] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+    assert [row["state"] for row in service.store.list_attempts(retry)] == ["failed"]
+
+
+def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet):
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid", enabled=False))
+    measured(service, "claude-b")
+    for lane_id in ("claude-a", "codex-1"):
+        service.store.add_closure(Closure(lane_id, "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
+                                          ClockSource.REPORTED, "fixture"))
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
+    service._admit()                                                  # falls back; nothing admits it as submitted
+    assert service.store.get_job(retry)["state"] == "waiting" and service._retry_verdicts[retry][1] is False
+    service.store.update_lane("claude-b", enabled=1)
+    younger = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    service._admit()                                                  # the retry's clock runs; the younger job waits
+    assert service._holds[younger]["reason"] == "behind-older-job" and service._holds[younger]["behind"] == retry
