@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import weakref
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
@@ -43,6 +44,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .policy import PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
+from .sessions.handoff import scrub_secrets, truncate
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
@@ -70,6 +72,11 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-5.10: a paced worker's failure streak logs its cause on the 1st failure and
+#: every 32nd after (the 33rd, the 65th, ...), and only its type on the others.
+WORKER_CAUSE_EVERY = 32
+#: C-5.10: the most of one cause that reaches `daemon.log`, its head and tail kept.
+WORKER_CAUSE_MAX_CHARS = 8000
 
 #: The sessions kit's durable facts, as `events` kinds (C-23.33, C-23.35). They
 #: are events rather than a table because each is an append-only record of one
@@ -129,6 +136,24 @@ HEADLESS_PREAMBLE = (
 def worker_retry_delay(failures: int) -> float:
     """C-5.10: seconds before a worker that has raised `failures` times in a row is tried again."""
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
+
+
+def worker_failure_cause(exc: BaseException) -> str:
+    """C-5.10: an exception's message and traceback for `daemon.log`, credentials scrubbed.
+
+    On 2026-09-22 admission failed for three hours and `daemon.log` said only
+    `worker admission failed: ValueError (128 in a row, ...)`; the message that
+    named the cause (`pinned_lane: ambiguous lane ...`) was nowhere. A traceback
+    carries source lines and never local values, but a provider or keychain
+    error can put a credential in its message, so the text goes through the
+    handoff scrub list (C-23.14) and is bounded. Formatting never raises: a
+    cause that cannot be rendered is logged as its type.
+    """
+    try:
+        text = "".join(traceback.format_exception(exc))
+        return truncate(scrub_secrets(text)[0], WORKER_CAUSE_MAX_CHARS)
+    except Exception:
+        return f"{type(exc).__name__} (cause could not be rendered)"
 
 
 def utcnow() -> str:
@@ -1516,10 +1541,13 @@ class Daemon:
                     self._worker_failures.pop(key, None)
                     self._worker_retry_at.pop(key, None)
             except Exception as exc:
-                # Provider/keychain errors can contain secrets; log the error
-                # type only. Safe details belong in structured outcome rows.
+                # C-5.10: every line names the error type. The cause, the message
+                # and traceback with credentials scrubbed, goes with the first
+                # failure of a streak and every 32nd after, never with every retry.
+                # A one-shot request's failure is each the first of its streak.
                 if not paced:
-                    self.log.error("worker %s failed: %s", key, type(exc).__name__)
+                    self.log.error("worker %s failed: %s\n%s", key, type(exc).__name__,
+                                   worker_failure_cause(exc))
                     return
                 # C-5.10: the control loop offers every live key again each tick,
                 # so a worker that raises at once would otherwise be retried, and
@@ -1530,9 +1558,11 @@ class Daemon:
                     self._worker_retry_at[key] = time.monotonic() + delay
                 if key == "retention":
                     self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))
-                if count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
-                    self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
-                                   key, type(exc).__name__, count, delay)
+                cause = count % WORKER_CAUSE_EVERY == 1          # 1, 33, 65, ...
+                if cause or count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
+                    self.log.error("worker %s failed: %s (%d in a row, next try in %g s)%s",
+                                   key, type(exc).__name__, count, delay,
+                                   "\n" + worker_failure_cause(exc) if cause else "")
             finally:
                 with self._busy_lock:
                     self._busy.discard(key)

@@ -263,6 +263,28 @@ def test_c6_11_status_reports_admission_and_counts_only_live_jobs(fleet):
 
 # --- a worker that raises (C-5.10) --------------------------------------------------------------
 
+#: A secret-shaped value the C-23.14 scrub list removes. Nothing here is a real credential.
+FAKE_TOKEN = "sk-ant-FAKEFAKEFAKEFAKEFAKEFAKE1234"
+CAUSE = "Traceback (most recent call last)"
+
+
+def worker_log(service) -> str:
+    service._log_handler.flush()
+    return (service.root / "daemon.log").read_text()
+
+
+def summaries(text: str, key: str) -> list[int]:
+    """The consecutive-failure count on each `worker <key> failed` line, in order."""
+    return [int(m) for m in re.findall(rf"^worker {re.escape(key)} failed: \w+ \((\d+) in a row", text, re.M)]
+
+
+def fail_repeatedly(service, key, fn, times):
+    """Offer `key` once per failure, as the control loop does once each retry time comes."""
+    for _ in range(times):
+        service._worker_retry_at[key] = 0
+        service._schedule(key, fn, paced=True)
+
+
 def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(fleet, monkeypatch):
     """C-5.10 the control loop offers a live key every 50 ms; forty SalvageError lines were one attempt."""
     service, _ = fleet
@@ -273,7 +295,7 @@ def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(
 
     def boom():
         calls.append(len(calls))
-        raise RuntimeError("secret-bearing detail that must not be logged")
+        raise RuntimeError(f"provider refused: Authorization: Bearer {FAKE_TOKEN}\napi_key={FAKE_TOKEN}")
 
     for _ in range(40):
         service._schedule("fixture/a1", boom, paced=True)
@@ -283,11 +305,86 @@ def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(
         for _ in range(10):
             service._schedule("fixture/a1", boom, paced=True)
         assert len(calls) == expected
-    service._log_handler.flush()
-    lines = [line for line in (service.root / "daemon.log").read_text().splitlines() if "fixture/a1" in line]
-    assert [line.split("(")[1].split(",")[0] for line in lines] == ["1 in a row", "2 in a row", "4 in a row"]
-    assert "secret" not in "\n".join(lines) and all("RuntimeError" in line for line in lines)
+    text = worker_log(service)
+    assert summaries(text, "fixture/a1") == [1, 2, 4]
+    lines = [line for line in text.splitlines() if line.startswith("worker fixture/a1 failed")]
+    assert all("RuntimeError (" in line for line in lines)           # the summary line keeps its shape
+    # The cause rides the first failure only: its message and traceback, the credential scrubbed.
+    assert text.count(CAUSE) == 1 and "RuntimeError: provider refused" in text and "in boom" in text
+    assert FAKE_TOKEN not in text and "[REDACTED]" in text
     assert service._worker_failures["fixture/a1"] == 5 and "fixture/a1" not in service._busy
+
+
+def test_c5_10_the_cause_is_logged_on_the_first_failure_of_a_streak_and_every_32nd_after(fleet, monkeypatch):
+    """C-5.10 incident 2026-09-22: `worker admission failed: ValueError (128 in a row, ...)` for three hours,
+    and the message that named the cause appeared nowhere. Its message now reaches `daemon.log`,
+    on the 1st, 33rd, 65th ... failure, and not on every retry."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    monkeypatch.setattr(daemon_module, "worker_retry_delay", lambda failures: 3600.0)
+    incident = "pinned_lane: ambiguous lane 'max@example.org'; use a lane id"
+
+    def stalled_pass(holds, tally):
+        raise ValueError(incident)
+
+    monkeypatch.setattr(service, "_admit_pass", stalled_pass)
+    fail_repeatedly(service, "admission", service._admit, 70)
+    text = worker_log(service)
+    assert summaries(text, "admission") == [1, 2, 4, 8, 16, 32, 33, 64, 65]
+    records = re.split(r"^(?=worker admission failed)", text, flags=re.M)
+    with_cause = [int(re.search(r"\((\d+) in a row", r).group(1)) for r in records if CAUSE in r]
+    assert with_cause == [1, 33, 65]
+    assert text.count(f"ValueError: {incident}") == 3 and "in stalled_pass" in text
+    assert service._worker_failures["admission"] == 70
+
+
+def test_c5_10_a_success_starts_a_new_streak_that_logs_its_cause_again(fleet, monkeypatch):
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    monkeypatch.setattr(daemon_module, "worker_retry_delay", lambda failures: 3600.0)
+    state = {"fail": True}
+
+    def flaky():
+        if state["fail"]:
+            raise OSError("the store is locked")
+
+    fail_repeatedly(service, "fixture/a3", flaky, 3)
+    state["fail"] = False
+    fail_repeatedly(service, "fixture/a3", flaky, 1)
+    state["fail"] = True
+    fail_repeatedly(service, "fixture/a3", flaky, 2)
+    text = worker_log(service)
+    assert summaries(text, "fixture/a3") == [1, 2, 1, 2]
+    assert text.count(CAUSE) == 2 and text.count("OSError: the store is locked") == 2
+
+
+def test_c5_10_a_cause_that_cannot_be_rendered_is_logged_as_its_type(fleet, monkeypatch):
+    """The done callback must never raise: it releases the key in `finally`, and a lost key never runs again."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    monkeypatch.setattr(daemon_module.traceback, "format_exception",
+                        lambda exc: (_ for _ in ()).throw(RuntimeError("formatter broke")))
+
+    def boom():
+        raise KeyError("lane")
+
+    fail_repeatedly(service, "fixture/a4", boom, 1)
+    text = worker_log(service)
+    assert summaries(text, "fixture/a4") == [1]
+    assert "KeyError (cause could not be rendered)" in text and "fixture/a4" not in service._busy
+
+
+def test_c5_10_a_long_cause_is_bounded(fleet, monkeypatch):
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+
+    def boom():
+        raise ValueError("a lane row " * 5_000 + "end of message")      # words: no scrub pattern takes it
+
+    fail_repeatedly(service, "fixture/a5", boom, 1)
+    record = worker_log(service).split("worker fixture/a5 failed", 1)[1]
+    assert len(record) < daemon_module.WORKER_CAUSE_MAX_CHARS + 200
+    assert CAUSE in record and "end of message" in record and "characters omitted" in record
 
 
 @pytest.mark.parametrize("failures,expected", [(1, .5), (2, 1), (3, 2), (4, 4), (7, 32), (8, 60), (500, 60), (0, .5)])
@@ -331,6 +428,9 @@ def test_c5_10_a_one_shot_request_is_never_held_back(fleet):
         service._schedule("resolve:fixture", resolve)                # as `kill` calls it: not paced
     assert calls == [0, 1]                                           # the retry ran at once
     assert "resolve:fixture" not in service._worker_retry_at
+    text = worker_log(service)                                       # its failure logs its cause
+    assert "worker resolve:fixture failed: RuntimeError\n" + CAUSE in text
+    assert "RuntimeError: the first resolution fails" in text
 
 
 # --- what another thread reads (C-6.11) ---------------------------------------------------------
