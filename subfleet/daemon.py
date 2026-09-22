@@ -72,11 +72,6 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
-#: C-5.10: a paced worker's failure streak logs its cause on the 1st failure and
-#: every 32nd after (the 33rd, the 65th, ...), and only its type on the others.
-WORKER_CAUSE_EVERY = 32
-#: C-5.10: the most of one cause that reaches `daemon.log`, its head and tail kept.
-WORKER_CAUSE_MAX_CHARS = 8000
 
 #: The sessions kit's durable facts, as `events` kinds (C-23.33, C-23.35). They
 #: are events rather than a table because each is an append-only record of one
@@ -136,6 +131,13 @@ HEADLESS_PREAMBLE = (
 def worker_retry_delay(failures: int) -> float:
     """C-5.10: seconds before a worker that has raised `failures` times in a row is tried again."""
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
+
+
+#: C-5.10: a paced worker's failure streak logs its cause on the 1st failure and
+#: every 32nd after (the 33rd, the 65th, ...), and only its type on the others.
+WORKER_CAUSE_EVERY = 32
+#: C-5.10: the most of one cause that reaches `daemon.log`, its head and tail kept.
+WORKER_CAUSE_MAX_CHARS = 8000
 
 
 def worker_failure_cause(exc: BaseException) -> str:
