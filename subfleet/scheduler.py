@@ -86,10 +86,11 @@ def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None, *,
     share an email, and a re-enrolment leaves the old binding in the roster
     under the same label. Two narrowings drop lanes that could never take the
     job, never one that could: `provider` (the job's, from `pin_provider`)
-    drops lanes of the other provider, and a disabled binding is dropped when an
-    enabled lane that matches is bound to the same credential. A name that
-    still matches several lanes raises `RouteError` naming them. None means the
-    pin names no lane.
+    drops lanes of the other provider, a disabled binding is dropped when an
+    enabled lane that matches is bound to the same credential, and a lane whose
+    credential proved to hold another account (C-10.6) is dropped when another
+    lane also matches. A name that still matches several lanes raises
+    `RouteError` naming them. None means the pin names no lane.
     """
     roster = [_row(lane) for lane in lanes]
     exact = next((lane for lane in roster if lane.get("lane_id") == pin), None)
@@ -105,9 +106,12 @@ def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None, *,
         live = {_binding(lane) for lane in matches if lane.get("enabled", True)}
         matches = [lane for lane in matches if lane.get("enabled", True) or _binding(lane) not in live]
     if len(matches) > 1:
+        # C-10.6: a credential that proved to hold another account never takes a job again.
+        matches = [lane for lane in matches if not identity_blocked(lane)] or matches
+    if len(matches) > 1:
         names = ", ".join(sorted(str(lane["lane_id"]) for lane in matches))
         raise RouteError(f"pinned_lane: {pin!r} names {len(matches)} lanes ({names}); "
-                         f"pin one of them by lane id (-a <lane id>)")
+                         f"pin one of them by its lane id")
     return matches[0] if matches else None
 
 

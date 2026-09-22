@@ -8,8 +8,16 @@ minutes). The stall was noticed around 11:40 EDT. `daemon.log` repeated
 `worker admission failed: ValueError` up to `(128 in a row, next try in 60 s)`.
 `subfleet why` pointed nowhere: the five jobs that caused it printed
 `No decision recorded.`, and every other held job showed an ordinary decision
-evaluated for the answer. Two shorter bursts earlier that day each reached
-sixteen in a row; the first was reported at 09:41 EDT.
+evaluated for the answer.
+
+The same resolution had stalled admission once already that day, from 09:24 to
+09:50 EDT. No attempt was reserved from 13:24:08Z to 13:50:32Z. The cause was
+gate review `20260922-092434-gate-20260922-132433-pr-1d23e21c-r1`, pinned
+`-a max@axiom.org -m fable` and submitted at 13:24:34Z. It held every pass until
+it was cancelled at 13:48:53Z. `daemon.log` shows the failure count reaching
+sixteen twice only because the lane-pins cutover restarted the daemon at
+13:35:39Z. The provider narrowing below resolves that pin as well: `fable` runs
+on Claude.
 
 The first stuck job, `20260922-103303-autumn-budget-plan-r2-axiom`, was
 submitted at 14:33:03Z behind two older jobs. Those two were reserved at
@@ -131,3 +139,17 @@ version, among them:
 
 Each is fixed and covered by a test. For each fix, the regression the review
 described was applied as a mutation, and a test caught every one of them.
+
+A second round (four reviewers, with the live store read-only) found no live
+job that the install would fail, strand, or misroute. It confirmed six more
+findings, all now fixed and tested the same way:
+- A transient retry pinned to a model id the policy had since renamed (opus
+  moved from `claude-opus-5` to `claude-opus-5-5` the same day) would have
+  waited on `route` forever. It now routes the job as submitted.
+- A resume routed to a re-enrolled lane's successor was refused at launch.
+  Launch now accepts the successor, because the native session lives under
+  the credential's home.
+- A lane whose credential proved to hold another account answered to that
+  account's email. It now keeps that address as `observed_email` and is
+  dropped from a name's matches.
+- Two corrections to docs.

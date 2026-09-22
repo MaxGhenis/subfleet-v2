@@ -750,3 +750,36 @@ def test_c11_2_a_repair_that_raises_never_blocks_recovery(fleet, monkeypatch):
     monkeypatch.setattr(service.timers, "start", lambda: None)
     service._recover_then_start_timers()
     assert service._recovery_complete.is_set() and "pin repair skipped: KeyError" in log_text(service)
+
+
+def test_c6_12_a_transient_retry_on_a_model_id_the_policy_dropped_routes_the_job_itself(fleet):
+    """C-6.12 the retry pins the last attempt's model id; after an id rename (claude-opus-5 -> -5-5 on
+    2026-09-22) that pair is the daemon's, so the job is routed as submitted rather than stranded."""
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    service.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="claude-a",
+                              model_requested="claude-opus-5", state="failed", outcome_class="transient")
+    service._admit()
+    attempts = service.store.list_attempts(job_id)
+    assert [row["state"] for row in attempts] == ["failed", "reserved"]
+    assert attempts[-1]["model_requested"] == service.policy["models"]["opus"]["id"]
+    assert job_id not in service._route_deferrals
+
+
+def test_c11_2_a_lane_that_proved_to_hold_another_account_does_not_answer_to_its_email(fleet):
+    """C-10.6 a mismatched credential's probe reads the other account's email; the lane keeps it as
+    `observed_email`, and a name both it and the account's own lane answer to names the account's lane."""
+    service, harness = fleet
+    service.store.put_lane(Lane("codex-2", "codex", "codex:bob-id", Credential("codex", "/fake/codex-2", "home"),
+                                "/fake/codex-2", LaneOwner.V2, False))
+    codex_probe_reports(service, "bob@example.invalid", "codex-2")
+    service.timers._persist(service.store.get_lane("codex-1"), {
+        "status": "ok", "readings": (), "probed_at": utcnow(), "account_key": "codex:bob-id",
+        "email": "bob@example.invalid"})
+    meta = service.timers.metadata["codex-1"]
+    assert "email" not in meta and meta["observed_email"] == "bob@example.invalid"
+    job_id = submit(service, harness, pinned_model="astra", pinned_lane="bob@example.invalid", pinned_provider="codex")
+    assert service.store.get_job(job_id)["pinned_lane"] == "codex-2"
+    stale = [{**lane, "email": "bob@example.invalid"} if lane["lane_id"] == "codex-1" else lane
+             for lane in service._pin_roster()]                           # a verdict stored before this rule
+    assert scheduler.resolve_lane(stale, "bob@example.invalid", "codex")["lane_id"] == "codex-2"

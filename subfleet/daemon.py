@@ -704,6 +704,28 @@ class Daemon:
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
 
+    def _known_model(self, model_id: str | None) -> bool:
+        """Whether the running policy resolves a recorded model id (a current id or a retired alias)."""
+        try:
+            return bool(model_id) and bool(resolve_model(self.policy, model_id, note=False))
+        except PolicyError:
+            return False
+
+    def _resume_lane(self, recorded: str, lane: Lane) -> bool:
+        """C-12.3, C-11.2: may a resume recorded on `recorded` run on `lane`?
+
+        Its own lane, or the lane a re-enrolment bound to the same credential
+        (`resolve_lane` follows a disabled lane id there, as admission did): the
+        native session lives under the credential's home, not under a lane id.
+        """
+        if recorded == lane.lane_id:
+            return True
+        try:
+            found = scheduler.resolve_lane(self._pin_roster(), recorded, lane.provider)
+        except scheduler.RouteError:
+            return False
+        return bool(found) and found["lane_id"] == lane.lane_id
+
     def _pin_roster(self) -> list[dict]:
         """C-11.2: the lanes a pin is resolved against, at submit, at recovery and in admission.
 
@@ -1715,7 +1737,11 @@ class Daemon:
         kept the name its caller typed, resolved against the store's lane rows,
         where a Codex lane has no email, while admission resolved it against the
         view, where five such names matched a Claude lane and a Codex lane at
-        once. Each start resolves those as submit now does. A name that resolves to one lane becomes its id (event
+        once. Each start resolves those against the roster submit uses, narrowed
+        by the job's provider (its model's, else its task's). The flag that
+        pinned it (`-a`, `-H`) was never stored, so a name with neither model
+        nor task that both providers answer to still names several lanes here,
+        though today's submit would take the flag's lane. A name that resolves to one lane becomes its id (event
         `job.pin_canonicalized`); one that names several lanes or none is left
         for admission to refuse or report (C-6.12), and `daemon.log` says so. A
         job carrying an unmeasured-reserve authorization is never rewritten:
@@ -2355,7 +2381,11 @@ class Daemon:
                     transient_counts[a["lane_id"]] = transient_counts.get(a["lane_id"], 0) + 1
             extra_exclusions += tuple(l for l, n in transient_counts.items() if n >= 2)
             decision_job = job
-            if previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1:
+            if (previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1
+                    and self._known_model(previous[-1]["model_requested"])):
+                # One retry of the same pair. A model id the running policy no
+                # longer carries (an id renamed since) routes the job itself: this
+                # pair is the daemon's, and a route wait on it would never end (C-6.12).
                 decision_job = {**job, "pinned_lane": previous[-1]["lane_id"],
                                 "pinned_model": previous[-1]["model_requested"]}
             try:
@@ -2700,7 +2730,7 @@ class Daemon:
             if job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
                 resume = manifest.get("resume")
-                if not resume or resume["lane_id"] != lane.lane_id or resume["model_id"] != model["id"]:
+                if not resume or not self._resume_lane(resume["lane_id"], lane) or resume["model_id"] != model["id"]:
                     raise AdapterError("resume source identity is missing or does not match this attempt",
                                        fix="resubmit the resume from the original job")
             if resume or (job["kind"] == "revive" and job["caller_session"]):

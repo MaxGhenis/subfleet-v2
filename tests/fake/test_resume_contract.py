@@ -71,6 +71,50 @@ def test_c12_resume_invokes_native_launch_on_original_lane(state_daemon, monkeyp
     assert daemon._children == {}
 
 
+@pytest.mark.parametrize("when", ["before-submit", "while-queued"])
+def test_c12_resume_follows_its_lane_through_a_reenrolment(state_daemon, monkeypatch, when):
+    """C-12.3, C-11.2 a re-enrolment binds the same credential, and so the same native sessions, to a new
+    lane id; a resume routed there by the pin's re-enrolment rule is launched there, not refused at spawn."""
+    daemon, harness = state_daemon
+    source_id, source_attempt = finished_source(daemon, harness, pinned_model="astra", pinned_lane="codex-1")
+
+    def reenrol():
+        daemon.store.update_lane("codex-1", enabled=0)
+        daemon.store.put_lane(replace(daemon.store.get_lane("codex-1"), lane_id="codex-9", enabled=True))
+    if when == "before-submit":
+        reenrol()
+    resumed_id = daemon.submit(protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id)))["job_id"]
+    manifest = json.loads((daemon.root / "jobs" / resumed_id / "manifest.json").read_text())
+    assert manifest["resume"]["lane_id"] == "codex-1"                # the request as recorded (its digest) is untouched
+    if when == "while-queued":
+        reenrol()
+    daemon._admit()
+    attempt = daemon.store.list_attempts(resumed_id)[0]
+    assert attempt["lane_id"] == "codex-9"
+    calls = []
+
+    class ObserveResume(FakeAdapter):
+        def resume_launch(self, spec, aid, adir, lane, env, native, prompt, guard, model_id=None):
+            calls.append((lane.lane_id, native))
+            raise AdapterError("stopped after observing native launch")
+
+    monkeypatch.setattr(module, "get_adapter", lambda _: ObserveResume())
+    Daemon._launch(daemon, attempt)
+    assert calls == [("codex-9", "native-source-session")]
+
+
+def test_c12_a_resume_never_launches_on_an_unrelated_lane(state_daemon, monkeypatch):
+    """C-12.3 the re-enrolment rule is the only way a resume leaves its recorded lane."""
+    daemon, harness = state_daemon
+    source_id, _ = finished_source(daemon, harness, pinned_model="astra", pinned_lane="codex-1")
+    resumed_id = daemon.submit(protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id)))["job_id"]
+    daemon.store.put_lane(replace(daemon.store.get_lane("codex-1"), lane_id="codex-7", home="/elsewhere",
+                                  credential=Credential("codex", "/elsewhere", "home")))
+    daemon._admit()
+    assert not daemon._resume_lane("codex-1", daemon.store.get_lane("codex-7"))
+    assert daemon._resume_lane("codex-1", daemon.store.get_lane("codex-1"))
+
+
 def test_c13_resume_reuses_cancelled_source_allocated_worktree(state_daemon):
     """C-7.3, C-13.3 a cancelled job continues in its preserved execution workspace."""
     daemon, harness = state_daemon

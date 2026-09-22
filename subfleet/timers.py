@@ -407,6 +407,10 @@ class Timers:
             readings = ()
             meta['identity_status'] = 'mismatch'
             meta['observed_account_key'] = actual_account
+            # C-11.2: the email the probe read is the other account's; the lane
+            # must not answer to it as a pin name.
+            if 'email' in meta:
+                meta['observed_email'] = meta.pop('email')
             status = 'identity-mismatch'
             meta['reset_credits'] = {'available': None, 'applicable': None}
         previous = self.metadata.get(lane.lane_id, {})
