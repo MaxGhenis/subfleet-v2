@@ -157,11 +157,8 @@ def iso_from_epoch(epoch: int | float | None) -> str | None:
 def encode_project_dir(workdir: str | Path) -> str:
     """Claude Code's `~/.claude/projects/` directory name for a working directory.
 
-    Each of `/`, `.` and `_` becomes `-`; case is preserved. Verified 2026-09-05
-    against live transcripts: `/Users/maxghenis/PolicyEngine/_buildo-runtime/out/
-    candidate-26/continuation-v2` is stored under
-    `-Users-maxghenis-PolicyEngine--buildo-runtime-out-candidate-26-continuation-v2`,
-    and no directory among the 3,210 present contains an underscore.
+    Each of `/`, `.` and `_` becomes `-`; case is preserved. For example,
+    `/workspace/team/project_name` maps to `-workspace-team-project-name`.
     """
     text = str(workdir)
     for char in ("/", ".", "_"):

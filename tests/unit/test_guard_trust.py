@@ -16,6 +16,17 @@ import pytest
 
 guard = importlib.import_module("subfleet.guard.preflight")
 
+from tests.fake.guard import install_guard
+
+
+@pytest.fixture(autouse=True)
+def isolated_overlay(tmp_path, monkeypatch):
+    """No guard test depends on the operator overlay or installed state."""
+    root = tmp_path / "state"
+    monkeypatch.setenv("SUBFLEET_HOME", str(root))
+    monkeypatch.delenv("SUBFLEET_GUARD_TRUST", raising=False)
+    return install_guard(root)
+
 
 @pytest.fixture
 def fake_codex(tmp_path, monkeypatch):
@@ -118,16 +129,16 @@ for line in sys.stdin:
     return script, report
 
 
-def test_copied_hook_matches_pinned_sha256():
-    """C-14.1 pin the exact bytes copied from the v1 never-rules hook."""
-    trust = json.loads(guard.TRUST_PATH.read_text())
-    assert hashlib.sha256(guard.HOOK_PATH.read_bytes()).hexdigest() == trust["hook_sha256"]
-    assert os.access(guard.HOOK_PATH, os.X_OK)
+def test_fixture_hook_matches_pinned_sha256():
+    """C-14.1 the fake-only overlay pins the exact fixture bytes."""
+    trust = json.loads(guard.guard_paths()[1].read_text())
+    assert hashlib.sha256(guard.guard_paths()[0].read_bytes()).hexdigest() == trust["hook_sha256"]
+    assert os.access(guard.guard_paths()[0], os.X_OK)
 
 
 def test_hook_has_valid_bash_syntax():
     """C-14.1 the byte-preserved Bash hook remains syntactically executable."""
-    result = subprocess.run(["/bin/bash", "-n", str(guard.HOOK_PATH)], capture_output=True)
+    result = subprocess.run(["/bin/bash", "-n", str(guard.guard_paths()[0])], capture_output=True)
     assert result.returncode == 0, result.stderr.decode()
 
 
@@ -140,7 +151,7 @@ def test_hash_matches_v1_live_verified_pin():
 
 def test_override_matches_v1_pinned_string():
     """C-14.2, C-12.3 preserve v1's exact complete hooks= override argument."""
-    trust = json.loads(guard.TRUST_PATH.read_text())
+    trust = json.loads(guard.guard_paths()[1].read_text())
     assert guard.override_string(trust["reference_hook_path"]) == trust["override"]
     assert guard.hooks_trust_hash(trust["reference_hook_path"]) == trust["hooks_trust_hash"]
     parsed = tomllib.loads(trust["override"])
@@ -185,7 +196,7 @@ def test_preflight_preserves_home_and_strips_api_keys(fake_codex, tmp_path, monk
         monkeypatch.setenv(name, "must-not-reach-probe")
     result = guard.preflight(fake, home=home, workdir=tmp_path)
     assert result.ok and result.code == 0, result
-    assert result.override == guard.override_string(guard.HOOK_PATH.resolve())
+    assert result.override == guard.override_string(guard.guard_paths()[0].resolve())
     report = json.loads(report_path.read_text())
     assert report["files"] == {name: original[name] for name in ("config.toml", "hooks.json")}
     assert report["api_keys"] == []
@@ -201,7 +212,7 @@ def test_preflight_refuses_changed_hook_before_codex(fake_codex, tmp_path):
     """C-14.1, C-14.2 a mismatched hook SHA-256 refuses with exit 7 and fix."""
     fake, report = fake_codex
     hook = tmp_path / "hook.sh"
-    hook.write_bytes(guard.HOOK_PATH.read_bytes() + b"\n# altered\n")
+    hook.write_bytes(guard.guard_paths()[0].read_bytes() + b"\n# altered\n")
     hook.chmod(0o755)
     result = guard.preflight(fake, hook_path=hook)
     assert not result.ok and result.code == 7 and result.fix
@@ -214,7 +225,7 @@ def test_preflight_refuses_changed_hook_before_codex(fake_codex, tmp_path):
 def test_preflight_refuses_changed_trust_pin(fake_codex, tmp_path, field):
     """C-14.2 drift in the pinned hooks hash or override refuses before launch."""
     fake, report = fake_codex
-    trust = json.loads(guard.TRUST_PATH.read_text())
+    trust = json.loads(guard.guard_paths()[1].read_text())
     trust[field] += "changed"
     pin = tmp_path / "TRUST"
     pin.write_text(json.dumps(trust))
@@ -227,7 +238,7 @@ def test_preflight_refuses_changed_trust_pin(fake_codex, tmp_path, field):
 def test_preflight_uses_environment_trust_path(fake_codex, tmp_path, monkeypatch):
     """C-14.2: daemon and doctor can check a selected TRUST file without altering installation."""
     fake, report = fake_codex
-    trust = json.loads(guard.TRUST_PATH.read_text())
+    trust = json.loads(guard.guard_paths()[1].read_text())
     trust["hook_sha256"] = "0" * 64
     pin = tmp_path / "TRUST"
     pin.write_text(json.dumps(trust))
@@ -237,7 +248,7 @@ def test_preflight_uses_environment_trust_path(fake_codex, tmp_path, monkeypatch
     assert "SHA-256" in result.message
     assert "subfleet doctor" in result.fix
     assert not report.exists()
-    assert guard.preflight(fake, trust_path=guard.TRUST_PATH).ok
+    assert guard.preflight(fake, trust_path=Path(os.environ["SUBFLEET_HOME"]) / "guard/TRUST").ok
 
 
 def test_preflight_refuses_new_cli_version(fake_codex, monkeypatch):
@@ -594,7 +605,8 @@ def test_unusable_scratch_root_is_an_environment_refusal(fake_codex, tmp_path, m
     fake, report = fake_codex
     root = tmp_path / "root-as-file"
     root.write_text("not a directory")
-    result = guard.preflight(fake, workdir=tmp_path, state_root=root)
+    hook, pin = guard.guard_paths()
+    result = guard.preflight(fake, workdir=tmp_path, state_root=root, hook_path=hook, trust_path=pin)
     assert not result.ok and result.kind == guard.ENVIRONMENT and "scratch root" in result.message
     assert not report.exists()
 
@@ -667,7 +679,7 @@ def test_cached_verdict_still_checks_hook_bytes_version_and_jq(fake_codex, tmp_p
     assert guard.preflight(fake, home=home, workdir=tmp_path).ok
     report_path.unlink()
     hook = tmp_path / "hook.sh"
-    hook.write_bytes(guard.HOOK_PATH.read_bytes() + b"\n# altered\n")
+    hook.write_bytes(guard.guard_paths()[0].read_bytes() + b"\n# altered\n")
     hook.chmod(0o755)
     altered = guard.preflight(fake, home=home, workdir=tmp_path, hook_path=hook)
     assert not altered.ok and altered.kind == guard.TRUST and not report_path.exists()
@@ -677,6 +689,23 @@ def test_cached_verdict_still_checks_hook_bytes_version_and_jq(fake_codex, tmp_p
     monkeypatch.setattr(guard, "_jq_available", lambda: False)
     assert guard.preflight(fake, home=home, workdir=tmp_path).kind == guard.ENVIRONMENT
     assert not report_path.exists()
+
+
+def test_reviewed_overlay_replacement_reverifies_at_the_same_path(fake_codex, tmp_path):
+    fake, report_path = fake_codex
+    home = _lane(tmp_path)
+    first = guard.preflight(fake, home=home, workdir=tmp_path)
+    assert first.ok and first.kind == guard.VERIFIED
+    hook, pin = guard.guard_paths()
+    hook.write_bytes(hook.read_bytes() + b"\n# reviewed fixture revision\n")
+    trust = json.loads(pin.read_text())
+    trust["hook_sha256"] = hashlib.sha256(hook.read_bytes()).hexdigest()
+    pin.write_text(json.dumps(trust))
+    report_path.unlink()
+    second = guard.preflight(fake, home=home, workdir=tmp_path)
+    assert second.ok and second.kind == guard.VERIFIED and report_path.exists()
+    assert second.cache_key != first.cache_key
+    assert second.override == first.override
 
 
 def test_lane_config_edit_reverifies_instead_of_riding_the_marker(fake_codex, tmp_path, monkeypatch):
@@ -759,11 +788,13 @@ def test_state_root_argument_places_scratch_home_and_markers(fake_codex, tmp_pat
     monkeypatch.delenv(guard.CACHE_ENV)
     home = _lane(tmp_path)
     root = tmp_path / "daemon-root"
+    install_guard(root)
     result = guard.preflight(fake, home=home, workdir=tmp_path, state_root=root)
     assert result.ok
     assert guard._marker_path(root / "guard-cache", result.cache_key).is_file()
     assert json.loads(report_path.read_text())["home"].startswith(str(root / "tmp"))
-    assert not (tmp_path / "state").exists()
+    assert not (tmp_path / "state/tmp").exists()
+    assert not (tmp_path / "state/guard-cache").exists()
 
 
 def test_marker_fingerprint_is_the_probed_bytes(fake_codex, tmp_path):
@@ -832,7 +863,7 @@ def test_answer_already_in_the_pipe_beats_an_expired_deadline(fake_codex, monkey
     monkeypatch.setattr(guard.time, "monotonic", paused_clock)
     ok, diagnostics = guard._hooks_list(
         str(fake), home=_scratch(fake), workdir=fake.parent,
-        override=guard.override_string(guard.HOOK_PATH.resolve()),
+        override=guard.override_string(guard.guard_paths()[0].resolve()),
         env=dict(os.environ), timeout_s=5)
     assert ok.get("id") == 2 and not diagnostics["timed_out"]
 

@@ -1,1 +1,1 @@
-"""Pinned never-rules hook and Codex trust preflight (C-14)."""
+"""External operator guard validation and Codex trust preflight (C-14)."""

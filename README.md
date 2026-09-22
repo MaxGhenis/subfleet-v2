@@ -73,10 +73,16 @@ compiles the full app. Installation and launch remain separate cutover steps.
 Before every Codex launch except an isolated review (`-I`, which runs Codex
 with `--ephemeral --ignore-user-config` and its own inspection, C-23.3) the
 daemon runs the never-rules guard preflight (`subfleet/guard/preflight.py`,
-contract C-14.2): it checks the copied hook's bytes and the pinned Codex version
-against `subfleet/guard/TRUST`, then asks a scratch-home `codex app-server` for
+contract C-14.2): it checks the operator's `<state root>/guard/never-rules-hook.sh`
+bytes and the pinned Codex version against `<state root>/guard/TRUST`, then asks a scratch-home `codex app-server` for
 `hooks/list` and refuses the launch with exit code 7 unless the guard is listed,
-enabled and trusted. Two v1 settings apply:
+enabled and trusted. The portable package contains no default security policy:
+missing, malformed, or mismatched overlay files refuse launches with code 7.
+Stage your reviewed overlay before installing the core-only release; the private
+repository's [overlay migration instructions](docs/private-guard-overlay.md)
+preserve existing installations and in-flight hook paths. Fake-provider tests
+stage an explicitly synthetic guard only inside their temporary state roots.
+Two v1 settings apply:
 
 - `CODEX_GUARD_PREFLIGHT_TIMEOUT` — seconds allowed for each of the two Codex
   calls, `codex --version` and the `hooks/list` answer (default 60; worst case
@@ -89,7 +95,7 @@ enabled and trusted. Two v1 settings apply:
 - `SUBFLEET_CODEX_GUARD_CACHE` — where verified verdicts are kept (default
   `<state root>/guard-cache`; a relative value resolves under the state root,
   never the daemon's working directory, C-2.1). A verdict is reused only while
-  the Codex version, the lane home, the override string and the seeded
+  the Codex version, the lane home, the override string, the reviewed overlay pins and the seeded
   `config.toml` and `hooks.json` are unchanged, and never past 30 days
   (C-23.5); a refusal is never cached, and a marker stamped in the future is
   discarded. Delete the directory to force re-verification.

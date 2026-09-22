@@ -421,6 +421,8 @@ def test_guard_preflight_settings_row_reports_deadline_and_markers(root, stub_pr
     from subfleet.guard import preflight as guard
     monkeypatch.delenv(guard.TIMEOUT_ENV, raising=False)
     monkeypatch.setenv(guard.CACHE_ENV, str(root / "guard-cache"))
+    from tests.fake.guard import install_guard
+    install_guard(root)
     rows = {item["check"]: item for item in doctor.checks(root)}
     item = rows["codex guard preflight settings"]
     assert item["status"] == doctor.PASS
