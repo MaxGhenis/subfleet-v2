@@ -899,7 +899,10 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
     service, harness = fleet
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
-    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    # Astra on any lane: it does not compete with the pair (opus on claude-a), so the pair is
+    # looked at, but it competes with the job as submitted (opus, then astra). An older job
+    # pinned to a lane would only keep that lane (C-6.9), which the job as submitted need not use.
+    older = submit(service, harness, pinned_model="astra")
     service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(600))
     retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
     _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])

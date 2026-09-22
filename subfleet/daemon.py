@@ -2411,7 +2411,9 @@ class Daemon:
         # older job that cannot be placed holds back the later jobs that could run
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
         # admissible lane kept three Fable-pinned jobs queued for hours beside
-        # eleven free Fable lanes.
+        # eleven free Fable lanes. One pinned to a lane keeps that lane, not the
+        # fleet: on 2026-09-22 a build pinned to a lane that refused its model held
+        # every later unpinned Opus job beside an open lane.
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
         roster = self._pin_roster()              # C-6.9: lane pins are compared by lane id (C-11.2)
         saturated = False
@@ -2431,10 +2433,11 @@ class Daemon:
             verdict = self._retry_verdicts.get(job["job_id"])
             let_go = bool(retry and verdict and verdict[0] == previous[-1]["attempt_id"] and not verdict[1]
                           and job["next_check_at"] and job["next_check_at"] > utcnow())
-            models = scheduler.demand_models(self.policy, job if let_go else retry or job)
-            lanes = scheduler.demand_lanes(roster, job if let_go else retry or job, self.policy)
-            behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                           if scheduler.competes(models, theirs, lanes, their_lanes)), None)
+            demand = job if let_go else retry or job
+            models = scheduler.demand_models(self.policy, demand)
+            lanes = scheduler.demand_lanes(roster, demand, self.policy)
+            behind, kept_lanes = scheduler.tier_hold(models, lanes, waiters.get(tier, ()),
+                                                     pinned=bool(demand.get("pinned_lane")))
             if saturated or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": cap} if saturated else
@@ -2451,7 +2454,12 @@ class Daemon:
                 # eight of them end the job.
                 self._capacity_waits.pop(job["job_id"], None)
                 known = None
-            hurried = bool(freed and known and known["expedite"])
+            # C-6.9: a job that waits only for a lane an older job was pinned to is
+            # looked at on the first pass that older job no longer waits, as it was
+            # when it was held without a clock.
+            kept_gone = bool(known and known["hold"].get("reason") == "behind-older-job" and not any(
+                older == known["hold"].get("behind") for older, _, _ in waiters.get(tier, ())))
+            hurried = bool((freed or kept_gone) and known and known["expedite"])
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 if job["wait_reason"] == "capacity":
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
@@ -2489,33 +2497,38 @@ class Daemon:
             decision_job = job
             if retry:
                 retry = {**job, "pinned_lane": retry["pinned_lane"], "pinned_model": retry["pinned_model"]}
-                kept = self._retry_waits_on_a_slot(retry, extra_exclusions, desktop_account)
-                self._retry_verdicts[job["job_id"]] = (previous[-1]["attempt_id"], kept)
-                if kept:
-                    decision_job = retry
-                    models = scheduler.demand_models(self.policy, retry)
-                    lanes = scheduler.demand_lanes(roster, retry, self.policy)
-                else:
-                    # C-4.5 "then next candidate": the pair's lane refuses it for
-                    # something a slot will not end, so the job routes as submitted,
-                    # and as submitted it keeps C-6.9's place behind older jobs.
-                    models = scheduler.demand_models(self.policy, job)
-                    lanes = scheduler.demand_lanes(roster, job, self.policy)
-                    behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                                   if scheduler.competes(models, theirs, lanes, their_lanes)), None)
-                    if behind:
-                        # C-6.10: held after a look, so on a clock like every other
-                        # such hold; until it is due the job is held at the top of
-                        # the pass with its own demand, with no git and no scoring.
-                        hold = {"reason": "behind-older-job", "behind": behind, "tier": tier}
-                        rechecks = self._capacity_wait(job["job_id"], f"retry-let-go:behind:{behind}", hold)
-                        next_check = after(scheduler.capacity_recheck_delay(rechecks))
-                        with self.store.transaction("job.retry_let_go", job_id=job["job_id"]) as tx:
-                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
-                                       "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
-                                       (next_check, job["job_id"]))
-                        holds[job["job_id"]] = {**hold, "next_check_at": next_check}
-                        continue
+                keeps_pin = self._retry_waits_on_a_slot(retry, extra_exclusions, desktop_account)
+                self._retry_verdicts[job["job_id"]] = (previous[-1]["attempt_id"], keeps_pin)
+                # C-4.5 "then next candidate": a pair's lane that refuses it for
+                # something a slot will not end lets the pin go, so the job routes
+                # as submitted, and as submitted it keeps C-6.9's place behind older
+                # jobs. Either way C-6.9 applies to the demand the job now has.
+                demand = retry if keeps_pin else job
+                decision_job = demand
+                models = scheduler.demand_models(self.policy, demand)
+                lanes = scheduler.demand_lanes(roster, demand, self.policy)
+                behind, kept_lanes = scheduler.tier_hold(models, lanes, waiters.get(tier, ()),
+                                                         pinned=bool(demand.get("pinned_lane")))
+                if behind:
+                    # C-6.10: held after a look, so on a clock like every other
+                    # such hold; until it is due the job is held at the top of
+                    # the pass with its own demand, with no git and no scoring.
+                    hold = {"reason": "behind-older-job", "behind": behind, "tier": tier}
+                    rechecks = self._capacity_wait(
+                        job["job_id"], f"retry-{'pinned' if keeps_pin else 'let-go'}:behind:{behind}", hold)
+                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    with self.store.transaction("job.retry_let_go" if not keeps_pin else "job.retry_held",
+                                                job_id=job["job_id"]) as tx:
+                        tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                                   "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                                   (next_check, job["job_id"]))
+                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                    continue
+            if kept_lanes:
+                # C-6.9: the lanes older competing waiters are pinned to are
+                # rejected as `kept:<older job id>` on this pass only; never
+                # written to the job's exclusions.
+                decision_job = {**decision_job, "kept_lanes": kept_lanes}
             try:
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:
@@ -2578,6 +2591,9 @@ class Daemon:
                             **({"max_active_attempts": cap} if label == "fleet-full" else {}),
                             **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                 "max_active_attempts": cap} if label == "slot-kept" else {})}
+                    if label.startswith("kept:"):
+                        # C-6.9: a lane would take it, but an older waiting job is pinned there.
+                        hold = {"reason": "behind-older-job", "behind": label.removeprefix("kept:"), "tier": tier}
                     rechecks = self._capacity_wait(
                         job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", hold)
                     waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
