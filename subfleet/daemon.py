@@ -42,7 +42,7 @@ from .contracts import (
 from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .policy import PolicyError, load_policy, policy_hash, resolve_model
-from .retention import maintenance
+from .retention import collect_unused_worktree, maintenance
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
@@ -69,6 +69,9 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
                             "probe-pending", "behind-older-job"})
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
+#: C-13.4: how long one admission pass spends removing unused worktrees before
+#: it turns to the queue; at least one is removed per pass, the rest next pass.
+UNUSED_WORKTREE_BUDGET_S = 5
 WORKER_RETRY_CEILING_S = 60
 
 #: The sessions kit's durable facts, as `events` kinds (C-23.33, C-23.35). They
@@ -260,6 +263,14 @@ class Daemon:
         self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
                                            "idle_since_at": None, "checked_at": None, "logged_at": None,
                                            "reasons": {}}
+        # C-13.4: the jobs whose `worktrees/<job id>/` admission cut that no
+        # attempt has used, which nothing else records until one is reserved
+        # there. The first pass adds those a previous run left on disk.
+        self._unused_worktrees: set[str] = set()
+        self._unused_worktrees_read = False
+        # C-13.4: when the pass in flight began, for retention's fence; None
+        # between passes. Assigned whole: the retention worker reads it.
+        self._admission_began: str | None = None
 
     # --- lanes: enroll, hold, release (C-10.2, C-9.6) --------------------------
 
@@ -1569,7 +1580,9 @@ class Daemon:
         return result.get("notice_id") is not None
 
     def _retention(self):
-        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60,
+                             unused_before=self._unused_cutoff(),
+                             remove_timeout_s=self.policy["caps"]["worktree_add_timeout_s"])
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))
@@ -1660,6 +1673,8 @@ class Daemon:
             validate_writable_workdir(workdir, timeout_s=cap)
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
+            # C-13.4: until an attempt is reserved here, only this names the worktree.
+            self._unused_worktrees.add(job["job_id"])
             if Path(workdir).exists() and (not (Path(workdir) / ".git").is_file()
                                            or git_head(workdir, timeout_s=cap) is None):
                 # A `worktree add` killed at its cap can leave a directory that is
@@ -1670,8 +1685,10 @@ class Daemon:
                 self._discard_worktree(job["workdir"], workdir, cap)
             if not Path(workdir).exists():
                 try:
+                    # C-13.4: in the C locale, so an add stopped partway leaves git's
+                    # own lock reason, `initializing`, whatever the daemon's language.
                     result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                            capture_output=True, text=True,
+                                            capture_output=True, text=True, env={**os.environ, "LC_ALL": "C"},
                                             timeout=self.policy["caps"]["worktree_add_timeout_s"])
                 except (OSError, subprocess.SubprocessError):
                     self._discard_worktree(job["workdir"], workdir, cap)
@@ -2015,7 +2032,11 @@ class Daemon:
         # A pass that raises leaves both as the last whole pass left them: half
         # a hold set would read as "nothing left pending" and end the idle
         # stretch with the queue untouched. C-5.10 logs and paces the failure.
-        self._admit_pass(holds, tally)
+        self._admission_began = utcnow()
+        try:
+            self._admit_pass(holds, tally)
+        finally:
+            self._admission_began = None
         self._holds = holds
         self._note_admission(tally, holds)
 
@@ -2100,10 +2121,68 @@ class Daemon:
         finally:
             self._admission = state
 
+    def _collect_unused_worktrees(self, waiting: set[str]) -> None:
+        """C-13.4: remove the worktree admission cut for each job that ended with no attempt.
+
+        A job killed, refused, or failed while queued or waiting has one if a
+        pass prepared its workspace (C-6.8); `jobs.worktree` is written only at
+        reservation, so neither the job's own terminal path nor retention's
+        pruning would name it. This runs on the admission worker, the only
+        thread that cuts one (`_workspace`), so it never races a `git worktree
+        add` for the same job; `waiting` is this pass's queued and waiting jobs,
+        which keep theirs. The first pass after a start adds every such worktree
+        on disk and drops the fences a stopped collection kept, so a restart
+        forgets none. Each job is tried once per start, within
+        `UNUSED_WORKTREE_BUDGET_S` a pass; one that is refused is kept, logged,
+        and left to retention's hourly pass.
+        """
+        if not self._unused_worktrees_read:
+            with self.store.transaction("admission.unused_worktree_fences_released") as tx:
+                tx.execute("DELETE FROM leases WHERE holder LIKE 'admission-collect:%'")
+            rows = self.store.query("SELECT job_id FROM jobs WHERE sandbox='workspace-write' AND in_place=0 "
+                                    "AND worktree IS NULL AND job_id NOT IN (SELECT job_id FROM attempts)")
+            self._unused_worktrees.update(row["job_id"] for row in rows
+                                          if Path(row["job_id"]).name == row["job_id"]
+                                          and os.path.lexists(self.root / "worktrees" / row["job_id"]))
+            self._unused_worktrees_read = True
+        started = time.monotonic()
+        for job_id in sorted(self._unused_worktrees - waiting):
+            if self.stopping.is_set():
+                return
+            job = self.store.get_job(job_id)
+            if job is not None and job["state"] not in TERMINAL and not job["worktree"]:
+                continue                  # queued since this pass's list was read
+            self._unused_worktrees.discard(job_id)
+            if job is None or job["worktree"]:
+                continue                  # pruned, or an attempt was reserved in it
+            try:
+                if collect_unused_worktree(self.store, self.root, job_id, holder=f"admission-collect:{job_id}",
+                                           cancel=self.stopping,
+                                           remove_timeout_s=self.policy["caps"]["worktree_add_timeout_s"]):
+                    self.log.info("job %s ended before any attempt; removed its worktree", job_id)
+            except InterruptedError:
+                return                    # stopping: the next start resumes it
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                self.log.warning("job %s ended before any attempt; its worktree was kept: %s", job_id, exc)
+            if time.monotonic() - started >= UNUSED_WORKTREE_BUDGET_S:
+                return                    # the queue waits no longer; the rest next pass
+
+    def _unused_cutoff(self) -> str:
+        """C-13.4: retention touches an unused worktree only of a job that ended before this.
+
+        The start of the admission pass in flight, whose list may hold, and cut
+        a worktree for, a job that ended after it; now between passes. Now is
+        read first: a pass that begins after it lists no job that ended before.
+        """
+        now = utcnow()
+        began = self._admission_began
+        return min(now, began) if began else now
+
     def _admit_pass(self, holds: dict[str, dict], tally: dict) -> None:
         self._recover_probes()
         desktop_account = self._desktop_identity()
         queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+        self._collect_unused_worktrees({job["job_id"] for job in queued})
         for gone in set(self._capacity_waits) - {job["job_id"] for job in queued}:
             self._capacity_waits.pop(gone, None)
         # C-6.10: a lease that was held at the last pass and is not now is capacity
@@ -2157,6 +2236,11 @@ class Daemon:
                 continue
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
+                continue
+            current = self.store.get_job(job["job_id"])
+            if current is None or current["state"] in TERMINAL or current["cancel_requested_at"]:
+                # Ended since this pass read the queue: cutting it a worktree
+                # now would only leave one for C-13.4 to collect.
                 continue
             try:
                 workspace, head, baseline = self._workspace(job)
