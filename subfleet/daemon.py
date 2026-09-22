@@ -7,6 +7,7 @@ transactions contain only SQL (C-3.3, C-16.4).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import fcntl
 import hashlib
@@ -70,6 +71,22 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-6.12: what evaluating one job's route may raise without ending the pass
+#: (`PolicyError` is a ValueError). A store error is not here: it is the pass's,
+#: and C-5.10 retries the pass.
+ROUTE_ERRORS = (ValueError, KeyError, TypeError)
+#: C-6.12: a route that could not be evaluated is looked at again this long
+#: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
+ROUTE_RETRY_BASE_S = 5
+ROUTE_RETRY_CEILING_S = 300
+
+
+class Unroutable(Exception):
+    """C-6.12: evaluating this job's route raised `cause`; the pass settles the job and goes on."""
+
+    def __init__(self, cause: BaseException):
+        super().__init__(f"{type(cause).__name__}: {cause}")
+        self.cause = cause
 
 #: The sessions kit's durable facts, as `events` kinds (C-23.33, C-23.35). They
 #: are events rather than a table because each is an append-only record of one
@@ -251,6 +268,9 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-6.12: job id -> its consecutive route evaluation failures and the last
+        # one's error, replaced whole on each. In memory as C-6.8's count is.
+        self._route_deferrals: dict[str, dict] = {}
         # C-6.10: the leases the last pass saw that no probe holds. One that has
         # gone since is capacity that came free.
         self._leases_seen: frozenset[tuple[str, str]] = frozenset()
@@ -669,6 +689,31 @@ class Daemon:
                                   {**job, "exclusions": tuple(exclusions) + extra_exclusions,
                                    "policy_hash": self.policy_digest})
 
+    def _route(self, job: dict, **options):
+        """C-6.12: `_pick` for admission. An evaluation that raises is this job's, not the pass's."""
+        try:
+            return self._pick(job, **options)
+        except ROUTE_ERRORS as exc:
+            raise Unroutable(exc) from exc
+
+    @staticmethod
+    def _needs_probe(decision, job: dict) -> bool:
+        """C-6.12: `scheduler.probe_required`, which checks the job's authorization, for admission."""
+        try:
+            return scheduler.probe_required(decision, job)
+        except ROUTE_ERRORS as exc:
+            raise Unroutable(exc) from exc
+
+    def _pin_roster(self) -> list[dict]:
+        """C-11.2: the lanes a pin is resolved against, at submit, at recovery and in admission.
+
+        The capacity view's, the lanes `_pick` evaluates: besides the store's
+        columns they carry what the usage probes report, a Codex lane's email
+        among it. On 2026-09-22 submit resolved against the store rows, which
+        have no Codex email, while admission resolved against the view.
+        """
+        return self._capacity_view()["lanes"]
+
     def submit(self, args: protocol.SubmitArgs) -> dict:
         # Called on a filesystem worker, never on the socket reader pool.
         with self._submit_lock:
@@ -736,13 +781,21 @@ class Daemon:
                     raise ValueError(f"unknown tier {args.tier}")
                 if not model and not args.task and not args.pinned_lane:
                     raise ValueError("submit requires pinned_model, pinned_lane or task")
-                lane_row = scheduler.resolve_lane(self.store.lane_rows(), args.pinned_lane) if args.pinned_lane else None
+                # C-11.2: resolved as admission resolves it (same lanes, and the
+                # job's provider narrows a name two providers share), then kept as
+                # the lane id, so no later roster change can make it ambiguous.
+                lane_row = (scheduler.resolve_lane(self._pin_roster(), args.pinned_lane, scheduler.pin_provider(
+                    self.policy, {"pinned_model": model, "task": args.task, "tier": args.tier}))
+                            if args.pinned_lane else None)
                 lane = self.store.get_lane(lane_row["lane_id"]) if lane_row else None
                 if args.pinned_lane and not lane:
                     raise ValueError(f"unknown lane {args.pinned_lane}")
-                # Bind operator authorization to the enrolled lane's immutable
-                # ID, never to a label that can later resolve to another lane.
-                pinned_lane = lane.lane_id if reason is not None else args.pinned_lane
+                pinned_lane = lane.lane_id if lane else None
+                # The request digest keeps the pin as the caller wrote it, so a
+                # retry is compared with what it asked for, also across a roster
+                # change or this upgrade. Operator authorization was always bound
+                # to the enrolled lane's immutable id, and its digest still is.
+                digest_pin = pinned_lane if reason is not None else args.pinned_lane
                 task_model = model or (self.policy["chains"][args.task][self.policy["tiers"].index(args.tier or "standard")]
                                        if args.task else next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None))
                 if task_model is None:
@@ -760,7 +813,7 @@ class Daemon:
                 if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
                     raise ValueError("max_wall_s must be positive and within policy caps")
                 digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
-                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=pinned_lane,
+                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=digest_pin,
                     sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
@@ -816,6 +869,8 @@ class Daemon:
                 "lane_id": pinned_lane, "model_id": self.policy["models"][model]["id"],
                 "reason": reason}} if reason is not None else None)
             submitted = {**(authorization or {}),
+                         **({"pin": {"requested": args.pinned_lane, "lane_id": pinned_lane}}
+                            if args.pinned_lane and args.pinned_lane != pinned_lane else {}),
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
                          **({"batch": batch} if batch else {})}
@@ -1291,11 +1346,21 @@ class Daemon:
         row = self.store.one("SELECT decision_json,evaluated_at FROM decisions WHERE job_id=? ORDER BY decision_id DESC LIMIT 1", (job["job_id"],))
         decision, source = (json.loads(row["decision_json"]), "recorded") if row else (None, None)
         pending = job["state"] in ("queued", "waiting") and not job["cancel_requested_at"]
+        route_error = None
         if decision is None and pending:
             try:
                 decision, source = dataclasses.asdict(self._pick(job, desktop=self._desktop_identity())), "evaluated-now"
-            except (ValueError, KeyError, PolicyError) as exc:
+            except ROUTE_ERRORS as exc:
+                # C-6.12: on 2026-09-22 this was swallowed and the answer read
+                # "No decision recorded." for five jobs that stopped admission.
+                route_error = f"{type(exc).__name__}: {exc}"
                 self.log.debug("why %s: evaluation failed: %s", job["job_id"], type(exc).__name__)
+        elif decision is None and job["state"] == "failed":
+            refused = self.store.one("SELECT data_json FROM events WHERE kind='job.route_refused' AND job_id=? "
+                                     "ORDER BY event_id DESC LIMIT 1", (job["job_id"],))
+            if refused:
+                record = json.loads(refused["data_json"])
+                route_error = f"{record.get('error_type')}: {record.get('error')}"
         hold = self._holds.get(job["job_id"]) if pending else None
         wait = self._capacity_waits.get(job["job_id"]) if pending else None
         recheck = ({key: wait[key] for key in ("rechecks", "since", "checked_at", "label")} if wait else None)
@@ -1304,9 +1369,11 @@ class Daemon:
                     "hold": hold, "recheck": recheck, "decision_source": source,
                     "decided_at": row["evaluated_at"] if row else None}
         queue = render.why_queue(standing)
-        text = render.why(decision) if decision else "No decision recorded."
+        text = (render.why(decision) if decision else
+                f"Decision: none; this job's route could not be evaluated: {route_error}" if route_error else
+                "No decision recorded.")
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "text": "\n".join([*queue, text])}
+                "route_error": route_error, "text": "\n".join([*queue, text])}
 
     def _admission_status(self, view: dict) -> dict:
         """C-6.11: what admission is holding and for how long, for `status`."""
@@ -1591,20 +1658,56 @@ class Daemon:
         self.timers.actions.recover()
         from .gate.merge import MergeActions
         MergeActions(self.store).recover()
+        self._canonicalize_pins()
         self._recover_capacity_waits()
         self.timers.start()
         self._recovery_complete.set()
+
+    def _canonicalize_pins(self) -> None:
+        """C-11.2: an unfinished job's pin is the lane id its name resolved to.
+
+        Submit has stored the lane id since 2026-09-22; a job accepted before
+        kept the name its caller typed, and five such names later named a Claude
+        lane and a Codex lane at once. Each start resolves those as submit now
+        does. A name that resolves to one lane becomes its id (event
+        `job.pin_canonicalized`); one that names several lanes or none is left
+        for admission to refuse or report (C-6.12), and `daemon.log` says so. A
+        job carrying an unmeasured-reserve authorization is never rewritten:
+        that authorization names the lane id it was granted for (C-11.7).
+        """
+        lanes = self._pin_roster()
+        known = {lane["lane_id"] for lane in lanes}
+        for job in self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting','running') "
+                                    "AND pinned_lane IS NOT NULL AND unmeasured_reserve_reason IS NULL "
+                                    "ORDER BY created_at,rowid"):
+            pin = job["pinned_lane"]
+            if pin in known:
+                continue
+            try:
+                lane = scheduler.resolve_lane(lanes, pin, scheduler.pin_provider(self.policy, job))
+            except scheduler.RouteError as exc:
+                self.log.warning("job %s pin %r was left as it is: %s", job["job_id"], pin, exc)
+                continue
+            if lane is None:
+                self.log.warning("job %s pin %r was left as it is: it names no lane", job["job_id"], pin)
+                continue
+            with self.store.transaction("job.pin_canonicalized", job_id=job["job_id"],
+                                        data={"from": pin, "to": lane["lane_id"]}) as tx:
+                tx.execute("UPDATE jobs SET pinned_lane=? WHERE job_id=? AND pinned_lane=? "
+                           "AND state IN ('queued','waiting','running')", (lane["lane_id"], job["job_id"], pin))
+            self.log.info("job %s pin %r is now %s (C-11.2)", job["job_id"], pin, lane["lane_id"])
 
     def _recover_capacity_waits(self) -> None:
         """C-6.10: after a restart every capacity wait is looked at once, on the first pass.
 
         The wait records are in memory, so nothing could bring a persisted wait
         forward when capacity came free, and what each job was waiting for may
-        have changed while no daemon ran.
+        have changed while no daemon ran. A route wait (C-6.12) is looked at too:
+        a restart is how the fix for what it met arrives.
         """
         now = utcnow()
         with self.store.transaction("admission.recovered") as tx:
-            tx.execute("UPDATE jobs SET next_check_at=? WHERE state='waiting' AND wait_reason='capacity' "
+            tx.execute("UPDATE jobs SET next_check_at=? WHERE state='waiting' AND wait_reason IN ('capacity','route') "
                        "AND next_check_at>?", (now, now))
 
     def _timer_turn(self, lane: Lane, purpose: str, holder: str, *, cancel, deadline) -> Outcome:
@@ -1953,9 +2056,9 @@ class Daemon:
             current = self._job(job["job_id"])
             if current["cancel_requested_at"] or current["state"] in TERMINAL:
                 return None, desktop
-            decision = self._pick(decision_job, extra_exclusions=exclusions, desktop=desktop)
+            decision = self._route(decision_job, extra_exclusions=exclusions, desktop=desktop)
             pair = (decision.chosen_lane, decision.chosen_model)
-            if not scheduler.probe_required(decision, job) or pair in approved:
+            if not self._needs_probe(decision, job) or pair in approved:
                 return approved, desktop
             token = os.urandom(12).hex()
             holder = f"probe:{token}"
@@ -2106,6 +2209,8 @@ class Daemon:
         queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
         for gone in set(self._capacity_waits) - {job["job_id"] for job in queued}:
             self._capacity_waits.pop(gone, None)
+        for gone in set(self._route_deferrals) - {job["job_id"] for job in queued}:
+            self._route_deferrals.pop(gone, None)
         # C-6.10: a lease that was held at the last pass and is not now is capacity
         # that came free (an attempt ended, a job let go of its worktree or its
         # output path), so backed-off capacity waits are looked at on this pass
@@ -2121,15 +2226,20 @@ class Daemon:
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
-        roster = self.store.lane_rows()          # C-6.9: lane pins are compared by lane id
+        roster = self._pin_roster()              # C-6.9: lane pins are compared by lane id (C-11.2)
         saturated = False
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
                 self.kill(protocol.KillArgs(job["job_id"]))
                 continue
+            if job["wait_reason"] == "route" and job["next_check_at"] and job["next_check_at"] > utcnow():
+                # C-6.12: not a capacity wait, so it holds nobody back (C-6.9) and
+                # no released lease brings it forward. It says what it met.
+                holds[job["job_id"]] = self._route_hold(job["job_id"], job["next_check_at"])
+                continue
             models = scheduler.demand_models(self.policy, job)
-            lanes = scheduler.demand_lanes(roster, job)
+            lanes = scheduler.demand_lanes(roster, job, self.policy)
             behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
                            if scheduler.competes(models, theirs, lanes, their_lanes)), None)
             if saturated or behind:
@@ -2194,7 +2304,13 @@ class Daemon:
             if previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1:
                 decision_job = {**job, "pinned_lane": previous[-1]["lane_id"],
                                 "pinned_model": previous[-1]["model_requested"]}
-            approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
+            try:
+                approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
+            except Unroutable as exc:
+                self._unroutable(job, exc, holds)
+                continue
+            # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
+            self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
                 waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                 holds[job["job_id"]] = {"reason": "probe-pending"}
@@ -2216,14 +2332,17 @@ class Daemon:
                     holds[job["job_id"]]["next_check_at"] = current["next_check_at"]
                     self._refresh_hold(job["job_id"], holds[job["job_id"]])
                 continue
-            with self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+            # C-6.12: outside the transaction, so a route that fails here rolls it back first.
+            with self._isolated_route(job, holds) as route, \
+                    self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
                 job = self._job(job["job_id"])
                 if job["cancel_requested_at"] or job["state"] in TERMINAL:
                     continue
                 if extra_exclusions:
                     job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
-                decision = self._pick(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
+                decision = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
+                needs_probe = self._needs_probe(decision, job)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
                 saturated = live >= cap
                 # A job that passes an older waiting job of its tier leaves one
@@ -2256,7 +2375,7 @@ class Daemon:
                                (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
                     holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
                     continue
-                if scheduler.probe_required(decision, job) and (decision.chosen_lane, decision.chosen_model) not in approved:
+                if needs_probe and (decision.chosen_lane, decision.chosen_model) not in approved:
                     # The chosen identity changed after its probe; a later pass
                     # probes the new pair (`_prepare_route`). C-6.10: on a clock,
                     # or a lane whose state keeps moving is probed every tick.
@@ -2323,6 +2442,8 @@ class Daemon:
                            (workspace if job["sandbox"] == "workspace-write" else None, utcnow(), job["job_id"]))
                 with self._busy_lock:
                     self._busy.add(aid)
+            if route["failed"]:
+                continue
             tally["placed"] += 1
             self._capacity_waits.pop(job["job_id"], None)
             # C-6.10: taken after this pass's snapshot. If the attempt ends before
@@ -2335,6 +2456,62 @@ class Daemon:
                 with self._busy_lock:
                     self._busy.discard(aid)
             self._notify()
+
+    @contextlib.contextmanager
+    def _isolated_route(self, job: dict, holds: dict[str, dict]):
+        """C-6.12: an `Unroutable` from the block settles this job and ends the block, not the pass.
+
+        Entered outside the reserving transaction, so the transaction has rolled
+        back before the job is settled; the caller reads `failed` after the block.
+        """
+        route = {"failed": False}
+        try:
+            yield route
+        except Unroutable as exc:
+            route["failed"] = True
+            self._unroutable(job, exc, holds)
+
+    def _route_hold(self, job_id: str, next_check_at: str | None) -> dict:
+        """C-6.11, C-6.12: what a route wait reports, also on passes that do not look at it."""
+        record = self._route_deferrals.get(job_id) or {}
+        return {"reason": "route", **{key: record[key] for key in ("error_type", "error", "deferrals") if key in record},
+                "next_check_at": next_check_at}
+
+    def _unroutable(self, job: dict, exc: Unroutable, holds: dict[str, dict]) -> None:
+        """C-6.12: settle one job whose route could not be evaluated; the pass goes on.
+
+        A `RouteError` is the job's own (its pin names several lanes, or a lane
+        and a model of different providers): no wait fixes it, so the job fails
+        with the message and exit 2, as submit would have refused it. Anything
+        else (bad capacity data, a policy that no longer knows the job's task or
+        model, a defect) is not the job's and may be fixed by a restart, so the
+        job waits on `route`, never terminally, rechecked 5 s out doubling to
+        300 s, and holds back no other job.
+        """
+        cause, job_id = exc.cause, job["job_id"]
+        record = {"error_type": type(cause).__name__, "error": str(cause)[:500]}
+        self._capacity_waits.pop(job_id, None)
+        if isinstance(cause, scheduler.RouteError):
+            self._route_deferrals.pop(job_id, None)
+            self.log.warning("job %s refused at admission: %s", job_id, cause)
+            self._fail_queued(job, f"refused at admission: {cause}", rc=int(Exit.INVALID_INPUT),
+                              kind="job.route_refused", data=record)
+            return
+        count = (self._route_deferrals.get(job_id) or {}).get("deferrals", 0) + 1
+        delay = min(ROUTE_RETRY_CEILING_S, ROUTE_RETRY_BASE_S * 2 ** min(count - 1, 16))
+        next_check = after(delay)
+        record.update(deferrals=count, next_check_at=next_check)
+        # Replaced whole, never updated in place: `why` reads it from another thread.
+        self._route_deferrals[job_id] = record
+        with self.store.transaction("job.route_deferred", job_id=job_id, data=record) as tx:
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='route',next_check_at=? "
+                       "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                       (next_check, job_id))
+        # The type only, as C-5.10 logs a worker's: the message is in the event and in `why`.
+        self.log.warning("job %s route could not be evaluated (%d in a row, next check in %d s): %s",
+                         job_id, count, delay, record["error_type"])
+        holds[job_id] = self._route_hold(job_id, next_check)
+        self._notify()
 
     def _skip_revive(self, tx, job: dict, holder: str) -> None:
         """C-23.55: a session that already holds the revive lease is skipped.

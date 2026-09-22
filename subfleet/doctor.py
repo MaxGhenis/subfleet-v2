@@ -26,11 +26,13 @@ from __future__ import annotations
 import os
 import sys
 import shutil
+import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from .client import Client, DaemonError, DaemonUnavailable, LOCK_NAME, SOCKET_NAME
+from .offline import Offline, OfflineUnavailable, SchemaTooNew
 from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
 
@@ -276,6 +278,36 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
                "`subfleet daemon status`")
 
 
+def check_queued_pins(root: Path) -> dict[str, Any]:
+    """C-11.2, C-6.12: every unfinished job pinned to a lane names it by lane id.
+
+    Before 2026-09-22 submit kept the name its caller typed, and five such
+    names later named a Claude lane and a Codex lane at once: admission raised
+    on them every tick and placed nothing for two and a half hours. A daemon
+    start rewrites each pin that names one lane (`job.pin_canonicalized`); what
+    is left here names several lanes or none, so the job's owner has to choose.
+    """
+    check = "unfinished jobs pin lanes by id"
+    try:
+        with Offline(root).reading() as conn:
+            rows = conn.execute(
+                "SELECT job_id,state,pinned_lane FROM jobs WHERE state IN ('queued','waiting','running') "
+                "AND pinned_lane IS NOT NULL AND pinned_lane NOT IN (SELECT lane_id FROM lanes) "
+                "ORDER BY created_at,rowid").fetchall()
+    except (OfflineUnavailable, SchemaTooNew, OSError, sqlite3.Error) as exc:
+        return row(check, UNKNOWN, f"no readable store: {exc}",
+                   "`subfleet daemon start` once, so a store exists, then run doctor again")
+    if not rows:
+        return row(check, PASS, "no unfinished job pins a lane by any other name",
+                   "nothing to do while this passes")
+    named = "; ".join(f"{item['job_id']} ({item['state']}) pinned {item['pinned_lane']!r}" for item in rows[:10])
+    more = f"; and {len(rows) - 10} more" if len(rows) > 10 else ""
+    return row(check, FAIL, f"{len(rows)} unfinished jobs pin a name, not a lane id: {named}{more}",
+               "`subfleet daemon stop` then `subfleet daemon start`: a start rewrites each pin that "
+               "names one lane; for one that names several or none, `subfleet kill <job>` and "
+               "resubmit with `-a <lane id>` (`subfleet lanes list` shows the ids)")
+
+
 def check_provider(binary: str) -> dict[str, Any]:
     found = shutil.which(binary)
     if found is None:
@@ -507,6 +539,7 @@ def checks(root: Path, *, live: bool = False,
         check_state_root(root),
         check_socket_path(root),
         check_daemon_lock(root),
+        check_queued_pins(root),
         check_mirror(root),
         *(check_module(name) for name in ("store", "procs", "compat", "hooks",
                                           "sessions.mirror")),

@@ -34,12 +34,26 @@ def _iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+class RouteError(ValueError):
+    """C-6.12: the job's own pin cannot be routed, whatever capacity does.
+
+    Raised for a pin that names several lanes, and for a pin and a model of
+    different providers: what submit refuses, and what no wait can fix, because
+    only the caller can say which lane was meant. Admission refuses such a job
+    with this message instead of abandoning its pass. It is a ValueError, so a
+    caller that caught the old ValueError still does.
+    """
+
+
 def _identities(lane: Mapping[str, Any]) -> set[str]:
     """Every name `-a` and `-x` may use for one lane (C-11.2, C-17.2).
 
     `label` is here because C-1.4 makes a verified Claude lane's account key a
     pair of uuids: without it an operator's `-a max@example.org` would stop
     resolving the moment a lane is re-enrolled with its identity bound.
+    `email` is only in the capacity view: the Codex usage probe reports it and
+    `Timers.enrich_view` adds it, so a pin resolved against store rows alone
+    would miss it (C-11.2, the 2026-09-22 stall).
     """
     account = str(lane.get("account_key") or "")
     return {str(value) for value in (lane.get("lane_id"), account,
@@ -47,14 +61,59 @@ def _identities(lane: Mapping[str, Any]) -> set[str]:
             lane.get("home")) if value}
 
 
-def resolve_lane(lanes: Iterable[Any], pin: str) -> dict[str, Any] | None:
-    """C-11.2: resolve one identity pin without silently choosing another lane."""
+def _binding(lane: Mapping[str, Any]) -> tuple[Any, Any]:
+    """The credential a lane is bound to; a re-enrolment keeps it (`Timers.enrich_view`)."""
+    return lane.get("provider"), lane.get("home") or lane.get("credential_ref")
+
+
+def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None) -> dict[str, Any] | None:
+    """C-11.2: resolve one identity pin without silently choosing another lane.
+
+    A lane id is exact. Any other name can match more than one lane: a Claude
+    login and a Codex subscription often share an email, and a re-enrolment
+    leaves the old binding in the roster under the same label. Two narrowings
+    drop lanes that could never take the job, never one that could: `provider`
+    (the job's, from `pin_provider`) drops lanes of the other provider, and a
+    disabled binding is dropped when an enabled lane that matches is bound to
+    the same credential. A name that still matches several lanes raises
+    `RouteError` naming them. None means the pin names no lane.
+    """
     roster = [_row(lane) for lane in lanes]
     exact = next((lane for lane in roster if lane.get("lane_id") == pin), None)
-    matches = [exact] if exact else [lane for lane in roster if pin in _identities(lane)]
+    if exact:
+        return exact
+    matches = [lane for lane in roster if pin in _identities(lane)]
+    if len(matches) > 1 and provider:
+        matches = [lane for lane in matches if lane.get("provider") == provider] or matches
     if len(matches) > 1:
-        raise ValueError(f"pinned_lane: ambiguous lane {pin!r}; use a lane id")
+        live = {_binding(lane) for lane in matches if lane.get("enabled", True)}
+        matches = [lane for lane in matches if lane.get("enabled", True) or _binding(lane) not in live]
+    if len(matches) > 1:
+        names = ", ".join(sorted(str(lane["lane_id"]) for lane in matches))
+        raise RouteError(f"pinned_lane: {pin!r} names {len(matches)} lanes ({names}); "
+                         f"pin one of them by lane id (-a <lane id>)")
     return matches[0] if matches else None
+
+
+def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
+    """C-11.2: the provider a lane-pinned job must run on, as `evaluate` decides it.
+
+    A pinned job evaluates one model: its pinned model, else the first model of
+    its task's chain from its tier. None when the job names neither, so only
+    the lane can say, or when the policy cannot tell (`evaluate` reports that).
+    """
+    job = _row(job)
+    try:
+        if job.get("pinned_model"):
+            return policy["models"][resolve_model(policy, job["pinned_model"], note=False)]["provider"]
+        task = job.get("task")
+        if task in policy["chains"]:
+            tiers = policy["tiers"]
+            tier = job.get("tier") or ("standard" if "standard" in tiers else tiers[0])
+            return policy["models"][policy["chains"][task][tiers.index(tier)]]["provider"]
+    except (PolicyError, ValueError, KeyError, IndexError):
+        pass
+    return None
 
 
 def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any]) -> list[dict[str, Any]]:
@@ -91,17 +150,19 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
     return None
 
 
-def demand_lanes(lanes: Iterable[Any], job: Any) -> frozenset[str] | None:
+def demand_lanes(lanes: Iterable[Any], job: Any,
+                 policy: Mapping[str, Any] | None = None) -> frozenset[str] | None:
     """The lanes a job could run on: its pin, resolved to one lane id (C-11.2).
 
-    None means any lane, or a pin that cannot be resolved here, which admission
-    treats as competing with everything.
+    Resolved as `evaluate` resolves it when `policy` is given (the job's
+    provider narrows the name). None means any lane, or a pin that cannot be
+    resolved here, which admission treats as competing with everything.
     """
     pin = _row(job).get("pinned_lane")
     if not pin:
         return None
     try:
-        found = resolve_lane(lanes, pin)
+        found = resolve_lane(lanes, pin, pin_provider(policy, job) if policy else None)
     except ValueError:
         return None
     return frozenset({found["lane_id"]}) if found else None
@@ -190,10 +251,10 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
     if reason is None:
         return None
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
-        raise ValueError("unmeasured_reserve_reason: provide a nonblank reason of at most 2000 characters")
+        raise RouteError("unmeasured_reserve_reason: provide a nonblank reason of at most 2000 characters")
     if any(not isinstance(job.get(key), str) or not job[key].strip()
            for key in ("pinned_lane", "pinned_model")):
-        raise ValueError("unmeasured_reserve_reason: explicit pinned_lane and pinned_model are required")
+        raise RouteError("unmeasured_reserve_reason: explicit pinned_lane and pinned_model are required")
     return reason.strip()
 
 
@@ -210,10 +271,9 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     excluded = job.get("exclusions") or ()
     excluded = set(json.loads(excluded) if isinstance(excluded, str) else excluded)
     pin = job.get("pinned_lane")
-    selected = resolve_lane(lanes, pin) if pin else None
-    if authorization_reason and selected and pin != selected["lane_id"]:
-        raise ValueError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
     task, tier = job.get("task"), job.get("tier")
+    # An unknown task, tier, or model is the policy's to fix, not the job's: submit
+    # checked each against the policy it ran under (C-6.12).
     if task is not None and task not in policy["chains"]:
         raise ValueError(f"task: unknown task {task!r}")
     if tier is not None and tier not in policy["tiers"]:
@@ -223,19 +283,26 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     elif task:
         default = "standard" if "standard" in policy["tiers"] else policy["tiers"][0]
         chain = policy["chains"][task][policy["tiers"].index(tier or default):]
-    elif selected:
+    else:
+        chain = []
+    # C-11.2: a pinned job evaluates one model, the first of its chain, so a lane
+    # of any other provider could never take it (`pin_provider` says the same).
+    selected = resolve_lane(lanes, pin, policy["models"][chain[0]]["provider"] if chain else None) if pin else None
+    if authorization_reason and selected and pin != selected["lane_id"]:
+        raise RouteError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
+    if not chain and selected:
         model_name = next((name for name, model in policy["models"].items()
                            if model["provider"] == selected["provider"]), None)
         if model_name is None:
             raise PolicyError(policy.get("_policy_path", "policy.json"), "pinned_lane",
                               f"lane {pin!r} has provider {selected['provider']!r} with no models in policy")
         chain = [model_name]
-    else:
+    elif not chain:
         chain = [next(iter(policy["models"]))]
     if pin:
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
-            raise ValueError("pinned_lane and pinned_model/task: different providers")
+            raise RouteError("pinned_lane and pinned_model/task: different providers")
     # Repeated tiers on Fable and Terra do not create another admission chance.
     chain = list(dict.fromkeys(chain))
     in_flight = dict(view.get("in_flight", {}))
@@ -456,7 +523,7 @@ def probe_required(decision: Decision, job: Any) -> bool:
                            if row["model"] == decision.chosen_model), None)
         if (decision.chosen_lane != job["pinned_lane"] or evaluation is None
                 or job["pinned_model"] not in (decision.chosen_model, evaluation["model_id"])):
-            raise ValueError("unmeasured_reserve_reason: the probe must use the authorized lane and model")
+            raise RouteError("unmeasured_reserve_reason: the probe must use the authorized lane and model")
         # An admission observation or a newly measured window cannot remove
         # the promised same-model probe. The daemon's approved pair ends it.
         return True
