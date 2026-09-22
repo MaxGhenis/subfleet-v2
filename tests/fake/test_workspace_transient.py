@@ -7,13 +7,17 @@ exception was discarded, and the failure was terminal. Twelve jobs since
 2026-09-19 ended that way, read-only ones included.
 """
 
+import contextlib
 import errno
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,6 +29,9 @@ from tests.fake.test_workspace_contract import repository
 from tests.unit.test_salvage import git
 
 REAL_GIT = shutil.which("git")
+#: Long enough for `git worktree add` to reach its checkout's filter on a
+#: loaded machine; the tests below need the kill to land mid-checkout.
+ADD_CAP_S = 3
 
 
 @pytest.fixture
@@ -284,3 +291,204 @@ def test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind(state_daemon
     due(daemon, job_id)
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+# --- A `git worktree add` stopped partway (2026-09-22 design review) ---------
+#
+# `git worktree add` does its checkout in a child, `git reset --hard`, which
+# runs any filter as a child of its own. The fixture's filter records itself
+# and that `git reset` and then blocks while the gate exists, so a test can
+# stop an add mid-checkout: `.gitattributes` is written, `slow.txt` and the
+# files after it are not, and there is no index yet.
+
+
+def recorded(pids_file):
+    """[filter pid, `git reset --hard` pid] once the checkout reached the filter."""
+    if not pids_file.exists():
+        return []
+    return [int(pid) for pid in pids_file.read_text().split()]
+
+
+def running(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def wait_for(condition, timeout_s=15):
+    deadline = time.monotonic() + timeout_s
+    while not condition():
+        assert time.monotonic() < deadline, "timed out waiting for " + condition.__name__
+        time.sleep(.02)
+
+
+def registration(repository_path, worktree):
+    """The lines git lists for `worktree` beyond its path and HEAD, or None if unregistered."""
+    listing = git(repository_path, "worktree", "list", "--porcelain")
+    for stanza in listing.split("\n\n"):
+        lines = stanza.splitlines()
+        if lines and os.path.realpath(lines[0].removeprefix("worktree ")) == os.path.realpath(worktree):
+            return [line for line in lines[1:] if not line.startswith("HEAD ") and line != "detached"]
+    return None
+
+
+@pytest.fixture
+def slow_checkout(state_daemon, tmp_path):
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    gate, pids = tmp_path / "checkout-gate", tmp_path / "checkout-pids"
+    (workdir / ".gitattributes").write_text("slow.txt filter=slow\n")
+    (workdir / "slow.txt").write_text("slow\n")
+    (workdir / "z-after.txt").write_text("after\n")
+    git(workdir, "add", "-A")
+    git(workdir, "commit", "-m", "a checkout that can be held")
+    git(workdir, "config", "filter.slow.smudge",
+        f"echo $$ $PPID >> '{pids}'; while [ -e '{gate}' ]; do sleep 0.02; done; cat")
+    gate.touch()
+    try:
+        yield SimpleNamespace(workdir=workdir, gate=gate, pids=pids)
+    finally:
+        gate.unlink(missing_ok=True)
+        for pid in recorded(pids):
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(pid, signal.SIGKILL)
+
+
+def start_add(checkout, worktree, head, env=None):
+    """A `git worktree add` in a session of its own, held in its checkout's filter."""
+    process = subprocess.Popen(["git", "-C", str(checkout.workdir), "worktree", "add", "--detach", str(worktree), head],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               env=env, start_new_session=True)
+
+    def reached_the_filter():
+        return len(recorded(checkout.pids)) == 2
+    wait_for(reached_the_filter)
+    return process
+
+
+def killed_add(checkout, worktree, head):
+    """What a `git worktree add` leaves when it dies mid-checkout with all its children."""
+    process = start_add(checkout, worktree, head)
+    os.killpg(process.pid, signal.SIGKILL)
+    process.wait()
+
+    def group_gone():
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            pass                               # macOS: only unreaped zombies are left
+        return False
+    wait_for(group_gone)
+    checkout.gate.unlink()
+
+
+def test_c6_8_on_main_a_killed_worktree_add_orphans_its_checkout(state_daemon, slow_checkout):
+    """C-6.8 as it stands on main: the cap kills `git worktree add` alone.
+
+    Its `git reset --hard` and the filter it runs keep going after the add is
+    gone and the directory removed. The registration keeps git's
+    `initializing` lock, which `git worktree prune` skips, so the retry's add
+    is refused for it and the job fails at once, and as a refusal (rc 7, a
+    plain `job.failed`), not the rc 1 `job.workspace_failed` C-6.8 names for
+    git exiting non-zero.
+    """
+    daemon, harness = state_daemon
+    daemon.policy["caps"]["worktree_add_timeout_s"] = ADD_CAP_S
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    worktree = daemon.root / "worktrees" / job_id
+    daemon._admit()
+
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error"] == f"git worktree timed out after {ADD_CAP_S} s"
+    filter_pid, reset_pid = recorded(slow_checkout.pids)
+    assert running(filter_pid) and running(reset_pid)
+    assert not worktree.exists()
+    assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
+
+    slow_checkout.gate.unlink()
+    due(daemon, job_id)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7) and daemon.store.list_attempts(job_id) == []
+    assert events(daemon, job_id, "job.workspace_failed") == []
+    [notice] = daemon.store.list_notices()
+    assert "could not allocate worktree" in notice["text"] and "missing but locked worktree" in notice["text"]
+
+
+def test_c6_8_on_main_a_half_made_checkout_is_handed_to_a_provider(state_daemon, slow_checkout):
+    """C-6.8 as it stands on main: `.git` is a link and HEAD answers, so it is reused.
+
+    The attempt is reserved in a tree that is missing files, locked
+    `initializing`, with no index, and its baseline records the missing files
+    as deleted.
+    """
+    daemon, harness = state_daemon
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    killed_add(slow_checkout, worktree, head)
+    assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
+
+    daemon._admit()
+    [attempt] = daemon.store.list_attempts(job_id)
+    assert attempt["state"] == "reserved"
+    assert not (worktree / "slow.txt").exists() and not (worktree / "z-after.txt").exists()
+    assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
+    assert attempt["baseline_tree"] != git(slow_checkout.workdir, "rev-parse", head + "^{tree}")
+
+
+def test_c6_8_on_main_an_add_still_running_is_raced(state_daemon, slow_checkout):
+    """C-6.8 as it stands on main: an add a stopped daemon started is still checking out.
+
+    The next daemon reuses its half-made tree while it is still being written.
+    """
+    daemon, harness = state_daemon
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    process = start_add(slow_checkout, worktree, head)
+    try:
+        daemon._admit()
+        [attempt] = daemon.store.list_attempts(job_id)
+        assert attempt["state"] == "reserved" and process.poll() is None
+        assert not (worktree / "z-after.txt").exists()
+    finally:
+        slow_checkout.gate.unlink()
+        process.wait(timeout=30)
+
+
+def test_c6_8_on_main_a_discard_prunes_the_callers_other_worktrees(state_daemon, tmp_path):
+    """C-6.8 as it stands on main: the discard runs `git worktree prune` in the caller's repository.
+
+    `prune` with no path drops every stale, unlocked registration there, not
+    only this job's. A worktree of the caller's whose directory is absent for
+    now (a volume not mounted, a tree moved by hand) loses its HEAD, its index,
+    and its reflog, and a commit made only there is no longer reachable.
+    """
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    theirs = tmp_path / "theirs"
+    git(workdir, "worktree", "add", "--detach", str(theirs), "HEAD")
+    (theirs / "committed.txt").write_text("only in their worktree\n")
+    git(theirs, "add", "committed.txt")
+    git(theirs, "commit", "-m", "made only in their worktree")
+    only_theirs = git(theirs, "rev-parse", "HEAD")
+    (theirs / "staged.txt").write_text("staged\n")
+    git(theirs, "add", "staged.txt")
+    admin = Path(git(theirs, "rev-parse", "--absolute-git-dir"))
+    away = tmp_path / "theirs-unmounted"
+    theirs.rename(away)
+    (daemon.root / "worktrees" / job_id).mkdir()          # what an add killed early leaves
+
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+    assert not admin.exists()
+    assert only_theirs not in git(workdir, "rev-list", "--all", "--reflog").split()
+    away.rename(theirs)
+    status = subprocess.run(["git", "-C", str(theirs), "status"], capture_output=True, text=True)
+    assert status.returncode != 0 and "not a git repository" in status.stderr
