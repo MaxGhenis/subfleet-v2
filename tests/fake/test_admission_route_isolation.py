@@ -905,9 +905,22 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
     _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
     service.store.add_closure(Closure("claude-a", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
                                       ClockSource.REPORTED, "fixture"))
+    looks = {"workspace": 0, "pick": 0}
+    real_workspace, real_pick = service._workspace, service._pick
+    service._workspace = lambda job: looks.__setitem__("workspace", looks["workspace"] + 1) or real_workspace(job)
+    service._pick = lambda job, **options: looks.__setitem__("pick", looks["pick"] + 1) or real_pick(job, **options)
     service._admit()
-    assert service._holds[retry] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+    hold = service._holds[retry]
+    assert {key: hold[key] for key in ("reason", "behind", "tier")} == {
+        "reason": "behind-older-job", "behind": older, "tier": "standard"}
     assert [row["state"] for row in service.store.list_attempts(retry)] == ["failed"]
+    # C-6.10: held after a look, so on a clock: the passes before it is due prepare nothing and score nothing.
+    job = service.store.get_job(retry)
+    assert job["state"] == "waiting" and job["wait_reason"] == "capacity" and job["next_check_at"] > utcnow()
+    before = dict(looks)
+    for _ in range(5):
+        service._admit()
+    assert looks == before and service._holds[retry]["reason"] == "behind-older-job"
 
 
 def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet):

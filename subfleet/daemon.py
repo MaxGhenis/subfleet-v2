@@ -2460,7 +2460,17 @@ class Daemon:
                     behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
                                    if scheduler.competes(models, theirs, lanes, their_lanes)), None)
                     if behind:
-                        holds[job["job_id"]] = {"reason": "behind-older-job", "behind": behind, "tier": tier}
+                        # C-6.10: held after a look, so on a clock like every other
+                        # such hold; until it is due the job is held at the top of
+                        # the pass with its own demand, with no git and no scoring.
+                        hold = {"reason": "behind-older-job", "behind": behind, "tier": tier}
+                        rechecks = self._capacity_wait(job["job_id"], f"retry-let-go:behind:{behind}", hold)
+                        next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                        with self.store.transaction("job.retry_let_go", job_id=job["job_id"]) as tx:
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                                       "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                                       (next_check, job["job_id"]))
+                        holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
             try:
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
