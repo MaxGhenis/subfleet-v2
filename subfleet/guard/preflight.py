@@ -40,8 +40,6 @@ import time
 from typing import Any
 
 
-HOOK_PATH = Path(__file__).with_name("never-rules-hook.sh")
-TRUST_PATH = Path(__file__).with_name("TRUST")
 HOOK_KEY = "/<session-flags>/config.toml:pre_tool_use:0:0"
 HOOK_MATCHER = "Bash|apply_patch"
 HOOK_STATUS = "never-rules guard"
@@ -58,7 +56,8 @@ TRANSCRIPT_LINES = 24
 TRANSCRIPT_LINE_CHARS = 2000
 STDERR_TAIL_BYTES = 4096
 _SECRET_ENV = ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
-_FIX = "Restore the reviewed guard files and pinned Codex version, then rerun subfleet doctor."
+_FIX = ("Stage the reviewed never-rules-hook.sh and TRUST in <state root>/guard, "
+        "restore the pinned Codex version, then rerun subfleet doctor.")
 _TIMEOUT_FIX = ("Check local CPU/I/O pressure and daemon scheduling, then repeat the guard preflight; "
                 f"raise {TIMEOUT_ENV} (seconds, default {DEFAULT_TIMEOUT_S:g}) for the daemon if Codex "
                 "startup is legitimately slow on this machine. A timeout does not establish guard-file "
@@ -169,6 +168,54 @@ def override_string(hook_path: str | Path) -> str:
     )
 
 
+def guard_paths(state_root: str | Path | None = None, *,
+                hook_path: str | Path | None = None,
+                trust_path: str | Path | None = None) -> tuple[Path, Path]:
+    """Resolve operator-owned overlay locations without creating files.
+
+    There is deliberately no bundled or test-fixture fallback. The legacy
+    TRUST override remains supported; an explicit argument takes precedence.
+    """
+    directory = Path(state_root if state_root is not None else _state_root()).expanduser() / "guard"
+    return (Path(hook_path) if hook_path is not None else directory / "never-rules-hook.sh",
+            Path(trust_path if trust_path is not None else
+                 os.environ.get("SUBFLEET_GUARD_TRUST") or directory / "TRUST"))
+
+
+def load_guard(state_root: str | Path | None = None, *,
+               hook_path: str | Path | None = None,
+               trust_path: str | Path | None = None) -> tuple[Path, Path, dict[str, Any]]:
+    """Read and validate the reviewed overlay; doctor and launches share this check.
+
+    This checks only local files. It cannot establish runtime Codex trust, which
+    still requires the version check and hooks/list preflight. Raises ValueError
+    on an absent, malformed or mismatched overlay, without writing anything.
+    """
+    hook, pin = guard_paths(state_root, hook_path=hook_path, trust_path=trust_path)
+    try:
+        hook, pin = hook.resolve(strict=True), pin.resolve(strict=True)
+        trust = json.loads(pin.read_text())
+        hook_bytes = hook.read_bytes()
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"guard file unreadable: {exc}") from None
+    except (ValueError, UnicodeError):
+        raise ValueError("guard TRUST is not valid UTF-8 JSON") from None
+    fields = ("hook_sha256", "codex_version", "reference_hook_path", "hooks_trust_hash", "override")
+    if not isinstance(trust, dict) or any(
+            not isinstance(trust.get(field), str) or not trust[field].strip() for field in fields):
+        raise ValueError("guard TRUST must contain nonempty string pins: " + ", ".join(fields))
+    if hashlib.sha256(hook_bytes).hexdigest() != trust["hook_sha256"]:
+        raise ValueError("never-rules hook SHA-256 does not match TRUST")
+    if not os.access(hook, os.X_OK):
+        raise ValueError("never-rules hook is not executable")
+    reference = trust["reference_hook_path"]
+    if hooks_trust_hash(reference) != trust["hooks_trust_hash"]:
+        raise ValueError("Codex hooks trust hash does not match TRUST")
+    if override_string(reference) != trust["override"]:
+        raise ValueError("Codex guard override does not match TRUST")
+    return hook, pin, trust
+
+
 def resolve_timeout(timeout_s: float | None = None) -> float:
     """The hooks/list deadline: an explicit value, else ``CODEX_GUARD_PREFLIGHT_TIMEOUT``,
     else 60 s. Raises ValueError naming the variable for an unusable setting."""
@@ -218,9 +265,17 @@ def seed_fingerprint(home: str | Path | None = None, *, seeds: dict[str, bytes] 
     return digest.hexdigest()
 
 
-def cache_key(version: str, home: str | Path, override: str, fingerprint: str) -> str:
-    """v1's marker key: sha256 of ``version|home|override|seed fingerprint``."""
-    return hashlib.sha256(f"{version}|{home}|{override}|{fingerprint}".encode()).hexdigest()
+def cache_key(version: str, home: str | Path, override: str, fingerprint: str,
+              *, overlay: dict[str, Any] | None = None) -> str:
+    """Key the runtime verdict on the launch inputs and reviewed overlay pins.
+
+    The overlay includes its hook SHA, so even an approved replacement at the
+    same path forces re-verification. Old markers remain harmless on disk.
+    """
+    material = f"{version}|{home}|{override}|{fingerprint}"
+    if overlay is not None:
+        material += "|" + json.dumps(overlay, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(material.encode()).hexdigest()
 
 
 def cache_dir(state_root: str | Path | None = None) -> Path:
@@ -472,7 +527,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
     Callers should pass the lane home and job workdir. Omitting ``home`` uses
     ``CODEX_HOME`` when set; without either, doctor checks a fresh empty home
     and nothing is cached. Omitting ``trust_path`` uses ``SUBFLEET_GUARD_TRUST``
-    when set, then the packaged ``TRUST`` file. An explicit path takes precedence.
+    when set, then ``<state root>/guard/TRUST``. An explicit path takes precedence.
+    The hook defaults to ``<state root>/guard/never-rules-hook.sh``. Neither file
+    is supplied by the portable core; an absent overlay refuses executable work.
     Omitting ``timeout_s`` uses ``CODEX_GUARD_PREFLIGHT_TIMEOUT``, then 60 s; the
     deadline bounds each of the two Codex calls (``--version`` and hooks/list).
     ``state_root`` (the daemon's root) places the scratch home and the markers;
@@ -492,25 +549,10 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             deadline = resolve_timeout(timeout_s)
         except ValueError as exc:
             raise _Refusal(CONFIG, str(exc), _CONFIG_FIX) from None
-        hook = Path(hook_path) if hook_path is not None else HOOK_PATH
-        trust_file = trust_path if trust_path is not None else os.environ.get("SUBFLEET_GUARD_TRUST") or TRUST_PATH
         try:
-            # A guard file that is gone or unreadable is a trust failure, not a
-            # missing-directory problem: the fix is to restore the reviewed files.
-            hook = hook.resolve(strict=True)
-            trust = json.loads(Path(trust_file).read_text())
-            hook_bytes = hook.read_bytes()
-        except OSError as exc:
-            raise _Refusal(TRUST, f"guard file unreadable: {exc}") from None
-        if hashlib.sha256(hook_bytes).hexdigest() != trust["hook_sha256"]:
-            raise _Refusal(TRUST, "never-rules hook SHA-256 does not match TRUST")
-        if not os.access(hook, os.X_OK):
-            raise _Refusal(TRUST, "never-rules hook is not executable")
-        reference = trust["reference_hook_path"]
-        if hooks_trust_hash(reference) != trust["hooks_trust_hash"]:
-            raise _Refusal(TRUST, "Codex hooks trust hash does not match TRUST")
-        if override_string(reference) != trust["override"]:
-            raise _Refusal(TRUST, "Codex guard override does not match TRUST")
+            hook, _, trust = load_guard(state_root, hook_path=hook_path, trust_path=trust_path)
+        except ValueError as exc:
+            raise _Refusal(TRUST, str(exc)) from None
         if not _jq_available():
             raise _Refusal(ENVIRONMENT, "jq is required by the never-rules hook",
                            "Install jq on PATH, then rerun subfleet doctor.")
@@ -558,7 +600,7 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                 raise _Refusal(ENVIRONMENT, f"preflight cannot read the lane's seed files: {exc}",
                                _ENVIRONMENT_FIX) from None
             fingerprint = seed_fingerprint(seeds=seeds)
-            key = cache_key(version, source_home, override, fingerprint)
+            key = cache_key(version, source_home, override, fingerprint, overlay=trust)
             if use_cache and read_cached_verdict(markers, key) is not None:
                 return PreflightResult(True, 0, "Codex never-rules guard trust verified (cached verdict)",
                                        version=version, hooks_hash=hooks_hash, override=override,

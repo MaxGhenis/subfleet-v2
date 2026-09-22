@@ -75,6 +75,8 @@ class CLIResult(NamedTuple):
 class E2E:
     def __init__(self, root: Path):
         self.root = root.resolve()
+        from tests.fake.guard import install_guard
+        install_guard(self.root)
         self.workdir = self.root / "work"
         self.workdir.mkdir()
         self.prompt = self.root / "prompt.md"

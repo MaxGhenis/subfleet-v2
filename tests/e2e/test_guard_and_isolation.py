@@ -6,13 +6,12 @@ from pathlib import Path
 import pytest
 
 
-TRUST = Path(__file__).resolve().parents[2] / "subfleet" / "guard" / "TRUST"
 API_KEYS = ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 
 
 def test_changed_guard_trust_refuses_codex_with_the_fix(e2e):
     """C-14.2, C-17.3: a mismatched TRUST refuses the real CLI before provider launch."""
-    trust = json.loads(TRUST.read_text())
+    trust = json.loads((e2e.root / "guard/TRUST").read_text())
     trust["hook_sha256"] = "0" * 64
     wrong_trust = e2e.root / "wrong-TRUST"
     wrong_trust.write_text(json.dumps(trust))

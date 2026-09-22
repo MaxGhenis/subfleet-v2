@@ -349,6 +349,10 @@ def check_guard_preflight(root: Path) -> dict[str, Any]:
         directory = guard.cache_dir(root)
     except ValueError as exc:
         return row(check, FAIL, str(exc), guard._CACHE_CONFIG_FIX)
+    try:
+        hook, pin, _ = guard.load_guard(root)
+    except ValueError as exc:
+        return row(check, FAIL, str(exc), guard._FIX)
     markers = 0
     try:
         markers = sum(1 for path in directory.glob("guard-ok-*.json")
@@ -357,7 +361,8 @@ def check_guard_preflight(root: Path) -> dict[str, Any]:
         pass
     return row(check, PASS,
                f"hooks/list deadline {deadline:g}s ({source}); {markers} current verified marker(s) "
-               f"in {directory}",
+               f"in {directory}; local overlay valid: hook {hook}; TRUST {pin} "
+               "(runtime trust requires preflight)",
                f"set {guard.TIMEOUT_ENV} for the daemon to change the deadline; delete "
                f"{directory} to force re-verification")
 
