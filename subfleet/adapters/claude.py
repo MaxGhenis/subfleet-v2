@@ -54,7 +54,7 @@ from ..contracts import (
 from .base import Adapter, AdapterError
 from .claude_stream import (
     AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
-    parse_lines, parse_stream,
+    is_synthetic_api_error, parse_lines, parse_stream,
 )
 
 # --- constants ---------------------------------------------------------------
@@ -1814,16 +1814,24 @@ class ClaudeAdapter(Adapter):
             return AttestationResult(Attestation.UNATTESTED, None, error)
 
         served: list[str] = []
+        synthetic = 0
+        missing = 0
         for row in rows:
+            if is_synthetic_api_error(row):
+                synthetic += 1
+                continue
             message = row.get("message")
             model = message.get("model") if isinstance(message, dict) else None
             if isinstance(model, str) and model:
                 served.append(model)
+            else:
+                missing += 1
+        ignored = f"; ignored {synthetic} provider synthetic API-error frame(s)" if synthetic else ""
         if not served:
             return AttestationResult(
                 Attestation.UNATTESTED, None,
                 f"no assistant turn with a model field in {transcript} after byte "
-                f"{offset or 0}",
+                f"{offset or 0}{ignored}",
             )
         mismatch = next(
             (m for m in served if not model_matches_requested(m, model_id)), None
@@ -1832,11 +1840,16 @@ class ClaudeAdapter(Adapter):
             return AttestationResult(
                 Attestation.MISMATCH, mismatch,
                 f"requested {model_id}; {transcript} records assistant models "
-                f"{', '.join(dict.fromkeys(served))}",
+                f"{', '.join(dict.fromkeys(served))}{ignored}",
+            )
+        if missing:
+            return AttestationResult(
+                Attestation.UNATTESTED, None,
+                f"{missing} assistant turn(s) without a model field in {transcript}{ignored}",
             )
         return AttestationResult(
             Attestation.ATTESTED, served[-1],
-            f"{len(served)} assistant turn(s) in {transcript} all served by {model_id}",
+            f"{len(served)} assistant turn(s) in {transcript} all served by {model_id}{ignored}",
         )
 
     # --- deliverable (C-12.6) ------------------------------------------------
@@ -1936,6 +1949,9 @@ def _clock_from_text(text: str, now: datetime) -> datetime | None:
 
 
 def _single_served_model(summary: StreamSummary) -> str | None:
+    if any(not message.model and not is_synthetic_api_error(message.raw)
+           for message in summary.assistants):
+        return None
     models = tuple(dict.fromkeys(summary.assistant_models))
     return models[0] if len(models) == 1 else None
 

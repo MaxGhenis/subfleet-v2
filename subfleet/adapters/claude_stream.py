@@ -71,6 +71,48 @@ ADMISSION_ALLOWED = ("allowed", "allowed_warning")
 ADMISSION_REJECTED = "rejected"
 
 
+def is_synthetic_api_error(row: Any) -> bool:
+    """Recognize Claude Code's local error placeholder, not a served model.
+
+    Stream events use snake_case and saved transcripts use camelCase for the
+    marker. Require the exact sentinel, an explicit API-error marker, a known
+    error kind, text-only content and zero usage. Any other model or unfamiliar
+    shape remains model evidence and must still fail closed at attestation.
+    This predicate never removes the frame's error or text from classification.
+    """
+    if not isinstance(row, dict) or row.get("type") != "assistant":
+        return False
+    if (row.get("is_api_error_message") is not True and
+            row.get("isApiErrorMessage") is not True):
+        return False
+    message = row.get("message")
+    if (row.get("error") not in ERROR_KINDS or not isinstance(message, dict) or
+            message.get("model") != "<synthetic>" or message.get("role") != "assistant" or
+            message.get("type") != "message"):
+        return False
+    usage, content = message.get("usage"), message.get("content")
+    token_fields = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+    if not isinstance(usage, dict) or not all(type(usage.get(key)) is int and usage[key] == 0
+                                            for key in token_fields):
+        return False
+
+    def zero_details(value: Any) -> bool:
+        return isinstance(value, dict) and all(
+            (type(count) is int and count == 0) or zero_details(count)
+            for count in value.values())
+
+    # Aggregate zeros cannot override conflicting detailed work counters. These
+    # optional detail objects may be absent/null, but supplied counters must be
+    # integer zero, including any new counters within the known detail objects.
+    for key in ("cache_creation", "server_tool_use", "input_tokens_details", "output_tokens_details"):
+        details = usage.get(key)
+        if details is not None and not zero_details(details):
+            return False
+    return isinstance(content, list) and bool(content) and all(
+        isinstance(block, dict) and block.get("type") == "text" and
+        isinstance(block.get("text"), str) for block in content)
+
+
 @dataclass(frozen=True)
 class InitEvent:
     """`system/init`. Its mere presence proves the credential authenticated (C-9.3)."""
@@ -195,7 +237,8 @@ class StreamSummary:
 
     @property
     def assistant_models(self) -> tuple[str, ...]:
-        return tuple(a.model for a in self.assistants if a.model)
+        return tuple(a.model for a in self.assistants
+                     if a.model and not is_synthetic_api_error(a.raw))
 
     @property
     def error_kinds(self) -> tuple[str, ...]:
