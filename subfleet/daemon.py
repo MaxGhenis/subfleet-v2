@@ -132,6 +132,7 @@ def worker_retry_delay(failures: int) -> float:
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
 
 
+_REPEAT_CUTOFF = 3                   # traceback's own cutoff for a repeated frame
 _CAUSE = "The above exception was the direct cause of the following exception:"
 _CONTEXT = "During handling of the above exception, another exception occurred:"
 
@@ -191,7 +192,20 @@ def traceback_lines(exc: BaseException) -> list[str]:
         frames = traceback.extract_tb(link.__traceback__)
         if frames:
             lines.append("Traceback (most recent call last):")
-            for frame in frames:
+            # As Python prints a recursion: a frame repeated more than three times
+            # in a row is shown three times and counted, so a RecursionError is
+            # a dozen lines, not two thousand.
+            previous, count = None, 0
+            for frame in [*frames, None]:
+                where = frame and (frame.filename, frame.lineno, frame.name)
+                if where != previous:
+                    if count > _REPEAT_CUTOFF:
+                        more = count - _REPEAT_CUTOFF
+                        lines.append(f"  [Previous line repeated {more} more time{'s' if more > 1 else ''}]")
+                    previous, count = where, 0
+                count += 1
+                if frame is None or count > _REPEAT_CUTOFF:
+                    continue
                 lines.append(f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}')
                 if frame.line:
                     lines.append("    " + frame.line)

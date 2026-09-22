@@ -9,6 +9,7 @@ message: file, line, function, and a line of this program's source.
 
 import re
 import threading
+import traceback as stdlib
 
 import pytest
 
@@ -114,6 +115,31 @@ def test_c5_10_an_exception_that_was_never_raised_is_its_type_and_a_cycle_ends()
     first, second = ValueError(SECRET), TypeError(SECRET)
     first.__context__, second.__context__ = second, first
     assert traceback_lines(first) == ["TypeError", daemon_module._CONTEXT, "ValueError"]
+
+
+def test_c5_10_a_recursion_is_counted_as_python_counts_it():
+    def recurse(depth):
+        if depth == 0:
+            raise RecursionError(SECRET)
+        recurse(depth - 1)
+
+    exc = raised(recurse, 500)
+    lines = traceback_lines(exc)
+    assert len(lines) < 20 and lines[-1] == "RecursionError" and SECRET not in "\n".join(lines)
+    assert sum(", in recurse" in line for line in lines) == 4          # three repeats and the raise
+    python = [line.rstrip("\n") for line in stdlib.format_exception(exc) if "repeated" in line]
+    assert [line for line in lines if "repeated" in line] == python == ["  [Previous line repeated 497 more times]"]
+
+
+def test_c5_10_one_repeat_past_the_cutoff_is_a_time_not_times():
+    def recurse(depth):
+        if depth == 0:
+            raise ValueError(SECRET)
+        recurse(depth - 1)
+
+    exc = raised(recurse, 4)
+    python = [line.rstrip("\n") for line in stdlib.format_exception(exc) if "repeated" in line]
+    assert [line for line in traceback_lines(exc) if "repeated" in line] == python == ["  [Previous line repeated 1 more time]"]
 
 
 def test_c5_10_the_signature_follows_the_site_and_not_the_message():
