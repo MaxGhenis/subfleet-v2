@@ -707,12 +707,15 @@ class Daemon:
     def _pin_roster(self) -> list[dict]:
         """C-11.2: the lanes a pin is resolved against, at submit, at recovery and in admission.
 
-        The capacity view's, the lanes `_pick` evaluates: besides the store's
-        columns they carry what the usage probes report, a Codex lane's email
-        among it. On 2026-09-22 submit resolved against the store rows, which
-        have no Codex email, while admission resolved against the view.
+        The lanes `_pick` evaluates, as names go: each store row with its latest
+        probe verdict merged in, exactly as `Timers.enrich_view` merges it into
+        the capacity view, so a Codex lane carries the email its usage probe
+        reported. On 2026-09-22 submit resolved against the bare store rows while
+        admission resolved against the view. The readings are left out: a pin
+        needs none, and a view costs about 50 ms on the live store, which every
+        admission pass would pay.
         """
-        return self._capacity_view()["lanes"]
+        return [{**row, **self.timers.metadata.get(row["lane_id"], {})} for row in self.store.lane_rows()]
 
     def submit(self, args: protocol.SubmitArgs) -> dict:
         # Called on a filesystem worker, never on the socket reader pool.
@@ -727,6 +730,9 @@ class Daemon:
             resume = None
             if args.kind == "resume":
                 args, resume = self._resume_submission(args)
+            # An empty task or tier is none: `evaluate` would reject '' on every
+            # pass of a job submit had accepted (C-6.12).
+            args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
             try:
                 ids.request_id(args.request_id)
                 sandbox = Sandbox(args.sandbox)
@@ -784,12 +790,7 @@ class Daemon:
                 # C-11.2: resolved as admission resolves it (same lanes, and the
                 # job's provider narrows a name two providers share), then kept as
                 # the lane id, so no later roster change can make it ambiguous.
-                lane_row = (scheduler.resolve_lane(self._pin_roster(), args.pinned_lane, scheduler.pin_provider(
-                    self.policy, {"pinned_model": model, "task": args.task, "tier": args.tier}))
-                            if args.pinned_lane else None)
-                lane = self.store.get_lane(lane_row["lane_id"]) if lane_row else None
-                if args.pinned_lane and not lane:
-                    raise ValueError(f"unknown lane {args.pinned_lane}")
+                lane = self._resolve_pin(args, model, reason) if args.pinned_lane else None
                 pinned_lane = lane.lane_id if lane else None
                 # The request digest keeps the pin as the caller wrote it, so a
                 # retry is compared with what it asked for, also across a roster
@@ -836,7 +837,7 @@ class Daemon:
                                 existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
             jobdir = self.root / "jobs" / job_id
             values = dataclasses.asdict(args)
-            for k in ("allow_tmp", "no_preamble", "dry_run", "batch"):
+            for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest,
                           workdir=str(workdir), workdir_head=head, out_path=out,
@@ -882,6 +883,45 @@ class Daemon:
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
             self._notify()
             return {"job_id": job_id, "request_id": args.request_id, "created": True}
+
+    def _resolve_pin(self, args: protocol.SubmitArgs, model: str | None, reason: str | None) -> Lane:
+        """C-11.2: the lane a submitted pin names, resolved once, as admission would.
+
+        The job's provider (its model's, else its task's first model at its tier)
+        narrows a name both providers answer to; with neither, the flag's does
+        (`-a` a Claude account, `-H` a Codex home). A name given with `-a` or
+        `-H` names a lane of that flag's provider only, so a model of the other
+        is refused, as v1 refused `-a` with a Codex model; a lane id says its
+        own provider. A retry of an accepted request (C-6.2) whose name no
+        longer resolves to one lane is answered from the lane it was accepted
+        on, and its digest then decides.
+        """
+        job_provider = scheduler.pin_provider(self.policy, {"pinned_model": model, "task": args.task, "tier": args.tier})
+        roster = self._pin_roster()
+        flag = args.pinned_provider if args.pinned_provider in ("claude", "codex") else None
+        if flag and not any(lane["lane_id"] == args.pinned_lane for lane in roster):
+            if job_provider and job_provider != flag:
+                raise ValueError(f"pinned_lane: {args.pinned_lane!r} was given as a {flag} lane "
+                                 f"({'-a' if flag == 'claude' else '-H'}), and this job's model runs on "
+                                 f"{job_provider}; pin a {job_provider} lane or its lane id")
+            roster = [lane for lane in roster if lane["provider"] == flag]
+        try:
+            found = scheduler.resolve_lane(roster, args.pinned_lane, job_provider or flag,
+                                           follow=reason is None)
+        except scheduler.RouteError:
+            found = None
+            if not self._accepted_pin(args.request_id):
+                raise
+        found = found or self._accepted_pin(args.request_id)
+        lane = self.store.get_lane(found["lane_id"]) if found else None
+        if not lane:
+            raise ValueError(f"unknown lane {args.pinned_lane}")
+        return lane
+
+    def _accepted_pin(self, request_id: str) -> dict | None:
+        """The lane an already accepted request was pinned to, when that is a lane id (C-6.2)."""
+        row = self.store.one("SELECT pinned_lane FROM jobs WHERE request_id=?", (request_id,))
+        return {"lane_id": row["pinned_lane"]} if row and row["pinned_lane"] and self.store.get_lane(row["pinned_lane"]) else None
 
     def _resume_submission(self, args: protocol.SubmitArgs) -> tuple[protocol.SubmitArgs, dict]:
         """Resolve the native session on its original lane before persisting a resume."""
@@ -1346,7 +1386,13 @@ class Daemon:
         row = self.store.one("SELECT decision_json,evaluated_at FROM decisions WHERE job_id=? ORDER BY decision_id DESC LIMIT 1", (job["job_id"],))
         decision, source = (json.loads(row["decision_json"]), "recorded") if row else (None, None)
         pending = job["state"] in ("queued", "waiting") and not job["cancel_requested_at"]
-        route_error = None
+        route_error = refused = None
+        if job["state"] == "failed":
+            event = self.store.one("SELECT ts,data_json FROM events WHERE kind='job.route_refused' AND job_id=? "
+                                   "ORDER BY event_id DESC LIMIT 1", (job["job_id"],))
+            if event and (row is None or event["ts"] >= row["evaluated_at"]):
+                record = json.loads(event["data_json"])
+                refused = f"{record.get('error_type')}: {record.get('error')}"
         if decision is None and pending:
             try:
                 decision, source = dataclasses.asdict(self._pick(job, desktop=self._desktop_identity())), "evaluated-now"
@@ -1355,12 +1401,6 @@ class Daemon:
                 # "No decision recorded." for five jobs that stopped admission.
                 route_error = f"{type(exc).__name__}: {exc}"
                 self.log.debug("why %s: evaluation failed: %s", job["job_id"], type(exc).__name__)
-        elif decision is None and job["state"] == "failed":
-            refused = self.store.one("SELECT data_json FROM events WHERE kind='job.route_refused' AND job_id=? "
-                                     "ORDER BY event_id DESC LIMIT 1", (job["job_id"],))
-            if refused:
-                record = json.loads(refused["data_json"])
-                route_error = f"{record.get('error_type')}: {record.get('error')}"
         hold = self._holds.get(job["job_id"]) if pending else None
         wait = self._capacity_waits.get(job["job_id"]) if pending else None
         recheck = ({key: wait[key] for key in ("rechecks", "since", "checked_at", "label")} if wait else None)
@@ -1369,11 +1409,16 @@ class Daemon:
                     "hold": hold, "recheck": recheck, "decision_source": source,
                     "decided_at": row["evaluated_at"] if row else None}
         queue = render.why_queue(standing)
-        text = (render.why(decision) if decision else
-                f"Decision: none; this job's route could not be evaluated: {route_error}" if route_error else
-                "No decision recorded.")
+        # C-6.12: a refusal comes first; a decision recorded before it is the last walk it had.
+        lines = [*queue, *([f"Refused at admission: {refused}"] if refused else [])]
+        if decision:
+            lines.append(render.why(decision))
+        elif route_error:
+            lines.append(f"Decision: none; this job's route could not be evaluated: {route_error}")
+        elif not refused:
+            lines.append("No decision recorded.")
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "route_error": route_error, "text": "\n".join([*queue, text])}
+                "route_error": route_error, "refused": refused, "text": "\n".join(lines)}
 
     def _admission_status(self, view: dict) -> dict:
         """C-6.11: what admission is holding and for how long, for `status`."""
@@ -1667,14 +1712,23 @@ class Daemon:
         """C-11.2: an unfinished job's pin is the lane id its name resolved to.
 
         Submit has stored the lane id since 2026-09-22; a job accepted before
-        kept the name its caller typed, and five such names later named a Claude
-        lane and a Codex lane at once. Each start resolves those as submit now
-        does. A name that resolves to one lane becomes its id (event
+        kept the name its caller typed, resolved against the store's lane rows,
+        where a Codex lane has no email, while admission resolved it against the
+        view, where five such names matched a Claude lane and a Codex lane at
+        once. Each start resolves those as submit now does. A name that resolves to one lane becomes its id (event
         `job.pin_canonicalized`); one that names several lanes or none is left
         for admission to refuse or report (C-6.12), and `daemon.log` says so. A
         job carrying an unmeasured-reserve authorization is never rewritten:
         that authorization names the lane id it was granted for (C-11.7).
         """
+        try:
+            self._canonicalize_pins_once()
+        except Exception as exc:
+            # Advisory: admission settles whatever this leaves (C-6.12), and a
+            # recovery that raised would keep timers and admission from starting.
+            self.log.warning("pin repair skipped: %s", type(exc).__name__)
+
+    def _canonicalize_pins_once(self) -> None:
         lanes = self._pin_roster()
         known = {lane["lane_id"] for lane in lanes}
         for job in self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting','running') "
@@ -2471,6 +2525,19 @@ class Daemon:
             route["failed"] = True
             self._unroutable(job, exc, holds)
 
+    def _discard_fresh_worktree(self, job_id: str) -> None:
+        """C-6.12: the worktree admission cut for a job it then refused.
+
+        `_workspace` allocates `worktrees/<job id>/` before the route is
+        evaluated; `jobs.worktree` is set only when an attempt is reserved, so
+        retention would never collect one that no attempt used.
+        """
+        job = self.store.get_job(job_id)
+        path = self.root / "worktrees" / job_id
+        if (job and job["state"] in TERMINAL and job["sandbox"] == "workspace-write" and not job["in_place"]
+                and not job["worktree"] and path.exists() and not self.store.list_attempts(job_id)):
+            self._discard_worktree(job["workdir"], str(path), self.policy["caps"]["workspace_git_timeout_s"])
+
     def _route_hold(self, job_id: str, next_check_at: str | None) -> dict:
         """C-6.11, C-6.12: what a route wait reports, also on passes that do not look at it."""
         record = self._route_deferrals.get(job_id) or {}
@@ -2480,22 +2547,28 @@ class Daemon:
     def _unroutable(self, job: dict, exc: Unroutable, holds: dict[str, dict]) -> None:
         """C-6.12: settle one job whose route could not be evaluated; the pass goes on.
 
-        A `RouteError` is the job's own (its pin names several lanes, or a lane
-        and a model of different providers): no wait fixes it, so the job fails
-        with the message and exit 2, as submit would have refused it. Anything
-        else (bad capacity data, a policy that no longer knows the job's task or
-        model, a defect) is not the job's and may be fixed by a restart, so the
-        job waits on `route`, never terminally, rechecked 5 s out doubling to
-        300 s, and holds back no other job.
+        A `RouteError` is the job's own (its pin names several lanes, a lane and
+        a model of different providers, an authorization that is not whole): no
+        wait fixes it, so the job fails with the message and exit 2, as submit
+        would have refused it, unless the error is one a policy edit can cause
+        and the job was accepted under another policy. Anything else (bad
+        capacity data, a policy that no longer knows the job's task or model, a
+        defect) is not the job's and may be fixed by a restart, so the job waits
+        on `route`, never terminally, rechecked 5 s out doubling to 300 s, and
+        holds back no other job.
         """
         cause, job_id = exc.cause, job["job_id"]
         record = {"error_type": type(cause).__name__, "error": str(cause)[:500]}
         self._capacity_waits.pop(job_id, None)
-        if isinstance(cause, scheduler.RouteError):
+        # A provider conflict under a policy other than the one the job was
+        # accepted with is the policy edit's, not the job's: it waits.
+        if isinstance(cause, scheduler.RouteError) and not (
+                cause.policy_dependent and job.get("policy_hash") != self.policy_digest):
             self._route_deferrals.pop(job_id, None)
             self.log.warning("job %s refused at admission: %s", job_id, cause)
             self._fail_queued(job, f"refused at admission: {cause}", rc=int(Exit.INVALID_INPUT),
                               kind="job.route_refused", data=record)
+            self._discard_fresh_worktree(job_id)
             return
         count = (self._route_deferrals.get(job_id) or {}).get("deferrals", 0) + 1
         delay = min(ROUTE_RETRY_CEILING_S, ROUTE_RETRY_BASE_S * 2 ** min(count - 1, 16))
@@ -2585,7 +2658,8 @@ class Daemon:
             if job["state"] in TERMINAL:
                 return
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("failed", rc)
-            tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), job["job_id"]))
+            tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?",
+                       (state, rc, utcnow(), job["job_id"]))
             tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
             self._notice(tx, job, "unknown", rc, None, detail)
         self._notify()

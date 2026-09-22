@@ -1,29 +1,32 @@
 """C-6.12 and C-11.2: one job whose route cannot be evaluated never stops admission.
 
-Incident, 2026-09-22 11:40–14:05 EDT: `worker admission failed: ValueError (128 in
-a row)` and nothing was placed for any session. Five queued jobs were pinned by
+Incident, 2026-09-22: `worker admission failed: ValueError (128 in a row)`, and no
+attempt was reserved for any session from 14:45:05Z to 18:02:45Z (10:45 to 14:03 EDT). Five queued jobs were pinned by
 email (`-a max@axiom.org`, `-a max@thesisinstitute.org`) with a task and no model.
 Submit resolved the email against the store's lane rows, where Codex lanes carry
 no email, found one Claude lane, and kept the raw email as the pin. Admission
 evaluates against the capacity view, where the usage probe has given each Codex
 lane its email, so the same email named a Claude lane and a Codex lane and
 `resolve_lane` raised "ambiguous lane". Nothing in `_admit_pass` caught it per
-job, so the pass aborted on every tick and every later job in every tier
-starved; `why` caught it and printed "No decision recorded.". The same shape
-produced a 16-failure burst at 09:41 that day.
+job, so every pass aborted at the first of them and every later job in every
+tier starved; `why` caught it and printed "No decision recorded." for those five.
 
 These tests build that roster: `claude-a` labelled `max@example.invalid`, and the
 fixture's `codex-1` whose probe reported the same email.
 """
 
 import json
+import logging
+import subprocess
+from datetime import datetime
 
 import pytest
 
 from subfleet import doctor, protocol, scheduler
 from subfleet import daemon as daemon_module
-from subfleet.contracts import Credential, Exit, Lane, LaneOwner, Reading, ReadingLabel
-from subfleet.daemon import after, utcnow
+from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Exit, Lane, LaneOwner,
+                                Reading, ReadingLabel)
+from subfleet.daemon import Daemon, after, utcnow
 from tests.fake.test_admission_visibility import Inline
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 
@@ -132,12 +135,17 @@ def test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on(incide
     assert json.loads(event[0]["data_json"])["error_type"] == "RouteError"
     assert f"job {stuck} refused at admission" in log_text(service)
     assert stuck not in service._holds
+    assert job["wait_reason"] is None and job["next_check_at"] is None               # a failed job waits on nothing
+    answer = service.dispatch("why", {"job_id": stuck})
+    assert answer["refused"].startswith("RouteError: pinned_lane") and answer["route_error"] is None
+    assert "Refused at admission: RouteError" in answer["text"] and "codex-1" in answer["text"]
+    assert "No decision recorded." not in answer["text"]
 
 
 def test_c6_12_an_evaluation_error_holds_the_job_visibly_and_holds_nobody_else(fleet, monkeypatch):
     """C-6.12 an error that is not the job's own (bad capacity data, a policy edit) is never terminal:
-    the job waits on `route` with a backoff clock, `why` and `status` name the error, and it is no
-    C-6.9 waiter, so later jobs of its tier and model still pass it."""
+    the job waits on `route` with a backoff clock, `why` names the error and `status` counts the hold,
+    and it is no C-6.9 waiter, so later jobs of its tier and model still pass it."""
     service, harness = fleet
     service.policy["caps"]["max_in_flight_per_lane"] = 4          # all three astra jobs fit on codex-1
     broken = submit(service, harness, pinned_model="astra")
@@ -155,8 +163,12 @@ def test_c6_12_an_evaluation_error_holds_the_job_visibly_and_holds_nobody_else(f
     assert job["state"] == "waiting" and job["wait_reason"] == "route" and job["next_check_at"] > utcnow()
     hold = service._holds[broken]
     assert hold["reason"] == "route" and hold["error_type"] == "KeyError" and "utilization" in hold["error"]
+    answer = service.dispatch("why", {"job_id": broken})                               # why's own evaluation raises too
+    assert "Decision: none; this job's route could not be evaluated: KeyError" in answer["text"]
+    monkeypatch.setattr(service, "_pick", real)                                        # and when it does not
     answer = service.dispatch("why", {"job_id": broken})
-    assert "route could not be evaluated" in answer["text"] and "KeyError" in answer["text"]
+    assert any("its route could not be evaluated (KeyError: 'utilization')" in line for line in answer["queue"])
+    monkeypatch.setattr(service, "_pick", pick)
     assert service.dispatch("daemon.status", {})["admission"]["reasons"].get("route") == 1
     event = service.store.query("SELECT data_json FROM events WHERE kind='job.route_deferred' AND job_id=?", (broken,))
     assert json.loads(event[0]["data_json"])["error_type"] == "KeyError"
@@ -206,6 +218,27 @@ def test_c6_12_the_evaluation_inside_the_reservation_is_isolated_too(fleet, monk
     assert service.store.get_job(raced)["state"] == "failed"
     assert not service.store.list_attempts(raced)
     assert not service.store.query("SELECT 1 FROM leases WHERE holder LIKE ?", (raced + "%",))
+    kinds = [row["kind"] for row in service.store.query("SELECT kind FROM events WHERE job_id=?", (raced,))]
+    assert "attempt.reserved" not in kinds and "job.route_refused" in kinds          # rolled back, then settled
+
+
+def test_c6_12_a_refusal_inside_the_reservation_rolls_back_what_it_wrote(fleet, monkeypatch):
+    """C-6.12 the reservation writes a limited lane into `exclusions` before it evaluates; a refusal undoes it."""
+    service, harness = fleet
+    raced = submit(service, harness, pinned_model="astra")
+    service.store.add_attempt(attempt_id=raced + "/a1", job_id=raced, seq=1, lane_id="claude-a",
+                              model_requested="gpt-6-astra", state="failed", outcome_class="limited")
+    before = service.store.get_job(raced)["exclusions"]
+    real, calls = service._pick, []
+
+    def pick(job, **options):
+        calls.append(job["job_id"])
+        if len(calls) == 2:
+            raise scheduler.RouteError("pinned_lane: fixture")
+        return real(job, **options)
+    monkeypatch.setattr(service, "_pick", pick)
+    service._admit()
+    assert service.store.get_job(raced)["exclusions"] == before and service.store.get_job(raced)["state"] == "failed"
 
 
 def test_c6_12_why_names_a_route_error_it_meets_itself(incident):
@@ -290,6 +323,20 @@ def test_c11_2_a_reenrolled_lane_is_named_by_its_successor(fleet):
     measured(service, "claude-b")
     job_id = submit(service, harness, pinned_model="opus", pinned_lane=EMAIL)
     assert service.store.get_job(job_id)["pinned_lane"] == "claude-b"
+
+
+def test_c11_2_the_pin_roster_names_lanes_as_the_view_admission_evaluates(incident):
+    """C-11.2 one identity set: every name a view lane answers to, the pin roster's lane answers to."""
+    service, _ = incident
+    service.store.put_lane(claude_lane("claude-old", enabled=False, credential="/fake/claude-a"))
+    view = {lane["lane_id"]: lane for lane in service._capacity_view()["lanes"]}
+    roster = {lane["lane_id"]: lane for lane in service._pin_roster()}
+    assert set(view) == set(roster)
+    for lane_id, lane in view.items():
+        assert scheduler._identities(roster[lane_id]) == scheduler._identities(lane)
+        for key in ("provider", "enabled", "home", "credential_ref"):
+            assert roster[lane_id][key] == lane[key]
+    assert EMAIL in scheduler._identities(roster["codex-1"])                         # the probe's email is there
 
 
 # --- C-11.2: the resolver ---------------------------------------------------------------------
@@ -406,3 +453,300 @@ def test_c11_2_doctor_names_queued_jobs_whose_pin_is_not_a_lane_id(incident):
 
 def test_c11_2_doctor_without_a_store_is_not_a_failure(tmp_path):
     assert doctor.check_queued_pins(tmp_path)["status"] == doctor.UNKNOWN
+
+
+# --- C-6.12: what a route failure settles to ----------------------------------------------------
+
+@pytest.mark.parametrize("call", [1, 2])                            # 1: _prepare_route; 2: inside the reservation
+def test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on(fleet, monkeypatch, call):
+    """C-6.12 `probe_required` checks an unmeasured-reserve authorization and is isolated like `evaluate`."""
+    service, harness = fleet
+    service.policy["caps"]["max_in_flight_per_lane"] = 4
+    broken = submit(service, harness, pinned_model="astra")
+    later = submit(service, harness, pinned_model="astra")
+    real, calls = scheduler.probe_required, []
+
+    def probe_required(decision, job):
+        if job["job_id"] == broken:
+            calls.append(job["job_id"])
+            if len(calls) == call:
+                raise scheduler.RouteError("unmeasured_reserve_reason: fixture")
+        return real(decision, job)
+    monkeypatch.setattr(daemon_module.scheduler, "probe_required", probe_required)
+    service._admit()
+    assert admitted(service, later)
+    assert service.store.get_job(broken)["state"] == "failed" and not service.store.list_attempts(broken)
+
+
+def test_c6_12_an_authorization_bound_to_a_label_is_refused(fleet):
+    """C-11.7a an authorization names the lane id it was granted for; a label in its place is refused."""
+    service, harness = fleet
+    authorized = submit(service, harness, pinned_model="opus", pinned_lane="claude-a",
+                        unmeasured_reserve_reason="fixture: operator accepts unknown reserve")
+    service.store.update_job(authorized, pinned_lane=EMAIL)
+    later = submit(service, harness, pinned_model="astra")
+    service._admit()
+    assert admitted(service, later)
+    job = service.store.get_job(authorized)
+    assert job["state"] == "failed" and job["rc"] == int(Exit.INVALID_INPUT)
+    assert "canonical lane id" in service.dispatch("why", {"job_id": authorized})["refused"]
+
+
+def test_c6_12_a_policy_edit_that_moves_a_tier_to_another_provider_waits_and_fails_nothing(fleet):
+    """C-6.12 under a policy other than the one the job was accepted with, a provider conflict is the
+    edit's, not the job's: it waits on `route`; under its own policy the same conflict is refused."""
+    service, harness = fleet
+    edited = submit(service, harness, pinned_model=None, task="review", tier="easy", pinned_lane="claude-a")
+    service.policy["chains"]["review"][1] = "astra"                  # review/easy moves from Claude to Codex
+    service.policy_digest = "edited-and-restarted"
+    service._admit()
+    job = service.store.get_job(edited)
+    assert job["state"] == "waiting" and job["wait_reason"] == "route"
+    assert "different providers" in service._holds[edited]["error"]
+    same = submit(service, harness, pinned_model=None, task="review", tier="standard", pinned_lane="claude-a")
+    service.store.update_job(same, pinned_lane="codex-1")            # a conflict under the job's own policy
+    service._admit()
+    assert service.store.get_job(same)["state"] == "failed"
+
+
+def test_c6_12_a_refused_writable_job_leaves_no_worktree(incident, tmp_path):
+    """C-6.12 admission cut `worktrees/<job>` before it evaluated the route; a refusal removes it."""
+    from tests.unit.test_salvage import git
+    service, harness = incident
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-b", "task/example")
+    git(repo, "config", "user.name", "Test User")
+    git(repo, "config", "user.email", "test@example.invalid")
+    (repo / "tracked.txt").write_text("baseline\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "baseline")
+    stuck = legacy(service, harness, EMAIL, pinned_model=None, sandbox="workspace-write", workdir=str(repo))
+    service._admit()
+    assert service.store.get_job(stuck)["state"] == "failed"
+    assert not (service.root / "worktrees" / stuck).exists()
+    listed = subprocess.run(["git", "-C", str(repo), "worktree", "list"], capture_output=True, text=True).stdout
+    assert stuck not in listed
+
+
+def _deferral_clock(service, job_id):
+    row = service.store.get_job(job_id)
+    return (datetime.fromisoformat(row["next_check_at"].replace("Z", "+00:00"))
+            - datetime.fromisoformat(utcnow().replace("Z", "+00:00"))).total_seconds()
+
+
+def test_c6_12_route_waits_double_from_5_s_to_a_300_s_ceiling(fleet, monkeypatch):
+    """C-6.12 the clock, the event, and a log line that names the type and never the message."""
+    service, harness = fleet
+    broken = submit(service, harness, pinned_model="astra")
+    monkeypatch.setattr(service, "_pick", lambda job, **options: (_ for _ in ()).throw(ValueError("secret-ish detail")))
+    clocks = []
+    for _ in range(9):
+        service.store.update_job(broken, next_check_at=utcnow())
+        service._admit()
+        clocks.append(_deferral_clock(service, broken))
+    assert [round(clock / 5) * 5 for clock in clocks] == [5, 10, 20, 40, 80, 160, 300, 300, 300]
+    last = json.loads(service.store.query("SELECT data_json FROM events WHERE kind='job.route_deferred' AND job_id=? "
+                                          "ORDER BY event_id DESC LIMIT 1", (broken,))[0]["data_json"])
+    assert last["deferrals"] == 9 and last["next_check_at"] == service.store.get_job(broken)["next_check_at"]
+    assert last["error"] == "secret-ish detail" and "secret-ish detail" not in log_text(service)
+
+
+def test_c6_12_an_evaluation_that_succeeds_resets_the_route_count(fleet, monkeypatch):
+    service, harness = fleet
+    service.policy["caps"]["max_active_attempts"] = 1
+    blocker = submit(service, harness, pinned_model="terra")
+    service._admit()
+    assert admitted(service, blocker)
+    broken = submit(service, harness, pinned_model="astra")
+    real = service._pick
+    failing = lambda job, **options: (_ for _ in ()).throw(KeyError("utilization"))   # noqa: E731
+    monkeypatch.setattr(service, "_pick", failing)
+    for _ in range(3):
+        service.store.update_job(broken, next_check_at=utcnow())
+        service._admit()
+    assert service._route_deferrals[broken]["deferrals"] == 3
+    monkeypatch.setattr(service, "_pick", real)
+    service.store.update_job(broken, next_check_at=utcnow())
+    service._admit()                                                  # evaluated: held on the full fleet, not placed
+    assert broken not in service._route_deferrals and not service.store.list_attempts(broken)
+    assert service.store.get_job(broken)["wait_reason"] == "capacity"
+    monkeypatch.setattr(service, "_pick", failing)
+    service.store.update_job(broken, next_check_at=utcnow())
+    service._admit()
+    assert service._route_deferrals[broken]["deferrals"] == 1 and round(_deferral_clock(service, broken)) in (4, 5)
+
+
+def test_c6_12_a_route_hold_outranks_other_holds_and_no_released_lease_hurries_it(fleet, monkeypatch):
+    """C-6.11 the `route` hold is reported whatever else holds the job while its clock runs;
+    C-6.10's early look on a released lease is for capacity waits only."""
+    service, harness = fleet
+    broken = submit(service, harness, pinned_model="astra")
+    real, looks = service._pick, []
+
+    def pick(job, **options):
+        if job["job_id"] == broken:
+            looks.append(job["job_id"])
+            raise KeyError("utilization")
+        return real(job, **options)
+    monkeypatch.setattr(service, "_pick", pick)
+    service._admit()
+    assert service._holds[broken]["reason"] == "route" and len(looks) == 1
+    # An older job of its tier and model now waits on capacity: C-6.9 would hold a capacity wait behind it.
+    older = submit(service, harness, pinned_model="astra")
+    service.store.update_job(older, created_at="2026-01-01T00:00:00Z", state="waiting", wait_reason="capacity",
+                             next_check_at=after(600))
+    service._admit()
+    assert service._holds[broken]["reason"] == "route" and service._holds[broken]["error_type"] == "KeyError"
+    clock = service.store.get_job(broken)["next_check_at"]
+    with service.store.transaction("fixture.lease") as tx:
+        tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES('out:/fixture','someone',?)", (utcnow(),))
+    service._admit()
+    with service.store.transaction("fixture.release") as tx:
+        tx.execute("DELETE FROM leases WHERE lease_key='out:/fixture'")
+    service._admit()                                                  # a lease was released: not a route wait's cue
+    assert len(looks) == 1 and service.store.get_job(broken)["next_check_at"] == clock
+
+
+def test_c6_12_a_fleet_held_only_by_route_waits_warns(fleet, monkeypatch):
+    """C-6.11 a route wait is not ordinary queueing: beside an open lane the idle line is a warning."""
+    from tests.fake.test_admission_visibility import age
+    service, harness = fleet
+    seen = []
+    service.log.addHandler(type("Catch", (logging.Handler,), {"emit": lambda self, record: seen.append(record)})())
+    submit(service, harness, pinned_model="astra")
+    monkeypatch.setattr(service, "_pick", lambda job, **options: (_ for _ in ()).throw(KeyError("utilization")))
+    service._admit()
+    age(service, 61)
+    service._admit()
+    idle = [record for record in seen if record.getMessage().startswith("admission:")]
+    assert [record.levelno for record in idle] == [logging.WARNING] and "route x1" in idle[0].getMessage()
+
+
+def test_c6_12_a_pass_with_nothing_to_look_at_builds_no_capacity_view(fleet, monkeypatch):
+    """C-6.10 an admission pass runs every tick; the pin roster must not cost a view (about 50 ms live)."""
+    service, harness = fleet
+    waiting = submit(service, harness, pinned_model="astra")
+    service.store.update_job(waiting, state="waiting", wait_reason="capacity", next_check_at=after(600))
+    monkeypatch.setattr(service, "_capacity_view", lambda *args, **kwargs: pytest.fail("built a capacity view"))
+    service._admit()
+    service.kill(protocol.KillArgs(waiting))
+    service._admit()
+
+
+def test_c6_12_an_empty_task_or_tier_is_none(fleet):
+    """C-6.12 submit accepted tier '' and `evaluate` rejected it on every pass."""
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="", pinned_lane=EMAIL)
+    job = service.store.get_job(job_id)
+    assert job["tier"] is None and job["pinned_lane"] == "claude-a"
+    service._admit()
+    assert admitted(service, job_id)
+
+
+# --- C-11.2: pins after submit ------------------------------------------------------------------
+
+def test_c11_2_a_retry_after_the_probe_reports_the_email_still_finds_its_job(fleet):
+    """C-6.2 a retry is answered from the request it repeats, though its name now names two lanes."""
+    service, harness = fleet
+    args = harness.submit_args(pinned_model=None, pinned_lane=EMAIL)
+    first = service.dispatch("submit", args)
+    codex_probe_reports(service)
+    assert service.dispatch("submit", args) == {**first, "created": False}
+
+
+def test_c11_2_a_retry_after_a_reenrolment_still_finds_its_job(fleet):
+    """C-6.2 the digest keeps the name as typed, so a retry is not a new payload after a re-enrolment."""
+    service, harness = fleet
+    args = harness.submit_args(pinned_model="opus", pinned_lane=EMAIL)
+    first = service.dispatch("submit", args)
+    service.store.update_lane("claude-a", enabled=0)
+    service.store.put_lane(claude_lane("claude-b", credential="/fake/claude-a"))
+    assert service.dispatch("submit", args) == {**first, "created": False}
+
+
+def test_c11_2_a_pin_follows_its_lane_through_a_reenrolment(fleet):
+    """C-11.2, C-10.2 a job pinned before its lane was re-enrolled runs on the successor, the same
+    account on the same credential; one carrying an authorization stays on the id it was granted for."""
+    service, harness = fleet
+    pinned = submit(service, harness, pinned_model="opus", pinned_lane=EMAIL)
+    authorized = submit(service, harness, pinned_model="opus", pinned_lane="claude-a",
+                        unmeasured_reserve_reason="fixture: operator accepts unknown reserve")
+    service.store.update_lane("claude-a", enabled=0)
+    service.store.put_lane(claude_lane("claude-b", credential="/fake/claude-a"))
+    measured(service, "claude-b")
+    service._admit()
+    assert service.store.list_attempts(pinned)[0]["lane_id"] == "claude-b"
+    assert not service.store.list_attempts(authorized)
+    assert service.store.get_job(authorized)["state"] == "waiting"
+    assert scheduler.resolve_lane(service._pin_roster(), "claude-a")["lane_id"] == "claude-b"
+    assert scheduler.resolve_lane(service._pin_roster(), "claude-a", follow=False)["lane_id"] == "claude-a"
+
+
+@pytest.mark.parametrize("flag,changes,outcome", [
+    ("claude", {"pinned_model": None}, "claude-a"),                                  # bare -a EMAIL: the Claude account
+    ("claude", {"pinned_model": "opus"}, "claude-a"),
+    ("claude", {"pinned_model": "astra"}, "refused"),                                # -a names a Claude account
+    ("claude", {"pinned_model": None, "task": "research", "tier": "hard"}, "refused"),
+    ("codex", {"pinned_model": "astra"}, "codex-1"),                                 # -H with the email the probe reported
+    (None, {"pinned_model": "astra"}, "codex-1"),                                    # no flag (a gate, an old client)
+])
+def test_c11_2_the_flag_names_the_provider_of_a_name(incident, flag, changes, outcome):
+    """C-17.2 `-a EMAIL` pins a Claude account and `-H` a Codex home, as v1 had it; a lane id is its own provider."""
+    service, harness = incident
+    args = harness.submit_args(pinned_lane=EMAIL, pinned_provider=flag, **changes)
+    if outcome == "refused":
+        with pytest.raises(protocol.ProtocolError, match="was given as a claude lane"):
+            service.dispatch("submit", args)
+        return
+    job_id = service.dispatch("submit", args)["job_id"]
+    assert service.store.get_job(job_id)["pinned_lane"] == outcome
+    exact = submit(service, harness, pinned_model="astra", pinned_lane="codex-1", pinned_provider="claude")
+    assert service.store.get_job(exact)["pinned_lane"] == "codex-1"
+
+
+def test_c11_2_a_probe_that_cannot_read_the_account_does_not_unname_it(incident):
+    """C-11.2 a network error replaced the verdict and the Codex email with it, so one `-a` name
+    resolved differently from one minute to the next."""
+    service, _ = incident
+    lane = service.store.get_lane("codex-1")
+    service.timers._persist(lane, {"status": "network-error", "readings": (), "probed_at": utcnow(),
+                                   "error_type": "TimeoutError"})
+    assert service.timers.metadata["codex-1"]["email"] == EMAIL
+    service.timers._persist(lane, {"status": "ok", "readings": (), "probed_at": utcnow(),
+                                   "account_key": "codex:someone-else"})       # identity-mismatch: nothing carried
+    assert "email" not in service.timers.metadata["codex-1"]
+
+
+def test_c11_2_recovery_and_doctor_cover_running_jobs(incident):
+    """C-11.2 a running job's pin routes its next attempt (a retry after `limited`)."""
+    service, harness = incident
+    running = legacy(service, harness, EMAIL, pinned_model=None, task="review", tier="standard")
+    service.store.update_job(running, state="running")
+    service._canonicalize_pins()
+    assert service.store.get_job(running)["pinned_lane"] == "claude-a"
+    service.store.update_job(running, pinned_lane=EMAIL)
+    row = doctor.check_queued_pins(service.root)
+    assert row["status"] == doctor.FAIL and f"{running} (running)" in row["detail"]
+
+
+def test_c11_2_a_restart_repairs_pins_with_the_persisted_probe_email(incident):
+    """C-11.2 the repair runs at a start, where the Codex email exists only in `timer.verdict` events."""
+    service, harness = incident
+    service.store.add_event("timer.verdict", lane_id="codex-1", data={"email": EMAIL, "probe_status": "ok"})
+    job_id = legacy(service, harness, EMAIL, pinned_model=None, task="research", tier="hard", pinned_lane="codex-1")
+    service.close()
+    fresh = Daemon(service.root)
+    try:
+        fresh._canonicalize_pins()
+        assert fresh.store.get_job(job_id)["pinned_lane"] == "codex-1"
+    finally:
+        fresh.close()
+
+
+def test_c11_2_a_repair_that_raises_never_blocks_recovery(fleet, monkeypatch):
+    service, _ = fleet
+    monkeypatch.setattr(service, "_pin_roster", lambda: (_ for _ in ()).throw(KeyError("lane_id")))
+    monkeypatch.setattr(service.timers, "start", lambda: None)
+    service._recover_then_start_timers()
+    assert service._recovery_complete.is_set() and "pin repair skipped: KeyError" in log_text(service)

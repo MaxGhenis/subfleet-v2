@@ -2,12 +2,18 @@
 
 ## What happened
 
-Between about 11:40 and 14:05 EDT on September 22 no session could get a job
-placed. `daemon.log` repeated `worker admission failed: ValueError` up to
-`(128 in a row, next try in 60 s)`. The store agrees: no attempt was reserved
-between 14:45:05Z and 18:02:45Z (198 minutes). `subfleet why` looked healthy:
-each held job printed `No decision recorded.`. Two shorter bursts earlier that
-day each reached sixteen in a row; the first was reported at 09:41 EDT.
+On September 22 no session could get a job placed from 10:45 to 14:03 EDT:
+the store has no attempt reserved between 14:45:05Z and 18:02:45Z (198
+minutes). The stall was noticed around 11:40 EDT. `daemon.log` repeated
+`worker admission failed: ValueError` up to `(128 in a row, next try in 60 s)`.
+`subfleet why` pointed nowhere: the five jobs that caused it printed
+`No decision recorded.`, and every other held job showed an ordinary decision
+evaluated for the answer. Two shorter bursts earlier that day each reached
+sixteen in a row; the first was reported at 09:41 EDT.
+
+The first stuck job, `20260922-103303-autumn-budget-plan-r2-axiom`, was
+submitted at 14:33:03Z behind two older jobs. Those two were reserved at
+14:45:05Z, and every pass after that stopped at it.
 
 ## Cause
 
@@ -34,8 +40,12 @@ Submit and admission resolved those names against different lane data:
   `claude-11` and `codex-3`, and `claude-9` and `codex-5`.
   `resolve_lane` raised `ValueError("pinned_lane: ambiguous lane ...")`.
 
+The Codex emails had been in the view since 2026-09-19. Nothing changed after
+submit: the two sides of the daemon disagreed from the moment each job was
+accepted.
+
 `_admit_pass -> _prepare_route -> _pick -> scheduler.evaluate` caught nothing
-per job, so the whole pass aborted at the first of the five on every tick.
+per job, so every pass aborted at the first of the five.
 Every later job in every tier waited, and C-5.10 paced and logged the failure.
 `_why_job` caught the same `ValueError` and printed `No decision recorded.`.
 
@@ -62,14 +72,20 @@ C-6.11's `route` hold.
    - A `scheduler.RouteError` is the job's own problem: an ambiguous pin, a
      pin and a model on different providers, or an incomplete authorization.
      The job fails with exit 2 and the message, the same answer submit would
-     have given.
+     have given. `why` prints `Refused at admission: ...`, and a worktree cut
+     for the job that no attempt used is removed. A provider conflict can also
+     come from a policy edit that moved a tier to another provider; that one
+     is refused only under the policy the job was accepted with.
    - Any other error waits on `route`, never terminally, with backoff from 5 s
-     to 300 s. It holds no other job back, and `why` and `status` name the
-     error. Failing on these errors could fail the whole queue at once, for
-     example on one malformed closure or after a policy edit, so they wait.
+     to 300 s. It holds no other job back. `why` names the error, and
+     `status` counts the hold. Failing on these errors could fail the whole
+     queue at once, for example on one malformed closure or after a policy
+     edit, so they wait.
 2. **Pins become lane ids at submit (C-11.2).** Submit resolves the pin
-   against the capacity view's lanes, the same lanes admission uses, and stores
-   the lane id. No later roster change can make an accepted pin ambiguous. The
+   against the lanes admission uses, named as the capacity view names them:
+   each lane row with its latest probe verdict merged in, as
+   `Timers.enrich_view` merges it. It leaves out the readings, which cost
+   about 50 ms per view on the live store. It then stores the lane id. No later roster change can make an accepted pin ambiguous. The
    pin as the caller typed it stays in the request digest, so retries remain
    idempotent. It also stays in the `job.submitted` event.
 3. **One resolver, narrowed by provider (C-11.2).** A pinned job evaluates one
@@ -78,8 +94,14 @@ C-6.11's `route` hold.
    from its tier. Submit, `evaluate`, admission's C-6.9 lane demand, and the
    restart repair all call the same `resolve_lane` with that provider. A
    disabled binding is also dropped when an enabled lane that matches the same
-   name holds the same credential (a re-enrolment). A name that still matches
-   several lanes is refused at submit, and the refusal names the lane ids.
+   name holds the same credential (a re-enrolment), and a pin to such a lane id
+   follows it to its successor. With no model or task, the flag decides: `-a`
+   names a Claude account and `-H` a Codex home, as in v1, so a bare
+   `-a <email>` stays a Claude pin even though a Codex lane answers to the same
+   email. A name that still matches several lanes is refused at submit, and the
+   refusal names the lane ids. A retry of an accepted request is answered from
+   the lane it was accepted on. A Codex lane keeps its email through a probe
+   that could not read the account.
 4. **Existing queue.** Each daemon start rewrites the pin of every unfinished
    job whose name resolves to one lane, and records a `job.pin_canonicalized`
    event. It leaves any other pin in place with a log line. `subfleet doctor`
@@ -88,10 +110,24 @@ C-6.11's `route` hold.
 
 ## Verification
 
-`tests/fake/test_admission_route_isolation.py`, 33 cases, run against the
-in-process fake daemon. On `origin/main` 0969762 the incident cases fail as
-production failed. `_admit` raises
+`tests/fake/test_admission_route_isolation.py` runs against the in-process
+fake daemon. On `origin/main` 0969762 the incident cases fail as production
+failed. `_admit` raises
 `ValueError: pinned_lane: ambiguous lane 'max@example.invalid'; use a lane id`,
 and the worker-pool case logs
 `worker admission failed: ValueError (1 in a row, next try in 0.5 s)`. With the
 fix every case passes, and so does the full suite.
+
+An adversarial review (five dimension reviewers) found 31 issues in the first
+version, among them:
+- a policy edit could terminally fail every lane-pinned job of a tier;
+- a refused writable job leaked its worktree;
+- `subfleet why` still printed `No decision recorded.`;
+- retries across a roster change were refused;
+- a canonical pin never followed a re-enrolment;
+- a Codex email disappeared after one failed probe;
+- an empty tier waited forever;
+- every admission pass built a full capacity view (about 50 ms live).
+
+Each is fixed and covered by a test. For each fix, the regression the review
+described was applied as a mutation, and a test caught every one of them.

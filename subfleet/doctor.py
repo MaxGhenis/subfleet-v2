@@ -281,11 +281,13 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
 def check_queued_pins(root: Path) -> dict[str, Any]:
     """C-11.2, C-6.12: every unfinished job pinned to a lane names it by lane id.
 
-    Before 2026-09-22 submit kept the name its caller typed, and five such
-    names later named a Claude lane and a Codex lane at once: admission raised
-    on them every tick and placed nothing for two and a half hours. A daemon
-    start rewrites each pin that names one lane (`job.pin_canonicalized`); what
-    is left here names several lanes or none, so the job's owner has to choose.
+    Before 2026-09-22 submit resolved a name against the store's lane rows,
+    where a Codex lane has no email, and kept the name. Admission resolved it
+    against the capacity view, where five such names matched a Claude lane and
+    a Codex lane at once: every pass, paced by C-5.10, aborted on them, and
+    nothing was placed for 198 minutes. A daemon start rewrites each pin that
+    names one lane (`job.pin_canonicalized`); what is left here names several
+    lanes or none, so the job's owner has to choose.
     """
     check = "unfinished jobs pin lanes by id"
     try:

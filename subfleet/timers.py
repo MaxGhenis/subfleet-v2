@@ -409,6 +409,12 @@ class Timers:
             meta['observed_account_key'] = actual_account
             status = 'identity-mismatch'
             meta['reset_credits'] = {'available': None, 'applicable': None}
+        previous = self.metadata.get(lane.lane_id, {})
+        if 'email' not in meta and previous.get('email') and status != 'identity-mismatch':
+            # C-11.2: a probe that could not read the account (a network error)
+            # does not unname it; the pin roster and the view keep the email the
+            # last answering probe reported for this credential.
+            meta['email'] = previous['email']
         meta['probe_status'] = status
         meta['verdict'] = {'ok': 'ok', 'auth-dead': 'auth-dead', 'revoked': 'auth-revoked',
                            'expired-token': 'auth-suspect'}.get(status, status)

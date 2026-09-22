@@ -37,12 +37,20 @@ def _iso(value: datetime) -> str:
 class RouteError(ValueError):
     """C-6.12: the job's own pin cannot be routed, whatever capacity does.
 
-    Raised for a pin that names several lanes, and for a pin and a model of
-    different providers: what submit refuses, and what no wait can fix, because
-    only the caller can say which lane was meant. Admission refuses such a job
-    with this message instead of abandoning its pass. It is a ValueError, so a
-    caller that caught the old ValueError still does.
+    Raised for a pin that names several lanes, a pin and a model of different
+    providers, and an unmeasured-reserve authorization that is not whole: what
+    submit refuses, and what no wait can fix, because only the caller can say
+    what was meant. Admission refuses such a job with this message instead of
+    abandoning its pass. `policy_dependent` marks the cases a policy edit can
+    cause (a tier's chain moved to another provider): admission refuses those
+    only under the policy the job was accepted with, and otherwise waits, as
+    for any error that is not the job's. It is a ValueError, so a caller that
+    caught the old ValueError still does.
     """
+
+    def __init__(self, message: str, *, policy_dependent: bool = False):
+        super().__init__(message)
+        self.policy_dependent = policy_dependent
 
 
 def _identities(lane: Mapping[str, Any]) -> set[str]:
@@ -66,21 +74,29 @@ def _binding(lane: Mapping[str, Any]) -> tuple[Any, Any]:
     return lane.get("provider"), lane.get("home") or lane.get("credential_ref")
 
 
-def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None) -> dict[str, Any] | None:
+def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None, *,
+                 follow: bool = True) -> dict[str, Any] | None:
     """C-11.2: resolve one identity pin without silently choosing another lane.
 
-    A lane id is exact. Any other name can match more than one lane: a Claude
-    login and a Codex subscription often share an email, and a re-enrolment
-    leaves the old binding in the roster under the same label. Two narrowings
-    drop lanes that could never take the job, never one that could: `provider`
-    (the job's, from `pin_provider`) drops lanes of the other provider, and a
-    disabled binding is dropped when an enabled lane that matches is bound to
-    the same credential. A name that still matches several lanes raises
-    `RouteError` naming them. None means the pin names no lane.
+    A lane id is exact, except that a disabled lane whose credential an enabled
+    lane now holds (a re-enrolment, C-10.2) resolves to that lane, the same
+    account on the same credential, unless `follow` is false (an authorization
+    is bound to the lane id it was granted for, C-11.7). Any other name can
+    match more than one lane: a Claude login and a Codex subscription often
+    share an email, and a re-enrolment leaves the old binding in the roster
+    under the same label. Two narrowings drop lanes that could never take the
+    job, never one that could: `provider` (the job's, from `pin_provider`)
+    drops lanes of the other provider, and a disabled binding is dropped when an
+    enabled lane that matches is bound to the same credential. A name that
+    still matches several lanes raises `RouteError` naming them. None means the
+    pin names no lane.
     """
     roster = [_row(lane) for lane in lanes]
     exact = next((lane for lane in roster if lane.get("lane_id") == pin), None)
     if exact:
+        if follow and not exact.get("enabled", True):
+            return next((lane for lane in roster if lane.get("enabled", True)
+                         and _binding(lane) == _binding(exact)), exact)
         return exact
     matches = [lane for lane in roster if pin in _identities(lane)]
     if len(matches) > 1 and provider:
@@ -162,7 +178,8 @@ def demand_lanes(lanes: Iterable[Any], job: Any,
     if not pin:
         return None
     try:
-        found = resolve_lane(lanes, pin, pin_provider(policy, job) if policy else None)
+        found = resolve_lane(lanes, pin, pin_provider(policy, job) if policy else None,
+                             follow=not _row(job).get("unmeasured_reserve_reason"))
     except ValueError:
         return None
     return frozenset({found["lane_id"]}) if found else None
@@ -287,7 +304,8 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
         chain = []
     # C-11.2: a pinned job evaluates one model, the first of its chain, so a lane
     # of any other provider could never take it (`pin_provider` says the same).
-    selected = resolve_lane(lanes, pin, policy["models"][chain[0]]["provider"] if chain else None) if pin else None
+    selected = (resolve_lane(lanes, pin, policy["models"][chain[0]]["provider"] if chain else None,
+                             follow=not authorization_reason) if pin else None)
     if authorization_reason and selected and pin != selected["lane_id"]:
         raise RouteError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
     if not chain and selected:
@@ -302,7 +320,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     if pin:
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
-            raise RouteError("pinned_lane and pinned_model/task: different providers")
+            raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
     # Repeated tiers on Fable and Terra do not create another admission chance.
     chain = list(dict.fromkeys(chain))
     in_flight = dict(view.get("in_flight", {}))
@@ -523,7 +541,8 @@ def probe_required(decision: Decision, job: Any) -> bool:
                            if row["model"] == decision.chosen_model), None)
         if (decision.chosen_lane != job["pinned_lane"] or evaluation is None
                 or job["pinned_model"] not in (decision.chosen_model, evaluation["model_id"])):
-            raise RouteError("unmeasured_reserve_reason: the probe must use the authorized lane and model")
+            raise RouteError("unmeasured_reserve_reason: the probe must use the authorized lane and model",
+                             policy_dependent=True)
         # An admission observation or a newly measured window cannot remove
         # the promised same-model probe. The daemon's approved pair ends it.
         return True

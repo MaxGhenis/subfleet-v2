@@ -128,6 +128,23 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
     capsys.readouterr()
 
 
+@pytest.mark.parametrize("answer,expected", [
+    ({"decision": None, "queue": ["Job: j is failed"], "route_error": None,
+      "refused": "RouteError: pinned_lane: 'a@b.c' names 2 lanes (claude-1, codex-1)"},
+     ["Job: j is failed", "Refused at admission: RouteError: pinned_lane: 'a@b.c' names 2 lanes (claude-1, codex-1)"]),
+    ({"decision": None, "queue": ["Job: j is queued", "Held: no admission pass has reached this job yet"],
+      "route_error": "KeyError: 'utilization'", "refused": None},
+     ["Job: j is queued", "Held: no admission pass has reached this job yet",
+      "Decision: none; this job's route could not be evaluated: KeyError: 'utilization'"]),
+    ({"decision": None, "queue": ["Job: j is cancelled"]}, ["Job: j is cancelled", "No decision recorded."]),
+])
+def test_why_prints_a_refusal_or_a_route_error_not_no_decision(daemon, capsys, answer, expected):
+    """C-6.12 on 2026-09-22 `why` said "No decision recorded." for the jobs that stopped admission."""
+    daemon({"why": lambda request: answer})
+    assert run_cli(["why", "j"]) == 0
+    assert capsys.readouterr().out.splitlines() == expected
+
+
 def test_why_and_ping_reach_their_ops(daemon, capsys):
     """C-17.1 `why` and `ping` carry their arguments to the daemon."""
     server = daemon({
@@ -358,8 +375,12 @@ def test_pinned_lane_comes_from_a_or_h(daemon, root, capsys, workdir):
     server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
     assert run_cli(["run", "-a", "max@example.org", "-C", str(workdir), "hi"]) == 0
     assert server.args("submit")["pinned_lane"] == "max@example.org"
+    assert server.args("submit")["pinned_provider"] == "claude"      # C-11.2: -a names a Claude account
     assert run_cli(["run", "-H", "/Users/x/.codex-3", "-C", str(workdir), "hi"]) == 0
     assert server.args("submit")["pinned_lane"] == "/Users/x/.codex-3"
+    assert server.args("submit")["pinned_provider"] == "codex"
+    assert run_cli(["run", "-m", "astra", "-C", str(workdir), "hi"]) == 0
+    assert server.args("submit")["pinned_provider"] is None
     capsys.readouterr()
 
 
