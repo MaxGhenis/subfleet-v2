@@ -704,8 +704,53 @@ class Daemon:
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
 
+    def _retry_pin(self, job: dict) -> tuple[list[dict], tuple[str, ...], dict | None]:
+        """C-4.5: a job's attempts, the lanes they exclude, and the one-time retry pin.
+
+        A `limited` attempt excludes its lane, and so does a second `transient`
+        one. After a first `transient` attempt the job is tried once more on the
+        same lane and model (C-9.5), while that pair can run at all
+        (`_retry_pair_routable`); the pin is a job dict carrying the pair.
+        """
+        previous = self.store.list_attempts(job["job_id"])
+        exclusions = tuple(a["lane_id"] for a in previous if a["outcome_class"] == "limited")
+        transient: dict[str, int] = {}
+        for a in previous:
+            if a["outcome_class"] == "transient":
+                transient[a["lane_id"]] = transient.get(a["lane_id"], 0) + 1
+        exclusions += tuple(lane for lane, count in transient.items() if count >= 2)
+        last = previous[-1] if previous else None
+        pin = ({**job, "pinned_lane": last["lane_id"], "pinned_model": last["model_requested"]}
+               if last and last["outcome_class"] == "transient" and transient[last["lane_id"]] == 1
+               and self._retry_pair_routable(last) else None)
+        return previous, exclusions, pin
+
+    def _retry_waits_on_a_slot(self, retry: dict, exclusions: tuple[str, ...], desktop) -> bool:
+        """C-4.5, C-6.12: is the retry's lane refusing it only for want of a slot?
+
+        The pinned pair is evaluated as admission would. A lane that would take
+        it, or that is only full (in flight, the fleet or a parent at its cap, a
+        probe holding it), keeps the retry. Anything else (the lane closed, the
+        desktop login, excluded by the job, a latched credential, the floor, the
+        reserve, a pair that cannot be evaluated) is not something a slot will
+        end, and the pair was the daemon's choice, so the job routes as submitted.
+        """
+        try:
+            decision = self._route(retry, extra_exclusions=exclusions, desktop=desktop)
+        except Unroutable:
+            return False
+        if decision.chosen_lane:
+            return True
+        rejections = [row for evaluation in decision.evaluations for row in evaluation["rejections"]]
+        return len(rejections) == 1 and set(rejections[0]["reasons"]) == {"no-slot"} \
+            and rejections[0].get("slot_block") != "credential-latched"
+
     def _retry_pair_routable(self, attempt: dict) -> bool:
-        """C-4.5, C-6.12: can a transient attempt's lane and model be tried once more?
+        """C-4.5, C-6.12: could a transient attempt's lane and model be tried once more at all?
+
+        A cheap roster and policy check, made on every pass because the pin sets
+        the job's C-6.9 demand; `_retry_waits_on_a_slot` evaluates the pair when
+        the job is due.
 
         The running policy must still resolve the model id (a current id or a
         `retired` alias), and the lane (or the lane a re-enrolment bound to its
@@ -717,7 +762,7 @@ class Daemon:
         try:
             short = resolve_model(self.policy, attempt["model_requested"], note=False)
             lane = scheduler.resolve_lane(self._pin_roster(), attempt["lane_id"])
-        except (PolicyError, ValueError, KeyError):
+        except ROUTE_ERRORS:                    # a PolicyError is a ValueError; the pass must not end here
             return False
         return bool(lane) and bool(lane.get("enabled", True)) and lane.get("owner") == "v2" \
             and not capacity.identity_blocked(lane) and self.policy["models"][short]["provider"] == lane["provider"]
@@ -2329,8 +2374,11 @@ class Daemon:
                 # no released lease brings it forward. It says what it met.
                 holds[job["job_id"]] = self._route_hold(job["job_id"], job["next_check_at"])
                 continue
-            models = scheduler.demand_models(self.policy, job)
-            lanes = scheduler.demand_lanes(roster, job, self.policy)
+            # C-4.5, C-6.9: while a transient retry is pinned to its last pair, the
+            # job can run only there, and its demand is that one model on that lane.
+            previous, extra_exclusions, retry = self._retry_pin(job)
+            models = scheduler.demand_models(self.policy, retry or job)
+            lanes = scheduler.demand_lanes(roster, retry or job, self.policy)
             behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
                            if scheduler.competes(models, theirs, lanes, their_lanes)), None)
             if saturated or behind:
@@ -2384,21 +2432,16 @@ class Daemon:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
                                "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
                 job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
-            previous = self.store.list_attempts(job["job_id"])
-            extra_exclusions = tuple(a["lane_id"] for a in previous if a["outcome_class"] == "limited")
-            transient_counts: dict[str, int] = {}
-            for a in previous:
-                if a["outcome_class"] == "transient":
-                    transient_counts[a["lane_id"]] = transient_counts.get(a["lane_id"], 0) + 1
-            extra_exclusions += tuple(l for l, n in transient_counts.items() if n >= 2)
             decision_job = job
-            if (previous and previous[-1]["outcome_class"] == "transient" and transient_counts[previous[-1]["lane_id"]] == 1
-                    and self._retry_pair_routable(previous[-1])):
-                # One retry of the same pair (C-4.5, C-9.5). The pair is the
-                # daemon's choice, not the job's: when it can no longer run, the
-                # job routes as submitted rather than wait on it (C-6.12).
-                decision_job = {**job, "pinned_lane": previous[-1]["lane_id"],
-                                "pinned_model": previous[-1]["model_requested"]}
+            if retry:
+                retry = {**job, "pinned_lane": retry["pinned_lane"], "pinned_model": retry["pinned_model"]}
+                if self._retry_waits_on_a_slot(retry, extra_exclusions, desktop_account):
+                    decision_job = retry
+                else:
+                    # C-4.5 "then next candidate": the pair's lane refuses it for
+                    # something a slot will not end, so the job routes as submitted.
+                    models = scheduler.demand_models(self.policy, job)
+                    lanes = scheduler.demand_lanes(roster, job, self.policy)
             try:
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:

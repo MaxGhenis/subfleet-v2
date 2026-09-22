@@ -824,3 +824,70 @@ def test_c11_2_a_mismatched_lane_is_dropped_only_within_one_provider(incident):
     assert service.store.get_job(job_id)["pinned_lane"] == EMAIL
     service._admit()
     assert service.store.get_job(job_id)["state"] == "failed" and not service.store.list_attempts(job_id)
+
+
+def _transient_on(service, job_id, lane_id, model_id):
+    service.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id=lane_id,
+                              model_requested=model_id, state="failed", outcome_class="transient")
+
+
+@pytest.mark.parametrize("refusal", ["closed", "desktop", "excluded"])
+def test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate(fleet, refusal):
+    """C-4.5 "same lane after 60 s, once, then next candidate": a closure, the desktop login, or the
+    job's own exclusion is not ended by a slot, so the job routes as submitted onto the open lane."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    exclusions = ["claude-a"] if refusal == "excluded" else []
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="standard", exclusions=exclusions)
+    _transient_on(service, job_id, "claude-a", service.policy["models"]["opus"]["id"])
+    if refusal == "closed":
+        service.store.add_closure(Closure("claude-a", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
+                                          ClockSource.REPORTED, "fixture"))
+    elif refusal == "desktop":
+        service.store.update_lane("claude-a", desktop=1)
+    service._admit()
+    assert service.store.list_attempts(job_id)[-1]["lane_id"] == "claude-b"
+
+
+def test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane(fleet):
+    """C-4.5 a slot ends a full lane's refusal: the retry waits for its own lane, not the open one."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    for _ in range(2):                                             # claude-a's two measured slots, taken
+        busy = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+        service._admit()
+        assert admitted(service, busy)
+    job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    _transient_on(service, job_id, "claude-a", service.policy["models"]["opus"]["id"])
+    service._admit()
+    assert [row["state"] for row in service.store.list_attempts(job_id)] == ["failed"]
+    assert service._holds[job_id]["reason"] == "no-slot"
+
+
+def test_c6_9_a_pinned_retry_competes_only_for_its_own_pair(fleet):
+    """C-6.9 while a retry is pinned to (claude-a, opus) it holds back nothing pinned elsewhere."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
+    service.store.update_job(retry, state="waiting", wait_reason="capacity", next_check_at=after(60))
+    astra = submit(service, harness, pinned_model="astra")
+    other_lane = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    service._admit()
+    assert admitted(service, astra) and admitted(service, other_lane)
+
+
+def test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate(fleet):
+    """C-4.5 a revoked Codex login stays enabled but latched (`credential-latched`, a `no-slot` no slot ends)."""
+    service, harness = fleet
+    service.store.put_lane(Lane("codex-2", "codex", "codex:other", Credential("codex", "/fake/codex-2", "home"),
+                                "/fake/codex-2", LaneOwner.V2, False))
+    measured(service, "codex-2")
+    job_id = submit(service, harness, pinned_model="astra")
+    _transient_on(service, job_id, "codex-1", service.policy["models"]["astra"]["id"])
+    service.timers.metadata["codex-1"] = {"probe_status": "revoked", "revoked_epoch": 1}
+    service._admit()
+    assert service.store.list_attempts(job_id)[-1]["lane_id"] == "codex-2"

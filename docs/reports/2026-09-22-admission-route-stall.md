@@ -150,7 +150,8 @@ job that the install would fail, strand, or misroute. It confirmed six more
 findings, all now fixed and tested the same way:
 - A transient retry pinned to a model id the policy had since renamed (opus
   moved from `claude-opus-5` to `claude-opus-5-5` the same day) would have
-  waited on `route` forever. It now routes the job as submitted.
+  waited on `route` until `max_wall_s` cancelled it (6 h by default). It now
+  routes the job as submitted.
 - A resume routed to a re-enrolled lane's successor was refused at launch.
   Launch now accepts the successor, because the native session lives under
   the credential's home.
@@ -160,12 +161,21 @@ findings, all now fixed and tested the same way:
 - Two corrections to docs.
 
 A third round found six more, all now fixed:
-- The transient-retry pair is now used only while it can run: its model must
-  resolve to the lane's provider, and the lane must be enabled, v2-owned and
-  not identity-blocked. A lane disabled since the attempt had pinned the retry
-  on main as well.
+- The transient-retry pair was pinned while it could not run. Its model must
+  now resolve to the lane's provider, and the lane must be enabled, v2-owned
+  and not identity-blocked. A lane disabled since the attempt had pinned the
+  retry on main as well.
 - The identity-mismatch narrowing now applies only within one provider.
 - Three corrections to docs.
+
+A fourth round found that the pinned retry still waited on a lane that
+refused it for reasons no slot would end: a closure, the desktop login, the
+job's own exclusion, or a latched credential. It also found that the pinned
+retry held other jobs back as if it could run anywhere. Both behaviours predate
+this branch, and both sit in the retry path it had changed. The pinned pair is
+now evaluated when the job is due. The retry keeps its lane only while the
+lane lacks a slot; otherwise the job routes as submitted (C-4.5 "then next
+candidate"). While pinned, its C-6.9 demand is the pair. One doc correction.
 
 The production-safety reviewer in round three and the install-safety reviewer
 in round two found nothing.
