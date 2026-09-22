@@ -2120,7 +2120,8 @@ class Daemon:
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
-        waiters: dict[str, list[tuple[str, frozenset[str] | None]]] = {}
+        waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
+        roster = self.store.lane_rows()          # C-6.9: lane pins are compared by lane id
         saturated = False
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
@@ -2128,8 +2129,9 @@ class Daemon:
                 self.kill(protocol.KillArgs(job["job_id"]))
                 continue
             models = scheduler.demand_models(self.policy, job)
-            behind = next((older for older, theirs in waiters.get(tier, ())
-                           if scheduler.competes(models, theirs)), None)
+            lanes = scheduler.demand_lanes(roster, job)
+            behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
+                           if scheduler.competes(models, theirs, lanes, their_lanes)), None)
             if saturated or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": cap} if saturated else
@@ -2149,7 +2151,7 @@ class Daemon:
             hurried = bool(freed and known and known["expedite"])
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 if job["wait_reason"] == "capacity":
-                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                 holds[job["job_id"]] = {**(known["hold"] if known else {"reason": job["wait_reason"] or "waiting"}),
                                         "next_check_at": job["next_check_at"]}
                 continue
@@ -2194,7 +2196,7 @@ class Daemon:
                                 "pinned_model": previous[-1]["model_requested"]}
             approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             if approved is None:
-                waiters.setdefault(tier, []).append((job["job_id"], models))
+                waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                 holds[job["job_id"]] = {"reason": "probe-pending"}
                 current = self._job(job["job_id"])
                 clocked = current["next_check_at"] and current["next_check_at"] > utcnow()
@@ -2229,7 +2231,7 @@ class Daemon:
                 # capacity appears instead of waiting out the jobs that passed it.
                 limit = cap - 1 if waiters.get(tier) else cap
                 if not decision.chosen_lane or live >= limit:
-                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                     # C-6.10: a wait that reaches the verdict it reached last time
                     # is rechecked later each time and adds no decision row. On
                     # 2026-09-20 three such jobs were each re-evaluated every
@@ -2258,7 +2260,7 @@ class Daemon:
                     # The chosen identity changed after its probe; a later pass
                     # probes the new pair (`_prepare_route`). C-6.10: on a clock,
                     # or a lane whose state keeps moving is probed every tick.
-                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                     hold = {"reason": "probe-pending"}
                     rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
                     next_check = after(scheduler.capacity_recheck_delay(rechecks))
@@ -2303,7 +2305,7 @@ class Daemon:
                 contested = [key for key, holder in leases
                              if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder]
                 if contested:
-                    waiters.setdefault(tier, []).append((job["job_id"], models))
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                     hold = {"reason": "lease-held", "leases": contested}
                     rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested)), hold)
                     next_check = after(scheduler.capacity_recheck_delay(rechecks))
