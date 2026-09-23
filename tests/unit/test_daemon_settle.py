@@ -54,7 +54,7 @@ def daemon(tmp_path, monkeypatch):
     core._salvage = lambda job, a: ([], None)
     core._record_identity = lambda *args: None
     core._export = lambda job_id: None
-    core.timers = SimpleNamespace(record_auth_dead=lambda *args: None)
+    core.timers = SimpleNamespace(record_auth_dead=lambda *args: None, metadata={})   # C-11.2: the pin roster reads it
     core._notify = lambda: None
     core._boundary = lambda *args: None
     core._publish = lambda role, path, contents: atomic_publish(path, contents)
