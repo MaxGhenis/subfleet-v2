@@ -529,6 +529,57 @@ def test_c6_12_a_refused_writable_job_leaves_no_worktree(incident, tmp_path):
     assert stuck not in listed
 
 
+def _refused_writable(service, harness, tmp_path, hook=None):
+    """A refused writable job's repository, with a worktree of the caller's whose directory is away for now."""
+    from tests.unit.test_salvage import git
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-b", "task/example")
+    git(repo, "config", "user.name", "Test User")
+    git(repo, "config", "user.email", "test@example.invalid")
+    (repo / "tracked.txt").write_text("baseline\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "baseline")
+    theirs = tmp_path / "theirs"
+    git(repo, "worktree", "add", "--detach", str(theirs), "HEAD")
+    admin = git(theirs, "rev-parse", "--absolute-git-dir")
+    theirs.rename(tmp_path / "theirs-away")
+    if hook is not None:
+        hooks = tmp_path / "hooks"
+        hooks.mkdir()
+        (hooks / "post-checkout").write_text("#!/bin/sh\n" + hook)
+        (hooks / "post-checkout").chmod(0o755)
+        git(repo, "config", "core.hooksPath", str(hooks))
+    job_id = legacy(service, harness, EMAIL, pinned_model=None, sandbox="workspace-write", workdir=str(repo))
+    service._admit()
+    assert service.store.get_job(job_id)["state"] == "failed"
+    return job_id, repo, admin
+
+
+def test_c6_12_c6_8_a_refused_jobs_worktree_goes_without_pruning_the_callers(incident, tmp_path):
+    """C-6.12, C-6.8 the refusal removes only its own worktree: never a repository-wide `git worktree prune`.
+
+    The caller's worktree whose directory is away for now keeps its registration.
+    """
+    from pathlib import Path
+    service, harness = incident
+    job_id, repo, admin = _refused_writable(service, harness, tmp_path)
+    assert not (service.root / "worktrees" / job_id).exists()
+    assert Path(admin).is_dir()
+
+
+def test_c6_12_c6_8_a_refused_jobs_worktree_that_git_calls_unclean_is_kept(incident, tmp_path):
+    """C-6.12, C-6.8 a finished checkout goes by `git worktree remove` without `--force`: one with untracked files stays.
+
+    Here a post-checkout hook wrote a file; the tree is kept and the log says why.
+    """
+    service, harness = incident
+    job_id, repo, admin = _refused_writable(service, harness, tmp_path, hook=": > hook-output\n")
+    worktree = service.root / "worktrees" / job_id
+    assert (worktree / "hook-output").exists() and (worktree / ".git").is_file()
+    assert f"job {job_id} was refused, and {worktree} was kept, because git keeps it: " in log_text(service)
+
+
 def _deferral_clock(service, job_id):
     row = service.store.get_job(job_id)
     return (datetime.fromisoformat(row["next_check_at"].replace("Z", "+00:00"))
