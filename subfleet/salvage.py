@@ -58,7 +58,7 @@ def transient_os_error(exc: BaseException) -> bool:
 
 
 def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
-         optional: bool = False, timeout_s: float | None = None) -> str | None:
+         optional: bool = False, timeout_s: float | None = None, raw: bool = False) -> str | None:
     cap = git_timeout_s(timeout_s)
     try:
         result = subprocess.run(["git", "-C", str(workdir), *args], env=env,
@@ -78,7 +78,7 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
         if optional:
             return None
         raise SalvageError(f"git {args[0]} failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+    return result.stdout if raw else result.stdout.strip()
 
 
 def git_head(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
@@ -115,51 +115,78 @@ class WorktreeCheck(NamedTuple):
     unfinished: str | None
 
 
-def worktree_registration(listing: str, worktree: str | Path) -> dict[str, str] | None:
-    """``worktree``'s entry in a `git worktree list --porcelain` listing, or None.
+def _lexical(path: str | Path) -> str:
+    """``path`` with its directory resolved and its last component kept: a link there is not what it points to.
 
-    The path's last component is not resolved: a link there is not the
-    worktree it points to.
+    `..` is resolved physically, as the directory's real path, never by text.
     """
-    absolute = os.path.abspath(worktree)
-    target = os.path.join(os.path.realpath(os.path.dirname(absolute)), os.path.basename(absolute))
-    for stanza in listing.split("\n\n"):
-        lines = stanza.splitlines()
-        if lines and lines[0].startswith("worktree ") and os.path.realpath(lines[0][len("worktree "):]) == target:
-            entry = {}
-            for line in lines[1:]:
-                if line.startswith("HEAD "):
-                    entry["head"] = line[len("HEAD "):]
-                elif line == "locked" or line.startswith("locked "):
-                    entry["locked"] = line[len("locked "):]
-            return entry
-    return None
+    path = os.fspath(path).rstrip(os.sep) or os.sep
+    if not os.path.isabs(path):
+        path = os.path.join(os.getcwd(), path)
+    directory, name = os.path.split(path)
+    return os.path.join(os.path.realpath(directory), name)
+
+
+def worktree_registrations(listing: str) -> list[tuple[str, dict[str, str]]]:
+    """Every entry of a `git worktree list --porcelain -z` listing: (path, {"head": sha, "locked": reason})."""
+    entries: list[tuple[str, dict[str, str]]] = []
+    path, entry = None, {}
+    for field in listing.split("\0"):
+        if not field:
+            if path is not None:
+                entries.append((path, entry))
+            path, entry = None, {}
+        elif field.startswith("worktree "):
+            path = field[len("worktree "):]
+        elif field.startswith("HEAD "):
+            entry["head"] = field[len("HEAD "):]
+        elif field == "locked" or field.startswith("locked "):
+            entry["locked"] = field[len("locked "):]
+    if path is not None:
+        entries.append((path, entry))
+    return entries
+
+
+def worktree_registration(listing: str, worktree: str | Path) -> dict[str, str] | None:
+    """``worktree``'s entry in a `git worktree list --porcelain -z` listing, or None.
+
+    Both sides keep their last component, so a registration whose path is now
+    a link is still the registration of that path, lock and all. Two entries
+    for one path are not an answer: that raises.
+    """
+    target = _lexical(worktree)
+    found = [entry for path, entry in worktree_registrations(listing) if _lexical(path) == target]
+    if len(found) > 1:
+        raise SalvageError(f"the repository lists {len(found)} worktrees at {worktree}")
+    return found[0] if found else None
 
 
 def check_worktree(repository: str | Path, worktree: str | Path, commit: str, *,
                    timeout_s: float | None = None) -> WorktreeCheck:
     """C-6.8: whether ``worktree`` is a finished checkout of ``commit``, and its registration.
 
-    Finished means a directory with a `.git` link (git run in a directory
-    without one answers for whatever repository encloses it), listed by
-    ``repository`` as one of its worktrees, unlocked (git locks a worktree
-    `initializing` until its add returns, so an add that was killed leaves the
-    lock), with HEAD at ``commit`` and an index holding that commit's tree (a
-    checkout stopped before it wrote its index has none, however many files it
-    wrote). The registration is read whether or not the directory exists: an
-    add stopped partway can leave one with no directory. A git call that did
-    not finish raises; one that failed reads as not listed, or not finished.
+    Finished means a directory, not a link, with a `.git` link (git run in a
+    directory without one answers for whatever repository encloses it),
+    listed by ``repository`` as one of its worktrees, unlocked (git locks a
+    worktree `initializing` until its checkout is written, so an add that was
+    killed leaves the lock), with HEAD at ``commit`` and an index holding that
+    commit's tree (a checkout stopped before it wrote its index has none,
+    however many files it wrote). The registration is read whether or not the
+    directory exists: an add stopped partway can leave one with no directory.
+    The listing is never optional: a repository that cannot be read raises,
+    because "not listed" is what lets a directory be removed. A call that did
+    not finish raises, transient.
     """
     path = Path(worktree)
-    listing = _git(repository, "worktree", "list", "--porcelain", optional=True, timeout_s=timeout_s)
-    entry = worktree_registration(listing or "", path)
+    entry = worktree_registration(_git(repository, "worktree", "list", "--porcelain", "-z",
+                                       timeout_s=timeout_s, raw=True), path)
     if not os.path.lexists(path):
         return WorktreeCheck(entry, "no directory")
     link = path / ".git"
     if path.is_symlink() or not path.is_dir() or link.is_symlink() or not link.is_file():
         return WorktreeCheck(entry, "no .git link")
     if entry is None:
-        return WorktreeCheck(entry, f"{repository} does not list it")
+        return WorktreeCheck(entry, "the job's repository does not list it")
     if "locked" in entry:
         return WorktreeCheck(entry, f"locked ({entry['locked'] or 'no reason given'})")
     if entry.get("head") != commit:
@@ -167,6 +194,107 @@ def check_worktree(repository: str | Path, worktree: str | Path, commit: str, *,
     if _git(path, "diff-index", "--cached", "--quiet", commit, "--", optional=True, timeout_s=timeout_s) is None:
         return WorktreeCheck(entry, "its index is not a checkout of the commit")
     return WorktreeCheck(entry, None)
+
+
+def _link_target(file: Path, prefix: str) -> str | None:
+    """The path a `.git` link (``prefix`` "gitdir: ") or an admin `gitdir` file names, relative ones resolved from the file's directory."""
+    try:
+        text = file.read_text(encoding="utf-8").rstrip("\n")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not text.startswith(prefix) or not text[len(prefix):]:
+        return None
+    return _lexical(os.path.join(file.parent, text[len(prefix):]))
+
+
+def foreign_registration(registration: dict[str, str] | None, commit: str) -> str | None:
+    """C-6.8: why a registration is not as an add of ``commit`` leaves it, or None when it is (or there is none).
+
+    An add locks the path `initializing` and writes HEAD as zeros and then as
+    the commit; git unlocks it once the checkout is written. So it is unlocked
+    or under that lock, at the commit or, under the lock only, at zeros (a
+    HEAD git cannot read reads as zeros too). Any other lock is someone's, and
+    another commit was put there after.
+    """
+    if registration is None:
+        return None
+    lock, shown = registration.get("locked"), registration.get("head")
+    if lock not in (None, "initializing"):
+        return f"it is locked ({lock or 'no reason given'})"
+    if shown != commit and not (lock == "initializing" and shown and set(shown) == {"0"}):
+        return f"its HEAD is {shown or 'unreadable'}, not {commit}"
+    return None
+
+
+def add_leftover(repository: str | Path, worktree: str | Path, commit: str,
+                 registration: dict[str, str] | None, *, timeout_s: float | None = None) -> str | None:
+    """C-6.8: None when all there is at ``worktree`` is what a `git worktree add` of ``commit`` that never finished left; otherwise why it is kept.
+
+    An add registers the path, locks it `initializing`, writes HEAD as zeros
+    and then as the commit, creates the directory and its `.git` link, and
+    checks the commit out; git removes the lock once the checkout is written
+    and before any post-checkout hook. So the registration, if any, must be as
+    an add leaves it (`foreign_registration`). A link in the path's place is
+    unlinked, never followed, and an empty directory holds nothing.
+    Anything else must be under the lock: a `.git` that is a link back to this
+    registration in ``repository``, or none (a removal raced by the checkout,
+    as before this fix), nothing but paths of the commit's tree, and an index
+    that stages nothing but deletions. Their contents are not compared: the
+    add may have stopped mid-file. A checkout that is not locked finished,
+    and whatever makes it unfinished now was done after it.
+    """
+    foreign = foreign_registration(registration, commit)
+    if foreign is not None:
+        return foreign
+    path = Path(worktree)
+    if not os.path.lexists(path) or path.is_symlink():
+        return None
+    if not path.is_dir():
+        return "it is not a directory"
+    try:
+        empty = next(os.scandir(path), None) is None
+    except OSError as exc:
+        return f"it cannot be read ({exc.strerror or exc})"
+    if empty:
+        return None
+    if registration is None or registration.get("locked") != "initializing":
+        return "it holds files, and no add that never finished (git's `initializing` lock) names it"
+    link = path / ".git"
+    admin = None
+    if os.path.lexists(link):
+        if link.is_symlink() or not link.is_file():
+            return "its .git is not a worktree link"
+        admin = _link_target(link, "gitdir: ")
+        common = _git(repository, "rev-parse", "--path-format=absolute", "--git-common-dir", timeout_s=timeout_s)
+        if admin is None or os.path.dirname(admin) != _lexical(os.path.join(common, "worktrees")):
+            return "its .git names another repository"
+        if _link_target(Path(admin) / "gitdir", "") != _lexical(link):
+            return "its .git names another worktree"
+    tree = set(_git(repository, "ls-tree", "-r", "-t", "-z", "--full-tree", "--name-only", commit,
+                    timeout_s=timeout_s, raw=True).split("\0")) - {""}
+    unreadable: list[OSError] = []
+    for directory, dirnames, filenames in os.walk(path, onerror=unreadable.append):
+        base = os.path.relpath(directory, path)
+        for name in [*dirnames, *filenames]:
+            relative = name if base == "." else os.path.join(base, name)
+            if relative == ".git":
+                continue
+            if relative not in tree:
+                return f"it holds {relative}, which {commit} does not"
+        dirnames[:] = [name for name in dirnames if not (base == "." and name == ".git")
+                       and not os.path.islink(os.path.join(directory, name))]
+    if unreadable:
+        return f"part of it cannot be read ({unreadable[0].filename})"
+    if admin is not None and os.path.exists(os.path.join(admin, "index")):
+        staged = _git(path, "diff-index", "--cached", "-z", "--name-status", "--no-renames", commit, "--",
+                      optional=True, timeout_s=timeout_s, raw=True)
+        if staged is None:
+            return "its index cannot be read"
+        fields = staged.split("\0")
+        for status, name in zip(fields[::2], fields[1::2]):
+            if status != "D":
+                return f"its index stages {name}"
+    return None
 
 
 def working_tree(workdir: str | Path, baseline_commit: str, *,
