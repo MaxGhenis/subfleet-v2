@@ -20,6 +20,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import weakref
@@ -44,7 +45,7 @@ from .guardian import atomic_publish
 from .policy import PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
-    SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
+    SalvageError, check_worktree, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
 from .store import Store
@@ -1660,26 +1661,7 @@ class Daemon:
             validate_writable_workdir(workdir, timeout_s=cap)
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
-            if Path(workdir).exists() and (not (Path(workdir) / ".git").is_file()
-                                           or git_head(workdir, timeout_s=cap) is None):
-                # A `worktree add` killed at its cap can leave a directory that is
-                # not a worktree. `.git` is checked first because git run in a
-                # bare directory answers for whatever repository encloses it.
-                # Nothing has run here (the job has no attempt), so it is rebuilt
-                # rather than handed to a provider.
-                self._discard_worktree(job["workdir"], workdir, cap)
-            if not Path(workdir).exists():
-                try:
-                    result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                            capture_output=True, text=True,
-                                            timeout=self.policy["caps"]["worktree_add_timeout_s"])
-                except (OSError, subprocess.SubprocessError):
-                    self._discard_worktree(job["workdir"], workdir, cap)
-                    raise
-                if result.returncode:
-                    self._discard_worktree(job["workdir"], workdir, cap)
-                    raise AdapterError("could not allocate worktree: " + (result.stderr.strip()[-300:] or f"git exited {result.returncode}"),
-                                       fix="check repository and state-root permissions")
+            self._allocate_worktree(job, workdir)
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
@@ -1689,12 +1671,157 @@ class Daemon:
             baseline = git_tree(workdir, head, timeout_s=cap)
         return workdir, head, baseline
 
+    def _allocate_worktree(self, job: dict, workdir: str) -> None:
+        """C-6.8: make `worktrees/<job id>/` a finished checkout of `workdir_head`.
+
+        One cut on an earlier pass is used as it is. Anything else at the path
+        (a directory, or only a registration in the job's repository) is what an
+        add stopped partway left: no `.git` link if it stopped early, otherwise
+        git's `initializing` lock and a checkout with no index yet. Nothing has
+        run there (the job has no attempt), so it is removed and added again
+        rather than handed to a provider, once no process of an add is left in
+        it. A registration locked for another reason, or at another commit, is
+        someone's worktree and not an add's leftover: it is kept, and the job
+        fails with the reason (C-13.4 keeps the same ones).
+        """
+        cap = self.policy["caps"]["workspace_git_timeout_s"]
+        head = job["workdir_head"]
+        check = check_worktree(job["workdir"], workdir, head, timeout_s=cap)
+        if check.unfinished is None:
+            return
+        entry = check.registration
+        if entry is not None:
+            lock, shown = entry.get("locked"), entry.get("head")
+            if lock is not None and lock != "initializing":
+                raise SalvageError(f"{workdir} is locked ({lock or 'no reason given'}), so it was kept; "
+                                   "unlock or remove it, then submit the job again")
+            if shown and set(shown) != {"0"} and shown != head:
+                raise SalvageError(f"{workdir} is at commit {shown}, not the job's {head}, so it was kept; "
+                                   "remove it, then submit the job again")
+        if entry is not None or os.path.lexists(workdir):
+            self._await_worktree_add(job)
+            self.log.info("job %s: %s is not a finished checkout of %s (%s); removing it and adding it again",
+                          job["job_id"], workdir, head, check.unfinished)
+            self._discard_worktree(job["workdir"], workdir, cap)
+        self._add_worktree(job, workdir)
+
+    @staticmethod
+    def _worktree_add_marker(job: dict) -> str:
+        """C-6.8: the containment marker (C-5.5) a job's `git worktree add` carries."""
+        return "worktree-add:" + job["job_id"]
+
+    def _add_worktree(self, job: dict, workdir: str) -> None:
+        """C-6.8: `git worktree add`, capped by `caps.worktree_add_timeout_s`.
+
+        The checkout is a child of the add (`git reset --hard`, and any filter
+        it runs is a child of that), so the add runs in a session of its own and
+        the cap stops the whole group: killed alone, the add left its checkout
+        writing into the directory being removed. Its environment carries the
+        job's add marker, which a later pass looks for before it removes what
+        this add leaves, and the C locale, so the lock an add stopped partway
+        leaves reads git's own `initializing` whatever the daemon's language.
+        `--force` twice replaces a registration of this path whose directory
+        is gone, locked or not; `_allocate_worktree` has already read it as an
+        add's leftover and dropped it, so this matters only when that did not
+        finish.
+        """
+        cap = self.policy["caps"]["workspace_git_timeout_s"]
+        env = {**os.environ, "LC_ALL": "C",
+               "SUBFLEET_ATTEMPT": self._worktree_add_marker(job), "SUBFLEET_ROOT": str(self.root)}
+        with tempfile.TemporaryFile() as stderr:
+            try:
+                process = subprocess.Popen(["git", "-C", job["workdir"], "worktree", "add", "--force", "--force",
+                                            "--detach", workdir, job["workdir_head"]],
+                                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=stderr,
+                                           env=env, start_new_session=True)
+            except (OSError, subprocess.SubprocessError):
+                self._discard_worktree(job["workdir"], workdir, cap)
+                raise
+            try:
+                returncode = process.wait(timeout=self.policy["caps"]["worktree_add_timeout_s"])
+            except BaseException:
+                self._stop_worktree_add(job, process, workdir)
+                raise
+            if returncode:
+                stderr.seek(0)
+                detail = stderr.read().decode("utf-8", errors="replace").strip()
+                self._discard_worktree(job["workdir"], workdir, cap)
+                # C-6.8: git exiting non-zero fails the job with its cause; it is
+                # not a refusal (C-6.5).
+                raise SalvageError("git worktree add failed: " + (detail[-300:] or f"git exited {returncode}"))
+
+    def _stop_worktree_add(self, job: dict, process: subprocess.Popen, workdir: str) -> None:
+        """C-6.8: stop an add past its cap, then remove what it left once none of it runs.
+
+        The add's leader is this daemon's unreaped child, so its pid, which is
+        the group's id, cannot have been reused: the group is the one the daemon
+        recorded (C-5.4). The census of that group and the add's marker is
+        re-read for up to `kill_settle_s`, ending on the first verified-empty
+        one (C-5.6). Anything else leaves the directory for a later pass, which
+        waits for those processes before it removes anything.
+        """
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            process.wait(timeout=self.kill_settle_s)
+        except subprocess.TimeoutExpired:
+            pass
+        settle_until = time.monotonic() + self.kill_settle_s
+        while True:
+            census = procs.containment(process.pid, None, None, self._worktree_add_marker(job), root=str(self.root))
+            if census.verified_empty or time.monotonic() >= settle_until or self.stopping.wait(.05):
+                break
+        if census.verified_empty:
+            self._discard_worktree(job["workdir"], workdir, self.policy["caps"]["workspace_git_timeout_s"])
+        else:
+            self.log.warning("job %s: git worktree add stopped at its cap, but %s; its directory waits for a later pass",
+                             job["job_id"], f"pids {sorted(census.live_pids)} remain" if census.live_pids
+                             else "; ".join(census.errors))
+
+    def _await_worktree_add(self, job: dict) -> None:
+        """C-6.8: a transient failure while any process of an add for this job runs.
+
+        An add this daemon started is stopped before its pass ends. One that
+        outlived a daemon restart is in a session no record names, which C-5.4
+        forbids signalling; it finishes or fails on its own, and then stops
+        writing where the rebuild would remove.
+        """
+        census = procs.containment(None, None, None, self._worktree_add_marker(job), root=str(self.root))
+        if census.verified_empty:
+            return
+        if census.live_pids:
+            raise SalvageError(f"git worktree add for this job still running (pids {sorted(census.live_pids)})",
+                               transient=True)
+        raise SalvageError("could not verify that no git worktree add for this job is running: "
+                           + "; ".join(census.errors), transient=True)
+
     @staticmethod
     def _discard_worktree(repository: str, workdir: str, cap: float) -> None:
-        """Best effort: a failure here is reported by the add that follows it."""
-        shutil.rmtree(workdir, ignore_errors=True)
+        """Best effort: a failure here is reported by the add that follows it.
+
+        Only this path goes. The directory is deleted (anything else there,
+        a link included, is unlinked, never followed). Then `git worktree
+        remove --force --force` on the path, which git allows once the
+        directory is gone, drops this path's registration in the job's
+        repository with its lock: `prune` skips a locked registration, and the
+        one a killed add left refused every later add for the path ("a missing
+        but locked worktree"). Never a repository-wide `git worktree prune`,
+        which drops every stale, unlocked registration in the caller's
+        repository: a worktree whose directory is only absent for now (a
+        volume not mounted, a tree moved by hand) would lose its HEAD, index,
+        and reflog.
+        """
+        if os.path.isdir(workdir) and not os.path.islink(workdir):
+            shutil.rmtree(workdir, ignore_errors=True)
+        else:
+            try:
+                os.unlink(workdir)
+            except OSError:
+                pass
         try:
-            subprocess.run(["git", "-C", repository, "worktree", "prune"],
+            subprocess.run(["git", "-C", repository, "worktree", "remove", "--force", "--force", "--", workdir],
                            capture_output=True, timeout=cap)
         except (OSError, subprocess.SubprocessError):
             pass

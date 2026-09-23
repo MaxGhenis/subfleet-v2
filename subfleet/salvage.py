@@ -10,6 +10,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 from .adapters.base import AdapterError
 
@@ -103,6 +104,69 @@ def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None
     """The tree of ``commit``, or None when the repository cannot name it."""
     return _git(workdir, "rev-parse", "--verify", f"{commit}^{{tree}}", optional=True,
                 timeout_s=timeout_s)
+
+
+class WorktreeCheck(NamedTuple):
+    """What `check_worktree` found at a path the daemon allocates (C-6.8)."""
+    #: The path's entry in its repository's `git worktree list --porcelain`,
+    #: {"head": sha, "locked": reason}, each when shown; None when not listed.
+    registration: dict[str, str] | None
+    #: Why the path is not a finished checkout of the commit; None when it is.
+    unfinished: str | None
+
+
+def worktree_registration(listing: str, worktree: str | Path) -> dict[str, str] | None:
+    """``worktree``'s entry in a `git worktree list --porcelain` listing, or None.
+
+    The path's last component is not resolved: a link there is not the
+    worktree it points to.
+    """
+    absolute = os.path.abspath(worktree)
+    target = os.path.join(os.path.realpath(os.path.dirname(absolute)), os.path.basename(absolute))
+    for stanza in listing.split("\n\n"):
+        lines = stanza.splitlines()
+        if lines and lines[0].startswith("worktree ") and os.path.realpath(lines[0][len("worktree "):]) == target:
+            entry = {}
+            for line in lines[1:]:
+                if line.startswith("HEAD "):
+                    entry["head"] = line[len("HEAD "):]
+                elif line == "locked" or line.startswith("locked "):
+                    entry["locked"] = line[len("locked "):]
+            return entry
+    return None
+
+
+def check_worktree(repository: str | Path, worktree: str | Path, commit: str, *,
+                   timeout_s: float | None = None) -> WorktreeCheck:
+    """C-6.8: whether ``worktree`` is a finished checkout of ``commit``, and its registration.
+
+    Finished means a directory with a `.git` link (git run in a directory
+    without one answers for whatever repository encloses it), listed by
+    ``repository`` as one of its worktrees, unlocked (git locks a worktree
+    `initializing` until its add returns, so an add that was killed leaves the
+    lock), with HEAD at ``commit`` and an index holding that commit's tree (a
+    checkout stopped before it wrote its index has none, however many files it
+    wrote). The registration is read whether or not the directory exists: an
+    add stopped partway can leave one with no directory. A git call that did
+    not finish raises; one that failed reads as not listed, or not finished.
+    """
+    path = Path(worktree)
+    listing = _git(repository, "worktree", "list", "--porcelain", optional=True, timeout_s=timeout_s)
+    entry = worktree_registration(listing or "", path)
+    if not os.path.lexists(path):
+        return WorktreeCheck(entry, "no directory")
+    link = path / ".git"
+    if path.is_symlink() or not path.is_dir() or link.is_symlink() or not link.is_file():
+        return WorktreeCheck(entry, "no .git link")
+    if entry is None:
+        return WorktreeCheck(entry, f"{repository} does not list it")
+    if "locked" in entry:
+        return WorktreeCheck(entry, f"locked ({entry['locked'] or 'no reason given'})")
+    if entry.get("head") != commit:
+        return WorktreeCheck(entry, f"HEAD is {entry.get('head') or 'unreadable'}")
+    if _git(path, "diff-index", "--cached", "--quiet", commit, "--", optional=True, timeout_s=timeout_s) is None:
+        return WorktreeCheck(entry, "its index is not a checkout of the commit")
+    return WorktreeCheck(entry, None)
 
 
 def working_tree(workdir: str | Path, baseline_commit: str, *,

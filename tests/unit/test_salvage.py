@@ -1,6 +1,7 @@
 """C-13 salvage snapshots are private git objects, never worktree mutations."""
 
 import errno
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -8,7 +9,10 @@ import pytest
 
 from subfleet import salvage as salvage_module
 from subfleet.adapters.base import AdapterError
-from subfleet.salvage import SalvageError, git_head, salvage, validate_writable_workdir, working_tree
+from subfleet.salvage import (
+    SalvageError, check_worktree, git_head, salvage, validate_writable_workdir, working_tree,
+    worktree_registration,
+)
 
 
 def git(path, *args):
@@ -227,3 +231,75 @@ def test_c6_8_git_tree_names_a_commits_tree_or_nothing(repository):
     head = git_head(repository)
     assert salvage_module.git_tree(repository, head) == git(repository, "rev-parse", f"{head}^{{tree}}")
     assert salvage_module.git_tree(repository, "0" * 40) is None
+
+
+# --- C-6.8: only a finished checkout of the job's commit is reused -------------
+
+def test_c6_8_check_worktree_finds_only_a_finished_unlocked_checkout_of_the_commit(repository, tmp_path_factory):
+    """C-6.8 a `.git` link the repository lists, unlocked, at the commit, whose index holds its tree."""
+    head = git_head(repository)
+    worktree = tmp_path_factory.mktemp("worktrees") / "job"
+    assert check_worktree(repository, worktree, head).unfinished == "no directory"
+    worktree.mkdir()
+    assert check_worktree(repository, worktree, head).unfinished == "no .git link"
+    worktree.rmdir()
+    git(repository, "worktree", "add", "--detach", str(worktree), head)
+    assert check_worktree(repository, worktree, head) == ({"head": head}, None)
+
+    git(repository, "worktree", "lock", "--reason", "initializing", str(worktree))
+    check = check_worktree(repository, worktree, head)               # an add that never returned
+    assert check == ({"head": head, "locked": "initializing"}, "locked (initializing)")
+    git(repository, "worktree", "unlock", str(worktree))
+    git(repository, "worktree", "lock", str(worktree))
+    assert check_worktree(repository, worktree, head).unfinished == "locked (no reason given)"
+    git(repository, "worktree", "unlock", str(worktree))
+
+    index = worktree / git(worktree, "rev-parse", "--git-path", "index")
+    index.rename(index.with_name("index.saved"))
+    assert check_worktree(repository, worktree, head).unfinished == "its index is not a checkout of the commit"
+    index.with_name("index.saved").rename(index)
+    assert check_worktree(repository, worktree, head).unfinished is None
+
+    (repository / "second.txt").write_text("second\n")
+    git(repository, "add", "second.txt")
+    git(repository, "commit", "-m", "second")
+    assert check_worktree(repository, worktree, git_head(repository)).unfinished == f"HEAD is {head}"
+
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    git(elsewhere, "init", "-b", "task/other")
+    git(elsewhere, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "--allow-empty", "-m", "other")
+    theirs = tmp_path_factory.mktemp("worktrees") / "theirs"
+    git(elsewhere, "worktree", "add", "--detach", str(theirs), "HEAD")
+    check = check_worktree(repository, theirs, git_head(elsewhere))    # another repository's worktree
+    assert check == (None, f"{repository} does not list it")
+
+
+def test_c6_8_check_worktree_reads_a_registration_whose_directory_is_gone(repository, tmp_path_factory):
+    """C-6.8 an add stopped partway can leave git's registration, locked, with no directory."""
+    head = git_head(repository)
+    worktree = tmp_path_factory.mktemp("worktrees") / "job"
+    git(repository, "worktree", "add", "--lock", "--reason", "initializing", "--detach", str(worktree), head)
+    shutil.rmtree(worktree)
+    assert check_worktree(repository, worktree, head) == ({"head": head, "locked": "initializing"}, "no directory")
+
+
+def test_c6_8_a_link_at_the_path_is_not_the_worktree_it_points_to(repository, tmp_path_factory):
+    """C-6.8 neither the check nor the registration follows a link in the allocated path's place."""
+    head = git_head(repository)
+    theirs = tmp_path_factory.mktemp("worktrees") / "theirs"
+    git(repository, "worktree", "add", "--detach", str(theirs), head)
+    ours = tmp_path_factory.mktemp("worktrees") / "job"
+    ours.symlink_to(theirs)
+    listing = git(repository, "worktree", "list", "--porcelain")
+    assert worktree_registration(listing, ours) is None
+    assert worktree_registration(listing, theirs) == {"head": head}
+    assert check_worktree(repository, ours, head) == (None, "no .git link")
+
+
+def test_c6_8_check_worktree_raises_when_git_does_not_answer(monkeypatch, tmp_path):
+    """C-6.8 a listing that did not finish is not "not a worktree": it raises, transient."""
+    (tmp_path / ".git").write_text("gitdir: /nowhere\n")
+    _stub_run(monkeypatch, subprocess.TimeoutExpired(["git"], 5))
+    with pytest.raises(SalvageError) as error:
+        check_worktree(tmp_path, tmp_path, "0" * 40, timeout_s=5)
+    assert error.value.transient and "timed out after 5 s" in str(error.value)

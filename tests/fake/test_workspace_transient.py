@@ -21,8 +21,11 @@ from types import SimpleNamespace
 
 import pytest
 
+import subfleet.daemon as daemon_module
+from subfleet import procs
 from subfleet.adapters.base import AdapterError
 from subfleet.daemon import after
+from subfleet.procs import Containment
 from subfleet.salvage import SalvageError
 from tests.fake.test_state_contract import state_daemon
 from tests.fake.test_workspace_contract import repository
@@ -32,6 +35,9 @@ REAL_GIT = shutil.which("git")
 #: Long enough for `git worktree add` to reach its checkout's filter on a
 #: loaded machine; the tests below need the kill to land mid-checkout.
 ADD_CAP_S = 3
+#: The fixture replaces the census with one that is always empty; the tests
+#: of a stopped add need the real one, captured before any test runs.
+REAL_CONTAINMENT = procs.containment
 
 
 @pytest.fixture
@@ -42,7 +48,10 @@ def slow_git(tmp_path, monkeypatch):
     marker = tmp_path / "git-is-slow"
     script = bindir / "git"
     # `exec`: the sleep is the process the cap kills, so no orphan outlives a test.
-    script.write_text(f'#!/bin/sh\nif [ -e "{marker}" ]; then exec sleep 30; fi\nexec "{REAL_GIT}" "$@"\n')
+    # `<marker>-add` makes only `git -C <repo> worktree add` slow.
+    script.write_text(f'#!/bin/sh\nif [ -e "{marker}" ]; then exec sleep 30; fi\n'
+                      f'if [ -e "{marker}-add" ] && [ "$3" = worktree ] && [ "$4" = add ]; then exec sleep 30; fi\n'
+                      f'exec "{REAL_GIT}" "$@"\n')
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
     return marker
@@ -263,26 +272,14 @@ def test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind(state_daemon
     """C-6.8 `git worktree add` past its cap is transient, and its directory is removed."""
     daemon, harness = state_daemon
     repository(daemon, harness)
-    daemon.policy["caps"].update(workspace_git_timeout_s=1, worktree_add_timeout_s=1)
+    daemon.policy["caps"]["worktree_add_timeout_s"] = 1
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
-    daemon.policy["caps"]["workspace_git_timeout_s"] = 60   # only the add is slow
-    real_run = subprocess.run
-
-    def run(cmd, *args, **kwargs):
-        if "worktree" in cmd and "add" in cmd:
-            slow_git.touch()
-            try:
-                return real_run(cmd, *args, **kwargs)
-            finally:
-                slow_git.unlink()
-        return real_run(cmd, *args, **kwargs)
-    import subfleet.daemon as daemon_module
-    original = daemon_module.subprocess.run
-    daemon_module.subprocess.run = run
+    slow_add = Path(f"{slow_git}-add")
+    slow_add.touch()
     try:
         daemon._admit()
     finally:
-        daemon_module.subprocess.run = original
+        slow_add.unlink()
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
     assert not (daemon.root / "worktrees" / job_id).exists()
@@ -299,7 +296,10 @@ def test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind(state_daemon
 # runs any filter as a child of its own. The fixture's filter records itself
 # and that `git reset` and then blocks while the gate exists, so a test can
 # stop an add mid-checkout: `.gitattributes` is written, `slow.txt` and the
-# files after it are not, and there is no index yet.
+# files after it are not, and there is no index yet. Before the fix, the cap
+# killed the add alone: its checkout wrote on, git's `initializing` lock
+# outlived it and refused the retry, and a half-made tree passed for a
+# worktree because `.git` was a link and HEAD answered.
 
 
 def recorded(pids_file):
@@ -309,12 +309,10 @@ def recorded(pids_file):
     return [int(pid) for pid in pids_file.read_text().split()]
 
 
-def running(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+def live(pid):
+    """Present in the process table and not a zombie, as the census counts it (C-5.5)."""
+    state = subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 def wait_for(condition, timeout_s=15):
@@ -334,21 +332,63 @@ def registration(repository_path, worktree):
     return None
 
 
+def whole_checkout(daemon, workdir, job_id):
+    """The job's worktree is registered, unlocked, clean, at its head, and its baseline is that commit."""
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    [attempt] = daemon.store.list_attempts(job_id)
+    assert attempt["state"] == "reserved"
+    assert registration(workdir, worktree) == []
+    assert git(worktree, "rev-parse", "HEAD") == head
+    assert git(worktree, "status", "--porcelain", "--untracked-files=all") == ""
+    assert (worktree / "slow.txt").read_text() == "slow\n" and (worktree / "z-after.txt").read_text() == "after\n"
+    assert attempt["baseline_tree"] == git(workdir, "rev-parse", head + "^{tree}")
+
+
+def absent_worktree(workdir, tmp_path):
+    """A worktree of the caller's whose directory is away for now (a volume not mounted, a tree moved by hand).
+
+    It holds a commit made only there and a staged file: HEAD, index, and
+    reflog live in its registration. Cut from the root commit, so no filter runs.
+    """
+    theirs = tmp_path / "theirs"
+    git(workdir, "worktree", "add", "--detach", str(theirs), git(workdir, "rev-list", "--max-parents=0", "HEAD"))
+    (theirs / "committed.txt").write_text("only in their worktree\n")
+    git(theirs, "add", "committed.txt")
+    git(theirs, "commit", "-m", "made only in their worktree")
+    (theirs / "staged.txt").write_text("staged\n")
+    git(theirs, "add", "staged.txt")
+    absent = SimpleNamespace(path=theirs, away=tmp_path / "theirs-unmounted", commit=git(theirs, "rev-parse", "HEAD"),
+                             admin=Path(git(theirs, "rev-parse", "--absolute-git-dir")))
+    theirs.rename(absent.away)
+    return absent
+
+
+def assert_intact(workdir, absent):
+    """Its registration kept HEAD, index, and reflog: back in place, it is the worktree it was."""
+    assert absent.admin.is_dir()
+    assert absent.commit in git(workdir, "rev-list", "--all", "--reflog").split()
+    absent.away.rename(absent.path)
+    assert git(absent.path, "rev-parse", "HEAD") == absent.commit
+    assert git(absent.path, "status", "--porcelain") == "A  staged.txt"
+
+
 @pytest.fixture
 def slow_checkout(state_daemon, tmp_path):
     daemon, harness = state_daemon
     workdir = repository(daemon, harness)
-    gate, pids = tmp_path / "checkout-gate", tmp_path / "checkout-pids"
+    gate, pids, envs = tmp_path / "checkout-gate", tmp_path / "checkout-pids", tmp_path / "checkout-env"
     (workdir / ".gitattributes").write_text("slow.txt filter=slow\n")
     (workdir / "slow.txt").write_text("slow\n")
     (workdir / "z-after.txt").write_text("after\n")
     git(workdir, "add", "-A")
     git(workdir, "commit", "-m", "a checkout that can be held")
     git(workdir, "config", "filter.slow.smudge",
-        f"echo $$ $PPID >> '{pids}'; while [ -e '{gate}' ]; do sleep 0.02; done; cat")
+        f"echo \"$LC_ALL $SUBFLEET_ATTEMPT $SUBFLEET_ROOT\" >> '{envs}'; echo $$ $PPID >> '{pids}'; "
+        f"while [ -e '{gate}' ]; do sleep 0.02; done; cat")
     gate.touch()
     try:
-        yield SimpleNamespace(workdir=workdir, gate=gate, pids=pids)
+        yield SimpleNamespace(workdir=workdir, gate=gate, pids=pids, envs=envs)
     finally:
         gate.unlink(missing_ok=True)
         for pid in recorded(pids):
@@ -386,109 +426,275 @@ def killed_add(checkout, worktree, head):
     checkout.gate.unlink()
 
 
-def test_c6_8_on_main_a_killed_worktree_add_orphans_its_checkout(state_daemon, slow_checkout):
-    """C-6.8 as it stands on main: the cap kills `git worktree add` alone.
+def test_c6_8_an_add_past_its_cap_stops_its_whole_checkout(state_daemon, slow_checkout, monkeypatch, tmp_path):
+    """C-6.8, C-5.4 the cap stops the add's whole group, and what it made goes before the retry.
 
-    Its `git reset --hard` and the filter it runs keep going after the add is
-    gone and the directory removed. The registration keeps git's
-    `initializing` lock, which `git worktree prune` skips, so the retry's add
-    is refused for it and the job fails at once, and as a refusal (rc 7, a
-    plain `job.failed`), not the rc 1 `job.workspace_failed` C-6.8 names for
-    git exiting non-zero.
+    Its `git reset --hard` and the filter that one runs no longer outlive it;
+    the directory, its registration, and git's `initializing` lock are gone
+    when the pass ends, so the retry cuts a whole checkout. No other
+    registration in the caller's repository is touched.
     """
     daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.procs, "containment", REAL_CONTAINMENT)
     daemon.policy["caps"]["worktree_add_timeout_s"] = ADD_CAP_S
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
     worktree = daemon.root / "worktrees" / job_id
+    absent = absent_worktree(slow_checkout.workdir, tmp_path)
     daemon._admit()
 
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
     [record] = events(daemon, job_id, "job.workspace_deferred")
-    assert record["error"] == f"git worktree timed out after {ADD_CAP_S} s"
+    assert (record["error_type"], record["error"]) == ("TimeoutExpired", f"git worktree timed out after {ADD_CAP_S} s")
+    # The add ran with the job's marker and in the C locale, and its checkout inherited both.
+    assert slow_checkout.envs.read_text() == f"C worktree-add:{job_id} {daemon.root}\n"
     filter_pid, reset_pid = recorded(slow_checkout.pids)
-    assert running(filter_pid) and running(reset_pid)
-    assert not worktree.exists()
-    assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
+    assert not live(filter_pid) and not live(reset_pid)
+    assert not worktree.exists() and registration(slow_checkout.workdir, worktree) is None
+    assert_intact(slow_checkout.workdir, absent)
 
     slow_checkout.gate.unlink()
     due(daemon, job_id)
     daemon._admit()
-    job = daemon.store.get_job(job_id)
-    assert (job["state"], job["rc"]) == ("failed", 7) and daemon.store.list_attempts(job_id) == []
-    assert events(daemon, job_id, "job.workspace_failed") == []
-    [notice] = daemon.store.list_notices()
-    assert "could not allocate worktree" in notice["text"] and "missing but locked worktree" in notice["text"]
+    whole_checkout(daemon, slow_checkout.workdir, job_id)
 
 
-def test_c6_8_on_main_a_half_made_checkout_is_handed_to_a_provider(state_daemon, slow_checkout):
-    """C-6.8 as it stands on main: `.git` is a link and HEAD answers, so it is reused.
+@pytest.mark.parametrize("left", ["killed-mid-checkout", "unlocked-without-index", "locked-whole-checkout",
+                                  "registered-without-directory"])
+def test_c6_8_a_worktree_that_is_not_a_finished_checkout_is_rebuilt(state_daemon, slow_checkout, monkeypatch, left):
+    """C-6.8 a directory is reused only as a finished checkout of `workdir_head`; anything else is rebuilt.
 
-    The attempt is reserved in a tree that is missing files, locked
-    `initializing`, with no index, and its baseline records the missing files
-    as deleted.
+    `killed-mid-checkout` is what a daemon killed mid-add leaves: a `.git`
+    link and a HEAD that answers, which passed before, with git's
+    `initializing` lock, files missing, and no index. The next two fail one
+    test each: no index, and the lock. `registered-without-directory` is what
+    the old discard left (and `thesis-tsa-signers` is): the directory
+    removed, and the registration kept by its lock.
     """
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.procs, "containment", REAL_CONTAINMENT)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    if left == "locked-whole-checkout":
+        slow_checkout.gate.unlink()
+        git(slow_checkout.workdir, "worktree", "add", "--detach", str(worktree), head)
+        git(slow_checkout.workdir, "worktree", "lock", "--reason", "initializing", str(worktree))
+    else:
+        killed_add(slow_checkout, worktree, head)
+        if left == "unlocked-without-index":
+            git(slow_checkout.workdir, "worktree", "unlock", str(worktree))
+    if left == "registered-without-directory":
+        shutil.rmtree(worktree)
+        assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
+    else:
+        (worktree / "left-behind.txt").write_text("not the checkout's\n")
+
+    daemon._admit()
+    assert not (worktree / "left-behind.txt").exists()
+    whole_checkout(daemon, slow_checkout.workdir, job_id)
+    assert f"job {job_id}: {worktree} is not a finished checkout of {head}" in log_text(daemon)
+
+
+def test_c6_8_a_finished_checkout_is_reused_as_it_is(state_daemon, slow_checkout, monkeypatch):
+    """C-6.8 a waiting job's worktree, cut on an earlier pass, is used again, with no census and no new add."""
+    daemon, harness = state_daemon
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    slow_checkout.gate.unlink()
+    git(slow_checkout.workdir, "worktree", "add", "--detach", str(worktree), head)
+    inode = (worktree / "z-after.txt").stat().st_ino
+    censuses = []
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: censuses.append(args) or Containment())
+    daemon._admit()
+    whole_checkout(daemon, slow_checkout.workdir, job_id)
+    assert (worktree / "z-after.txt").stat().st_ino == inode and censuses == []
+
+
+def test_c6_8_an_add_that_outlived_its_daemon_is_waited_for_not_raced(state_daemon, slow_checkout, monkeypatch):
+    """C-6.8, C-5.4 an add a stopped daemon started is still checking out.
+
+    It carries the job's add marker. The next daemon neither signals it (no
+    record names its group) nor removes what it is writing; the job waits,
+    and once the add has finished its checkout is the job's worktree.
+    """
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.procs, "containment", REAL_CONTAINMENT)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    env = {**os.environ, "SUBFLEET_ATTEMPT": f"worktree-add:{job_id}", "SUBFLEET_ROOT": str(daemon.root)}
+    process = start_add(slow_checkout, worktree, head, env=env)
+    try:
+        daemon._admit()
+        job = daemon.store.get_job(job_id)
+        assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+        [record] = events(daemon, job_id, "job.workspace_deferred")
+        assert record["error_type"] == "SalvageError" and "git worktree add for this job still running" in record["error"]
+        filter_pid, reset_pid = recorded(slow_checkout.pids)
+        assert process.poll() is None and live(filter_pid) and live(reset_pid)
+        assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
+        assert (worktree / ".gitattributes").exists() and daemon.store.list_attempts(job_id) == []
+    finally:
+        slow_checkout.gate.unlink()
+        assert process.wait(timeout=30) == 0
+    inode = (worktree / "z-after.txt").stat().st_ino
+    due(daemon, job_id)
+    daemon._admit()
+    whole_checkout(daemon, slow_checkout.workdir, job_id)
+    assert (worktree / "z-after.txt").stat().st_ino == inode
+
+
+def test_c6_8_a_census_that_cannot_be_read_removes_nothing(state_daemon, slow_checkout, monkeypatch):
+    """C-6.8, C-5.5 an unverifiable census is no evidence that the add is gone: the job waits."""
     daemon, harness = state_daemon
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
     head = daemon.store.get_job(job_id)["workdir_head"]
     worktree = daemon.root / "worktrees" / job_id
     killed_add(slow_checkout, worktree, head)
-    assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
-
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment(
+        unverifiable=True, errors=("marker enumeration unavailable",)))
     daemon._admit()
-    [attempt] = daemon.store.list_attempts(job_id)
-    assert attempt["state"] == "reserved"
-    assert not (worktree / "slow.txt").exists() and not (worktree / "z-after.txt").exists()
-    assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
-    assert attempt["baseline_tree"] != git(slow_checkout.workdir, "rev-parse", head + "^{tree}")
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error"] == ("could not verify that no git worktree add for this job is running: "
+                               "marker enumeration unavailable")
+    assert (worktree / ".git").is_file() and registration(slow_checkout.workdir, worktree) == ["locked initializing"]
 
 
-def test_c6_8_on_main_an_add_still_running_is_raced(state_daemon, slow_checkout):
-    """C-6.8 as it stands on main: an add a stopped daemon started is still checking out.
+def test_c6_8_an_add_past_its_cap_leaves_its_directory_while_its_census_is_not_empty(state_daemon, slow_checkout,
+                                                                                    monkeypatch):
+    """C-6.8, C-5.6 the settle window ends without a verified-empty census: nothing is removed.
 
-    The next daemon reuses its half-made tree while it is still being written.
+    The job waits as for any add past its cap; the next pass, with the add's
+    group gone, removes the directory and cuts a whole checkout.
+    """
+    daemon, harness = state_daemon
+    daemon.kill_settle_s = .2
+    daemon.policy["caps"]["worktree_add_timeout_s"] = ADD_CAP_S
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    worktree = daemon.root / "worktrees" / job_id
+    monkeypatch.setattr(daemon_module.procs, "containment",
+                        lambda *args, **kwargs: Containment(group_pids=frozenset({os.getpid()})))
+    daemon._admit()
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error_type"] == "TimeoutExpired"
+    assert (worktree / ".git").is_file() and registration(slow_checkout.workdir, worktree) == ["locked initializing"]
+    assert f"job {job_id}: git worktree add stopped at its cap, but pids [{os.getpid()}] remain" in log_text(daemon)
+
+    monkeypatch.setattr(daemon_module.procs, "containment", REAL_CONTAINMENT)
+    slow_checkout.gate.unlink()
+    due(daemon, job_id)
+    daemon._admit()
+    whole_checkout(daemon, slow_checkout.workdir, job_id)
+
+
+def test_c6_8_a_worktree_add_that_git_refuses_fails_the_job_with_its_cause(state_daemon, tmp_path):
+    """C-6.8 git exiting non-zero fails the job with rc 1 and its stderr; it is not a refusal (C-6.5).
+
+    What the add left is discarded, and nothing else in the caller's repository.
+    """
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    absent = absent_worktree(workdir, tmp_path)
+    worktrees = daemon.root / "worktrees"
+    worktrees.chmod(0o500)
+    try:
+        daemon._admit()
+    finally:
+        worktrees.chmod(0o700)
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 1) and daemon.store.list_attempts(job_id) == []
+    [failed] = events(daemon, job_id, "job.workspace_failed")
+    assert failed["error_type"] == "SalvageError" and failed["transient"] is False
+    assert failed["error"].startswith("git worktree add failed: ") and "Permission denied" in failed["error"]
+    assert not (worktrees / job_id).exists() and registration(workdir, worktrees / job_id) is None
+    assert_intact(workdir, absent)
+
+
+@pytest.mark.parametrize("left", ["locked-for-review", "another-commit"])
+def test_c6_8_a_worktree_that_is_someones_is_kept_and_the_job_fails(state_daemon, slow_checkout, left):
+    """C-6.8, C-13.4 a lock other than git's `initializing`, or a commit other than the job's, is not an add's leftover.
+
+    Nothing at the path is removed: not the directory, not what is in it, not
+    the registration. The job fails with rc 1 and says why and what to do.
     """
     daemon, harness = state_daemon
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
     head = daemon.store.get_job(job_id)["workdir_head"]
     worktree = daemon.root / "worktrees" / job_id
-    process = start_add(slow_checkout, worktree, head)
-    try:
-        daemon._admit()
-        [attempt] = daemon.store.list_attempts(job_id)
-        assert attempt["state"] == "reserved" and process.poll() is None
-        assert not (worktree / "z-after.txt").exists()
-    finally:
-        slow_checkout.gate.unlink()
-        process.wait(timeout=30)
+    slow_checkout.gate.unlink()
+    cut = head if left == "locked-for-review" else git(slow_checkout.workdir, "rev-parse", head + "~1")
+    git(slow_checkout.workdir, "worktree", "add", "--detach", str(worktree), cut)
+    if left == "locked-for-review":
+        git(slow_checkout.workdir, "worktree", "lock", "--reason", "kept for review", str(worktree))
+    (worktree / "theirs.txt").write_text("someone's\n")
+
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 1) and daemon.store.list_attempts(job_id) == []
+    [failed] = events(daemon, job_id, "job.workspace_failed")
+    assert failed["error_type"] == "SalvageError" and failed["transient"] is False
+    reason = "is locked (kept for review)" if left == "locked-for-review" else f"is at commit {cut}, not the job's {head}"
+    assert failed["error"].startswith(f"{worktree} {reason}, so it was kept; ")
+    assert (worktree / "theirs.txt").read_text() == "someone's\n"
+    assert git(worktree, "rev-parse", "HEAD") == cut
+    assert registration(slow_checkout.workdir, worktree) == (
+        ["locked kept for review"] if left == "locked-for-review" else [])
 
 
-def test_c6_8_on_main_a_discard_prunes_the_callers_other_worktrees(state_daemon, tmp_path):
-    """C-6.8 as it stands on main: the discard runs `git worktree prune` in the caller's repository.
+def test_c6_8_a_rebuild_drops_only_its_own_registration(state_daemon, tmp_path):
+    """C-6.8 the discard never runs a repository-wide `git worktree prune`.
 
-    `prune` with no path drops every stale, unlocked registration there, not
-    only this job's. A worktree of the caller's whose directory is absent for
-    now (a volume not mounted, a tree moved by hand) loses its HEAD, its index,
-    and its reflog, and a commit made only there is no longer reachable.
+    Only the job's path is removed from the caller's repository. A worktree
+    of the caller's whose directory is only absent for now keeps its HEAD,
+    index, and reflog, and a commit made only there stays reachable.
+    """
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    absent = absent_worktree(workdir, tmp_path)
+    worktree = daemon.root / "worktrees" / job_id
+    worktree.mkdir()                                       # what an add killed early leaves
+
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+    assert (worktree / "tracked.txt").read_text() == "baseline\n" and registration(workdir, worktree) == []
+    assert_intact(workdir, absent)
+
+
+def test_c6_8_a_link_at_the_worktree_path_is_removed_not_followed(state_daemon, tmp_path):
+    """C-6.8 a link where the job's worktree belongs is not that worktree: it is unlinked, never followed.
+
+    The worktree it points to, a checkout of the job's own commit, keeps its
+    files and its registration; the job gets its own.
     """
     daemon, harness = state_daemon
     workdir = repository(daemon, harness)
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
     theirs = tmp_path / "theirs"
     git(workdir, "worktree", "add", "--detach", str(theirs), "HEAD")
-    (theirs / "committed.txt").write_text("only in their worktree\n")
-    git(theirs, "add", "committed.txt")
-    git(theirs, "commit", "-m", "made only in their worktree")
-    only_theirs = git(theirs, "rev-parse", "HEAD")
-    (theirs / "staged.txt").write_text("staged\n")
-    git(theirs, "add", "staged.txt")
-    admin = Path(git(theirs, "rev-parse", "--absolute-git-dir"))
-    away = tmp_path / "theirs-unmounted"
-    theirs.rename(away)
-    (daemon.root / "worktrees" / job_id).mkdir()          # what an add killed early leaves
+    (theirs / "theirs.txt").write_text("someone's\n")
+    worktree = daemon.root / "worktrees" / job_id
+    worktree.symlink_to(theirs)
 
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
-    assert not admin.exists()
-    assert only_theirs not in git(workdir, "rev-list", "--all", "--reflog").split()
-    away.rename(theirs)
-    status = subprocess.run(["git", "-C", str(theirs), "status"], capture_output=True, text=True)
-    assert status.returncode != 0 and "not a git repository" in status.stderr
+    assert not worktree.is_symlink() and (worktree / ".git").is_file()
+    assert registration(workdir, worktree) == [] and registration(workdir, theirs) == []
+    assert (theirs / "theirs.txt").read_text() == "someone's\n" and (theirs / "tracked.txt").exists()
+
+
+def test_c6_8_a_file_where_the_worktree_belongs_is_removed(state_daemon):
+    """C-6.8 a path that is not a directory at all is not a worktree either: it goes, and the add follows."""
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    worktree = daemon.root / "worktrees" / job_id
+    worktree.write_text("not a worktree\n")
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+    assert (worktree / "tracked.txt").read_text() == "baseline\n" and registration(workdir, worktree) == []
