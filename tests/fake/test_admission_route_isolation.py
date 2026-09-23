@@ -1023,8 +1023,9 @@ def test_c4_5_finalization_counts_transients_on_a_lane_and_its_successor_as_one(
 @pytest.mark.parametrize("error", [AttributeError("'NoneType' object has no attribute 'get'"),
                                    IndexError("list index out of range")])
 def test_c6_12_any_evaluation_error_of_one_job_is_that_jobs(fleet, monkeypatch, error):
-    """C-6.12 an AttributeError or IndexError from one job's evaluation (a None in capacity data, an
-    empty chain) is as much that job's as a KeyError: it waits on `route` and the pass goes on."""
+    """C-6.12 an AttributeError or IndexError raised while evaluating one job's route (a malformed
+    policy such as a `reserve` list, or a defect in evaluation or the capacity view) is handled like a
+    KeyError: the job waits on `route` and the pass goes on."""
     service, harness = fleet
     broken = submit(service, harness, pinned_model="astra")
     later = submit(service, harness, pinned_model="terra")
