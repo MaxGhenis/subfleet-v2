@@ -37,7 +37,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         child.add_argument("--dry-run", action="store_true")
         if kind != "continue":
             child.add_argument("--peer", required=True, choices=("fable", "opus", "astra", "sol"))
-            child.add_argument("--main-model", help="main model for explicit family validation")
+            child.add_argument("--main-model", help="main model, recorded in the gate state (any family may review any main)")
             child.add_argument("--brief")
             child.add_argument("-C", dest="workdir", default=None)
             child.add_argument("--on-agreement", choices=("proceed", "merge") if kind == "pr" else ("proceed",), default="proceed")

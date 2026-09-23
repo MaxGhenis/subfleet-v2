@@ -151,7 +151,24 @@ def test_read_only_launch_skips_the_git_repository_check(tmp_path, sandbox):
         {"CODEX_HOME": str(tmp_path / "home")}, MODEL, None, tmp_path / "prompt", GUARD_OVERRIDE,
     )
     assert launch.argv.count("--skip-git-repo-check") == (1 if sandbox == Sandbox.READ_ONLY else 0)
-    assert launch.argv.index("--sandbox") < len(launch.argv) - 1
+
+
+@pytest.mark.parametrize("sandbox", list(Sandbox))
+def test_resume_launch_skips_the_git_repository_check_before_resume(tmp_path, sandbox):
+    """C-12.3 C-14.3 A read-only resume outside a repository passes the flag before `resume`."""
+    home = tmp_path / "lane-home"
+    prompt = tmp_path / "continuation.md"
+    prompt.write_bytes(b"Continue the work.\n")
+    launch = CodexAdapter().resume_launch(
+        _job(tmp_path, prompt, sandbox), "job/a2", tmp_path / "a2", _lane(home),
+        {"CODEX_HOME": str(home)}, THREAD, prompt, GUARD_OVERRIDE,
+    )
+    assert launch is not None
+    assert launch.argv[-3:] == ("resume", THREAD, "-")
+    if sandbox == Sandbox.READ_ONLY:
+        assert launch.argv.index("--skip-git-repo-check") < launch.argv.index("resume")
+    else:
+        assert "--skip-git-repo-check" not in launch.argv
 
 
 def test_workspace_write_requires_guard_override(tmp_path):
