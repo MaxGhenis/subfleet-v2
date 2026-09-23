@@ -89,6 +89,10 @@ class SubmitArgs:
     review_root: str | None = None
     round_lease: str | None = None
     unmeasured_reserve_reason: str | None = None
+    # C-11.2, C-17.2: the provider the pin's flag names, `claude` for `-a` and
+    # `codex` for `-H`. It narrows a name both providers answer to; a lane id
+    # says its own provider. Not stored and not part of the request digest.
+    pinned_provider: str | None = None
     # C-17.7: {"id", "label", "index", "size"} for a job submitted by `run --batch`.
     # A label for people and the app, never an input to routing or the digest.
     batch: dict | None = None
