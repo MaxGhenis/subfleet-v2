@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -80,6 +81,23 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
     return result.stdout.strip()
 
 
+def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
+               stdin: bytes | None = None, timeout_s: float | None = None) -> bytes | None:
+    """``_git`` for byte streams (paths need not be UTF-8); None on a non-zero
+    exit. Timeouts and transient OS errors raise exactly as in ``_git``."""
+    cap = git_timeout_s(timeout_s)
+    try:
+        result = subprocess.run(["git", "-C", str(workdir), *args], env=env, input=stdin,
+                                capture_output=True, timeout=cap)
+    except subprocess.TimeoutExpired as exc:
+        raise SalvageError(f"git {args[0]} timed out after {cap:g} s", transient=True) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        if transient_os_error(exc):
+            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
+        return None
+    return None if result.returncode else result.stdout
+
+
 def git_head(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
     return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True, timeout_s=timeout_s)
 
@@ -107,13 +125,98 @@ def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None
 
 def working_tree(workdir: str | Path, baseline_commit: str, *,
                  timeout_s: float | None = None) -> str:
-    """Snapshot tracked and untracked files without changing the real index."""
+    """Snapshot tracked and untracked files without changing the real index.
+
+    The temporary index holds ``baseline_commit`` before ``add -A`` records
+    the worktree over it. It is seeded from a copy of the real index and
+    read with ``read-tree -m``: the entries are the baseline's either way,
+    but git keeps the real index's stat data for every path whose content
+    matches, so ``add -A`` hashes only the files that changed. Read into an
+    empty index, the baseline has no stat data and every tracked file is
+    hashed again, which on a large checkout outlasts the preparation cap
+    (C-6.8). The copy's assume-unchanged and skip-worktree bits, which
+    ``read-tree -m`` keeps, are cleared before ``add -A``: it skips such paths, and the empty-index read has no such
+    bits, so the two reads give the same tree. When the real index cannot
+    seed it (there is none yet, it has unmerged entries, git cannot read the
+    copy or clear its bits), the baseline is read into an empty index as
+    before.
+
+    Trusting stat data is git's own model (``git status`` does the same): a
+    file rewritten with the same size, mtime and inode is read as unchanged,
+    where the empty-index read would hash it.
+    """
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
-        _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
+        index = Path(temporary) / "index"
+        env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+        seeded = (_seed_index(workdir, index, timeout_s=timeout_s)
+                  and _git(workdir, "read-tree", "-m", baseline_commit, env=env,
+                           optional=True, timeout_s=timeout_s) is not None
+                  and _clear_skip_bits(workdir, env, timeout_s=timeout_s))
+        if not seeded:
+            index.unlink(missing_ok=True)
+            _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
         _git(workdir, "add", "-A", env=env, timeout_s=timeout_s)
         return _git(workdir, "write-tree", env=env, timeout_s=timeout_s)
+
+
+def _seed_index(workdir: str | Path, index: Path, *,
+                timeout_s: float | None = None) -> bool:
+    """Copy the real index to ``index``; False when there is none to copy.
+
+    The copy keeps the file's mtime: git treats entries at or after the
+    index's own mtime as possibly modified and hashes them, and a copy
+    stamped now would hide exactly those edits. The bytes and the mtime come
+    from one open file, so a concurrent rewrite of the index (git replaces
+    it by rename) cannot pair one index's entries with another's mtime.
+    """
+    real = _git(workdir, "rev-parse", "--git-path", "index", optional=True,
+                timeout_s=timeout_s)
+    if not real:
+        return False
+    source = Path(real) if os.path.isabs(real) else Path(workdir) / real
+    try:
+        with open(source, "rb") as reader, open(index, "wb") as writer:
+            stat = os.fstat(reader.fileno())
+            shutil.copyfileobj(reader, writer)
+        os.utime(index, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    except OSError:
+        return False
+    return True
+
+
+def _clear_skip_bits(workdir: str | Path, env: dict[str, str], *,
+                     timeout_s: float | None = None) -> bool:
+    """Clear assume-unchanged and skip-worktree bits in the temporary index.
+
+    Flipping a bit hashes nothing. ``update-index`` applies only the first
+    of the two options it is given, so each bit gets its own call.
+    """
+    # From the toplevel: from a subdirectory, ls-files lists only that
+    # subdirectory's entries, and add -A still records the whole tree.
+    top = _git(workdir, "rev-parse", "--show-toplevel", optional=True, timeout_s=timeout_s)
+    if not top:
+        return False
+    listed = _git_bytes(top, "ls-files", "-v", "-z", env=env, timeout_s=timeout_s)
+    if listed is None:
+        return False
+    assumed: list[bytes] = []
+    skipped: list[bytes] = []
+    for record in listed.split(b"\0"):
+        if len(record) < 3:
+            continue
+        tag, path = record[:1], record[2:]
+        if tag.islower():
+            assumed.append(path)
+        if tag in (b"S", b"s"):
+            skipped.append(path)
+    for option, paths in (("--no-assume-unchanged", assumed),
+                          ("--no-skip-worktree", skipped)):
+        if paths and _git_bytes(top, "update-index", option, "-z", "--stdin",
+                                stdin=b"\0".join(paths) + b"\0", env=env,
+                                timeout_s=timeout_s) is None:
+            return False
+    return True
 
 
 def validate_writable_workdir(workdir: str | Path, *, timeout_s: float | None = None) -> None:

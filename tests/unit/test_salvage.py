@@ -1,6 +1,7 @@
 """C-13 salvage snapshots are private git objects, never worktree mutations."""
 
 import errno
+import os
 import subprocess
 from pathlib import Path
 
@@ -227,3 +228,150 @@ def test_c6_8_git_tree_names_a_commits_tree_or_nothing(repository):
     head = git_head(repository)
     assert salvage_module.git_tree(repository, head) == git(repository, "rev-parse", f"{head}^{{tree}}")
     assert salvage_module.git_tree(repository, "0" * 40) is None
+
+
+def _scratch_tree(path, baseline):
+    """The snapshot as read into an empty index: every tracked file hashed."""
+    index = path / ".git" / "scratch-index"
+    env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+    try:
+        for args in (("read-tree", baseline), ("add", "-A")):
+            subprocess.run(["git", "-C", str(path), *args], env=env, check=True,
+                           capture_output=True)
+        return subprocess.run(["git", "-C", str(path), "write-tree"], env=env, check=True,
+                              capture_output=True, text=True).stdout.strip()
+    finally:
+        index.unlink(missing_ok=True)
+
+
+def _dirty(repository):
+    """Every kind of change a snapshot must record over its baseline."""
+    (repository / "kept.txt").write_text("unchanged\n")
+    (repository / "gone.txt").write_text("to be deleted\n")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "more files")
+    (repository / "tracked.txt").write_text("modified, unstaged\n")
+    (repository / "staged.txt").write_text("new and staged\n")
+    git(repository, "add", "staged.txt")
+    (repository / "gone.txt").unlink()
+    (repository / "untracked.txt").write_text("new, untracked\n")
+    (repository / "ignored.txt").write_text("ignored\n")
+
+
+def test_c6_8_seeded_snapshot_equals_the_scratch_snapshot(repository):
+    """Seeding from the real index changes what is hashed, never the tree."""
+    _dirty(repository)
+    baseline = git_head(repository)
+    index = (repository / ".git" / "index").read_bytes()
+    assert working_tree(repository, baseline) == _scratch_tree(repository, baseline)
+    assert (repository / ".git" / "index").read_bytes() == index
+
+
+def test_c6_8_snapshot_against_an_older_baseline_equals_the_scratch_snapshot(repository):
+    """read-tree -m keeps stat data only where content matches the baseline."""
+    older = git_head(repository)
+    _dirty(repository)
+    assert working_tree(repository, older) == _scratch_tree(repository, older)
+
+
+def test_c6_8_snapshot_without_a_real_index_reads_the_baseline(repository):
+    _dirty(repository)
+    baseline = git_head(repository)
+    expected = _scratch_tree(repository, baseline)
+    saved = repository / ".git" / "index.saved"
+    (repository / ".git" / "index").rename(saved)
+    try:
+        assert working_tree(repository, baseline) == expected
+    finally:
+        saved.rename(repository / ".git" / "index")
+
+
+def test_c6_8_snapshot_with_unmerged_entries_reads_the_baseline(repository):
+    """read-tree -m refuses an index with conflicts; the scratch read does not."""
+    git(repository, "checkout", "-b", "other")
+    (repository / "tracked.txt").write_text("other side\n")
+    git(repository, "commit", "-am", "other")
+    git(repository, "checkout", "task/example")
+    (repository / "tracked.txt").write_text("this side\n")
+    git(repository, "commit", "-am", "this")
+    subprocess.run(["git", "-C", str(repository), "merge", "other"], capture_output=True)
+    assert "UU tracked.txt" in git(repository, "status", "--porcelain")
+    baseline = git_head(repository)
+    index = (repository / ".git" / "index").read_bytes()
+    assert working_tree(repository, baseline) == _scratch_tree(repository, baseline)
+    assert (repository / ".git" / "index").read_bytes() == index
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root reads unreadable files")
+def test_c6_8_seeded_snapshot_does_not_reread_unchanged_files(repository):
+    """The speed-up, made observable: an unchanged file the snapshot cannot
+    read is still recorded from the real index's stat data. The scratch
+    read has to hash it and fails (incident: 2026-09-23, axiom-corpus, 59,822
+    tracked files and 14 GB; the scratch snapshot took 50 s warm and timed
+    out at the 60 s cap eight times under load, so no writable job could be
+    admitted there)."""
+    git(repository, "config", "core.trustctime", "false")  # chmod moves ctime only
+    baseline = git_head(repository)
+    unreadable = repository / "tracked.txt"
+    # Older than the index, so git does not treat it as racily clean (an
+    # entry as new as its index is hashed again, by design).
+    hour_ago = unreadable.stat().st_mtime - 3600
+    os.utime(unreadable, (hour_ago, hour_ago))
+    git(repository, "update-index", "--refresh")
+    expected = git(repository, "rev-parse", "HEAD^{tree}")
+    unreadable.chmod(0)
+    try:
+        assert working_tree(repository, baseline) == expected
+        with pytest.raises(subprocess.CalledProcessError):
+            _scratch_tree(repository, baseline)
+    finally:
+        unreadable.chmod(0o644)
+
+
+@pytest.mark.parametrize("from_subdirectory", [False, True])
+@pytest.mark.parametrize("marks", [("--assume-unchanged",), ("--skip-worktree",),
+                                   ("--assume-unchanged", "--skip-worktree")])
+def test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged(repository, marks,
+                                                                    from_subdirectory):
+    """A real index's assume-unchanged and skip-worktree bits must not carry
+    into the seeded snapshot: add -A skips such paths, and the empty-index
+    read (no bits) records their edits and deletions."""
+    (repository / "local.cfg").write_text("original\n")
+    (repository / "gone.cfg").write_text("original\n")
+    (repository / "sub").mkdir()
+    (repository / "sub" / "file.txt").write_text("in the job's directory\n")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "config files")
+    for mark in marks:
+        git(repository, "update-index", mark, "local.cfg", "gone.cfg")
+    (repository / "local.cfg").write_text("edited while marked\n")
+    (repository / "gone.cfg").unlink()
+    baseline = git_head(repository)
+    index = (repository / ".git" / "index").read_bytes()
+    # An in-place job may run from a subdirectory; the marks outside it count.
+    workdir = repository / "sub" if from_subdirectory else repository
+    tree = working_tree(workdir, baseline)
+    assert tree == _scratch_tree(repository, baseline)
+    assert git(repository, "show", f"{tree}:local.cfg") == "edited while marked"
+    assert "gone.cfg" not in git(repository, "ls-tree", "--name-only", tree)
+    assert (repository / ".git" / "index").read_bytes() == index
+
+
+def test_c6_8_snapshot_keeps_the_real_index_mtime_for_racy_entries(repository):
+    """An edit that keeps size, mtime and inode is caught only by git's racy
+    check (an entry as new as its index is hashed again). The copy must keep
+    the real index's mtime for that check to fire."""
+    git(repository, "config", "core.trustctime", "false")
+    path = repository / "racy.txt"
+    path.write_text("aaaa\n")
+    old = path.stat().st_mtime_ns - 3_600 * 10**9
+    os.utime(path, ns=(old, old))           # older than the index: not smudged
+    git(repository, "add", "racy.txt")
+    git(repository, "commit", "-m", "racy file")
+    baseline = git_head(repository)
+    path.write_text("bbbb\n")               # same size, same inode
+    os.utime(path, ns=(old, old))           # same mtime
+    os.utime(repository / ".git" / "index", ns=(old, old))  # index as old as the entry
+    tree = working_tree(repository, baseline)
+    assert git(repository, "show", f"{tree}:racy.txt") == "bbbb"
