@@ -2741,19 +2741,6 @@ class Daemon:
             route["failed"] = True
             self._unroutable(job, exc, holds)
 
-    def _discard_fresh_worktree(self, job_id: str) -> None:
-        """C-6.12: the worktree admission cut for a job it then refused.
-
-        `_workspace` allocates `worktrees/<job id>/` before the route is
-        evaluated; `jobs.worktree` is set only when an attempt is reserved, so
-        retention would never collect one that no attempt used.
-        """
-        job = self.store.get_job(job_id)
-        path = self.root / "worktrees" / job_id
-        if (job and job["state"] in TERMINAL and job["sandbox"] == "workspace-write" and not job["in_place"]
-                and not job["worktree"] and path.exists() and not self.store.list_attempts(job_id)):
-            self._discard_worktree(job["workdir"], str(path), self.policy["caps"]["workspace_git_timeout_s"])
-
     def _route_hold(self, job_id: str, next_check_at: str | None) -> dict:
         """C-6.11, C-6.12: what a route wait reports, also on passes that do not look at it."""
         record = self._route_deferrals.get(job_id) or {}
@@ -2784,7 +2771,7 @@ class Daemon:
             self.log.warning("job %s refused at admission: %s", job_id, cause)
             self._fail_queued(job, f"refused at admission: {cause}", rc=int(Exit.INVALID_INPUT),
                               kind="job.route_refused", data=record)
-            self._discard_fresh_worktree(job_id)
+            # C-13.4: a worktree cut for it is the next pass's to collect.
             return
         count = (self._route_deferrals.get(job_id) or {}).get("deferrals", 0) + 1
         delay = min(ROUTE_RETRY_CEILING_S, ROUTE_RETRY_BASE_S * 2 ** min(count - 1, 16))

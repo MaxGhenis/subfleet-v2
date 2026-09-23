@@ -510,7 +510,7 @@ def test_c6_12_a_policy_edit_that_moves_a_tier_to_another_provider_waits_and_fai
 
 
 def test_c6_12_a_refused_writable_job_leaves_no_worktree(incident, tmp_path):
-    """C-6.12 admission cut `worktrees/<job>` before it evaluated the route; a refusal removes it."""
+    """C-6.12, C-13.4 admission cut `worktrees/<job>` before it evaluated the route; the next pass removes it."""
     from tests.unit.test_salvage import git
     service, harness = incident
     repo = tmp_path / "repo"
@@ -524,6 +524,7 @@ def test_c6_12_a_refused_writable_job_leaves_no_worktree(incident, tmp_path):
     stuck = legacy(service, harness, EMAIL, pinned_model=None, sandbox="workspace-write", workdir=str(repo))
     service._admit()
     assert service.store.get_job(stuck)["state"] == "failed"
+    service._admit()                             # C-13.4: the next pass collects it
     assert not (service.root / "worktrees" / stuck).exists()
     listed = subprocess.run(["git", "-C", str(repo), "worktree", "list"], capture_output=True, text=True).stdout
     assert stuck not in listed
