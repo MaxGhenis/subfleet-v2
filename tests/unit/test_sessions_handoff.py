@@ -557,6 +557,8 @@ UNSHAPED = "q7Wd9Zk2Lp4Xv8Nm3Rt6Yh1Bs5Gc0Jf"
     f"AUTHORIZATION={UNSHAPED} ./run.sh",
     f"x-request: 1; Cookie: session={UNSHAPED}; theme=dark",
     f"Set-Cookie: sid={UNSHAPED}; Path=/",
+    f"KeyError: 'response headers\\nAuthorization: Basic {UNSHAPED}'",
+    f"Command '['curl', '-H', 'X-Request-ID: 7\\nAuthorization: Basic {UNSHAPED}', 'https://x.test']'",
 ])
 def test_a_header_value_is_replaced_wherever_the_header_starts_on_its_line(line):
     """C-23.14, found in the PR #26 review: the header rule was anchored to the start of a line, so a
@@ -564,6 +566,47 @@ def test_a_header_value_is_replaced_wherever_the_header_starts_on_its_line(line)
     text, count = handoff.scrub_secrets(line)
     assert UNSHAPED not in text and count >= 1
     assert "[REDACTED]" in text
+
+
+def test_a_quoted_header_loses_its_value_and_keeps_the_rest_of_the_command():
+    """C-23.14, review round 2 of PR #26: replacing to the end of the line took the URL and flags too."""
+    text, _count = handoff.scrub_secrets(
+        f"curl -fsS -H 'Authorization: Basic {UNSHAPED}' https://example.test/v1 --fail-with-body")
+    assert text == "curl -fsS -H 'Authorization: [REDACTED]' https://example.test/v1 --fail-with-body"
+
+
+@pytest.mark.parametrize("line", [
+    'curl -H "Authorization:" https://example.test/health --fail-with-body',
+    "print('Authorization:'); perform_request()",
+    "echo 'Cookie:' && pytest -q",
+    'r.headers["Authorization"] = value',
+    "session.headers.pop('Cookie', None)",
+    "echo Authorization:",
+    "grep -n 'Set-Cookie:' access.log | head   # count the Cookie:  ",
+])
+def test_a_header_name_with_no_value_is_ordinary_code(line):
+    """C-23.14's retention half, review round 2 of PR #26: these lines carry no credential and were
+    destroyed by a whole-line rule. They are kept byte for byte."""
+    assert handoff.scrub_secrets(line) == (line, 0)
+
+
+def test_the_header_rules_only_add_to_what_the_assignment_rules_replace():
+    """C-23.14, found by the PR #26 differential fuzz: run before the assignment rules, a header rule
+    took the `Token :` that ends a line, and the value on the next line lost its key."""
+    text, _count = handoff.scrub_secrets(f"x Proxy-Authorization: a Token :\n  {UNSHAPED} rest")
+    assert UNSHAPED not in text
+
+
+@pytest.mark.parametrize("url", [
+    "a" * 65 + f"://user:{UNSHAPED}@host.test/path",
+    f"my_postgres://app:{UNSHAPED}@db.test/main",
+    f"git+ssh://git:{UNSHAPED}@example.test/repo.git",
+])
+def test_a_url_password_is_found_whatever_precedes_its_scheme(url):
+    """C-23.14, review round 2 of PR #26: a 64-character scheme cap missed a longer scheme, and `\\b`
+    had always missed one after `_`. The scheme is matched from the start of its run."""
+    text, count = handoff.scrub_secrets(url)
+    assert UNSHAPED not in text and count == 1 and text.endswith("@" + url.split("@", 1)[1])
 
 
 @pytest.mark.parametrize("assignment", [
@@ -576,11 +619,17 @@ def test_a_compound_key_name_is_still_found_by_its_suffix(assignment):
     assert UNSHAPED not in text and count == 1
 
 
-@pytest.mark.parametrize("unit", ["x_", "a-", "a:", "a=", "eyJa.", "api_", "'"])
+@pytest.mark.parametrize("unit", [
+    "x_", "a-", "a:", "a=", "eyJa.", "api_", "'", "-----BEGIN PRIVATE KEY-----\n", "'Authorization: x",
+    "\\nCookie: x", "a://u:", "Authorization: '", "token: '", "data:image/png;base64,", "Bearer ", "a b",
+    "\n", "\n  ", "\r\n",
+])
 def test_scrubbing_takes_time_linear_in_the_text(unit):
-    """C-23.14, found in the PR #26 review: two assignment rules backtracked through every
-    identifier-shaped run, and a URL rule rescanned scheme-shaped runs. `"x_" * 3000` took over a
-    second, growing with the square of the length; this input is 67 times longer."""
+    """C-23.14, found in the PR #26 reviews: two assignment rules backtracked through every
+    identifier-shaped run, a URL rule rescanned scheme-shaped runs, and the private-key rule rescanned
+    the rest of the text from every unmatched opening, and the line-start header rule rescanned every
+    run of blank lines. `"x_" * 3000` took over a second, 256 KB of openings 11 s, and 64 KB of blank
+    lines over 20 s, all growing with the square of the length."""
     text = unit * (200_000 // len(unit))
     started = time.perf_counter()
     handoff.scrub_secrets(text)

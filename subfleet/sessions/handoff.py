@@ -69,6 +69,11 @@ _PEM_RE = re.compile(
     r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----",
     re.DOTALL,
 )
+#: Every PEM match ends at an END marker, so `_scrub_pem` applies `_PEM_RE` only
+#: up to the last one. Past it, each opening marker would rescan the rest of the
+#: text for an END that is not there, which is quadratic (PR #26 review: 11 s for
+#: 256 KB of repeated openings).
+_PEM_END_RE = re.compile(r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----")
 _JWT_RE = re.compile(
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\."
     r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
@@ -90,15 +95,31 @@ _DATA_URI_RE = re.compile(
 _LONG_BASE64_RE = re.compile(
     r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{160,}={0,2})(?![A-Za-z0-9+/])"
 )
-# A scheme is at most 64 characters: unbounded, `[a-z0-9+.-]*` rescans a long
-# run such as `a-a-a-...` from every letter in it, which is quadratic.
-_URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]{0,63}://[^\s/:@]+:)([^\s/@]+)(@)")
-# The header's value is the rest of the line wherever the header starts: in an
-# exception message, a `curl -H '...'` argument, or a subprocess command's repr
-# it follows other text on its line, and its value (`Basic <token>`) has a space
-# that would end a plain assignment's value one word early.
-_HEADER_RE = re.compile(
-    r"(?im)(\b(?:proxy-authorization|authorization|cookie|set-cookie)\s*[:=]\s*).+$")
+# The scheme is matched from the start of its run of scheme characters, and
+# nowhere else. Starting at every letter after `\b` instead rescanned a run such
+# as `a-a-a-...` from each one, which is quadratic; it also missed a scheme after
+# `_` (`my_postgres://`), where there is no `\b`. The run is kept verbatim.
+_URL_PASSWORD_RE = re.compile(r"(?i)(?<![a-z0-9+.-])([a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)")
+# The leading whitespace stays on its line. `^\s*` also consumed the newlines
+# after every line start, so a run of blank lines was rescanned from each one:
+# 16 KB of newlines took 2 s and 64 KB over 20 s (PR #26 review sweep). A match
+# that `^\s*` began on an earlier blank line begins on the header's own line
+# instead, and the replacement keeps what it matched, so no output changes.
+_HEADER_RE = re.compile(r"(?im)^([^\S\n]*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
+# A header's value has a space in it (`Basic <credential>`), so a plain
+# assignment would stop one word early. `_HEADER_RE` takes the rest of a line the
+# header starts. Elsewhere on a line (an exception message, a `curl -H '...'`
+# argument, a command's repr, after an escaped `\n` in a repr) the value is
+# replaced to the closing quote when a quote opens the header, and otherwise to
+# the end of the line. A value must start with something other than a space or
+# a quote, so an empty header (`curl -H "Authorization:" ...`) is kept verbatim.
+_HEADER_NAME = r"(?:proxy-authorization|authorization|set-cookie|cookie)"
+_QUOTED_HEADER_RE = re.compile(
+    rf"(?i)(?P<quote>['\"])(?P<prefix>{_HEADER_NAME}[^\S\r\n]*[:=][^\S\r\n]*)"
+    r"(?P<value>(?!\[REDACTED\](?:(?P=quote)|[^\S\r\n]*$))[^\s'\"](?:(?!(?P=quote))[^\r\n])*)", re.M)
+_INLINE_HEADER_RE = re.compile(
+    rf"(?im)(?:(?<![A-Za-z0-9_'\"])|(?<=\\[nrt]))(?P<prefix>{_HEADER_NAME}[^\S\r\n]*[:=][^\S\r\n]*)"
+    r"(?P<value>(?!\[REDACTED\][^\S\r\n]*$)[^\s'\"].*)$")
 # The key names match anywhere, so `MY_API_KEY=` is found at `API_KEY=` and the
 # text before it is kept as it was. A compound-name alternative,
 # `[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*[_-](?:api[_-]?key|token|...)`, used to
@@ -163,11 +184,21 @@ class HandoffError(ValueError):
         self.fix = fix
 
 
+def _scrub_pem(text: str) -> tuple[str, int]:
+    """`_PEM_RE.subn` over the text, applied only where a match can end."""
+    last = None
+    for last in _PEM_END_RE.finditer(text):
+        pass
+    if last is None:
+        return text, 0
+    head, count = _PEM_RE.subn("[PRIVATE KEY REDACTED]", text[:last.end()])
+    return head + text[last.end():], count
+
+
 def scrub_secrets(text: str) -> tuple[str, int]:
     """Remove credential values and encoded binary; retain ordinary text."""
-    total = 0
+    text, total = _scrub_pem(text)
     for pattern, replacement in (
-        (_PEM_RE, "[PRIVATE KEY REDACTED]"),
         (_DATA_URI_RE, "[BASE64 DATA OMITTED]"),
         (_JWT_RE, REDACTED),
         (_PREFIXED_TOKEN_RE, REDACTED),
@@ -179,6 +210,11 @@ def scrub_secrets(text: str) -> tuple[str, int]:
          lambda match: (match.group("prefix") + match.group("quote")
                         + REDACTED + match.group("quote"))),
         (_PLAIN_ASSIGN_RE, lambda match: match.group("prefix") + REDACTED),
+        # Last, so they only add to what the rules above replace: run earlier, one
+        # could take a key the assignment rules needed (a value after `Token :` on
+        # the next line). A value that is already exactly `[REDACTED]` is left.
+        (_QUOTED_HEADER_RE, lambda match: match.group("quote") + match.group("prefix") + REDACTED),
+        (_INLINE_HEADER_RE, lambda match: match.group("prefix") + REDACTED),
     ):
         text, count = pattern.subn(replacement, text)
         total += count

@@ -7,6 +7,7 @@ the daemon's text). `subfleet status` said `running jobs: 519`, the size of the
 whole store. `daemon.log` had not gained a line since the daemon started.
 """
 
+import linecache
 import logging
 import re
 import subprocess
@@ -421,8 +422,11 @@ def grouped() -> Exception:
     lambda: OSError(f"git fetch https://max:{PLAIN_CREDENTIAL}@github.test/r.git: timed out"),
     lambda: ValueError(f"lane config {{'client_secret': '{PLAIN_CREDENTIAL}', 'lane': 'codex-2'}}"),
     lambda: ValueError(f"AUTHORIZATION={PLAIN_CREDENTIAL} COOKIE=session={PLAIN_CREDENTIAL}"),
+    lambda: KeyError(f"response headers\nAuthorization: Basic {PLAIN_CREDENTIAL}"),
+    lambda: subprocess.CalledProcessError(
+        22, ["curl", "-H", f"X-Request-ID: 7\nAuthorization: Basic {PLAIN_CREDENTIAL}", "https://x.test"]),
 ], ids=["header-mid-line", "chained-cause", "group-note", "subprocess-command", "url-password",
-        "dict-repr", "env-style"])
+        "dict-repr", "env-style", "escaped-newline-repr", "escaped-newline-command"])
 def test_c5_10_a_credential_in_the_cause_never_reaches_the_log(fleet, make):
     """C-5.10 review of PR #26: the scrub list matched a header only at the start of a line, and a
     traceback puts `RuntimeError: ` (or a group's margin, or a command repr) in front of it."""
@@ -487,6 +491,30 @@ def test_c5_10_a_cause_over_the_scrub_bound_keeps_its_frames_and_omits_its_messa
     assert "OSError: message omitted: the cause is" in text and "scrub bound" in text
     assert "in recurse" in text and "frames omitted" in text          # 40 of the 60+ frames, and the gap said
     assert "unable to read tree" not in text and PLAIN_CREDENTIAL not in text
+    assert "return recurse(depth - 1)" not in text                    # where, not what: no source lines
+
+
+def test_c5_10_a_huge_source_line_is_reduced_to_where_it_was_raised(fleet):
+    """C-5.10 review round 2 of PR #26: the reduced cause kept its frames' source lines and scrubbed them
+    whatever their size (23 s for a 256 KB generated line), and cutting frames before the scrub could
+    drop a private key's opening marker and keep its body. It now keeps file, line and function only."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    filename = "<generated worker source>"
+    source = ("def boom():\n    raise ValueError('oversized source')  # "
+              + "-----BEGIN PRIVATE KEY-----" * 3000 + f" {PLAIN_CREDENTIAL}\n")
+    linecache.cache[filename] = (len(source), None, source.splitlines(True), filename)
+    try:
+        namespace = {}
+        exec(compile(source, filename, "exec"), namespace)
+        started = time.perf_counter()
+        fail_repeatedly(service, "fixture/a9", namespace["boom"], 1)
+        assert time.perf_counter() - started < 2.0
+    finally:
+        linecache.cache.pop(filename, None)
+    text = worker_log(service)
+    assert f'File "{filename}", line 2, in boom' in text and "message omitted" in text
+    assert "PRIVATE KEY" not in text and PLAIN_CREDENTIAL not in text
 
 
 @pytest.mark.parametrize("failures,expected", [(1, .5), (2, 1), (3, 2), (4, 4), (7, 32), (8, 60), (500, 60), (0, .5)])
