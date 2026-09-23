@@ -72,9 +72,9 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
 #: C-6.12: what evaluating one job's route may raise without ending the pass
-#: (`PolicyError` is a ValueError). A store error is not here: it is the pass's,
-#: and C-5.10 retries the pass.
-ROUTE_ERRORS = (ValueError, KeyError, TypeError)
+#: (`PolicyError` is a ValueError): data shapes one job's evaluation met. A store
+#: error (sqlite3, OSError) is not here: it is the pass's, and C-5.10 retries it.
+ROUTE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 #: C-6.12: a route that could not be evaluated is looked at again this long
 #: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
 ROUTE_RETRY_BASE_S = 5

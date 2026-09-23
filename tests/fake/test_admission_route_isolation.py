@@ -1018,3 +1018,25 @@ def test_c4_5_finalization_counts_transients_on_a_lane_and_its_successor_as_one(
     service.store.put_lane(claude_lane("claude-z", label="z@example.invalid"))
     elsewhere = {**second, "lane_id": "claude-z"}
     assert service._earlier_transients(service.store.connection, job_id, elsewhere) == 0
+
+
+@pytest.mark.parametrize("error", [AttributeError("'NoneType' object has no attribute 'get'"),
+                                   IndexError("list index out of range")])
+def test_c6_12_any_evaluation_error_of_one_job_is_that_jobs(fleet, monkeypatch, error):
+    """C-6.12 an AttributeError or IndexError from one job's evaluation (a None in capacity data, an
+    empty chain) is as much that job's as a KeyError: it waits on `route` and the pass goes on."""
+    service, harness = fleet
+    broken = submit(service, harness, pinned_model="astra")
+    later = submit(service, harness, pinned_model="terra")
+    real = service._pick
+
+    def pick(job, **options):
+        if job["job_id"] == broken:
+            raise error
+        return real(job, **options)
+    monkeypatch.setattr(service, "_pick", pick)
+    service._admit()
+    assert admitted(service, later)
+    job = service.store.get_job(broken)
+    assert job["state"] == "waiting" and job["wait_reason"] == "route"
+    assert service._holds[broken]["error_type"] == type(error).__name__
