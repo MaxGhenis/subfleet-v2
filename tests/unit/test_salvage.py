@@ -404,11 +404,11 @@ def test_c6_8_an_unfinished_add_holding_anything_else_is_kept(unfinished_add, tm
     elsewhere = tmp_path_factory.mktemp("elsewhere")
     git(elsewhere, "init", "-q")
     link.write_text(f"gitdir: {elsewhere / '.git'}\n")
-    assert leftover(add) == "its .git names another repository"
+    assert leftover(add) == "its .git names another repository or worktree"
     other = tmp_path_factory.mktemp("worktrees") / "other"
     git(add.repository, "worktree", "add", "--detach", str(other), add.head)
     link.write_text((other / ".git").read_text())
-    assert leftover(add) == "its .git names another worktree"
+    assert leftover(add) == "its .git names another repository or worktree"
     link.unlink()
     link.mkdir()
     assert leftover(add) == "its .git is not a worktree link"
@@ -445,3 +445,75 @@ def test_c6_8_what_is_not_under_an_adds_lock_is_kept(repository, tmp_path_factor
     shutil.rmtree(worktree)
     worktree.write_text("someone's\n")
     assert add_leftover(repository, worktree, head, None) == "it is not a directory"
+
+
+def test_c6_8_a_leftover_without_its_link_still_has_its_index_read(unfinished_add):
+    """C-6.8 with `.git` gone, the registration's own admin directory is found and its index read."""
+    add = unfinished_add
+    git(add.worktree, "read-tree", add.head)
+    (add.worktree / "tracked.txt").write_text("staged edit\n")
+    git(add.worktree, "add", "tracked.txt")
+    assert leftover(add) == "its index stages tracked.txt"            # a staged modification, not only an addition
+    (add.worktree / ".git").unlink()
+    assert leftover(add) == "its index stages tracked.txt"
+    (add.admin / "gitdir").write_text("/somewhere/else/.git\n")
+    assert leftover(add) == "no registration of the job's repository can be told apart as its own"
+
+
+def test_c6_8_a_linked_dot_git_is_not_a_worktree_link(unfinished_add):
+    """C-6.8 `.git` as a link, even to a file that says the right thing, is not what an add writes."""
+    add = unfinished_add
+    link = add.worktree / ".git"
+    copy = add.worktree.with_name("dot-git")
+    copy.write_text(link.read_text())
+    link.unlink()
+    link.symlink_to(copy)
+    assert leftover(add) == "its .git is not a worktree link"
+
+
+def test_c6_8_each_path_must_be_of_the_kind_the_commit_has_there(repository, tmp_path_factory):
+    """C-6.8 a file where the commit has a directory, or a link where it has a file, is not the checkout's."""
+    (repository / "d").mkdir()
+    (repository / "d" / "b.txt").write_text("b\n")
+    git(repository, "add", "d")
+    git(repository, "commit", "-m", "a directory")
+    head = git_head(repository)
+    worktree = tmp_path_factory.mktemp("worktrees") / "job"
+    git(repository, "worktree", "add", "--lock", "--reason", "initializing", "--detach", str(worktree), head)
+    entry = {"head": head, "locked": "initializing"}
+    assert add_leftover(repository, worktree, head, entry) is None
+    shutil.rmtree(worktree / "d")
+    (worktree / "d").write_text("someone's\n")
+    assert add_leftover(repository, worktree, head, entry) == f"it holds d as a file, where {head} has a directory"
+    (worktree / "d").unlink()
+    (worktree / "tracked.txt").unlink()
+    (worktree / "tracked.txt").symlink_to("/etc/hosts")
+    assert add_leftover(repository, worktree, head, entry) == f"it holds tracked.txt as a link, where {head} has a file"
+
+
+def _case_insensitive(directory):
+    probe = directory / "Case-Probe"
+    probe.write_text("")
+    try:
+        return (directory / "case-probe").exists()
+    finally:
+        probe.unlink()
+
+
+def test_c6_8_a_registration_is_found_as_the_filesystem_names_it(repository, tmp_path_factory):
+    """C-6.8 on a case-insensitive volume git finds a worktree by any case of its path, and so must the check.
+
+    A worktree registered as `WT/Job` is the one at `wt/job`: its lock is
+    seen, so it is kept rather than removed by a `git worktree remove` that
+    would find it anyway.
+    """
+    base = tmp_path_factory.mktemp("cases")
+    if not _case_insensitive(base):
+        pytest.skip("the volume compares names by case")
+    head = git_head(repository)
+    (base / "wt").mkdir()
+    git(repository, "worktree", "add", "--detach", str(base / "WT" / "Job"), head)
+    git(repository, "worktree", "lock", "--reason", "keep", str(base / "WT" / "Job"))
+    check = check_worktree(repository, base / "wt" / "job", head)
+    assert check.registration == {"head": head, "locked": "keep"}
+    assert add_leftover(repository, base / "wt" / "job", head, check.registration) == "it is locked (keep)"

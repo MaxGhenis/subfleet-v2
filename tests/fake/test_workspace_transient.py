@@ -15,6 +15,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -478,6 +479,19 @@ def start_add(checkout, worktree, head, env=None):
     return process
 
 
+def release(process, *gates):
+    """Let a held process go and reap it; kill its group if it has not finished within 10 s."""
+    for gate in gates:
+        gate.unlink(missing_ok=True)
+    try:
+        return process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        raise
+
+
 def killed_add(checkout, worktree, head):
     """What a `git worktree add` leaves when it dies mid-checkout with all its children."""
     process = start_add(checkout, worktree, head)
@@ -517,7 +531,7 @@ def test_c6_8_an_add_past_its_cap_stops_its_whole_checkout(state_daemon, slow_ch
     assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
     [record] = events(daemon, job_id, "job.workspace_deferred")
     assert record["error_type"] == "TimeoutExpired"
-    assert record["error"].startswith(f"git worktree add timed out after {WATCHDOG_S} s: Preparing worktree (detached")
+    assert record["error"].startswith(f"git worktree add timed out after {WATCHDOG_S} s: ")   # and git's stderr
     # The add ran with the job's marker and in the C locale, and its checkout inherited both.
     assert slow_checkout.envs.read_text() == f"C worktree-add:{job_id} {daemon.root}\n"
     filter_pid, reset_pid = recorded(slow_checkout.pids)
@@ -564,7 +578,7 @@ def test_c6_8_what_an_unfinished_add_left_is_rebuilt(state_daemon, slow_checkout
 
     daemon._admit()
     whole_checkout(daemon, slow_checkout.workdir, job_id)
-    assert f"job {job_id}: {worktree} is not a finished checkout of {head}" in log_text(daemon)
+    assert f"job {job_id}: {worktree} was not a finished checkout of {head}" in log_text(daemon)
 
 
 @pytest.mark.parametrize("left", [
@@ -700,8 +714,7 @@ def test_c6_8_a_checkout_whose_post_checkout_hook_still_runs_is_waited_for(state
         assert "git worktree add for this job still running" in record["error"]
         assert process.poll() is None and daemon.store.list_attempts(job_id) == []
     finally:
-        hook_gate.unlink(missing_ok=True)
-        assert process.wait(timeout=30) == 0
+        assert release(process, hook_gate) == 0
     due(daemon, job_id)
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
@@ -733,8 +746,7 @@ def test_c6_8_an_add_that_outlived_its_daemon_is_waited_for_not_raced(state_daem
         assert registration(slow_checkout.workdir, worktree) == ["locked initializing"]
         assert (worktree / ".gitattributes").exists() and daemon.store.list_attempts(job_id) == []
     finally:
-        slow_checkout.gate.unlink()
-        assert process.wait(timeout=30) == 0
+        assert release(process, slow_checkout.gate) == 0
     inode = (worktree / "z-after.txt").stat().st_ino
     due(daemon, job_id)
     daemon._admit()
@@ -765,10 +777,11 @@ def test_c6_8_an_add_past_its_cap_is_removed_only_on_a_verified_empty_census(sta
                                                                             cap_at_the_filter, monkeypatch, settles):
     """C-6.8, C-5.6 the census is re-read within `kill_settle_s`, and only an empty one removes anything.
 
-    `settles`: two censuses still see the add, the third does not, and then
-    what it left goes. Otherwise the window ends with the add still seen:
-    nothing is removed, the job waits as for any add past its cap, and the
-    next pass, with the add gone, removes it and cuts a whole checkout.
+    `settles`: two reads of the add's group still see it, the third does not,
+    and then what it left goes. Otherwise the window ends with the add still
+    seen: nothing is removed, the job waits as for any add past its cap, and
+    the next pass, with the add gone, removes it and cuts a whole checkout.
+    (The census before the add, of the marker alone, finds nothing.)
     """
     daemon, harness = state_daemon
     daemon.kill_settle_s = 5 if settles else .2
@@ -776,22 +789,24 @@ def test_c6_8_an_add_past_its_cap_is_removed_only_on_a_verified_empty_census(sta
     worktree = daemon.root / "worktrees" / job_id
     seen = Containment(group_pids=frozenset({os.getpid()}))
     script = [seen, seen, Containment()] if settles else []
-    calls = []
+    group_reads = []
 
-    def census(*args, **kwargs):
-        calls.append(args)
-        return script[len(calls) - 1] if len(calls) <= len(script) else seen
+    def census(pgid, *args, **kwargs):
+        if pgid is None:
+            return Containment()
+        group_reads.append(pgid)
+        return script[len(group_reads) - 1] if len(group_reads) <= len(script) else seen
     monkeypatch.setattr(daemon_module.procs, "containment", census)
     daemon._admit()
     [record] = events(daemon, job_id, "job.workspace_deferred")
     assert record["error_type"] == "TimeoutExpired"
     if settles:
-        assert len(calls) == 3 and not worktree.exists() and registration(slow_checkout.workdir, worktree) is None
+        assert len(group_reads) == 3 and not worktree.exists() and registration(slow_checkout.workdir, worktree) is None
     else:
-        assert len(calls) >= 2
+        assert group_reads      # however few reads a loaded machine fits in the window
         assert (worktree / ".git").is_file() and registration(slow_checkout.workdir, worktree) == ["locked initializing"]
-        assert (f"job {job_id}: git worktree add stopped at its cap, but pids [{os.getpid()}] remain"
-                in log_text(daemon))
+        assert (f"job {job_id}: git worktree add stopped at its cap, but pids [{os.getpid()}] of it are still "
+                f"running; {worktree} was left in place" in log_text(daemon))
 
     monkeypatch.setattr(daemon_module.procs, "containment", REAL_CONTAINMENT)
     slow_checkout.gate.unlink()
@@ -825,13 +840,14 @@ def test_c6_8_a_worktree_add_that_git_refuses_fails_the_job_with_its_cause(state
 
 
 @pytest.mark.parametrize("census", ["empty", "a-process-remains"])
-def test_c6_8_a_failed_add_is_removed_only_once_nothing_of_it_runs(state_daemon, tmp_path, monkeypatch, census):
-    """C-6.8, C-5.6 git exits 1 when a post-checkout hook fails, and keeps the checkout it made.
+def test_c6_8_a_failed_add_leaves_what_git_keeps(state_daemon, tmp_path, monkeypatch, census):
+    """C-6.8, C-5.6 git exits 1 when a post-checkout hook fails, and keeps the finished checkout it made.
 
     The job fails with rc 1 and git's stderr. The add's group is read after
-    git has exited (it is not signalled: its leader is reaped, C-5.4), and
-    what the add left goes only on a verified-empty census; a process of it
-    still alive leaves it for later, and says so.
+    git has exited (not signalled: its leader is reaped, C-5.4). A finished
+    checkout is not what an add that never finished left, so it stays, as git
+    meant, and the log says why; a process of the add still alive leaves it
+    unexamined.
     """
     daemon, harness = state_daemon
     workdir = repository(daemon, harness)
@@ -839,10 +855,12 @@ def test_c6_8_a_failed_add_is_removed_only_once_nothing_of_it_runs(state_daemon,
     git(workdir, "config", "core.hooksPath", str(post_checkout_hook(tmp_path, "echo the hook failed >&2\nexit 1\n")))
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
     worktree = daemon.root / "worktrees" / job_id
-    calls = []
+    group_reads = []
 
-    def containment(*args, **kwargs):
-        calls.append(args)
+    def containment(pgid, *args, **kwargs):
+        if pgid is None:
+            return Containment()
+        group_reads.append(args[-1] if args else None)
         return Containment() if census == "empty" else Containment(group_pids=frozenset({os.getpid()}))
     monkeypatch.setattr(daemon_module.procs, "containment", containment)
     daemon._admit()
@@ -850,12 +868,14 @@ def test_c6_8_a_failed_add_is_removed_only_once_nothing_of_it_runs(state_daemon,
     assert (job["state"], job["rc"]) == ("failed", 1) and daemon.store.list_attempts(job_id) == []
     [failed] = events(daemon, job_id, "job.workspace_failed")
     assert failed["error"].startswith("git worktree add failed: ") and "the hook failed" in failed["error"]
-    assert calls and calls[0][0] is not None and calls[0][3] == f"worktree-add:{job_id}"
+    assert group_reads == [f"worktree-add:{job_id}"] * len(group_reads) and group_reads
+    assert (worktree / "tracked.txt").exists() and registration(workdir, worktree) == []
     if census == "empty":
-        assert not worktree.exists() and registration(workdir, worktree) is None
+        assert (f"job {job_id}: git worktree add failed, and {worktree} was kept, because it holds files, and no "
+                "add that never finished" in log_text(daemon))
     else:
-        assert (worktree / "tracked.txt").exists() and registration(workdir, worktree) == []
-        assert f"job {job_id}: git worktree add failed, but pids [{os.getpid()}] remain" in log_text(daemon)
+        assert (f"job {job_id}: git worktree add failed, but pids [{os.getpid()}] of it are still running; "
+                f"{worktree} was left in place" in log_text(daemon))
 
 
 def test_c6_8_a_failed_add_never_removes_a_lock_that_is_someones(state_daemon, tmp_path):
@@ -874,7 +894,8 @@ def test_c6_8_a_failed_add_never_removes_a_lock_that_is_someones(state_daemon, t
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["rc"]) == ("failed", 1)
     assert (worktree / "tracked.txt").exists() and registration(workdir, worktree) == ["locked operator review"]
-    assert f"job {job_id}: {worktree} was not removed, because it is locked (operator review)" in log_text(daemon)
+    assert (f"job {job_id}: git worktree add failed, and {worktree} was kept, because it is locked (operator review)"
+            in log_text(daemon))
 
 
 def test_c6_8_a_repository_that_cannot_be_read_removes_nothing(state_daemon):
@@ -967,3 +988,154 @@ def test_c6_8_a_link_at_the_worktree_path_is_removed_not_followed(state_daemon, 
     assert not worktree.is_symlink() and (worktree / ".git").is_file()
     assert registration(workdir, worktree) == [] and registration(workdir, theirs) == []
     assert (theirs / "theirs.txt").read_text() == "someone's\n" and (theirs / "tracked.txt").exists()
+
+
+def test_c6_8_a_lock_put_on_a_leftover_before_its_removal_is_kept(state_daemon, slow_checkout, monkeypatch):
+    """C-6.8 the discard makes its proof again right before removing: a lock put there after the first look stops it.
+
+    Nothing is removed and no add follows (its `--force --force` would take
+    the new lock); the job fails with rc 1 naming the lock.
+    """
+    daemon, harness = state_daemon
+    workdir = slow_checkout.workdir
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    killed_add(slow_checkout, worktree, head)
+    real, reads = daemon_module.check_worktree, []
+
+    def check(repository, path, commit, **kwargs):
+        reads.append(path)
+        if len(reads) == 2:                      # the discard's own look
+            git(workdir, "worktree", "unlock", str(path))
+            git(workdir, "worktree", "lock", "--reason", "keep for owner", str(path))
+        return real(repository, path, commit, **kwargs)
+    monkeypatch.setattr(daemon_module, "check_worktree", check)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 1) and len(reads) == 2
+    [failed] = events(daemon, job_id, "job.workspace_failed")
+    assert ") and was kept, because it is locked (keep for owner); " in failed["error"]
+    assert (worktree / ".git").is_file() and registration(workdir, worktree) == ["locked keep for owner"]
+
+
+def test_c6_8_a_checkout_is_used_only_once_nothing_its_add_started_runs(state_daemon, tmp_path, monkeypatch):
+    """C-6.8 a hook can leave a child writing after git returns 0: the daemon's own add is followed by a census.
+
+    The job waits while the child runs; once it has finished, the checkout,
+    with what the child wrote, is the job's.
+    """
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.procs, "containment", REAL_CONTAINMENT)
+    daemon.kill_settle_s = .2
+    workdir = repository(daemon, harness)
+    gate, pidfile = tmp_path / "writer-gate", tmp_path / "writer-pid"
+    gate.touch()
+    writer = (f"sh -c 'echo $$ > \"{pidfile}\"; while [ -e \"{gate}\" ]; do sleep 0.02; done; : > late-file' "
+              ">/dev/null 2>&1 &\n")
+    git(workdir, "config", "core.hooksPath", str(post_checkout_hook(tmp_path, writer)))
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    worktree = daemon.root / "worktrees" / job_id
+    try:
+        daemon._admit()
+        job = daemon.store.get_job(job_id)
+        assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+        [record] = events(daemon, job_id, "job.workspace_deferred")
+        assert record["error"].startswith("git worktree add for this job returned, but pids ")
+        assert daemon.store.list_attempts(job_id) == [] and not (worktree / "late-file").exists()
+    finally:
+        gate.unlink(missing_ok=True)
+    wait_for(pidfile.exists)
+    pid = int(pidfile.read_text())
+    wait_for(lambda: not live(pid))
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+    assert (worktree / "late-file").exists()
+
+
+def test_c6_8_a_census_is_read_again_for_a_checkout_that_is_another_one(state_daemon, slow_checkout, monkeypatch):
+    """C-6.8 what a census found holds for that directory only: a checkout rebuilt at the path gets one of its own."""
+    daemon, harness = state_daemon
+    workdir = slow_checkout.workdir
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    slow_checkout.gate.unlink()
+    git(workdir, "worktree", "add", "--detach", str(worktree), head)
+    reads = []
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: reads.append(args) or Containment())
+    job = daemon.store.get_job(job_id)
+    daemon._allocate_worktree(job, str(worktree))
+    daemon._allocate_worktree(job, str(worktree))
+    assert len(reads) == 1
+    git(workdir, "worktree", "remove", "--force", str(worktree))
+    git(workdir, "worktree", "add", "--detach", str(worktree), head)
+    daemon._allocate_worktree(job, str(worktree))
+    assert len(reads) == 2
+
+
+def test_c6_8_what_a_census_found_is_forgotten_when_the_job_leaves_the_queue(state_daemon, slow_checkout):
+    """C-6.8 the record is per job in the queue: an admission pass drops those of jobs no longer queued or waiting."""
+    daemon, harness = state_daemon
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    slow_checkout.gate.unlink()
+    git(slow_checkout.workdir, "worktree", "add", "--detach", str(worktree), head)
+    daemon._allocate_worktree(daemon.store.get_job(job_id), str(worktree))
+    assert job_id in daemon._worktree_adds_settled
+    daemon.store.update_job(job_id, state="failed", rc=1)
+    daemon._admit()
+    assert job_id not in daemon._worktree_adds_settled
+
+
+def test_c6_8_no_add_starts_while_one_of_the_job_is_alive(state_daemon, monkeypatch):
+    """C-6.8 with nothing at the path yet, a process carrying the job's add marker still holds the add back."""
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.procs, "containment", REAL_CONTAINMENT)
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    env = {**os.environ, "SUBFLEET_ATTEMPT": f"worktree-add:{job_id}", "SUBFLEET_ROOT": str(daemon.root)}
+    # Not /bin/sleep: `ps -E` shows no environment for Apple's platform
+    # binaries on macOS, so the census could not see its marker.
+    holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], env=env, start_new_session=True)
+    try:
+        daemon._admit()
+        job = daemon.store.get_job(job_id)
+        assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+        [record] = events(daemon, job_id, "job.workspace_deferred")
+        assert "git worktree add for this job still running" in record["error"]
+        assert not os.path.lexists(daemon.root / "worktrees" / job_id)
+    finally:
+        holder.kill()
+        holder.wait()
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+def test_c6_8_a_leftover_that_cannot_be_removed_waits_and_no_add_follows(state_daemon, monkeypatch):
+    """C-6.8 a removal that did not finish is reported with its cause, transient when the cause is; no add runs over it."""
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    head = daemon.store.get_job(job_id)["workdir_head"]
+    worktree = daemon.root / "worktrees" / job_id
+    git(workdir, "worktree", "add", "--lock", "--reason", "initializing", "--detach", str(worktree), head)
+    real = shutil.rmtree
+
+    def busy(path, *, onexc):
+        onexc(os.rmdir, str(path), OSError(errno.EBUSY, "Resource busy", str(path)))
+    monkeypatch.setattr(daemon_module.shutil, "rmtree", busy)
+    daemon._admit()
+    monkeypatch.setattr(daemon_module.shutil, "rmtree", real)
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error_type"] == "OSError"
+    assert record["error"].startswith(f"{worktree} could not be removed: [Errno 16] Resource busy")
+    assert registration(workdir, worktree) == ["locked initializing"]
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]

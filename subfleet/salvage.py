@@ -5,7 +5,9 @@ from __future__ import annotations
 import errno
 import os
 import re
+import stat
 import subprocess
+import unicodedata
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -147,15 +149,35 @@ def worktree_registrations(listing: str) -> list[tuple[str, dict[str, str]]]:
     return entries
 
 
+def _same_path(listed: str | Path, target: str | Path) -> bool:
+    """Whether two paths name one place, each with its last component kept, as the filesystem compares names.
+
+    Beyond equal text, a last component equal but for case or Unicode
+    normalization in one directory counts too: APFS compares names that way,
+    and git, with `core.ignorecase`, finds a worktree by its path that way.
+    """
+    listed, target = _lexical(listed), _lexical(target)
+    if listed == target:
+        return True
+    def folded(name: str) -> str:
+        return unicodedata.normalize("NFD", name).casefold()
+    if folded(os.path.basename(listed)) != folded(os.path.basename(target)):
+        return False
+    try:
+        return os.path.samefile(os.path.dirname(listed), os.path.dirname(target))
+    except OSError:
+        return False
+
+
 def worktree_registration(listing: str, worktree: str | Path) -> dict[str, str] | None:
     """``worktree``'s entry in a `git worktree list --porcelain -z` listing, or None.
 
     Both sides keep their last component, so a registration whose path is now
-    a link is still the registration of that path, lock and all. Two entries
-    for one path are not an answer: that raises.
+    a link is still the registration of that path, lock and all; names are
+    compared as the filesystem compares them (`_same_path`). Two entries for
+    one path are not an answer: that raises.
     """
-    target = _lexical(worktree)
-    found = [entry for path, entry in worktree_registrations(listing) if _lexical(path) == target]
+    found = [entry for path, entry in worktree_registrations(listing) if _same_path(path, worktree)]
     if len(found) > 1:
         raise SalvageError(f"the repository lists {len(found)} worktrees at {worktree}")
     return found[0] if found else None
@@ -226,6 +248,34 @@ def foreign_registration(registration: dict[str, str] | None, commit: str) -> st
     return None
 
 
+def _kind(mode: int) -> str:
+    return "link" if stat.S_ISLNK(mode) else "directory" if stat.S_ISDIR(mode) else "file" if stat.S_ISREG(mode) else "special file"
+
+
+def _admin_directory(common: str, worktree: Path, link: Path) -> str | None:
+    """The administrative directory of ``worktree``'s registration in the repository whose common dir is ``common``.
+
+    Through the `.git` link when there is one, and only if it names a
+    directory under `<common>/worktrees/` whose `gitdir` names this link back;
+    without a link, the one directory there whose `gitdir` names this path.
+    None when no such directory can be told.
+    """
+    registrations = _lexical(os.path.join(common, "worktrees"))
+    if os.path.lexists(link):
+        admin = _link_target(link, "gitdir: ")
+        if admin is None or os.path.dirname(admin) != registrations:
+            return None
+        back = _link_target(Path(admin) / "gitdir", "")
+        return admin if back is not None and _same_path(back, link) else None
+    try:
+        candidates = [entry.path for entry in os.scandir(registrations) if entry.is_dir(follow_symlinks=False)]
+    except OSError:
+        return None
+    found = [admin for admin in candidates
+             if (back := _link_target(Path(admin) / "gitdir", "")) is not None and _same_path(back, link)]
+    return _lexical(found[0]) if len(found) == 1 else None
+
+
 def add_leftover(repository: str | Path, worktree: str | Path, commit: str,
                  registration: dict[str, str] | None, *, timeout_s: float | None = None) -> str | None:
     """C-6.8: None when all there is at ``worktree`` is what a `git worktree add` of ``commit`` that never finished left; otherwise why it is kept.
@@ -235,13 +285,15 @@ def add_leftover(repository: str | Path, worktree: str | Path, commit: str,
     checks the commit out; git removes the lock once the checkout is written
     and before any post-checkout hook. So the registration, if any, must be as
     an add leaves it (`foreign_registration`). A link in the path's place is
-    unlinked, never followed, and an empty directory holds nothing.
-    Anything else must be under the lock: a `.git` that is a link back to this
+    unlinked, never followed, and an empty directory holds nothing. Anything
+    else must be under the lock: a `.git` that is a link back to this
     registration in ``repository``, or none (a removal raced by the checkout,
-    as before this fix), nothing but paths of the commit's tree, and an index
-    that stages nothing but deletions. Their contents are not compared: the
-    add may have stopped mid-file. A checkout that is not locked finished,
-    and whatever makes it unfinished now was done after it.
+    as before this fix); nothing but paths of the commit's tree, each of the
+    kind the tree has there (a file, a link, a directory); and an index, found
+    through the link or, without one, through the registration, that stages
+    nothing but deletions. Contents are not compared: the add may have stopped
+    mid-file. A checkout that is not locked finished, and whatever makes it
+    unfinished now was done after it.
     """
     foreign = foreign_registration(registration, commit)
     if foreign is not None:
@@ -260,18 +312,20 @@ def add_leftover(repository: str | Path, worktree: str | Path, commit: str,
     if registration is None or registration.get("locked") != "initializing":
         return "it holds files, and no add that never finished (git's `initializing` lock) names it"
     link = path / ".git"
-    admin = None
-    if os.path.lexists(link):
-        if link.is_symlink() or not link.is_file():
-            return "its .git is not a worktree link"
-        admin = _link_target(link, "gitdir: ")
-        common = _git(repository, "rev-parse", "--path-format=absolute", "--git-common-dir", timeout_s=timeout_s)
-        if admin is None or os.path.dirname(admin) != _lexical(os.path.join(common, "worktrees")):
-            return "its .git names another repository"
-        if _link_target(Path(admin) / "gitdir", "") != _lexical(link):
-            return "its .git names another worktree"
-    tree = set(_git(repository, "ls-tree", "-r", "-t", "-z", "--full-tree", "--name-only", commit,
-                    timeout_s=timeout_s, raw=True).split("\0")) - {""}
+    if os.path.lexists(link) and (link.is_symlink() or not link.is_file()):
+        return "its .git is not a worktree link"
+    common = _git(repository, "rev-parse", "--path-format=absolute", "--git-common-dir", timeout_s=timeout_s)
+    admin = _admin_directory(common, path, link)
+    if admin is None:
+        return ("its .git names another repository or worktree" if os.path.lexists(link)
+                else "no registration of the job's repository can be told apart as its own")
+    kinds: dict[str, str] = {}
+    for record in _git(repository, "ls-tree", "-r", "-t", "-z", "--full-tree", commit,
+                       timeout_s=timeout_s, raw=True).split("\0"):
+        if record:
+            meta, _, name = record.partition("\t")
+            mode, kind = meta.split(" ")[:2]
+            kinds[name] = "file" if kind == "blob" and mode != "120000" else "link" if kind == "blob" else "directory"
     unreadable: list[OSError] = []
     for directory, dirnames, filenames in os.walk(path, onerror=unreadable.append):
         base = os.path.relpath(directory, path)
@@ -279,15 +333,21 @@ def add_leftover(repository: str | Path, worktree: str | Path, commit: str,
             relative = name if base == "." else os.path.join(base, name)
             if relative == ".git":
                 continue
-            if relative not in tree:
+            if relative not in kinds:
                 return f"it holds {relative}, which {commit} does not"
+            try:
+                there = _kind(os.lstat(os.path.join(directory, name)).st_mode)
+            except OSError as exc:
+                return f"part of it cannot be read ({exc.filename})"
+            if there != kinds[relative]:
+                return f"it holds {relative} as a {there}, where {commit} has a {kinds[relative]}"
         dirnames[:] = [name for name in dirnames if not (base == "." and name == ".git")
                        and not os.path.islink(os.path.join(directory, name))]
     if unreadable:
         return f"part of it cannot be read ({unreadable[0].filename})"
-    if admin is not None and os.path.exists(os.path.join(admin, "index")):
-        staged = _git(path, "diff-index", "--cached", "-z", "--name-status", "--no-renames", commit, "--",
-                      optional=True, timeout_s=timeout_s, raw=True)
+    if os.path.exists(os.path.join(admin, "index")):
+        staged = _git(admin, "diff-index", "--cached", "-z", "--name-status", "--no-renames", commit, "--",
+                      env={**os.environ, "GIT_DIR": admin}, optional=True, timeout_s=timeout_s, raw=True)
         if staged is None:
             return "its index cannot be read"
         fields = staged.split("\0")
