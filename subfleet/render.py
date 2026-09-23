@@ -122,6 +122,8 @@ _HOLD_TEXT = {
     "approval": "waiting for an operator's approval",
     "uncertain": "a probe was quarantined; an operator must resolve it",
     "workspace": "its workspace could not be prepared; it is retried with backoff (C-6.8)",
+    "route": "its route could not be evaluated ({error_type}: {error}); it is rechecked with backoff "
+             "and holds no other job back (C-6.12)",
 }
 
 
@@ -143,7 +145,7 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-"}
             lines.append("Held: " + template.format_map({**dict.fromkeys(
-                ("behind", "tier", "max_active_attempts", "kept_for", "live"), "?"), **fields}))
+                ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error"), "?"), **fields}))
         else:
             lines.append(f"Held: no lane admits it ({reason})")
     else:
