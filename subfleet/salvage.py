@@ -134,8 +134,8 @@ def working_tree(workdir: str | Path, baseline_commit: str, *,
     matches, so ``add -A`` hashes only the files that changed. Read into an
     empty index, the baseline has no stat data and every tracked file is
     hashed again, which on a large checkout outlasts the preparation cap
-    (C-6.8). The copy's assume-unchanged and skip-worktree bits are cleared
-    first: ``add -A`` skips such paths, and the empty-index read has no such
+    (C-6.8). The copy's assume-unchanged and skip-worktree bits, which
+    ``read-tree -m`` keeps, are cleared before ``add -A``: it skips such paths, and the empty-index read has no such
     bits, so the two reads give the same tree. When the real index cannot
     seed it (there is none yet, it has unmerged entries, git cannot read the
     copy or clear its bits), the baseline is read into an empty index as
@@ -192,7 +192,12 @@ def _clear_skip_bits(workdir: str | Path, env: dict[str, str], *,
     Flipping a bit hashes nothing. ``update-index`` applies only the first
     of the two options it is given, so each bit gets its own call.
     """
-    listed = _git_bytes(workdir, "ls-files", "-v", "-z", env=env, timeout_s=timeout_s)
+    # From the toplevel: from a subdirectory, ls-files lists only that
+    # subdirectory's entries, and add -A still records the whole tree.
+    top = _git(workdir, "rev-parse", "--show-toplevel", optional=True, timeout_s=timeout_s)
+    if not top:
+        return False
+    listed = _git_bytes(top, "ls-files", "-v", "-z", env=env, timeout_s=timeout_s)
     if listed is None:
         return False
     assumed: list[bytes] = []
@@ -207,7 +212,7 @@ def _clear_skip_bits(workdir: str | Path, env: dict[str, str], *,
             skipped.append(path)
     for option, paths in (("--no-assume-unchanged", assumed),
                           ("--no-skip-worktree", skipped)):
-        if paths and _git_bytes(workdir, "update-index", option, "-z", "--stdin",
+        if paths and _git_bytes(top, "update-index", option, "-z", "--stdin",
                                 stdin=b"\0".join(paths) + b"\0", env=env,
                                 timeout_s=timeout_s) is None:
             return False

@@ -329,14 +329,18 @@ def test_c6_8_seeded_snapshot_does_not_reread_unchanged_files(repository):
         unreadable.chmod(0o644)
 
 
+@pytest.mark.parametrize("from_subdirectory", [False, True])
 @pytest.mark.parametrize("marks", [("--assume-unchanged",), ("--skip-worktree",),
                                    ("--assume-unchanged", "--skip-worktree")])
-def test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged(repository, marks):
+def test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged(repository, marks,
+                                                                    from_subdirectory):
     """A real index's assume-unchanged and skip-worktree bits must not carry
     into the seeded snapshot: add -A skips such paths, and the empty-index
     read (no bits) records their edits and deletions."""
     (repository / "local.cfg").write_text("original\n")
     (repository / "gone.cfg").write_text("original\n")
+    (repository / "sub").mkdir()
+    (repository / "sub" / "file.txt").write_text("in the job's directory\n")
     git(repository, "add", ".")
     git(repository, "commit", "-m", "config files")
     for mark in marks:
@@ -345,7 +349,9 @@ def test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged(repository, 
     (repository / "gone.cfg").unlink()
     baseline = git_head(repository)
     index = (repository / ".git" / "index").read_bytes()
-    tree = working_tree(repository, baseline)
+    # An in-place job may run from a subdirectory; the marks outside it count.
+    workdir = repository / "sub" if from_subdirectory else repository
+    tree = working_tree(workdir, baseline)
     assert tree == _scratch_tree(repository, baseline)
     assert git(repository, "show", f"{tree}:local.cfg") == "edited while marked"
     assert "gone.cfg" not in git(repository, "ls-tree", "--name-only", tree)
