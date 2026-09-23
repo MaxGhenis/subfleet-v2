@@ -645,6 +645,7 @@ def _prepare_submit(args: argparse.Namespace,
         tier=args.tier,
         pinned_model=args.m,
         pinned_lane=args.a or args.H,
+        pinned_provider="claude" if args.a else "codex" if args.H else None,
         unmeasured_reserve_reason=reserve_reason,
         out_path=str(Path(args.o).expanduser().absolute()) if args.o else None,
         name=args.name,
@@ -1637,11 +1638,16 @@ def cmd_why(args: argparse.Namespace) -> int:
     lines = [str(line) for line in result.get("queue") or () if isinstance(line, str)]
     decision = (result["decision"] if "decision" in result else
                 result if {"chain", "evaluations", "chosen_lane"} & set(result) else None)
+    # C-6.12: a refusal at admission, or an evaluation that raised, is the answer.
+    if result.get("refused"):
+        lines.append(f"Refused at admission: {result['refused']}")
     if isinstance(decision, dict):
         lines.append(_format_decision(decision))
     elif not lines:
         lines.append(str(result.get("text") or "No decision recorded."))
-    else:
+    elif result.get("route_error"):
+        lines.append(f"Decision: none; this job's route could not be evaluated: {result['route_error']}")
+    elif not result.get("refused"):
         lines.append("No decision recorded.")
     out("\n".join(lines))
     return int(Exit.OK)

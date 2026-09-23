@@ -54,7 +54,8 @@ def test_the_table_covers_every_check_the_lane_brief_names(root, stub_probes):
             "PATH shadows for claude",
             "PATH shadows for codex",
             "state root layout",
-            "daemon.lock names a live process"} <= names
+            "daemon.lock names a live process",
+            "unfinished jobs pin lanes by id"} <= names
 
 
 def test_an_unknown_never_decides_the_exit_code(root):
