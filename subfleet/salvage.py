@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -107,13 +108,51 @@ def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None
 
 def working_tree(workdir: str | Path, baseline_commit: str, *,
                  timeout_s: float | None = None) -> str:
-    """Snapshot tracked and untracked files without changing the real index."""
+    """Snapshot tracked and untracked files without changing the real index.
+
+    The temporary index holds ``baseline_commit`` before ``add -A`` records
+    the worktree over it. It is seeded from a copy of the real index and
+    read with ``read-tree -m``: the entries are the baseline's either way,
+    but git keeps the real index's stat data for every path whose content
+    matches, so ``add -A`` hashes only the files that changed. Read into an
+    empty index, the baseline has no stat data and every tracked file is
+    hashed again, which on a large checkout outlasts the preparation cap
+    (C-6.8). When the real index cannot seed it (there is none yet, it has
+    unmerged entries, git cannot read the copy), the baseline is read into
+    an empty index as before.
+    """
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
-        _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
+        index = Path(temporary) / "index"
+        env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+        seeded = _seed_index(workdir, index, timeout_s=timeout_s) and _git(
+            workdir, "read-tree", "-m", baseline_commit, env=env, optional=True,
+            timeout_s=timeout_s) is not None
+        if not seeded:
+            index.unlink(missing_ok=True)
+            _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
         _git(workdir, "add", "-A", env=env, timeout_s=timeout_s)
         return _git(workdir, "write-tree", env=env, timeout_s=timeout_s)
+
+
+def _seed_index(workdir: str | Path, index: Path, *,
+                timeout_s: float | None = None) -> bool:
+    """Copy the real index to ``index``; False when there is none to copy.
+
+    ``copy2`` keeps the file's mtime: git treats entries at or after the
+    index's own mtime as possibly modified and hashes them, and a copy
+    stamped now would hide exactly those edits.
+    """
+    real = _git(workdir, "rev-parse", "--git-path", "index", optional=True,
+                timeout_s=timeout_s)
+    if not real:
+        return False
+    source = Path(real) if os.path.isabs(real) else Path(workdir) / real
+    try:
+        shutil.copy2(source, index)
+    except OSError:
+        return False
+    return True
 
 
 def validate_writable_workdir(workdir: str | Path, *, timeout_s: float | None = None) -> None:
