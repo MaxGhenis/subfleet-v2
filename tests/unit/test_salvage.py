@@ -327,3 +327,45 @@ def test_c6_8_seeded_snapshot_does_not_reread_unchanged_files(repository):
             _scratch_tree(repository, baseline)
     finally:
         unreadable.chmod(0o644)
+
+
+@pytest.mark.parametrize("marks", [("--assume-unchanged",), ("--skip-worktree",),
+                                   ("--assume-unchanged", "--skip-worktree")])
+def test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged(repository, marks):
+    """A real index's assume-unchanged and skip-worktree bits must not carry
+    into the seeded snapshot: add -A skips such paths, and the empty-index
+    read (no bits) records their edits and deletions."""
+    (repository / "local.cfg").write_text("original\n")
+    (repository / "gone.cfg").write_text("original\n")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "config files")
+    for mark in marks:
+        git(repository, "update-index", mark, "local.cfg", "gone.cfg")
+    (repository / "local.cfg").write_text("edited while marked\n")
+    (repository / "gone.cfg").unlink()
+    baseline = git_head(repository)
+    index = (repository / ".git" / "index").read_bytes()
+    tree = working_tree(repository, baseline)
+    assert tree == _scratch_tree(repository, baseline)
+    assert git(repository, "show", f"{tree}:local.cfg") == "edited while marked"
+    assert "gone.cfg" not in git(repository, "ls-tree", "--name-only", tree)
+    assert (repository / ".git" / "index").read_bytes() == index
+
+
+def test_c6_8_snapshot_keeps_the_real_index_mtime_for_racy_entries(repository):
+    """An edit that keeps size, mtime and inode is caught only by git's racy
+    check (an entry as new as its index is hashed again). The copy must keep
+    the real index's mtime for that check to fire."""
+    git(repository, "config", "core.trustctime", "false")
+    path = repository / "racy.txt"
+    path.write_text("aaaa\n")
+    old = path.stat().st_mtime_ns - 3_600 * 10**9
+    os.utime(path, ns=(old, old))           # older than the index: not smudged
+    git(repository, "add", "racy.txt")
+    git(repository, "commit", "-m", "racy file")
+    baseline = git_head(repository)
+    path.write_text("bbbb\n")               # same size, same inode
+    os.utime(path, ns=(old, old))           # same mtime
+    os.utime(repository / ".git" / "index", ns=(old, old))  # index as old as the entry
+    tree = working_tree(repository, baseline)
+    assert git(repository, "show", f"{tree}:racy.txt") == "bbbb"
