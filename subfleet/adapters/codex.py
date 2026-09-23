@@ -435,6 +435,10 @@ class CodexAdapter(Adapter):
         if effort:
             argv += ["-c", f"model_reasoning_effort={effort}"]
         argv += ["--sandbox", sandbox.value]
+        if sandbox == Sandbox.READ_ONLY and not job.isolated_review:
+            # Codex refuses a workdir outside a git repository unless told otherwise; a
+            # read-only job cannot change such a directory, so the check only blocks it.
+            argv += ["--skip-git-repo-check"]
         if guard_override and not job.isolated_review:
             argv += ["-c", guard_override if guard_override.startswith("hooks=") else f"hooks={guard_override}"]
         argv += ["--output-last-message", str(attempt_dir / "last.md")]

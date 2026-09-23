@@ -41,11 +41,16 @@ def read_context(path: str | None, label: str) -> str:
         raise GateError(f"cannot read {label}: {exc}") from exc
 
 
+#: Peers a gate may select. A Claude peer (Fable or Opus) supports account routing.
+PEERS = ("fable", "opus", "astra")
+CLAUDE_PEERS = frozenset({"fable", "opus"})
+
+
 def routing(args, peer: str) -> tuple[str | None, tuple[str, ...]]:
     account = getattr(args, "peer_account", None)
     exclusions = tuple(dict.fromkeys(getattr(args, "exclude_account", None) or []))
-    if (account is not None or exclusions) and peer != "fable":
-        raise GateError("--peer-account and --exclude-account require a Claude peer (fable)")
+    if (account is not None or exclusions) and peer not in CLAUDE_PEERS:
+        raise GateError("--peer-account and --exclude-account require a Claude peer (fable or opus)")
     if any(not isinstance(x, str) or not x.strip() for x in (*exclusions, *([account] if account is not None else []))):
         raise GateError("peer account routing requires nonempty account names")
     if account is not None and account.casefold() in {x.casefold() for x in exclusions}:
@@ -174,8 +179,8 @@ class GateService:
     def start(self, args):
         from .merge import capture_pr, verify_pr_workspace
         peer = "astra" if args.peer == "sol" else args.peer
-        if peer not in {"fable", "astra"}:
-            raise GateError("--peer must be fable, astra, or sol")
+        if peer not in PEERS:
+            raise GateError("--peer must be fable, opus, astra, or sol")
         account, exclusions = routing(args, peer)
         limit = round_limit(args.max_rounds, self.daemon.policy)
         if not args.main_approve:
@@ -200,17 +205,15 @@ class GateService:
         expected = expected_revision(args, subject)
         assert_expected(revision(subject), expected)
         main_model = getattr(args, "main_model", None)
-        peer_family = self.daemon.policy["models"][peer]["provider"]
+        # Independence comes from the isolated read-only round (C-23.2), not the model
+        # family: an Opus peer may review an Opus or Fable main (Max, 2026-09-22). The main's
+        # family is recorded when named and never inferred from the peer.
+        main_family = None
         if main_model:
             model = self.daemon.policy["models"].get(main_model)
             if not model:
                 raise GateError("unknown --main-model")
             main_family = model["provider"]
-            if main_family == peer_family:
-                raise GateError("main and peer must be different model families")
-        else:
-            # As in v1, peer selection is the caller's complementary-family attestation.
-            main_family = "claude" if peer_family == "codex" else "codex"
         state = {"schema_version": 1, "id": utc_now().replace("-", "").replace(":", "").replace("T", "-").rstrip("Z") + f"-{args.gate_command}-{uuid.uuid4().hex[:8]}",
                  "created_at": utc_now(), "updated_at": utc_now(), "status": "ready",
                  "kind": args.gate_command, "locator": locator, "subject": subject,

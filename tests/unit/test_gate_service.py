@@ -245,13 +245,48 @@ def test_gate_protocol_dry_run_does_not_admit_or_write(core, tmp_path):
     assert not (core.root / "gates").exists()
 
 
-def test_explicit_main_model_cannot_use_same_family_peer(core, tmp_path):
-    """C-17.1, C-23.8: complementary peer selection must match explicit main identity."""
+def test_opus_peer_may_review_a_same_family_main(core, tmp_path):
+    """C-23.2, C-23.10: independence is the isolated round, so Opus may review an Opus main."""
     plan = tmp_path / "plan.md"
     plan.write_text("Independent opinion\n")
-    result = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "astra")))
-    assert result["code"] == 2 and "different model families" in result["message"]
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "opus", peer="opus")))
+    assert result["code"] is None and result["job_id"]
+    job = core.store.get_job(result["job_id"])
+    assert (job["kind"], job["pinned_model"], job["sandbox"], job["isolated_review"]) == (
+        "gate-review", "opus", "read-only", 1)
+    state = core._gate_service._load(result["gate_id"])
+    assert (state["peer"], state["main_family"]) == ("opus", "claude")
+    assert state["rounds"][-1]["requested_model"] == core.policy["models"]["opus"]["id"]
+
+
+def test_gate_does_not_infer_main_family_from_the_peer(core, tmp_path):
+    """C-23.8: without --main-model the main's family is unknown, never the peer's complement."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Unnamed main\n")
+    result = dispatch(core, "gate.start", wire(arguments(plan)))
+    assert result["code"] is None
+    assert core._gate_service._load(result["gate_id"])["main_family"] is None
+
+
+def test_unknown_main_model_is_refused(core, tmp_path):
+    """C-17.1: an explicit main model must be one the policy names."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Who is the main?\n")
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "gpt-9")))
+    assert result["code"] == 2 and "unknown --main-model" in result["message"]
     assert core.store.list_jobs() == []
+
+
+@pytest.mark.parametrize("peer", ["fable", "opus"])
+def test_claude_peers_accept_account_routing(peer):
+    """C-23.10: account routing applies to any Claude peer and to no Codex peer."""
+    from subfleet.gate.service import GateError, routing
+    args = cli.build_parser().parse_args(
+        ["gate", "plan", "plan.md", "--peer", peer, "--peer-account", "a@example.org",
+         "--exclude-account", "b@example.org"])
+    assert routing(args, peer) == ("a@example.org", ("b@example.org",))
+    with pytest.raises(GateError, match="Claude peer"):
+        routing(args, "astra")
 
 
 def test_offline_reader_understands_gate_schema(core):

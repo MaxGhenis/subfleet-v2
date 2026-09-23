@@ -36,7 +36,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         child.add_argument("--json", action="store_true")
         child.add_argument("--dry-run", action="store_true")
         if kind != "continue":
-            child.add_argument("--peer", required=True, choices=("fable", "astra", "sol"))
+            child.add_argument("--peer", required=True, choices=("fable", "opus", "astra", "sol"))
             child.add_argument("--main-model", help="main model for explicit family validation")
             child.add_argument("--brief")
             child.add_argument("-C", dest="workdir", default=None)

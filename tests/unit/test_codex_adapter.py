@@ -142,6 +142,18 @@ def test_read_only_launch_can_omit_guard(tmp_path):
     assert not any(value.startswith("hooks=") for value in launch.argv)
 
 
+@pytest.mark.parametrize("sandbox", list(Sandbox))
+def test_read_only_launch_skips_the_git_repository_check(tmp_path, sandbox):
+    """C-12.3 C-14.3 A read-only job may run outside a repository; a writable one may not."""
+    (tmp_path / "prompt").write_bytes(b"Caller prompt.\n")
+    launch = CodexAdapter().build_launch(
+        _job(tmp_path, tmp_path / "prompt", sandbox), "job/a1", tmp_path, _lane(tmp_path / "home"),
+        {"CODEX_HOME": str(tmp_path / "home")}, MODEL, None, tmp_path / "prompt", GUARD_OVERRIDE,
+    )
+    assert launch.argv.count("--skip-git-repo-check") == (1 if sandbox == Sandbox.READ_ONLY else 0)
+    assert launch.argv.index("--sandbox") < len(launch.argv) - 1
+
+
 def test_workspace_write_requires_guard_override(tmp_path):
     """C-14.3 An executable workspace-write launch requires the guard override."""
     with pytest.raises(AdapterError) as exc:
