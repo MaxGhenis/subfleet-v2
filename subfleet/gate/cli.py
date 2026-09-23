@@ -95,9 +95,13 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
                 payload[key] = str(Path(payload[key]).expanduser().resolve())
         op = "gate.continue" if args.gate_command == "continue" else "gate.start"
         result = client.call(op, payload, timeout=180)
-        if result.get("job_id") and result.get("code") is None:
-            print(f"subfleet gate: {result['gate_id']} peer job {result['job_id']}", file=sys.stderr)
+        announced = None
         while result.get("code") is None:
+            # A round's format re-ask (C-23.9) is a second peer job; name each one once.
+            if result.get("job_id") and result["job_id"] != announced:
+                announced = result["job_id"]
+                print(f"subfleet gate: {result['gate_id']} peer job {announced}"
+                      + (f" — {result['message']}" if result.get("message") else ""), file=sys.stderr)
             time.sleep(poll_interval)
             result = client.call("gate.poll", {"gate_id": result["gate_id"]}, timeout=180)
         _emit(result, args.json)

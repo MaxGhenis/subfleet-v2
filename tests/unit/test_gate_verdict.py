@@ -6,7 +6,9 @@ import pytest
 
 from subfleet.contracts import Attestation, AttestationResult
 from subfleet.gate.errors import GateError
-from subfleet.gate.verdict import VERDICT_BEGIN, VERDICT_END, parse_verdict, validate_attestation
+from subfleet.gate.verdict import (TEMPLATE_VERDICT, VERDICT_BEGIN, VERDICT_END, VerdictFormatError,
+                                   decode_output, parse_verdict, rejected_output_evidence,
+                                   validate_attestation)
 
 REVISION = {"kind": "plan", "sha256": "a" * 64, "bytes": 8}
 FINDING = {"severity": "high", "location": "plan:1", "description": "Add rollback."}
@@ -61,6 +63,88 @@ def test_malformed_verdicts_fail_closed(text, message):
     with pytest.raises(GateError, match=message) as error:
         parse_verdict(text, REVISION)
     assert error.value.code == 4
+
+
+FORMAT_FAILURES = [
+    json.dumps(payload()),
+    envelope(payload()).replace(VERDICT_END, ""),
+    envelope(payload()) + envelope(payload()),
+    VERDICT_END + json.dumps(payload()) + VERDICT_BEGIN,
+    "preface\n" + envelope(payload()),
+    envelope(payload()) + "trailing",
+    f"```json\n{envelope(payload())}```",
+    envelope([]),
+    envelope(payload(schema_version=2)),
+    envelope({k: v for k, v in payload().items() if k != "verdict"}),
+    envelope(payload(verdict="changes-requested")),
+    envelope(payload(findings={})),
+    envelope(payload(verdict="changes_requested", findings=[{"severity": "high"}])),
+    envelope(payload(summary=" ")),
+    envelope(payload()).replace('"approve"', '"approve", "verdict": "blocked"'),
+    envelope(payload()).replace('"findings": []', '"findings": NaN'),
+    VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END,
+]
+NEVER_FORMAT_FAILURES = [
+    (envelope(payload(artifact_revision={**REVISION, "sha256": "b" * 64})), "different"),
+    (envelope({k: v for k, v in payload().items() if k != "artifact_revision"}), "different"),
+    ("preface\n" + envelope(payload(artifact_revision={**REVISION, "bytes": 9})), "different"),
+    (envelope(payload(artifact_revision=None, verdict=[])) + "trailing", "different"),
+    (envelope(payload(findings=[FINDING])), "actionable findings"),
+    (envelope(payload(notes=["Fix this first."])), "nonempty notes"),
+    (envelope(payload(verdict="changes_requested")), "without an actionable"),
+]
+
+
+@pytest.mark.parametrize("text", FORMAT_FAILURES)
+def test_c23_9_envelope_and_shape_failures_are_typed_for_the_rounds_one_reask(text):
+    """C-23.9 (amended): only a format failure is a VerdictFormatError; it still blocks with 4."""
+    with pytest.raises(VerdictFormatError) as error:
+        parse_verdict(text, REVISION)
+    assert error.value.code == 4
+
+
+@pytest.mark.parametrize("text,message", NEVER_FORMAT_FAILURES)
+def test_c23_9_binding_and_contradiction_failures_are_never_format_failures(text, message):
+    """C-23.9 (amended): the revision binding is judged before text outside; neither it nor a contradiction is format."""
+    with pytest.raises(GateError, match=message) as error:
+        parse_verdict(text, REVISION)
+    assert not isinstance(error.value, VerdictFormatError) and error.value.code == 4
+
+
+def test_c23_9_non_utf8_output_is_a_format_failure():
+    """C-23.9 (amended): undecodable bytes are a malformed envelope, not an operational error."""
+    assert decode_output(envelope(payload()).encode()) == envelope(payload())
+    with pytest.raises(VerdictFormatError, match="not UTF-8"):
+        decode_output(b"\xff" + envelope(payload()).encode())
+
+
+@pytest.mark.parametrize("text,refusal,verdicts", [
+    ("prose only, no block", None, []),
+    ("preface\n" + envelope(payload()), None, ["approve"]),
+    ("preface\n" + envelope(payload(verdict="changes_requested", findings=[FINDING])), None, ["changes_requested"]),
+    (envelope(payload(verdict="blocked")) + envelope(payload()), None, ["blocked", "approve"]),
+    (envelope(payload()).replace('"approve"', '"blocked", "verdict": "approve"'), None, ["blocked", "approve"]),
+    (envelope(payload(verdict=TEMPLATE_VERDICT)) + envelope(payload()), None, ["approve"]),
+    (envelope(payload(verdict=["approve"])) + "x", None, ['["approve"]']),
+    (f"{VERDICT_BEGIN}{{not json{VERDICT_END} and more", None, []),
+    (envelope(payload()) + envelope(payload(artifact_revision={**REVISION, "bytes": 9})), "different artifact revision", ["approve", "approve"]),
+    (envelope(payload()).replace('"artifact_revision"', '"artifact_revision": null, "artifact_revision"'), "different artifact revision", ["approve"]),
+    ("x" + envelope({k: v for k, v in payload().items() if k != "artifact_revision"}), "different artifact revision", ["approve"]),
+    ("x" + envelope(payload(findings=[FINDING])), "approves with findings or notes", ["approve"]),
+    ("x" + envelope(payload(notes=["n"])), "approves with findings or notes", ["approve"]),
+    ("x" + envelope(payload(findings="none")), "approves with findings or notes", ["approve"]),
+    ("x" + envelope(payload(notes=None, findings=None)), None, ["approve"]),
+    ("x" + envelope(payload(verdict="changes_requested")), "requests changes without a finding", ["changes_requested"]),
+    (VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END, "too deeply nested", []),
+])
+def test_c23_9_rejected_output_diagnosis_only_forbids_or_constrains_a_reask(text, refusal, verdicts):
+    """C-23.9 (amended): every block, duplicates included, can refuse a re-ask; none becomes a verdict."""
+    evidence = rejected_output_evidence(text, REVISION)
+    assert evidence["verdicts"] == verdicts
+    if refusal is None:
+        assert evidence["refusal"] is None
+    else:
+        assert refusal in evidence["refusal"]
 
 
 @pytest.mark.parametrize("status", ["mismatch", "unattested", None])
