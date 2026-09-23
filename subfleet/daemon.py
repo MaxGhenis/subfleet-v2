@@ -72,9 +72,13 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
 #: C-6.12: what evaluating one job's route may raise without ending the pass
-#: (`PolicyError` is a ValueError). A store error is not here: it is the pass's,
-#: and C-5.10 retries the pass.
-ROUTE_ERRORS = (ValueError, KeyError, TypeError)
+#: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
+#: that `load_policy` does not fully validate (a `reserve` that is not a mapping
+#: raises AttributeError in `evaluate`), or a defect; one in the shared capacity
+#: view or policy puts every evaluated job on a route wait, visibly, instead of
+#: ending the pass. A store error (sqlite3, OSError) is not here: it is the
+#: pass's, and C-5.10 retries it.
+ROUTE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 #: C-6.12: a route that could not be evaluated is looked at again this long
 #: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
 ROUTE_RETRY_BASE_S = 5
