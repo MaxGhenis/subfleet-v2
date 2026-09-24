@@ -639,6 +639,71 @@ def test_sessions_revive_dry_run_of_an_ordinary_hold_still_exits_zero(monkeypatc
     assert code == int(Exit.OK) and "the desktop app owns this session" in out
 
 
+# --- a daemon older than C-26.13 (no `conversation_sessions`) -----------------
+
+@pytest.fixture
+def older_daemon(tmp_path, monkeypatch):
+    """The window between a code update and `subfleet daemon stop/start`: the
+    CLI is new, and the daemon answers `sessions state` as b739a12's did, with
+    `sessions` and `lane_sessions` only, although it already ran conversations.
+
+    CONVERSATION is a conversation's session after three turns, in
+    `bypassPermissions`, cold and unregistered: `headless_transcript` no longer
+    calls it a lane (C-23.31), and nothing else would stop `--revive --force`.
+    LIVE is the same shape with a live registry row, for the nudge and the
+    listing."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    fx.desktop_store(tmp_path, monkeypatch)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for session in (CONVERSATION, LIVE):
+        fx.transcript(home, session, [{**entry, "cwd": str(repo)} for entry in
+                                      fx.with_mode(fx.conversation_turns(turns=3),
+                                                   "bypassPermissions")])
+    fx.register(home, LIVE, os.getpid(), started_at=1.0)
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION, LIVE],
+                             reports_conversations=False)
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    return daemon, repo
+
+
+LIVE = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d"
+
+
+@pytest.mark.parametrize("argv", [
+    ["sessions", "revive", CONVERSATION, "--revive", "--force"],
+    ["sessions", "revive", CONVERSATION, "--revive", "--force", "--json"],
+    ["sessions", "continue", "--scope", "cold", "--revive", "--force"],
+    ["sessions", "continue", "--scope", "cold", CONVERSATION, "--revive", "--force"],
+    ["sessions", "continue", "--scope", "cold", "--handoff", "--to", "astra"],
+    ["sessions", "continue", "--session", LIVE, "--delay", "0"],
+    ["sessions", "continue", "--scope", "idle", "--all", "--delay", "0"],
+    ["sessions", "list", "--all", "--json"],
+    ["handoff", CONVERSATION, "--to", "opus", "--dry-run"],
+], ids=["revive", "revive-json", "cold-sweep", "cold-named", "cold-handoff",
+        "interrupted", "idle", "list", "handoff"])
+def test_a_daemon_older_than_the_conversation_fence_is_refused_not_trusted(
+        argv, older_daemon, monkeypatch):
+    """C-26.13 with C-25.1 and C-17.3: a `state` reply without
+    `conversation_sessions` is a daemon older than the clause, not a daemon
+    with no conversations. Every verb that reads it exits 69 with the restart
+    as its fix, and nothing is submitted, nudged or recorded. Before this, the
+    kit read the silence as an empty list and `sessions revive --revive
+    --force` submitted a revive of a conversation's session."""
+    daemon, repo = older_daemon
+    if argv[0] == "handoff":
+        argv = [*argv, "-C", str(repo)]
+    code, out, err = run(argv, monkeypatch)
+    assert code == int(Exit.DAEMON_UNAVAILABLE) == 69, (out, err)
+    assert "conversation_sessions" in err and "C-26.13" in err
+    assert "fix: subfleet daemon stop && subfleet daemon start" in err
+    assert out == ""
+    assert daemon.submits == [] and daemon.pings == [] and daemon.records == []
+    assert daemon.revives == {} and daemon.state_calls, "the reply was read, then refused"
+
+
 def test_a_sweep_that_merely_passed_over_a_lane_still_exits_zero(monkeypatch):
     """The exit code reports whether the sweep ran, not whether every session
     in the fleet qualified."""

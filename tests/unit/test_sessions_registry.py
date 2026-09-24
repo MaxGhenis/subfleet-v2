@@ -199,7 +199,25 @@ def test_a_conversations_session_is_never_listed(home, include_lanes, live_only)
 
 
 def test_the_daemons_conversation_list_is_read_defensively():
-    """C-26.13: an older daemon reports no list, and junk is not an id."""
-    assert registry.conversation_ids_of({"lane_sessions": ["x"]}) == set()
+    """C-26.13: junk in the list is not an id, and an empty list is none."""
     assert registry.conversation_ids_of(
         {"conversation_sessions": ["a", "", None, 3, "b"]}) == {"a", "b"}
+    assert registry.conversation_ids_of(
+        {"lane_sessions": ["x"], "conversation_sessions": []}) == set()
+
+
+@pytest.mark.parametrize("reply", [
+    {"sessions": {}, "lane_sessions": ["x"]},
+    {"sessions": {}, "lane_sessions": [], "conversation_sessions": None},
+    {"sessions": {}, "lane_sessions": [], "conversation_sessions": "a"},
+], ids=["missing", "null", "not-a-list"])
+def test_a_daemon_that_does_not_report_the_list_is_a_version_signal(reply):
+    """C-26.13 with C-25.1: the daemon before C-26.13 ran conversations and
+    answered `state` without `conversation_sessions`. Its silence is not "no
+    conversation holds a session": the kit raises `SessionsUnsupported`, whose
+    fix restarts the daemon, rather than fail open."""
+    from subfleet.sessions.client import SessionsUnsupported
+    with pytest.raises(SessionsUnsupported) as raised:
+        registry.conversation_ids_of(reply)
+    assert "conversation_sessions" in str(raised.value)
+    assert raised.value.fix == "subfleet daemon stop && subfleet daemon start"

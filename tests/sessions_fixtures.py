@@ -266,12 +266,16 @@ class FakeSessions:
                  lane_sessions: Iterable[str] = (),
                  conversation_sessions: Iterable[str] = (),
                  revive_holders: dict[str, str] | None = None,
+                 reports_conversations: bool = True,
                  now: datetime = NOW):
         self.retired = dict(retired or {})
         self.nudges = dict(nudges or {})
         self.revives = dict(revives or {})
         self.lane_sessions = list(lane_sessions)
         self.conversation_sessions = list(conversation_sessions)
+        # False: answer `state` as the daemon before C-26.13 did, with no
+        # `conversation_sessions` key at all (b739a12's `Daemon.sessions`).
+        self.reports_conversations = reports_conversations
         self.revive_holders = dict(revive_holders or {})
         self.now = now
         self.pings: list[tuple[str, str]] = []
@@ -286,13 +290,15 @@ class FakeSessions:
         keys = session_ids if session_ids is not None else sorted(
             set(self.retired) | set(self.nudges) | set(self.revives)
             | set(self.revive_holders))
-        return {"sessions": {key: {"retired": self.retired.get(key),
-                                   "last_nudge": self.nudges.get(key),
-                                   "last_revive": self.revives.get(key),
-                                   "revive_holder": self.revive_holders.get(key)}
-                             for key in keys},
-                "lane_sessions": list(self.lane_sessions),
-                "conversation_sessions": list(self.conversation_sessions)}
+        reply = {"sessions": {key: {"retired": self.retired.get(key),
+                                    "last_nudge": self.nudges.get(key),
+                                    "last_revive": self.revives.get(key),
+                                    "revive_holder": self.revive_holders.get(key)}
+                              for key in keys},
+                 "lane_sessions": list(self.lane_sessions)}
+        if self.reports_conversations:
+            reply["conversation_sessions"] = list(self.conversation_sessions)
+        return reply
 
     def record_nudge(self, session_id: str, *, dedupe_key: str | None,
                      cooldown_s: float | None, kind: str = "nudge",

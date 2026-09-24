@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import transcripts
+from .client import SessionsUnsupported
 
 
 #: C-26.13: why the kit leaves a conversation's session alone, and where it
@@ -63,9 +64,25 @@ def sessions_dir() -> Path:
 
 def conversation_ids_of(facts: dict[str, Any]) -> set[str]:
     """C-26.13: the sessions the daemon's `sessions state` reports as a
-    conversation's. A daemon older than C-26.13 reports none."""
-    return {item for item in (facts.get("conversation_sessions") or [])
-            if isinstance(item, str) and item}
+    conversation's.
+
+    A reply without the list is a version signal, not "none": the daemon
+    before C-26.13 (b739a12) already ran conversations but answered `state`
+    with `sessions` and `lane_sessions` only, and `PROTOCOL_VERSION` did not
+    change (C-25.1), so a CLI updated before the daemon restarts talks to it.
+    Reading its silence as an empty list would hand every conversation's
+    session back to the kit, which is the twin C-26.13 forbids. So it raises
+    `SessionsUnsupported`, as `Sessions._call` does for an unknown op, and the
+    verb exits 69 with the restart as its fix. Every reader of `state` in the
+    kit calls this before it acts on the reply.
+    """
+    listed = facts.get("conversation_sessions")
+    if not isinstance(listed, list):
+        raise SessionsUnsupported(
+            "this daemon's `sessions state` does not report `conversation_sessions`; "
+            "it is older than the sessions kit's conversation fence (C-26.13) and "
+            "cannot say which sessions a conversation holds")
+    return {item for item in listed if isinstance(item, str) and item}
 
 
 def _pid_alive(pid: int | None) -> bool:
