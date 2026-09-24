@@ -1,0 +1,448 @@
+// Recovered from the legacy Subfleet cockpit (native Swift, built 2026-08-30/31).
+// Source: chief-of-staff feat/subfleet-traycer-port @ 8607b3c8 plus uncommitted working tree,
+// subfleet/app/SubfleetCLI.swift, sha256 39d69df741e6947498cae70845f8676d5c4c67ec6b2839262fb5eff99555dc8f (recovery package 20260924T121841Z).
+// Imported verbatim; not compiled until ported to the v2 daemon (docs/desktop/design.md §12).
+
+import Foundation
+import Darwin
+
+/// One newline-delimited request to the local, persistent delivery broker.
+/// The client owns this ID until durable acceptance; reconnects never invent a
+/// new ID for an attempt whose acknowledgement may have been lost.
+struct BrokerRequest: Codable, Hashable, Sendable {
+    let op: String
+    var messageID: String? = nil
+    var sessionID: String? = nil
+    var prompt: String? = nil
+    var imagePaths: [String]? = nil
+    var serviceTier: String? = nil
+    var resolution: String? = nil
+    var confirm: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case op, prompt, resolution, confirm
+        case messageID = "message_id"
+        case sessionID = "session_id"
+        case imagePaths = "image_paths"
+        case serviceTier = "service_tier"
+    }
+}
+
+enum BrokerClientError: LocalizedError {
+    case unavailable(Int32)
+    case transport(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .unavailable(code):
+            return "The local delivery broker is unavailable (\(String(cString: strerror(code))))."
+        case let .transport(message): return message
+        }
+    }
+}
+
+actor SubfleetBrokerClient {
+    static var stateDirectory: URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let path = environment["SUBFLEET_STATE_DIR"], !path.isEmpty {
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("chief-of-staff/state/subfleet", isDirectory: true)
+    }
+
+    static var socketPath: String {
+        if let path = ProcessInfo.processInfo.environment["SUBFLEET_BROKER_SOCKET"], !path.isEmpty {
+            return (path as NSString).expandingTildeInPath
+        }
+        return stateDirectory.appendingPathComponent("broker.sock").path
+    }
+
+    private var starting: Task<Void, Error>?
+
+    func request(_ request: BrokerRequest) async throws -> String {
+        let data = try JSONEncoder().encode(request) + Data([10])
+        do {
+            return try await exchange(data)
+        } catch BrokerClientError.unavailable {
+            // A failed connect has sent no bytes, so starting the broker and
+            // retrying this exact ID cannot duplicate provider delivery.
+            try await start()
+            return try await exchange(data)
+        }
+    }
+
+    private func start() async throws {
+        if let starting { return try await starting.value }
+        let task = Task {
+            let result = try await SubfleetCLI().call(["broker", "start", "--json"], timeout: 15)
+            guard result.succeeded else { throw BrokerClientError.transport(result.diagnostic) }
+        }
+        starting = task
+        defer { starting = nil }
+        try await task.value
+    }
+
+    private func exchange(_ data: Data) async throws -> String {
+        let path = Self.socketPath
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do { continuation.resume(returning: try Self.exchangeBlocking(data, path: path)) }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    private static func exchangeBlocking(_ data: Data, path: String) throws -> String {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw BrokerClientError.unavailable(errno) }
+        defer { Darwin.close(fd) }
+        var noSignal: Int32 = 1
+        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout.size(ofValue: noSignal)))
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
+        _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8CString)
+        guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            throw BrokerClientError.transport("The broker socket path is too long.")
+        }
+        withUnsafeMutableBytes(of: &address.sun_path) { destination in
+            destination.copyBytes(from: bytes.map { UInt8(bitPattern: $0) })
+        }
+        let length = socklen_t(MemoryLayout.size(ofValue: address))
+        address.sun_len = UInt8(length)
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, length)
+            }
+        }
+        guard connected == 0 else { throw BrokerClientError.unavailable(errno) }
+        var peerUID: uid_t = 0
+        var peerGID: gid_t = 0
+        guard getpeereid(fd, &peerUID, &peerGID) == 0, peerUID == geteuid() else {
+            throw BrokerClientError.transport("The broker socket belongs to a different user. No message was sent.")
+        }
+        try data.withUnsafeBytes { buffer in
+            var written = 0
+            while written < buffer.count {
+                let count = Darwin.send(fd, buffer.baseAddress!.advanced(by: written), buffer.count - written, 0)
+                if count < 0 && errno == EINTR { continue }
+                guard count > 0 else {
+                    throw BrokerClientError.transport("Delivery acknowledgement was interrupted. Subfleet will check the same message ID before retrying.")
+                }
+                written += count
+            }
+        }
+        var response = Data()
+        var buffer = [UInt8](repeating: 0, count: 16_384)
+        while response.count <= 16 * 1024 * 1024 {
+            let count = Darwin.recv(fd, &buffer, buffer.count, 0)
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else {
+                throw BrokerClientError.transport("The broker acknowledgement is not confirmed. Your message ID is saved; check its status before resending.")
+            }
+            response.append(contentsOf: buffer.prefix(count))
+            if let newline = response.firstIndex(of: 10) {
+                return String(decoding: response[..<newline], as: UTF8.self)
+            }
+        }
+        throw BrokerClientError.transport("The broker response exceeded its size limit.")
+    }
+}
+
+struct CLIInvocationResult: Sendable {
+    let arguments: [String]
+    let stdout: String
+    let stderr: String
+    let exitCode: Int32
+
+    var succeeded: Bool { exitCode == 0 }
+
+    var diagnostic: String {
+        let err = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        let out = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !err.isEmpty { return err }
+        if !out.isEmpty { return out }
+        return "subfleet exited with status \(exitCode)"
+    }
+}
+
+enum SubfleetCLIError: LocalizedError {
+    case executableNotFound([String])
+    case launchFailed(String)
+    case timedOut(TimeInterval)
+    case cancelled
+
+    var errorDescription: String? {
+        switch self {
+        case let .executableNotFound(candidates):
+            return "Subfleet CLI was not found. Checked: \(candidates.joined(separator: ", "))"
+        case let .launchFailed(message):
+            return "Could not launch Subfleet: \(message)"
+        case let .timedOut(seconds):
+            return "Subfleet did not finish within \(Int(seconds)) seconds."
+        case .cancelled:
+            return "Subfleet command was cancelled."
+        }
+    }
+}
+
+private final class ProcessControl: @unchecked Sendable {
+    enum StopReason {
+        case cancelled
+        case timedOut
+    }
+
+    private let lock = NSLock()
+    private var process: Process?
+    private var stopReason: StopReason?
+
+    func install(_ process: Process) -> Bool {
+        lock.lock()
+        self.process = process
+        let shouldLaunch = stopReason == nil
+        lock.unlock()
+        return shouldLaunch
+    }
+
+    func requestStop(_ reason: StopReason) {
+        lock.lock()
+        if stopReason == nil { stopReason = reason }
+        let runningProcess = process
+        lock.unlock()
+        terminate(runningProcess)
+    }
+
+    func stopAfterLaunchIfNeeded() {
+        lock.lock()
+        let shouldStop = stopReason != nil
+        let runningProcess = process
+        lock.unlock()
+        if shouldStop { terminate(runningProcess) }
+    }
+
+    func reason() -> StopReason? {
+        lock.lock()
+        let value = stopReason
+        lock.unlock()
+        return value
+    }
+
+    private func terminate(_ process: Process?) {
+        guard let process, process.isRunning else { return }
+        process.terminate()
+        let pid = process.processIdentifier
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+            if process.isRunning {
+                Darwin.kill(pid, SIGKILL)
+            }
+        }
+    }
+}
+
+/// A deliberately small process boundary. It launches the resolved binary directly;
+/// no shell is involved and every argument remains a discrete value.
+struct SubfleetCLI: Sendable {
+    static let overrideKey = "SubfleetCLIPath"
+
+    private var home: String { FileManager.default.homeDirectoryForCurrentUser.path }
+
+    var candidatePaths: [String] {
+        if let override = UserDefaults.standard.string(forKey: Self.overrideKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty
+        {
+            return [(override as NSString).expandingTildeInPath]
+        }
+        return [
+            "\(home)/.local/bin/subfleet-local",
+            "\(home)/bin/subfleet",
+            "/opt/homebrew/bin/subfleet",
+            "/usr/local/bin/subfleet",
+        ]
+    }
+
+    var resolvedPath: String? {
+        candidatePaths.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    func call(
+        _ arguments: [String],
+        standardInput: String? = nil,
+        timeout: TimeInterval = 60
+    ) async throws -> CLIInvocationResult {
+        let candidates = candidatePaths
+        guard let executable = candidates.first(where: {
+            FileManager.default.isExecutableFile(atPath: $0)
+        }) else {
+            throw SubfleetCLIError.executableNotFound(candidates)
+        }
+
+        return try await Self.callExecutable(
+            executable,
+            arguments: arguments,
+            standardInput: standardInput,
+            timeout: timeout
+        )
+    }
+
+    static func callExecutable(
+        _ executable: String,
+        arguments: [String],
+        standardInput: String? = nil,
+        timeout: TimeInterval = 60
+    ) async throws -> CLIInvocationResult {
+        let control = ProcessControl()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                let stdinPipe = standardInput == nil ? nil : Pipe()
+
+                process.executableURL = URL(fileURLWithPath: executable)
+                process.arguments = arguments
+                process.environment = subprocessEnvironment()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+                process.standardInput = stdinPipe ?? FileHandle.nullDevice
+
+                guard control.install(process) else {
+                    continuation.resume(throwing: SubfleetCLIError.cancelled)
+                    return
+                }
+
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(throwing: SubfleetCLIError.launchFailed(error.localizedDescription))
+                    return
+                }
+                control.stopAfterLaunchIfNeeded()
+
+                let timeoutWork = DispatchWorkItem {
+                    control.requestStop(.timedOut)
+                }
+                DispatchQueue.global(qos: .utility).asyncAfter(
+                    deadline: .now() + timeout,
+                    execute: timeoutWork
+                )
+
+                let reads = DispatchGroup()
+                let lock = NSLock()
+                var stdout = Data()
+                var stderr = Data()
+
+                reads.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    lock.lock()
+                    stdout = data
+                    lock.unlock()
+                    reads.leave()
+                }
+                reads.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    lock.lock()
+                    stderr = data
+                    lock.unlock()
+                    reads.leave()
+                }
+
+                if let standardInput, let stdinPipe {
+                    if let data = standardInput.data(using: .utf8) {
+                        try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
+                    }
+                    try? stdinPipe.fileHandleForWriting.close()
+                }
+
+                process.waitUntilExit()
+                timeoutWork.cancel()
+                reads.wait()
+                lock.lock()
+                let capturedStdout = stdout
+                let capturedStderr = stderr
+                lock.unlock()
+
+                switch control.reason() {
+                case .cancelled:
+                    continuation.resume(throwing: SubfleetCLIError.cancelled)
+                case .timedOut:
+                    continuation.resume(throwing: SubfleetCLIError.timedOut(timeout))
+                case nil:
+                    continuation.resume(returning: CLIInvocationResult(
+                        arguments: arguments,
+                        stdout: String(decoding: capturedStdout, as: UTF8.self),
+                        stderr: String(decoding: capturedStderr, as: UTF8.self),
+                        exitCode: process.terminationStatus
+                    ))
+                }
+                }
+            }
+        } onCancel: {
+            control.requestStop(.cancelled)
+        }
+    }
+
+    private static func subprocessEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let knownPaths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "\(home)/.local/bin",
+            "\(home)/.bun/bin",
+            "\(home)/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ]
+        var paths = (environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+        for path in knownPaths where !paths.contains(path) {
+            paths.append(path)
+        }
+        environment["PATH"] = paths.joined(separator: ":")
+        return environment
+    }
+}
+
+/// Read-only Logpile access for cockpit history. This never calls `sync`.
+struct LogpileCLI: Sendable {
+    static let overrideKey = "LogpileCLIPath"
+
+    var candidatePaths: [String] {
+        if let override = UserDefaults.standard.string(forKey: Self.overrideKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty
+        {
+            return [(override as NSString).expandingTildeInPath]
+        }
+        return [
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("logpile-subfleet-integration/.venv/bin/logpile").path,
+        ]
+    }
+
+    var resolvedPath: String? {
+        candidatePaths.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    func taskList() async throws -> CLIInvocationResult {
+        guard let executable = resolvedPath else {
+            throw SubfleetCLIError.launchFailed(
+                "Logpile was not found. Checked: \(candidatePaths.joined(separator: ", "))"
+            )
+        }
+        return try await SubfleetCLI.callExecutable(
+            executable,
+            arguments: ["task-list", "--json"]
+        )
+    }
+}
