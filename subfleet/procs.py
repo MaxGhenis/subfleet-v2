@@ -6,7 +6,7 @@ only pid sets and start identities may become durable evidence.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Iterable
 
 import os
 import re
@@ -149,10 +149,21 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # Processes an earlier census recorded that are still the same process
+    # (C-5.3), and their live descendants, whichever other source sees them
+    # now (C-5.5, fourth source). All of them are the attempt's without the
+    # leader: each is, or descends from, a process whose identity was checked.
+    recorded_pids: frozenset[int] = frozenset()
+    # Ids of the groups kept escapees lead that still have live members. A
+    # leader that has exited stays kept while its group lives: until then xnu
+    # cannot reuse its pid, and its members are the attempt's.
+    kept_groups: frozenset[int] = frozenset()
+    # Whether the recorded leader was alive in this census's own snapshot (C-5.3).
+    leader_verified: bool = False
 
     @property
     def live_pids(self) -> frozenset[int]:
-        return self.group_pids | self.descendant_pids | self.marker_pids
+        return self.group_pids | self.descendant_pids | self.marker_pids | self.recorded_pids
 
     @property
     def verified_empty(self) -> bool:
@@ -163,6 +174,9 @@ class Containment:
             "group_pids": sorted(self.group_pids),
             "descendant_pids": sorted(self.descendant_pids),
             "marker_pids": sorted(self.marker_pids),
+            "recorded_pids": sorted(self.recorded_pids),
+            "kept_groups": sorted(self.kept_groups),
+            "leader_verified": self.leader_verified,
             "live_pids": sorted(self.live_pids),
             "unverifiable": self.unverifiable,
             "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
@@ -172,30 +186,52 @@ class Containment:
 
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
-                attempt_id: str, root: str | None = None) -> Containment:
-    """Collect all three C-5.5 sources; any failed inspection prevents release.
+                attempt_id: str, root: str | None = None,
+                recorded: Iterable[ProcessIdentity] = (),
+                escaped: Iterable[ProcessIdentity] = (),
+                leader: ProcessIdentity | None = None) -> Containment:
+    """Collect all four C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
     newly discovered escaped process must remain quarantined unless the caller
     already recorded that process's ownership before the escape.
 
-    The group and the descendant walk are read from one process-table snapshot
-    (`ps -axo pid=,ppid=,pgid=,stat=`), so a process cannot be present in one
-    source and absent from the other because it exited between two reads. The
-    snapshot also gives every live pid a shape (parent, group, state) that the
-    census records as evidence; commands and environments are never retained.
+    The group, the descendant walk, and the recorded identities are read from
+    one process-table snapshot (`ps -axo pid=,ppid=,pgid=,stat=,lstart=`), so
+    a process cannot be present in one source and absent from another because
+    it exited between two reads. The snapshot also gives every live pid a shape
+    (parent, group, state) that the census records as evidence; commands and
+    environments are never retained.
+
+    The marker sees only processes whose environment the kernel returns. For a
+    process running with CS_RESTRICT, as Apple's own executables do (sh, zsh,
+    sleep, env, ssh...; tools/marker_visibility.py measures them), `ps -E`
+    prints the arguments and no environment, so such a process is found
+    only in the group, under a live walk root, or through `recorded`: the
+    identities the caller kept from earlier censuses of this attempt. A
+    recorded process counts while it is the same process (C-5.3), and its own
+    descendants are walked as well. `escaped` names the recorded processes that
+    led a process group of their own outside the attempt's: that group counts
+    too, also after its leader has exited, for as long as it has members, so a
+    background job it left behind is found. `leader` is the recorded guardian:
+    `leader_verified` says whether this snapshot shows it alive, which is what
+    lets a caller attribute the group and the walk to the attempt.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
     markers: set[int] = set()
-    table: dict[int, tuple[int, int, str]] = {}   # pid -> (ppid, pgid, stat)
+    recorded_live: dict[int, ProcessIdentity] = {}
+    recorded_pids: set[int] = set()
+    led: set[int] = set()
+    leader_verified = False
+    table: dict[int, tuple[int, int, str, str]] = {}   # pid -> (ppid, pgid, stat, lstart)
     errors: list[str] = []
     try:
-        for row in _read(["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat="]).splitlines():
-            parts = row.split(None, 3)
-            if len(parts) < 4:
+        for row in _read(["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat=,lstart="]).splitlines():
+            parts = row.split(None, 4)
+            if len(parts) < 5:
                 continue
-            table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3].strip())
+            table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3].strip(), parts[4].strip())
         snapshot = True
     except (InspectionError, ValueError):
         snapshot = False
@@ -205,18 +241,79 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
 
-    if snapshot:
-        if pgid and pgid > 0:
-            groups = {pid for pid, (_, group, _) in table.items() if group == pgid and live(pid)}
-        # There is no recorded group before setsid. The two remaining sources
-        # still enumerate the guardian and any inherited marker.
-        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
+    def walk(roots: set[int]) -> set[int]:
         found = set(roots)
         frontier = roots
         while frontier:
-            frontier = {pid for pid, (parent, _, _) in table.items() if parent in frontier and pid not in found}
+            frontier = {pid for pid, (parent, *_) in table.items() if parent in frontier and pid not in found}
             found.update(frontier)
-        descendants = {pid for pid in found if live(pid)}
+        return found
+
+    if snapshot:
+        if pgid and pgid > 0:
+            groups = {pid for pid, (_, group, *_) in table.items() if group == pgid and live(pid)}
+        boots: dict[str, str | None] = {}
+
+        def same_boot(ident: ProcessIdentity) -> bool | None:
+            if "current" not in boots:
+                try:
+                    boots["current"] = boot_id()
+                except InspectionError:
+                    boots["current"] = None
+            if not boots["current"]:
+                return None
+            try:
+                return boot_identity.matches(str(ident.boot_id), boots["current"],
+                                             lambda: boot_identity.boot_seconds(_read))
+            except InspectionError:
+                return None
+
+        # A recorded pid that is live under the lstart it was recorded with is
+        # the same process unless the boot differs (C-5.3); a different lstart
+        # is a reused pid, and an absent pid is a process that has exited. A
+        # match is reported under the current boot id, so an identity kept
+        # under a legacy timestamp heals the next time it is kept.
+        for ident in recorded:
+            if ident.pid <= 0 or not live(ident.pid) or table[ident.pid][3] != ident.proc_start:
+                continue
+            match = same_boot(ident)
+            if match is True:
+                current = boots["current"]
+                recorded_live[ident.pid] = (ident if ident.boot_id == current
+                                            else ProcessIdentity(ident.pid, current, ident.proc_start))
+            elif match is None:
+                errors.append(f"identity inspection unavailable for recorded pid {ident.pid}")
+        # A recorded process outside the attempt's group that leads a group of
+        # its own (setsid, or a shell's background job) left that group's
+        # members to the attempt, also once it has exited: xnu allocates no pid
+        # that is still a group's id (kern_fork.c:955-973). Not when its pid now
+        # belongs to another process, or when it was recorded on another boot.
+        # A group with no live member has no id to protect any more, and the
+        # pid may be handed out again, so an exited leader counts only while
+        # its group lives; one whose boot cannot be told is unverifiable then.
+        occupied = {group for pid, (_, group, *_) in table.items() if live(pid)}
+        led: set[int] = set()
+        for ident in escaped:
+            row = table.get(ident.pid)
+            if ident.pid <= 0 or ident.pid not in occupied:
+                continue
+            if ident.pid in recorded_live:
+                led.add(ident.pid)
+            elif row is None or (row[3] == ident.proc_start and row[2].startswith("Z")):
+                match = same_boot(ident)
+                if match is True:
+                    led.add(ident.pid)
+                elif match is None:
+                    errors.append(f"identity inspection unavailable for kept group leader {ident.pid}")
+        leader_verified = bool(leader and leader.pid > 0 and live(leader.pid)
+                               and table[leader.pid][3] == leader.proc_start and same_boot(leader) is True)
+        # There is no recorded group before setsid. The remaining sources
+        # still enumerate the guardian, any inherited marker, and whatever an
+        # earlier census recorded.
+        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
+        descendants = {pid for pid in walk(roots) if live(pid)}
+        members = {pid for pid, (_, group, *_) in table.items() if group in led and live(pid)}
+        recorded_pids = set(recorded_live) | {pid for pid in walk(set(recorded_live) | members) if live(pid)}
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")
@@ -236,8 +333,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     markers.add(pid)
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
-    identities: dict[int, ProcessIdentity] = {}
-    for pid in groups | descendants | markers:
+    identities: dict[int, ProcessIdentity] = dict(recorded_live)
+    for pid in (groups | descendants | markers | recorded_pids) - set(recorded_live):
         try:
             current = identity(pid)
             if current is not None:
@@ -247,12 +344,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 groups.discard(pid)
                 descendants.discard(pid)
                 markers.discard(pid)
+                recorded_pids.discard(pid)
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
-              for pid in groups | descendants | markers if pid in table}
+              for pid in groups | descendants | markers | recorded_pids if pid in table}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes)
+                       bool(errors), identities, tuple(errors), shapes, frozenset(recorded_pids),
+                       frozenset(led), leader_verified)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

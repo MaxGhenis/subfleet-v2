@@ -89,7 +89,8 @@ class Harness:
         request_id = overrides.pop("request_id", str(uuid.uuid4()))
         prompt = self.root / f"prompt-{uuid.uuid4().hex}.md"
         settings = {"scenario": scenario, "delay_s": delay_s}
-        if scenario == "nested-setsid":
+        if scenario in {"nested-setsid", "nested-setsid-platform", "platform-escape-exit", "platform-escape-on-term",
+                        "platform-handoff-exit"}:
             settings["marker"] = str(self.root / "escaped.pid")
         prompt.write_text(json.dumps(settings))
         return {
@@ -161,13 +162,20 @@ class Harness:
                 start = json.loads(receipt.read_text())
                 if same_process(start["guardian_pid"], start["boot_id"], start["proc_start"]):
                     os.killpg(start["pgid"], signal.SIGKILL)
-        marker = self.root / "escaped.pid"
-        if marker.exists():
+        # The C-5.5 fixtures' shell and intermediate first, so they start no writer after this.
+        for marker in (self.root / "escaped.pid.shell", self.root / "escaped.pid.intermediate",
+                       self.root / "escaped.pid"):
+            if not (marker.exists() and marker.read_text().strip().isdecimal()):
+                continue
             pid = int(marker.read_text())
             # Inspect the exact recorded marker PID and require our fixture argv.
-            command = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "command="],
+            command = subprocess.run(["/bin/ps", "-ww", "-p", str(pid), "-o", "command="],
                                      text=True, capture_output=True, check=False).stdout
-            if str(REPO / "tests/bin/fakeprov") in command and "--escaped-child" in command:
+            platform_writer = command.split() == ["/bin/sleep", "31.4159"]   # C-5.5 fixture
+            handoff_shell = command.startswith("/bin/sh -c") and "/bin/sleep 31.4159 &" in command
+            intermediate = "SUBFLEET_FAKE_MARKER" in command and command.rstrip().endswith("31.4159")
+            if ((str(REPO / "tests/bin/fakeprov") in command and "--escaped-child" in command)
+                    or platform_writer or handoff_shell or intermediate):
                 with suppress(ProcessLookupError):
                     os.kill(pid, signal.SIGKILL)
         for stream in self.logs:

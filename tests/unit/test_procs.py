@@ -10,6 +10,8 @@ import os
 
 from subfleet import client, procs
 
+STARTED = "Sat Sep  5 10:00:00 2026"
+
 
 def census(monkeypatch, *, groups="", parents="", markers="", fail=None):
     def read(argv, *, empty_ok=False):
@@ -19,12 +21,14 @@ def census(monkeypatch, *, groups="", parents="", markers="", fail=None):
             return "{ sec = 100, usec = 123 }"
         if "pid=,stat=" in argv:
             return groups
-        if "pid=,ppid=,pgid=,stat=" in argv:
-            return parents
+        if "pid=,ppid=,pgid=,stat=,lstart=" in argv:
+            # A row given without a start identity started at STARTED.
+            return "".join((row if len(row.split(None, 4)) == 5 else f"{row} {STARTED}") + "\n"
+                           for row in parents.splitlines() if row.strip())
         if "pid=,command=" in argv:
             return markers
         if "lstart=" in argv:
-            return "Sat Sep  5 10:00:00 2026"
+            return STARTED
         if "stat=" in argv:
             return "S"
         raise AssertionError(argv)
@@ -102,7 +106,7 @@ def test_containment_three_sources_find_setsid_escape(monkeypatch):
     assert "PRIVATE_TOKEN" not in json.dumps(result.to_dict())
 
 
-@pytest.mark.parametrize("failed", ["pid=,ppid=,pgid=,stat=", "pid=,command="])
+@pytest.mark.parametrize("failed", ["pid=,ppid=,pgid=,stat=,lstart=", "pid=,command="])
 def test_containment_failed_source_is_unverifiable(monkeypatch, failed):
     """C-5.5 every enumeration source must succeed before releasing a workspace."""
     census(monkeypatch, fail=failed)
@@ -218,7 +222,7 @@ def test_containment_group_and_walk_share_one_snapshot(monkeypatch):
     assert result.descendant_pids == {42, 43}
     assert result.live_pids == {42, 43, 50}
     assert result.shapes[50] == {"ppid": 1, "pgid": 42, "stat": "S"}
-    assert sum(1 for argv in reads if "pid=,ppid=,pgid=,stat=" in argv) == 1
+    assert sum(1 for argv in reads if "pid=,ppid=,pgid=,stat=,lstart=" in argv) == 1
     assert not any("-g" in argv for argv in reads)
     assert "command" not in json.dumps(result.to_dict()["shapes"])
 
@@ -240,3 +244,145 @@ def test_liveness_has_three_answers_and_unknown_never_means_dead(monkeypatch):
     census(monkeypatch, fail="ps")
     assert procs.liveness(42, "100", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.same_process(42, "100", "Sat Sep  5 10:00:00 2026") is False
+
+
+def test_marker_row_without_an_environment_never_matches(monkeypatch):
+    """C-5.5 a CS_RESTRICT process's ps -E row carries only its arguments, so the marker cannot match it."""
+    census(monkeypatch, parents="99 1 99 S\n100 1 100 S\n",
+           markers="99 /bin/sleep 30\n100 python -c pass SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/root\n")
+    result = procs.containment(None, None, None, "job/a1", root="/root")
+    assert result.marker_pids == {100}
+
+
+def test_containment_recorded_identity_keeps_an_escaped_orphan(monkeypatch):
+    """C-5.5 a recorded writer outside the group, orphaned, and invisible to the marker is still live."""
+    census(monkeypatch, parents="42 1 42 Z\n99 1 99 S\n", markers="99 /bin/sleep 30\n")
+    writer = procs.ProcessIdentity(99, "100", STARTED)
+    assert procs.containment(42, 42, None, "job/a1").verified_empty
+    result = procs.containment(42, 42, None, "job/a1", recorded=[writer])
+    assert result.recorded_pids == {99}
+    assert result.live_pids == {99}
+    assert not result.verified_empty
+    assert result.identities[99] == writer
+    assert result.shapes[99] == {"ppid": 1, "pgid": 99, "stat": "S"}
+    assert result.to_dict()["recorded_pids"] == [99]
+
+
+def test_containment_walks_below_a_recorded_process(monkeypatch):
+    """C-5.5 the fourth source is a kept process and every live descendant it started after the last census."""
+    census(monkeypatch, parents="99 1 99 S\n100 99 99 S\n101 100 101 S\n102 100 102 Z\n")
+    result = procs.containment(42, 42, None, "job/a1", recorded=[procs.ProcessIdentity(99, "100", STARTED)])
+    assert result.recorded_pids == {99, 100, 101}
+    assert not result.descendant_pids
+    assert set(result.identities) == {99, 100, 101}
+
+
+@pytest.mark.parametrize("row", ["99 1 99 S Sun Sep  6 11:00:00 2026", "99 1 99 Z", ""],
+                         ids=["reused-pid", "zombie", "exited"])
+def test_containment_recorded_identity_that_is_gone_is_not_live(monkeypatch, row):
+    """C-5.3, C-5.5 a recorded pid now held by another start, a zombie, or nothing counts as dead."""
+    census(monkeypatch, parents=row + "\n" if row else "")
+    result = procs.containment(42, 42, None, "job/a1", recorded=[procs.ProcessIdentity(99, "100", STARTED)])
+    assert result.verified_empty
+    assert not result.recorded_pids
+
+
+def test_containment_recorded_identity_from_another_boot_session_is_dead(monkeypatch):
+    """C-5.3, C-5.5 a boot-session UUID that differs is another boot: the recorded process is gone."""
+    census(monkeypatch, parents="99 1 99 S\n")
+    monkeypatch.setattr(procs, "boot_id", lambda: "7e0a5b4c-1111-4222-8333-944455556666")
+    other = procs.ProcessIdentity(99, "0b1c2d3e-aaaa-4bbb-8ccc-9dddeeeeffff", STARTED)
+    assert procs.containment(42, 42, None, "job/a1", recorded=[other]).verified_empty
+
+
+def test_containment_recorded_identity_of_uncertain_boot_is_unverifiable(monkeypatch):
+    """C-5.3, C-5.5 a legacy boot timestamp that differs is unknown, never dead: the census cannot release."""
+    census(monkeypatch, parents="99 1 99 S\n")
+    result = procs.containment(42, 42, None, "job/a1", recorded=[procs.ProcessIdentity(99, "99", STARTED)])
+    assert result.unverifiable and not result.verified_empty
+    assert result.errors == ("identity inspection unavailable for recorded pid 99",)
+
+
+def test_containment_recorded_identities_add_no_process_reads(monkeypatch):
+    """C-5.5 recorded identities are checked against the one snapshot, not with a ps call per pid."""
+    reads = []
+    census(monkeypatch, parents="99 1 99 S\n")
+    inner = procs._read
+
+    def counting(argv, **kwargs):
+        reads.append(list(argv))
+        return inner(argv, **kwargs)
+    monkeypatch.setattr(procs, "_read", counting)
+    dead = [procs.ProcessIdentity(pid, "100", STARTED) for pid in range(1000, 1500)]
+    result = procs.containment(42, 42, None, "job/a1", recorded=[*dead, procs.ProcessIdentity(99, "100", STARTED)])
+    assert result.recorded_pids == {99}
+    assert not any("-p" in argv for argv in reads)
+
+
+@pytest.mark.parametrize("leader_row", ["", "99 1 99 Z"], ids=["exited", "zombie"])
+def test_containment_counts_the_group_a_kept_escapee_left(monkeypatch, leader_row):
+    """C-5.5 a background job left by a kept setsid'd shell is the attempt's, although no census saw it."""
+    census(monkeypatch, parents=(leader_row + "\n" if leader_row else "") + "150 1 99 S\n151 150 151 S\n")
+    shell = procs.ProcessIdentity(99, "100", STARTED)
+    result = procs.containment(42, 42, None, "job/a1", recorded=[shell], escaped=[shell])
+    assert result.recorded_pids == {150, 151}
+    assert not result.verified_empty
+    assert procs.containment(42, 42, None, "job/a1", recorded=[shell]).verified_empty
+
+
+def test_containment_ignores_a_group_whose_leader_pid_was_reused(monkeypatch):
+    """C-5.3, C-5.5 once the kept escapee's pid belongs to another process, the group with that id is not the attempt's."""
+    census(monkeypatch, parents="99 1 99 S Sun Sep  6 11:00:00 2026\n150 99 99 S\n")
+    shell = procs.ProcessIdentity(99, "100", STARTED)
+    assert procs.containment(42, 42, None, "job/a1", recorded=[shell], escaped=[shell]).verified_empty
+
+
+def test_containment_ignores_a_group_recorded_on_another_boot(monkeypatch):
+    """C-5.3, C-5.5 an escapee recorded on another boot leads no group of this boot."""
+    census(monkeypatch, parents="150 1 99 S\n")
+    monkeypatch.setattr(procs, "boot_id", lambda: "7e0a5b4c-1111-4222-8333-944455556666")
+    shell = procs.ProcessIdentity(99, "0b1c2d3e-aaaa-4bbb-8ccc-9dddeeeeffff", STARTED)
+    assert procs.containment(42, 42, None, "job/a1", recorded=[shell], escaped=[shell]).verified_empty
+
+
+def test_containment_matched_legacy_identity_is_reported_under_the_current_boot(monkeypatch):
+    """C-5.3, C-5.5 a kept identity recorded under the kern.boottime fallback comes back under the boot-session UUID."""
+    census(monkeypatch, parents="99 1 99 S\n")
+    current = "7e0a5b4c-1111-4222-8333-944455556666"
+    monkeypatch.setattr(procs, "boot_id", lambda: current)
+    result = procs.containment(42, 42, None, "job/a1", recorded=[procs.ProcessIdentity(99, "100", STARTED)])
+    assert result.recorded_pids == {99}
+    assert result.identities[99] == procs.ProcessIdentity(99, current, STARTED)
+
+
+def test_containment_an_exited_leaders_group_counts_only_while_it_has_members(monkeypatch):
+    """C-5.5 a kept leader's group stops counting once empty: its id may be reused, and no error is raised."""
+    shell = procs.ProcessIdentity(99, "100", STARTED)
+    census(monkeypatch, parents="150 1 99 S\n")
+    occupied = procs.containment(42, 42, None, "job/a1", recorded=[shell], escaped=[shell])
+    assert occupied.kept_groups == {99} and occupied.recorded_pids == {150}
+    census(monkeypatch, parents="150 1 150 S\n")
+    empty = procs.containment(42, 42, None, "job/a1", recorded=[shell], escaped=[shell])
+    assert not empty.kept_groups and empty.verified_empty
+
+
+def test_containment_an_exited_leader_of_unknown_boot_with_members_is_unverifiable(monkeypatch):
+    """C-5.3, C-5.5 whether a living group is a kept leader's cannot be told: the census cannot release."""
+    census(monkeypatch, parents="150 1 99 S\n")
+    shell = procs.ProcessIdentity(99, "99", STARTED)      # legacy boot seconds that no longer match
+    result = procs.containment(42, 42, None, "job/a1", recorded=[shell], escaped=[shell])
+    assert result.unverifiable and not result.verified_empty
+    assert result.errors == ("identity inspection unavailable for kept group leader 99",)
+    census(monkeypatch, parents="")
+    assert procs.containment(42, 42, None, "job/a1", recorded=[shell], escaped=[shell]).verified_empty
+
+
+@pytest.mark.parametrize("row,seen", [("42 1 42 S", True), ("42 1 42 S Sun Sep  6 11:00:00 2026", False),
+                                      ("42 1 42 Z", False), ("", False)],
+                         ids=["alive", "reused", "zombie", "exited"])
+def test_containment_reports_whether_its_snapshot_shows_the_leader(monkeypatch, row, seen):
+    """C-5.3, C-5.5 the census says whether its own snapshot shows the recorded guardian alive."""
+    census(monkeypatch, parents=row + "\n" if row else "")
+    result = procs.containment(42, 42, None, "job/a1", leader=procs.ProcessIdentity(42, "100", STARTED))
+    assert result.leader_verified is seen
+    assert procs.containment(42, 42, None, "job/a1").leader_verified is False

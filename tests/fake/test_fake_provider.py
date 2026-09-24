@@ -57,7 +57,9 @@ def test_c5_2_fake_spawn_failure_uses_a_missing_executable(tmp_path):
         subprocess.run(launch.argv, cwd=launch.cwd, check=False)
 
 
-@pytest.mark.parametrize("scenario", ["nested-setsid", "ignore-sigterm", "rc4-limit-with-clock", "spawn-fail"])
+@pytest.mark.parametrize("scenario", ["nested-setsid", "nested-setsid-platform", "platform-escape-exit",
+                                      "platform-escape-on-term", "platform-handoff-exit", "ignore-sigterm",
+                                      "rc4-limit-with-clock", "spawn-fail"])
 @pytest.mark.parametrize("indent", [None, 2], ids=["single-line", "multiline"])
 def test_c6_7_fake_scenario_survives_preambles_and_checkpoint_suffix(tmp_path, scenario, indent):
     """C-6.7, C-12.8, C-13.3 write/headless preambles and retry checkpoints preserve the fake scenario."""

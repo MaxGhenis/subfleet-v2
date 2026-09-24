@@ -1979,17 +1979,19 @@ class Daemon:
 
     def _probe_census(self, record: dict):
         return procs.containment(record.get("pgid"), record.get("guardian_pid"),
-                                 record.get("child_pid"), record["holder"], root=str(self.root))
+                                 record.get("child_pid"), record["holder"], root=str(self.root),
+                                 recorded=self._recorded(record), escaped=self._escaped(record),
+                                 leader=self._leader(record))
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
         census = self._probe_census(record)
-        owned = {int(pid): procs.ProcessIdentity(**value)
-                 for pid, value in record.get("owned_identities", {}).items()}
         pid = record.get("guardian_pid")
         leader_live = pid and procs.same_process(pid, record.get("boot_id"), record.get("proc_start"))
+        self._keep_census(record, census, leader=census.leader_verified or bool(leader_live))
+        owned = {int(p): procs.ProcessIdentity(**value)
+                 for p, value in record.get("owned_identities", {}).items()}
         if leader_live:
-            owned.update({p: ident for p, ident in census.identities.items() if p in census.group_pids})
             owned[pid] = procs.ProcessIdentity(pid, record["boot_id"], record["proc_start"])
         record["owned_identities"] = {str(p): dataclasses.asdict(ident) for p, ident in owned.items()}
         if not census.verified_empty and record.get("state") != "quarantined":
@@ -2002,15 +2004,19 @@ class Daemon:
             while not census.verified_empty and time.monotonic() < deadline:
                 time.sleep(.05)
                 census = self._probe_census(record)
+                self._keep_probe_census(record, census)
             if not census.verified_empty:
                 if leader_live:
                     procs.signal_group(record["pgid"], signal.SIGKILL,
                                        boot_id=record["boot_id"], proc_start=record["proc_start"])
+                owned.update({int(p): procs.ProcessIdentity(**value)
+                              for p, value in record.get("owned_identities", {}).items()})
                 for target in census.live_pids:
                     if target in owned:
                         procs.signal_process(owned[target], signal.SIGKILL)
                 time.sleep(.05)
                 census = self._probe_census(record)
+                self._keep_probe_census(record, census)
         record.update(state="contained" if census.verified_empty else "quarantined",
                       containment=census.to_dict())
         self._save_probe(record)
@@ -2046,12 +2052,7 @@ class Daemon:
                 census = self._probe_census(record)
                 if not procs.same_process(record["guardian_pid"], record["boot_id"], record["proc_start"]):
                     break
-                owned = dict(record.get("owned_identities", {}))
-                owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items()
-                              if pid in census.group_pids})
-                if owned != record.get("owned_identities", {}):
-                    record["owned_identities"] = owned
-                    self._save_probe(record)
+                self._keep_probe_census(record, census)
                 next_census = time.monotonic() + .5
             self.stopping.wait(.05)
         safe = self._contain_probe(record)
@@ -3009,20 +3010,135 @@ class Daemon:
             self._lost(a)
 
     def _contain(self, a: dict):
-        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
+        # The kept identities are read fresh: a caller's row can predate the
+        # census that recorded them (C-5.5, fourth source).
+        current = self.store.get_attempt(a["attempt_id"]) or a
+        evidence = json.loads(current.get("evidence_json") or "{}")
+        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"],
+                                 root=str(self.root), recorded=self._recorded(evidence),
+                                 escaped=self._escaped(evidence), leader=self._leader(a))
 
-    def _record_owned(self, a: dict) -> None:
-        census = self._contain(a)
-        if not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+    @staticmethod
+    def _leader(row: dict) -> procs.ProcessIdentity | None:
+        """The recorded guardian of an attempt row or a probe record, once it has been recorded."""
+        pid, boot, started = row.get("guardian_pid"), row.get("boot_id"), row.get("proc_start")
+        return procs.ProcessIdentity(pid, boot, started) if pid and boot and started else None
+
+    @staticmethod
+    def _recorded(evidence: dict) -> list[procs.ProcessIdentity]:
+        """C-5.5: every identity an earlier census kept for this attempt or probe."""
+        kept = [*evidence.get("owned_identities", {}).values(), *evidence.get("census_identities", {}).values()]
+        return [procs.ProcessIdentity(**value) for value in kept]
+
+    @staticmethod
+    def _escaped(evidence: dict) -> list[procs.ProcessIdentity]:
+        """C-5.5: the kept processes that led a group of their own when kept; that group counts while it lives."""
+        leaders = set(evidence.get("census_leaders", ()))
+        return [procs.ProcessIdentity(**value) for pid, value in evidence.get("census_identities", {}).items()
+                if pid in leaders]
+
+    @staticmethod
+    def _keep_census(evidence: dict, census, *, leader: bool) -> bool:
+        """C-5.5, C-5.6: fold what `census` attributes to the attempt into `evidence`.
+
+        With the recorded leader alive in the census's own snapshot (`leader`),
+        group members become signal authority (`owned_identities`, C-5.6) and
+        every other pid the census found is kept in `census_identities`, and
+        `census_leaders` notes the kept pids that lead their own group. Without
+        it, only what is the attempt's whatever became of the leader is kept: a
+        marker match, and a kept process or one of its descendants. Kept
+        identities are evidence and never authority: a later census counts one
+        for as long as it is the same process, after it has left the group and
+        lost its parent, when ps can no longer tie it to the attempt (a
+        CS_RESTRICT process shows no environment), and counts the group a kept
+        leader led for as long as that group has members. A census that finds
+        nothing new changes nothing, so an exit costs no write; when it does
+        write, a census that read everything drops the kept entries that are
+        neither alive nor leaders of a living group. Returns whether `evidence`
+        changed.
+        """
+        before_owned = evidence.get("owned_identities", {})
+        before_kept = evidence.get("census_identities", {})
+        before_leaders = set(evidence.get("census_leaders", ()))
+        owned = dict(before_owned)
+        if leader:
+            owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items()
+                          if pid in census.group_pids})
+            keep = set(census.identities) - census.group_pids
+        else:
+            keep = (census.marker_pids | census.recorded_pids) & set(census.identities)
+        fresh = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in keep}
+        fresh_leaders = {str(pid) for pid in keep if census.shapes.get(pid, {}).get("pgid") == pid}
+        if (owned == before_owned and fresh_leaders <= before_leaders
+                and all(before_kept.get(pid) == ident for pid, ident in fresh.items())):
+            return False
+        if census.unverifiable:
+            kept = dict(before_kept)
+        else:
+            alive = census.recorded_pids | census.kept_groups
+            kept = {pid: ident for pid, ident in before_kept.items() if int(pid) in alive}
+        replaced = {pid for pid, ident in fresh.items() if pid in before_kept and before_kept[pid] != ident}
+        kept.update(fresh)
+        leaders = ((before_leaders - replaced) | fresh_leaders) & set(kept)
+        evidence["owned_identities"] = owned
+        for key, value in (("census_identities", kept), ("census_leaders", sorted(leaders, key=int))):
+            if value:
+                evidence[key] = value
+            else:
+                evidence.pop(key, None)
+        return True
+
+    def _keep_attempt_census(self, a: dict, census, *, leader: bool | None = None) -> None:
+        """C-5.5: keep what `census` attributes to attempt `a`, writing only when it gained something.
+
+        `leader` None means the guardian as the census's own snapshot showed it,
+        or, failing that, as it is now: alive now, it was alive at the snapshot.
+        """
+        current = self.store.get_attempt(a["attempt_id"])
+        if current is None:
             return
-        evidence = json.loads(a["evidence_json"] or "{}")
-        before = dict(evidence.get("owned_identities", {}))
-        owned = dict(before)
-        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items() if pid in census.group_pids})
-        if owned != before:
-            evidence["owned_identities"] = owned
+        evidence = json.loads(current["evidence_json"] or "{}")
+        if not self._census_is_new(evidence, census):
+            return
+        if leader is None:
+            leader = census.leader_verified or (bool(a.get("guardian_pid")) and procs.same_process(
+                a["guardian_pid"], a["boot_id"], a["proc_start"]))
+        if self._keep_census(evidence, census, leader=leader):
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
+
+    def _keep_probe_census(self, record: dict, census, *, leader: bool | None = None) -> None:
+        """C-5.5: `_keep_attempt_census` for a probe or enrollment record, saved when it gained something."""
+        if not self._census_is_new(record, census):
+            return
+        if leader is None:
+            leader = census.leader_verified or (bool(record.get("guardian_pid")) and procs.same_process(
+                record["guardian_pid"], record.get("boot_id"), record.get("proc_start")))
+        if self._keep_census(record, census, leader=leader):
+            self._save_probe(record)
+
+    @staticmethod
+    def _census_is_new(evidence: dict, census) -> bool:
+        """Whether `census` found a process, or a reused pid, that `evidence` does not keep where it belongs.
+
+        A group member belongs in `owned_identities` and anything else in
+        `census_identities`: a process owned while it was in the group (a census
+        can land between its fork and its setsid) and found outside it later is
+        new, so it is kept as an escapee, and so is a kept process newly seen
+        leading its own group.
+        """
+        owned = evidence.get("owned_identities", {})
+        kept = evidence.get("census_identities", {})
+        leaders = set(evidence.get("census_leaders", ()))
+        return any((owned if pid in census.group_pids else kept).get(str(pid)) != dataclasses.asdict(ident)
+                   or (pid not in census.group_pids and census.shapes.get(pid, {}).get("pgid") == pid
+                       and str(pid) not in leaders)
+                   for pid, ident in census.identities.items())
+
+    def _record_owned(self, a: dict) -> None:
+        # The census every 0.5 s while the guardian lives; it attributes the
+        # group and the walk only when its snapshot shows the guardian (C-5.5).
+        self._keep_attempt_census(a, self._contain(a))
 
     def _unlaunched(self, a: dict, detail: str) -> None:
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
@@ -3048,15 +3164,15 @@ class Daemon:
 
     def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
         census = self._contain(a)
-        evidence = json.loads(a["evidence_json"] or "{}")
+        evidence = json.loads((self.store.get_attempt(a["attempt_id"]) or a)["evidence_json"] or "{}")
         # Only group members observed while the recorded leader is still ours
         # may become additional signal targets. Escaped/new marker pids remain
-        # evidence for quarantine, never authority inferred from a PID alone.
-        owned = {int(pid): procs.ProcessIdentity(**value) for pid, value in evidence.get("owned_identities", {}).items()}
+        # evidence for quarantine, never authority inferred from a PID alone;
+        # the ones this census attributes are kept, so the censuses after the
+        # group signal still count them once they have lost their parent (C-5.5).
         leader_live = a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
-        if leader_live:
-            owned.update({pid: ident for pid, ident in census.identities.items() if pid in census.group_pids})
-        evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
+        self._keep_census(evidence, census, leader=census.leader_verified or bool(leader_live))
+        evidence.setdefault("owned_identities", {})
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
         if a.get("pgid"):
@@ -3066,10 +3182,16 @@ class Daemon:
             if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
                 return
             census = self._contain(a)
+            # Work outside the group (a Claude Code Bash tool command is its
+            # own session) keeps starting processes while the grace runs.
+            self._keep_attempt_census(a, census)
         escalated = not census.verified_empty
         if escalated and a.get("pgid"):
             procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"], proc_start=a["proc_start"])
         census = self._contain(a)
+        self._keep_attempt_census(a, census)
+        evidence = json.loads((self.store.get_attempt(a["attempt_id"]) or a)["evidence_json"] or "{}")
+        owned = {int(pid): procs.ProcessIdentity(**value) for pid, value in evidence.get("owned_identities", {}).items()}
         for pid in census.live_pids:
             if pid in owned:
                 procs.signal_process(owned[pid], signal.SIGKILL)
@@ -3083,6 +3205,7 @@ class Daemon:
             if self.stopping.wait(.05):
                 return
             census = self._contain(a)
+            self._keep_attempt_census(a, census)
             if census.verified_empty or time.monotonic() >= settle_until:
                 break
         if not census.verified_empty:
@@ -3113,6 +3236,7 @@ class Daemon:
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
         census = self._contain(a)
+        self._keep_attempt_census(a, census, leader=False)
         if not args.force_release and not census.verified_empty:
             with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
                 tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
@@ -3213,6 +3337,7 @@ class Daemon:
         adir.mkdir(mode=0o700, exist_ok=True)
         census = self._contain(a)
         if not census.verified_empty:
+            self._keep_attempt_census(a, census)
             # The guardian writes the receipt just before it exits, and processes
             # it already reaped can still be leaving the process table under
             # load. Allow a bounded settle window (C-5.9, exit_settle_s), re-running

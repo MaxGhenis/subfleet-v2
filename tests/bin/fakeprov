@@ -12,6 +12,29 @@ import sys
 import time
 
 
+# C-5.5 fixtures whose escaped writer is a CS_RESTRICT platform binary. The
+# odd sleep length lets fixture cleanup recognise the writer it started.
+PLATFORM_ESCAPES = {"nested-setsid-platform", "platform-escape-exit", "platform-escape-on-term",
+                    "platform-handoff-exit"}
+ESCAPE_SLEEP = "31.4159"
+# The writer's parent: it leaves the provider's group before the writer exists,
+# so no census can catch the writer itself in that group between its fork and
+# its setsid (which would make it a group member a kill may signal, C-5.6). It
+# stays, keeping the writer attributable through the walk, until the test
+# creates <marker>.orphan, then exits and leaves the writer with ppid 1.
+INTERMEDIATE = """
+import os, subprocess, sys, time
+from pathlib import Path
+marker = os.environ["SUBFLEET_FAKE_MARKER"]
+Path(marker + ".intermediate").write_text(str(os.getpid()))
+subprocess.Popen(["/bin/sh", "-c", 'printf %s "$$" > "' + marker + '"; exec /bin/sleep ' + sys.argv[1]],
+                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+deadline = time.monotonic() + 30
+while not Path(marker + ".orphan").exists() and time.monotonic() < deadline:
+    time.sleep(.02)
+"""
+
+
 def main() -> int:
     if "--escaped-child" in sys.argv:
         marker = os.environ.get("SUBFLEET_FAKE_MARKER")
@@ -35,9 +58,45 @@ def main() -> int:
             start_new_session=True,
             stdin=subprocess.DEVNULL,
         )
+    def platform_writer(*_):
+        # C-5.5: the escaped writer is an Apple binary. /bin/sh and /bin/sleep
+        # run with CS_RESTRICT, so ps -E shows neither one's environment and the
+        # marker never matches it; once its parent has exited it is in no
+        # recorded group and under no walk root either. The sh execs the
+        # sleep, so the pid it records is the writer's.
+        subprocess.Popen(
+            [sys.executable, "-c", INTERMEDIATE, ESCAPE_SLEEP], start_new_session=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        if scenario == "platform-escape-on-term":
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    if scenario in {"nested-setsid-platform", "platform-escape-exit"}:
+        platform_writer()
+    elif scenario == "platform-escape-on-term":
+        # Like a tool shell that keeps working through the kill's grace: the
+        # writer starts only once the attempt's group has been sent SIGTERM.
+        signal.signal(signal.SIGTERM, platform_writer)
+    elif scenario == "platform-handoff-exit":
+        # A setsid'd shell that, once told (after this provider has exited),
+        # starts a background writer and exits at once: the writer stays in the
+        # shell's process group, and no census need ever see it with a parent.
+        subprocess.Popen(
+            ["/bin/sh", "-c",
+             'printf %s "$$" > "$SUBFLEET_FAKE_MARKER.shell"; i=0; '
+             'while [ ! -e "$SUBFLEET_FAKE_MARKER.go" ] && [ "$i" -lt 600 ]; do /bin/sleep 0.05; i=$((i+1)); done; '
+             f'/bin/sleep {ESCAPE_SLEEP} & printf %s "$!" > "$SUBFLEET_FAKE_MARKER"; exit 0'],
+            start_new_session=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
     print(f"fake provider ready: {scenario}", flush=True)
-    if scenario in {"ignore-sigterm", "nested-setsid"}:
+    if scenario in {"ignore-sigterm", "nested-setsid", "nested-setsid-platform", "platform-escape-on-term"}:
         time.sleep(delay or 30)
+    elif scenario in {"platform-escape-exit", "platform-handoff-exit"}:
+        # Exit only when the test says so: after the daemon has seen the writer.
+        release = Path(os.environ["SUBFLEET_FAKE_MARKER"] + ".release")
+        deadline = time.monotonic() + 30
+        while not release.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
     elif scenario == "slow":
         time.sleep(delay or 1)
     elif delay:

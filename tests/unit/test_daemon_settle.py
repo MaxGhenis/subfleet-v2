@@ -273,3 +273,170 @@ def test_c4_2_dead_guardian_without_receipt_runs_containment(daemon, monkeypatch
     daemon._contain = lambda a: calls.append(1) or EMPTY
     daemon._process_attempt(ATTEMPT)
     assert calls and attempt(daemon)["state"] == "lost"
+
+
+ESCAPED = ProcessIdentity(4250, "boot", STARTED)
+SEEN = Containment(frozenset({4242, 4243}), frozenset({4242, 4243, 4250}), frozenset(), False,
+                   {4242: ProcessIdentity(4242, "boot", STARTED), 4243: ProcessIdentity(4243, "boot", STARTED),
+                    4250: ESCAPED},
+                   (), {4250: {"ppid": 4243, "pgid": 4250, "stat": "S"}}, leader_verified=True)
+
+
+def recording(monkeypatch, *censuses):
+    """Script procs.containment and keep the identities each call was given as recorded."""
+    given, results = [], iter(censuses)
+
+    def census(*args, recorded=(), **kwargs):
+        given.append(sorted((ident.pid, ident.proc_start) for ident in recorded))
+        return next(results)
+    monkeypatch.setattr(daemon_module.procs, "containment", census)
+    return given
+
+
+def test_c5_5_census_keeps_what_it_attributes_outside_the_group(daemon, monkeypatch):
+    """C-5.5, C-5.6 group members become signal authority; a setsid'd descendant is kept as evidence only."""
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: True)
+    given = recording(monkeypatch, SEEN, EMPTY)
+    daemon._record_owned(attempt(daemon))
+    evidence = json.loads(attempt(daemon)["evidence_json"])
+    assert set(evidence["owned_identities"]) == {"4242", "4243"}
+    assert evidence["census_identities"] == {"4250": {"pid": 4250, "boot_id": "boot", "proc_start": STARTED}}
+    assert "attempt.processes_recorded" in [row["kind"] for row in daemon.store.list_events(JOB)]
+    # Every later census, here the one a kill or finalization runs, is given all of it.
+    daemon._contain(attempt(daemon))
+    assert given[-1] == [(4242, STARTED), (4243, STARTED), (4250, STARTED)]
+
+
+def test_c5_5_kept_writer_quarantines_finalization_after_its_parent_exits(daemon, monkeypatch):
+    """C-5.5, C-5.9 a kept writer the other sources no longer see holds finalization, then quarantines it."""
+    daemon.store.update_attempt(ATTEMPT, evidence_json=json.dumps(
+        {"census_identities": {"4250": {"pid": 4250, "boot_id": "boot", "proc_start": STARTED}}}))
+    kept = Containment(recorded_pids=frozenset({4250}), identities={4250: ESCAPED},
+                       shapes={4250: {"ppid": 1, "pgid": 4250, "stat": "S"}})
+    given = recording(monkeypatch, *[kept] * 50)
+    publish_receipt(daemon, rc=0)
+    daemon._process_attempt(ATTEMPT)
+    until = time.monotonic() + 2
+    while attempt(daemon)["state"] != "quarantined" and time.monotonic() < until:
+        time.sleep(.05)
+        daemon._process_attempt(ATTEMPT)
+    a = attempt(daemon)
+    assert a["state"] == "quarantined"
+    reason = json.loads(a["quarantine_reason"])
+    assert reason["reason"] == "writers remain after exit receipt" and reason["recorded_pids"] == [4250]
+    assert all((4250, STARTED) in call for call in given)
+
+
+def test_c5_5_kept_census_drops_the_dead_only_after_a_complete_census(daemon):
+    """C-5.5 a kept entry that exits costs no write; a later write by a complete census drops it."""
+    evidence = {"census_identities": {"4250": {"pid": 4250, "boot_id": "boot", "proc_start": STARTED}}}
+    partial = Containment(group_pids=frozenset({4242}), unverifiable=True,
+                          identities={4242: ProcessIdentity(4242, "boot", STARTED)},
+                          errors=("marker enumeration unavailable",))
+    assert Daemon._keep_census(evidence, partial, leader=True)
+    assert "4250" in evidence["census_identities"]     # an incomplete census drops nothing
+    assert not Daemon._keep_census(evidence, EMPTY, leader=True)
+    assert "4250" in evidence["census_identities"]     # an exit alone writes nothing
+    assert Daemon._keep_census(evidence, BUSY, leader=True)
+    assert "census_identities" not in evidence
+    assert set(evidence["owned_identities"]) == {"4242", "4243"}
+
+
+def test_c5_5_without_the_leader_only_what_is_the_attempts_anyway_is_kept(daemon):
+    """C-5.5, C-5.6 with the leader gone, a marker match or a kept process's child is kept; the group and walk are not."""
+    child = ProcessIdentity(4260, "boot", STARTED)
+    census = Containment(frozenset({4243}), frozenset({4270}), frozenset({4280}), False,
+                         {4243: ProcessIdentity(4243, "boot", STARTED), 4260: child, 4250: ESCAPED,
+                          4270: ProcessIdentity(4270, "boot", STARTED), 4280: ProcessIdentity(4280, "boot", STARTED)},
+                         (), {}, frozenset({4250, 4260}))
+    evidence = {"census_identities": {"4250": {"pid": 4250, "boot_id": "boot", "proc_start": STARTED}}}
+    assert Daemon._keep_census(evidence, census, leader=False)
+    assert set(evidence["census_identities"]) == {"4250", "4260", "4280"}
+    assert "owned_identities" not in evidence or not evidence["owned_identities"]
+
+
+def test_c5_5_probe_census_is_given_its_kept_identities(daemon, monkeypatch):
+    """C-5.5 a probe or enrollment census counts what its earlier censuses kept, as an attempt's does."""
+    given = recording(monkeypatch, EMPTY)
+    daemon._probe_census({"holder": "timer:probe", "pgid": 4242, "guardian_pid": 4242, "child_pid": None,
+                          "owned_identities": {"4242": {"pid": 4242, "boot_id": "boot", "proc_start": STARTED}},
+                          "census_identities": {"4250": {"pid": 4250, "boot_id": "boot", "proc_start": STARTED}}})
+    assert given == [[(4242, STARTED), (4250, STARTED)]]
+
+
+def probe_record(root) -> dict:
+    return {"holder": "timer:probe-1", "job_id": None, "lane_id": "codex-1", "timer_kind": "probe",
+            "pgid": 4242, "guardian_pid": 4242, "child_pid": None, "boot_id": "boot", "proc_start": STARTED,
+            "owned_identities": {}, "state": "starting", "directory": str(root), "deadline_at": "2999-01-01T00:00:00Z"}
+
+
+def saved_probe(core) -> dict:
+    return core._probe_record("timer:probe-1")
+
+
+def test_c5_5_probe_watch_keeps_and_saves_what_its_censuses_find(daemon, monkeypatch):
+    """C-5.5 the probe watch keeps a pid its census found outside the group and saves it before containment."""
+    alive = iter([True, True])
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: next(alive, False))
+    daemon.timers.cancel = threading.Event()
+    recording(monkeypatch, SEEN, EMPTY)
+    record = probe_record(daemon.root)
+    safe, receipt = daemon._await_probe(record)
+    assert safe and receipt is None
+    assert "4250" in saved_probe(daemon)["census_identities"]
+
+
+def test_c5_5_probe_containment_quarantines_on_a_kept_writer(daemon, monkeypatch):
+    """C-5.4 to C-5.7, C-5.5 a probe's containment keeps what its first census finds and quarantines on it after the group dies."""
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: True)
+    kept = Containment(recorded_pids=frozenset({4250}), identities={4250: ESCAPED},
+                       shapes={4250: {"ppid": 1, "pgid": 4250, "stat": "S"}})
+    given = recording(monkeypatch, SEEN, *[kept] * 50)
+    record = probe_record(daemon.root)
+    assert not daemon._contain_probe(record)
+    assert record["state"] == "quarantined"
+    assert "4250" in record["census_identities"] and "4250" not in record["owned_identities"]
+    assert saved_probe(daemon)["containment"]["recorded_pids"] == [4250]
+    assert all((4250, STARTED) in call for call in given[1:])
+
+
+def test_c5_5_attempt_census_reads_the_kept_identities_fresh(daemon, monkeypatch):
+    """C-5.5 `_contain` passes what the store keeps now, not what a caller's older copy of the row held."""
+    stale = attempt(daemon)
+    daemon.store.update_attempt(ATTEMPT, evidence_json=json.dumps(
+        {"census_identities": {"4250": {"pid": 4250, "boot_id": "boot", "proc_start": STARTED}}}))
+    given = recording(monkeypatch, EMPTY)
+    daemon._contain(stale)
+    assert given == [[(4250, STARTED)]]
+
+
+def test_c5_5_an_exited_leader_is_kept_while_its_group_lives(daemon):
+    """C-5.5 a write while a kept leader's group still has members keeps the leader; the next write after it empties drops it."""
+    leader = {"pid": 4250, "boot_id": "boot", "proc_start": STARTED}
+    member = ProcessIdentity(4251, "boot", STARTED)
+    evidence = {"census_identities": {"4250": leader}, "census_leaders": ["4250"]}
+    newcomer = ProcessIdentity(4252, "boot", STARTED)
+    living = Containment(recorded_pids=frozenset({4251, 4252}), identities={4251: member, 4252: newcomer},
+                         shapes={4251: {"ppid": 1, "pgid": 4250, "stat": "S"}, 4252: {"ppid": 4251, "pgid": 4250, "stat": "S"}},
+                         kept_groups=frozenset({4250}))
+    assert Daemon._keep_census(evidence, living, leader=False)
+    assert set(evidence["census_identities"]) == {"4250", "4251", "4252"} and evidence["census_leaders"] == ["4250"]
+    assert [ident.pid for ident in Daemon._escaped(evidence)] == [4250]
+    later = ProcessIdentity(4253, "boot", STARTED)
+    emptied = Containment(marker_pids=frozenset({4253}), identities={4253: later}, shapes={4253: {"ppid": 1, "pgid": 4253, "stat": "S"}})
+    assert Daemon._keep_census(evidence, emptied, leader=False)
+    assert set(evidence["census_identities"]) == {"4253"} and evidence["census_leaders"] == ["4253"]
+
+
+def test_c5_5_only_kept_group_leaders_have_their_groups_counted(daemon):
+    """C-5.5 a kept process that led no group of its own is never taken for one after it exits."""
+    evidence = {}
+    census = Containment(frozenset({4242}), frozenset({4242, 4250, 4251}), frozenset(), False,
+                         {4242: ProcessIdentity(4242, "boot", STARTED), 4250: ESCAPED,
+                          4251: ProcessIdentity(4251, "boot", STARTED)},
+                         (), {4242: {"ppid": 1, "pgid": 4242, "stat": "S"},
+                              4250: {"ppid": 4242, "pgid": 4250, "stat": "Ss"},
+                              4251: {"ppid": 4250, "pgid": 4250, "stat": "S"}}, leader_verified=True)
+    assert Daemon._keep_census(evidence, census, leader=True)
+    assert set(evidence["census_identities"]) == {"4250", "4251"} and evidence["census_leaders"] == ["4250"]
+    assert [ident.pid for ident in Daemon._escaped(evidence)] == [4250]

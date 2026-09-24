@@ -52,6 +52,8 @@ def main() -> int:
     parser.add_argument("--start-delay", type=float, default=0)
     parser.add_argument("--publication-audit", action="store_true")
     parser.add_argument("--gate-peer", action="store_true")
+    # C-5.6: a kill's grace, long enough for a test to watch censuses run in it.
+    parser.add_argument("--term-grace-s", type=float, default=.08)
     args = parser.parse_args()
     root = args.state_root
     if args.publication_audit:
@@ -89,7 +91,7 @@ def main() -> int:
             os.kill(os.getpid(), signal.SIGKILL)
 
     try:
-        daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,
+        daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=args.term_grace_s,
                         kill_settle_s=1.0, exit_settle_s=1.0,
                         guardian_start_delay_s=args.start_delay, crash_hook=hook)
     except DaemonUnavailable:

@@ -199,6 +199,135 @@ def test_c5_5_nested_setsid_quarantines_and_force_release_records_override(daemo
     assert note in json.dumps(events)
 
 
+def _platform_writer(daemon) -> int:
+    """The pid the C-5.5 fixture's escaped /bin/sh records before it execs /bin/sleep."""
+    marker = daemon.root / "escaped.pid"
+    daemon.until(lambda: marker.exists() and marker.read_text().strip().isdecimal())
+    return int(marker.read_text())
+
+
+def _kept(daemon, job_id: str, pid: int) -> bool:
+    """Whether a census has kept `pid` as a process of the attempt outside its group (C-5.5)."""
+    evidence = json.loads(daemon.attempts(job_id)[-1]["evidence_json"] or "{}")
+    return str(pid) in evidence.get("census_identities", {})
+
+
+def _orphan(daemon, pid: int) -> None:
+    """Let the fixture's intermediate exit, so the writer's parent is launchd."""
+    (daemon.root / "escaped.pid.orphan").touch()
+    daemon.until(lambda: subprocess.run(["/bin/ps", "-p", str(pid), "-o", "ppid="], capture_output=True,
+                                        text=True, check=False).stdout.strip() == "1")
+
+
+def test_c5_5_restricted_setsid_writer_quarantines_the_kill(daemon, kernel_hides_restricted_environments):
+    """C-5.5, C-5.6: a setsid'd CS_RESTRICT writer, invisible to the marker, still quarantines a kill once orphaned.
+
+    Before the census kept what it had seen, the kill found no group member,
+    no descendant (the process it hung from was gone), and no marker (ps -E
+    shows no environment for /bin/sleep), so the attempt ended `interrupted`
+    and every lease was released while the writer ran (reproduced 2026-09-23).
+    """
+    daemon.start()
+    out = daemon.root / "export.md"
+    job_id = daemon.submit("nested-setsid-platform", out_path=str(out))
+    daemon.attempt_state(job_id, "running")
+    escaped = _platform_writer(daemon)
+    daemon.until(lambda: _kept(daemon, job_id, escaped))
+    _orphan(daemon, escaped)
+    daemon.call("kill", job_id=job_id)
+    attempt = daemon.attempt_state(job_id, "quarantined")
+    reason = json.loads(attempt["quarantine_reason"])
+    assert reason["reason"] == "termination could not verify containment"
+    assert escaped in reason["recorded_pids"]
+    assert escaped not in reason["group_pids"] + reason["descendant_pids"]
+    if kernel_hides_restricted_environments:
+        assert escaped not in reason["marker_pids"]
+    assert reason["shapes"][str(escaped)]["ppid"] == 1
+    assert daemon.rows("SELECT * FROM leases WHERE lease_key=?", (f"out:{out}",))
+    os.kill(escaped, 0)
+
+
+def test_c5_5_restricted_writer_left_at_exit_quarantines_instead_of_succeeding(daemon):
+    """C-5.5, C-5.9: a provider that exits 0 leaving a CS_RESTRICT writer it was seen with is not accepted.
+
+    Before, the job was `succeeded` and every lease released while the
+    orphaned /bin/sleep ran (reproduced 2026-09-23 with a fixed wait in place
+    of the `_kept` one, which old code never satisfies). A writer born and
+    orphaned before any census sees it stays invisible (the C-5.5 limit,
+    tests/process/test_guardian_process.py).
+    """
+    daemon.start()
+    out = daemon.root / "export.md"
+    job_id = daemon.submit("platform-escape-exit", out_path=str(out))
+    daemon.attempt_state(job_id, "running")
+    escaped = _platform_writer(daemon)
+    daemon.until(lambda: _kept(daemon, job_id, escaped))
+    _orphan(daemon, escaped)
+    (daemon.root / "escaped.pid.release").touch()
+    attempt = daemon.attempt_state(job_id, "quarantined")
+    reason = json.loads(attempt["quarantine_reason"])
+    assert reason["reason"] == "writers remain after exit receipt"
+    assert attempt["rc"] == 0 and escaped in reason["recorded_pids"]
+    assert daemon.job(job_id)["state"] == "lost"
+    assert daemon.rows("SELECT * FROM leases WHERE lease_key=?", (f"out:{out}",))
+    os.kill(escaped, 0)
+
+
+def test_c5_5_restricted_writer_started_during_the_kill_grace_quarantines(daemon):
+    """C-5.5, C-5.6 a CS_RESTRICT writer that starts while a kill's grace runs is kept by the grace's censuses.
+
+    A Claude Code Bash tool command runs in its own session, so the group's
+    SIGTERM does not stop it and tool work can start processes until the
+    SIGKILL. Kept only by a kill's first census, such a writer was released
+    (found in review, 2026-09-24).
+    """
+    daemon.start("--term-grace-s", "3")
+    out = daemon.root / "export.md"
+    job_id = daemon.submit("platform-escape-on-term", out_path=str(out))
+    daemon.attempt_state(job_id, "running")
+    daemon.until(lambda: json.loads(daemon.attempts(job_id)[-1]["evidence_json"] or "{}").get("owned_identities"))
+    daemon.call("kill", job_id=job_id)
+    escaped = _platform_writer(daemon)
+    daemon.until(lambda: _kept(daemon, job_id, escaped))
+    _orphan(daemon, escaped)
+    attempt = daemon.until(lambda: next((row for row in daemon.attempts(job_id) if row["state"] == "quarantined"), None),
+                           timeout=10)
+    reason = json.loads(attempt["quarantine_reason"])
+    assert escaped in reason["recorded_pids"]
+    assert daemon.rows("SELECT * FROM leases WHERE lease_key=?", (f"out:{out}",))
+    os.kill(escaped, 0)
+
+
+def test_c5_5_background_writer_a_kept_shell_leaves_after_exit_quarantines(daemon):
+    """C-5.5, C-5.9 a writer a kept setsid'd shell backgrounds and abandons, after the provider exits, still quarantines.
+
+    The shell was kept while the provider lived; the writer starts only
+    during the exit settle, in the shell's process group, and the shell exits
+    at once, so no census sees the writer with a parent. The group the kept
+    shell led is counted after the shell has gone (found in review, 2026-09-24).
+    """
+    daemon.start()
+    out = daemon.root / "export.md"
+    job_id = daemon.submit("platform-handoff-exit", out_path=str(out))
+    daemon.attempt_state(job_id, "running")
+    shell_file = daemon.root / "escaped.pid.shell"
+    daemon.until(lambda: shell_file.exists() and shell_file.read_text().strip().isdecimal())
+    shell = shell_file.read_text()
+    daemon.until(lambda: shell in json.loads(daemon.attempts(job_id)[-1]["evidence_json"] or "{}")
+                 .get("census_identities", {}))
+    (daemon.root / "escaped.pid.release").touch()
+    daemon.attempt_state(job_id, "finalizing")
+    (daemon.root / "escaped.pid.go").touch()
+    escaped = _platform_writer(daemon)
+    attempt = daemon.attempt_state(job_id, "quarantined")
+    reason = json.loads(attempt["quarantine_reason"])
+    assert reason["reason"] == "writers remain after exit receipt"
+    assert escaped in reason["recorded_pids"]
+    assert reason["shapes"][str(escaped)] == {"ppid": 1, "pgid": int(shell), "stat": reason["shapes"][str(escaped)]["stat"]}
+    assert daemon.rows("SELECT * FROM leases WHERE lease_key=?", (f"out:{out}",))
+    os.kill(escaped, 0)
+
+
 def test_c7_2_cancel_before_acceptance_beats_provider_success(daemon):
     """C-7.2 cancel committed before acceptance keeps an rc-0 attempt interrupted."""
     daemon.start("--hold-at", "finalizing")

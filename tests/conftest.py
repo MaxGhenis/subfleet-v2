@@ -223,3 +223,14 @@ def adapter(tmp_path):
         new_session_id=lambda: "00000000-0000-4000-8000-000000000000",
         projects_dir=projects,
     )
+
+
+@pytest.fixture(scope="session")
+def kernel_hides_restricted_environments():
+    """C-5.5: whether this host's kernel hides a CS_RESTRICT process's environment from `ps -E`."""
+    from subfleet.procs import InspectionError
+    from tests.restricted import kernel_hides_restricted_environments as probe
+    try:
+        return probe()
+    except (RuntimeError, OSError, InspectionError) as exc:
+        pytest.skip(f"C-5.5 marker visibility unknown on this host: {exc}")
