@@ -405,6 +405,18 @@ def recent_excerpt(path: Path, first_uuid: str | None,
                 add(f"Claude tool result ({name}):", result,
                     tool_kind="result", limit=caps["tool_result"])
 
+    return select_segments(segments, caps)
+
+
+def select_segments(segments: list[tuple[str, int, str | None]],
+                    caps: dict[str, int]) -> tuple[str, int]:
+    """C-23.36: fit `(text, redactions, tool kind)` segments into the `recent` cap.
+
+    Newest first, so a brief that must drop something drops the oldest; tool
+    inputs and results also draw on their own totals. Shared by the Claude
+    transcript reader above and the Codex rollout reader
+    (`subfleet/conversations/codex_brief.py`), so both are bounded alike.
+    """
     chosen: list[tuple[str, int, str | None]] = []
     remaining = caps["recent"]
     budgets = {"input": caps["tool_inputs_total"], "result": caps["tool_results_total"]}
@@ -587,26 +599,35 @@ class Brief:
                 "redactions": self.redactions, "characters": len(self.text)}
 
 
-def build_brief(session_id: str, transcript: Path, cwd: Path, source_cwd: str | None,
-                caps: dict[str, int]) -> Brief:
-    """The brief itself (C-23.14, C-23.36). Sections in v1's order."""
-    original, first_uuid, redactions = first_task(transcript, caps["original_task"])
-    recent, recent_redactions = recent_excerpt(transcript, first_uuid, caps)
-    if not recent:
-        recent = truncate("No additional text or safe tool-result context was available.",
-                          caps["recent"])
-    redactions += recent_redactions
+#: The repository section when the caller must not run git (a conversation
+#: handoff is answered by a daemon op handler, which never waits on git, C-25.3).
+REPOSITORY_NOT_COLLECTED = ("Not collected at handoff. Run `git status` and `git log` in the "
+                            "target cwd before acting.")
 
+
+def workspace_sections(cwd: Path, caps: dict[str, int], *,
+                       repository: bool = True) -> tuple[str, str, int]:
+    """The brief's PROGRESS.md and repository sections for the target cwd."""
+    redactions = 0
     progress_path = cwd / "PROGRESS.md"
     if progress_path.is_file():
         progress, count = clean(_read_bounded(progress_path), caps["progress"])
         redactions += count
     else:
         progress = truncate("Not present.", caps["progress"])
+    if repository:
+        repo, count = repository_context(cwd, caps["repository"])
+        redactions += count
+    else:
+        repo = truncate(REPOSITORY_NOT_COLLECTED, caps["repository"])
+    return progress, repo, redactions
 
-    repository, count = repository_context(cwd, caps["repository"])
-    redactions += count
 
+def assemble(*, provider: str, source_label: str, session_id: str, transcript: Path | str,
+             source_cwd: str | None, cwd: Path, original: str, recent_title: str, recent: str,
+             progress: str, repository: str, redactions: int) -> tuple[str, int]:
+    """The brief's text from its bounded sections (C-23.14, C-23.36), scrubbed once
+    more as a whole. Both brief readers end here, so they share one header."""
     text = f"""# Cross-agent handoff
 
 Continue the source session's work in the target worktree. Inspect the actual
@@ -616,8 +637,8 @@ scrubbed; thinking, binary payloads, and credential-reading inputs/results were
 omitted. The full transcript may contain sensitive raw material; consult it only
 when necessary and never expose credentials.
 
-- Source provider: Claude Code
-- Source session: {session_id}
+- Source provider: {provider}
+- Source {source_label}: {session_id}
 - Source transcript: {transcript}
 - Source cwd: {source_cwd or "unknown"}
 - Target cwd: {cwd}
@@ -627,7 +648,7 @@ when necessary and never expose credentials.
 
 {original}
 
-## Recent main-chain excerpt
+## {recent_title}
 
 {recent}
 
@@ -647,7 +668,31 @@ when necessary and never expose credentials.
             f"Credential/binary redactions in this brief: {redactions}",
             f"Credential/binary redactions in this brief: {redactions + final_count}")
         redactions += final_count
-    return Brief(text=text.rstrip() + "\n", original=original, session_id=session_id,
+    return text.rstrip() + "\n", redactions
+
+
+def build_brief(session_id: str, transcript: Path, cwd: Path, source_cwd: str | None,
+                caps: dict[str, int], *, repository: bool = True) -> Brief:
+    """The brief itself (C-23.14, C-23.36). Sections in v1's order.
+
+    `repository=False` leaves git out (the repository section says so); a
+    conversation handoff (C-30.3) passes it because its handler never waits on
+    git (C-25.3).
+    """
+    original, first_uuid, redactions = first_task(transcript, caps["original_task"])
+    recent, recent_redactions = recent_excerpt(transcript, first_uuid, caps)
+    if not recent:
+        recent = truncate("No additional text or safe tool-result context was available.",
+                          caps["recent"])
+    redactions += recent_redactions
+    progress, repo, count = workspace_sections(cwd, caps, repository=repository)
+    redactions += count
+    text, redactions = assemble(
+        provider="Claude Code", source_label="session", session_id=session_id,
+        transcript=transcript, source_cwd=source_cwd, cwd=cwd, original=original,
+        recent_title="Recent main-chain excerpt", recent=recent, progress=progress,
+        repository=repo, redactions=redactions)
+    return Brief(text=text, original=original, session_id=session_id,
                  transcript=str(transcript), workdir=str(cwd),
                  source_cwd=source_cwd, redactions=redactions)
 
@@ -739,7 +784,8 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
                       caller_session=caller_session, prompt_path=prompt_path)
 
 
-__all__ = ["Brief", "Dispatched", "HandoffError", "build_brief", "canonical_session_id",
-           "clean", "first_task", "handoff", "latest_metadata", "looks_binary",
-           "recent_excerpt", "repository_context", "resolve_source", "resolve_workdir",
-           "sandbox_for", "scrub_secrets", "sensitive_tool_call", "truncate"]
+__all__ = ["Brief", "Dispatched", "HandoffError", "assemble", "build_brief",
+           "canonical_session_id", "clean", "first_task", "handoff", "latest_metadata",
+           "looks_binary", "recent_excerpt", "repository_context", "resolve_source",
+           "resolve_workdir", "sandbox_for", "scrub_secrets", "select_segments",
+           "sensitive_tool_call", "truncate", "workspace_sections"]
