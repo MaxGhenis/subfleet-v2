@@ -192,6 +192,23 @@ def claude_stream(message_id: str, pieces: list[str], *, kind: str = "text", ind
     return rows
 
 
+def claude_block(message_id: str, index: int, block: dict, pieces: list[str] = ()) -> list[dict]:
+    """One content block as Claude 2.1.280 frames it (observed 2026-09-24): its
+    start, deltas, then an `assistant` row holding that block alone while it is
+    still open, then its stop."""
+    kind = block["type"]
+    rows = [{"type": "stream_event", "event": {"type": "content_block_start", "index": index,
+                                                "content_block": {"type": kind}}}]
+    delta_type, field = {"text": ("text_delta", "text"), "thinking": ("thinking_delta", "thinking"),
+                         "tool_use": ("input_json_delta", "partial_json")}[kind]
+    for piece in pieces:
+        rows.append({"type": "stream_event", "event": {"type": "content_block_delta", "index": index,
+                                                        "delta": {"type": delta_type, field: piece}}})
+    rows.append(claude_assistant(message_id, [block]))
+    rows.append({"type": "stream_event", "event": {"type": "content_block_stop", "index": index}})
+    return rows
+
+
 def claude_assistant(message_id: str, blocks: list[dict], model: str = "claude-opus-5-5") -> dict:
     return {"type": "assistant", "parent_tool_use_id": None,
             "message": {"id": message_id, "type": "message", "role": "assistant", "model": model, "content": blocks}}

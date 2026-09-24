@@ -48,6 +48,7 @@ def test_argv_carries_resume_model_effort_and_the_permission_policy():
     """C-26.8, design D-7: ask mode routes permission prompts to the host; bypass does not."""
     assert argv(spec()) == ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json",
                             "--verbose", "--include-partial-messages", "--replay-user-messages",
+                            "--thinking-display", "summarized",
                             "--model", "opus", "--effort", "high", "--resume", SID,
                             "--permission-mode", "default", "--permission-prompt-tool", "stdio",
                             "--disallowedTools", "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger,EnterPlanMode,ExitPlanMode",
@@ -288,6 +289,115 @@ def test_a_success_that_races_a_stop_is_complete():
     turn.interrupt()
     end = turn.feed(line(type="result", subtype="success", is_error=False, result="done"), 9)
     assert end.outcome.state == "complete" and end.events[-1].data["stop_too_late"] is True
+
+
+def test_one_block_rows_key_like_their_deltas_and_phases_mark_silent_blocks():
+    """Design §12, observed 2.1.280: the CLI writes each finished block as its own
+    `assistant` row (content index 0) while the block is still open, so the row
+    takes the stream's index and the block is shown once; block starts announce
+    thinking, writing and tool input, once per change and never after `result`."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    turn.feed(line(type="user", uuid=MID, message={"role": "user", "content": "x"}), 10)
+
+    def stream(event, offset):
+        return turn.feed(line(type="stream_event", event=event), offset)
+
+    def row(block, offset):
+        return turn.feed(line(type="assistant", message={"id": "msg_1", "model": "claude-opus-5-5",
+                                                         "content": [block]}), offset)
+    stream({"type": "message_start", "message": {"id": "msg_1"}}, 20)
+    think = stream({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking"}}, 21)
+    assert [(e.kind, e.data) for e in think.events] == [("status", {"phase": "thinking"})]
+    # Thinking whose text the API omits streams empty deltas: nothing to show.
+    assert stream({"type": "content_block_delta", "index": 0,
+                   "delta": {"type": "thinking_delta", "thinking": "", "estimated_tokens": 50}}, 22).events == []
+    assert row({"type": "thinking", "thinking": "", "signature": "sig"}, 23).events == []
+    assert stream({"type": "content_block_stop", "index": 0}, 24).events == []
+    write = stream({"type": "content_block_start", "index": 1, "content_block": {"type": "text"}}, 25)
+    assert [(e.kind, e.data) for e in write.events] == [("status", {"phase": "writing"})]
+    assert stream({"type": "content_block_delta", "index": 1,
+                   "delta": {"type": "text_delta", "text": "Found it."}}, 26).events == []   # held: no line end
+    full = row({"type": "text", "text": "Found it."}, 27)
+    assert [(e.kind, e.data) for e in full.events] == [("text", {"block": "msg_1:1", "text": "Found it."})]
+    assert stream({"type": "content_block_stop", "index": 1}, 28).events == []          # no second copy
+    tool = stream({"type": "content_block_start", "index": 2, "content_block": {"type": "tool_use"}}, 29)
+    assert [e.data for e in tool.events] == [{"phase": "preparing-tool"}]
+    started_tool = row({"type": "tool_use", "id": "tu1", "name": "Bash", "input": {"command": "ls"}}, 30)
+    assert [e.kind for e in started_tool.events] == ["tool.started"]
+    stream({"type": "content_block_stop", "index": 2}, 31)
+    # The next message after the tool: thinking again is a change and is announced.
+    stream({"type": "message_start", "message": {"id": "msg_2"}}, 40)
+    again = stream({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking"}}, 41)
+    assert [e.data for e in again.events] == [{"phase": "thinking"}]
+    stream({"type": "content_block_stop", "index": 0}, 42)
+    same = stream({"type": "content_block_start", "index": 1, "content_block": {"type": "thinking"}}, 43)
+    assert same.events == []                                      # unchanged: not repeated
+    turn.feed(line(type="result", subtype="success", is_error=False, result="done"), 50)
+    stream({"type": "message_start", "message": {"id": "msg_3"}}, 60)
+    late = stream({"type": "content_block_start", "index": 0, "content_block": {"type": "text"}}, 61)
+    assert late.events == []                                      # no phase after the turn ended
+
+
+def test_status_rows_announce_requests_and_an_automatic_compaction():
+    """Design §12, observed 2.1.280: `system` `status` rows say `requesting` before
+    each API request and `compacting` while an automatic compaction runs (107 s
+    for a 972k-token resume); the `compact_boundary` row is announced once with
+    its token counts, so the person sees why nothing streamed."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+
+    def system(offset, **row):
+        return [(e.kind, e.data) for e in turn.feed(line(type="system", **row), offset).events]
+    assert system(10, subtype="status", status="requesting") == [("status", {"phase": "requesting"})]
+    assert system(11, subtype="status", status="compacting") == [("status", {"phase": "compacting"})]
+    assert system(12, subtype="status", status="compacting") == []                  # unchanged
+    assert system(13, subtype="status", status=None, compact_result="success") == []
+    assert system(14, subtype="compact_boundary", compact_metadata={
+        "trigger": "auto", "pre_tokens": 972214, "post_tokens": 17683, "duration_ms": 106761}) == [
+        ("status", {"phase": "compacted", "trigger": "auto", "pre_tokens": 972214, "post_tokens": 17683})]
+    assert system(15, subtype="status", status="requesting") == [("status", {"phase": "requesting"})]
+    assert system(16, subtype="status", status="something-new") == []
+
+
+def test_after_a_stop_no_phase_replaces_stopping():
+    """Design §12: once a person stops the turn, a block start, a request or a
+    compaction still in the pipe does not bring back Thinking or Writing."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    turn.feed(line(type="stream_event", event={"type": "message_start", "message": {"id": "msg_1"}}), 10)
+    turn.feed(line(type="stream_event", event={"type": "content_block_start", "index": 0,
+                                               "content_block": {"type": "thinking"}}), 11)
+    assert [e.data for e in turn.interrupt().events] == [{"phase": "stopping"}]
+    late = [turn.feed(line(type="stream_event", event={"type": "content_block_start", "index": 1,
+                                                       "content_block": {"type": "text"}}), 12),
+            turn.feed(line(type="system", subtype="status", status="requesting"), 13),
+            turn.feed(line(type="system", subtype="compact_boundary", compact_metadata={"trigger": "auto"}), 14)]
+    assert [e for step in late for e in step.events if e.kind == "status"] == []
+
+
+def test_a_row_that_ends_the_turn_still_takes_its_stream_positions():
+    """A one-block row whose model does not match ends the turn before its block
+    is shown; the message's later blocks, still streamed, keep their keys, so
+    no text shows twice."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    turn.feed(line(type="system", subtype="init", model="claude-opus-5-5", session_id=SID), 5)
+
+    def stream(event, offset):
+        return turn.feed(line(type="stream_event", event=event), offset).events
+    stream({"type": "message_start", "message": {"id": "m1"}}, 10)
+    stream({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking"}}, 11)
+    ended = turn.feed(line(type="assistant", message={"id": "m1", "model": "claude-haiku-4-5", "content": [
+        {"type": "thinking", "thinking": "hm", "signature": "s"}]}), 12)
+    assert ended.outcome.reason == "model-mismatch"
+    stream({"type": "content_block_stop", "index": 0}, 13)
+    stream({"type": "content_block_start", "index": 1, "content_block": {"type": "text"}}, 14)
+    events = stream({"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "Hello\nwor"}}, 15)
+    events += turn.feed(line(type="assistant", message={"id": "m1", "model": "claude-haiku-4-5", "content": [
+        {"type": "text", "text": "Hello\nworld"}]}), 16).events
+    events += stream({"type": "content_block_stop", "index": 1}, 17)
+    assert [(e.kind, e.data["block"]) for e in events] == [("text.delta", "m1:1"), ("text", "m1:1")]
 
 
 def test_output_after_result_is_kept_without_changing_the_outcome():

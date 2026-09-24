@@ -234,6 +234,9 @@ struct Conversation: Codable, Equatable, Identifiable {
     var last_message: LastMessage?
     var pending_approvals: Int
     var active: Bool
+    /// A Claude session another live process (the Claude app, a terminal) holds;
+    /// its turns and Subfleet's share one transcript (from the catalog run).
+    var live_elsewhere: Bool?
 
     var id: String { conversation_id }
 }

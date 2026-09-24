@@ -183,7 +183,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     for item in items:
         item["live_elsewhere"] = item["provider"] == "claude" and item["native_session_id"] in live
     items.sort(key=lambda i: i["mtime"], reverse=True)
-    catalog = {"generated_at": _utc(), "complete": complete, "items": items}
+    # Every live session, listed or not: a conversation born in Subfleet and
+    # resumed in a terminal is no catalog item but is still held (C-26.3).
+    catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live)}
     _atomic(root / "catalog.json", catalog)
     _atomic(cache_path, fresh if complete else {**cache, **fresh})
     return catalog
@@ -224,14 +226,31 @@ def _codex_names(home: Path) -> dict[str, str]:
 def _live_claude_sessions() -> set[str]:
     """Session ids a live Claude process outside Subfleet holds (IR-16)."""
     from ..sessions import registry
-    live = set()
-    for row in registry.rows():
-        if not row.alive:
-            continue
-        if _subfleet_owned(row.pid):
-            continue
-        live.add(row.session_id)
-    return live
+    return {row.session_id for row in registry.rows() if row.alive and _outside_claude(row.pid)}
+
+
+def external_writers(session_id: str) -> list[int]:
+    """Pids of live Claude processes outside Subfleet that hold this session: its
+    turns wait for them (C-26.3, design D-17). Read now, not from the catalog."""
+    from ..sessions import registry
+    return sorted(row.pid for row in registry.rows()
+                  if row.session_id == session_id and row.alive and row.pid and _outside_claude(row.pid))
+
+
+def _outside_claude(pid: int | None) -> bool:
+    """A registry row's pid is a running Claude executable that no Subfleet attempt
+    started. A registry file can outlive its process and the pid be reused by an
+    unrelated one, which must not hold a session."""
+    if not pid:
+        return False
+    try:
+        comm = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="], capture_output=True, text=True,
+                              timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if "claude" not in os.path.basename(comm).lower():
+        return False
+    return not _subfleet_owned(pid)
 
 
 def _subfleet_owned(pid: int | None) -> bool:
@@ -308,6 +327,14 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
     needle = (query or "").lower().strip()
     out = []
     items = catalog.get("items") if isinstance(catalog.get("items"), list) else []
+    # Every session a live process outside Subfleet held at the last run, bound
+    # to a conversation or not. An old run says nothing about now.
+    live: list[str] = []
+    if state == "fresh":
+        recorded = catalog.get("live_claude")
+        live = sorted({str(x) for x in recorded if isinstance(x, str) and x}) if isinstance(recorded, list) else sorted(
+            {str(item["native_session_id"]) for item in items
+             if isinstance(item, dict) and item.get("live_elsewhere") and item.get("native_session_id")})
     for item in items:
         if not isinstance(item, dict) or item.get("provider") not in ("claude", "codex") \
                 or not item.get("native_session_id"):
@@ -325,7 +352,8 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
             break
     return {"generated_at": generated_at, "complete": bool(catalog.get("complete", False)), "items": out,
             "next": out[-1].get("mtime") if out and len(out) >= limit else None, "state": state,
-            "age_s": None if age_s is None else round(age_s, 1), "stale_after_s": stale_after_s}
+            "age_s": None if age_s is None else round(age_s, 1), "stale_after_s": stale_after_s,
+            "live_elsewhere": live}
 
 
 def refresh_running(root: Path) -> bool | None:

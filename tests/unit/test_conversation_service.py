@@ -255,6 +255,79 @@ def test_conversation_list_reports_a_stale_or_damaged_catalog(svc, runs):
     assert svc.handle("conversation.list", {}, None)["catalog"]["refreshing"] is True
 
 
+def test_a_conversation_continuing_a_session_open_elsewhere_says_so(svc, runs):
+    """Design §12: a Claude session a live process outside Subfleet holds (the
+    catalog's `live_elsewhere`) is flagged on the conversation continuing it, in
+    the list and on open, so the app can say both write one history. The flag
+    comes from the catalog file; nothing scans (D-23)."""
+    from datetime import UTC, datetime
+    live = conversation(svc, origin="native", native_session_id="s-live", title="open in the app")
+    idle = conversation(svc, origin="native", native_session_id="s-idle", title="closed there")
+    fresh = conversation(svc)
+    now = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    write_catalog(svc.root, now, [
+        {"provider": "claude", "native_session_id": "s-live", "mtime": 2.0, "live_elsewhere": True},
+        {"provider": "claude", "native_session_id": "s-idle", "mtime": 1.0, "live_elsewhere": False},
+        {"provider": "claude", "native_session_id": "s-other", "mtime": 3.0, "live_elsewhere": True}])
+    out = svc.handle("conversation.list", {}, None)
+    flags = {c["conversation_id"]: c["live_elsewhere"] for c in out["conversations"]}
+    assert flags == {live: True, idle: False, fresh: False}
+    assert "live_elsewhere" not in out["catalog"]
+    assert [i["native_session_id"] for i in out["catalog"]["items"]] == ["s-other"]   # bound ones stay out
+    assert svc.handle("conversation.open", {"conversation_id": live}, None)["conversation"]["live_elsewhere"] is True
+    assert svc.handle("conversation.open", {"conversation_id": idle}, None)["conversation"]["live_elsewhere"] is False
+    (svc.root / "catalog.json").unlink()
+    assert svc.handle("conversation.open", {"conversation_id": live}, None)["conversation"]["live_elsewhere"] is False
+
+
+def test_live_elsewhere_follows_every_view_and_an_old_catalog_says_nothing(svc, runs):
+    """A settings change or an unblock returns the same flag as open; the
+    catalog's recorded live set covers sessions it does not list; a stale
+    catalog flags nothing."""
+    from datetime import UTC, datetime, timedelta
+    cid = conversation(svc, origin="native", native_session_id="s-born-here")
+    (svc.root / "catalog.json").write_text(json.dumps({
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"), "complete": True,
+        "items": [], "live_claude": ["s-born-here"]}))
+    assert svc.handle("conversation.open", {"conversation_id": cid}, None)["conversation"]["live_elsewhere"] is True
+    assert svc.handle("conversation.list", {}, None)["conversations"][0]["live_elsewhere"] is True
+    changed = svc.handle("conversation.settings", {"conversation_id": cid, "settings": {**SETTINGS, "effort": None}},
+                         None)["conversation"]
+    assert changed["live_elsewhere"] is True
+    old = (datetime.now(UTC) - timedelta(seconds=400)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    (svc.root / "catalog.json").write_text(json.dumps({"generated_at": old, "complete": True, "items": [],
+                                                       "live_claude": ["s-born-here"]}))
+    assert svc.handle("conversation.open", {"conversation_id": cid}, None)["conversation"]["live_elsewhere"] is False
+    assert svc.handle("conversation.list", {}, None)["conversations"][0]["live_elsewhere"] is False
+
+
+def test_a_registry_pid_holds_a_session_only_while_it_is_an_outside_claude_process(monkeypatch):
+    """C-26.3: a registry file can outlive its process and its pid be reused, and
+    a Subfleet attempt's own Claude carries markers; neither holds a session."""
+    from subfleet.sessions import registry
+
+    class Done:
+        def __init__(self, out):
+            self.stdout = out
+    procs = {10: ("/Applications/Claude.app/Contents/MacOS/claude", "claude --resume s-1 HOME=/Users/x"),
+             11: ("/usr/sbin/cupsd", "cupsd"),
+             12: ("/Users/x/.local/bin/claude", "claude -p SUBFLEET_ATTEMPT=a1 SUBFLEET_JOB=j1")}
+
+    def run(argv, **kw):
+        pid = int(argv[2] if argv[1] == "-p" else argv[2])
+        comm, command = procs.get(pid, ("", ""))
+        return Done(comm + "\n" if "comm=" in argv else command + "\n")
+    monkeypatch.setattr(catalog_module.subprocess, "run", run)
+    rows = [registry.SessionRow(session_id=sid, pid=pid, socket=None, name=None, cwd=None, started_at=None,
+                                alive=alive, socket_present=False, registry_path=f"/x/{pid}.json")
+            for sid, pid, alive in [("s-1", 10, True), ("s-1", 11, True), ("s-2", 12, True), ("s-3", 10, False)]]
+    monkeypatch.setattr(registry, "rows", lambda: rows)
+    assert catalog_module.external_writers("s-1") == [10]          # 11 is a reused pid
+    assert catalog_module.external_writers("s-2") == []            # Subfleet's own turn
+    assert catalog_module.external_writers("s-3") == []            # its process is gone
+    assert catalog_module._live_claude_sessions() == {"s-1"}
+
+
 def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, tmp_path):
     """C-30.1, D-23: the tick's run is `python -m subfleet.conversations.catalog`, out of
     process; once it finishes the list reports a fresh catalog."""
@@ -508,6 +581,57 @@ def test_stopping_a_message_that_waits_to_be_submitted_again_withdraws_it(svc):
     svc.store.update_message(other, stop_requested_at="2026-09-24T00:00:00.000Z")
     svc._dispatch()
     assert svc.store.message(other)["state"] == "cancelled" and svc.daemon.submits == []
+
+
+def test_a_claude_turn_waits_while_another_process_holds_its_session(svc, monkeypatch):
+    """C-26.3, design D-17: a live Claude process outside Subfleet holding the
+    session is an admission wait `external-writer`, shown to the person, looked at
+    again every few seconds without backoff; the turn goes once it is gone, and a
+    stop withdraws it meanwhile. Queued follow-ups stay behind it."""
+    held = {"s-held": [4242]}
+    calls = []
+
+    def writers(session_id):
+        calls.append(session_id)
+        return list(held.get(session_id, []))
+    monkeypatch.setattr(catalog_module, "external_writers", writers)
+    cid = conversation(svc, origin="native", native_session_id="s-held")
+    mid = submit(svc, cid)
+    follow = submit(svc, cid, text="and then", after=mid)
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert (message["state"], message["state_reason"], message["job_id"]) == ("waiting", "external-writer: pid 4242", None)
+    assert svc.daemon.submits == [] and svc.store.message(follow)["state"] == "queued"
+    svc.clock.now += 3
+    svc._dispatch()
+    assert calls == ["s-held"]                        # not looked at again before the recheck interval
+    for _ in range(4):                                # a long hold never backs off past the interval
+        svc.clock.now += service_module.EXTERNAL_WRITER_RECHECK_S
+        svc._dispatch()
+    assert len(calls) == 5 and svc.daemon.submits == []
+    held.clear()
+    svc.clock.now += service_module.EXTERNAL_WRITER_RECHECK_S
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert (message["state"], message["state_reason"], message["job_id"]) == ("waiting", None, "job-1")
+    assert svc.daemon.submits[-1].request_id == f"turn:{mid}:0"
+    # A stop while held withdraws it; nothing is submitted.
+    other = conversation(svc, origin="native", native_session_id="s-other")
+    held["s-other"] = [77]
+    waiting = submit(svc, other)
+    svc._dispatch()
+    assert svc.store.message(waiting)["state_reason"] == "external-writer: pid 77"
+    assert svc.handle("turn.interrupt", {"message_id": waiting}, None)["state"] == "cancelled"
+    svc.clock.now += service_module.EXTERNAL_WRITER_RECHECK_S
+    svc._dispatch()
+    assert [a.request_id for a in svc.daemon.submits] == [f"turn:{mid}:0"]
+    # Codex threads and conversations with no session yet are not looked up.
+    submit(svc, conversation(svc, provider="codex", origin="native", native_session_id="s-held",
+                             settings={**SETTINGS, "model": "astra", "permission": "read-only"}))
+    submit(svc, conversation(svc))
+    before = len(calls)
+    svc._dispatch()
+    assert len(calls) == before
 
 
 def test_a_queued_message_cancelled_before_dispatch_stays_cancelled(svc):

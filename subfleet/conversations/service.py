@@ -71,6 +71,8 @@ CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
 # A turn submit refused before any provider saw the message waits and is tried
 # again after 2, 4, 8, ... seconds, at most every 5 minutes (C-26.1).
 DEFER_BASE_S = 2.0
+#: How often a turn held by another Claude process looks again (C-26.3, D-17).
+EXTERNAL_WRITER_RECHECK_S = 5.0
 DEFER_MAX_S = 300.0
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
 # times that is wedged outside the cap (a directory walk, `ps`) and is stopped.
@@ -239,6 +241,9 @@ class ConversationService:
                                    include_archived=bool(args.get("include_archived")),
                                    stale_after_s=self._catalog_stale_after_s())
             catalog["refreshing"] = bool(refresh_running(self.root))
+            live = set(catalog.pop("live_elsewhere", ()))
+            for view in conversations:
+                view["live_elsewhere"] = view["provider"] == "claude" and view["native_session_id"] in live
             out["catalog"] = catalog
         return out
 
@@ -254,6 +259,16 @@ class ConversationService:
                 "last_message": last, "pending_approvals": pending,
                 "active": bool(last and last["state"] not in TERMINAL_STATES and last["state"] != QUEUED)}
 
+    def _view_live(self, conversation: dict) -> dict:
+        """`_view` plus `live_elsewhere`, from the last catalog run (D-23: no scan)."""
+        view = self._view(conversation)
+        view["live_elsewhere"] = False
+        if view["provider"] == "claude" and view["native_session_id"]:
+            from .catalog import read_catalog
+            live = read_catalog(self.root, limit=1, stale_after_s=self._catalog_stale_after_s())["live_elsewhere"]
+            view["live_elsewhere"] = view["native_session_id"] in live
+        return view
+
     def op_conversation_open(self, args, peer) -> dict:
         if args.get("conversation_id"):
             conversation = self.store.conversation(args["conversation_id"])
@@ -262,7 +277,7 @@ class ConversationService:
             conversation = self._open_native(native)
         cid = conversation["conversation_id"]
         cursor = self.store.one("SELECT COALESCE(MAX(seq),0) s FROM events WHERE conversation_id=?", (cid,))["s"]
-        return {"conversation": self._view(conversation), "messages": [self._receipt(m, text=True) for m in self.store.messages(cid)],
+        return {"conversation": self._view_live(conversation), "messages": [self._receipt(m, text=True) for m in self.store.messages(cid)],
                 "events_cursor": cursor, "pending_approvals": [self._approval_view(a) for a in
                                                                self.store.approvals(conversation_id=cid)]}
 
@@ -393,7 +408,7 @@ class ConversationService:
                 self._person(peer, "working on main")
             fields["allow_main"] = bool(args["allow_main"])
         self._check_codex_policy(conversation["provider"], after)
-        return {"conversation": self._view(self.store.update_conversation(conversation["conversation_id"], **fields))}
+        return {"conversation": self._view_live(self.store.update_conversation(conversation["conversation_id"], **fields))}
 
     def op_conversation_unblock(self, args, peer) -> dict:
         verdict = self._person(peer, "unblocking an unfinished turn")
@@ -406,8 +421,8 @@ class ConversationService:
             raise ConversationError("resolve-first", "resolve the delivery-unknown message first",
                                     fix="message.resolve")
         self._record_note(conversation, args["choice"], verdict)
-        return {"conversation": self._view(self.store.update_conversation(conversation["conversation_id"],
-                                                                          blocked_by=None))}
+        return {"conversation": self._view_live(self.store.update_conversation(conversation["conversation_id"],
+                                                                               blocked_by=None))}
 
     def _record_note(self, conversation: dict, choice: str, verdict) -> None:
         """D-13: 'leave' sends a one-line note first so the next turn does not resume
@@ -849,6 +864,12 @@ class ConversationService:
             return
         if job is None and not self._previous_released(conversation, message):
             return
+        if job is None and conversation["provider"] == "claude" and conversation.get("native_session_id"):
+            from . import catalog
+            holders = catalog.external_writers(conversation["native_session_id"])
+            if holders:
+                self._hold_for_writer(message, holders)
+                return
         if job is None:
             try:
                 job = self._submit_turn(conversation, message)
@@ -882,6 +903,19 @@ class ConversationService:
                 tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?",
                            (utcnow(), job["job_id"]))
             self.daemon._notify()
+
+    def _hold_for_writer(self, message: dict, holders: list[int]) -> None:
+        """C-26.3, D-17: a Claude process outside Subfleet holds the session, so a
+        turn now would be a second writer on one transcript. The message waits,
+        says so, and is looked at again every EXTERNAL_WRITER_RECHECK_S. It is a
+        wait, not a refusal: it adds nothing to a deferral's backoff."""
+        mid = message["message_id"]
+        with self._lock:
+            count = self._deferred.get(mid, (0, 0.0))[0]
+            self._deferred[mid] = (count, self.clock() + EXTERNAL_WRITER_RECHECK_S)
+        reason = "external-writer: pid " + ", ".join(str(pid) for pid in holders)
+        if message["state"] != WAITING or message.get("state_reason") != reason:
+            self.store.set_state(mid, WAITING, reason=reason, expect=(QUEUED, WAITING), unbound=True)
 
     def _defer(self, message: dict, why: str) -> None:
         """A submit refused before any provider saw the message: it keeps waiting,

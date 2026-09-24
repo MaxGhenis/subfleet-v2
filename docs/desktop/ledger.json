@@ -69,7 +69,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design \u00a715, \u00a716)."
+      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design §15, §16)."
     },
     {
       "id": "M-5",
@@ -380,8 +380,11 @@
         "C-26.13"
       ],
       "status": "open",
-      "evidence": [],
-      "notes": ""
+      "evidence": [
+        "tests/unit/test_conversation_service.py::test_a_claude_turn_waits_while_another_process_holds_its_session",
+        "tests/unit/test_conversation_service.py::test_a_registry_pid_holds_a_session_only_while_it_is_an_outside_claude_process"
+      ],
+      "notes": "2026-09-24: a Claude turn continuing a session the Claude app still held ran as a second writer (this design's own session). Claude's external-writer wait now runs at dispatch; Codex's already ran in the driver. Still open: a process that takes the session after dispatch, before the provider starts."
     },
     {
       "id": "R-3",
@@ -439,7 +442,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "design \u00a711 Recovery: drain turn jobs before a daemon rollback."
+      "notes": "design §11 Recovery: drain turn jobs before a daemon rollback."
     },
     {
       "id": "R-8",

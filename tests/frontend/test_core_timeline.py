@@ -18,7 +18,7 @@ import pytest
 from subfleet.guard.preflight import HOOK_KEY
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import (
-    ServiceHarness, claude_assistant, claude_init, claude_result, claude_stream,
+    ServiceHarness, claude_assistant, claude_block, claude_init, claude_result, claude_stream,
 )
 
 pytestmark = needs_swift
@@ -46,6 +46,58 @@ def replay(mid: str, text: str = "hi") -> dict:
 
 def items_of(result: dict, message_id: str, kind: str | None = None) -> list[dict]:
     return [i for i in result["items"] if i["message_id"] == message_id and (kind is None or i["type"] == kind)]
+
+
+def test_design_12_real_block_framing_shows_each_block_once_and_says_where_the_turn_is(core_probe, tmp_path, harness):
+    """Claude 2.1.280 frames each block as start, deltas, a one-block `assistant`
+    row, stop. Each block is one item; while thinking whose text the API omits
+    streams nothing, the strip still says Thinking; a running tool names itself."""
+    cid = harness.create()["conversation_id"]
+    mid = harness.submit(cid, "hello")["message_id"]
+    turn = harness.attempt(cid, mid)
+    turn.feed(claude_init(), replay(mid),
+              {"type": "system", "subtype": "status", "status": "compacting"})
+    compacting = page(harness, cid)
+    turn.feed({"type": "system", "subtype": "status", "status": None, "compact_result": "success"},
+              {"type": "system", "subtype": "compact_boundary",
+               "compact_metadata": {"trigger": "auto", "pre_tokens": 972214, "post_tokens": 17683}},
+              {"type": "system", "subtype": "status", "status": "requesting"},
+              {"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_1"}}},
+        {"type": "stream_event", "event": {"type": "content_block_start", "index": 0,
+                                           "content_block": {"type": "thinking"}}},
+        {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                           "delta": {"type": "thinking_delta", "thinking": "", "estimated_tokens": 50}}})
+    thinking = page(harness, cid, after=compacting["next"])
+    turn.feed(claude_assistant("msg_1", [{"type": "thinking", "thinking": "", "signature": "s"}]),
+              {"type": "stream_event", "event": {"type": "content_block_stop", "index": 0}},
+              *claude_block("msg_1", 1, {"type": "text", "text": "Found it.\nFixing now."}, ["Found it.\n", "Fixing now."]),
+              *claude_block("msg_1", 2, {"type": "tool_use", "id": "tu1", "name": "Bash",
+                                         "input": {"command": "pytest -q"}}, ['{"command": "pytest -q"}']))
+    tool = page(harness, cid, after=thinking["next"])
+    turn.feed({"type": "user", "message": {"role": "user", "content": [
+                  {"type": "tool_result", "tool_use_id": "tu1", "content": "3 passed", "is_error": False}]}},
+              {"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_2"}}},
+              *claude_block("msg_2", 0, {"type": "thinking", "thinking": "All green."}, ["All green."]),
+              *claude_block("msg_2", 1, {"type": "text", "text": "Done."}, ["Done."]), claude_result())
+    rest = page(harness, cid, after=tool["next"])
+    result = fold(core_probe, tmp_path, cid, [
+        {"page": compacting, "snapshot": True}, {"page": thinking, "snapshot": True},
+        {"page": tool, "snapshot": True}, {"page": rest, "snapshot": True},
+    ])
+    during_compaction, during_thinking, during_tool, done = result["snapshots"]
+    assert during_compaction["turns"][mid]["status_text"] == "Compacting the conversation"
+    assert [n["text"] for n in items_of(during_thinking, mid, "notice")] == [
+        "Compacted the conversation (972k → 18k tokens); the model now works from a summary of it"]
+    assert during_thinking["turns"][mid]["status_text"] == "Thinking"
+    assert items_of(during_thinking, mid, "thinking") == []          # nothing to show, and nothing empty shown
+    assert during_tool["turns"][mid]["status_text"] == "Running Bash"
+    assert [(t["text"], t["final"]) for t in items_of(done, mid, "text")] == [
+        ("Found it.\nFixing now.", True), ("Done.", True)]
+    assert [(t["text"], t["final"]) for t in items_of(done, mid, "thinking")] == [("All green.", True)]
+    assert done["turns"][mid]["phases"] == ["starting-provider", "sent", "accepted", "compacting", "compacted",
+                                            "requesting", "thinking", "writing", "preparing-tool", "thinking",
+                                            "writing"]
+    assert done["turns"][mid]["outcome"]["state"] == "complete"
 
 
 def test_design_5_a_delta_streams_and_the_full_text_replaces_it(core_probe, tmp_path, harness):
@@ -352,3 +404,22 @@ def test_design_12_messages_order_by_sequence_with_labels(core_probe, tmp_path):
     assert result["turns"][ids[3]]["status_text"] == "Queued behind the current turn"
     assert result["turns"][ids[0]]["status_text"] == "Failed: limited"
     assert result["turns"][ids[4]]["status_text"] == "Sending"
+
+
+def test_c26_3_a_held_turn_says_where_the_session_is_open_and_a_stop_reads_stopping(core_probe, tmp_path):
+    """C-26.3, D-17: the external-writer wait reads as the person's instruction,
+    not a code; a stop requested on a running turn reads Stopping whatever
+    phase the provider reports after it."""
+    cid = "cv-1"
+    held, running = str(uuid.uuid4()), str(uuid.uuid4())
+    result = fold(core_probe, tmp_path, cid, [
+        {"receipts": [{"message_id": held, "conversation_id": cid, "seq": 1, "origin": "person", "state": "waiting",
+                       "state_reason": "external-writer: pid 73376"},
+                      {"message_id": running, "conversation_id": cid, "seq": 2, "origin": "person", "state": "running",
+                       "stop_requested": True}]},
+        {"page": {"events": [{"seq": 1, "message_id": running, "kind": "status", "ts": "2026-09-24T23:00:00.000Z",
+                              "data": {"phase": "thinking"}}], "next": 1, "reset": False}},
+    ])
+    assert result["turns"][held]["status_text"] == (
+        "Waiting: open in the Claude app or a terminal; close it there to continue here")
+    assert result["turns"][running]["status_text"] == "Stopping"

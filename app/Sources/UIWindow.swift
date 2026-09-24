@@ -20,7 +20,9 @@ struct MainWindow: View {
                 if let banner = model.state.availability.banner {
                     StatusBanner(title: banner.title, detail: banner.detail, symbol: "bolt.slash")
                 }
-                if let conversation = model.state.focusedConversation {
+                if let locked = model.lockedEntry {
+                    LockedSessionView(entry: locked)
+                } else if let conversation = model.state.focusedConversation {
                     ConversationView(model: model, conversation: conversation)
                 } else {
                     VStack(spacing: 12) {
@@ -47,6 +49,11 @@ struct MainWindow: View {
             guard let value else { return }
             if let entry = model.state.sidebarEntries().first(where: { $0.id == value }) { model.select(entry) }
         }
+        .onChange(of: model.state.focusedConversationID) { _, id in
+            // Focus from anywhere (a notification, a continued session, a new
+            // conversation) moves the highlight, so clicking a row always selects.
+            if let id, selection != "cv:" + id { selection = "cv:" + id }
+        }
         .toolbar {
             ToolbarItemGroup {
                 Picker("Provider", selection: Binding(get: { model.state.providerFilter ?? "all" },
@@ -67,6 +74,41 @@ struct MainWindow: View {
 
 extension Notification.Name {
     static let subfleetNewConversation = Notification.Name("org.maxghenis.subfleet.new-conversation")
+}
+
+/// A session Subfleet lists but cannot continue (a Codex-app thread): what it
+/// is and why, in place of a failed open.
+struct LockedSessionView: View {
+    let entry: SidebarEntry
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "lock").font(.largeTitle).foregroundStyle(.secondary)
+            Text(entry.title).font(.headline).multilineTextAlignment(.center)
+            if !entry.subtitle.isEmpty { Text(entry.subtitle).font(.caption).foregroundStyle(.secondary) }
+            Text(lockedWords(entry)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .frame(maxWidth: 460)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+func lockedWords(_ entry: SidebarEntry) -> String {
+    if entry.provider == "codex" {
+        return "This thread lives in the Codex app's own home, not in a Subfleet lane. Keep using it there; "
+            + "continuing it here takes a handoff, which this build does not offer yet."
+    }
+    switch entry.continueBlocker {
+    case "tmp-workspace":
+        return "This session's working directory is under /tmp, where Subfleet does not continue sessions."
+    case "a Subfleet lane run":
+        return "This is a run Subfleet started on a lane, not a conversation."
+    case let blocker?:
+        return "This session cannot continue here: \(blocker)."
+    case nil:
+        return "This session cannot continue here."
+    }
 }
 
 struct StatusBanner: View {
@@ -144,7 +186,8 @@ struct SidebarRow: View {
                 ProgressView().controlSize(.mini)
             }
             if entry.liveElsewhere {
-                Image(systemName: "rectangle.on.rectangle").foregroundStyle(.secondary).help("Open in another app")
+                Image(systemName: "rectangle.on.rectangle").foregroundStyle(.secondary)
+                    .help("Also open in the Claude app or a terminal")
             }
             if !entry.continuable {
                 Image(systemName: "lock").foregroundStyle(.secondary).help(entry.continueBlocker ?? "Cannot continue here")
@@ -172,6 +215,9 @@ struct ConversationView: View {
     @ObservedObject var model: UIModel
     let conversation: Conversation
     @State private var approval: (card: ApprovalCard, id: String)?
+    /// Whether the end of the timeline is on screen: streamed text is followed
+    /// only then, so reading further up is not interrupted.
+    @State private var atBottom = true
 
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
@@ -209,6 +255,8 @@ struct ConversationView: View {
                             .id(item.id)
                         }
                         Color.clear.frame(height: 1).id("bottom")
+                            .onAppear { atBottom = true }
+                            .onDisappear { atBottom = false }
                     }
                     .padding(16)
                     .frame(maxWidth: 900, alignment: .leading)
@@ -217,9 +265,27 @@ struct ConversationView: View {
                 .onChange(of: timeline?.items.count ?? 0) { _, _ in
                     withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
+                .onChange(of: timeline?.items.last.map(streamedLength) ?? 0) { _, _ in
+                    // A text or thinking block growing in place adds no row.
+                    if atBottom { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
                 .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             Divider()
+            if let timeline, let live = timeline.liveMessageID, let turn = timeline.turn(live) {
+                // The live turn's strip stays in view however far the timeline scrolls.
+                LiveTurnStrip(model: model, conversation: conversation, turn: turn)
+                    .padding(.horizontal, 14).padding(.top, 6)
+            }
+            if conversation.live_elsewhere == true {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "rectangle.on.rectangle").foregroundStyle(.orange)
+                    Text("Open in the Claude app or a terminal. Close it there to continue here; "
+                         + "a message you send waits until then.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14).padding(.top, 6)
+            }
             ComposerView(model: model, conversation: conversation)
         }
         .sheet(isPresented: Binding(get: { approval != nil }, set: { if !$0 { approval = nil } })) {
@@ -335,6 +401,48 @@ struct TurnStatusLine: View {
             }
         }
     }
+}
+
+/// The live turn's status above the composer: where the model is and for how
+/// long, counting up, so a long think, a compaction or a slow tool reads as work.
+struct LiveTurnStrip: View {
+    @ObservedObject var model: UIModel
+    let conversation: Conversation
+    let turn: TurnTimeline
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.mini)
+            if let since = turn.statusSince {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text("\(turn.statusText) · \(elapsedWords(from: since, to: context.date))")
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+            } else {
+                Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Stop") {
+                model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
+            }.buttonStyle(.link).font(.caption)
+        }
+    }
+}
+
+/// How much text a timeline item holds; it grows while a block streams.
+func streamedLength(_ item: TimelineItem) -> Int {
+    switch item.content {
+    case .text(let text, _), .thinking(let text, _): return text.count
+    default: return 0
+    }
+}
+
+/// "12s", "3m 05s", "1h 02m".
+func elapsedWords(from start: Date, to now: Date) -> String {
+    let seconds = max(0, Int(now.timeIntervalSince(start)))
+    if seconds < 60 { return "\(seconds)s" }
+    if seconds < 3600 { return String(format: "%dm %02ds", seconds / 60, seconds % 60) }
+    return String(format: "%dh %02dm", seconds / 3600, (seconds % 3600) / 60)
 }
 
 struct ServedChipView: View {

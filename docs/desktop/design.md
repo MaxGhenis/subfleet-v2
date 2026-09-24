@@ -328,7 +328,9 @@ nudge does not (C-26.13). An
 external writer (a live pid in `~/.claude/sessions/*.json` naming the session
 that carries no Subfleet markers and is not a recorded owned identity) is an
 admission wait `external-writer` shown in the app ("open in the Claude app;
-close it there to continue here"), not a refusal.
+close it there to continue here"), not a refusal. Claude's is checked when a
+message is dispatched (`ConversationService._hold_for_writer`); a process that
+takes the session between that check and the provider's start is not caught.
 
 **D-18. Handoffs are labelled.** Moving a conversation to the other provider,
 or out of a Codex home it cannot run in, creates a new conversation whose
@@ -618,12 +620,13 @@ daemon resends a frame after reconnecting with the same number and content;
 
 `subfleet/conversations/claude_turn.py` and `codex_turn.py` (pure, D-3).
 
-**Claude.** Command (all flags verified in 2.1.280, `--permission-prompt-tool`
-hidden but registered and accepted):
+**Claude.** Command (all flags verified in 2.1.280; `--permission-prompt-tool`
+and `--thinking-display` hidden but registered and accepted):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose
        --include-partial-messages --replay-user-messages
+       --thinking-display summarized
        --model <catalog value> [--effort <level>]
        (--session-id <new uuid> | --resume <native session id>)
        <permission flags, D-9>
@@ -639,7 +642,16 @@ response is checked before the message is sent: `account.email` against the
 lane's identity (C-10.6), effort against the catalog entry (D-19); its
 `fast_mode_state` is recorded. Mapping: `command_lifecycle started` or the
 replayed user message → `accepted`; text and thinking deltas (scrubbed a line
-at a time); complete blocks; `tool_use` / `tool_result`; `can_use_tool` →
+at a time); complete blocks, each keyed by its ordinal within its message
+because 2.1.280 writes every finished block as its own `assistant` row at
+content index 0 while the stream numbers it by API index (so a block is shown
+once); `content_block_start` → `status` phase `thinking`, `writing` or
+`preparing-tool`, announced on change and never after `result` (thinking the
+API omits still shows as thinking); `system` `status` rows → phase
+`requesting` (before each API request) or `compacting` (an automatic
+compaction, which took 107 s on a 972k-token resume), and `compact_boundary` →
+a `compacted` status with its trigger and token counts, which the app shows
+as a note; `tool_use` / `tool_result`; `can_use_tool` →
 approval (`question` when it is AskUserQuestion); other host requests →
 error `control_response` and an `error` event; `rate_limit_event` → `limits`;
 model check per D-19; `result` → outcome.
@@ -654,7 +666,9 @@ model, effort, serviceTier, approvalPolicy, approvalsReviewer:"user",
 sandboxPolicy, cwd}`; `turn/interrupt` on stop; `close` after
 `turn/completed`. The thread response's `status.type:"active"` means another
 writer (`external-writer`). Every frame validates against the pinned
-0.153.3 schema (`tests/fixtures/codex/app-server-0.153.3/`).
+0.153.3 schema (`tests/fixtures/codex/app-server-0.153.3/`). `item/started`
+announces a `status` phase on change: `thinking` for a reasoning item,
+`writing` for an agent message, `tool` for any tool item.
 
 **Classification.** A turn attempt is classified from the driver's outcome
 and structured provider evidence only, never from prose (reviews F-01,
@@ -779,7 +793,25 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   detached jobs as D-26; per-account windows including Fable as D-27.
 - Status strip per turn with stage timestamps from `status` events
   (admitted, spawned, initialized, resumed, accepted), so time spent waiting
-  for capacity, starting the provider, and the model are told apart.
+  for capacity, starting the provider, and the model are told apart. While
+  the turn is live the strip says where the model is (`Waiting for the
+  model`, `Compacting the conversation`, `Thinking`, `Writing`, `Preparing a
+  tool call`, or `Running <tool>` while a tool call is open) and
+  counts up the seconds since that began: a long think or a slow tool reads
+  as work, not as a hang (Max, 2026-09-24: two silent minutes read as broken).
+- A conversation whose Claude session a live process outside Subfleet holds
+  (`live_elsewhere` on every conversation view, from the last catalog run if
+  it is fresh) shows D-17's words above the composer: open in the Claude app
+  or a terminal; close it there to continue here, and a message sent meanwhile
+  waits. The wait itself reads the registry at dispatch
+  (`catalog.external_writers`: a live pid naming the session whose executable
+  is Claude's and whose environment has no Subfleet markers), holds the
+  message `waiting` with reason `external-writer: pid <n>`, and looks again
+  every 5 s without backoff; a stop withdraws it.
+- The live turn's status strip is pinned above the composer, with the
+  elapsed time; the strip under each person bubble keeps the words only.
+- A listed session that cannot continue here (a Codex-app thread) opens as a
+  page saying why, instead of a failed `conversation.open`.
 
 ### `status.json` (C-18.2, C-29.6; review IR-18, IR-34)
 

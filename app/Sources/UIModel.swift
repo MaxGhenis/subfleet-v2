@@ -17,6 +17,8 @@ final class UIModel: ObservableObject {
     @Published private(set) var state = ConversationStoreState()
     /// The last thing that went wrong, shown in the window's status line.
     @Published var problem: String?
+    /// A listed session that cannot continue here, shown in place of a conversation.
+    @Published var lockedEntry: SidebarEntry?
     @Published var busy = false
 
     let paths: AppPaths
@@ -176,6 +178,12 @@ final class UIModel: ObservableObject {
 
     func select(_ entry: SidebarEntry?) {
         guard let entry else { return }
+        if !entry.continuable {
+            // Opening one only fails (not-continuable): say what it is instead.
+            showLocked(entry)
+            return
+        }
+        lockedEntry = nil
         switch entry.target {
         case .conversation(let id): focus(id)
         case .native:
@@ -183,7 +191,16 @@ final class UIModel: ObservableObject {
         }
     }
 
+    /// A locked page replaces the focused conversation, so that conversation's
+    /// completions and approvals notify again, and its events loop ends.
+    private func showLocked(_ entry: SidebarEntry) {
+        lockedEntry = entry
+        state.focus(nil)
+        eventsGeneration += 1
+    }
+
     func focus(_ conversationID: String) {
+        lockedEntry = nil
         guard state.focusedConversationID != conversationID else { return }
         state.focus(conversationID)
         Task { await open(.conversation(conversationID)) }
@@ -200,6 +217,16 @@ final class UIModel: ObservableObject {
             startEventsLoop(result.conversation.conversation_id)
             await loadHistory(result.conversation.conversation_id)
         } catch {
+            // The catalog said continuable and the daemon, looking now, refuses
+            // (its directory is gone, it became a lane run): the same page.
+            if case .native = target, let refusal = (error as? DaemonClientError)?.daemonError,
+               ["not-continuable", "unknown-session"].contains(refusal.reason ?? ""),
+               var entry = state.sidebarEntries().first(where: { $0.target == target }) {
+                entry.continuable = false
+                entry.continueBlocker = refusal.detail
+                showLocked(entry)
+                return
+            }
             report(error)
         }
     }

@@ -2,7 +2,7 @@
 
 The process is `claude -p --input-format stream-json --output-format
 stream-json --verbose --include-partial-messages --replay-user-messages
---permission-prompt-tool stdio …` (see `argv`). The driver sends the SDK
+--thinking-display summarized --permission-prompt-tool stdio …` (see `argv`). The driver sends the SDK
 `initialize` control request, checks the account and settings it reports,
 sends the user message carrying the message id as its `uuid`, maps the output
 to events, turns `can_use_tool` requests into approvals, and ends the turn on
@@ -44,6 +44,14 @@ PERMISSION_FLAGS = {
 DISALLOWED_TOOLS = ("Monitor", "CronCreate", "ScheduleWakeup", "RemoteTrigger", "EnterPlanMode", "ExitPlanMode")
 BACKGROUND_CEILING_MS = 120_000
 QUESTION_TOOLS = ("AskUserQuestion",)
+
+#: The status phase a streamed content block of each type starts (design §12).
+BLOCK_PHASES = {"thinking": "thinking", "redacted_thinking": "thinking", "text": "writing",
+                "tool_use": "preparing-tool", "server_tool_use": "preparing-tool"}
+#: The status phase a `system` `status` row announces (2.1.280: `requesting`
+#: before every API request, `compacting` while an automatic compaction runs,
+#: which took 107 s on a 972k-token resume on 2026-09-24).
+STATUS_PHASES = {"requesting": "requesting", "compacting": "compacting"}
 
 
 def catalog_entry(models: Any, value: str, model_ref: str | None = None) -> dict | None:
@@ -97,6 +105,9 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
     read-only set (C-14.3), passed in so there is one definition of it."""
     command = [claude_bin, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
                "--verbose", "--include-partial-messages", "--replay-user-messages",
+               # `-p` otherwise asks the API to omit thinking text: deltas arrive
+               # empty (observed 2026-09-24, 2.1.280) and the person sees no thinking.
+               "--thinking-display", "summarized",
                "--model", spec.model_id]
     if spec.effort:
         command += ["--effort", spec.effort]
@@ -150,6 +161,14 @@ class ClaudeTurn:
         self._tools: dict[str, bool] = {}                 # tool_use id → hidden
         self._message_id: str | None = None               # current streamed assistant message
         self._buffers: dict[str, redact.DeltaBuffer] = {}
+        # Content blocks already seen complete, per message. The CLI writes one
+        # `assistant` row per finished block, each holding that block alone at
+        # content index 0, in stream order: the nth block of a message is the
+        # stream's block n, so an ordinal keys it the way its deltas were keyed
+        # (51 of 51 rows on 2026-09-24, 2.1.280). A row holding several blocks
+        # counts each.
+        self._completed: dict[str, int] = {}
+        self._phase: str | None = None                    # the last block phase announced
 
     # --- lifecycle -------------------------------------------------------------
 
@@ -234,7 +253,7 @@ class ClaudeTurn:
             if kind in ("assistant", "user", "stream_event") and not row.get("parent_tool_use_id"):
                 handler = {"assistant": self._assistant, "user": self._user, "stream_event": self._stream_event}[kind]
                 step = handler(row, source)
-                return Step(events=step.events)
+                return Step(events=[e for e in step.events if e.kind != "status"])
             return Step()
         if kind == "control_response":
             return self._control_response(row, source)
@@ -361,6 +380,18 @@ class ClaudeTurn:
                                   source.next())])
 
     def _system(self, row: dict, source: "_Sources") -> Step:
+        if row.get("subtype") == "status":
+            return self._announce(STATUS_PHASES.get(str(row.get("status"))), source)
+        if row.get("subtype") == "compact_boundary":
+            # The model now works from a summary of the earlier conversation.
+            meta = row.get("compact_metadata") or {}
+            if self.interrupt_requested:
+                self._phase = "compacted"
+                return Step()
+            self._phase = "compacted"
+            return Step(events=[Event("status", {"phase": "compacted", "trigger": meta.get("trigger"),
+                                                 "pre_tokens": meta.get("pre_tokens"),
+                                                 "post_tokens": meta.get("post_tokens")}, source.next())])
         if row.get("subtype") == "notification" and row.get("key") == "fast-mode-overage-rejected":
             # IR-23: matched on the structured key; the turn continues at standard speed.
             return Step(events=[Event("served", {"fast_mode_state": "off", "fast_warning": "usage credits exhausted"},
@@ -382,6 +413,10 @@ class ClaudeTurn:
             self._message_id = str((event.get("message") or {}).get("id") or "")
             return Step()
         block = f"{self._message_id}:{event.get('index')}"
+        if etype == "content_block_start":
+            # Where the model is while nothing displayable streams: thinking whose
+            # text the API omits, or a long tool input (design §12, the status strip).
+            return self._announce(BLOCK_PHASES.get(str((event.get("content_block") or {}).get("type"))), source)
         if etype == "content_block_delta":
             delta = event.get("delta") or {}
             if delta.get("type") == "text_delta":
@@ -391,6 +426,14 @@ class ClaudeTurn:
         if etype == "content_block_stop":
             return self._flush(source.next(), block=block)
         return Step()
+
+    def _announce(self, phase: str | None, source: "_Sources") -> Step:
+        """A `status` event for where the model is, when that changed (design §12)."""
+        # After a stop, `stopping` stays the word until the turn ends.
+        if phase is None or phase == self._phase or self.interrupt_requested:
+            return Step()
+        self._phase = phase
+        return Step(events=[Event("status", {"phase": phase}, source.next())])
 
     def _delta(self, kind: str, block: str, text: str, source: "_Sources") -> Step:
         self.answered = True
@@ -421,6 +464,13 @@ class ClaudeTurn:
                 self.limited = True
             return Step(events=[Event("error", {"message": redact.bounded_text(text), "kind": row.get("error")},
                                       source.next())])
+        # Count this row's blocks first: a row that ends the turn (a model
+        # mismatch) still takes its stream positions, or every later block of
+        # the message would be keyed one short of its deltas.
+        content = message.get("content") or []
+        message_id = str(message.get("id") or self._message_id or "")
+        start = self._completed.get(message_id, 0)
+        self._completed[message_id] = start + len(content)
         step = Step()
         model = message.get("model")
         if isinstance(model, str) and model:
@@ -428,11 +478,10 @@ class ClaudeTurn:
             step.extend(check)
             if check.outcome is not None:
                 return step
-        message_id = str(message.get("id") or self._message_id or "")
-        for index, block in enumerate(message.get("content") or []):
+        for offset, block in enumerate(content):
             if not isinstance(block, dict):
                 continue
-            key = f"{message_id}:{index}"
+            key = f"{message_id}:{start + offset}"
             btype = block.get("type")
             if btype == "text" and block.get("text"):
                 self.answered = True

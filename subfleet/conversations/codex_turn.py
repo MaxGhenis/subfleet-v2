@@ -51,6 +51,11 @@ POLICY = {
     "read-only": ("never", {"type": "readOnly", "networkAccess": False}),
 }
 WRITABLE = ("ask", "accept-edits", "bypass")
+#: The status phase an item of each type starts. Any other item but the
+#: person's own message is work the model is doing, `tool` (0.153.3 also has
+#: collabAgentToolCall, sleep, imageGeneration, subAgentActivity, ...).
+ITEM_PHASES = {"reasoning": "thinking", "agentMessage": "writing", "contextCompaction": "compacting",
+               "userMessage": None}
 
 
 def argv(executable: str, override: str, *, unified_exec_off: bool = False) -> list[str]:
@@ -130,6 +135,7 @@ class CodexTurn:
         self.final_error: dict | None = None                # an `error` notification that will not be retried
         self._ready = {"hooks": False, "models": False}
         self._tools: dict[str, bool] = {}
+        self._phase: str | None = None                    # the last item phase announced
         self._buffers: dict[str, redact.DeltaBuffer] = {}
 
     # --- lifecycle -------------------------------------------------------------
@@ -446,12 +452,23 @@ class CodexTurn:
     def _item_started(self, item: dict, source: "_Sources") -> Step:
         itype, item_id = item.get("type"), str(item.get("id"))
         name, value = _tool_view(item)
+        # Reasoning shows nothing until a summary part streams, if one ever does:
+        # the status strip says where the model is (design §12).
+        step = self._announce(ITEM_PHASES.get(str(itype), "tool"), source)
         if name is None:
-            return Step()
+            return step
         self.answered = True
         started = redact.tool_started(name, value, tool_id=item_id)
         self._tools[item_id] = started["hidden"]
-        return Step(events=[Event("tool.started", started, source.next())])
+        step.events.append(Event("tool.started", started, source.next()))
+        return step
+
+    def _announce(self, phase: str | None, source: "_Sources") -> Step:
+        # After a stop, `stopping` stays the word until the turn ends.
+        if phase is None or phase == self._phase or self.outcome is not None or self.interrupt_requested:
+            return Step()
+        self._phase = phase
+        return Step(events=[Event("status", {"phase": phase}, source.next())])
 
     def _item_completed(self, item: dict, source: "_Sources") -> Step:
         itype, item_id = item.get("type"), str(item.get("id"))

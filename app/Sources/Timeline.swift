@@ -125,21 +125,54 @@ struct TurnTimeline: Equatable {
         }
     }
 
+    /// The newest tool call still running, if any.
+    var runningTool: ToolActivity? {
+        for item in items.reversed() {
+            if case .tool(let tool) = item.content, tool.state == .running { return tool }
+        }
+        return nil
+    }
+
+    /// When the status strip's current words started: the newest phase stamp,
+    /// or the running tool's row. A live strip counts up from here.
+    /// It follows the same order as `statusText`'s words.
+    var statusSince: Date? {
+        if stopRequested || phases.last?.phase == "stopping" {
+            return phases.last(where: { $0.phase == "stopping" })?.ts.flatMap(parseTimestamp)
+        }
+        if let item = items.last(where: { if case .tool(let t) = $0.content { return t.state == .running } else { return false } }) {
+            return item.ts.flatMap(parseTimestamp)
+        }
+        return phases.last?.ts.flatMap(parseTimestamp)
+    }
+
     /// The status strip's words for where this turn is (design §12).
     var statusText: String {
         switch messageState {
         case .queued: return "Queued behind the current turn"
         case .waiting:
+            if let reason = stateReason, reason.hasPrefix("external-writer") {
+                // C-26.3, D-17: another Claude process holds the session.
+                return "Waiting: open in the Claude app or a terminal; close it there to continue here"
+            }
             if let reason = stateReason, !reason.isEmpty { return "Waiting: \(reason)" }
             return "Waiting for capacity"
         case .starting, .running, .approvalNeeded:
             if state == MessageState.approvalNeeded.rawValue { return "Needs your approval" }
+            if stopRequested || phases.last?.phase == "stopping" { return "Stopping" }
+            // A tool the provider is running outranks the block that asked for it.
+            if let tool = runningTool { return tool.hidden ? "Running a tool" : "Running \(tool.name)" }
             switch phases.last?.phase {
             case "starting-provider": return "Starting the provider"
             case "opening-thread": return "Opening the thread"
             case "sent": return "Sent; waiting for the provider"
             case "accepted": return "Running"
-            case "stopping": return "Stopping"
+            case "requesting": return "Waiting for the model"
+            case "compacting": return "Compacting the conversation"
+            case "thinking": return "Thinking"
+            case "writing": return "Writing"
+            case "preparing-tool": return "Preparing a tool call"
+            case "tool": return "Running"
             default: return state == "starting" ? "Starting" : "Running"
             }
         case .complete: return stateReason == "stop-too-late" ? "Completed before the stop took effect" : "Completed"
@@ -274,6 +307,16 @@ struct Timeline: Equatable {
         case "status":
             if let phase = data["phase"]?.string, turn.phases.last?.phase != phase {
                 turn.phases.append(PhaseStamp(phase: phase, ts: event.ts))
+            }
+            if data["phase"]?.string == "compacted" {
+                // The provider replaced the earlier conversation with a summary.
+                var words = "Compacted the conversation"
+                if let before = data["pre_tokens"]?.double, let after = data["post_tokens"]?.double {
+                    words += " (\(tokenWords(before)) → \(tokenWords(after)) tokens)"
+                }
+                turn.items.append(TimelineItem(id: "compacted:\(event.seq)", messageID: id,
+                                               content: .notice(words + "; the model now works from a summary of it"),
+                                               ts: event.ts))
             }
         case "accepted":
             turn.accepted = true
@@ -643,6 +686,13 @@ struct Timeline: Equatable {
             return [.waiting, .starting, .running, .approvalNeeded].contains(state)
         }
     }
+}
+
+/// "950", "18k", "972k", "1.2M".
+func tokenWords(_ count: Double) -> String {
+    if count >= 1_000_000 { return String(format: "%.1fM", count / 1_000_000) }
+    if count >= 1_000 { return "\(Int((count / 1_000).rounded()))k" }
+    return "\(Int(count))"
 }
 
 /// ISO 8601 with or without fractional seconds, as the daemon and transcripts write it.

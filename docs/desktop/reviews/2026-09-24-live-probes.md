@@ -144,10 +144,49 @@ and `test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not`
 run `subfleet hook` from inside real turn launches with the daemon's own
 markers.
 
+## Thinking text in `-p`
+
+The first installed turns showed no thinking in the app. Their stdout had
+`thinking` blocks and `thinking_delta` frames, but every delta's `thinking`
+was `""` with an `estimated_tokens` count, and the complete blocks carried
+only a signature. In 2.1.280's bundle, a non-interactive session whose
+thinking display was not set explicitly gets `display: "omitted"` (the
+function that applies it returns early only for an explicit display, an
+interactive session, exact tools, forwarded subagent text or async runs).
+The hidden flag `--thinking-display <summarized|omitted|highlights>` sets it.
+A probe with `--thinking-display summarized` (`claude-opus-5-5`, stream-json,
+partial messages) streamed the summary as `thinking_delta` text ("391
+factors as 17×23, …") and the complete block carried it. Claude turns now
+pass `--thinking-display summarized`.
+
+## Block framing in `-p` with partial messages
+
+The same session's first turn from the app showed every text and thinking
+block twice. In its stdout (51 top-level `assistant` rows), each row held one
+block at content index 0 and arrived while that block was still open (after
+its deltas, before its `content_block_stop`); the nth row of a message was the
+stream's block n in all 51. The driver keyed deltas by the stream's `index`
+and complete blocks by content position, so the two never met. Complete
+blocks are now keyed by their ordinal within the message; replaying that
+stdout through the driver gives 3 text and 3 thinking blocks and no delta
+after its block's complete event.
+
+## The first two minutes of a resumed long session
+
+That turn's first 107 s showed only "Running". The stdout says why: after
+the replayed message, `system` `status` rows read `requesting`, then
+`compacting` four times, then a `compact_boundary` with `trigger: auto`,
+`pre_tokens: 972214`, `post_tokens: 17683` and `duration_ms: 106761`. The CLI
+compacted the whole session before its first request; `message_start` then
+reported 47,595 input tokens written to the cache and none read. Across the
+installed turns, `requesting` came once per API request (26 in that turn).
+The driver now turns these rows into `status` phases and a `compacted` note.
+
 ## Still to do live
 
 - A Claude approval and an AskUserQuestion with a tool no hook approves.
 - Codex approvals (`ask` with a command the sandbox refuses).
-- A turn through the daemon on a real lane (credential resolution, relay,
-  finalization and attestation together); a Codex `thread/resume`.
+- A Codex `thread/resume`. (Turns through the installed daemon on real lanes
+  ran on 2026-09-24: Codex on codex-1, Claude Fable and Opus on claude-10,
+  and this design's own session continued from the app.)
 - Continuing a Codex-app thread by rollout copy and `thread/fork` (IR-31).

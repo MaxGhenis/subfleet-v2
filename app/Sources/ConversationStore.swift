@@ -498,7 +498,8 @@ struct ConversationStoreState: Equatable {
                 provider: conversation.provider, title: title, subtitle: abbreviatedPath(conversation.workspace),
                 workspace: conversation.workspace, date: parseTimestamp(conversation.updated_at),
                 pendingApprovals: pendingApprovals[conversation.conversation_id] ?? conversation.pending_approvals,
-                active: conversation.active, blockedBy: conversation.blocked_by, liveElsewhere: false,
+                active: conversation.active, blockedBy: conversation.blocked_by,
+                liveElsewhere: conversation.live_elsewhere ?? false,
                 continuable: true, continueBlocker: nil))
         }
         let bound = Set(conversations.compactMap { c in c.native_session_id.map { "\(c.provider):\($0)" } })

@@ -188,10 +188,51 @@ def test_streaming_items_and_completion():
         step = turn.feed(line, 10 + i)
         events += step.events
     kinds = [e.kind for e in events]
-    assert kinds == ["text.delta", "thinking.delta", "tool.started", "tool.completed", "text", "turn.completed"]
+    assert kinds == ["text.delta", "thinking.delta", "status", "tool.started", "tool.completed", "text", "turn.completed"]
     assert "RAW CHAIN" not in json.dumps([e.data for e in events])
-    assert events[3].data["is_error"] is True and events[3].data["preview"] == "1 failed"
+    assert events[4].data["is_error"] is True and events[4].data["preview"] == "1 failed"
     assert turn.outcome.state == "complete" and step.frames[-1].tag == "close"
+
+
+def test_item_starts_announce_where_the_model_is_once_per_change():
+    """Design §12: a reasoning item that streams no summary still shows as
+    thinking; an agent message as writing; a tool item as `tool`. A repeat is
+    not announced, and nothing is after the turn ended."""
+    turn = CodexTurn(spec())
+    to_running(turn)
+
+    def started(offset, item):
+        return turn.feed(note("item/started", threadId="thr-1", turnId="turn-1", startedAtMs=offset, item=item),
+                         offset)
+
+    def phases(step):
+        return [e.data["phase"] for e in step.events if e.kind == "status"]
+    assert phases(started(10, {"type": "reasoning", "id": "r1", "summary": [], "content": []})) == ["thinking"]
+    assert phases(started(11, {"type": "reasoning", "id": "r2", "summary": [], "content": []})) == []
+    tool = started(12, {"type": "commandExecution", "id": "c1", "command": "ls", "status": "inProgress"})
+    assert [e.kind for e in tool.events] == ["status", "tool.started"] and phases(tool) == ["tool"]
+    assert phases(started(13, {"type": "reasoning", "id": "r3", "summary": [], "content": []})) == ["thinking"]
+    assert phases(started(14, {"type": "agentMessage", "id": "m1", "text": ""})) == ["writing"]
+    assert started(15, {"type": "userMessage", "id": "u1", "content": []}).events == []
+    turn.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "completed", "items": []}), 16)
+    assert phases(started(17, {"type": "reasoning", "id": "r4", "summary": [], "content": []})) == []
+
+
+def test_codex_compaction_and_other_work_items_have_phases_and_a_stop_holds():
+    """A context compaction is `compacting`; an item type the driver does not
+    show (a sub-agent, a sleep) is still work (`tool`); after a stop nothing
+    replaces `stopping`."""
+    turn = CodexTurn(spec())
+    to_running(turn)
+
+    def phases(offset, item):
+        step = turn.feed(note("item/started", threadId="thr-1", turnId="turn-1", startedAtMs=offset, item=item), offset)
+        return [e.data["phase"] for e in step.events if e.kind == "status"]
+    assert phases(10, {"type": "contextCompaction", "id": "k1"}) == ["compacting"]
+    assert phases(11, {"type": "collabAgentToolCall", "id": "x1"}) == ["tool"]
+    assert phases(12, {"type": "reasoning", "id": "r1", "summary": [], "content": []}) == ["thinking"]
+    assert [e.data for e in turn.interrupt().events if e.kind == "status"] == [{"phase": "stopping"}]
+    assert phases(13, {"type": "agentMessage", "id": "m1", "text": ""}) == []
 
 
 def test_notifications_for_another_thread_are_ignored():

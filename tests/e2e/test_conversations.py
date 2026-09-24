@@ -36,6 +36,10 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
 '''
 
 
+#: This test run is itself a Subfleet turn's or job's descendant (C-25.6 markers).
+IN_A_SUBFLEET_ATTEMPT = any(os.environ.get(name) for name in ("SUBFLEET_ATTEMPT", "SUBFLEET_JOB"))
+
+
 class Conversations:
     def __init__(self, e2e):
         self.e2e = e2e
@@ -56,6 +60,12 @@ class Conversations:
 
     def as_person(self, op: str, **args) -> dict:
         """The request from a process with a controlling terminal (C-25.6)."""
+        if IN_A_SUBFLEET_ATTEMPT:
+            # The peer check walks every ancestor, and a Subfleet guardian sits above
+            # any process a turn or job starts: its descendants are agents by design
+            # (C-25.6), so no person request can be made from here.
+            pytest.skip("person-only requests cannot come from inside a Subfleet turn or job; "
+                        "run this test from a terminal")
         request = json.dumps({"v": 1, "id": "p", "op": op, "args": args})
         out = subprocess.run(["/usr/bin/script", "-q", "/dev/null", sys.executable, "-c", CLIENT,
                               str(self.e2e.root / "daemon.sock"), request],
