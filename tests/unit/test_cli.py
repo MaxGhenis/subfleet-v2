@@ -618,11 +618,14 @@ def test_runs_renders_the_table_and_json_lines(daemon, capsys):
          "provider": "codex", "model": "astra", "lane_id": "codex-3",
          "out_bytes": 2048, "duration_s": 12.5, "workdir": "/Users/x/other"},
     ]
-    server = daemon({"list": lambda request: {"jobs": rows}})
+    server = daemon({"list": lambda request: {"jobs": rows},
+                     "capabilities": lambda request: {"capabilities": ["jobs.kind.v1"]}})
     assert run_cli(["runs", "--last", "5", "--running"]) == 0
     table = capsys.readouterr().out
     assert "RUNNING" in table and JOB in table and "astra" in table
-    assert server.args("list") == {"mine": None, "running": True, "last": 5}
+    # C-26.12: no turns unless asked; C-25.1: the fields only because `jobs.kind.v1` was advertised.
+    assert server.args("list") == {"mine": None, "running": True, "last": 5,
+                                   "kind": None, "include_turns": False}
     assert run_cli(["jobs", "--json"]) == 0
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert len(lines) == 2 and json.loads(lines[0])["job_id"] == JOB

@@ -94,19 +94,37 @@ def status(view: Mapping[str, Any]) -> str:
                      "; ".join(closure_text(row) for row in lane["closures"]) or "none"])
     lines.append(_table(["Lane", "Provider", "Account", "Owner", "Flags", "In-flight",
                          "Weekly reset", "Readings", "Closures"], rows))
-    attempts = [row for row in snapshot["attempts"] if row["state"] in ACTIVE_ATTEMPT_STATES]
     jobs = {row["job_id"]: row for row in snapshot["jobs"]}
-    running_rows = [[row.get("job_id", "unknown"), row.get("attempt_id", "unknown"), row["lane_id"],
-                     row.get("model_requested", "unknown"), _label(row["state"])] for row in attempts]
-    represented = {row.get("job_id") for row in attempts}
-    running_rows.extend([job_id, "unknown", "unknown", "unknown", "running"]
-                        for job_id, job in jobs.items() if job.get("state") == "running" and job_id not in represented)
+    # C-26.12: turn jobs hold lane slots like any job, so they are shown, but
+    # under their own heading: they are conversations' turns, not detached work.
+    turn_ids = {job_id for job_id, job in jobs.items() if job.get("kind") == "turn"}
+    attempts = [row for row in snapshot["attempts"] if row["state"] in ACTIVE_ATTEMPT_STATES]
+
+    def live_rows(turns: bool) -> list[list[str]]:
+        selected = [row for row in attempts if (row.get("job_id") in turn_ids) == turns]
+        rows = [[row.get("job_id", "unknown"), row.get("attempt_id", "unknown"), row["lane_id"],
+                 row.get("model_requested", "unknown"), _label(row["state"])] for row in selected]
+        represented = {row.get("job_id") for row in selected}
+        rows.extend([job_id, "unknown", "unknown", "unknown", "running"]
+                    for job_id, job in jobs.items() if job.get("state") == "running"
+                    and job_id not in represented and (job_id in turn_ids) == turns)
+        return rows
+
+    running_rows = live_rows(False)
     lines.extend(["", "Running jobs", _table(["Job", "Attempt", "Lane", "Model", "State"], running_rows)
                   if running_rows else "none"])
     waiting = [[job_id, _label(job.get("wait_reason", "unknown")), job.get("next_check_at") or "unknown"]
-               for job_id, job in jobs.items() if job.get("state") == "waiting"]
+               for job_id, job in jobs.items() if job.get("state") == "waiting" and job_id not in turn_ids]
     if waiting:
         lines.extend(["", "Waiting jobs", _table(["Job", "Reason", "Next check"], waiting)])
+    turn_rows = live_rows(True)
+    shown = {row[0] for row in turn_rows}
+    turn_rows.extend([job_id, "-", "-", "-", _label(job["state"])
+                      + (f" ({_label(job['wait_reason'])})" if job.get("wait_reason") else "")]
+                     for job_id, job in jobs.items() if job_id in turn_ids and job_id not in shown
+                     and job.get("state") in ("queued", "waiting"))
+    if turn_rows:
+        lines.extend(["", "Conversation turns", _table(["Job", "Attempt", "Lane", "Model", "State"], turn_rows)])
     return "\n".join(lines)
 
 
@@ -134,8 +152,15 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
     hold the last admission pass recorded for it, and its recheck history.
     """
     state = standing.get("state")
-    lines = [f"Job: {standing.get('job_id')} is {state}"
-             + (f" ({standing['wait_reason']})" if standing.get("wait_reason") else "")]
+    reason = f" ({standing['wait_reason']})" if standing.get("wait_reason") else ""
+    if standing.get("kind") == "turn":
+        # C-26.12: a turn is its conversation's, never detached work.
+        conversation = standing.get("conversation_id")
+        lines = [f"Conversation turn: {standing.get('job_id')}"
+                 + (f" of {conversation}" if conversation else "") + f" is {state}{reason}",
+                 "Its outcome goes to the conversation, not to a notice or a deliverable (C-26.12)"]
+    else:
+        lines = [f"Job: {standing.get('job_id')} is {state}{reason}"]
     hold, recheck = standing.get("hold"), standing.get("recheck")
     if state not in ("queued", "waiting"):
         return lines

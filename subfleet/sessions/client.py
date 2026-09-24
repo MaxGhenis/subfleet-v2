@@ -17,12 +17,11 @@ import dataclasses
 from typing import Any
 
 from ..client import Client, DaemonError, DaemonUnavailable
-from ..protocol import PingArgs, ProtocolError, SessionsArgs, SubmitArgs
+from ..protocol import UNKNOWN_OP, PingArgs, ProtocolError, SessionsArgs, SubmitArgs
 
-#: What a daemon older than this verb answers. `protocol.decode_request` raises
-#: it before any handler runs, so it is a version signal, not a failure of the
-#: request (compare `cmd_lanes`'s transfer check).
-UNKNOWN_OP = "unknown op"
+# UNKNOWN_OP is what a daemon older than this verb answers. `protocol.decode_request`
+# raises it before any handler runs, so it is a version signal, not a failure of
+# the request (compare `cmd_lanes`'s transfer check).
 
 
 class SessionsUnsupported(RuntimeError):

@@ -2,7 +2,8 @@
 
   subfleet [status]              lanes, readings, closures, running jobs
   subfleet run ...               submit a job; detached by default in a Claude session
-  subfleet runs [--mine ...]     the job ledger, newest first     (alias: jobs)
+  subfleet runs [--mine ...]     the job ledger, newest first; conversation turns only with
+                                 --kind turn or --include-turns (alias: jobs)
   subfleet runs show <id>        one job's metadata and artifacts (alias: show)
   subfleet runs reap             reconcile jobs whose runner is gone
   subfleet wait <id>...          long-poll until terminal; rc = the job's rc
@@ -47,13 +48,14 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import JobState, Sandbox, WAIT_POLL_MAX_S, Exit
+from .contracts import JOB_KINDS, JobState, Sandbox, WAIT_POLL_MAX_S, Exit
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
 
 PROG = "subfleet"
 START_DAEMON = "subfleet daemon start"
+RESTART_DAEMON = "subfleet daemon stop && subfleet daemon start"   # a daemon older than this CLI
 EXIT_CODES = {int(code) for code in Exit}
 TERMINAL_STATES = {state.value for state in JobState if state.terminal}
 LIVE_STATES = {state.value for state in JobState if not state.terminal}
@@ -299,9 +301,14 @@ def format_status(data: dict[str, Any]) -> str:
     readings = rows_of(data.get("readings"))
     closures = rows_of(data.get("closures"))
     # `daemon.status` carries every job the store holds as `jobs` (it is the
-    # capacity view); only the live ones belong under this heading.
-    running = [row for row in rows_of(data.get("running") or data.get("jobs"))
-               if row.get("state") not in TERMINAL_STATES]
+    # capacity view); only the live ones belong under this heading. A turn job
+    # is its conversation's (C-26.12): it is counted on its own line, never as
+    # a running job.
+    live = [row for row in rows_of(data.get("running") or data.get("jobs"))
+            if row.get("state") not in TERMINAL_STATES]
+    running = [row for row in live if row.get("kind") != "turn"]
+    turns = [row for row in (rows_of(data.get("turns")) if "turns" in data else live)
+             if row.get("kind") == "turn" and row.get("state") not in TERMINAL_STATES]
     by_lane: dict[str, list[dict[str, Any]]] = {}
     for reading in readings:
         by_lane.setdefault(str(reading.get("lane_id")), []).append(reading)
@@ -363,6 +370,8 @@ def format_status(data: dict[str, Any]) -> str:
     lines.append(f"running jobs: {len(running)}")
     if running:
         lines.append(format_runs(running))
+    if turns:
+        lines.append(f"conversation turns: {len(turns)} live — {PROG} runs --kind turn")
     return "\n".join(lines)
 
 
@@ -1077,6 +1086,41 @@ def cmd_wait(args: argparse.Namespace) -> int:
 
 # --- runs (C-17.1, C-17.5) ----------------------------------------------------
 
+def _daemon_capabilities(client: Client) -> frozenset[str]:
+    """C-25.1: the capability names this daemon advertises.
+
+    A daemon older than the `capabilities` op answers "unknown op" (the check
+    `protocol.decode_request` makes before any handler runs), so it advertises
+    nothing. Any other failure is the daemon's to report and propagates.
+    """
+    try:
+        result = client.call("capabilities", {})
+    except DaemonError as exc:
+        if protocol.UNKNOWN_OP in str(exc):
+            return frozenset()
+        raise
+    names = result.get("capabilities")
+    if not isinstance(names, list):
+        return frozenset()
+    return frozenset(name for name in names if isinstance(name, str))
+
+
+def _listed(row: dict[str, Any], *, kind: str | None, include_turns: bool) -> bool:
+    """C-26.12 on the client: does this `list` row answer the request?
+
+    `list` rows carry the job's `kind` (the daemon selects every jobs column;
+    the offline reader selects `j.*`). A row whose kind is known and contradicts
+    the request is dropped, so the promise holds whatever the daemon's version;
+    a row without a kind is the daemon's word and is kept.
+    """
+    row_kind = row.get("kind")
+    if not isinstance(row_kind, str):
+        return True
+    if kind is not None:
+        return row_kind == kind
+    return include_turns or row_kind != "turn"
+
+
 def cmd_runs(args: argparse.Namespace) -> int:
     if args.runs_command == "show":
         return cmd_runs_show(args)
@@ -1084,6 +1128,10 @@ def cmd_runs(args: argparse.Namespace) -> int:
         return cmd_runs_reap(args)
     if args.last < 0:
         return fail(Exit.INVALID_INPUT, "runs: --last must be non-negative")
+    kind = getattr(args, "kind", None)
+    include_turns = bool(getattr(args, "include_turns", False))
+    if kind is not None and not kind.strip():
+        return fail(Exit.INVALID_INPUT, "runs: --kind must name a job kind")
     mine = None
     if args.mine:
         mine = session_id()
@@ -1092,17 +1140,36 @@ def cmd_runs(args: argparse.Namespace) -> int:
                         "runs: --mine needs CLAUDE_CODE_SESSION_ID "
                         "(run it from a Claude session)")
     offline = False
+    honoured = True
     try:
         client = _client(args)
-        result = client.call("list", _asdict(protocol.ListArgs(
-            mine=mine, running=bool(args.running), last=args.last or None)))
+        # C-25.1: `kind` and `include_turns` go only to a daemon that says it
+        # honours them. An older daemon drops unknown fields (C-16.2) and lists
+        # every kind, which `--kind` cannot survive: refuse it rather than print
+        # every job as the kind asked for. `--include-turns` needs no field there
+        # (such a daemon lists every kind anyway), and the default view drops
+        # turn rows below. Exit 69 with the restart, as `lanes transfer` and
+        # `sessions` answer a daemon older than the CLI.
+        honoured = protocol.JOBS_KIND_CAPABILITY in _daemon_capabilities(client)
+        if kind is not None and not honoured:
+            return fail(Exit.DAEMON_UNAVAILABLE,
+                        f"runs --kind: this daemon does not advertise "
+                        f"`{protocol.JOBS_KIND_CAPABILITY}`, so it would ignore the filter "
+                        f"and list every kind (C-25.1, C-26.12); it is older than this CLI",
+                        RESTART_DAEMON)
+        request = _asdict(protocol.ListArgs(
+            mine=mine, running=bool(args.running), last=args.last or None,
+            kind=kind, include_turns=include_turns))
+        if not honoured:
+            del request["kind"], request["include_turns"]
+        result = client.call("list", request)
         rows = rows_of(result.get("jobs") or result.get("rows"))
     except DaemonUnavailable:
         offline = True
         store = _offline(args)
         try:
             rows = store.list_jobs(session=mine, running=bool(args.running),
-                                   last=args.last)
+                                   last=args.last, kind=kind, include_turns=include_turns)
         except OfflineUnavailable as exc:
             return _daemon_down(exc)
         _note_schema(store)
@@ -1110,6 +1177,13 @@ def cmd_runs(args: argparse.Namespace) -> int:
         return _daemon_error(exc)
     except ProtocolError as exc:
         return fail(exc.code, str(exc))
+    kept = [row for row in rows if _listed(row, kind=kind, include_turns=include_turns)]
+    if len(kept) < len(rows) and not honoured and args.last:
+        # The daemon applied --last before the turn rows were dropped here.
+        note(f"{PROG} runs: this daemon predates `{protocol.JOBS_KIND_CAPABILITY}`; "
+             f"{len(rows) - len(kept)} conversation turn job(s) were left out here, "
+             f"so fewer than --last {args.last} rows may show (fix: {RESTART_DAEMON})")
+    rows = kept
     if args.json:
         for row in rows:
             emit(row)
@@ -1323,7 +1397,8 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
     except DaemonError:
         pass                              # it answered, so it is there
     try:
-        rows = _offline(args).list_jobs(running=True, last=500)
+        # A turn's runner can be orphaned like any job's (C-4.2), so reap sees turns too.
+        rows = _offline(args).list_jobs(running=True, last=500, include_turns=True)
     except OfflineUnavailable as exc:
         if daemon_up:
             return fail(Exit.OPERATIONAL,
@@ -1589,7 +1664,7 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         # that as a completed no-op would record a canary transfer that never ran.
         return fail(Exit.DAEMON_UNAVAILABLE,
                     "the daemon did not perform the transfer; it is older than this CLI",
-                    "subfleet daemon stop && subfleet daemon start")
+                    RESTART_DAEMON)
     if args.json:
         emit(result)
         return int(Exit.OK)
@@ -1600,14 +1675,14 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         row = result.get("enrolled") or {}
         if not row:
             return fail(Exit.DAEMON_UNAVAILABLE, "the daemon did not enroll the lane; it is older than this CLI",
-                        "subfleet daemon stop && subfleet daemon start")
+                        RESTART_DAEMON)
         out(f"{row.get('lane_id')}  {row.get('provider')}  {row.get('account_key')}  owner={row.get('owner')}"
             f"  label={row.get('label') or '-'}  home={row.get('home') or '-'}")
         return int(Exit.OK)
     if action in ("hold", "release"):
         if not (result.get("held") or result.get("released")):
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
-                        "subfleet daemon stop && subfleet daemon start")
+                        RESTART_DAEMON)
         out(f"{action}: {result.get('held') or result.get('released')}")
         return int(Exit.OK)
     out(_format_lanes(result))
@@ -2266,6 +2341,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs.add_argument("--mine", action="store_true",
                         help="only this session's jobs (CLAUDE_CODE_SESSION_ID)")
     p_runs.add_argument("--running", action="store_true", help="only unfinished jobs")
+    # C-17.1, C-26.12: conversations' turn jobs are left out unless asked for.
+    kinds = p_runs.add_mutually_exclusive_group()
+    kinds.add_argument("--kind", metavar="KIND",
+                       help=f"only jobs of this kind ({', '.join(JOB_KINDS)})")
+    kinds.add_argument("--include-turns", action="store_true",
+                       help="also list conversations' turn jobs")
     _add_json(p_runs)
     p_runs.set_defaults(handler=cmd_runs, runs_command=None)
     runs_sub = p_runs.add_subparsers(dest="runs_command")

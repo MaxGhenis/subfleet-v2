@@ -50,8 +50,8 @@ where it is implemented; "open" means not yet built.
 | 15 | Sessions under `/tmp` show `continue_blocker:"tmp-workspace"` unless a person sets `allow_tmp` | F-06 | `catalog.py` |
 | 16 | Subfleet's own processes are never "live elsewhere" | F-06 | `catalog.py`, `dispatch.py` |
 | 17 | No notice row for turn jobs; retention budgets split by kind; a notice with no session never pins | F-10, F8 | `daemon.py` (`_notice`, `_retention`), `retention.py` (`_pins`, per-kind budgets), `service.py` (`retention_pins`); `tests/unit/test_retention_turns.py`, `tests/unit/test_conversation_service.py`, `tests/e2e/test_conversations.py` |
-| 18 | `status.json` rows carry `kind`; `live`/`recent`/`counts` exclude turns; a `conversations` section | U-F14 | `status_json.py` |
-| 19 | `list`/`runs` exclude turns unless asked | U-F14 | `daemon.py`, `cli.py` |
+| 18 | `status.json` rows carry `kind`; `live`/`recent`/`counts` exclude turns; a `conversations` section | U-F14 | `status_json.py`, `conversations/store.py` (`status_summary`: `stat` inside the guarded read, id tie-break), `timers.py` (`publish_status`, which writes the file whatever the reader raises); C-18.1, C-18.2, C-29.6; tests `unit/test_status_json.py`, `unit/test_conversation_status.py`, `unit/test_timers_probe.py` |
+| 19 | `list`/`runs` exclude turns unless asked | U-F14 | `daemon.py` (`list`, `why`), `cli.py` (`runs --kind`/`--include-turns`, sent only after `capabilities` lists `jobs.kind.v1`, turn rows dropped on the client; `runs reap`; `status`), `offline.py`, `render.py`, `service.py` (`jobs.kind.v1`); C-26.12, C-25.1, C-17.1; tests `fake/test_turn_listing.py`, `unit/test_cli_turns.py`, `unit/test_cli.py`, `unit/test_render.py` |
 | 20 | Approval display masks value-shaped secrets only, never a span with `$(`, a backtick, a pipe, a separator, a redirection or a newline; reveal is person-only; no one-tap allow while masked | SEC-5 | `redact.py`, app |
 | 21 | `message.submit` may not widen the conversation's permission; `conversation.create` above `ask` is person-only with `confirm_widen` | SEC-1 | `service.py` |
 | 22 | Resolutions and decisions store the daemon-verified peer (pid, start, boot, executable) | SEC-1 | `service.py` |
@@ -66,5 +66,5 @@ where it is implemented; "open" means not yet built.
 | 31 | Stage 3: continue a Codex-app thread by copying its rollout into the lane that shares the app's account and calling `thread/fork` | U-F2 | live |
 | 32 | Writable Codex policy refused until the live never-rules test is recorded | SEC-3 | `service.py` |
 | 33 | Ledger R-4 cites C-26.11, C-14.2, C-14.3, C-23.6; M-14 cites C-29.6, C-18.1 | SEC-3, U-F7 | `ledger.json` (done) |
-| 34 | `status.json` windows keyed by (scope, window), never replacing the account window | U-F7 | `status_json.py` |
+| 34 | `status.json` windows keyed by (scope, window), never replacing the account window | U-F7 | `status_json.py` (`scoped_windows`, `claude_earliest_reset`, which skips identity-mismatched lanes as `capacity.identity_blocked`); C-29.6, C-10.6; tests `unit/test_status_json.py`, `frontend/test_status_model.py` |
 | 35 | Load test: 4 concurrent turns at 50 deltas/s keep commits batched and admission latency bounded | F-09 | tests |

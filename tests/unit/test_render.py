@@ -160,3 +160,21 @@ def test_status_shows_quarantined_probe_without_counting_it_as_running_attempt()
     view = build_view([lane(probe_state="quarantined")], now=NOW)
     assert view["in_flight"] == {"codex-1": 0}
     assert "probe=quarantined" in status(view)
+
+
+def test_c26_12_status_lists_conversation_turns_under_their_own_heading():
+    """C-26.12 (IR-19): a turn holds a lane slot, so it is shown, but never as a running or waiting job."""
+    jobs = [{"job_id": "detached", "kind": "dispatch", "state": "running"},
+            {"job_id": "turn-live", "kind": "turn", "state": "running"},
+            {"job_id": "turn-waiting", "kind": "turn", "state": "waiting", "wait_reason": "capacity"},
+            {"job_id": "turn-done", "kind": "turn", "state": "succeeded"}]
+    attempts = [{"attempt_id": "detached/a1", "job_id": "detached", "lane_id": "codex-1",
+                 "model_requested": "gpt-6-astra", "state": "running"},
+                {"attempt_id": "turn-live/a1", "job_id": "turn-live", "lane_id": "codex-1",
+                 "model_requested": "gpt-6-astra", "state": "running"}]
+    result = status(build_view([lane()], attempts=attempts, jobs=jobs, now=NOW))
+    running, turns = result.split("\nRunning jobs\n")[1].split("\nConversation turns\n")
+    assert "detached/a1" in running and "turn-" not in running and "Waiting jobs" not in running
+    assert "turn-live/a1" in turns and "turn-waiting" in turns and "waiting (capacity)" in turns
+    assert "turn-done" not in result
+    assert "Conversation turns" not in status(build_view([lane()], jobs=jobs[:1], now=NOW))

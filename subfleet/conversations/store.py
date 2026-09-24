@@ -686,6 +686,94 @@ class ConversationStore:
         return True
 
 
+#: C-29.6: how many conversations `status.json` lists; its counts cover every one.
+STATUS_ITEMS = 20
+STATUS_TITLE_CHARS = 200
+_OPEN_STATES = (QUEUED, *LIVE_STATES)
+
+
+def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: float = 0.5) -> dict:
+    """C-29.6, D-26: conversation counts and a bounded list for `status.json`.
+
+    Read through a connection of its own, opened read-only (`mode=ro`,
+    `query_only`), never the `ConversationStore`'s, so the timer thread that
+    publishes `status.json` takes neither that store's lock nor a write lock, and
+    the control loop and request threads never wait for it. All reads are one
+    read transaction, so the counts and the list are one snapshot. A file that
+    is not there is no conversations; one that cannot be read, or has a newer
+    schema, is `available: false` with the error's type (a SQLite or an OS
+    exception's name, or `schema`), never zeros. "Not there" is only what `stat`
+    reports as `FileNotFoundError`: a root this reader may not search raises
+    `PermissionError`, which `Path.exists` would have read as no file and so as
+    zeros nobody observed.
+
+    Counted over conversations not archived: `active` has a message queued or in
+    a live state (C-24.4), `needs_approval` has a pending approval, `blocked`
+    has `blocked_by` set. Listed: those three kinds only, those needing
+    approval first, then blocked, then the rest, newest update first and,
+    between equal updates, the later-created conversation first (an id begins
+    with its creation millisecond, `new_id`), at most `limit`. A listed
+    conversation's `state` is `approval-needed` or `blocked` when it is either,
+    else its live message's state, else `queued`.
+    """
+    counts = {"active": 0, "needs_approval": 0, "blocked": 0}
+    path = Path(root) / "conversations.sqlite3"
+    open_marks, live_marks = ",".join("?" * len(_OPEN_STATES)), ",".join("?" * len(LIVE_STATES))
+    try:
+        path.stat()
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=timeout_s,
+                             isolation_level=None)
+    except FileNotFoundError:
+        return {"available": True, "counts": counts, "items": [], "truncated": False}
+    except (sqlite3.Error, OSError) as exc:
+        return {"available": False, "error": type(exc).__name__}
+    try:
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        db.execute("BEGIN")
+        version = db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+        if version is not None and version > SCHEMA_VERSION:
+            return {"available": False, "error": "schema"}
+        row = db.execute(
+            "SELECT "
+            "(SELECT COUNT(*) FROM conversations c WHERE c.archived_at IS NULL AND EXISTS "
+            f" (SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id AND m.state IN ({open_marks}))),"
+            "(SELECT COUNT(DISTINCT a.conversation_id) FROM approvals a JOIN conversations c "
+            " USING(conversation_id) WHERE a.state='pending' AND c.archived_at IS NULL),"
+            "(SELECT COUNT(*) FROM conversations WHERE archived_at IS NULL AND blocked_by IS NOT NULL)",
+            _OPEN_STATES).fetchone()
+        counts = {"active": row[0], "needs_approval": row[1], "blocked": row[2]}
+        rows = db.execute(
+            "SELECT c.conversation_id, c.provider, c.title, c.blocked_by, c.updated_at, "
+            "(SELECT COUNT(*) FROM approvals a WHERE a.conversation_id=c.conversation_id "
+            " AND a.state='pending') AS pending_approvals, "
+            "(SELECT m.state FROM messages m WHERE m.conversation_id=c.conversation_id "
+            f" AND m.state IN ({live_marks}) ORDER BY m.seq LIMIT 1) AS live_state, "
+            "EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id "
+            " AND m.state='queued') AS queued "
+            "FROM conversations c WHERE c.archived_at IS NULL AND (c.blocked_by IS NOT NULL "
+            f" OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id AND m.state IN ({open_marks})) "
+            " OR EXISTS (SELECT 1 FROM approvals a WHERE a.conversation_id=c.conversation_id AND a.state='pending')) "
+            "ORDER BY CASE WHEN pending_approvals > 0 THEN 0 WHEN c.blocked_by IS NOT NULL THEN 1 ELSE 2 END, "
+            "c.updated_at DESC, c.conversation_id DESC LIMIT ?",
+            (*LIVE_STATES, *_OPEN_STATES, max(0, int(limit)) + 1)).fetchall()
+        db.execute("COMMIT")
+    except (sqlite3.Error, OSError) as exc:
+        return {"available": False, "error": type(exc).__name__}
+    finally:
+        db.close()
+    items = []
+    for row in rows[:max(0, int(limit))]:
+        state = ("approval-needed" if row["pending_approvals"] else "blocked" if row["blocked_by"]
+                 else row["live_state"] or (QUEUED if row["queued"] else "idle"))
+        title = row["title"]
+        items.append({"conversation_id": row["conversation_id"], "provider": row["provider"],
+                      "title": title[:STATUS_TITLE_CHARS] if isinstance(title, str) else None,
+                      "state": state, "blocked_by": row["blocked_by"],
+                      "pending_approvals": row["pending_approvals"], "updated_at": row["updated_at"]})
+    return {"available": True, "counts": counts, "items": items, "truncated": len(rows) > len(items)}
+
+
 def _decode_conversation(row: dict) -> dict:
     out = dict(row)
     out["settings"] = json.loads(out.pop("settings_json"))

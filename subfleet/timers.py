@@ -203,9 +203,33 @@ class Timers:
             self.store.add_event('reset-credit.balance', lane_id=lane_id, data=balance)
             self.balances[lane_id] = balance
         self.store.add_event('timer.reset-credit', data=result)
-        from .status_json import write_status
-        write_status(self.root, self.snapshot(), now=self.now())
+        self.publish_status(self.snapshot())
         return result
+
+    def publish_status(self, snapshot):
+        """C-18.1, C-18.2, C-29.6: the one way `status.json` is written.
+
+        Runs on a timer worker, never the control loop or a request thread. It
+        adds what the snapshot lacks: batch labels for the displayed jobs, the
+        conversation summary (read through its own read-only connection,
+        `conversations.store.status_summary`), and the policy's short name for
+        each Claude model id, which labels model-scoped windows.
+
+        The conversation reader never stops the file being written: it answers
+        a store it cannot read with `available: false`, and anything it raises
+        instead is published the same way, under the exception's name (C-29.6:
+        unknown, never zeros), so lanes and jobs still reach the menu.
+        """
+        from .conversations.store import status_summary
+        from .status_json import attach_batches, write_status
+        attach_batches(self.store, snapshot)
+        try:
+            snapshot['conversations'] = status_summary(self.root)
+        except Exception as exc:   # noqa: BLE001 - the file must still be written
+            snapshot['conversations'] = {'available': False, 'error': type(exc).__name__}
+        snapshot['model_names'] = {entry['id']: short for short, entry in self.policy.get('models', {}).items()
+                                   if isinstance(entry, dict) and entry.get('id')}
+        return write_status(self.root, snapshot, now=self.now())
 
     def stop(self):
         with self._lock:
@@ -532,9 +556,7 @@ class Timers:
         snapshot['offline'] = offline
         self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
-        from .status_json import attach_batches, write_status
-        attach_batches(self.store, snapshot)
-        write_status(self.root, snapshot, now=self.now())
+        self.publish_status(snapshot)
         self.store.add_event('timer.cycle', data={'offline': offline, 'at': iso(self.now()),
                              'lanes': [lane.lane_id for lane, _ in results]})
         return snapshot
