@@ -414,14 +414,41 @@ needs approval, or becomes `delivery-unknown` while its conversation is not
 focused posts a local notification; the Dock badge counts pending approvals.
 
 **D-25. Changes are shown per turn and per conversation.** At the start and
-end of each writable turn in a git workspace the daemon writes the working
-tree as a tree object through a temporary index (the C-6.8 fast snapshot),
-creating no ref. `turn.diff` returns the file list, stats and unified diff
-between them (bounded, on the history pool); `conversation.diff` compares the
-conversation's base to now. The app shows a Changes pane with Reveal in
-Finder and Open in editor, and never commits, pushes or merges. A worktree
-conversation offers explicit "Open PR" and "Remove worktree" (refused while
-dirty) (review U-F13).
+end of each writable turn (any permission but `read-only`) in a workspace that
+is a git checkout with a commit, the daemon writes the working tree as a tree
+object through a temporary index (the C-6.8 fast snapshot,
+`salvage.working_tree`), creating no ref and leaving HEAD, the real index and
+the files alone. The start snapshot is the one admission already takes for
+every writable job and keeps as the attempt's `baseline_tree`; the end one is
+taken at finalization, before the turn's leases are released, so no other
+writer's work lands between the turn and it (`daemon._turn_trees`, receipt
+`<attempt>/trees.json`, also copied into the attempt's evidence as
+`turn_trees` with HEAD before and after). A transient git failure at the end is retried up to
+three times by the finalization worker; then the failure is recorded and
+finalization goes on without an end snapshot. The conversation store keeps
+both per attempt (`turn_trees`, §3), so a diff outlives the turn job's
+retention.
+
+`turn.diff` compares a message's latest turn attempt's start and end
+snapshots; before the end snapshot exists it compares the start with the
+working tree now and says so (`to.live: true`). `conversation.diff` compares
+the start snapshot of the conversation's first writable turn with the working
+tree now, so it also shows what the person changed between turns, which a
+finished turn's `turn.diff` leaves out. Both run on the file pool `conversation.history` uses
+(C-25.3), read git's plumbing (`diff-tree` with no external diff driver or
+textconv filter), and return at most 1,000 files and 512 KiB of unified diff,
+cut at a line with `truncated: true`; the stats count every file (they say
+`complete: false` only when git's file listing itself passes 4 MiB); the diff
+text passes the handoff scrubber (C-25.5). A result with nothing to compare has
+the same shape with `available: false` and a reason: `no-turn`,
+`read-only-turn`, `no-snapshot` (not a git checkout with a commit),
+`snapshot-failed`, or `snapshot-pruned` (the snapshots are unreferenced
+objects, which git prunes after `gc.pruneExpire`, two weeks by default).
+Implemented in `subfleet/conversations/diff.py`.
+
+The app shows a Changes pane with Reveal in Finder and Open in editor, and
+never commits, pushes or merges. A worktree conversation offers explicit
+"Open PR" and "Remove worktree" (refused while dirty) (review U-F13).
 
 **D-26. Detached work keeps its own place.** Turn jobs carry `kind` in
 `status.json` and `list`; the menu panel groups them by conversation ("3
@@ -440,7 +467,12 @@ per Claude account the five-hour, weekly and every model-scoped weekly window
 
 ## 3. Data model
 
-`conversations.sqlite3` (D-4), schema version 1, created on first use:
+`conversations.sqlite3` (D-4), schema version 2, created on first use. An
+older store is carried forward in place, one numbered step at a time in one
+transaction, as the main store is (C-3.1); a store newer than the build is
+refused. Version 2 added `turn_trees` (D-25). The listing below is the design's
+core; `subfleet/conversations/store.py` is the full schema (it also keeps a
+`changes` feed for `conversation.watch` and a conversation `request_id`).
 
 ```sql
 CREATE TABLE conversations (
@@ -512,6 +544,13 @@ CREATE TABLE events (
   UNIQUE (attempt_id, source, position, ordinal)
 );
 CREATE TABLE floors (conversation_id TEXT PRIMARY KEY, compacted_through INTEGER NOT NULL);
+CREATE TABLE turn_trees (                     -- schema 2 (D-25), one row per turn attempt
+  attempt_id TEXT PRIMARY KEY, message_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+  workspace TEXT NOT NULL, writable INTEGER NOT NULL,
+  head_before TEXT, start_tree TEXT,          -- at admission: the attempt's baseline_tree
+  head_after TEXT, end_tree TEXT,             -- at finalization, leases still held
+  error TEXT, started_at TEXT NOT NULL, ended_at TEXT
+);
 ```
 
 Driver output is persisted in batches: at most one transaction per attempt
@@ -553,12 +592,14 @@ if it is still null.
 All new ops are protocol `v: 1`; `PROTOCOL_VERSION` does not change. Errors
 use `Exit` codes and `ok:false`. Handlers validate, write at most one
 transaction per store, wake the control loop and return; none waits on a
-provider, a probe, `ps`, git, or a catalog scan. Person-only ops (D-8) are
+provider, a probe, `ps`, git, or a catalog scan, except the two diff ops, which
+run git on the file pool with `conversation.history` and `attachment.add`,
+never on the pool the other ops use (C-25.3, D-25). Person-only ops (D-8) are
 marked †.
 
 | Op | Arguments → result |
 |---|---|
-| `capabilities` | `{}` → `{protocol:1, daemon_version, conversation_schema:1, capabilities:[…], limits:{…}}`. A daemon without it answers "unknown op"; the client then sends no conversation op. |
+| `capabilities` | `{}` → `{protocol:1, daemon_version, conversation_schema:1, capabilities:[…], limits:{…}, codex_writable}`. A daemon without it answers "unknown op"; the client then sends no conversation op. `conversation_schema` versions the ops' shapes, not the store (§3): an added op is a capability (`diff.v1` for the two diff ops, with `limits.diff_bytes` and `limits.diff_files`), not a new schema. |
 | `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem]}}` |
 | `conversation.open` | `{conversation_id}` or `{native:{provider, session_id, home?}}` → `{conversation, messages (latest 50), events_cursor, pending_approvals}`. Opening a native session creates its row once, applying D-9's mapping. |
 | `conversation.create` | `{request_id, provider, workspace, workspace_kind, allow_main†, title?, settings}` → `{conversation, created}` |
@@ -578,8 +619,8 @@ marked †.
 | `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
 | `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, pending_approvals}], next}` (D-24) |
 | `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
-| `turn.diff` | `{message_id, path?}` → `{files:[{path, status, additions, deletions}], diff, truncated}` (D-25) |
-| `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` |
+| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names one file relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
+| `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` without `message_id`; `from` is the conversation's first writable turn's start, `to` the working tree now |
 
 Receipt: `{message_id, conversation_id, seq, origin, state, state_reason,
 created, settings, served, stop_requested, updated_at}`.

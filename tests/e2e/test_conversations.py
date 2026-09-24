@@ -276,6 +276,10 @@ def test_a_turn_that_ends_without_a_result_blocks_the_conversation_until_a_perso
     import time
     time.sleep(1.0)
     assert conv.message(nxt)["state"] == "queued"
+    # C-26.13: a queued message has no turn yet; the unfinished turn still has its changes (none).
+    assert conv.call("turn.diff", message_id=nxt)["reason"] == "no-turn"
+    unfinished = conv.call("turn.diff", message_id=mid)
+    assert unfinished["available"] and unfinished["files"] == []
     refused = conv.as_agent("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
     assert not refused["ok"]
     unblocked = conv.as_person("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
@@ -369,3 +373,109 @@ def test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice(conv)
     kinds = [e["kind"] for e in conv.events(cid)]
     assert kinds.count("approval.requested") == 1 and kinds.count("turn.completed") == 1
     assert conv.attempt(mid)["outcome_class"] == "ok"
+
+
+def workspace_git(e2e, *args) -> str:
+    return subprocess.run(["git", "-C", str(e2e.workdir), *args], env=e2e.env, capture_output=True, text=True,
+                          check=True).stdout
+
+
+def changed(result: dict) -> dict:
+    return {f["path"]: (f["status"], f["additions"], f["deletions"]) for f in result["files"]}
+
+
+def test_each_turn_and_the_whole_conversation_show_their_changes(conv):
+    """C-26.13, C-26.10, C-25.3, design D-25: a writable turn is bracketed by two
+    working-tree snapshots; `turn.diff` shows that turn's changes and nothing the person
+    did between turns; `conversation.diff` shows everything since the first turn began;
+    HEAD, the real index and the refs are untouched, and no salvage ref is written."""
+    e2e = conv.e2e
+    head = workspace_git(e2e, "rev-parse", "HEAD").strip()
+    index = (e2e.workdir / ".git" / "index").read_bytes()
+    refs = workspace_git(e2e, "for-each-ref")
+    cid = conv.create()
+    first = conv.submit(cid, "edit two files [fake:write]")
+    assert conv.until_state(first, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    attempt = conv.attempt(first)
+    one = conv.call("turn.diff", message_id=first)
+    t1 = first[:8]
+    assert one["available"] and one["to"]["live"] is False and one["root"] == str(e2e.workdir)
+    assert changed(one) == {f"fake-{t1}.txt": ("added", 3, 0), "tracked.txt": ("modified", 1, 0)}
+    assert f"+edited by {t1}\n" in one["diff"] and not one["truncated"] and not one["files_truncated"]
+    assert one["from"]["head"] == one["to"]["head"] == head
+    # The receipt records HEAD before and after and both snapshots (C-26.10).
+    assert attempt["baseline_tree"] == one["from"]["tree"]
+    assert json.loads(attempt["evidence_json"])["turn_trees"] == {
+        "head_before": head, "head_after": head, "start_tree": one["from"]["tree"],
+        "end_tree": one["to"]["tree"], "error": None}
+
+    (e2e.workdir / "person.txt").write_text("the person's own edit\n")
+    second = conv.submit(cid, "and more [fake:write]", after_message_id=first)
+    assert conv.until_state(second, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    conv.attempt(second)
+    two = conv.call("turn.diff", message_id=second)
+    t2 = second[:8]
+    assert changed(two) == {f"fake-{t2}.txt": ("added", 3, 0), "tracked.txt": ("modified", 1, 0)}
+    whole = conv.call("conversation.diff", conversation_id=cid)
+    assert whole["available"] and whole["to"]["live"] is True and whole["from"]["message_id"] == first
+    assert changed(whole) == {f"fake-{t1}.txt": ("added", 3, 0), f"fake-{t2}.txt": ("added", 3, 0),
+                              "person.txt": ("added", 1, 0), "tracked.txt": ("modified", 2, 0)}
+    assert whole["stats"] == {"files": 4, "additions": 9, "deletions": 0, "complete": True}
+    only = conv.call("turn.diff", message_id=second, path="tracked.txt")
+    assert list(changed(only)) == ["tracked.txt"] and f"fake-{t2}" not in only["diff"]
+    refused = conv.request("turn.diff", message_id=second, path="../outside")
+    assert not refused["ok"] and refused["error"]["code"] == 2
+
+    assert workspace_git(e2e, "rev-parse", "HEAD").strip() == head
+    assert (e2e.workdir / ".git" / "index").read_bytes() == index
+    assert workspace_git(e2e, "for-each-ref") == refs
+    capabilities = conv.call("capabilities")
+    assert "diff.v1" in capabilities["capabilities"]
+    assert capabilities["limits"]["diff_bytes"] == 512 * 1024 and capabilities["limits"]["diff_files"] == 1000
+
+
+def test_a_running_turns_changes_are_live_until_it_ends(conv):
+    """C-26.13: before a turn's end snapshot, `turn.diff` compares its start with the
+    working tree now and says so; a stopped turn still gets its end snapshot."""
+    cid = conv.create()
+    mid = conv.submit(cid, "write, then keep going [fake:write] [fake:slow]")
+    conv.until_state(mid, "running")
+    tag = mid[:8]
+
+    def live():
+        result = conv.call("turn.diff", message_id=mid)
+        return result if result["available"] and result["files"] else None
+
+    during = conv.e2e.until(live, timeout=20)
+    assert during["to"]["live"] is True
+    assert changed(during) == {f"fake-{tag}.txt": ("added", 3, 0), "tracked.txt": ("modified", 1, 0)}
+    conv.call("turn.interrupt", message_id=mid)
+    assert conv.until_state(mid, "interrupted", "failed", "complete", timeout=20)["state"] == "interrupted"
+    conv.attempt(mid)
+    after = conv.call("turn.diff", message_id=mid)
+    assert after["to"]["live"] is False and changed(after) == changed(during)
+    assert after["to"]["tree"] == during["to"]["tree"]
+
+
+def test_turns_that_cannot_show_changes_say_why(conv):
+    """C-26.13: a read-only turn, a workspace outside git, and a message that has not
+    started a turn each answer `available: false` with the reason, in the same shape."""
+    cid = conv.create(permission="read-only")
+    mid = conv.submit(cid, "look around")
+    assert conv.until_state(mid, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    conv.attempt(mid)
+    read_only = conv.call("turn.diff", message_id=mid)
+    assert (read_only["available"], read_only["reason"]) == (False, "read-only-turn")
+    assert read_only["files"] == [] and read_only["diff"] == "" and read_only["truncated"] is False
+    assert conv.call("conversation.diff", conversation_id=cid)["reason"] == "no-snapshot"
+
+    plain = conv.e2e.root / "plain"
+    plain.mkdir()
+    other = conv.create(workspace=str(plain))
+    wrote = conv.submit(other, "[fake:write]")
+    assert conv.until_state(wrote, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    conv.attempt(wrote)
+    assert (plain / "tracked.txt").read_text() == f"edited by {wrote[:8]}\n"
+    outside = conv.call("turn.diff", message_id=wrote)
+    assert (outside["available"], outside["reason"]) == (False, "no-snapshot")
+    assert conv.call("conversation.diff", conversation_id=other)["reason"] == "no-snapshot"

@@ -10,9 +10,12 @@ reaches the network and never reads a credential: the account's email is
 derived from the fixture token the lane resolves (`tests/fake/profile.py`).
 
 Each user message picks its behaviour with a `[fake:<scenario>]` directive in
-its text:
+its text; `[fake:write]` combines with any other:
 
     (none)            streamed text, then a success result
+    write             first writes `fake-<first 8 of the message uuid>.txt` (three
+                      lines) and appends `edited by <those 8>` to `tracked.txt` in its
+                      working directory, as a turn that edits files does (C-26.13)
     approval          asks to run a Bash command; allow runs it, deny says so
     question          AskUserQuestion; the chosen answers are echoed back
     slow              streams until interrupted; the interrupt ends the turn
@@ -197,8 +200,8 @@ class Fake:
             str(b.get("text") or "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
         images = [b for b in content or [] if isinstance(b, dict) and b.get("type") == "image"] \
             if isinstance(content, list) else []
-        match = DIRECTIVE.search(text)
-        scenario = match.group(1) if match else "reply"
+        directives = DIRECTIVE.findall(text)
+        scenario = next((d for d in directives if d != "write"), "reply")
         self.interrupted.clear()
         if scenario == "exit-before-ack":
             return 1
@@ -213,6 +216,8 @@ class Fake:
                    "fast_mode_state": os.environ.get("SUBFLEET_FAKE_FAST", "on")})
         if scenario == "exit-after-ack":
             return 1
+        if "write" in directives:
+            self.write_files(str(row.get("uuid") or "no-uuid"))
         handler = getattr(self, "scenario_" + scenario.replace("-", "_"), None)
         if handler is None:
             self.say(model, f"fake claude has no scenario {scenario!r}")
@@ -238,6 +243,15 @@ class Fake:
         self.emit({"type": "result", "subtype": subtype, "is_error": not ok, "num_turns": 1, "result": text,
                    "errors": errors or [], "permission_denials": [], "duration_ms": 5})
         return None
+
+    def write_files(self, message_uuid: str) -> None:
+        """Edit the working directory as a writing turn would: one new file, one
+        appended line in an existing one."""
+        tag = message_uuid[:8]
+        cwd = Path(os.getcwd())
+        (cwd / f"fake-{tag}.txt").write_text(f"written by fake claude\nfor message {tag}\nline three\n")
+        with open(cwd / "tracked.txt", "a", encoding="utf-8") as stream:
+            stream.write(f"edited by {tag}\n")
 
     # --- scenarios -------------------------------------------------------------
 

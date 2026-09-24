@@ -24,7 +24,7 @@ from typing import Any, Iterator
 
 from .turn import LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
 EVENT_ROW_MAX = 64 * 1024
 PAGE_BYTES = 256 * 1024
@@ -112,6 +112,38 @@ CREATE TABLE IF NOT EXISTS changes (
   ts TEXT NOT NULL
 );
 """
+
+# Schema 2 (C-26.13, design D-25): a turn's working-tree snapshots, one row per
+# attempt, keyed by the job store's attempt id as `attempt_marks` is. The start
+# is the attempt's `baseline_tree` from the job store; the end is written at
+# finalization.
+TURN_TREES = """
+CREATE TABLE IF NOT EXISTS turn_trees (
+  attempt_id      TEXT PRIMARY KEY,
+  message_id      TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  workspace       TEXT NOT NULL,
+  writable        INTEGER NOT NULL,
+  head_before     TEXT,
+  start_tree      TEXT,
+  head_after      TEXT,
+  end_tree        TEXT,
+  error           TEXT,
+  started_at      TEXT NOT NULL,
+  ended_at        TEXT
+);
+CREATE INDEX IF NOT EXISTS turn_trees_by_message ON turn_trees(message_id, started_at);
+CREATE INDEX IF NOT EXISTS turn_trees_by_conversation ON turn_trees(conversation_id, started_at);
+"""
+SCHEMA += TURN_TREES
+
+#: Each step carries a store of the version before it forward (the main store's
+#: rule, C-3.1). Every statement is idempotent, so an interrupted upgrade re-runs
+#: safely; the whole upgrade is one transaction, so a store is either migrated or
+#: untouched.
+MIGRATIONS: dict[int, tuple[str, ...]] = {
+    2: tuple(statement.strip() for statement in TURN_TREES.split(";") if statement.strip()),
+}
 
 
 class ConversationError(Exception):
@@ -226,10 +258,26 @@ class ConversationStore:
             if version is not None and version > SCHEMA_VERSION:
                 raise ConversationError("schema", f"conversations.sqlite3 is schema {version}; this build knows {SCHEMA_VERSION}",
                                         code=1, fix="install the release that created it")
+            if version is not None and version < SCHEMA_VERSION:
+                self._migrate(version)
             self._db.executescript(SCHEMA)
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
         self.changed = threading.Condition()
+
+    def _migrate(self, version: int) -> None:
+        """Carry an older store forward one numbered step at a time, in one
+        transaction, recording each step (the main store's rule, C-3.1)."""
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            for step in range(version + 1, SCHEMA_VERSION + 1):
+                for statement in MIGRATIONS.get(step, ()):
+                    self._db.execute(statement)
+                self._db.execute("INSERT INTO schema_version VALUES (?,?)", (step, utcnow()))
+        except BaseException:
+            self._db.execute("ROLLBACK")
+            raise
+        self._db.execute("COMMIT")
 
     def close(self) -> None:
         with self._lock:
@@ -601,6 +649,45 @@ class ConversationStore:
             tx.execute("UPDATE attempt_marks SET compacted=1 WHERE attempt_id=?", (attempt_id,))
             return deleted
 
+    # --- a turn's snapshots (C-26.13, design D-25) ------------------------------
+
+    def record_trees(self, *, attempt_id: str, message_id: str, conversation_id: str, workspace: str,
+                     writable: bool, started_at: str, head_before: str | None = None, start_tree: str | None = None,
+                     head_after: str | None = None, end_tree: str | None = None, error: str | None = None,
+                     ended: bool = False) -> None:
+        """Record a turn attempt's start, its end, or both. Idempotent: the start is
+        written once, the end fills in; a replayed record changes nothing."""
+        with self.transaction() as tx:
+            before = tx.execute("SELECT ended_at FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
+            tx.execute(
+                "INSERT INTO turn_trees(attempt_id,message_id,conversation_id,workspace,writable,head_before,start_tree,"
+                "head_after,end_tree,error,started_at,ended_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(attempt_id) DO UPDATE SET "
+                "head_before=COALESCE(turn_trees.head_before,excluded.head_before), "
+                "start_tree=COALESCE(turn_trees.start_tree,excluded.start_tree), "
+                "head_after=COALESCE(turn_trees.head_after,excluded.head_after), "
+                "end_tree=COALESCE(turn_trees.end_tree,excluded.end_tree), "
+                "error=COALESCE(turn_trees.error,excluded.error), "
+                "ended_at=COALESCE(turn_trees.ended_at,excluded.ended_at)",
+                (attempt_id, message_id, conversation_id, workspace, int(bool(writable)), head_before, start_tree,
+                 head_after, end_tree, error, started_at, utcnow() if ended else None))
+            if ended and not (before and before["ended_at"]):
+                # The change feed says this message's changes are final (C-29.9).
+                self._change(tx, conversation_id, message_id, None)
+
+    def turn_trees(self, message_id: str) -> dict | None:
+        """The message's latest turn attempt's snapshots: a re-admitted message's
+        earlier attempts never delivered it (C-26.7), so the latest is the turn."""
+        row = self.one("SELECT * FROM turn_trees WHERE message_id=? ORDER BY started_at DESC, attempt_id DESC LIMIT 1",
+                       (message_id,))
+        return _decode_trees(row) if row else None
+
+    def first_trees(self, conversation_id: str) -> dict | None:
+        """The conversation's base: the start snapshot of its first writable turn."""
+        row = self.one("SELECT * FROM turn_trees WHERE conversation_id=? AND start_tree IS NOT NULL "
+                       "ORDER BY started_at, attempt_id LIMIT 1", (conversation_id,))
+        return _decode_trees(row) if row else None
+
     # --- the change feed (C-29.9) ----------------------------------------------
 
     def _change(self, tx: sqlite3.Connection, conversation_id: str, message_id: str | None, state: str | None,
@@ -641,6 +728,12 @@ def _decode_message(row: dict) -> dict:
     out["attachments"] = json.loads(out.pop("attachments_json"))
     out["served"] = json.loads(out.pop("served_json")) if out.get("served_json") else None
     out["resolution"] = json.loads(out.pop("resolution_json")) if out.get("resolution_json") else None
+    return out
+
+
+def _decode_trees(row: dict) -> dict:
+    out = dict(row)
+    out["writable"] = bool(out["writable"])
     return out
 
 
