@@ -38,8 +38,10 @@ PERMISSION_FLAGS = {
     # to the person instead of letting `-p` deny it (design D-9).
     "bypass": ("--permission-mode", "bypassPermissions", "--permission-prompt-tool", "stdio"),
 }
-# Tools that schedule work for a session that will not exist after the turn (D-15).
-DISALLOWED_TOOLS = ("Monitor", "CronCreate", "ScheduleWakeup", "RemoteTrigger")
+# Tools that schedule work for a session that will not exist after the turn
+# (D-15), and plan mode, whose exit needs an approval kind Subfleet does not
+# offer yet (review IR-24; design §15).
+DISALLOWED_TOOLS = ("Monitor", "CronCreate", "ScheduleWakeup", "RemoteTrigger", "EnterPlanMode", "ExitPlanMode")
 BACKGROUND_CEILING_MS = 120_000
 QUESTION_TOOLS = ("AskUserQuestion",)
 
@@ -258,6 +260,12 @@ class ClaudeTurn:
             return self._end(FAILED, "effort-unsupported",
                              detail=f"{self.spec.model_id} offers {', '.join(effort_levels) or 'no effort levels'}",
                              source=source.next())
+        if self.spec.fast and (body.get("fast_mode_disabled_reason") or body.get("fast_mode_state") != "on"):
+            # IR-23: Fast was asked for and this account will not serve it. Nothing
+            # is sent, so the message can be admitted again elsewhere.
+            return self._end(FAILED, "fast-unavailable",
+                             detail=str(body.get("fast_mode_disabled_reason") or body.get("fast_mode_state")),
+                             source=source.next())
         served = {"account": account, "fast_mode_state": body.get("fast_mode_state"),
                   "fast_mode_disabled_reason": body.get("fast_mode_disabled_reason"),
                   "permission_mode": body.get("current_permission_mode")}
@@ -316,6 +324,10 @@ class ClaudeTurn:
                                   source.next())])
 
     def _system(self, row: dict, source: "_Sources") -> Step:
+        if row.get("subtype") == "notification" and row.get("key") == "fast-mode-overage-rejected":
+            # IR-23: matched on the structured key; the turn continues at standard speed.
+            return Step(events=[Event("served", {"fast_mode_state": "off", "fast_warning": "usage credits exhausted"},
+                                      source.next())])
         if row.get("subtype") != "init":
             return Step()
         step = Step()
@@ -362,6 +374,10 @@ class ClaudeTurn:
 
     def _assistant(self, row: dict, source: "_Sources") -> Step:
         message = row.get("message") or {}
+        if message.get("model") == "<synthetic>" and not is_synthetic_api_error(row):
+            # IR-25: a local placeholder ("No response requested.") is neither the
+            # model's output nor an API error.
+            return Step()
         if is_synthetic_api_error(row):
             text = "".join(b.get("text", "") for b in message.get("content") or [] if isinstance(b, dict))
             if row.get("error") in ("rate_limit", "billing_error"):

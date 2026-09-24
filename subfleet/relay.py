@@ -9,9 +9,13 @@ acknowledged again without being written, and a gap is refused, so a daemon
 that crashes between sending and hearing back can resend safely and the
 provider never reads the same input twice.
 
-The guardian does not interpret provider messages. A frame is either
-`{"seq": n, "op": "write", "line": "<one line>", "tag": "<daemon label>"}` or
-`{"seq": n, "op": "close", "tag": ...}`. `tag` is the daemon's own label for
+The guardian does not interpret provider messages. A frame is
+`{"seq": n, "op": "write", "line": "<one line>", "tag": "<daemon label>"}`,
+`{"seq": n, "op": "close", "tag": ...}`, or `{"seq": n, "op": "signal",
+"sig": "INT", "tag": ...}`, which the guardian delivers to its own child, a
+process it has not reaped and whose pid therefore cannot have been reused
+(design D-13: SIGINT ends a Claude turn where SIGTERM would leave it
+resumable). `tag` is the daemon's own label for
 the frame (for example `user-message` or `approval:ap-…`), logged so a
 rebuilt driver knows what it already sent; the guardian only stores it.
 
@@ -54,14 +58,23 @@ def socket_path(state_root: str | Path, attempt_id: str) -> Path:
     return Path(state_root) / SOCKET_DIR_NAME / f"{digest}.sock"
 
 
+SIGNALS = {"INT": 2}
+
+
 def line_sha256(line: str | None) -> str:
     return hashlib.sha256((line or "").encode("utf-8")).hexdigest()
+
+
+def frame_sha256(op: str, line: str | None = None, sig: str | None = None) -> str:
+    return line_sha256(f"signal:{sig}" if op == "signal" else line if op == "write" else None)
 
 
 def _intent(frame: dict) -> dict:
     line = frame.get("line")
     record = {"kind": "intent", "seq": frame["seq"], "op": frame["op"], "tag": frame.get("tag"),
               "sha256": frame["sha256"]}
+    if frame["op"] == "signal":
+        record["sig"] = frame.get("sig")
     if isinstance(line, str):
         encoded = line.encode("utf-8")
         record["bytes"] = len(encoded)
@@ -142,8 +155,10 @@ class RelayServer:
         self.log_path = Path(log_path)
         self._allowed_peer = allowed_peer
         self._records = read_log(self.log_path)
-        self._closed = any(r.get("op") == "close" or r["status"] != "written" for r in self._records)
+        self._closed = any(r.get("op") == "close" or (r["status"] != "written" and r.get("op") != "signal")
+                           for r in self._records)
         self._pipe: int | None = None
+        self._child = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._server: socket.socket | None = None
@@ -182,9 +197,11 @@ class RelayServer:
         server.settimeout(0.25)
         self._server = server
 
-    def serve(self, pipe_fd: int) -> None:
-        """Start relaying into `pipe_fd` (the child's stdin) on a daemon thread."""
+    def serve(self, pipe_fd: int, child=None) -> None:
+        """Start relaying into `pipe_fd` (the child's stdin) on a daemon thread;
+        `child` is the guardian's own `Popen`, the only process `signal` reaches."""
         self._pipe = pipe_fd
+        self._child = child
         if self._closed:
             self._close_pipe()
         self._thread = threading.Thread(target=self._accept_loop, name="subfleet-relay", daemon=True)
@@ -269,11 +286,13 @@ class RelayServer:
         if not isinstance(frame, dict) or type(frame.get("seq")) is not int or frame["seq"] < 1:
             return {"ok": False, "error": "bad-frame"}
         seq, op, line = frame["seq"], frame.get("op"), frame.get("line")
-        if op not in ("write", "close") or (op == "write" and not isinstance(line, str)):
+        if op not in ("write", "close", "signal") or (op == "write" and not isinstance(line, str)):
             return {"seq": seq, "ok": False, "error": "bad-frame"}
+        if op == "signal" and frame.get("sig") not in SIGNALS:
+            return {"seq": seq, "ok": False, "error": "bad-signal"}
         if op == "write" and ("\n" in line or "\r" in line):
             return {"seq": seq, "ok": False, "error": "newline-in-line"}
-        if frame.get("sha256") != line_sha256(line if op == "write" else None):
+        if frame.get("sha256") != frame_sha256(op, line, frame.get("sig")):
             return {"seq": seq, "ok": False, "error": "bad-hash"}
         with self._lock:
             if seq <= len(self._records):
@@ -281,10 +300,28 @@ class RelayServer:
                 if logged["sha256"] != frame["sha256"] or logged["op"] != op:
                     return {"seq": seq, "ok": False, "error": "conflict"}
                 if logged["status"] != "written":
-                    return {"seq": seq, "ok": False, "error": "failed"}
+                    return {"seq": seq, "ok": False, "error": "no-child" if op == "signal" else "failed"}
                 return {"seq": seq, "ok": True, "dup": True}
             if seq != len(self._records) + 1:
                 return {"seq": seq, "ok": False, "error": "gap", "last": len(self._records)}
+            if op == "signal":
+                # A signal is not stdin: it is allowed after stdin closed, while
+                # the child lives. Logged like any frame, so it is sent once.
+                intent = _intent(frame)
+                self._append(intent)
+                record = {**intent, "status": "pending"}
+                self._records.append(record)
+                child = self._child
+                delivered = False
+                if child is not None and child.poll() is None:
+                    try:
+                        child.send_signal(SIGNALS[frame["sig"]])
+                        delivered = True
+                    except OSError:
+                        pass
+                record["status"] = "written" if delivered else "failed"
+                self._append({"kind": "written" if delivered else "failed", "seq": seq})
+                return {"seq": seq, "ok": delivered, **({} if delivered else {"error": "no-child"})}
             if self._closed or self._pipe is None:
                 return {"seq": seq, "ok": False, "error": "closed"}
             intent = _intent(frame)
@@ -373,10 +410,13 @@ class RelayClient:
         self._sock = sock
         self._reader = sock.makefile("rb")
 
-    def send(self, seq: int, op: str, *, line: str | None = None, tag: str | None = None) -> Ack:
-        frame: dict = {"seq": seq, "op": op, "tag": tag, "sha256": line_sha256(line)}
+    def send(self, seq: int, op: str, *, line: str | None = None, tag: str | None = None,
+             sig: str | None = None) -> Ack:
+        frame: dict = {"seq": seq, "op": op, "tag": tag, "sha256": frame_sha256(op, line, sig)}
         if line is not None:
             frame["line"] = line
+        if sig is not None:
+            frame["sig"] = sig
         payload = (json.dumps(frame, separators=(",", ":")) + "\n").encode("utf-8")
         try:
             self._connect()

@@ -50,7 +50,7 @@ def test_argv_carries_resume_model_effort_and_the_permission_policy():
                             "--verbose", "--include-partial-messages", "--replay-user-messages",
                             "--model", "opus", "--effort", "high", "--resume", SID,
                             "--permission-mode", "default", "--permission-prompt-tool", "stdio",
-                            "--disallowedTools", "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger",
+                            "--disallowedTools", "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger,EnterPlanMode,ExitPlanMode",
                             "--settings", '{"disableAllHooks":false}']
     bypass = argv(spec(permission="bypass", native_session_id=None, new_session_id=SID, fast=True, effort=None))
     # C-26.11: every writable mode keeps the user's hooks on and routes interaction prompts to the person.
@@ -301,3 +301,27 @@ def test_output_after_result_is_kept_without_changing_the_outcome():
     assert [e.kind for e in late.events] == ["text"] and late.frames == [] and late.outcome is None
     again = turn.feed(line(type="result", subtype="error_during_execution", is_error=True), 11)
     assert again.outcome is None and turn.outcome.state == "complete"
+
+
+def test_fast_that_the_account_will_not_serve_fails_before_sending():
+    """IR-23, C-26.8 Fast asked for, `initialize` says off: nothing is sent."""
+    turn = ClaudeTurn(spec(fast=True), read_bytes=lambda p: b"")
+    step = started(turn)
+    assert step.outcome.reason == "fast-unavailable" and not step.outcome.accepted
+    assert all(f.tag != "user-message" for f in step.frames)
+
+
+def test_non_error_synthetic_rows_are_ignored():
+    """IR-25 a local placeholder is neither text nor an error nor a model mismatch."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    step = turn.feed(line(type="assistant", isApiErrorMessage=False, message={
+        "model": "<synthetic>", "content": [{"type": "text", "text": "No response requested."}]}), 5)
+    assert step.events == [] and step.outcome is None
+
+
+def test_plan_mode_tools_are_off_in_writable_turns():
+    """IR-24 a writable turn cannot enter plan mode it has no way to leave."""
+    for permission in ("ask", "accept-edits", "bypass"):
+        command = argv(spec(permission=permission))
+        assert "EnterPlanMode" in command[command.index("--disallowedTools") + 1]

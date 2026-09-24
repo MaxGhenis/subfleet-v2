@@ -110,7 +110,7 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                     raise
                 finally:
                     os.close(read_end)
-                relay.serve(write_end)
+                relay.serve(write_end, child=child)
                 try:
                     rc = child.wait()
                 finally:
