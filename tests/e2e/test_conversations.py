@@ -269,8 +269,10 @@ def test_a_conversations_session_is_refused_by_resume_revive_and_the_sessions_ki
     """C-26.3, C-26.13 through the real CLI and daemon: after one turn the
     `sessions` op reports the session as a conversation's (not a lane's);
     `subfleet resume` of the turn job, `sessions revive`, `sessions continue`
-    and `handoff` naming the session are each refused with exit 7, and each
-    fix names the Subfleet app. Nothing is submitted."""
+    in the interrupted and cold scopes (revive and handoff), v1's `subfleet
+    revive <id>` through the front door, and `handoff` naming the session are
+    each refused with exit 7, and each fix names the Subfleet app. Nothing is
+    submitted."""
     cid = conv.create()
     mid = conv.submit(cid, "hello there")
     assert conv.until_state(mid, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
@@ -291,6 +293,15 @@ def test_a_conversations_session_is_refused_by_resume_revive_and_the_sessions_ki
     assert nudged.rc == 7 and "Subfleet app" in nudged.stderr, nudged
     handed = e2e.cli("handoff", session, "--to", "opus", "--dry-run")
     assert handed.rc == 7 and "Subfleet app" in handed.stderr, handed
+    cold = e2e.cli("sessions", "continue", "--scope", "cold", session, "--revive", "--force")
+    assert cold.rc == 7 and "Subfleet app" in cold.stderr, cold
+    cold_handoff = e2e.cli("sessions", "continue", "--scope", "cold", "--session", session,
+                           "--handoff", "--to", "opus")
+    assert cold_handoff.rc == 7 and "Subfleet app" in cold_handoff.stderr, cold_handoff
+    front_door = subprocess.run([str(Path(sys.executable).parent / "subfleet"), "revive", session,
+                                 "--revive"], env=e2e.env, input="", capture_output=True,
+                                text=True, timeout=60)
+    assert front_door.returncode == 7 and "Subfleet app" in front_door.stderr, front_door
     assert e2e.rows("SELECT COUNT(*) AS n FROM jobs")[0]["n"] == before
     assert e2e.rows("SELECT * FROM service_notices WHERE session_id=?", (session,)) == []
 

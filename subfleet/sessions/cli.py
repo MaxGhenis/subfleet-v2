@@ -174,8 +174,61 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 # --- sessions continue / tickle / muster / revive ------------------------------
 
+#: C-23.31: where a lane run's work is, since the lane itself is never continued.
+LANE_FIX = ("a lane's deliverable is its last message; "
+            "`subfleet runs show <job>` for what it produced")
+
+
 def _scope_of(args: argparse.Namespace) -> str:
     return getattr(args, "scope", None) or "interrupted"
+
+
+def _named(args: argparse.Namespace) -> list[str]:
+    """The sessions a request names: positional ids and `--session`."""
+    named = [value for value in (getattr(args, "sessions", None) or []) if value]
+    if getattr(args, "session", None):
+        named.append(args.session)
+    return named
+
+
+def _fenced_refusal(verb: str, named: Sequence[str], *, conversations: Sequence[str],
+                    lanes: Sequence[str], quiet: bool = False) -> int | None:
+    """C-23.31, C-26.13: exit 7 when every session a request named is one the
+    kit never continues, else None.
+
+    A sweep that merely passed over a lane run or a conversation's session
+    reports 0 — its exit code says whether the sweep ran, not whether every
+    session qualified — but a person who named only such sessions asked a
+    question whose answer is a refusal, and gets the reason and the fix on
+    stderr (none under `--json`, where stdout already carries the rows).
+    """
+    wanted = set(named)
+    if not wanted:
+        return None
+    bound = [item for item in dict.fromkeys(conversations) if item in wanted]
+    lane_runs = [item for item in dict.fromkeys(lanes) if item in wanted and item not in bound]
+    if not wanted <= set(bound) | set(lane_runs):
+        return None
+    if quiet:
+        return int(Exit.REFUSED)
+    fixes = ([registry.CONVERSATION_FIX] if bound else []) + ([LANE_FIX] if lane_runs else [])
+    return fail(Exit.REFUSED,
+                f"{verb}: " + ", ".join(
+                    [f"{item[:8]} is a headless lane run" for item in lane_runs]
+                    + [f"{item[:8]} is {registry.CONVERSATION_REASON}" for item in bound]),
+                "; ".join(fixes))
+
+
+def _fence_of(candidate: "revive_module.Candidate | None") -> str | None:
+    """Which C-26.13 or C-23.31 fence holds a revive candidate, checked in
+    `revive.admits`' order (a conversation's first)."""
+    if candidate is None:
+        return None
+    if candidate.conversation:
+        return "conversation"
+    if candidate.lane:
+        return "lane"
+    return None
 
 
 @_guard
@@ -194,9 +247,7 @@ def cmd_continue(args: argparse.Namespace) -> int:
         return _continue_cold(args)
     sessions = _sessions(args)
     policy = _policy(args)
-    named = [value for value in (getattr(args, "sessions", None) or []) if value]
-    if getattr(args, "session", None):
-        named.append(args.session)
+    named = _named(args)
     source = getattr(args, "source", None)
     # v1's `cmd_tickle`: with neither `--all` nor `--session`, it surveyed and
     # sent nothing. That is not a safety flourish — it is "you named no target",
@@ -211,34 +262,23 @@ def cmd_continue(args: argparse.Namespace) -> int:
         dry_run=bool(getattr(args, "dry_run", False)) or survey,
         delay_s=getattr(args, "delay", None), manual=source is None,
         caller=_cli().session_id())
-    # C-23.31, C-26.13: a request naming a headless lane run or a conversation's
-    # session is refused with the reason. A sweep that merely passed over one
-    # reports 0 — its exit code says whether the sweep ran, not whether every
-    # session qualified — but a person who named one asked a question that has
-    # a refusal for an answer.
-    lanes = [item for item in report.outcomes if item.session_id in set(named)
-             and "headless lane run" in item.reason]
-    bound = [item for item in report.outcomes if item.session_id in set(named)
-             and item.reason.startswith(registry.CONVERSATION_REASON)]
-    refused = len(lanes) + len(bound)
+    # C-23.31, C-26.13: a request naming only headless lane runs or
+    # conversations' sessions is refused with the reason (`_fenced_refusal`).
+    lanes = [item.session_id for item in report.outcomes
+             if "headless lane run" in item.reason]
+    bound = [item.session_id for item in report.outcomes
+             if item.reason.startswith(registry.CONVERSATION_REASON)]
     if args.json:
         emit(report.to_dict())
-        return int(Exit.REFUSED if named and refused == len(named) else Exit.OK)
+        refused = _fenced_refusal("sessions continue", named, conversations=bound,
+                                  lanes=lanes, quiet=True)
+        return int(Exit.OK) if refused is None else refused
     out(nudge_module.render(report))
     if survey:
         note("subfleet sessions: a survey, because no session was named "
              "(`--all` nudges every interrupted session)")
-    if named and refused == len(named):
-        lane_fix = ("a lane's deliverable is its last message; "
-                    "`subfleet runs show <job>` for what it produced")
-        fixes = ([registry.CONVERSATION_FIX] if bound else []) + ([lane_fix] if lanes else [])
-        return fail(Exit.REFUSED,
-                    "sessions continue: " + ", ".join(
-                        [f"{item.session_id[:8]} is a headless lane run" for item in lanes]
-                        + [f"{item.session_id[:8]} is {registry.CONVERSATION_REASON}"
-                           for item in bound]),
-                    "; ".join(fixes))
-    return int(Exit.OK)
+    refused = _fenced_refusal("sessions continue", named, conversations=bound, lanes=lanes)
+    return int(Exit.OK) if refused is None else refused
 
 
 def _continue_cold(args: argparse.Namespace) -> int:
@@ -254,12 +294,10 @@ def _continue_cold(args: argparse.Namespace) -> int:
     """
     sessions = _sessions(args)
     policy = _policy(args)
-    named = [value for value in (getattr(args, "sessions", None) or []) if value]
-    if getattr(args, "session", None):
-        named.append(args.session)
+    named = _named(args)
     candidates = revive_module.cold_candidates(sessions, policy, only=named)
     if getattr(args, "handoff", False):
-        return _continue_cold_by_handoff(args, sessions, policy, candidates)
+        return _continue_cold_by_handoff(args, sessions, policy, candidates, named)
     opt_in = bool(getattr(args, "revive", False))
     cap = getattr(args, "max", None)
     batch = int(cap if cap is not None
@@ -282,50 +320,89 @@ def _continue_cold(args: argparse.Namespace) -> int:
             request_id=request_id)
         attempts.append(attempt)
         launched += int(attempt.admitted)
+    # C-26.13 (and C-23.31): naming only sessions the kit never continues is
+    # refused with exit 7, as in the other scopes. `revive` re-inspects each
+    # session, so its own candidate is the one the refusal was decided on.
+    held = [(item.session_id, _fence_of(item.candidate)) for item in attempts
+            if not item.admitted]
+    bound = [session for session, fence in held if fence == "conversation"]
+    lanes = [session for session, fence in held if fence == "lane"]
     if args.json:
         emit({"scope": "cold", "revive": opt_in,
               "sessions": [item.to_dict() for item in attempts]})
-        return int(Exit.OK)
+        refused = _fenced_refusal("sessions continue --scope cold", named,
+                                  conversations=bound, lanes=lanes, quiet=True)
+        return int(Exit.OK) if refused is None else refused
     out(revive_module.render(attempts))
     if not opt_in and any(not item.admitted and item.fix == revive_module.OPT_IN_FIX
                           for item in attempts):
         note("subfleet sessions: automatic revival of desktop-owned sessions is off "
              "(sessions.auto_revive_desktop_owned)")
         note(f"  fix: {revive_module.OPT_IN_FIX}")
-    return int(Exit.OK)
+    refused = _fenced_refusal("sessions continue --scope cold", named,
+                              conversations=bound, lanes=lanes)
+    return int(Exit.OK) if refused is None else refused
 
 
 def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
-                              candidates) -> int:
+                              candidates, named: Sequence[str] = ()) -> int:
     """`--scope cold --handoff --to <model>`: one brief per cold session.
 
     The recovery plan decision 7 calls the default, made explicit. Each brief is
     an ordinary submission (C-23.54) whose completion notice comes back to the
     caller, so the operator sees them in `subfleet runs --mine`.
+
+    Two fences, as `subfleet handoff` has them (C-26.13, C-23.31): a candidate
+    the census marked a conversation's, a lane's or retired is held here, and
+    `handoff` itself checks the canonical session id against the daemon's own
+    lists, read now, so a spelling the census did not match, or a session that
+    became a conversation's since, is refused there. A refusal holds that one
+    session; the rest of the batch still goes.
     """
     cli = _cli()
     cap = getattr(args, "max", None)
     batch = int(cap if cap is not None
                 else policy.get("sessions", {}).get("revive_max_batch", 8))
+    facts = sessions.state([])
+    conversation_ids = registry.conversation_ids_of(facts)
+    lane_ids = [item for item in (facts.get("lane_sessions") or [])
+                if isinstance(item, str) and item]
     rows: list[dict[str, Any]] = []
-    conversation_ids = {candidate.session_id for candidate in candidates
-                        if candidate.conversation}
+    bound: list[str] = []
+    lanes: list[str] = []
     for candidate in candidates[:batch]:
-        if candidate.conversation or candidate.lane or candidate.retired:
+        fence = _fence_of(candidate)
+        if fence or candidate.retired:
             rows.append({"session_id": candidate.session_id, "job_id": None,
-                         "reason": (registry.CONVERSATION_REASON if candidate.conversation
-                                    else "headless lane run" if candidate.lane
-                                    else "retired by the operator")})
+                         "reason": (registry.CONVERSATION_REASON if fence == "conversation"
+                                    else "headless lane run" if fence == "lane"
+                                    else "retired by the operator"),
+                         "fix": (registry.CONVERSATION_FIX if fence == "conversation"
+                                 else LANE_FIX if fence == "lane"
+                                 else f"subfleet sessions unretire {candidate.session_id}")})
+            if fence == "conversation":
+                bound.append(candidate.session_id)
+            elif fence == "lane":
+                lanes.append(candidate.session_id)
             continue
         request_id = str(uuid.uuid4())
-        result = handoff_module.handoff(
-            sessions, policy, session_id=candidate.session_id, last=False,
-            model=args.target, stage_prompt=_stage(args, request_id),
-            workdir=candidate.cwd, task=getattr(args, "task", None),
-            tier=getattr(args, "tier", None), caller_session=cli.session_id(),
-            caller_pid=cli.caller_pid(), request_id=request_id,
-            conversation_ids=conversation_ids,
-            dry_run=bool(getattr(args, "dry_run", False)))
+        try:
+            result = handoff_module.handoff(
+                sessions, policy, session_id=candidate.session_id, last=False,
+                model=args.target, stage_prompt=_stage(args, request_id),
+                workdir=candidate.cwd, task=getattr(args, "task", None),
+                tier=getattr(args, "tier", None), caller_session=cli.session_id(),
+                caller_pid=cli.caller_pid(), request_id=request_id,
+                lane_ids=lane_ids, conversation_ids=conversation_ids,
+                dry_run=bool(getattr(args, "dry_run", False)))
+        except handoff_module.HandoffError as exc:
+            if exc.code != int(Exit.REFUSED):
+                raise                   # a bad id or transcript is the request's error
+            conversation = exc.fix == registry.CONVERSATION_FIX
+            (bound if conversation else lanes).append(candidate.session_id)
+            rows.append({"session_id": candidate.session_id, "job_id": None,
+                         "reason": str(exc), "fix": exc.fix})
+            continue
         rows.append({"session_id": candidate.session_id, "job_id": result.job_id,
                      "reason": f"handed off to {args.target}",
                      "redactions": result.brief.redactions,
@@ -334,13 +411,19 @@ def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
     if args.json:
         emit({"scope": "cold", "handoff": args.target, "sessions": rows,
               "not_attempted": dropped})
-        return int(Exit.OK)
+        refused = _fenced_refusal("sessions continue --scope cold --handoff", named,
+                                  conversations=bound, lanes=lanes, quiet=True)
+        return int(Exit.OK) if refused is None else refused
     for row in rows:
         out(f"  {row['job_id'] or '-':<24} {row['session_id'][:8]}  {row['reason']}")
+        if row.get("fix"):
+            out(f"  {'':<24} {'':<8}  fix: {row['fix']}")
     if dropped:
         note(f"subfleet sessions: {dropped} more cold sessions were not attempted "
              f"(--max {batch})")
-    return int(Exit.OK)
+    refused = _fenced_refusal("sessions continue --scope cold --handoff", named,
+                              conversations=bound, lanes=lanes)
+    return int(Exit.OK) if refused is None else refused
 
 
 @_guard
@@ -358,9 +441,13 @@ def cmd_revive(args: argparse.Namespace) -> int:
         workdir=getattr(args, "C", None),
         dry_run=bool(getattr(args, "dry_run", False)),
         request_id=request_id)
+    # C-26.13, C-23.31: a lane run or a conversation's session is refused even
+    # under --dry-run, as `handoff --dry-run` refuses one; any other hold under
+    # --dry-run is the answer the dry run was asked for.
+    rehearsal = bool(getattr(args, "dry_run", False)) and not _fence_of(attempt.candidate)
     if args.json:
         emit(attempt.to_dict())
-        if attempt.admitted or getattr(args, "dry_run", False):
+        if attempt.admitted or rehearsal:
             return int(Exit.OK)
         return int(Exit.REFUSED)        # C-17.3: --json does not change the verdict
     if attempt.admitted:
@@ -369,7 +456,7 @@ def cmd_revive(args: argparse.Namespace) -> int:
              f"{args.session[:8]} on {attempt.model or 'the routed tier'} "
              f"({attempt.reason})")
         return int(Exit.OK)
-    if getattr(args, "dry_run", False):
+    if rehearsal:
         out(attempt.reason)
         return int(Exit.OK)
     return fail(Exit.REFUSED, f"sessions revive: {args.session[:8]}: {attempt.reason}",
