@@ -83,6 +83,7 @@ FORMAT_FAILURES = [
     envelope(payload()).replace('"approve"', '"approve", "verdict": "blocked"'),
     envelope(payload()).replace('"findings": []', '"findings": NaN'),
     VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END,
+    envelope(payload(summary="\ud800")),
 ]
 NEVER_FORMAT_FAILURES = [
     (envelope(payload(artifact_revision={**REVISION, "sha256": "b" * 64})), "different"),
@@ -133,18 +134,34 @@ OTHER = {**REVISION, "sha256": "b" * 64}
     (envelope(payload(verdict=TEMPLATE_VERDICT)) + envelope(payload()), None, ["approve"], []),
     (envelope(payload(verdict="")) + "x", None, [], []),
     (envelope(payload(verdict=None, findings=[FINDING])), None, [], ["listed findings or notes"]),
-    (envelope(payload(verdict=["approve"])) + "x", None, ['["approve"]'], ["named verdict '[\"approve\"]'"]),
+    (envelope(payload(verdict=["approve"])) + "x", None, ['["approve"]', "approve"],
+     ["named verdict '[\"approve\"]'"]),
     (envelope(payload(verdict="\ud800")) + "x", None, ["\\ud800"], ["named verdict '\\\\ud800'"]),
-    # Unreadable blocks: the digest must be present; JSON verdict members still lock.
+    # Blocks that read only after repair (fence, escape, trailing comma, JSON string) are held to the same rules.
     (envelope(payload()).replace('"notes": []', '"notes": [],'), None, ["approve"], []),
     (envelope(payload(verdict="changes_requested", findings=[FINDING])).replace('"notes": []', '"notes": [],'),
      None, ["changes_requested"], ["named verdict 'changes_requested'", "listed findings or notes"]),
-    (f"{VERDICT_BEGIN}{{not json{VERDICT_END} and more", "cannot read lacks the reviewed revision", [], []),
     (envelope(payload(artifact_revision=OTHER)).replace('"notes": []', '"notes": [],'),
-     "cannot read lacks the reviewed revision", ["approve"], []),
+     "different artifact revision", ["approve"], []),
+    (envelope(payload(artifact_revision=OTHER, summary=f"Plan {REVISION['sha256']}.")).replace('"notes": []', '"notes": [],'),
+     "different artifact revision", ["approve"], []),
+    (f"{VERDICT_BEGIN}\n```json\n{json.dumps(payload(summary='Match \\\\d+.'))}\n```\n{VERDICT_END}".replace("\\\\d", "\\d"),
+     None, ["approve"], []),
+    (envelope(json.dumps(payload(verdict="blocked"))), None, ["blocked"], ["named verdict 'blocked'"]),
     (VERDICT_BEGIN + json.dumps(payload(verdict="blocked")), None, ["blocked"], ["named verdict 'blocked'"]),
-    (json.dumps(payload(artifact_revision=OTHER)), "outside the verdict blocks", ["approve"], []),
-    ("I checked " + json.dumps(payload(artifact_revision=REVISION)), None, ["approve"], []),
+    # What cannot be read, even after repair, refuses the re-ask; verdict keys in any quoting still lock.
+    (f"{VERDICT_BEGIN}{{not json{VERDICT_END} and more", "cannot be read as a JSON object", [], []),
+    (f"{VERDICT_BEGIN}{{verdict: 'changes_requested'}}{VERDICT_END}", "cannot be read as a JSON object",
+     ["changes_requested"], ["named verdict 'changes_requested'"]),
+    (envelope([payload()]), "cannot be read as a JSON object", ["approve"], []),
+    ("Verdict: blocked, see below.", None, ["blocked"], ["named verdict 'blocked'"]),
+    ('{"\\u0076erdict": "blocked"}', None, ["blocked"], ["named verdict 'blocked'"]),
+    ('"previous_verdict": {"verdict": "approve"}', None, ["approve"], []),
+    # Revision JSON outside the blocks must itself read as one object bound to the reviewed revision.
+    (json.dumps(payload(artifact_revision=OTHER)), "different artifact revision", ["approve"], []),
+    ("```json\n" + json.dumps(payload()) + "\n```", None, ["approve"], []),
+    ("I checked " + json.dumps(payload(artifact_revision=REVISION)), "outside the verdict blocks cannot be read",
+     ["approve"], []),
     # Readable blocks: exact binding, no duplicate keys, no contradiction.
     (envelope(payload()) + envelope(payload(artifact_revision={**REVISION, "bytes": 9})),
      "different artifact revision", ["approve"], []),

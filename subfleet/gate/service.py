@@ -15,7 +15,6 @@ import threading
 import uuid
 from pathlib import Path
 
-from .. import capacity, scheduler
 from ..store import utc_now
 from ..protocol import SubmitArgs, GateStartArgs, GateContinueArgs, coerce_args, ProtocolError
 from .certificate import certificate, load_state, private_dir, write_bytes, write_json
@@ -271,15 +270,13 @@ class GateService:
         try:
             job = self.daemon.submit(SubmitArgs(**record["submit_args"]))
         except Exception as exc:
-            job = self._accepted_dispatch(record["submit_args"])
-            if job is None:
-                # Durable prepared inputs allow safe inspection; no provider output counts.
-                error = (f"peer format re-ask submission failed: {exc}; first output: {reask['reason']}"
-                         if reask else f"peer submission failed: {exc}")
-                record.update(status="blocked", error=error, finished_at=utc_now())
-                state.update(status="blocked", blocker=record["error"])
-                self._save(state, "round-submit-failed")
-                return self._result(state)
+            # Durable prepared inputs allow safe inspection; no provider output counts.
+            error = (f"peer format re-ask submission failed: {exc}; first output: {reask['reason']}"
+                     if reask else f"peer submission failed: {exc}")
+            record.update(status="blocked", error=error, finished_at=utc_now())
+            state.update(status="blocked", blocker=record["error"])
+            self._save(state, "round-submit-failed")
+            return self._result(state)
         record["peer_run_id"] = job["job_id"]
         if reask:
             reask["peer_run_id"] = job["job_id"]
@@ -346,30 +343,20 @@ class GateService:
                 return self._result(state)
             return self._consume(state, job)
 
-    def _accepted_dispatch(self, spec):
-        """C-6.2: a dispatch the daemon accepted before a crash left it unjournaled.
+    def _lane_can_run(self, job, attempt):
+        """C-4.5, C-6.12, C-11.2: could the first dispatch's lane and model take the re-ask?
 
-        Its request id is this round's own; a policy change since then alters the
-        payload digest, so a resubmission is refused rather than answered with the
-        job. Adopting it keeps it from holding the round lease with no gate consuming it.
+        The daemon's own test for a pinned retry: the pair must still route at all,
+        and the lane must take it now or be refusing it only for want of a slot. A
+        lane that is disabled, closed, the desktop login, or otherwise refusing
+        would hold a pinned re-ask waiting with no deadline.
         """
-        row = self.store.one("SELECT job_id, kind, round_lease, out_path FROM jobs WHERE request_id=?",
-                             (spec["request_id"],))
-        if row and (row["kind"], row["round_lease"], row["out_path"]) == (
-                "gate-review", spec["round_lease"], spec["out_path"]):
-            return {"job_id": row["job_id"]}
-        return None
-
-    def _lane_can_run(self, lane_id):
-        """C-11.2: a re-ask pinned to a lane admission always rejects would wait forever."""
-        try:
-            lane = scheduler.resolve_lane(self.daemon._pin_roster(), lane_id)
-        except scheduler.RouteError:
+        if not self.daemon._retry_pair_routable(attempt):
             return False
-        return bool(lane and lane.get("enabled", True) and lane.get("owner") == "v2"
-                    and not capacity.identity_blocked(lane))
+        pin = {**job, "pinned_lane": attempt["lane_id"], "pinned_model": attempt["model_requested"]}
+        return self.daemon._retry_waits_on_a_slot(pin, (), self.daemon._desktop_identity())
 
-    def _plan_reask(self, record, attempt, artifact, body, failure):
+    def _plan_reask(self, record, job, attempt, artifact, body, failure):
         """C-23.9: plan the round's one format-only re-ask, or raise the blocking error.
 
         A format failure is re-asked once, on the lane and model of the dispatch it
@@ -387,7 +374,7 @@ class GateService:
         evidence = rejected_output_evidence(text, record["revision"])
         if evidence["refusal"]:
             raise GateError(f"{reason}; not re-asked: {evidence['refusal']}", 4)
-        if not self._lane_can_run(attempt["lane_id"]):
+        if not self._lane_can_run(job, attempt):
             raise GateError(f"{reason}; not re-asked: lane {attempt['lane_id']} can no longer run it", 4)
         first = {"peer_run_id": record["peer_run_id"],
                  "request_id": record["submit_args"]["request_id"],
@@ -469,7 +456,7 @@ class GateService:
             try:
                 parsed = parse_verdict(decode_output(body), expected)
             except VerdictFormatError as exc:
-                reask = self._plan_reask(record, attempt, artifact, body, exc)
+                reask = self._plan_reask(record, job, attempt, artifact, body, exc)
                 raise
             verdict = self._reasked_outcome(record, parsed)
         except (GateError, OSError, UnicodeError) as exc:

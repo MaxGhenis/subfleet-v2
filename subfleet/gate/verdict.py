@@ -74,6 +74,10 @@ def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any
         raise VerdictFormatError("peer verdict must be a JSON object")
     if value.get("artifact_revision") != expected_revision:
         raise GateError("peer verdict is bound to a different artifact revision", 4)
+    try:
+        json.dumps(value, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError as exc:  # a lone surrogate escape: the journal cannot store it
+        raise VerdictFormatError("peer verdict contains text that is not valid Unicode") from exc
     if before.strip() or after.strip():
         raise VerdictFormatError("peer output contains text outside the verdict sentinel")
     if type(value.get("schema_version")) is not int or value["schema_version"] != SCHEMA_VERSION:
@@ -101,9 +105,20 @@ def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any
 
 
 _EMPTY = (None, [], {}, "")
-_VERDICT_MEMBER = re.compile(r'"verdict"\s*:\s*"((?:[^"\\]|\\.)*)"')
-_CONCERN_MEMBER = re.compile(r'"(?:findings|notes)"\s*:\s*\[\s*[^\s\]]')
 _CLIP = 200
+# Diagnosis only (rejected_output_evidence): these can refuse or lock a re-ask, never accept.
+_QUOTES = r"""[\\"'`]*"""
+_VERDICT_TOKEN = re.compile(r"(?<!\w)" + _QUOTES + r"verdict" + _QUOTES
+                            + r"""\s*[:=]\s*[\[{(\\"'`\s]*([A-Za-z][\w -]*)""", re.IGNORECASE)
+_CONCERN_TOKEN = re.compile(r"(?<!\w)" + _QUOTES + r"(?:findings|notes)" + _QUOTES
+                            + r"\s*[:=]\s*[\[{(]\s*[^\s\]})]", re.IGNORECASE)
+_REVISION_TOKEN = re.compile(r"(?<!\w)" + _QUOTES + r"artifact_revision" + _QUOTES + r"\s*[:=]",
+                             re.IGNORECASE)
+_UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+_FENCE_OPEN = re.compile(r"\A\s*```[\w-]*[ \t]*\n")
+_FENCE_CLOSE = re.compile(r"\n[ \t]*```\s*\Z")
+_ESCAPE = re.compile(r"\\(.)", re.DOTALL)
+_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
 
 
 def clip(value: str, limit: int = _CLIP) -> str:
@@ -135,10 +150,26 @@ def _duplicated(value: Any) -> bool:
     return isinstance(value, list) and any(_duplicated(item) for item in value)
 
 
-def _identity(expected_revision: dict[str, Any]) -> list[str]:
-    """The reviewed revision's digests: what an unreadable block must at least carry."""
-    return [str(expected_revision[key]).lower() for key in ("sha256", "head_sha", "base_sha")
-            if expected_revision.get(key)]
+def _read(fragment: str) -> _Members | None:
+    """A block's JSON object for diagnosis, or None when it cannot be read.
+
+    Strict JSON first; then with a surrounding code fence, invalid backslash
+    escapes, and trailing commas repaired. A JSON string that holds an object
+    is read once more. Nothing read here is ever accepted as a verdict.
+    """
+    repaired = _FENCE_CLOSE.sub("", _FENCE_OPEN.sub("", fragment))
+    repaired = _ESCAPE.sub(lambda match: match.group(0) if match.group(1) in '"\\/bfnrtu'
+                           else "\\\\" + match.group(1), repaired)
+    repaired = _TRAILING_COMMA.sub(r"\1", repaired)
+    for candidate in (fragment, repaired):
+        try:
+            value = json.loads(candidate, object_pairs_hook=_Members)
+            if isinstance(value, str):
+                value = json.loads(value, object_pairs_hook=_Members)
+        except ValueError:
+            continue
+        return value if isinstance(value, _Members) else None
+    return None
 
 
 def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> dict[str, Any]:
@@ -146,23 +177,33 @@ def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> di
 
     Nothing found here is ever a verdict or part of one: it can only forbid a
     re-ask (`refusal`) or keep the re-ask from approving (`outcome_lock`) (C-23.9).
+    It fails closed: what it cannot read refuses the re-ask.
 
     Each begin sentinel opens a block that runs to the next sentinel of either
-    kind or to the end of the output. A block that parses as a JSON object must
-    name the reviewed revision, in every artifact_revision member and without
-    duplicated keys inside it; it must not approve with findings or notes or
-    request changes without a finding. A block that does not parse, and any
-    artifact_revision JSON outside the blocks, must at least contain the reviewed
-    revision's digests. The lock reads the whole output, unparsed text included:
-    any JSON "verdict" string other than approve (an empty or placeholder one
-    names nothing) and any nonempty findings or notes. Prose is never read.
+    kind or to the end of the output. Every block must read as a JSON object
+    (see _read), and so must the text outside the blocks when it holds an
+    artifact_revision member. Each object read must name exactly the reviewed
+    revision in every artifact_revision member, with no key repeated inside it;
+    it must not approve with findings or notes, or request changes without a
+    finding. The lock reads the whole output, JSON or not: any `verdict` key,
+    in any quoting, whose value is not approve (an empty or placeholder value
+    names nothing), and any nonempty findings or notes.
     """
-    refusals, verdicts, lock = [], [], []
-    identity, outside = _identity(expected_revision), []
+    refusals, verdicts, lock, outside = [], [], [], []
 
-    def carries_identity(fragment: str) -> bool:
-        lowered = fragment.lower()
-        return all(digest in lowered for digest in identity)
+    def read(fragment: str, unreadable: str) -> None:
+        try:
+            members = _read(fragment)
+            if members is None:
+                refusals.append(unreadable)
+                return
+            refusals.extend(_segment_refusals(members, expected_revision))
+            verdicts.extend(item if isinstance(item, str) else json.dumps(_plain(item), sort_keys=True)
+                            for item in _values(members, "verdict") if item is not None)
+            if any(item not in _EMPTY for item in _values(members, "findings") + _values(members, "notes")):
+                lock.append("listed findings or notes")
+        except RecursionError:
+            refusals.append("a verdict block in the output is too deeply nested to diagnose")
 
     cursor, begin, end = 0, text.find(VERDICT_BEGIN), None
     while begin != -1:
@@ -172,39 +213,23 @@ def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> di
             end = text.find(VERDICT_END, body)
         following = text.find(VERDICT_BEGIN, body)
         stop = min((index for index in (end, following) if index != -1), default=len(text))
-        segment = text[body:stop]
-        try:
-            value = json.loads(segment, object_pairs_hook=_Members)
-            if not isinstance(value, _Members):
-                raise ValueError("not a JSON object")
-            refusals += _segment_refusals(value, expected_revision)
-            verdicts += [item if isinstance(item, str) else json.dumps(_plain(item), sort_keys=True)
-                         for item in _values(value, "verdict") if item is not None]
-            if any(item not in _EMPTY for item in _values(value, "findings") + _values(value, "notes")):
-                lock.append("listed findings or notes")
-        except ValueError:
-            if not carries_identity(segment):
-                refusals.append("a verdict block the gate cannot read lacks the reviewed revision")
-        except RecursionError:
-            refusals.append("a verdict block in the output is too deeply nested to diagnose")
+        read(text[body:stop], "a verdict block in the output cannot be read as a JSON object")
         cursor = stop + len(VERDICT_END) if stop == end else stop
         begin = following
     outside.append(text[cursor:])
     rest = "".join(outside)
-    if '"artifact_revision"' in rest and not carries_identity(rest):
-        refusals.append("revision JSON outside the verdict blocks lacks the reviewed revision")
+    if _REVISION_TOKEN.search(rest):
+        read(rest, "revision JSON outside the verdict blocks cannot be read as one JSON object")
 
-    scan = text.replace(TEMPLATE_VERDICT, "")
-    for match in _VERDICT_MEMBER.finditer(scan):
-        try:
-            verdicts.append(json.loads(f'"{match.group(1)}"'))
-        except ValueError:
-            verdicts.append(match.group(1))
-    # An empty or placeholder verdict names nothing, like a missing one.
+    scan = _UNICODE_ESCAPE.sub(lambda match: chr(int(match.group(1), 16)), text)
+    scan = scan.replace(TEMPLATE_VERDICT, "")
+    verdicts += [value for value in (match.group(1).strip() for match in _VERDICT_TOKEN.finditer(scan))
+                 if value != "null"]
+    if _CONCERN_TOKEN.search(scan):
+        lock.append("listed findings or notes")
+    # An empty, null, or placeholder verdict names nothing, like a missing one.
     verdicts = list(dict.fromkeys(clip(item) for item in verdicts if item not in ("", TEMPLATE_VERDICT)))
     lock = [f"named verdict {item!r}" for item in verdicts if item != "approve"] + lock
-    if _CONCERN_MEMBER.search(scan):
-        lock.append("listed findings or notes")
     return {"refusal": refusals[0] if refusals else None, "verdicts": verdicts,
             "outcome_lock": list(dict.fromkeys(lock))}
 
