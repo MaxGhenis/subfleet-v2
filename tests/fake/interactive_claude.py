@@ -27,7 +27,7 @@ Environment:
 
     CLAUDE_CODE_OAUTH_TOKEN   the fixture token; its suffix names the account
     SUBFLEET_FAKE_FAST        the `fast_mode_state` to report (default "on")
-    SUBFLEET_FAKE_TURN_LOG    append argv and every stdin line here (JSON lines)
+    SUBFLEET_FAKE_TURN_LOG    append argv (with the cwd) and every stdin line here (JSON lines)
     CLAUDE_FAKE_PROJECTS_DIR  write the session transcript under this directory
 """
 
@@ -112,7 +112,7 @@ class Fake:
             directory = Path(projects) / encode_project_dir(os.getcwd())
             directory.mkdir(parents=True, exist_ok=True)
             self.transcript = directory / f"{self.session_id}.jsonl"
-        self.log({"argv": argv, "pid": os.getpid()})
+        self.log({"argv": argv, "pid": os.getpid(), "cwd": os.getcwd()})
 
     # --- plumbing --------------------------------------------------------------
 

@@ -14,6 +14,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import shutil
 import signal
 import sqlite3
 import stat
@@ -47,7 +48,9 @@ LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "att
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": 64 * 1024 * 1024}
 OPS = frozenset(protocol.CONVERSATION_OPS)
 POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
-FILE_OPS = frozenset({"attachment.add", "conversation.history"})
+# C-25.3: file copies, transcript reads and a worktree's checkout (the one git
+# call an op makes) run on the dedicated file pool, never the request pool.
+FILE_OPS = frozenset({"attachment.add", "conversation.history", "conversation.create"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
 MAX_WAIT_S = 50.0
 
@@ -240,9 +243,10 @@ class ConversationService:
                               "ORDER BY seq DESC LIMIT 1", (conversation["conversation_id"],))
         pending = self.store.one("SELECT COUNT(*) n FROM approvals WHERE conversation_id=? AND state='pending'",
                                  (conversation["conversation_id"],))["n"]
-        return {**{k: conversation[k] for k in ("conversation_id", "provider", "native_session_id", "title",
-                                                "workspace", "workspace_kind", "allow_main", "lane_id", "settings",
-                                                "origin", "handoff_from", "blocked_by", "created_at", "updated_at")},
+        return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title",
+                                                    "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
+                                                    "settings", "origin", "handoff_from", "blocked_by", "created_at",
+                                                    "updated_at")},
                 "last_message": last, "pending_approvals": pending,
                 "active": bool(last and last["state"] not in TERMINAL_STATES and last["state"] != QUEUED)}
 
@@ -299,30 +303,78 @@ class ConversationService:
         if kind not in ("in-place", "worktree"):
             raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
         self._check_workspace(provider, workspace, settings)
+        existing = self.store.one("SELECT conversation_id FROM conversations WHERE request_id=?", (request_id,))
+        if kind == "worktree" and existing is None and self._git_toplevel(workspace) is None:
+            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
         conversation, created = self.store.create_conversation(
             provider=provider, workspace=workspace, workspace_kind=kind, settings=settings, origin="new",
             title=args.get("title"), allow_main=allow_main, request_id=request_id)
-        if created and kind == "worktree":
-            path = self._cut_worktree(workspace, conversation["conversation_id"])
-            conversation = self.store.update_conversation(conversation["conversation_id"], **{})
-            self.store.query("UPDATE conversations SET workspace=? WHERE conversation_id=?",
-                             (path, conversation["conversation_id"]))
-            conversation = self.store.conversation(conversation["conversation_id"])
+        if conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
+            # A new conversation, or a repeat of a create whose cut failed or was
+            # cut short by a crash: the same request id finishes the same worktree.
+            conversation = self._cut_worktree(conversation)
         return {"conversation": self._view(conversation), "created": created}
 
-    def _cut_worktree(self, repo: str, cid: str) -> str:
-        import subprocess
-        top = subprocess.run(["git", "-C", repo, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                             timeout=20)
-        if top.returncode:
+    def _git_toplevel(self, directory: str) -> str | None:
+        from ..salvage import SalvageError, git_toplevel
+        try:
+            return git_toplevel(directory, timeout_s=self._git_timeout_s())
+        except SalvageError as exc:
+            raise ConversationError("git-unavailable", f"could not inspect {directory}: {exc}", code=1,
+                                    fix="try again") from exc
+
+    def _git_timeout_s(self, key: str = "workspace_git_timeout_s") -> float:
+        return float((self.daemon.policy.get("caps") or {}).get(key) or 60)
+
+    def _cut_worktree(self, conversation: dict) -> dict:
+        """D-16, D-25: a new worktree on its own branch, cut from the checkout the
+        person picked, recorded on the conversation (path, branch, source, base).
+        Idempotent: a worktree an interrupted earlier call already added on this
+        conversation's branch is adopted; a directory that is not one is rebuilt."""
+        cid = conversation["conversation_id"]
+        source = conversation["workspace"]
+        top = self._git_toplevel(source)
+        if top is None:
             raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
-        target = self.root / "worktrees" / f"conversation-{cid}"
+        parent = self.root / "worktrees"
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target = parent / f"conversation-{cid}"
         branch = f"subfleet/{cid}"
-        made = subprocess.run(["git", "-C", top.stdout.strip(), "worktree", "add", "-b", branch, str(target)],
-                              capture_output=True, text=True, timeout=60)
-        if made.returncode:
-            raise ConversationError("worktree-failed", made.stderr.strip()[-300:] or "git worktree add failed", code=1)
-        return str(target)
+        timeout = self._git_timeout_s()
+
+        def git(*argv: str, cwd: str | Path = top, cap: float = timeout) -> subprocess.CompletedProcess:
+            try:
+                return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True, timeout=cap)
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
+                                        fix="repeat conversation.create with the same request_id") from exc
+
+        adopted = False
+        if target.exists():
+            head = git("symbolic-ref", "--quiet", "--short", "HEAD", cwd=target) if (target / ".git").is_file() else None
+            if head is not None and head.returncode == 0 and head.stdout.strip() == branch:
+                adopted = True
+            else:
+                # Not a worktree on this branch (an add cut short). No turn ever ran
+                # in it: a conversation dispatches only once its worktree is recorded.
+                shutil.rmtree(target, ignore_errors=True)
+                git("worktree", "prune")
+        if not adopted:
+            has_branch = git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0
+            argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]
+            made = git(*argv, cap=self._git_timeout_s("worktree_add_timeout_s"))
+            if made.returncode:
+                raise ConversationError("worktree-failed", made.stderr.strip()[-300:] or "git worktree add failed",
+                                        code=1, fix="repeat conversation.create with the same request_id")
+            os.chmod(target, 0o700)
+        base = git("rev-parse", "--verify", "HEAD", cwd=target)
+        # A conversation started in a subdirectory works in the same subdirectory.
+        relative = os.path.relpath(source, top)
+        inside = target / relative if relative != "." and not relative.startswith("..") else target
+        workspace = inside if inside.is_dir() else target
+        record = {"path": str(target), "branch": branch, "source": source, "repository": top,
+                  "base": base.stdout.strip() if base.returncode == 0 else None, "created_at": utcnow()}
+        return self.store.update_conversation(cid, workspace=str(workspace), worktree=record)
 
     def op_conversation_settings(self, args, peer) -> dict:
         conversation = self.store.conversation(args["conversation_id"])
@@ -421,6 +473,9 @@ class ConversationService:
         conversation = self.store.conversation(args["conversation_id"])
         if conversation.get("archived_at"):
             raise ConversationError("archived", "the conversation is archived")
+        if conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
+            raise ConversationError("worktree-missing", "the conversation's worktree was not created",
+                                    fix="repeat conversation.create with the same request_id")
         settings = validate_settings(conversation["provider"], args.get("settings") or conversation["settings"])
         if widens(conversation["settings"], settings):
             raise ConversationError("settings-mismatch", "a message cannot widen the conversation's permissions",

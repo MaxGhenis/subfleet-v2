@@ -519,6 +519,111 @@ def test_a_queued_message_cancelled_before_dispatch_stays_cancelled(svc):
     assert svc.daemon.submits == []
 
 
+# --- worktree conversations (D-16, D-25, C-24.1) ---------------------------------
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    for key, value in {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                       "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.test",
+                       "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@example.test"}.items():
+        monkeypatch.setenv(key, value)
+    path = tmp_path / "repo"
+    (path / "pkg").mkdir(parents=True)
+    (path / "pkg" / "file.txt").write_text("base\n")
+    for argv in (["init", "-b", "feature/x"], ["add", "."], ["commit", "-m", "base"]):
+        subprocess.run(["git", "-C", str(path), *argv], check=True, capture_output=True)
+    return path
+
+
+def git(path, *argv) -> str:
+    return subprocess.run(["git", "-C", str(path), *argv], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def create_worktree(svc, workspace, request_id="req-1"):
+    return svc.handle("conversation.create", {"provider": "claude", "request_id": request_id,
+                                              "workspace": str(workspace), "workspace_kind": "worktree",
+                                              "settings": SETTINGS}, None)
+
+
+def test_a_worktree_conversation_records_and_returns_its_path_and_branch(svc, repo):
+    """D-16, D-25, C-24.1: the worktree is cut on its own branch under the state root;
+    the conversation's workspace moves there through the store's update (the change
+    feed sees it), and the result carries path, branch, source and base."""
+    start = svc.store.changes_after(0)["next"]
+    out = create_worktree(svc, repo)
+    view = out["conversation"]
+    cid = view["conversation_id"]
+    worktree = view["worktree"]
+    expected = svc.root.resolve() / "worktrees" / f"conversation-{cid}"
+    assert out["created"] is True
+    assert Path(worktree["path"]).resolve() == expected and view["workspace"] == worktree["path"]
+    assert worktree["branch"] == f"subfleet/{cid}"
+    assert worktree["source"] == os.path.realpath(repo) and worktree["base"] == git(repo, "rev-parse", "HEAD")
+    assert git(expected, "symbolic-ref", "--short", "HEAD") == f"subfleet/{cid}"
+    assert svc.store.conversation(cid)["worktree"] == worktree
+    assert len(svc.store.changes_after(start)["changes"]) == 2       # the row, then its worktree
+    listed = svc.handle("conversation.list", {"include_catalog": False}, None)["conversations"][0]
+    assert listed["worktree"] == worktree
+
+    again = create_worktree(svc, repo)
+    assert again["created"] is False and again["conversation"]["worktree"] == worktree
+    assert len([l for l in git(repo, "worktree", "list", "--porcelain").splitlines() if l.startswith("worktree ")]) == 2
+
+
+def test_a_worktree_started_in_a_subdirectory_works_in_it(svc, repo):
+    """D-16: the conversation works in the same subdirectory of its own worktree."""
+    view = create_worktree(svc, repo / "pkg")["conversation"]
+    assert view["workspace"] == str(Path(view["worktree"]["path"]) / "pkg")
+    assert view["worktree"]["repository"] == os.path.realpath(repo)
+
+
+def test_a_worktree_cut_short_is_finished_by_repeating_the_create(svc, repo, monkeypatch):
+    """D-16: a create interrupted after `git worktree add` (here the record's write fails)
+    leaves no usable conversation; repeating it with the same request id adopts the
+    worktree it already added instead of failing on it."""
+    original = svc.store.update_conversation
+    monkeypatch.setattr(svc.store, "update_conversation",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("interrupted")))
+    with pytest.raises(OSError):
+        create_worktree(svc, repo)
+    row = svc.store.one("SELECT conversation_id FROM conversations")
+    cid = row["conversation_id"]
+    assert svc.store.conversation(cid)["worktree"] is None
+    with pytest.raises(ConversationError) as err:
+        svc.handle("message.submit", {"conversation_id": cid, "message_id": str(uuid.uuid4()), "text": "hi"}, None)
+    assert err.value.reason == "worktree-missing"
+    monkeypatch.setattr(svc.store, "update_conversation", original)
+    out = create_worktree(svc, repo)
+    assert out["created"] is False and out["conversation"]["worktree"]["branch"] == f"subfleet/{cid}"
+
+
+def test_a_worktree_conversation_without_its_worktree_never_runs_in_the_source(svc, repo):
+    """D-16: a queued message of a worktree conversation whose worktree was never
+    recorded is deferred, not submitted in the checkout it was to be cut from."""
+    cid = conversation(svc, workspace=str(repo), workspace_kind="worktree")
+    mid = submit(svc, cid)
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert message["state"] == "queued" and message["state_reason"].startswith("deferred: the conversation's worktree")
+    assert svc.daemon.submits == []
+
+
+def test_a_worktree_needs_a_repository_and_creates_nothing_without_one(svc, tmp_path):
+    """D-16: outside git the create is refused and no conversation is left behind."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    with pytest.raises(ConversationError) as err:
+        create_worktree(svc, plain)
+    assert err.value.reason == "not-a-repository"
+    assert svc.store.one("SELECT COUNT(*) n FROM conversations")["n"] == 0
+
+
+def test_conversation_create_runs_on_the_file_pool(svc):
+    """C-25.3: the op that may run `git worktree add` never holds the request pool."""
+    assert svc.pool_for("conversation.create") is svc.files
+
+
 # --- turn jobs retention must keep (C-26.12, IR-17) -------------------------------
 
 
