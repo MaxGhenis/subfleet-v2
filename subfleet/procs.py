@@ -12,11 +12,18 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from . import boot_identity
+
+#: C-5.12: how long one boot-identity read is reused. `kern.bootsessionuuid`
+#: is fixed for a boot; the legacy `kern.boottime` fallback can move with a
+#: clock correction, which `boot_identity.matches` already treats as uncertain.
+#: A mismatch is read again before `liveness` calls a process dead.
+BOOT_ID_TTL_S = 5.0
 
 
 class InspectionError(RuntimeError):
@@ -29,7 +36,16 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
     env = {"LC_ALL": "C", "LANG": "C", "TZ": "UTC",
            "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
     try:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=10, env=env)
+        # C-5.12: `close_fds=False` is what lets CPython start the reader with
+        # `posix_spawn` on macOS; with the default it forks, and a fork of the
+        # daemon costs in proportion to its memory (measured 2026-09-21 at 1 GB
+        # resident and 40 threads: 8.2 ms of daemon CPU per fork, 0.17 ms per
+        # spawn). Nothing leaks: every descriptor Python opens is close-on-exec
+        # (PEP 446) and the daemon makes none inheritable. The one this package
+        # does hand down, the guardian's launch gate (`pass_fds`), is closed by
+        # the guardian before it inspects anything; a second one must be too.
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=10, env=env,
+                                close_fds=False)
     except (OSError, subprocess.SubprocessError) as exc:
         raise InspectionError(f"{os.path.basename(argv[0])} inspection unavailable") from exc
     # BSD ps returns 1 when a valid selector matches no processes.
@@ -41,17 +57,39 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
     return result.stdout
 
 
+_boot_lock = threading.Lock()
+_boot_cache: tuple[float, str] | None = None     # (monotonic read time, boot id)
+
+
 def boot_id() -> str:
-    """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction."""
+    """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+
+    One read serves `BOOT_ID_TTL_S` (C-5.12); a failed read is never cached.
+    """
+    global _boot_cache
+    with _boot_lock:
+        cached = _boot_cache
+        if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+            return cached[1]
+
     def optional_read(argv):
         try:
             return _read(argv)
         except InspectionError:
             return ""
     value = boot_identity.read_identity(optional_read)
-    if value:
-        return value
-    raise InspectionError("macOS boot identity is unavailable")
+    if not value:
+        raise InspectionError("macOS boot identity is unavailable")
+    with _boot_lock:
+        _boot_cache = (time.monotonic(), value)
+    return value
+
+
+def forget_boot_id() -> None:
+    """Drop the cached boot identity; the next `boot_id()` reads `sysctl` again."""
+    global _boot_cache
+    with _boot_lock:
+        _boot_cache = None
 
 
 def proc_start(pid: int) -> str | None:
@@ -117,25 +155,87 @@ def liveness(pid: int | None, boot_id: str | None, proc_start: str | None) -> st
     signals, collapses "unknown" into "not the same" (C-5.4)."""
     if not pid or pid <= 0 or not boot_id or not proc_start:
         return "dead"
-    try:
-        current = identity(pid)
-    except InspectionError:
-        return "unknown"
-    if current is None:
-        return "dead"
-    if current.proc_start != proc_start:
-        return "dead"
-    try:
-        match = boot_identity.matches(str(boot_id), current.boot_id,
-                                      lambda: boot_identity.boot_seconds(_read))
-    except InspectionError:
-        return "unknown"
+    for fresh in (False, True):
+        try:
+            current = identity(pid)
+        except InspectionError:
+            return "unknown"
+        if current is None:
+            return "dead"
+        if current.proc_start != proc_start:
+            return "dead"
+        try:
+            match = boot_identity.matches(str(boot_id), current.boot_id,
+                                          lambda: boot_identity.boot_seconds(_read))
+        except InspectionError:
+            return "unknown"
+        if match is not False or fresh:
+            break
+        # C-5.12: the boot identity compared may be `BOOT_ID_TTL_S` old. Only a
+        # fresh read may say "another boot" about a process whose start matches.
+        forget_boot_id()
     return "alive" if match is True else "dead" if match is False else "unknown"
 
 
 def same_process(pid: int, boot_id: str, proc_start: str) -> bool:
     """C-5.3: pid reuse, a different boot and zombies never match."""
     return liveness(pid, boot_id, proc_start) == "alive"
+
+
+#: C-5.5: the one read of the process table. `lstart` is last because it is the
+#: only column that contains spaces.
+TABLE_ARGV = ["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat=,lstart="]
+
+
+@dataclass(frozen=True)
+class ProcessTable:
+    """Every process at one instant: parent, group, state and start (C-5.5).
+
+    A table answers the C-5.3 identity question for any number of pids from the
+    one `ps` that produced it (C-5.12). It can say that a recorded process is
+    alive and nothing else: a boot identity it cannot match exactly (a legacy
+    timestamp record) and a pid it does not show are left to `liveness`, and it
+    never grants authority to signal, which `signal_group` and `signal_process`
+    still read afresh (C-5.4).
+    """
+    rows: dict[int, tuple[int, int, str, str]]   # pid -> (ppid, pgid, stat, lstart)
+    boot_id: str
+    taken_at: float = field(default_factory=time.monotonic)
+
+    def live(self, pid: int) -> bool:
+        return pid in self.rows and not self.rows[pid][2].startswith("Z")
+
+    def identity(self, pid: int) -> ProcessIdentity | None:
+        """The live, non-zombie process at `pid`, or None when the table cannot say."""
+        if not self.live(pid) or not self.rows[pid][3]:
+            return None
+        return ProcessIdentity(pid, self.boot_id, self.rows[pid][3])
+
+    def is_process(self, pid: int | None, boot_id: str | None, proc_start: str | None) -> bool:
+        """Was the recorded identity live, exactly, when the table was read (C-5.3)?"""
+        if not pid or pid <= 0 or not boot_id or not proc_start:
+            return False
+        return self.identity(pid) == ProcessIdentity(pid, str(boot_id), proc_start)
+
+    def group(self, pgid: int | None) -> frozenset[int]:
+        if not pgid or pgid <= 0:
+            return frozenset()
+        return frozenset(pid for pid, row in self.rows.items() if row[1] == pgid and self.live(pid))
+
+
+def snapshot() -> ProcessTable:
+    """Read the process table once (C-5.5); raises `InspectionError` when it cannot."""
+    rows: dict[int, tuple[int, int, str, str]] = {}
+    try:
+        for row in _read(TABLE_ARGV).splitlines():
+            parts = row.split(None, 4)
+            if len(parts) < 4:
+                continue
+            rows[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3],
+                                   parts[4].strip() if len(parts) > 4 else "")
+    except ValueError as exc:
+        raise InspectionError("ps printed a row that is not a process") from exc
+    return ProcessTable(rows, boot_id())
 
 
 @dataclass(frozen=True)
@@ -180,41 +280,37 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     already recorded that process's ownership before the escape.
 
     The group and the descendant walk are read from one process-table snapshot
-    (`ps -axo pid=,ppid=,pgid=,stat=`), so a process cannot be present in one
-    source and absent from the other because it exited between two reads. The
-    snapshot also gives every live pid a shape (parent, group, state) that the
-    census records as evidence; commands and environments are never retained.
+    (`ps -axo pid=,ppid=,pgid=,stat=,lstart=`), so a process cannot be present
+    in one source and absent from the other because it exited between two reads.
+    The snapshot also gives every live pid a shape (parent, group, state) that
+    the census records as evidence, and the start time that is its identity, so
+    a census is two `ps` reads however many processes it finds (C-5.12);
+    commands and environments are never retained.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
     markers: set[int] = set()
-    table: dict[int, tuple[int, int, str]] = {}   # pid -> (ppid, pgid, stat)
     errors: list[str] = []
     try:
-        for row in _read(["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat="]).splitlines():
-            parts = row.split(None, 3)
-            if len(parts) < 4:
-                continue
-            table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3].strip())
-        snapshot = True
-    except (InspectionError, ValueError):
-        snapshot = False
+        seen: ProcessTable | None = snapshot()
+        table = seen.rows
+    except InspectionError:
+        seen, table = None, {}
         errors.append("group enumeration unavailable")
         errors.append("descendant enumeration unavailable")
 
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
 
-    if snapshot:
-        if pgid and pgid > 0:
-            groups = {pid for pid, (_, group, _) in table.items() if group == pgid and live(pid)}
+    if seen is not None:
+        groups = set(seen.group(pgid))
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
         roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
         found = set(roots)
         frontier = roots
         while frontier:
-            frontier = {pid for pid, (parent, _, _) in table.items() if parent in frontier and pid not in found}
+            frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
             found.update(frontier)
         descendants = {pid for pid in found if live(pid)}
     try:
@@ -239,7 +335,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     identities: dict[int, ProcessIdentity] = {}
     for pid in groups | descendants | markers:
         try:
-            current = identity(pid)
+            # The snapshot's own start time when it has one; a pid it could not
+            # describe (a marker spawned after the read) is asked about singly.
+            current = (seen.identity(pid) if seen is not None else None) or identity(pid)
             if current is not None:
                 identities[pid] = current
             else:

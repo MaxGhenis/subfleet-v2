@@ -213,6 +213,11 @@ TERM_GRACE_S = 15
 # census; neither widens what counts as contained.
 KILL_SETTLE_S = 3
 EXIT_SETTLE_S = 3
+# C-5.12: how often a healthy running attempt's processes are inspected, and the
+# oldest process table that inspection may share. The receipt, a cancel and the
+# wall clock are still read every tick; a death verdict is never taken from a
+# shared table.
+INSPECT_INTERVAL_S = 1.0
 HEADROOM_FLOOR = 0.15
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300

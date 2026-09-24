@@ -165,6 +165,19 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_process_caches():
+    """C-5.12, C-10.3: one boot-identity read serves a few seconds and one parse of
+    the login file serves until it changes, and tests stub both, so none may
+    inherit another's."""
+    from subfleet import capacity, procs
+    procs.forget_boot_id()
+    capacity.forget_desktop_account()
+    yield
+    procs.forget_boot_id()
+    capacity.forget_desktop_account()
+
+
+@pytest.fixture(autouse=True)
 def no_desktop_login(monkeypatch):
     """`~/.claude.json` belongs to whoever runs the tests, and the desktop app's
     keychain item holds their real credential. No test reads either by accident

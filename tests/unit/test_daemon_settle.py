@@ -1,4 +1,4 @@
-"""C-4.2, C-5.6, C-5.9: what the daemon decides when the process table is still moving.
+"""C-4.2, C-5.6, C-5.9, C-5.12: what the daemon decides when the process table is still moving.
 
 A census the kernel is still draining is re-read, not quarantined; a guardian that
 cannot be inspected decides nothing; a receipt on disk always beats a stale lost verdict."""
@@ -21,7 +21,7 @@ from subfleet.contracts import (
 )
 from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
-from subfleet.procs import Containment, ProcessIdentity
+from subfleet.procs import Containment, ProcessIdentity, ProcessTable
 from subfleet.store import Store
 
 JOB = "20260905-100000-settle"
@@ -48,7 +48,9 @@ def daemon(tmp_path, monkeypatch):
     core.stopping = threading.Event()
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s = .05, .3, .3
     core._exit_settle = {}
-    core._children, core._pending_launches, core._starting_deadlines, core._census_next = {}, set(), {}, {}
+    core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
+    # C-5.12: no shared process table here, so every verdict is the injected `liveness`.
+    core._inspect_next, core.inspect_interval_s, core._process_table = {}, .5, lambda: None
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
     core._salvage = lambda job, a: ([], None)
@@ -273,3 +275,84 @@ def test_c4_2_dead_guardian_without_receipt_runs_containment(daemon, monkeypatch
     daemon._contain = lambda a: calls.append(1) or EMPTY
     daemon._process_attempt(ATTEMPT)
     assert calls and attempt(daemon)["state"] == "lost"
+
+def table_showing(*rows) -> ProcessTable:
+    """A process table of (pid, ppid, pgid, stat) rows, all started at STARTED in boot "boot"."""
+    return ProcessTable({pid: (ppid, pgid, stat, STARTED) for pid, ppid, pgid, stat in rows}, "boot")
+
+
+def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_table(daemon, monkeypatch):
+    """C-5.12, C-5.6 the shared table answers "alive" and lists the group; nothing else is asked until the interval ends."""
+    reads = []
+    daemon._process_table = lambda: reads.append(1) or table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"),
+                                                                     (4300, 1, 4300, "S"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("the table already answered"))
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("no second table"))
+    daemon._contain = never_census
+    for _ in range(5):
+        daemon._process_attempt(ATTEMPT)
+    assert reads == [1]
+    owned = json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
+    assert owned == {"4242": {"pid": 4242, "boot_id": "boot", "proc_start": STARTED},
+                     "4243": {"pid": 4243, "boot_id": "boot", "proc_start": STARTED}}
+    assert [row["kind"] for row in daemon.store.list_events(JOB)].count("attempt.processes_recorded") == 1
+    daemon._inspect_next[ATTEMPT] = 0                     # the interval ends
+    daemon._process_attempt(ATTEMPT)
+    assert reads == [1, 1]
+    # The same members again: nothing to record, so no second event.
+    assert [row["kind"] for row in daemon.store.list_events(JOB)].count("attempt.processes_recorded") == 1
+
+
+def test_c5_12_the_receipt_is_read_every_tick_whatever_the_inspection_interval(daemon, monkeypatch):
+    """C-4.2, C-5.12 rate-limiting inspection never delays a normal end: exit.json is files, not `ps`."""
+    daemon._process_table = lambda: table_showing((4242, 1, 4242, "Ss"))
+    daemon._process_attempt(ATTEMPT)
+    assert daemon._inspect_next[ATTEMPT] > time.monotonic()   # inside the interval now
+    publish_receipt(daemon, rc=0)
+    daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "finalizing"
+
+
+def test_c5_12_a_shared_table_never_pronounces_death(daemon, monkeypatch):
+    """C-5.12, C-4.2 a guardian the table does not show is asked about afresh; alive there, it stays running."""
+    with_launch(daemon, monkeypatch)
+    daemon._process_table = lambda: table_showing((9999, 1, 9999, "S"))
+    asked = []
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: asked.append(args) or "alive")
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table_showing((4242, 1, 4242, "Ss")))
+    daemon._contain = never_census
+    daemon._process_attempt(ATTEMPT)
+    assert asked == [(4242, "boot", STARTED)] and attempt(daemon)["state"] == "running"
+    assert "4242" in json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
+    # And when the fresh read agrees that it is gone, containment runs as before.
+    daemon._inspect_next.clear()
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+    calls = []
+    daemon._contain = lambda a: calls.append(1) or EMPTY
+    daemon._process_attempt(ATTEMPT)
+    assert calls and attempt(daemon)["state"] == "lost"
+
+
+def test_c5_12_members_are_recorded_only_while_the_recorded_guardian_leads_the_group(daemon):
+    """C-5.6, C-5.4 a table in which the leader is a reused pid records nothing."""
+    reused = ProcessTable({4242: (1, 4242, "Ss", "Sun Sep  6 11:00:00 2026"),
+                           4243: (4242, 4242, "S", STARTED)}, "boot")
+    daemon._record_owned(attempt(daemon), reused)
+    assert "owned_identities" not in json.loads(attempt(daemon)["evidence_json"])
+
+
+def test_c5_12_a_failed_process_table_read_is_rationed_like_a_good_one(daemon, monkeypatch):
+    """C-5.12 `ps` failing costs one read per interval, not one per attempt that asks."""
+    from subfleet import procs
+    reads = []
+
+    def failing():
+        reads.append(1)
+        raise procs.InspectionError("ps timed out")
+    monkeypatch.setattr(daemon_module.procs, "snapshot", failing)
+    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
+    assert [Daemon._process_table(daemon) for _ in range(6)] == [None] * 6
+    assert reads == [1]
+    daemon._table_next = 0.0                                      # the interval ends
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table_showing((4242, 1, 4242, "Ss")))
+    assert Daemon._process_table(daemon).is_process(4242, "boot", STARTED)

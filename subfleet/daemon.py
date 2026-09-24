@@ -34,7 +34,7 @@ from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
-    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
+    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     START_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -179,6 +179,7 @@ class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
+                 inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
@@ -188,6 +189,7 @@ class Daemon:
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
+        self.inspect_interval_s = inspect_interval_s
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
@@ -209,7 +211,12 @@ class Daemon:
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
-        self._census_next: dict[str, float] = {}
+        # C-5.12: attempt id -> when its processes are next inspected, and the
+        # one process table those inspections share.
+        self._inspect_next: dict[str, float] = {}
+        self._table: procs.ProcessTable | None = None
+        self._table_next = 0.0                       # when `ps` may be run again, read or not
+        self._table_lock = threading.Lock()
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -1762,13 +1769,18 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                for a in self.store.query(LIVE_ATTEMPTS):
+                live = self.store.query(LIVE_ATTEMPTS)
+                for a in live:
                     if imported_external(a):
                         continue                    # v1 still owns it (principle 3)
                     self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
-                for j in self.store.query("SELECT * FROM jobs WHERE accepted_attempt_id IS NOT NULL"):
-                    if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):
-                        self._schedule("export:" + j["job_id"], self._export, j["job_id"], paced=True)
+                for gone in set(self._inspect_next) - {a["attempt_id"] for a in live}:
+                    self._inspect_next.pop(gone, None)
+                # C-5.12: one query over the few leases held, not one per job the
+                # store has ever accepted.
+                for j in self.store.query("SELECT DISTINCT jobs.job_id FROM leases JOIN jobs ON jobs.job_id=leases.holder "
+                                          "WHERE jobs.accepted_attempt_id IS NOT NULL"):
+                    self._schedule("export:" + j["job_id"], self._export, j["job_id"], paced=True)
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
@@ -2983,12 +2995,25 @@ class Daemon:
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
+        # C-5.12: everything above is files and rows and runs every tick. What
+        # follows asks the operating system, so a healthy attempt is inspected
+        # once per interval, from one process table shared by every attempt.
+        if time.monotonic() < self._inspect_next.get(aid, 0):
+            return
+        self._inspect_next[aid] = time.monotonic() + self.inspect_interval_s
+        table = self._process_table()
+        if table is not None and table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+            self._record_owned(a, table)
+            return  # Re-adopted solely by receipt identity, not parentage.
+        # A shared table can say "alive" and nothing else: a guardian it does
+        # not show is asked about afresh before anything is decided from it.
         alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if alive == "alive":
-            if time.monotonic() >= self._census_next.get(aid, 0):
-                self._record_owned(a)
-                self._census_next[aid] = time.monotonic() + .5
-            return  # Re-adopted solely by receipt identity, not parentage.
+            try:
+                self._record_owned(a, procs.snapshot())
+            except procs.InspectionError:
+                pass
+            return
         if alive == "unknown":
             # ps failed or timed out (load, or an inspection outage). A guardian
             # that cannot be inspected is neither dead nor an escape; nothing is
@@ -3011,14 +3036,36 @@ class Daemon:
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
-    def _record_owned(self, a: dict) -> None:
-        census = self._contain(a)
-        if not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+    def _process_table(self) -> procs.ProcessTable | None:
+        """C-5.12: one `ps` per `inspect_interval_s`, whoever asks; None if it failed.
+
+        A read that failed is rationed like one that worked. `ps` can take its
+        whole 10 s cap to fail, under this lock, and every attempt asks: retried
+        per caller, an outage would hold a worker per running attempt in turn.
+        """
+        with self._table_lock:
+            if time.monotonic() >= self._table_next:
+                try:
+                    self._table = procs.snapshot()
+                except procs.InspectionError:
+                    self._table = None
+                self._table_next = time.monotonic() + self.inspect_interval_s
+            return self._table
+
+    def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
+        """C-5.6: remember the group's members while the recorded guardian leads it.
+
+        Both facts come from the one table, so the leader is known to be ours at
+        the instant its members were listed. Only group members are recorded,
+        which is why the marker scan of a full census is not run here.
+        """
+        if not table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
             return
+        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
         evidence = json.loads(a["evidence_json"] or "{}")
         before = dict(evidence.get("owned_identities", {}))
         owned = dict(before)
-        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items() if pid in census.group_pids})
+        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
         if owned != before:
             evidence["owned_identities"] = owned
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
