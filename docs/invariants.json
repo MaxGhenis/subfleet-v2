@@ -2077,7 +2077,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/actions.py",
   "test_name": "test_at_most_one_reset_credit_redeemed_per_evaluation",
-  "notes": "2026-08-22: batch redemption synchronized the fleet's weekly resets. C-18.1 adopts v1's rule set; C-19.1's `op_key` (account key plus credit id) replaces the flock."
+  "notes": "2026-08-22: batch redemption synchronized the fleet's weekly resets. C-18.1 now defers to C-23.16, which makes it demand-only: one credit, for one waiting job, on that job's own lane, and none while a lane reset in the last week still has room, whatever the interval (2026-09-23). C-19.1's `op_key` (account key plus credit id) replaces the flock."
  },
  {
   "id": 161,

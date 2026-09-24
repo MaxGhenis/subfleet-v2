@@ -1180,3 +1180,101 @@ def test_nothing_under_the_v1_state_is_modified(v1):
     run_import(v1)
     run_import(v1, dry_run=True)
     assert snapshot() == before
+
+
+# --- reset settings: v1's auto_reset switch and its reset hold (C-23.16 (f)) ---
+
+def _state_policy(root: Path, enabled: bool) -> Path:
+    """A state root whose policy.json predates C-23.16 (f): automatic redemption on."""
+    policy = json.loads(importer.DEFAULT_POLICY_PATH.read_text())
+    policy["reset_credits"] = {"enabled": enabled, "headroom_floor_pct": 15, "min_interval_min": 30}
+    policy["caps"]["max_active_attempts"] = 6          # an operator's own edit, which must survive
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "policy.json"
+    path.write_text(json.dumps(policy, indent=2))
+    return path
+
+
+def _auto_reset(v1: dict, enabled) -> None:
+    config = json.loads((v1["roster"] / "codex-accounts.json").read_text())
+    config["auto_reset"] = {"enabled": enabled, "headroom_floor_pct": 15, "min_interval_min": 30}
+    write_json(v1["roster"] / "codex-accounts.json", config)
+
+
+def test_v1_auto_reset_off_turns_automatic_redemption_off(v1, monkeypatch):
+    """C-23.16 (f): v1 `auto_reset.enabled: false` becomes `reset_credits.enabled: false`, and nothing else moves."""
+    from subfleet.policy import load_policy
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    _auto_reset(v1, False)
+    path = _state_policy(v1["root"], True)
+    before = path.read_bytes()
+    dry = run_import(v1, dry_run=True, write_report=False)
+    assert path.read_bytes() == before
+    assert dry.stores["reset-settings"].reasons["reset-credits-disabled"] == 1
+    report = run_import(v1, write_report=False)
+    entry = report.stores["reset-settings"]
+    assert entry.imported == 1 and entry.reasons["reset-credits-disabled"] == 1
+    policy = load_policy(path)
+    assert policy["reset_credits"]["enabled"] is False
+    assert policy["reset_credits"]["min_interval_min"] == 30 and policy["caps"]["max_active_attempts"] == 6
+    again = run_import(v1, write_report=False).stores["reset-settings"]
+    assert again.imported == 0 and again.reasons["already-disabled"] == 1
+
+
+@pytest.mark.parametrize("v1_setting", [True, None])
+def test_v1_auto_reset_on_or_unset_never_turns_it_on(v1, monkeypatch, v1_setting):
+    """C-23.16 (f): enabling automatic redemption is an operator's choice; an import never makes it."""
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    _auto_reset(v1, v1_setting)
+    path = _state_policy(v1["root"], False)
+    before = path.read_bytes()
+    entry = run_import(v1, write_report=False).stores["reset-settings"]
+    assert path.read_bytes() == before
+    assert entry.imported == 0 and entry.reasons["v1-auto-reset-not-disabled"] == 1
+    assert any("operator's choice" in note for note in entry.notes) == (v1_setting is True)
+
+
+def test_v1_auto_reset_off_before_the_daemon_wrote_a_policy_writes_none(v1, monkeypatch):
+    """C-23.16 (f): with no policy.json the daemon writes its default, which is already off."""
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    _auto_reset(v1, False)
+    entry = run_import(v1, write_report=False).stores["reset-settings"]
+    assert not (v1["root"] / "policy.json").exists()
+    assert entry.reasons["no-policy-yet"] == 1
+    assert json.loads(importer.DEFAULT_POLICY_PATH.read_text())["reset_credits"]["enabled"] is False
+
+
+@pytest.mark.parametrize("hold", ["file", "dangling-link", "explicit", "environment"])
+def test_v1_reset_hold_becomes_the_no_reset_marker(v1, monkeypatch, hold):
+    """C-23.16 (f): v1's hold refused every consume; the marker it becomes refuses them in v2."""
+    from subfleet.actions import ResetCredits
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    source = v1["home"] / "capacity-sprint-20260907" / "no-reset.json"
+    options = {}
+    if hold in ("explicit", "environment"):
+        source = v1["home"] / "elsewhere" / "hold.json"
+        if hold == "explicit":
+            options["v1_reset_hold"] = source
+        else:
+            monkeypatch.setenv("SUBFLEET_RESET_INHIBIT", str(source))
+    source.parent.mkdir(parents=True, exist_ok=True)
+    held = {"block_enabled": True, "reason": "exhaust Axiom and Thesis capacity first"}
+    if hold == "dangling-link":
+        source.symlink_to(v1["home"] / "missing-target.json")
+    else:
+        write_json(source, held)
+    marker = v1["root"] / "no-reset"
+    run_import(v1, dry_run=True, write_report=False, **options)
+    assert not os.path.lexists(marker)
+    entry = run_import(v1, write_report=False, **options).stores["reset-settings"]
+    assert entry.reasons["reset-hold-imported"] == 1
+    recorded = json.loads(marker.read_text())
+    assert recorded["source"] == str(source)
+    assert recorded["v1_hold"] == (None if hold == "dangling-link" else held)
+    assert oct(marker.stat().st_mode & 0o777) == "0o600"
+    resets = ResetCredits(None, {"reset_credits": {"enabled": True}}, inhibit=marker)
+    assert resets.inhibited() == str(marker)
+    # A hold that is gone never lifts the marker; only an operator removes it.
+    source.unlink()
+    again = run_import(v1, write_report=False, **options).stores["reset-settings"]
+    assert os.path.lexists(marker) and again.reasons["no-v1-reset-hold"] == 1
