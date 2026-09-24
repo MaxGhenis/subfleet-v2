@@ -34,7 +34,7 @@ where it is implemented; "open" means not yet built.
 | IR | Requirement | Source | Where |
 |---|---|---|---|
 | 1 | The dispatcher looks up `turn:<message>:<turn_seq>` first and binds it; never inserts another while one is not terminal; a turn's payload digest is the message digest | F2, F-07 | `dispatch.py` |
-| 2 | Cancel atomicity lives in the job store: `message.cancel` sets the job's cancel only while no attempt row exists; `_launch` re-reads the cancel flag inside the `attempt.starting` transaction | F3 | `service.py`, `daemon.py` |
+| 2 | Cancel atomicity lives in the job store: `message.cancel` sets the job's cancel only while no attempt row exists; `_launch` re-reads the cancel flag inside the `attempt.starting` transaction | F3 | `service.py`, `daemon.py`; the dispatcher claims a queued message before its job exists (`service._dispatch`, C-24.7; `tests/unit/test_conversation_handoff.py`) |
 | 3 | Stop order: control interrupt, then SIGINT through a new relay `signal` op the guardian applies to its own unreaped child, then close stdin, then containment; each step bounded | F1 | `relay.py`, `guardian.py`, `runner.py` |
 | 4 | Every daemon-initiated stop of a turn (wall limit, operator kill, approval timeout) escalates as IR-3, with reasons `wall-limit`, `operator-kill`, `approval-timeout` | F4, U-F4 | `runner.py`, `daemon.py` |
 | 5 | The unfinished-turn block fires on delivery (user frame written), not only acknowledgement | F1 | `reconcile.py` |

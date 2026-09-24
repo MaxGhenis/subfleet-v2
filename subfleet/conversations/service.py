@@ -29,7 +29,7 @@ from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, 
 from .peers import APP_EXECUTABLES, judge, peer_pid
 from .runner import TurnRunner
 from .store import (
-    ConversationError, ConversationStore, canonical_uuid, validate_settings, widens, utcnow,
+    ConversationError, ConversationStore, _decode_message, canonical_uuid, validate_settings, widens, utcnow,
 )
 from .turn import (
     APPROVAL_NEEDED, CANCELLED, COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, QUEUED, RUNNING,
@@ -55,6 +55,11 @@ MAX_READMITS = 3
 CONTINUATION_TEXT = ("Continue from where you left off; the previous turn stopped at a usage limit "
                      "on another account.")
 CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
+# The dispatcher's claim on a queued message while it creates the message's turn job
+# (C-24.7, IR-2): a claimed message is `waiting` with this reason and no job yet.
+CLAIMED = "dispatching"
+# A message whose turn submit was deferred is offered again after this long.
+DEFER_S = 5.0
 
 
 class ConversationService:
@@ -66,6 +71,7 @@ class ConversationService:
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
+        self._deferred: dict[str, float] = {}         # message id -> monotonic time of next submit
         self._poll_slots: dict[tuple, threading.Event] = {}
         self.log = daemon.log
 
@@ -437,6 +443,10 @@ class ConversationService:
             if job and self._cancel_job_without_attempt(job["job_id"]):
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING, STARTING))
                 return self._receipt(self.store.message(message_id))
+            if job is None and self.store.message(message_id)["state"] == WAITING:
+                # Claimed by the dispatcher, whose job for it is being created (C-24.7).
+                raise ConversationError("dispatching", "the message is being handed to its turn job",
+                                        fix="send the cancel again in a moment")
         raise ConversationError("too-late", "the provider may already have this message", fix="use turn.interrupt")
 
     def _tombstone(self, message_id: str, conversation_id: str | None) -> dict:
@@ -598,36 +608,56 @@ class ConversationService:
         return dict(row) if row else None
 
     def _dispatch(self) -> None:
+        now = time.monotonic()
+        self._deferred = {mid: at for mid, at in self._deferred.items() if at > now}
         for message in self.store.next_dispatchable() + self._readmittable():
+            mid = message["message_id"]
+            if self._deferred.get(mid, 0) > now:
+                continue
             conversation = self.store.conversation(message["conversation_id"])
             job = self._turn_job(message)
             if job is None and not self._previous_released(conversation, message):
                 continue
             if job is None:
+                claimed = False
+                if message["state"] == QUEUED:
+                    # C-24.7, IR-2: claim the message in the conversation store
+                    # before its job exists. A withdrawal of a queued message
+                    # (message.cancel) and this claim are one
+                    # store's transactions, so exactly one of them wins: a withdrawn
+                    # message never gets a job, and a claimed one is withdrawn only
+                    # through its job's no-attempt guard.
+                    if not self.store.set_state(mid, WAITING, reason=CLAIMED, expect=(QUEUED,)):
+                        continue
+                    claimed = True
                 try:
                     job = self._submit_turn(conversation, message)
                 except ConversationError as exc:
-                    self.store.set_state(message["message_id"], FAILED, reason=exc.reason,
-                                         expect=(QUEUED, WAITING))
+                    self.store.set_state(mid, FAILED, reason=exc.reason, expect=(QUEUED, WAITING))
                     continue
                 except (protocol.ProtocolError, AdapterError, OSError, ValueError) as exc:
                     # Refused before any provider saw it: the message waits, it is not failed.
-                    self.store.update_message(message["message_id"])
-                    self.log.warning("turn submit for %s deferred: %s", message["message_id"], exc)
+                    # A claimed one goes back to `queued`, so it can still be withdrawn.
+                    if claimed and self._turn_job(message) is None:
+                        self.store.set_state(mid, QUEUED, expect=(WAITING,))
+                    else:
+                        self.store.update_message(mid)
+                    self._deferred[mid] = time.monotonic() + DEFER_S
+                    self.log.warning("turn submit for %s deferred: %s", mid, exc)
                     continue
+                self._deferred.pop(mid, None)
             if job and message["state"] in (QUEUED, WAITING):
-                self.store.set_state(message["message_id"], WAITING, reason=message.get("state_reason"),
+                reason = message.get("state_reason")
+                self.store.set_state(mid, WAITING, reason=None if reason == CLAIMED else reason,
                                      expect=(QUEUED, WAITING), job_id=job["job_id"])
 
     def _readmittable(self) -> list[dict]:
-        rows = self.store.query("SELECT * FROM messages WHERE state='waiting' AND state_reason LIKE 'readmit:%'")
-        out = []
-        from .store import _decode_message
-        for row in rows:
-            message = _decode_message(row)
-            if not self._turn_job(message):
-                out.append(message)
-        return out
+        """Waiting messages with no job bound: a re-admission, or a claim a crash
+        interrupted before its job was bound (design §4's repair: an existing job is
+        bound, a missing one is submitted)."""
+        rows = self.store.query("SELECT * FROM messages WHERE state='waiting' AND job_id IS NULL "
+                                "AND (state_reason LIKE 'readmit:%' OR state_reason=?)", (CLAIMED,))
+        return [_decode_message(row) for row in rows]
 
     def _previous_released(self, conversation: dict, message: dict) -> bool:
         """C-24.5: the previous turn job is terminal and holds no lease."""

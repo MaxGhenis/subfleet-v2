@@ -533,18 +533,27 @@ whose lowest-seq live message is `queued`, and whose previous turn job is
 terminal with its leases released, it:
 
 1. looks up `jobs.request_id = 'turn:<id>:<turn_seq>'`; if present, binds it;
-2. otherwise publishes `prompt.md` and `manifest.json`, then inserts the job
-   row in one main-store transaction, then binds `messages.job_id` and sets
-   `waiting` in one conversation-store transaction.
+2. otherwise claims the message (`queued` → `waiting`, reason `dispatching`)
+   in one conversation-store transaction, publishes `prompt.md` and
+   `manifest.json`, inserts the job row in one main-store transaction, then
+   binds `messages.job_id` in one conversation-store transaction. A submit
+   refused before any provider saw the message returns a claimed message to
+   `queued` and offers it again after 5 s.
 
-A crash between the two transactions is repaired by step 1 on the next pass.
+A crash between the transactions is repaired on the next pass: a `waiting`
+message with no job bound is bound to its job (step 1) or submitted again.
+The claim is what makes a withdrawal of a `queued` message safe: the
+withdrawal and the claim are transactions on one store, so a withdrawn
+message never gets a job, and a claimed one is withdrawn only through its
+job's guard below.
 `turn_seq` increments only for a failover continuation, which is a new
 message, so no message ever has two live turn jobs.
 
 `message.cancel` withdraws a `queued` message in the conversation store; for
 a `waiting` message it sets the job's `cancel_requested_at` in a main-store
 transaction guarded by "no attempt row exists", and marks the message
-`cancelled` only if that guard held (review F3). `_launch` re-reads the cancel
+`cancelled` only if that guard held (review F3). A message claimed but not yet
+bound to a job is refused with `dispatching` (try again). `_launch` re-reads the cancel
 flag inside the `attempt.starting` transaction and releases the gate only
 if it is still null.
 
