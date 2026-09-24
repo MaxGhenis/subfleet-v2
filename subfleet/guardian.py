@@ -55,7 +55,7 @@ def _output(path: Path):
 def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                  stdin_path: str | None, stdout_path: str, stderr_path: str,
                  start_delay_s: float = 0, launch_fd: int | None = None,
-                 control_socket: str | None = None) -> int:
+                 control_socket: str | None = None, relay_peer_lock: str | None = None) -> int:
     """Run argv in a new session, writing start before spawn and exit after wait.
 
     With `control_socket`, the child's stdin is a pipe fed only through the relay
@@ -91,8 +91,9 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     if control_socket:
         if stdin_path:
             raise RuntimeError("a control socket and a stdin file are exclusive")
-        from .relay import RelayServer
-        relay = RelayServer(control_socket, attempt_dir / "stdin.jsonl")
+        from .relay import RelayServer, daemon_peer_check
+        relay = RelayServer(control_socket, attempt_dir / "stdin.jsonl",
+                            allowed_peer=daemon_peer_check(relay_peer_lock) if relay_peer_lock else None)
         relay.bind()
         start["control_socket"] = str(control_socket)
     _receipt(attempt_dir / "start.json", start)
@@ -147,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start-delay-s", type=float, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--launch-fd", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--control-socket")
+    parser.add_argument("--relay-peer-lock", help="accept relay connections only from the daemon this lock names")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -155,7 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     rc = run_guardian(command, attempt_dir=args.attempt_dir, cwd=args.cwd,
                       stdin_path=args.stdin_path, stdout_path=args.stdout_path,
                       stderr_path=args.stderr_path, start_delay_s=args.start_delay_s,
-                      launch_fd=args.launch_fd, control_socket=args.control_socket)
+                      launch_fd=args.launch_fd, control_socket=args.control_socket,
+                      relay_peer_lock=args.relay_peer_lock)
     if rc < 0:
         # Preserve subprocess's signal returncode as well as the raw receipt.
         if -rc not in {signal.SIGKILL, signal.SIGSTOP}:

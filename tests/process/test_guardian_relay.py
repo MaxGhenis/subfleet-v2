@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from subfleet import procs
 from subfleet.relay import RelayClient, read_log
 
 ECHO = "import sys\nfor line in sys.stdin:\n    sys.stdout.write('got:' + line); sys.stdout.flush()\nprint('eof')\n"
@@ -30,16 +31,28 @@ def wait_for(predicate, timeout=5.0):
     raise AssertionError("condition did not hold in time")
 
 
+def write_lock(path, pid):
+    ident = procs.identity(pid)
+    path.write_text(json.dumps({"pid": pid, "boot_id": ident.boot_id, "proc_start": ident.proc_start}))
+
+
 @pytest.fixture
-def guardian(tmp_path):
+def guardian(tmp_path, request):
     if sys.platform != "darwin":
         pytest.skip("C-26.4 process test targets the deployment OS")
+    try:
+        if procs.identity(os.getpid()) is None:
+            pytest.skip("C-26.4 process identity unavailable")
+    except procs.InspectionError:
+        pytest.skip("C-26.4 host sandbox denies ps/sysctl")
+    lock = tmp_path / "daemon.lock"
+    write_lock(lock, getattr(request, "param", None) or os.getpid())
     attempt = tmp_path / "a1"
     # Short enough for AF_UNIX; a private directory, as `<state root>/run` is.
     sock = Path("/private/tmp") / f"sfr-{os.getpid()}-{time.monotonic_ns() % 10**6}" / "x.sock"
     argv = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(attempt), "--cwd", str(tmp_path),
             "--stdout-path", str(attempt / "stdout"), "--stderr-path", str(attempt / "stderr"),
-            "--control-socket", str(sock), "--", sys.executable, "-c", ECHO]
+            "--control-socket", str(sock), "--relay-peer-lock", str(lock), "--", sys.executable, "-c", ECHO]
     env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
            "SUBFLEET_ATTEMPT": "relay/a1", "SUBFLEET_JOB": "relay"}
     process = subprocess.Popen(argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -88,4 +101,17 @@ def test_child_exit_ends_the_relay(guardian):
     assert client.send(1, "close", tag="end").ok
     receipt = json.loads(wait_for(lambda: (attempt / "exit.json").exists() and (attempt / "exit.json").read_text()))
     assert receipt["rc"] == 0
+    process.wait(5)
+
+
+@pytest.mark.parametrize("guardian", [1], indirect=True)
+def test_only_the_daemon_named_by_the_lock_may_write(guardian):
+    """C-26.4 a same-user process that is not the recorded daemon is refused and
+    nothing reaches the provider (here the lock names pid 1, not this test)."""
+    attempt, sock, process = guardian
+    wait_for(lambda: (attempt / "start.json").exists())
+    ack = RelayClient(sock, timeout_s=5).send(1, "write", line='{"forged":true}', tag="user-message")
+    assert not ack.ok and ack.error == "peer-refused"
+    assert not (attempt / "stdin.jsonl").exists()
+    process.kill()
     process.wait(5)
