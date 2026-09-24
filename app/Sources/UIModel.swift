@@ -80,7 +80,12 @@ final class UIModel: ObservableObject {
         state = baseline
         state.watchBaselined = true
         startWatchLoop()
-        if let focused = state.focusedConversationID { startEventsLoop(focused) }
+        if let focused = state.focusedConversationID {
+            startEventsLoop(focused)
+        } else if let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
+            // A launch that names a conversation opens it (notifications and links reuse this).
+            focus(requested)
+        }
     }
 
     func refreshList() async {
