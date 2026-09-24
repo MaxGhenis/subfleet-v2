@@ -1,5 +1,5 @@
-"""The dispatcher's claim and the withdrawal guard of message.cancel: C-24.7
-(review IR-2).
+"""Labelled handoffs and the withdrawal guard they share with message.cancel:
+C-30.3, C-24.7 (review IR-2, IR-28).
 
 The service runs here against a real conversation store and a real job store
 (`subfleet.store.Store`) in a temporary state root, with a stand-in daemon that
@@ -10,7 +10,11 @@ transcripts are the sessions kit's fixtures under `SUBFLEET_CLAUDE_DIR`.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import os
+import stat
 import uuid
 from pathlib import Path
 
@@ -26,6 +30,7 @@ from tests.conftest import make_lane
 
 SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 ASK = {"model": "opus[1m]", "effort": None, "fast": False, "permission": "ask", "auto_continue": True}
+CODEX = {"model": "gpt-6-astra", "effort": None, "fast": False, "permission": "read-only", "auto_continue": True}
 
 
 class Daemon:
@@ -88,6 +93,206 @@ def turn_job(world, mid: str, cid: str, *, state: str = "queued") -> str:
     return job_id
 
 
+def attempt(world, job_id: str, state: str = "running") -> None:
+    world.daemon.store.add_attempt(attempt_id=f"{job_id}/a1", job_id=job_id, seq=1, lane_id="claude-1",
+                                   model_requested="claude-opus-5-5", state=state)
+
+
+def handoff(world, cid: str | None = None, *, request_id: str = "h-1", to=None, **source_arg) -> dict:
+    args = {"request_id": request_id, "from": source_arg or {"conversation_id": cid},
+            "to": to or {"provider": "codex", "settings": CODEX}}
+    return world.service.op_conversation_handoff(args, None)
+
+
+# --- the op -----------------------------------------------------------------------
+
+def test_a_handoff_is_a_new_labelled_conversation_whose_first_message_is_the_brief(world):
+    """C-30.3, D-18: a new conversation (origin `handoff`) on the other provider;
+    its first message is the scrubbed brief, and `handoff_from` records the
+    source's provider, native id, transcript path and the brief's SHA-256. It
+    has no native session of its own until its first turn: never the source's."""
+    cid, _ = source(world)
+    out = handoff(world, cid)
+    conversation = out["conversation"]
+    assert out["created"] and conversation["origin"] == "handoff" and conversation["provider"] == "codex"
+    assert conversation["native_session_id"] is None and conversation["conversation_id"] != cid
+    record = conversation["handoff_from"]
+    transcript = Path(record["transcript"])
+    assert record["provider"] == "claude" and record["native_session_id"] == SESSION
+    assert transcript.is_file() and transcript.name == f"{SESSION}.jsonl"
+    assert record["conversation_id"] == cid
+    brief = world.store.message(out["brief"]["message_id"])
+    text = world.store.message_text(brief)
+    assert record["brief_sha256"] == hashlib.sha256(text.encode()).hexdigest()
+    assert brief["seq"] == 1 and brief["origin"] == "handoff" and brief["state"] == "queued"
+    assert brief["settings"] == CODEX
+    assert "- Source provider: Claude Code" in text and f"- Source session: {SESSION}" in text
+    assert "Port the ledger importer to v2." in text
+    assert stat.S_IMODE(os.stat(brief["text_path"]).st_mode) == 0o600
+    assert conversation["workspace"] == os.path.realpath(world.workspace)
+    assert conversation["title"] == "ledger importer"
+
+
+def test_pending_messages_move_in_order_and_leave_the_source_withdrawn(world):
+    """IR-28, C-24.2: queued messages move behind the brief in their order, with new
+    ids chained as a client would chain them, the target's settings and the same
+    text; each is withdrawn from the source (`cancelled`, `handed-off:<new>`),
+    which keeps its rows."""
+    cid, ids = source(world, "first follow-up", "second follow-up")
+    out = handoff(world, cid)
+    new = out["conversation"]["conversation_id"]
+    moved = [world.store.message(r["message_id"]) for r in out["moved"]]
+    assert [world.store.message_text(m) for m in moved] == ["first follow-up", "second follow-up"]
+    assert [m["seq"] for m in moved] == [2, 3] and all(m["origin"] == "person" for m in moved)
+    assert moved[0]["after_message_id"] is None and moved[1]["after_message_id"] == moved[0]["message_id"]
+    assert all(m["settings"] == CODEX and m["conversation_id"] == new for m in moved)
+    assert [pair["from"] for pair in out["handoff_from"]["moved"]] == ids
+    assert out["withdrawn"] == ids
+    for mid in ids:
+        left = world.store.message(mid)
+        assert left["state"] == "cancelled" and left["state_reason"] == f"handed-off:{new}"
+        assert left["conversation_id"] == cid
+    # The client's next message chains on the last moved one (D-22).
+    nxt = str(uuid.uuid4())
+    world.store.submit_message(conversation_id=new, message_id=nxt, after_message_id=moved[-1]["message_id"],
+                               text="third", attachments=[], settings=CODEX)
+
+
+def test_the_same_request_returns_the_same_handoff_and_a_different_one_is_refused(world):
+    """C-30.3, C-24.2: idempotent by request_id; the same id with another request is
+    exit 2 and changes nothing."""
+    cid, ids = source(world, "follow-up")
+    first = handoff(world, cid)
+    again = handoff(world, cid)
+    assert not again["created"]
+    assert again["conversation"]["conversation_id"] == first["conversation"]["conversation_id"]
+    assert [m["message_id"] for m in again["moved"]] == [m["message_id"] for m in first["moved"]]
+    count = world.store.one("SELECT COUNT(*) n FROM conversations")["n"]
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid, to={"provider": "claude", "settings": ASK})
+    assert err.value.reason == "request-id-conflict" and err.value.code == 2
+    created = world.store.create_conversation(provider="claude", workspace="/w", workspace_kind="in-place",
+                                              settings=ASK, origin="new", request_id="h-create")[0]
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid, request_id="h-create")
+    assert err.value.reason == "request-id-conflict"
+    assert world.store.one("SELECT COUNT(*) n FROM conversations")["n"] == count + 1
+    assert created["origin"] == "new"
+
+
+@pytest.mark.parametrize("state", ["running", "starting", "approval-needed", "delivery-unknown"])
+def test_a_source_with_a_live_turn_is_refused_and_nothing_changes(world, state):
+    """IR-28, C-24.7: a message a provider may already have is never withdrawn; the
+    handoff is refused, and the queued message behind it stays in the source."""
+    cid, (live, queued) = source(world, "running now", "queued behind it")
+    world.store.set_state(live, state)
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid)
+    assert err.value.reason == "live-turn"
+    assert world.store.message(queued)["state"] == "queued"
+    assert world.store.by_request("h-1") is None
+
+
+def test_a_waiting_message_moves_only_while_its_job_has_no_attempt(world):
+    """IR-2, IR-28: a waiting message is withdrawn by the job store's guard, the one
+    message.cancel uses. Its job is cancelled with the handoff's own marker on
+    the cancel's audit event; with an attempt, the handoff is refused."""
+    cid, (waiting, queued) = source(world, "waiting on capacity", "behind it")
+    job_id = turn_job(world, waiting, cid, state="waiting")
+    world.store.set_state(waiting, "waiting", job_id=job_id)
+    attempt(world, job_id, state="reserved")
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid)
+    assert err.value.reason == "live-turn"
+    assert world.daemon.store.get_job(job_id)["state"] == "waiting"
+    world.daemon.store.connection.execute("DELETE FROM attempts WHERE job_id=?", (job_id,))
+
+    out = handoff(world, cid)
+    assert [world.store.message_text(world.store.message(m["message_id"])) for m in out["moved"]] == [
+        "waiting on capacity", "behind it"]
+    assert world.daemon.store.get_job(job_id)["state"] == "cancelled"
+    event = world.daemon.store.one("SELECT data_json FROM events WHERE kind='job.cancel_requested' AND job_id=?",
+                                   (job_id,))
+    assert json.loads(event["data_json"]) == {"by": "conversation.handoff", "request_id": "h-1"}
+    assert world.store.message(waiting)["state"] == "cancelled"
+
+
+def test_a_retry_after_a_crash_still_moves_the_message_whose_job_it_cancelled(world):
+    """IR-28: the job store's cancel and the conversation store's commit are two
+    transactions. If the daemon dies between them and the tick settles the
+    message `cancelled`, the same request finds its own marker and moves it."""
+    cid, (waiting,) = source(world, "waiting on capacity")
+    job_id = turn_job(world, waiting, cid, state="waiting")
+    world.store.set_state(waiting, "waiting", job_id=job_id)
+    marker = {"by": "conversation.handoff", "request_id": "h-1"}
+    assert world.service._cancel_job_without_attempt(job_id, by=marker)
+    world.store.set_state(waiting, "cancelled", reason="cancelled: 130")      # what the tick does
+    out = handoff(world, cid)
+    assert [pair["from"] for pair in out["handoff_from"]["moved"]] == [waiting]
+    assert world.store.message(waiting)["state_reason"].startswith("handed-off:")
+    # Another request's marker is not this one's, and a person's cancel is not a handoff's.
+    assert not world.service._cancel_job_without_attempt(job_id, by={**marker, "request_id": "h-2"})
+    assert not world.service._cancel_job_without_attempt(job_id)
+
+
+def test_subfleets_repair_messages_are_not_carried(world):
+    """IR-28: a failover continuation would resume the source's work beside the
+    handoff, so it is withdrawn and not moved; an unblock note still guards the
+    source's next turn, so it stays queued there."""
+    cid, (person,) = source(world, "the person's follow-up")
+    note, failover = str(uuid.uuid4()), str(uuid.uuid4())
+    world.store.submit_message(conversation_id=cid, message_id=note, after_message_id=person, text="[Subfleet] note",
+                               attachments=[], settings=ASK, origin="unblock-note")
+    world.store.submit_message(conversation_id=cid, message_id=failover, after_message_id=person,
+                               text="Continue", attachments=[], settings=ASK, origin="failover")
+    out = handoff(world, cid)
+    assert [pair["from"] for pair in out["handoff_from"]["moved"]] == [person]
+    assert set(out["withdrawn"]) == {person, failover}
+    assert world.store.message(note)["state"] == "queued"
+    assert world.store.message(failover)["state"] == "cancelled"
+
+
+def test_a_native_session_hands_off_and_a_lane_run_is_refused(world):
+    """C-30.3, C-23.31: a session no conversation holds hands off from its native
+    id, into its recorded cwd; a headless lane run is not a session (exit 7)."""
+    prompt = {**fx.typed_prompt("Port the ledger importer to v2.", uuid="p0", at=fx.ago(3600)),
+              "cwd": str(world.workspace)}                       # the session's recorded cwd
+    fx.transcript(world.home, SESSION, [prompt], cwd=str(world.workspace))
+    out = handoff(world, native={"provider": "claude", "session_id": SESSION})
+    assert out["handoff_from"]["conversation_id"] is None and out["moved"] == []
+    assert out["conversation"]["workspace"] == os.path.realpath(world.workspace)
+
+    run = "5a1b2c3d-0000-4000-8000-00000000abcd"
+    fx.transcript(world.home, run, fx.headless(), cwd=str(world.workspace))
+    with pytest.raises(ConversationError) as err:
+        handoff(world, request_id="h-2", native={"provider": "claude", "session_id": run})
+    assert err.value.reason == "lane-run" and err.value.code == 7
+
+
+def test_refusals_before_anything_is_read(world):
+    """C-30.3, C-25.6, IR-21, IR-32: a source with no native session yet, a writable
+    Codex target, and a target above Ask from an agent are refused; so is a Codex
+    home that no lane enrolled."""
+    cid, (mid,) = source(world, "queued", native=None)
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid)
+    assert err.value.reason == "no-history"
+    world.store.set_state(mid, "running")          # a first turn: no native id is recorded until it ends
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid)
+    assert err.value.reason == "live-turn", "the live turn is the reason, not the missing history"
+    world.store.set_state(mid, "complete")
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid, to={"provider": "codex", "settings": {**CODEX, "permission": "ask"}})
+    assert err.value.reason == "codex-read-only" and err.value.code == 7
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid, to={"provider": "claude", "settings": {**ASK, "permission": "bypass"}})
+    assert err.value.reason == "person-only" and err.value.code == 7
+    with pytest.raises(ConversationError) as err:
+        handoff(world, native={"provider": "codex", "session_id": str(uuid.uuid4()), "home": "/etc"})
+    assert err.value.reason == "bad-native"
+
+
 # --- the dispatcher's claim (C-24.7) ------------------------------------------------
 
 def test_a_withdrawal_and_the_dispatcher_cannot_both_win(world, monkeypatch):
@@ -114,6 +319,47 @@ def test_a_withdrawal_and_the_dispatcher_cannot_both_win(world, monkeypatch):
     receipt = world.service.op_message_cancel({"message_id": mid}, None)
     assert receipt["state"] == "cancelled"
     assert world.daemon.store.get_job(bound["job_id"])["state"] == "cancelled"
+
+
+def test_a_message_withdrawn_first_never_gets_a_job(world, monkeypatch):
+    """C-24.7, IR-28: a handoff that commits first leaves nothing to claim."""
+    cid, (mid,) = source(world, "hello")
+    handoff(world, cid)
+    submitted = []
+    monkeypatch.setattr(world.service, "_submit_turn",
+                        lambda conversation, message: submitted.append(message["message_id"]) or None)
+    world.service._dispatch()
+    assert mid not in submitted and submitted, "the handoff's own brief is what dispatches next"
+    assert world.store.message(mid)["state"] == "cancelled"
+
+
+def test_the_dispatcher_waits_while_a_handoff_takes_the_conversation(world, monkeypatch):
+    """IR-28: while a handoff of a conversation runs, the dispatcher leaves its
+    queued messages alone, so the handoff's own commit is not raced."""
+    cid, (mid,) = source(world, "hello")
+    world.service._handing_off.add(cid)
+    monkeypatch.setattr(world.service, "_submit_turn", lambda *a: pytest.fail("submitted mid-handoff"))
+    world.service._dispatch()
+    assert world.store.message(mid)["state"] == "queued"
+
+
+def test_a_claim_the_handoff_did_not_expect_rolls_the_handoff_back(world):
+    """IR-28, C-30.3: the handoff's commit re-checks that each queued message is
+    still queued; a message claimed meanwhile rolls back the whole handoff and
+    leaves no files."""
+    cid, (mid,) = source(world, "hello")
+    plan = world.service._handoff_plan(world.store.conversation(cid), {"by": "x", "request_id": "h-1"})
+    world.store.set_state(mid, "waiting", reason=CLAIMED, expect=("queued",))       # the dispatcher's claim
+    with pytest.raises(ConversationError) as err:
+        world.store.create_handoff(
+            request_id="h-1", provider="codex", workspace=str(world.workspace), settings=CODEX, title=None,
+            allow_main=False, handoff_from={"moved": []}, brief={"message_id": str(uuid.uuid4()), "text": "brief"},
+            moves=[{"message_id": str(uuid.uuid4()), "text": "hello", "attachments": []}],
+            withdrawals=[{"message_id": step["message"]["message_id"], "expect": step["expect"]} for step in plan])
+    assert err.value.reason == "source-changed"
+    assert world.store.by_request("h-1") is None
+    assert world.store.message(mid)["state"] == "waiting"
+    assert sorted(p.name for p in (world.store.dir).iterdir()) == [cid]
 
 
 def test_a_deferred_submit_puts_the_claim_back_and_waits(world, monkeypatch):
@@ -151,3 +397,42 @@ def test_a_claim_interrupted_by_a_crash_is_bound_or_submitted_again(world, monke
     monkeypatch.setattr(service_module.ConversationService, "_previous_released", lambda *a: True)
     world.service._dispatch()
     assert world.store.message(second)["job_id"] == f"job-{second[:8]}"
+
+
+def codex_app_rollout(world, thread: str, **meta) -> Path:
+    """A thread of the Codex app, in `~/.codex` (the test's HOME), as the fake app-server writes one."""
+    directory = Path(os.environ["HOME"]) / ".codex" / "sessions" / "2026" / "09" / "24"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"rollout-2026-09-24T12-00-00-{thread}.jsonl"
+    records = [{"type": "session_meta", "payload": {"id": thread, "cwd": str(world.workspace), **meta}},
+               {"type": "response_item", "payload": {"type": "message", "role": "user",
+                                                     "content": [{"type": "input_text", "text": "Look at the tests"}]}},
+               {"type": "response_item", "payload": {"type": "message", "role": "assistant",
+                                                     "content": [{"type": "output_text", "text": "they pass"}]}}]
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+    return path
+
+
+def test_a_codex_app_thread_continues_by_labelled_handoff(world):
+    """C-30.2, C-30.3: a thread in `~/.codex` (no lane owns that home) continues only
+    by handoff; its rollout is found there, named or not, and its recorded cwd is
+    the workspace. A Codex exec run is a lane run (exit 7)."""
+    thread = str(uuid.uuid4())
+    rollout = codex_app_rollout(world, thread)
+    out = handoff(world, native={"provider": "codex", "session_id": thread}, to={"provider": "claude", "settings": ASK})
+    record = out["handoff_from"]
+    assert (record["provider"], record["native_session_id"], record["lane_id"]) == ("codex", thread, None)
+    assert record["transcript"] == str(rollout) and record["conversation_id"] is None
+    assert out["conversation"]["workspace"] == os.path.realpath(world.workspace)
+    text = world.store.message_text(world.store.message(out["brief"]["message_id"]))
+    assert "- Source provider: Codex" in text and "Look at the tests" in text and "they pass" in text
+    named = handoff(world, request_id="h-2", to={"provider": "claude", "settings": ASK},
+                    native={"provider": "codex", "session_id": thread, "home": "~/.codex"})
+    assert named["handoff_from"]["transcript"] == str(rollout)
+
+    run = str(uuid.uuid4())
+    codex_app_rollout(world, run, source="exec")
+    with pytest.raises(ConversationError) as err:
+        handoff(world, request_id="h-3", native={"provider": "codex", "session_id": run},
+                to={"provider": "claude", "settings": ASK})
+    assert err.value.reason == "lane-run" and err.value.code == 7

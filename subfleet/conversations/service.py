@@ -23,25 +23,31 @@ from typing import Any
 
 from .. import protocol
 from ..adapters.base import AdapterError
+from ..sessions import handoff as session_handoff
+from ..sessions import registry, transcripts
 from . import attachments as attachment_store
+from . import codex_brief
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
 from .runner import TurnRunner
 from .store import (
-    ConversationError, ConversationStore, _decode_message, canonical_uuid, validate_settings, widens, utcnow,
+    PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_uuid, validate_settings, widens,
+    utcnow,
 )
 from .turn import (
     APPROVAL_NEEDED, CANCELLED, COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, QUEUED, RUNNING,
     STARTING, TERMINAL_STATES, WAITING,
 )
 
-CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1")
+CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
+                "handoff.v1")
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": 64 * 1024 * 1024}
 OPS = frozenset(protocol.CONVERSATION_OPS)
 POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
-FILE_OPS = frozenset({"attachment.add", "conversation.history"})
+# Ops that copy files or read a native transcript run on the bounded file pool (C-25.3).
+FILE_OPS = frozenset({"attachment.add", "conversation.history", "conversation.handoff"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
 MAX_WAIT_S = 50.0
 
@@ -56,10 +62,15 @@ CONTINUATION_TEXT = ("Continue from where you left off; the previous turn stoppe
                      "on another account.")
 CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
 # The dispatcher's claim on a queued message while it creates the message's turn job
-# (C-24.7, IR-2): a claimed message is `waiting` with this reason and no job yet.
+# (C-24.7, IR-2, IR-28): a claimed message is `waiting` with this reason and no job yet.
 CLAIMED = "dispatching"
 # A message whose turn submit was deferred is offered again after this long.
 DEFER_S = 5.0
+# A handoff moves the person's pending messages, withdraws Subfleet's failover
+# continuations (they would resume the source's work beside the handoff), and leaves an
+# unblock note in the source, where it still guards the source's next turn (IR-28).
+HANDOFF_MOVES = ("person",)
+HANDOFF_KEEPS = ("unblock-note",)
 
 
 class ConversationService:
@@ -71,6 +82,7 @@ class ConversationService:
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
+        self._handing_off: set[str] = set()          # source conversations mid-handoff (IR-28)
         self._deferred: dict[str, float] = {}         # message id -> monotonic time of next submit
         self._poll_slots: dict[tuple, threading.Event] = {}
         self.log = daemon.log
@@ -462,10 +474,14 @@ class ConversationService:
         self.store.set_state(message_id, CANCELLED, reason="withdrawn-before-receipt", expect=(QUEUED,))
         return self._receipt(self.store.message(message_id))
 
-    def _cancel_job_without_attempt(self, job_id: str) -> bool:
-        """The job store decides: cancelled only while no attempt row exists (IR-2)."""
+    def _cancel_job_without_attempt(self, job_id: str, *, by: dict | None = None) -> bool:
+        """The job store decides: cancelled only while no attempt row exists (IR-2).
+
+        `by` is written on the cancel's own audit event, in the same transaction;
+        a caller that finds the job already cancelled by that same marker (a
+        handoff sent again after a crash) is told the guard held (IR-28)."""
         daemon = self.daemon
-        with daemon.store.transaction("job.cancel_requested", job_id=job_id) as tx:
+        with daemon.store.transaction("job.cancel_requested", job_id=job_id, data=by) as tx:
             if tx.execute("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)).fetchone():
                 return False
             changed = tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?), state='cancelled', "
@@ -473,7 +489,7 @@ class ConversationService:
                                  "WHERE job_id=? AND state IN ('queued','waiting')", (utcnow(), utcnow(), job_id)).rowcount
             tx.execute("DELETE FROM leases WHERE holder=?", (job_id,))
         daemon._notify()
-        return bool(changed)
+        return bool(changed) or (by is not None and self._cancelled_by(job_id, by))
 
     def op_turn_interrupt(self, args, peer) -> dict:
         message_id = canonical_uuid(args["message_id"])
@@ -556,6 +572,257 @@ class ConversationService:
         runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
         return {"approval": self._approval_view(self.store.approval(approval["approval_id"]))}
 
+    # --- ops: handoff (C-30.3, design D-18, review IR-28) ----------------------
+
+    def op_conversation_handoff(self, args, peer) -> dict:
+        """A labelled handoff: a new conversation whose first message is a scrubbed,
+        bounded brief of the source's native history, recording where it came from
+        (C-30.3, D-18). It is a new native session, never the source's. The source's
+        pending messages move behind the brief in their order, each withdrawn from
+        the source under the guard `message.cancel` uses (IR-28); a source with a
+        live turn is refused. Idempotent by `request_id`: the same request returns
+        the same conversation, a different request under that id is exit 2."""
+        request_id = args.get("request_id")
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+            raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
+        source_arg, target = args.get("from"), args.get("to")
+        if not isinstance(source_arg, dict) or not isinstance(target, dict):
+            raise ConversationError("bad-args", "a handoff needs `from` and `to` objects")
+        provider = target.get("provider")
+        if provider not in PROVIDERS:
+            raise ConversationError("bad-provider", "to.provider must be claude or codex")
+        settings = validate_settings(provider, target.get("settings"))
+        title = target.get("title")
+        if title is not None and (not isinstance(title, str) or len(title) > 200):
+            raise ConversationError("bad-title", "to.title must be a string of at most 200 characters")
+        allow_main = bool(target.get("allow_main"))
+        digest = hashlib.sha256(json.dumps(
+            {"from": source_arg, "provider": provider, "settings": settings, "workspace": target.get("workspace"),
+             "title": title, "allow_main": allow_main}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        existing = self.store.by_request(request_id)
+        if existing:
+            return self._handoff_result(existing, digest=digest, created=False)
+        if allow_main or settings["permission"] in ("accept-edits", "bypass"):
+            # IR-21: a conversation above Ask, or on main, is a person's to start.
+            self._person(peer, "handing off to a conversation on main or above Ask")
+            if settings["permission"] in ("accept-edits", "bypass") and args.get("confirm_widen") is not True:
+                raise ConversationError("confirm-widen", "a policy above Ask needs confirm_widen: true")
+        self._check_codex_policy(provider, settings)
+        conversation, source_provider, session_id, home = self._handoff_origin(source_arg)
+        cid = conversation["conversation_id"] if conversation else None
+        if cid:
+            with self._lock:
+                if cid in self._handing_off:
+                    raise ConversationError("handoff-running", "another handoff of this conversation is running",
+                                            fix="send the same request again when it ends")
+                self._handing_off.add(cid)          # the dispatcher leaves its messages alone meanwhile
+        try:
+            marker = {"by": "conversation.handoff", "request_id": request_id}
+            # A live turn is the reason to refuse whatever else is true of the source.
+            plan = self._handoff_plan(conversation, marker) if conversation else []
+            if not session_id:
+                raise ConversationError("no-history", "the source conversation has no native session yet",
+                                        fix="cancel its messages and start a new conversation instead")
+            source = self._handoff_history(conversation, source_provider, session_id, home)
+            workspace = os.path.realpath(os.path.expanduser(str(target.get("workspace") or source["cwd"] or "")))
+            if not os.path.isdir(workspace):
+                raise ConversationError("bad-workspace", "the handoff's workspace must be an existing directory",
+                                        fix="pass to.workspace")
+            self._check_workspace(provider, workspace, settings)
+            brief = self._handoff_brief(source, workspace)
+            # IR-2's guard for a message whose turn job exists: its job is cancelled
+            # only while it has no attempt. C-24.5 allows at most one such message.
+            for step in plan:
+                if step["job_id"] and not self._cancel_job_without_attempt(step["job_id"], by=marker):
+                    raise ConversationError("live-turn", "the source's waiting message started its turn",
+                                            fix="stop it with turn.interrupt, or wait for it to end")
+            ids = {"brief": _handoff_id(request_id, "brief")}
+            moves = [{"message_id": _handoff_id(request_id, step["message"]["message_id"]),
+                      "text": self.store.message_text(step["message"]),
+                      "attachments": step["message"]["attachments"], "from": step["message"]["message_id"]}
+                     for step in plan if step["message"]["origin"] in HANDOFF_MOVES]
+            record = {"provider": source["provider"], "native_session_id": source["native_session_id"],
+                      "transcript": str(source["transcript"]),
+                      "brief_sha256": hashlib.sha256(brief.text.encode("utf-8")).hexdigest(),
+                      "conversation_id": cid, "lane_id": source["lane_id"], "brief_message_id": ids["brief"],
+                      "moved": [{"from": m["from"], "to": m["message_id"]} for m in moves],
+                      "withdrawn": [step["message"]["message_id"] for step in plan],
+                      "redactions": brief.redactions, "request_digest": digest, "at": utcnow()}
+            created_conversation, created = self.store.create_handoff(
+                request_id=request_id, provider=provider, workspace=workspace, settings=settings,
+                title=title or (conversation or {}).get("title"), allow_main=allow_main, handoff_from=record,
+                brief={"message_id": ids["brief"], "text": brief.text}, moves=moves,
+                withdrawals=[{"message_id": step["message"]["message_id"], "expect": step["expect"]}
+                             for step in plan])
+        finally:
+            if cid:
+                with self._lock:
+                    self._handing_off.discard(cid)
+        if created:
+            self.daemon._notify()
+        return self._handoff_result(created_conversation, digest=digest, created=created)
+
+    def _handoff_result(self, conversation: dict, *, digest: str, created: bool) -> dict:
+        record = conversation.get("handoff_from") or {}
+        if conversation.get("origin") != "handoff" or record.get("request_digest") != digest:
+            raise ConversationError("request-id-conflict", "request_id already names a different conversation",
+                                    fix="use a new request_id for a new handoff")
+        return {"conversation": self._view(conversation), "created": created,
+                "brief": self._receipt(self.store.message(record["brief_message_id"])),
+                "moved": [self._receipt(self.store.message(m["to"])) for m in record.get("moved", [])],
+                "withdrawn": record.get("withdrawn", []), "handoff_from": record}
+
+    def _handoff_origin(self, source: dict) -> tuple[dict | None, str, str | None, str | None]:
+        """(conversation, provider, native id, Codex home) the handoff comes from. A
+        native session some conversation already holds hands off as that
+        conversation, so its pending messages and its live turn count."""
+        if source.get("conversation_id"):
+            conversation = self.store.conversation(str(source["conversation_id"]))
+            return conversation, conversation["provider"], conversation["native_session_id"], None
+        native = source.get("native")
+        if not isinstance(native, dict):
+            raise ConversationError("bad-args", "from needs a conversation_id or a native session")
+        provider, session_id = native.get("provider"), native.get("session_id")
+        if provider not in PROVIDERS or not isinstance(session_id, str) or not session_id:
+            raise ConversationError("bad-native", "from.native needs a provider and a session_id")
+        try:
+            session_id = (session_handoff.canonical_session_id(session_id) if provider == "claude"
+                          else codex_brief.canonical_thread_id(session_id))
+        except session_handoff.HandoffError as exc:
+            raise ConversationError("bad-native", str(exc)) from exc
+        return self.store.by_native(provider, session_id), provider, session_id, native.get("home")
+
+    def _handoff_history(self, conversation: dict | None, provider: str, session_id: str,
+                         home: str | None) -> dict:
+        """The native transcript the brief is read from (bounded file pool, C-25.3)."""
+        try:
+            if provider == "claude":
+                return self._claude_source(conversation, session_id)
+            return self._codex_source(conversation, session_id, home)
+        except session_handoff.HandoffError as exc:
+            raise ConversationError("handoff-source", str(exc), code=exc.code, fix=exc.fix) from exc
+
+    def _claude_source(self, conversation: dict | None, session_id: str) -> dict:
+        path = transcripts.transcript_path(session_id)
+        if path is None:
+            raise ConversationError("unknown-session", f"no transcript for Claude session {session_id}")
+        if conversation is None and registry.is_lane_run(session_id, lane_ids=self.daemon._lane_session_ids(),
+                                                         transcript=path):
+            # C-23.31: a headless lane run is one brief and one answer, not a conversation.
+            raise ConversationError("lane-run", f"{session_id} is a headless lane run (claude -p), not a session",
+                                    code=7, fix="`subfleet runs show <job>` for what that lane produced")
+        cwd = (conversation["workspace"] if conversation else
+               session_handoff.latest_metadata(path, max_bytes=session_handoff.FULL_SCAN_BYTES)[1])
+        return {"conversation": conversation, "provider": "claude", "native_session_id": session_id,
+                "transcript": path, "source_cwd": cwd, "cwd": cwd, "lane_id": None}
+
+    def _codex_source(self, conversation: dict | None, thread_id: str, home: str | None) -> dict:
+        lanes = [r for r in self.daemon.store.lane_rows() if r.get("provider") == "codex" and r.get("home")]
+        homes: list[tuple[Path, str | None]]
+        if conversation and conversation["lane_id"]:
+            homes = [(Path(r["home"]), r["lane_id"]) for r in lanes if r["lane_id"] == conversation["lane_id"]]
+        else:
+            allowed = [(Path(r["home"]).expanduser().resolve(), r["lane_id"]) for r in lanes]
+            allowed.append(((Path.home() / ".codex").resolve(), None))
+            if home:
+                wanted = Path(str(home)).expanduser().resolve()
+                homes = [pair for pair in allowed if pair[0] == wanted]
+                if not homes:
+                    raise ConversationError("bad-native", "from.native.home must be an enrolled Codex lane home "
+                                            "or ~/.codex")
+            else:
+                homes = allowed
+        path = lane_id = None
+        for base, lane in homes:
+            path = codex_brief.find_rollout(thread_id, [base])
+            if path is not None:
+                lane_id = lane
+                break
+        if path is None:
+            raise ConversationError("unknown-session", f"no rollout for Codex thread {thread_id}")
+        if conversation is None and codex_brief.headless_run(path):
+            raise ConversationError("lane-run", f"{thread_id} is a Codex exec or subagent run, not a conversation",
+                                    code=7, fix="`subfleet runs show <job>` for what that run produced")
+        cwd = conversation["workspace"] if conversation else codex_brief.session_meta(path).get("cwd")
+        return {"conversation": conversation, "provider": "codex", "native_session_id": thread_id,
+                "transcript": path, "source_cwd": cwd, "cwd": cwd,
+                "lane_id": (conversation or {}).get("lane_id") or lane_id}
+
+    def _handoff_plan(self, conversation: dict, marker: dict) -> list[dict]:
+        """IR-28: what leaves the source, or a refusal while the source has a live turn.
+
+        A message still `queued` with no job leaves under the conversation store's
+        own guard (it must still be `queued` when the handoff commits; the
+        dispatcher claims a message before it creates its job). A `waiting`
+        message whose job has no attempt leaves under the job store's guard, as
+        `message.cancel` withdraws it. Anything a provider may already have is a
+        live turn. A message this same request withdrew before (its job's cancel
+        carries the request's marker) is picked up again on a retry.
+        """
+        cid = conversation["conversation_id"]
+        plan: list[dict] = []
+        withdrawable: set[str] = set()
+        rows = self.store.query("SELECT * FROM messages WHERE conversation_id=? AND state NOT IN (?,?,?) ORDER BY seq",
+                                (cid, COMPLETE, FAILED, INTERRUPTED))
+        for message in map(_decode_message, rows):
+            state = message["state"]
+            if message["origin"] in HANDOFF_KEEPS and state == QUEUED and self._turn_job(message) is None:
+                continue
+            if state == CANCELLED:
+                if (message.get("job_id") and not str(message.get("state_reason") or "").startswith("handed-off")
+                        and self._cancelled_by(message["job_id"], marker)):
+                    plan.append({"message": message, "expect": (CANCELLED,), "job_id": None})
+                continue
+            if state not in (QUEUED, WAITING):
+                raise ConversationError("live-turn", f"the source has a live turn (a message is {state})",
+                                        fix="stop it with turn.interrupt or wait for it to end; a delivery-unknown "
+                                            "message needs message.resolve first")
+            job = self._turn_job(message)
+            if job is None:
+                if state == WAITING:
+                    raise ConversationError("live-turn", "the source's next message is being dispatched",
+                                            fix="send the same request again in a moment")
+                plan.append({"message": message, "expect": (QUEUED,), "job_id": None})
+                continue
+            if self.daemon.store.one("SELECT 1 FROM attempts WHERE job_id=?", (job["job_id"],)):
+                raise ConversationError("live-turn", "the source's waiting message has started its turn",
+                                        fix="stop it with turn.interrupt, or wait for it to end")
+            if job["state"] == "cancelled" and not self._cancelled_by(job["job_id"], marker):
+                continue                            # already withdrawn by message.cancel; not pending
+            withdrawable.add(job["job_id"])
+            # The tick may settle the message `cancelled` once its job is; that is still ours to move.
+            plan.append({"message": message, "expect": (QUEUED, WAITING, CANCELLED), "job_id": job["job_id"]})
+        for job in self.daemon.store.query(
+                "SELECT job_id FROM jobs WHERE kind='turn' AND name=? AND state NOT IN "
+                "('succeeded','failed','cancelled','lost')", (f"turn-{cid}",)):
+            if job["job_id"] not in withdrawable:
+                raise ConversationError("live-turn", "a turn of the source is still running",
+                                        fix="wait for it to end, or stop it with turn.interrupt")
+        if self.daemon.store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"conversation:{cid}",)) or \
+                self.daemon.store.one("SELECT 1 FROM attempts a JOIN jobs j USING(job_id) WHERE j.kind='turn' "
+                                      "AND j.name=? AND a.state='quarantined'", (f"turn-{cid}",)):
+            raise ConversationError("live-turn", "a turn of the source still holds the conversation",
+                                    fix="wait for it to finish, or resolve its quarantine")
+        return plan
+
+    def _handoff_brief(self, source: dict, workspace: str):
+        """C-23.14, C-23.36: the scrubbed, bounded brief. No git: the handler never
+        waits on git (C-25.3), so the repository section says it was not collected."""
+        caps = dict(self.daemon.policy.get("sessions", {}).get("handoff_caps") or {})
+        build = session_handoff.build_brief if source["provider"] == "claude" else codex_brief.build_brief
+        try:
+            return build(source["native_session_id"], Path(source["transcript"]), Path(workspace),
+                         source["source_cwd"], caps, repository=False)
+        except session_handoff.HandoffError as exc:
+            raise ConversationError("handoff-source", str(exc), code=exc.code, fix=exc.fix) from exc
+
+    def _cancelled_by(self, job_id: str, marker: dict) -> bool:
+        """Did the cancel recorded for this job carry `marker` (a handoff's own)?"""
+        return bool(self.daemon.store.one(
+            "SELECT 1 FROM events WHERE kind='job.cancel_requested' AND job_id=? "
+            "AND json_extract(data_json,'$.by')=? AND json_extract(data_json,'$.request_id')=?",
+            (job_id, marker["by"], marker["request_id"])))
+
     # --- ops: attachments, catalog ---------------------------------------------
 
     def op_attachment_add(self, args, peer) -> dict:
@@ -612,8 +879,8 @@ class ConversationService:
         self._deferred = {mid: at for mid, at in self._deferred.items() if at > now}
         for message in self.store.next_dispatchable() + self._readmittable():
             mid = message["message_id"]
-            if self._deferred.get(mid, 0) > now:
-                continue
+            if message["conversation_id"] in self._handing_off or self._deferred.get(mid, 0) > now:
+                continue            # IR-28: a handoff is taking this conversation's pending messages
             conversation = self.store.conversation(message["conversation_id"])
             job = self._turn_job(message)
             if job is None and not self._previous_released(conversation, message):
@@ -621,9 +888,9 @@ class ConversationService:
             if job is None:
                 claimed = False
                 if message["state"] == QUEUED:
-                    # C-24.7, IR-2: claim the message in the conversation store
+                    # C-24.7, IR-2, IR-28: claim the message in the conversation store
                     # before its job exists. A withdrawal of a queued message
-                    # (message.cancel) and this claim are one
+                    # (message.cancel, conversation.handoff) and this claim are one
                     # store's transactions, so exactly one of them wins: a withdrawn
                     # message never gets a job, and a claimed one is withdrawn only
                     # through its job's no-attempt guard.
@@ -912,6 +1179,11 @@ def policy_model(policy: dict, provider: str, value: str) -> str:
             return short
     raise ConversationError("unknown-model", f"{value!r} is not a {provider} model this fleet routes",
                             fix="pick a model from models.list")
+
+
+def _handoff_id(request_id: str, part: str) -> str:
+    """A message id a handoff mints, the same on every retry of one request (C-24.2)."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"subfleet:handoff:{request_id}:{part}"))
 
 
 def _read_json(path: Path) -> dict | None:

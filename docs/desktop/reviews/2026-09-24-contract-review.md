@@ -60,7 +60,7 @@ where it is implemented; "open" means not yet built.
 | 25 | `<synthetic>` rows that are not API errors (for example "No response requested.") are ignored | P6 | `claude_turn.py` |
 | 26 | Claude fixtures use observed catalog values (`default`, `opus[1m]`, `claude-fable-5-1[1m]`, `sonnet`, `haiku`) | P6 | tests |
 | 27 | Relay frame cap advertised; Claude messages whose frame would exceed it are refused at submit; bounded resends; a relay status handshake before replay | F5 | `relay.py`, `service.py` |
-| 28 | `conversation.handoff` op: pending messages move with the handoff, withdrawn from the source under the cancel guard | U-F11 | `service.py` |
+| 28 | `conversation.handoff` op: pending messages move with the handoff, withdrawn from the source under the cancel guard | U-F11 | `service.py` (`op_conversation_handoff`, `_handoff_plan`), `store.py` (`create_handoff`), `codex_brief.py`, `sessions/handoff.py`; `tests/unit/test_conversation_handoff.py`, `tests/unit/test_conversation_handoff_briefs.py`, `tests/e2e/test_conversations.py` (C-30.3) |
 | 29 | Each client has one watch and one events poll; a new one supersedes the old; abandoned polls end within 250 ms | U-F3 | `events.py` |
 | 30 | Catalog indexes everything, with pinned exclusion predicates and archived handling | U-F5 | `catalog.py` |
 | 31 | Stage 3: continue a Codex-app thread by copying its rollout into the lane that shares the app's account and calling `thread/fork` | U-F2 | live |
