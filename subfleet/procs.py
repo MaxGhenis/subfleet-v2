@@ -194,24 +194,33 @@ def _process_table() -> dict[int, tuple[int, int, str]]:
     return table
 
 
-def group_members(pgid: int) -> frozenset[int]:
-    """The live, non-zombie members of process group `pgid`, from one snapshot.
+def group_members(pgid: int) -> dict[int, str]:
+    """pid -> `lstart` for the live, non-zombie members of process group `pgid`,
+    from one `ps -axo pid=,pgid=,stat=,lstart=` snapshot.
 
     This is C-5.5's first source alone. It exists for the steady-state record
-    of which group members a running attempt owns, which keeps only group
-    members: the full census also reads every process's environment
+    of which group members a running attempt or probe owns, which keeps only
+    group members: the full census also reads every process's environment
     (`ps -axEww`, megabytes on a busy machine) for markers that record never
-    uses. Containment decisions (release, kill, lost, quarantine) still take the
-    full three-source `containment`. Raises `InspectionError` when `ps` fails.
+    uses. The start column tells a recorded pid's later incarnation from the
+    process recorded under it; it is a change detector only, and an identity is
+    still captured by `identity` (C-5.3). Containment decisions (release, kill,
+    lost, quarantine) still take the full three-source `containment`. Raises
+    `InspectionError` when `ps` fails.
     """
     if not pgid or pgid <= 0:
-        return frozenset()
+        return {}
+    members: dict[int, str] = {}
     try:
-        table = _process_table()
+        for row in _read(["/bin/ps", "-axo", "pid=,pgid=,stat=,lstart="]).splitlines():
+            parts = row.split(None, 3)
+            if len(parts) < 4:
+                continue
+            if int(parts[1]) == pgid and not parts[2].startswith("Z"):
+                members[int(parts[0])] = parts[3].strip()
     except ValueError as exc:
         raise InspectionError("group enumeration unavailable") from exc
-    return frozenset(pid for pid, (_, group, stat) in table.items()
-                     if group == pgid and not stat.startswith("Z"))
+    return members
 
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,

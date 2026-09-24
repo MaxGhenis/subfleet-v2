@@ -217,7 +217,7 @@ EXIT_SETTLE_S = 3
 # it is still the recorded process. The exit receipt, the cancel request and the
 # wall limit are still read every tick; only the process inspection is paced.
 # On 2026-09-24 the per-tick inspection (three subprocesses per running attempt,
-# up to twenty times a second) was one of the two loads that wedged the daemon.
+# up to twenty times a second) was one of the loads that wedged the daemon.
 LIVENESS_INTERVAL_S = 1.0
 # C-5.11: how often a running attempt re-records the group members it owns
 # (C-5.4); it runs inside the paced liveness pass, so at most that often too.

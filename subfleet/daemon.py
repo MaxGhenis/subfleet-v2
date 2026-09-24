@@ -57,6 +57,8 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
+                   "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
@@ -1766,15 +1768,39 @@ class Daemon:
                     self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
                                    key, type(exc).__name__, count, delay)
             finally:
-                with self._busy_lock:
-                    self._busy.discard(key)
-                # Waiters read only the store, so a worker that committed
-                # nothing (a running attempt's tick, an idle admission pass)
-                # has nothing to wake them for. Every one of those used to wake
-                # every waiter, twenty times a second per live key.
+                # Waiters read only the store, so a pass during which nothing
+                # was committed (a running attempt's tick, an idle admission
+                # pass) has nothing to wake them for; each used to wake every
+                # waiter, up to twenty times a second per live key (C-5.11).
+                # The generation is global, so a concurrent commit elsewhere
+                # can still wake them, which costs a waiter one cheap check.
+                # Decided before the key is released, so whoever sees the key
+                # free also sees this pass's wake-up.
                 if self.store.generation != generation:
                     self._notify()
+                with self._busy_lock:
+                    self._busy.discard(key)
         future.add_done_callback(done)
+
+    def _pending_exports(self) -> list[str]:
+        """Jobs whose accepted attempt still holds a lease: an export to finish.
+
+        One statement per tick. The sweep used to read every job that had ever
+        been accepted and ask about its leases one by one: 266 statements a
+        tick behind the store lock with 265 retained jobs (C-5.11, 2026-09-24).
+        """
+        return [row["job_id"] for row in self.store.query(PENDING_EXPORTS)]
+
+    def _forget_paced(self, live: set[str]) -> None:
+        """Drop pacing state for attempts that are no longer live (C-5.11).
+
+        An attempt usually becomes terminal inside its own worker pass, after
+        which the control loop never offers it again, so this is where its
+        entries go.
+        """
+        for pacing in (self._liveness_next, self._census_next):
+            for aid in [aid for aid in pacing if aid not in live]:
+                pacing.pop(aid, None)
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -1782,13 +1808,14 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                for a in self.store.query(LIVE_ATTEMPTS):
+                live = self.store.query(LIVE_ATTEMPTS)
+                self._forget_paced({a["attempt_id"] for a in live})
+                for a in live:
                     if imported_external(a):
                         continue                    # v1 still owns it (principle 3)
                     self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
-                for j in self.store.query("SELECT * FROM jobs WHERE accepted_attempt_id IS NOT NULL"):
-                    if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):
-                        self._schedule("export:" + j["job_id"], self._export, j["job_id"], paced=True)
+                for job_id in self._pending_exports():
+                    self._schedule("export:" + job_id, self._export, job_id, paced=True)
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
@@ -2044,7 +2071,7 @@ class Daemon:
     def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | None]:
         """Re-adopt the same gated guardian, bounded by its durable deadline."""
         directory = Path(record["directory"])
-        next_census = 0.0
+        next_census = next_liveness = 0.0
         while not self.stopping.is_set():
             if child:
                 child.poll()  # Reap our own guardian when it finishes.
@@ -2059,20 +2086,27 @@ class Daemon:
                 break
             if record.get("state") in ("reserved", "quarantined", "containing", "contained"):
                 break
-            if record["deadline_at"] <= utcnow() or not procs.same_process(
-                    record["guardian_pid"], record["boot_id"], record["proc_start"]):
+            if record["deadline_at"] <= utcnow():
                 break
-            if time.monotonic() >= next_census:
-                census = self._probe_census(record)
+            # C-5.11, as for a running attempt: the receipt, the job and the
+            # deadline are read every pass; `ps` is asked about the guardian at
+            # most every liveness interval, and the owned-member record reads
+            # the group source alone. The full census decides containment.
+            if time.monotonic() >= next_liveness:
+                next_liveness = time.monotonic() + self.liveness_interval_s
                 if not procs.same_process(record["guardian_pid"], record["boot_id"], record["proc_start"]):
                     break
-                owned = dict(record.get("owned_identities", {}))
-                owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items()
-                              if pid in census.group_pids})
-                if owned != record.get("owned_identities", {}):
-                    record["owned_identities"] = owned
-                    self._save_probe(record)
-                next_census = time.monotonic() + .5
+                if time.monotonic() >= next_census:
+                    recorded = dict(record.get("owned_identities", {}))
+                    fresh = self._new_group_identities(record.get("pgid"), recorded)
+                    if fresh:
+                        if not procs.same_process(record["guardian_pid"], record["boot_id"], record["proc_start"]):
+                            break
+                        owned = {**recorded, **fresh}
+                        if owned != recorded:
+                            record["owned_identities"] = owned
+                            self._save_probe(record)
+                    next_census = time.monotonic() + OWNED_CENSUS_INTERVAL_S
             self.stopping.wait(.05)
         safe = self._contain_probe(record)
         if child:
@@ -3016,6 +3050,18 @@ class Daemon:
         if now < self._liveness_next.get(aid, 0):
             return
         self._liveness_next[aid] = now + self.liveness_interval_s
+        try:
+            self._inspect_running(a, adir)
+        except BaseException:
+            # A pass that raised must be retried in full, not skipped at the
+            # gate: a skipped pass returns normally, and C-5.10 would count it
+            # as recovery and start its backoff over.
+            self._liveness_next.pop(aid, None)
+            raise
+
+    def _inspect_running(self, a: dict, adir: Path) -> None:
+        """The paced half of `_process_attempt`: is the guardian still ours?"""
+        aid = a["attempt_id"]
         alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if alive == "alive":
             if time.monotonic() >= self._census_next.get(aid, 0):
@@ -3044,25 +3090,23 @@ class Daemon:
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
-    def _record_owned(self, a: dict) -> None:
-        """Record the group members a live attempt owns (C-5.4 signal targets).
+    @staticmethod
+    def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
+        """C-5.11: identities for the group members `recorded` lacks.
 
-        Only group members are ever recorded, so this reads C-5.5's group
-        source alone: the marker scan reads every process's environment
-        (`ps -axEww`, megabytes) and its pids were discarded here. A member
-        already recorded is not asked again; the kill path re-reads identities
-        from a full census while the leader is still ours (`_kill_attempt`), and
-        a recorded identity that no longer matches is never signalled.
+        One group snapshot names the members and their start times. A member
+        recorded under the same start is not asked again; a new pid, or a pid a
+        new process now holds, is captured by `procs.identity` (C-5.3). The
+        caller re-checks the leader before recording anything (C-5.4).
         """
-        evidence = json.loads(a["evidence_json"] or "{}")
-        before = dict(evidence.get("owned_identities", {}))
         try:
-            members = procs.group_members(a.get("pgid") or 0)
+            members = procs.group_members(pgid or 0)
         except procs.InspectionError:
-            return
+            return {}
         fresh = {}
-        for pid in sorted(members):
-            if str(pid) in before:
+        for pid, started in sorted(members.items()):
+            known = recorded.get(str(pid))
+            if known and known.get("proc_start") == started:
                 continue
             try:
                 ident = procs.identity(pid)
@@ -3070,6 +3114,20 @@ class Daemon:
                 continue
             if ident is not None:
                 fresh[str(pid)] = dataclasses.asdict(ident)
+        return fresh
+
+    def _record_owned(self, a: dict) -> None:
+        """Record the group members a live attempt owns (C-5.4 signal targets).
+
+        Only group members are ever recorded, so this reads C-5.5's group
+        source alone: the marker scan reads every process's environment
+        (`ps -axEww`, megabytes) and its pids were discarded here. A member
+        already recorded under the same start is not asked again, and a pid a
+        new process has taken is recorded afresh, as the full census did.
+        """
+        evidence = json.loads(a["evidence_json"] or "{}")
+        before = dict(evidence.get("owned_identities", {}))
+        fresh = self._new_group_identities(a.get("pgid"), before)
         if not fresh or not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
             return
         owned = {**before, **fresh}

@@ -37,7 +37,8 @@ The store's one lock saturated. Two of the loads on it grow with the work in
 flight, and they compound: each running attempt was re-examined on every control
 tick with subprocesses spawned from a large, many-threaded Python process, which
 stretches every lock hold; and every worker pass woke every waiter to re-read
-its jobs under that lock.
+its jobs under that lock. A third, the export sweep below, grows with retained
+history and was there on every tick.
 
 - The control loop offers every live attempt to a worker each tick (`tick_s`
   0.05 s, C-5.10), and `_process_attempt` called
@@ -84,6 +85,12 @@ a second. The control loop woke them once per finished worker pass: up to twenty
 times a second for each live attempt, for admission, and for each pending
 export (a key is not offered again while its worker is still running).
 
+The control loop added a steady term of its own, found in review: to find
+pending exports, every tick read every job that had ever been accepted and ran
+one lease query per job. With 265 retained jobs that was 266 statements and
+2.65 ms of lock-held work a tick uncontended, about 5,300 statements a second,
+and it grows with retained history. None of those jobs held a lease.
+
 Together, in one process with the real `Daemon` request path, three inspection
 loops, the eight-waiter herd woken at 100 Hz, a stand-in for the session mirror
 (a stat walk over `~/.claude/projects`) and a 1 GB heap took an ordinary
@@ -108,22 +115,34 @@ not take the GIL to read or to time out.
 - `procs.boot_id()` keeps the boot-session UUID for the life of the process;
   legacy `kern.boottime` seconds are still read every time (the client already
   did this, `client._BOOT_ID`).
-- `procs.group_members(pgid)` reads C-5.5's group source alone from one
-  snapshot. `_record_owned` uses it and asks for an identity only for members it
-  has not recorded. The kill path already re-reads identities from a full census
-  while the leader is still ours, and a recorded identity that no longer
-  matches is never signalled (C-5.4). The three-source census is unchanged and
-  still decides every release, kill, loss and quarantine.
+- `procs.group_members(pgid)` reads C-5.5's group source alone, with each
+  member's start time, from one `ps -axo pid=,pgid=,stat=,lstart=` snapshot.
+  `_record_owned` uses it and asks for an identity only for a member it has not
+  recorded or whose start has changed, so a pid a new process has taken is
+  recorded afresh, as the full census did. The snapshot's start time only
+  detects the change; the identity is still captured by `procs.identity`
+  (C-5.3), and on this machine the two renderings agreed for all 400 processes
+  compared. The three-source census is unchanged and still decides every
+  release, kill, loss and quarantine.
 - `_process_attempt` asks `ps` about a running guardian at most every
   `LIVENESS_INTERVAL_S` (1 s). The exit receipt, the cancel request and the wall
   limit are still read every tick, so a finished attempt moves on at once; a
   guardian that dies without a receipt is found at most a second later. The
   owned-member census runs inside the same paced branch, so it now runs at most
-  once a second (it was every 0.5 s).
+  once a second (it was every 0.5 s). A paced pass that raises clears its
+  deadline, so the retry C-5.10 schedules repeats the inspection rather than
+  returning at the gate and reading as recovery. The control loop drops pacing
+  state for attempts no longer live.
+- A running probe's wait loop (`_await_probe`) follows the same budget: its
+  receipt, job and deadline every pass, `ps` about its guardian once per
+  interval, and its owned group from the group snapshot.
+- `_pending_exports` finds accepted jobs that still hold a lease with one
+  statement.
 - `Store.generation` counts committed top-level transactions that changed a row.
   `wait` re-reads the store only when it has moved, or every `WAIT_RECHECK_S`
-  (1 s); `_schedule` wakes waiters only when the worker's pass committed
-  something.
+  (1 s); `_schedule` wakes waiters only when the generation moved while the
+  pass ran (a commit by another worker can still wake them, at the cost of one
+  comparison), and decides before it releases the key.
 - C-5.11 in `docs/acceptance-contract.md` states the budget.
 
 With the fix, the steady-state cost of a running attempt is three subprocesses a
@@ -135,8 +154,16 @@ them the measuring client's own. The combined reproduction ran at 0.5 ms p50,
 1.5 ms p90 (101 ms worst), and completed 592 requests.
 `tests/unit/test_daemon_inspection_load.py` pins the budget. On the unfixed code,
 20 ticks of one running attempt asked about the guardian 21 times (now 2), one
-waiter re-read the store 190 times across 200 wake-ups (now 1), and 20 idle
-worker passes woke waiters 20 times (now 0).
+waiter re-read the store 190 times across 200 wake-ups (now 1), 20 idle
+worker passes woke waiters 20 times (now 0), and the export sweep went from 266
+statements a tick to 1.
+
+An independent review (GPT-6 Astra, through `subfleet run --task review --tier
+hard`) found three defects in the first version of this fix: a pid taken by a
+new group member kept its old identity, a failing paced pass reset C-5.10's
+backoff, and pacing state leaked for attempts that finished normally. It also
+found the export sweep and the probe loop. All five are fixed above, each with
+a test that fails on the first version.
 
 ## Related findings, not fixed here
 
