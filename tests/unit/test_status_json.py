@@ -322,6 +322,26 @@ def test_c29_6_claude_earliest_reset_is_the_soonest_future_account_reset_admissi
     assert build_status(build_view([claude_lane("claude-1")], now=NOW))["claude"]["earliest_reset"] is None
 
 
+def test_c29_6_c10_6_an_identity_mismatched_lane_is_not_where_capacity_returns():
+    """C-29.6, C-10.6: a lane whose credential proved to hold another account stays enabled and keeps its
+    last bound readings (`stale-provider`), but admission never uses it, so its reset is not
+    `earliest_reset` even when it is the soonest. Its windows still show."""
+    def claude_lane(lane_id, **extra):
+        return lane("claude", lane_id=lane_id, account_key=f"claude:{lane_id}@example.org", **extra)
+    lanes = [claude_lane("claude-ok"), claude_lane("claude-mm", identity_status="mismatch")]
+    rows = [claude_reading(lane_id="claude-ok", resets_at="2026-09-09T00:00:00Z"),
+            claude_reading(lane_id="claude-mm", resets_at="2026-09-06T00:00:00Z", observed_at="2026-09-05T09:00:00Z")]
+    view = build_view(lanes, rows, now=NOW)
+    result = build_status(view)
+    assert result["claude"]["earliest_reset"] == "2026-09-09T00:00:00Z"
+    mismatched = next(row for row in result["claude"]["accounts"] if row["lane_id"] == "claude-mm")
+    assert mismatched["enrolled"] and mismatched["identity_status"] == "mismatch"
+    assert [(w["status"], w["reset_at"]) for w in mismatched["windows"]] == [("stale-provider", "2026-09-06T00:00:00Z")]
+    # The same lane with a verified identity would be the answer: only the mismatch leaves it out.
+    lanes[1] = claude_lane("claude-mm", identity_status="verified")
+    assert build_status(build_view(lanes, rows, now=NOW))["claude"]["earliest_reset"] == "2026-09-06T00:00:00Z"
+
+
 @pytest.mark.parametrize("resets_at", [None, "", "not a time", 1790000000])
 def test_c29_6_an_unreadable_reset_clock_is_null_not_an_error(resets_at):
     """C-29.6 a window whose reset clock cannot be read still publishes, with `reset_at` null."""

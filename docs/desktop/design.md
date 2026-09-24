@@ -852,10 +852,11 @@ finished_at, rc, batch}` (C-18.2).
   Order: account `five_hour`, account `seven_day`, other account windows, then
   model scopes by name. `probe` and `live` keep reading scope `account` only.
 - `claude.earliest_reset` is the soonest `reset_at` after `generated_at` among
-  account-scope windows of accounts that are enrolled, owned by v2 and not the
-  desktop login (`active`), or null. Unlike `codex.fleet.earliest_reset`, the
-  minimum of every home's five-hour and weekly `reset_at`, it ignores resets
-  already past.
+  account-scope windows of accounts that are enrolled, owned by v2, not the
+  desktop login (`active`) and not `identity_status: "mismatch"` (C-10.6: such
+  a lane stays enabled and keeps its last readings, but admission never uses
+  it), or null. Unlike `codex.fleet.earliest_reset`, the minimum of every
+  home's five-hour and weekly `reset_at`, it ignores resets already past.
 
 ## 13. Legacy continuity
 

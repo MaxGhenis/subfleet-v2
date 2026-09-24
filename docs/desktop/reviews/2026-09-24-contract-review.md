@@ -66,5 +66,5 @@ where it is implemented; "open" means not yet built.
 | 31 | Stage 3: continue a Codex-app thread by copying its rollout into the lane that shares the app's account and calling `thread/fork` | U-F2 | live |
 | 32 | Writable Codex policy refused until the live never-rules test is recorded | SEC-3 | `service.py` |
 | 33 | Ledger R-4 cites C-26.11, C-14.2, C-14.3, C-23.6; M-14 cites C-29.6, C-18.1 | SEC-3, U-F7 | `ledger.json` |
-| 34 | `status.json` windows keyed by (scope, window), never replacing the account window | U-F7 | `status_json.py` (`scoped_windows`, `claude_earliest_reset`); C-29.6; tests `unit/test_status_json.py`, `frontend/test_status_model.py` |
+| 34 | `status.json` windows keyed by (scope, window), never replacing the account window | U-F7 | `status_json.py` (`scoped_windows`, `claude_earliest_reset`, which skips identity-mismatched lanes as `capacity.identity_blocked`); C-29.6, C-10.6; tests `unit/test_status_json.py`, `frontend/test_status_model.py` |
 | 35 | Load test: 4 concurrent turns at 50 deltas/s keep commits batched and admission latency bounded | F-09 | tests |
