@@ -115,6 +115,23 @@ def test_d24_the_watch_feed_notifies_for_unfocused_conversations(core_probe, tmp
     assert silent["notifications"] == []                                # nothing before the baseline
 
 
+def test_d24_a_list_refresh_keeps_a_conversation_with_a_running_turn_active(core_probe, tmp_path, harness):
+    """`_view.active` is false while the newest message is queued behind a running
+    turn; the watch feed knows the running one, and a refresh keeps it active."""
+    cid = harness.create(title="Busy")["conversation_id"]
+    running = harness.submit(cid, "long job")["message_id"]
+    assert harness.store.set_state(running, "running", expect=("queued",))
+    queued = harness.submit(cid, "follow-up", after=running)["message_id"]
+    listed = harness.call("conversation.list")
+    assert [c["active"] for c in listed["conversations"]] == [False]           # the daemon's view
+    feed = watch(harness, 0)
+    assert [(c["message_id"], c["state"]) for c in feed["changes"]][-2:] == [(running, "running"), (queued, "queued")]
+    out = store(core_probe, tmp_path, [{"watch": feed}, {"list": listed}])
+    assert [(c["id"], c["active"], c["last_state"]) for c in out["conversations"]] == [(cid, True, "queued")]
+    idle = store(core_probe, tmp_path, [{"list": listed}])
+    assert [c["active"] for c in idle["conversations"]] == [False]             # without the feed, the daemon's word
+
+
 def test_d19_composer_options_follow_models_and_capabilities(core_probe, tmp_path, harness):
     claude = harness.create()
     codex = harness.create(provider="codex", settings={"model": "gpt-6-astra", "permission": "read-only"})

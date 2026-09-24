@@ -1,0 +1,424 @@
+// Subfleet: the observable model the windows bind to.
+//
+// It owns one `ConversationEngine` and runs its blocking calls off the main
+// thread: outbox work (send, pump, stop, withdraw) on one serial queue, as the
+// engine requires, and the two long polls (the global `conversation.watch`
+// feed and the focused conversation's `conversation.events`) on their own
+// threads. Every answer is folded into `ConversationStoreState` on the main
+// actor, so the views only ever read settled state (design D-24).
+
+#if !SUBFLEET_MODEL_TEST
+import AppKit
+import SwiftUI
+import UserNotifications
+
+@MainActor
+final class UIModel: ObservableObject {
+    @Published private(set) var state = ConversationStoreState()
+    /// The last thing that went wrong, shown in the window's status line.
+    @Published var problem: String?
+    @Published var busy = false
+
+    let paths: AppPaths
+    let drafts: DraftStore
+    private(set) var engine: ConversationEngine?
+    private let outboxQueue = DispatchQueue(label: "org.maxghenis.subfleet.outbox")
+    private var started = false
+    private var eventsGeneration = 0
+    private var pumpTimer: Timer?
+    private var listTimer: Timer?
+
+    init() {
+        paths = AppPaths.standard()
+        drafts = DraftStore(directory: paths.draftsDirectory)
+        for directory in [paths.support, paths.caches, paths.draftsDirectory, paths.attachmentsDirectory] {
+            try? ensurePrivateDirectory(directory)
+        }
+        do {
+            let client = try DaemonClient.forCurrentEndpoint()
+            engine = ConversationEngine(client: client, outbox: try Outbox(url: paths.outboxURL))
+        } catch DaemonClientError.endpointRefused(let reason) {
+            state.availability = .refused(reason)
+        } catch {
+            state.availability = .down("The app could not open its outbox: \(error)")
+        }
+    }
+
+    // MARK: Running
+
+    func start() {
+        guard !started, engine != nil else { return }
+        started = true
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        Task { await connect() }
+        pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pump() }
+        }
+        listTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.refreshList() }
+        }
+    }
+
+    /// `capabilities`, then models, the list and the watch baseline; then the feed.
+    func connect() async {
+        guard let engine else { return }
+        let availability = await onOutbox { engine.checkAvailability() }
+        state.availability = availability
+        guard availability.isReady else {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if !Task.isCancelled { await connect() }
+            return
+        }
+        for provider in ["claude", "codex"] {
+            if let models = try? await onOutbox({ try engine.models(provider: provider) }) {
+                state.apply(models: models, provider: provider)
+            }
+        }
+        await refreshList()
+        var baseline = state
+        _ = try? await onOutbox { try engine.drainWatch(&baseline) }
+        state = baseline
+        state.watchBaselined = true
+        startWatchLoop()
+        if let focused = state.focusedConversationID { startEventsLoop(focused) }
+    }
+
+    func refreshList() async {
+        guard let engine, state.availability.isReady else { return }
+        do {
+            let list = try await onOutbox { try engine.list(query: nil, provider: nil) }
+            state.apply(list: list)
+            updateBadge()
+        } catch {
+            report(error)
+        }
+    }
+
+    private func startWatchLoop() {
+        guard let engine else { return }
+        Thread.detachNewThread { [weak self] in
+            var failures = 0
+            while true {
+                guard let cursor = DispatchQueue.main.sync(execute: { self?.state.watchCursor }) else { return }
+                do {
+                    let page = try engine.watch(after: cursor)
+                    failures = 0
+                    DispatchQueue.main.async { self?.fold(watch: page) }
+                } catch {
+                    failures += 1
+                    DispatchQueue.main.async { self?.lostDaemon(error) }
+                    Thread.sleep(forTimeInterval: min(30, Double(failures) * 2))
+                }
+            }
+        }
+    }
+
+    private func fold(watch page: WatchPage) {
+        let known = Set(state.conversations.map(\.conversation_id))
+        state.apply(watch: page)
+        for intent in state.drainNotifications() { post(intent) }
+        updateBadge()
+        if page.changes.contains(where: { !known.contains($0.conversation_id) }) {
+            Task { await refreshList() }
+        }
+    }
+
+    private func lostDaemon(_ error: Error) {
+        guard let engine else { return }
+        Task {
+            let availability = await onOutbox { engine.checkAvailability() }
+            state.availability = availability
+            if !availability.isReady { problem = describe(error) }
+        }
+    }
+
+    /// One events loop, for the focused conversation only (C-29.9); a new focus
+    /// ends the old loop at its next answer.
+    private func startEventsLoop(_ conversationID: String) {
+        guard let engine else { return }
+        eventsGeneration += 1
+        let generation = eventsGeneration
+        Thread.detachNewThread { [weak self] in
+            var failures = 0
+            var catchingUp = true
+            while true {
+                let cursor: Int? = DispatchQueue.main.sync {
+                    guard let self, self.eventsGeneration == generation else { return nil }
+                    return self.state.timelines[conversationID]?.cursor ?? 0
+                }
+                guard let cursor else { return }
+                do {
+                    let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+                    failures = 0
+                    let result: Timeline.PageResult? = DispatchQueue.main.sync {
+                        guard let self, self.eventsGeneration == generation else { return nil }
+                        return self.state.apply(events: page, conversationID: conversationID)
+                    }
+                    switch result {
+                    case nil, .superseded?: return
+                    case .reset?: catchingUp = true
+                    case .applied(let count)?: catchingUp = count > 0 && catchingUp
+                    }
+                } catch {
+                    failures += 1
+                    Thread.sleep(forTimeInterval: min(30, Double(failures) * 2))
+                }
+            }
+        }
+    }
+
+    // MARK: Conversations
+
+    func select(_ entry: SidebarEntry?) {
+        guard let entry else { return }
+        switch entry.target {
+        case .conversation(let id): focus(id)
+        case .native:
+            Task { await open(entry.target) }
+        }
+    }
+
+    func focus(_ conversationID: String) {
+        guard state.focusedConversationID != conversationID else { return }
+        state.focus(conversationID)
+        Task { await open(.conversation(conversationID)) }
+    }
+
+    func open(_ target: SidebarEntry.Target) async {
+        guard let engine else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let result = try await onOutbox { try engine.open(target) }
+            state.apply(open: result)
+            state.focus(result.conversation.conversation_id)
+            startEventsLoop(result.conversation.conversation_id)
+            await loadHistory(result.conversation.conversation_id)
+        } catch {
+            report(error)
+        }
+    }
+
+    func loadHistory(_ conversationID: String) async {
+        guard let engine, let timeline = state.timelines[conversationID], !timeline.historyComplete else { return }
+        do {
+            let page = try await onOutbox { try engine.history(conversationID: conversationID, before: timeline.historyBefore) }
+            state.apply(history: page, conversationID: conversationID)
+        } catch {
+            // History is a courtesy: a transcript that cannot be read leaves the live turns.
+        }
+    }
+
+    func create(provider: String, workspace: String, settings: ConversationSettings, title: String?,
+                firstMessage: String, staged: [StagedAttachment], confirmWiden: Bool) {
+        guard let engine else { return }
+        Task {
+            do {
+                let key = try await onOutbox {
+                    let key = try engine.createConversation(provider: provider, workspace: workspace, settings: settings,
+                                                            title: title, confirmWiden: confirmWiden)
+                    if !firstMessage.isEmpty || !staged.isEmpty {
+                        _ = try engine.send(conversation: key, text: firstMessage, staged: staged, settings: settings)
+                    }
+                    return key
+                }
+                _ = key
+                pump()
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    /// Journal a message and send it now; the optimistic row appears at once.
+    func send(conversationID: String, text: String, staged: [StagedAttachment], settings: ConversationSettings) {
+        guard let engine else { return }
+        let messageID = Outbox.newMessageID()
+        state.addLocalMessage(conversationID: conversationID, messageID: messageID, text: text,
+                              attachments: staged.map(\.sha256), settings: settings)
+        Task {
+            do {
+                _ = try await onOutbox {
+                    try engine.send(conversation: conversationID, text: text, staged: staged, settings: settings,
+                                    messageID: messageID)
+                }
+                pump()
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    func pump() {
+        guard let engine, state.availability.isReady else { return }
+        Task {
+            let (report, texts) = await onOutbox { () -> (OutboxSender.Report, [String: String]) in
+                let report = engine.pump()
+                var texts: [String: String] = [:]
+                for receipt in report.receipts {
+                    if let text = engine.outbox.text(of: receipt.message_id) { texts[receipt.message_id] = text }
+                }
+                return (report, texts)
+            }
+            guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty else { return }
+            for receipt in report.receipts {
+                state.apply(receipt: receipt)
+                if let cid = receipt.conversation_id, let text = texts[receipt.message_id] {
+                    state.setPersonText(text, conversationID: cid, messageID: receipt.message_id)
+                }
+            }
+            for conversation in report.conversations {
+                state.upsert(conversation)
+                if state.focusedConversationID == nil { focus(conversation.conversation_id) }
+            }
+            if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }
+        }
+    }
+
+    func stop(_ action: StopAction) {
+        guard let engine else { return }
+        Task {
+            do {
+                if let receipt = try await onOutbox({ try engine.stop(action) }) { state.apply(receipt: receipt) }
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    func perform(_ choice: BlockedChoice, conversationID: String) {
+        guard let engine else { return }
+        Task {
+            do {
+                let (conversation, receipt) = try await onOutbox { try engine.perform(choice.action, conversationID: conversationID) }
+                if let conversation { state.upsert(conversation) }
+                if let receipt { state.apply(receipt: receipt) }
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    func updateSettings(_ conversation: Conversation, to settings: ConversationSettings, confirmedWiden: Bool) async -> Bool {
+        guard let engine else { return false }
+        do {
+            let updated = try await onOutbox { try engine.updateSettings(conversation, to: settings, confirmedWiden: confirmedWiden) }
+            state.upsert(updated)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    // MARK: Approvals
+
+    func approvalDetail(_ approvalID: String, reveal: Bool) async -> ApprovalDetail? {
+        guard let engine else { return nil }
+        do {
+            return try await onOutbox { try engine.approvalDetail(approvalID, reveal: reveal) }
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    func respond(_ detail: ApprovalDetail, decision: String, answers: [String: String]?, message: String?,
+                 reviewedMasked: Bool) async -> Bool {
+        guard let engine else { return false }
+        do {
+            _ = try await onOutbox {
+                try engine.respond(to: detail, decision: decision, answers: answers, message: message,
+                                   reviewedMasked: reviewedMasked)
+            }
+            let approvals = try? await onOutbox { try engine.approvals(conversationID: detail.approval.conversation_id) }
+            if let approvals { state.apply(approvals: approvals, conversationID: detail.approval.conversation_id) }
+            updateBadge()
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// The approval id for a card the events made before `approval.list` was read.
+    func approvalID(for card: ApprovalCard, conversationID: String) async -> String? {
+        if let id = card.approvalID { return id }
+        guard let engine, let approvals = try? await onOutbox({ try engine.approvals(conversationID: conversationID) }) else {
+            return nil
+        }
+        state.apply(approvals: approvals, conversationID: conversationID)
+        return state.timelines[conversationID]?.turns.values.flatMap(\.pendingApprovals)
+            .first { $0.requestID == card.requestID }?.approvalID
+            ?? approvals.first { $0.state == "pending" && $0.kind == card.kind }?.approval_id
+    }
+
+    // MARK: Sidebar settings
+
+    func setSearch(_ text: String) { state.searchQuery = text }
+    func setProviderFilter(_ provider: String?) { state.providerFilter = provider }
+    func setGrouping(_ grouping: SidebarGrouping) { state.grouping = grouping }
+
+    // MARK: Attachments
+
+    func stage(_ data: Data) -> StagedAttachment? {
+        do {
+            return try AttachmentStager.stage(data, in: paths.attachmentsDirectory)
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    // MARK: Helpers
+
+    private func onOutbox<T>(_ work: @escaping () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            outboxQueue.async {
+                do { continuation.resume(returning: try work()) } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    private func onOutbox<T>(_ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            outboxQueue.async { continuation.resume(returning: work()) }
+        }
+    }
+
+    func report(_ error: Error) {
+        problem = describe(error)
+    }
+
+    private func describe(_ error: Error) -> String {
+        if let error = error as? DaemonClientError {
+            if case .daemon(let refusal) = error {
+                return refusal.message + (refusal.fix.map { " (\($0))" } ?? "")
+            }
+            return error.summary
+        }
+        if let error = error as? ConversationEngineError {
+            switch error {
+            case .maskedValuesNeedReview: return "Reveal or confirm the masked values before allowing."
+            case .widenNeedsConfirmation(let from, let to): return "Moving from \(from) to \(to) needs your confirmation."
+            case .notOffered(let decision): return "\(decision) is not offered for this request."
+            }
+        }
+        return "\(error)"
+    }
+
+    private func updateBadge() {
+        let count = state.pendingApprovalCount
+        NSApp?.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    }
+
+    private func post(_ intent: NotificationIntent) {
+        let content = UNMutableNotificationContent()
+        content.title = intent.title
+        content.body = intent.body
+        content.userInfo = ["conversation_id": intent.conversationID]
+        let request = UNNotificationRequest(identifier: intent.id, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+}
+#endif

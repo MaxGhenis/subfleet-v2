@@ -283,11 +283,20 @@ struct ConversationStoreState: Equatable {
     // MARK: Folding daemon answers
 
     mutating func apply(list: ConversationListResult) {
-        conversations = list.conversations.sorted { $0.updated_at > $1.updated_at }
+        conversations = list.conversations.map(withWatchActivity).sorted { $0.updated_at > $1.updated_at }
         catalog = list.catalog ?? catalog
         for conversation in list.conversations {
             pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
         }
+    }
+
+    /// `_view.active` is false while the newest message is queued, even when an
+    /// earlier one's turn runs (docs/desktop/app-needs.md); the watch feed's live
+    /// messages keep such a conversation active.
+    private func withWatchActivity(_ conversation: Conversation) -> Conversation {
+        var conversation = conversation
+        if !(liveMessages[conversation.conversation_id] ?? []).isEmpty { conversation.active = true }
+        return conversation
     }
 
     mutating func apply(models: ModelsListResult, provider: String) {
@@ -295,6 +304,7 @@ struct ConversationStoreState: Equatable {
     }
 
     mutating func upsert(_ conversation: Conversation) {
+        let conversation = withWatchActivity(conversation)
         if let index = conversations.firstIndex(where: { $0.conversation_id == conversation.conversation_id }) {
             conversations[index] = conversation
         } else {
@@ -365,6 +375,11 @@ struct ConversationStoreState: Equatable {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
         timeline.addLocal(messageID: messageID, text: text, attachments: attachments, settings: settings)
         timelines[conversationID] = timeline
+    }
+
+    /// The person's text for a message this app sent (the receipt carries none).
+    mutating func setPersonText(_ text: String, conversationID: String, messageID: String) {
+        timelines[conversationID]?.setPersonText(text, for: messageID)
     }
 
     /// Fold an outbox report: receipts, and the conversations creates made.
@@ -618,6 +633,9 @@ final class ConversationEngine {
     }
 
     /// One events poll for the focused conversation; `wait` 0 while catching up.
+    /// The daemon keeps one events poll per client, whatever the conversation
+    /// (service `_slot`, C-29.9): any call here supersedes the app's running long
+    /// poll, whose answer then says `superseded`. Only the focused loop calls it.
     func events(conversationID: String, after: Int, wait: Double? = nil) throws -> EventsPage {
         try client.call(Ops.conversationEvents, ConversationEventsArgs(conversation_id: conversationID, after: after,
                                                                         limit: nil, wait_s: wait ?? pollWait))
