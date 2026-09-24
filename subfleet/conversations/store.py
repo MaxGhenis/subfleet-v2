@@ -279,6 +279,13 @@ class ConversationStore:
             "SELECT native_session_id FROM conversations WHERE native_session_id IS NOT NULL")
                 if row["native_session_id"]}
 
+    def binding(self, native_session_id: str) -> str | None:
+        """The conversation that binds `native_session_id`, if one does (C-26.13)."""
+        # `provider IN (...)` lets the (provider, native_session_id) index serve it.
+        row = self.one("SELECT conversation_id FROM conversations WHERE provider IN ('claude','codex') "
+                       "AND native_session_id=? ORDER BY created_at LIMIT 1", (native_session_id,))
+        return row["conversation_id"] if row else None
+
     def by_native(self, provider: str, native_session_id: str) -> dict | None:
         row = self.one("SELECT * FROM conversations WHERE provider=? AND native_session_id=?",
                        (provider, native_session_id))

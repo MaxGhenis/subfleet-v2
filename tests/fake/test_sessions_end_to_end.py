@@ -616,7 +616,118 @@ def test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job(world):
     assert client.state([ALICE])["sessions"][ALICE]["last_revive"] is None
 
 
-# --- the kit never continues a conversation's session (C-26.13) --------------
+# --- resume and revive never continue a conversation's session (C-26.13) -----
+
+def finished_job(service: Daemon, job_id: str, kind: str, session_id: str, workdir: Path) -> None:
+    """A terminal job whose one attempt ran `session_id` on codex-1."""
+    service.store.add_job({"job_id": job_id, "request_id": f"r-{job_id}", "payload_digest": "d",
+                           "kind": kind, "workdir": str(workdir), "prompt_path": str(workdir / "p.md"),
+                           "sandbox": "read-only", "state": "succeeded", "rc": 0,
+                           "finished_at": fx.iso(fx.NOW)})
+    service.store.add_attempt({"attempt_id": f"{job_id}/a1", "job_id": job_id, "seq": 1,
+                               "lane_id": "codex-1", "state": "succeeded",
+                               "model_requested": service.policy["models"]["astra"]["id"],
+                               "native_session_id": session_id})
+
+
+def resume_args(root: Path, source: str, workdir: Path):
+    from subfleet.protocol import SubmitArgs
+    return SubmitArgs(request_id=str(uuid.uuid4()), kind="resume", workdir=str(workdir),
+                      prompt_path=str(stage(root)("continue")), sandbox="read-only",
+                      parent_job_id=source)
+
+
+def assert_refused_for_the_app(raised) -> None:
+    assert raised.value.code == 7
+    assert "continues only in its conversation" in str(raised.value)
+    assert "Subfleet app" in (raised.value.fix or "")
+
+
+def test_resume_refuses_a_turn_source(world):
+    """C-26.3, C-26.13: a turn's session continues with the conversation's next
+    message, never through `subfleet resume`; the fix names the app."""
+    service, client, _home, _store, root, _policy, base = world
+    finished_job(service, "turn-job", "turn", LANE_RUN, base)
+    with pytest.raises(daemon_module.AdapterError) as raised:
+        client.submit(resume_args(root, "turn-job", base))
+    assert_refused_for_the_app(raised)
+    assert "turn-job is a conversation turn" in str(raised.value)
+    assert service.store.query("SELECT * FROM jobs WHERE kind='resume'") == []
+
+
+def test_resume_of_a_job_whose_session_a_conversation_has_bound_is_refused(world):
+    """C-26.13: a detached job's session a person has since opened as a
+    conversation is the conversation's. Accepted before the binding, and
+    refused, with the conversation named, after it."""
+    service, client, _home, _store, root, _policy, base = world
+    finished_job(service, "lane-job", "dispatch", ALICE, base)
+    accepted = client.submit(resume_args(root, "lane-job", base))
+    assert accepted["created"] is True
+    cid = bind(service, ALICE, base)
+    with pytest.raises(daemon_module.AdapterError) as raised:
+        client.submit(resume_args(root, "lane-job", base))
+    assert_refused_for_the_app(raised)
+    assert f"conversation {cid}" in str(raised.value)
+
+
+def test_a_queued_resume_whose_session_becomes_a_conversations_fails_at_admission(world):
+    """C-26.13, the submit/admission race: the job was accepted, then a person
+    opened its session in the app. Admission fails it with exit 7 and launches
+    nothing; waiting on the `native:` lease would only take turns with the
+    conversation."""
+    service, client, _home, _store, root, _policy, base = world
+    finished_job(service, "lane-job", "dispatch", ALICE, base)
+    job_id = client.submit(resume_args(root, "lane-job", base))["job_id"]
+    bind(service, ALICE, base)
+    service._admit()                                    # noqa: SLF001 - one pass
+    job = service.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    assert service.store.list_attempts(job_id) == []
+    notice = service.store.query("SELECT text FROM notices WHERE job_id=?", (job_id,))[0]
+    assert "continues only in its conversation" in notice["text"] and "Subfleet app" in notice["text"]
+
+
+@pytest.mark.parametrize("how", ["bound", "turn"])
+def test_the_daemon_refuses_a_revive_of_a_conversations_session(world, how):
+    """C-26.13 at submit, whatever client sends it: a revive whose session a
+    conversation binds, or a turn ran, is refused with exit 7 and the app's fix
+    before anything is stored."""
+    service, client, home, store_dir, root, _policy, base = world
+    repo = workdir(base)
+    cold_desktop_session(home, store_dir, repo)
+    if how == "bound":
+        bind(service, ALICE, repo)
+    else:
+        finished_job(service, "turn-job", "turn", ALICE, repo)
+    candidate = revive_module.Candidate(session_id=ALICE, cwd=str(repo))
+    args = revive_module.submit_args(candidate, model="astra", request_id=str(uuid.uuid4()),
+                                     prompt_path=str(stage(root)(revive_module.REVIVE_MESSAGE)))
+    with pytest.raises(daemon_module.AdapterError) as raised:
+        client.submit(args)
+    assert_refused_for_the_app(raised)
+    assert service.store.query("SELECT * FROM jobs WHERE kind='revive'") == []
+
+
+def test_a_queued_revive_whose_session_becomes_a_conversations_fails_at_admission(world):
+    """C-26.13 with C-23.55: the revive lease binds only Subfleet's own
+    launches, and a conversation is one; a revive accepted before the binding
+    is failed by the admission pass that would have launched it."""
+    service, client, home, store_dir, root, policy, base = world
+    repo = workdir(base)
+    cold_desktop_session(home, store_dir, repo)
+    result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                  opt_in=True, model="astra", now=fx.NOW)
+    assert result.admitted is True
+    bind(service, ALICE, repo)
+    service._admit()                                    # noqa: SLF001 - one pass
+    job = service.store.get_job(result.job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    assert service.store.list_attempts(result.job_id) == []
+    assert service.store.one("SELECT * FROM leases WHERE lease_key=?",
+                             (revive_lease_key(ALICE),)) is None
+    notice = service.store.query("SELECT text FROM notices WHERE job_id=?", (result.job_id,))[0]
+    assert "revive refused" in notice["text"] and "Subfleet app" in notice["text"]
+
 
 def test_the_kit_refuses_before_the_daemon_is_asked(world):
     """C-26.13 in the kit: `sessions revive` reads the daemon's list and says

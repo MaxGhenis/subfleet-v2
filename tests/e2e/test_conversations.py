@@ -203,6 +203,36 @@ def test_a_turns_session_hooks_see_the_daemons_markers_and_do_nothing(hooked):
     assert [row["state"] for row in notices] == ["pending"]
 
 
+def test_a_conversations_session_is_refused_by_resume_revive_and_the_sessions_kit(conv):
+    """C-26.3, C-26.13 through the real CLI and daemon: after one turn the
+    `sessions` op reports the session as a conversation's (not a lane's);
+    `subfleet resume` of the turn job, `sessions revive`, `sessions continue`
+    and `handoff` naming the session are each refused with exit 7, and each
+    fix names the Subfleet app. Nothing is submitted."""
+    cid = conv.create()
+    mid = conv.submit(cid, "hello there")
+    assert conv.until_state(mid, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
+    session = conv.call("conversation.open", conversation_id=cid)["conversation"]["native_session_id"]
+    turn_job = conv.attempt(mid)["job_id"]
+    facts = conv.call("sessions", action="state", session_ids=[])
+    assert session in facts["conversation_sessions"] and session not in facts["lane_sessions"]
+
+    e2e = conv.e2e
+    before = e2e.rows("SELECT COUNT(*) AS n FROM jobs")[0]["n"]
+    resumed = e2e.cli("resume", turn_job, "keep going")
+    assert resumed.rc == 7, resumed
+    assert "is a conversation turn" in resumed.stderr and "Subfleet app" in resumed.stderr
+    revived = e2e.cli("sessions", "revive", session, "--revive", "--force", "--json")
+    assert revived.rc == 7, revived
+    assert json.loads(revived.stdout)["reason"].startswith("bound to a Subfleet conversation")
+    nudged = e2e.cli("sessions", "continue", "--session", session, "--delay", "0")
+    assert nudged.rc == 7 and "Subfleet app" in nudged.stderr, nudged
+    handed = e2e.cli("handoff", session, "--to", "opus", "--dry-run")
+    assert handed.rc == 7 and "Subfleet app" in handed.stderr, handed
+    assert e2e.rows("SELECT COUNT(*) AS n FROM jobs")[0]["n"] == before
+    assert e2e.rows("SELECT * FROM service_notices WHERE session_id=?", (session,)) == []
+
+
 def pending_approval(conv, cid: str) -> dict:
     return conv.e2e.until(lambda: next(iter(conv.call("approval.list", conversation_id=cid)["approvals"]), None),
                           timeout=30)

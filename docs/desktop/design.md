@@ -315,7 +315,9 @@ detached job.
 or quarantine. The next message's turn job is submitted only when the
 previous one is terminal and has released them (review F9, F-06). Resume,
 revive and handoff reservations also check `native:*` and `conversation:*`
-(symmetric; review F-08); `_resume_submission` refuses a `turn` source.
+(symmetric; review F-08); `_resume_submission` refuses a `turn` source, and
+the daemon refuses a resume or revive of a conversation's session at submit
+and fails one at admission if its session became a conversation's since.
 Conversation-bound sessions, and every session a turn ran, are not the
 sessions kit's: never listed, nudged, revived, cold-swept or handed off
 (`sessions state` reports them as `conversation_sessions`), and a turn's own

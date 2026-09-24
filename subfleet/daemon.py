@@ -48,6 +48,7 @@ from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
+from .sessions.registry import CONVERSATION_FIX
 from .store import Store
 
 #: "not asked yet", distinct from "asked, and there was no answer".
@@ -841,6 +842,11 @@ class Daemon:
             resume = None
             if args.kind == "resume":
                 args, resume = self._resume_submission(args)
+            elif args.kind == "revive":
+                # C-26.13: a revive continues `caller_session`; a conversation's
+                # session is continued only by its conversation, so the twin
+                # the native lease would merely serialize is refused here.
+                self._refuse_conversation_session(args.caller_session, "revive")
             # An empty task or tier is none: `evaluate` would reject '' on every
             # pass of a job submit had accepted (C-6.12).
             args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
@@ -1053,6 +1059,13 @@ class Daemon:
         if not args.parent_job_id:
             raise protocol.ProtocolError("resume requires its source parent_job_id")
         source = self._job(args.parent_job_id)
+        if source["kind"] == "turn":
+            # C-26.3, C-26.13: a turn's session is its conversation's; the next
+            # turn, not a detached resume, is how it continues.
+            raise AdapterError(
+                f"resume refused: {source['job_id']} is a conversation turn, and a "
+                "conversation's session continues only in its conversation",
+                code=7, fix=CONVERSATION_FIX)
         if source["state"] not in TERMINAL or self.store.one(
                 "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
                 "('reserved','starting','running','finalizing','quarantined')", (source["job_id"],)):
@@ -1069,6 +1082,9 @@ class Daemon:
         native = attempt["native_session_id"] or self._legacy_resume_identity(attempt)
         if not native:
             raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job")
+        # C-26.13: a detached job's session a person has since opened as a
+        # conversation (`conversation.open` with `native`) is the conversation's.
+        self._refuse_conversation_session(native, "resume")
         # A continuation belongs to the source execution workspace, even when
         # that was an allocated worktree containing uncommitted provider work.
         # Independent allows continuing a cancelled source without reviving its
@@ -1627,6 +1643,34 @@ class Daemon:
             "WHERE a.native_session_id IS NOT NULL AND j.kind='turn'")}
         ids |= self.conversations.store.bound_sessions()
         return sorted(item for item in ids if item)
+
+    def _conversation_binding(self, session_id: str | None) -> str | None:
+        """What makes `session_id` a conversation's (C-26.13), or None.
+
+        Called with no main-store transaction open. `ConversationStore` holds
+        its own lock only inside its own methods and has no reference to the
+        main store, so taking it here, under `_submit_lock` or in the admission
+        pass, adds no lock order.
+        """
+        if not session_id:
+            return None
+        conversation = self.conversations.store.binding(session_id)
+        if conversation:
+            return f"conversation {conversation}"
+        row = self.store.one(
+            "SELECT a.job_id FROM attempts a JOIN jobs j USING(job_id) "
+            "WHERE a.native_session_id=? AND j.kind='turn' ORDER BY a.reserved_at LIMIT 1",
+            (session_id,))
+        return f"turn job {row['job_id']}" if row else None
+
+    def _refuse_conversation_session(self, session_id: str | None, verb: str) -> None:
+        """C-26.13: a resume or revive never continues a conversation's session."""
+        binding = self._conversation_binding(session_id)
+        if binding:
+            raise AdapterError(
+                f"{verb} refused: session {session_id} belongs to {binding}, and a "
+                "conversation's session continues only in its conversation",
+                code=7, fix=CONVERSATION_FIX)
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
         action = args.action or "state"
@@ -2504,6 +2548,12 @@ class Daemon:
                     if not native_session:
                         raise AdapterError("resume source identity is missing",
                                            fix="resubmit the resume from the original job")
+                if native_session and job["kind"] in ("resume", "revive"):
+                    # C-26.13: the session became a conversation's after this job
+                    # was submitted (a person opened it in the app). Refused, not
+                    # held: waiting on the `native:` lease would only take turns
+                    # with the conversation.
+                    self._refuse_conversation_session(native_session, job["kind"])
             except AdapterError as exc:
                 self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
                 continue
