@@ -173,6 +173,8 @@ struct Timeline: Equatable {
     /// after it belongs to Subfleet turns, which the events already show.
     private(set) var firstEventTS: String?
     private(set) var resets = 0
+    /// Re-reading the log from 0 after a reset, until the cursor reaches the floor.
+    private(set) var rebuilding = false
     private(set) var unknownKinds: [String: Int] = [:]
     /// Every approval `attach` has seen, by approval id. A card the events make
     /// again (after a reset re-reads the log) gets its approval id back from here.
@@ -195,12 +197,20 @@ struct Timeline: Equatable {
     @discardableResult
     mutating func apply(page: EventsPage) -> PageResult {
         if page.superseded == true { return .superseded }
-        if page.reset {
+        // C-25.4: `reset` is true exactly while the cursor is below the floor, so
+        // the re-read from 0 answers `reset` too until it reaches the floor. Only
+        // the first one drops what the events produced; the pages of the re-read
+        // are the surviving log and are applied.
+        if page.reset && !rebuilding {
             resetEvents()
+            rebuilding = true
             return .reset
         }
         let count = apply(events: page.events)
         cursor = max(cursor, page.next)
+        if rebuilding && (page.events.isEmpty || !page.reset || page.floor.map { cursor >= $0 } == true) {
+            rebuilding = false
+        }
         return .applied(count)
     }
 

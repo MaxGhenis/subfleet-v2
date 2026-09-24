@@ -221,6 +221,8 @@ struct Conversation: Codable, Equatable, Identifiable {
     var title: String?
     var workspace: String
     var workspace_kind: String
+    /// A worktree conversation's worktree (path, branch, source, repository, base).
+    var worktree: JSONValue?
     var allow_main: Bool
     var lane_id: String?
     var settings: ConversationSettings
@@ -364,6 +366,12 @@ struct Catalog: Codable, Equatable {
     var complete: Bool
     var items: [CatalogItem]
     var next: JSONValue?
+    /// D-23: `fresh`, `stale`, `missing` or `damaged`, with the index's age.
+    var state: String?
+    var age_s: Double?
+    var stale_after_s: Double?
+    /// A catalog run is in progress.
+    var refreshing: Bool?
 }
 
 /// A native Claude or Codex session the catalog found (catalog.build).
@@ -506,6 +514,8 @@ struct EventsPage: Codable, Equatable {
     var next: Int
     var reset: Bool
     var superseded: Bool?
+    /// The compaction floor (C-25.4): `reset` is true exactly while the cursor is below it.
+    var floor: Int?
 }
 
 struct ConversationEvent: Codable, Equatable {
@@ -753,4 +763,6 @@ struct AttachmentResult: Codable, Equatable {
 struct CatalogRefreshResult: Codable, Equatable {
     var requested: Bool
     var running: Bool
+    /// When the catalog now on disk was written (design §5).
+    var generated_at: String?
 }

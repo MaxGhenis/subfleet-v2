@@ -291,12 +291,14 @@ def test_design_12_stop_cancels_while_queued_and_interrupts_once_it_moved(core_p
     assert stopped["action"] == {"action": "cancel", "message_id": queued}
     assert stopped["receipt"]["state"] == "cancelled" and stopped["receipt"]["state_reason"] == "withdrawn"
     assert first["results"][5]["report"]["acknowledged"] == [moved]
-    # The daemon moves the second message on before the app's Stop arrives.
-    assert harness.store.set_state(moved, "waiting", expect=("queued",))
+    # The daemon moves the second message on before the app's Stop arrives. `starting`,
+    # not `waiting`: a waiting message with no attempt is still withdrawn (C-24.7, the
+    # store's guarded withdrawal); once a provider may have it, `too-late`.
+    assert harness.store.set_state(moved, "starting", expect=("queued",))
     second = run_steps(core_probe, tmp_path, server, [{"do": "stop", "key": moved, "state": "queued"}], journal=journal)
     result = second["results"][0]
     assert "error" not in result, result
     assert result["action"] == {"action": "cancel", "message_id": moved}
     assert second["calls"] == [f"message.cancel {moved} answered", f"turn.interrupt {moved} answered"]
-    assert result["receipt"]["state"] == "waiting" and result["receipt"]["stop_requested"] is True
+    assert result["receipt"]["state"] == "starting" and result["receipt"]["stop_requested"] is True
     assert harness.store.message(moved)["stop_requested_at"]
