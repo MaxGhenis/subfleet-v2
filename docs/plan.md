@@ -109,3 +109,27 @@ running, and `daemon.log` was silent; every unplaced job now has a stated
 reason, and a fleet that places nothing for a minute says so. C-5.10: a worker
 that raises is retried with backoff rather than on every 50 ms tick. No schema
 change: the new state is in memory, so rollback stays possible.
+
+## Desktop workspace restored, 2026-09-24
+
+The rebuild dropped the native desktop cockpit built and installed on
+2026-08-30 and 2026-08-31 (`plan-b-rev4.md:387`, "the cockpit branch is not
+carried", and `:403`). That exclusion rested on the Traycer objection at
+`:384`, which is about Traycer's proprietary host and cloud, not the native
+Swift app. Max asked to use Subfleet instead of switching between the Claude
+and Codex apps for everyday coding, authorized a clean cutover, and asked not
+to stop until the product, including the app, was done
+(`~/subfleet-desktop-handoff-20260924.md`).
+
+This amendment supersedes only the cockpit half of `plan-b-rev4.md:387` and
+the words "and cockpit branch" at `:403`. The Traycer exclusion and open
+decision 5 stand. Milestone 9, the desktop workspace, is added: the native
+cockpit is recovered and pointed at the daemon, and each conversation turn is
+an ordinary admitted job whose provider runs in its bidirectional mode under a
+guardian that relays numbered input frames. The binding clauses are
+C-24 to C-30 in `acceptance-contract.md`; the specification is
+`docs/desktop/design.md`; progress is tracked row by row in
+`docs/desktop/ledger.json`. The transition plan's stages are milestone 9's
+sub-steps. Amendment 11 still grants no interactive capacity; C-26.9 orders
+attended turns ahead of detached jobs without reserving capacity, and that
+choice is recorded for Max.

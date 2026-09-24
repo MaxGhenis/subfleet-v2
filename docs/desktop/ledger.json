@@ -1,0 +1,375 @@
+{
+  "version": 1,
+  "updated": "2026-09-24",
+  "statuses": [
+    "open",
+    "recovered",
+    "implemented",
+    "verified",
+    "deferred"
+  ],
+  "rows": [
+    {
+      "id": "M-1",
+      "requirement": "Everyday coding in Subfleet instead of the Claude and Codex apps, with both providers",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-24.1",
+        "C-26.1",
+        "C-29.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-2",
+      "requirement": "A conversation moves to an account with capacity; no manual sign-in/out between accounts",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-26.2",
+        "C-26.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-3",
+      "requirement": "Existing Claude and Codex sessions appear under their display names",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-30.1",
+        "C-30.2"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-4",
+      "requirement": "Clicking a session opens it and lets him continue it",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-30.2",
+        "C-24.3",
+        "C-26.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-5",
+      "requirement": "A normal macOS app: window controls, Dock, menus, not an overlay",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-6",
+      "requirement": "Menu bar bolt keeps the quota popover and an obvious Open action",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-7",
+      "requirement": "Return sends; Shift-Return inserts a newline",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.3"
+      ],
+      "status": "recovered",
+      "evidence": [
+        "legacy CockpitView.swift:1478-1489 (recovery package 20260924T121841Z)"
+      ],
+      "notes": "Recovered in legacy source; not yet ported to v2"
+    },
+    {
+      "id": "M-8",
+      "requirement": "Paste screenshots and images into the composer and send them",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-28.1",
+        "C-28.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-9",
+      "requirement": "Composer stays editable while a turn runs; follow-ups queue",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-24.5"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-10",
+      "requirement": "Sending is as quick as the native apps (acknowledgement p95 <= 250 ms; activity within 1 s of an event)",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-25.3",
+        "C-25.4"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-11",
+      "requirement": "Shows what the agent is thinking and doing, live",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-25.5"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-12",
+      "requirement": "Markdown renders in conversations",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [],
+      "status": "recovered",
+      "evidence": [
+        "legacy CockpitView.swift:1995-2758"
+      ],
+      "notes": "Recovered renderer; port pending"
+    },
+    {
+      "id": "M-13",
+      "requirement": "Fast is its own setting, independent of model and reasoning effort",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-26.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-14",
+      "requirement": "Per-account usage: percent, reset times, weekly reset, Fable/overall/5-hour windows",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.2"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-1",
+      "requirement": "Project selection and compose with workspace choice, settings and errors",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-24.1",
+        "C-26.10"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-2",
+      "requirement": "Model, reasoning and Fast controls negotiated against the provider catalog; unsupported settings never implied",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-26.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-3",
+      "requirement": "Real permission requests with allow/deny/cancel round trips in Subfleet",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-27.1",
+        "C-27.2",
+        "C-27.3",
+        "C-27.4"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-4",
+      "requirement": "Cancel a queued message; stop only the owned active turn",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-24.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-5",
+      "requirement": "Runs, changes and artifacts tied to the exact workspace and attempt; no automatic approval or merge",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-26.1"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-6",
+      "requirement": "Bounded read-only history of existing sessions; IDs preserved",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-30.1",
+        "C-30.2"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-7",
+      "requirement": "Explicit cross-provider handoff with provenance, never presented as the same session",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-30.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-8",
+      "requirement": "Truthful fleet/status; reloading a snapshot is not a new observation",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-29.2"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-9",
+      "requirement": "Drafts and attachments survive app restart",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-28.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-1",
+      "requirement": "Lost acknowledgement, app restart, daemon recovery and ambiguous sends: no duplicate accepted turn, no automatic replay",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-24.2",
+        "C-24.6",
+        "C-26.6"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-2",
+      "requirement": "Independent conversations; external-writer refusal; single writer per session",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-24.5",
+        "C-26.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-3",
+      "requirement": "Explicit endpoint; no v1 fallback; daemon-down is a visible state",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-29.1",
+        "C-29.2"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-4",
+      "requirement": "Guard, trust and toolchain pins pass for every turn launch, including the Codex turn server",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-26.4",
+        "C-26.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-5",
+      "requirement": "Real isolated Claude and Codex task with response, served-model evidence and a useful diff",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-26.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-6",
+      "requirement": "Installed release: exact source/build hashes, CI evidence, rollback bundle, guardian adoption verified",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "S-1",
+      "requirement": "Legacy cockpit source (committed and uncommitted) preserved with checksums and restore instructions",
+      "source": "transition plan Stage 0",
+      "clauses": [],
+      "status": "verified",
+      "evidence": [
+        "~/subfleet-desktop-recovery/20260924T121841Z/SHA256SUMS (shasum -c: 0 failures)",
+        "RESTORE.md"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "S-2",
+      "requirement": "Legacy delivery state inventoried privately; every pending message has an owner and disposition",
+      "source": "transition plan Stage 0/4",
+      "clauses": [
+        "C-30.4"
+      ],
+      "status": "verified",
+      "evidence": [
+        "~/subfleet-desktop-recovery/20260924T121841Z/legacy-state/INVENTORY.md: 6 messages, all finished; pending journal {}; 0 attachments"
+      ],
+      "notes": "Import itself is still open under C-30.4"
+    }
+  ]
+}
