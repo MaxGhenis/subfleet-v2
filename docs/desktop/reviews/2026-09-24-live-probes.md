@@ -31,6 +31,16 @@ row (`isReplay: true`), streamed text, `result` `success`; after the driver
 closed stdin, `command_lifecycle` `completed` (ignored after the terminal
 event) and exit 0. Outcome `complete`, served model as expected.
 
+## `opus[1m]` and a resumed follow-up
+
+With `--model opus[1m]` (the catalog value), `system/init` reported
+`claude-opus-5-5[1m]`, the transcript's assistant rows record
+`claude-opus-5-5`, and the driver's served model (the `[1m]` removed) is the
+policy id, so attestation compares like with like. A second turn with
+`--resume <that session>` and a new message uuid was acknowledged the same
+way, appended to the same transcript, and answered from the first turn's
+context ("pong").
+
 ## Permission prompts: a user hook approves every Bash command
 
 With `--permission-mode default --permission-prompt-tool stdio`, `echo`,
@@ -95,6 +105,6 @@ guard for that workdir and produced the override the turn server ran with.
 
 - A Claude approval and an AskUserQuestion with a tool no hook approves.
 - Codex approvals (`ask` with a command the sandbox refuses).
-- `--model opus[1m]` and a `--resume` follow-up through the daemon on a real
-  lane, with attestation; the same for a Codex `thread/resume`.
+- A turn through the daemon on a real lane (credential resolution, relay,
+  finalization and attestation together); a Codex `thread/resume`.
 - Continuing a Codex-app thread by rollout copy and `thread/fork` (IR-31).
