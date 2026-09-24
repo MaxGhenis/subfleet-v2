@@ -9,12 +9,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
+import errno
 import fcntl
 import hashlib
 import json
 import logging
 import os
 from pathlib import Path
+import resource
 import signal
 import shutil
 import socket
@@ -57,6 +59,17 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+
+#: C-16.5: `accept` failures that say the process or the system is short of
+#: something for now, not that the socket is gone. The daemon waits and accepts
+#: again; any other error still ends `serve_forever`.
+ACCEPT_TRANSIENT = frozenset({errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM,
+                              errno.ECONNABORTED, errno.EINTR, errno.EAGAIN})
+ACCEPT_RETRY_BASE_S = .05
+ACCEPT_RETRY_CEILING_S = 2.0
+#: C-16.5: the soft open-file limit the daemon asks for at start, within the hard
+#: limit and the kernel's per-process ceiling. launchd starts it at 256.
+OPEN_FILES_WANTED = 8192
 
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
@@ -3430,16 +3443,32 @@ class Daemon:
         self._socket.settimeout(.2)
         self._control_thread = threading.Thread(target=self._control, name="subfleet-control", daemon=True)
         self._control_thread.start()
+        failures = 0
         try:
             while not self.stopping.is_set():
                 try:
                     conn, _ = self._socket.accept()
                 except socket.timeout:
                     continue
-                except OSError:
+                except OSError as exc:
                     if self.stopping.is_set():
                         break
-                    raise
+                    if exc.errno not in ACCEPT_TRANSIENT:
+                        raise
+                    # C-16.5: out of descriptors or buffers is a condition to
+                    # wait out, not a reason to exit. On 2026-09-24 one EMFILE
+                    # here ended the daemon while its clients waited on replies.
+                    failures += 1
+                    delay = min(ACCEPT_RETRY_CEILING_S, ACCEPT_RETRY_BASE_S * 2 ** min(failures - 1, 16))
+                    if failures & (failures - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
+                        self.log.error("accept failed: %s (%d in a row, %d connections open, next try in %g s)",
+                                       errno.errorcode.get(exc.errno, exc.errno), failures,
+                                       len(self._connections), delay)
+                    self.stopping.wait(delay)
+                    continue
+                if failures:
+                    self.log.info("accept recovered after %d failures", failures)
+                    failures = 0
                 with self._connection_lock:
                     self._connections.add(conn)
                 self.readers.submit(self._connection, conn)
@@ -3474,11 +3503,35 @@ class Daemon:
         self._log_handler.stream.close()
 
 
+def raise_open_file_limit(wanted: int = OPEN_FILES_WANTED) -> tuple[int, int]:
+    """C-16.5: lift the soft open-file limit toward `wanted`; returns (before, after).
+
+    Every client connection holds a descriptor until its reply is written, so a
+    few dozen callers retrying against slow replies reach launchd's default of
+    256. The hard limit, and on macOS `kern.maxfilesperproc`, still bound it; a
+    limit that cannot be raised is left as it was.
+    """
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target = wanted if hard == resource.RLIM_INFINITY else min(wanted, hard)
+    if soft != resource.RLIM_INFINITY and soft >= target:
+        return soft, soft
+    for candidate in (target, 4096, 2048, 1024):
+        if soft != resource.RLIM_INFINITY and candidate <= soft:
+            break
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (candidate, hard))
+            return soft, candidate
+        except (ValueError, OSError):
+            continue          # above kern.maxfilesperproc; try the next lower
+    return soft, soft
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="subfleet supervised daemon")
     parser.add_argument("--foreground", action="store_true")
     parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
     args = parser.parse_args(argv)
+    raise_open_file_limit()
     try:
         daemon = Daemon(args.state_root)
     except DaemonUnavailable as exc:
