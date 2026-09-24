@@ -668,3 +668,41 @@ def test_finished_runners_are_forgotten_only_after_their_attempt_ends(svc):
         tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (attempt,))
     svc._reap_runners()
     assert attempt not in svc.runners
+
+
+# --- a limited turn's continuation (C-26.7) ---------------------------------------
+
+
+class EndedRunner(FakeRunner):
+    def __init__(self, adir: Path, message_id: str, conversation_id: str):
+        super().__init__(finished=True)
+        self.adir, self.message_id, self.conversation_id = adir, message_id, conversation_id
+        self.attempt_id = "turn-job-0/a1"
+        self.attempt = {"attempt_id": self.attempt_id, "lane_id": "claude-1"}
+
+
+def test_a_limited_turns_continuation_exists_before_the_failure_is_visible(svc, tmp_path, monkeypatch):
+    """C-26.7, D-6: whoever sees the limited message failed also sees its continuation,
+    and settling the same outcome again (a replay) adds no second one."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "running")
+    adir = tmp_path / "a1"
+    adir.mkdir()
+    (adir / "turn.json").write_text(json.dumps({"state": "failed", "reason": "limited", "served": {},
+                                                "user_frame_written": True, "accepted": True}))
+    runner = EndedRunner(adir, mid, cid)
+    original = svc.store.set_state
+    seen = []
+
+    def watched(message_id, state, **kw):
+        if message_id == mid and state == "failed":
+            seen.append(svc.store.one("SELECT COUNT(*) n FROM messages WHERE continues=?", (mid,))["n"])
+        return original(message_id, state, **kw)
+    monkeypatch.setattr(svc.store, "set_state", watched)
+    svc._on_outcome(runner)
+    assert seen == [1]
+    assert svc.store.message(mid)["state_reason"] == "limited"
+    svc._on_outcome(runner)
+    follow = svc.store.query("SELECT origin, state FROM messages WHERE continues=?", (mid,))
+    assert follow == [{"origin": "failover", "state": "queued"}]

@@ -1063,8 +1063,11 @@ class ConversationService:
                 self.store.set_state(message["message_id"], FAILED, reason=f"not-delivered: {reason}",
                                      expect=live, served=served)
         elif reason == "limited":
+            # C-26.7: the continuation is written first, so no reader sees the limited
+            # message failed without it; it cannot dispatch while the original is live.
+            if message["state"] in live:
+                self._continue_elsewhere(conversation, message)
             self.store.set_state(message["message_id"], FAILED, reason="limited", expect=live, served=served)
-            self._continue_elsewhere(conversation, message)
         elif turn.get("user_frame_written") or turn.get("accepted"):
             # Delivered, and no terminal event: reconcile, and block a Claude
             # conversation until the person decides (C-24.8, IR-5).
@@ -1092,8 +1095,8 @@ class ConversationService:
         while current.get("continues"):
             chain += 1
             current = self.store.message(current["continues"])
-        if chain >= 2:
-            return
+        if chain >= 2 or self.store.one("SELECT 1 FROM messages WHERE continues=?", (message["message_id"],)):
+            return                              # at most two, and one per limited message
         last = self.store.one("SELECT message_id FROM messages WHERE conversation_id=? AND origin='person' "
                               "ORDER BY seq DESC LIMIT 1", (conversation["conversation_id"],))
         self.store.submit_message(conversation_id=conversation["conversation_id"], message_id=str(uuid.uuid4()),
