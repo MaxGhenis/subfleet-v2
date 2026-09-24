@@ -91,3 +91,20 @@ def test_retention_failure_is_reoffered_after_backoff_not_after_an_hour(state_da
     assert service.timers.status()['retention']['last_error_type'] is None
     assert 'retention' not in service._worker_retry_at
     assert 'retention' not in service._worker_failures
+
+
+def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_pins(state_daemon, monkeypatch):
+    """C-8.4, C-26.12, IR-17: the hourly pass hands retention the detached and turn
+    budgets of the `retention` policy section and the conversation service's pins."""
+    service, _ = state_daemon
+    service.policy = {**service.policy, 'retention': {**service.policy['retention'], 'jobs': 7, 'turn_jobs': 9,
+                                                      'turn_bytes': 1234, 'turn_keep_days': 2}}
+    seen = {}
+    def maintenance(store, root, **kwargs):
+        seen.update(kwargs)
+        return {}
+    monkeypatch.setattr(daemon_module, 'maintenance', maintenance)
+    service._retention()
+    assert (seen['max_jobs'], seen['max_bytes']) == (7, 2 * 1024 ** 3)
+    assert (seen['turn_max_jobs'], seen['turn_max_bytes'], seen['turn_keep_s']) == (9, 1234, 2 * 86400)
+    assert seen['pins'] == service.conversations.retention_pins
