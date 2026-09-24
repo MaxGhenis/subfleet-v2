@@ -140,8 +140,10 @@ def cmd_list(args: argparse.Namespace) -> int:
     lane_ids = set(facts.get("lane_sessions") or [])
     retired = {key for key, value in (facts.get("sessions") or {}).items()
                if value.get("retired")}
-    listing = registry.sessions(lane_ids=lane_ids, include_lanes=bool(args.all),
-                                live_only=not args.all)
+    # C-26.13: a conversation's session is not listed, not even with `--all`.
+    listing = registry.sessions(lane_ids=lane_ids,
+                                conversation_ids=registry.conversation_ids_of(facts),
+                                include_lanes=bool(args.all), live_only=not args.all)
     # C-23.35 excludes retired sessions even when the caller includes dead or
     # headless lane rows. Keep duplicate diagnostics subject to the same filter.
     listing = [item for item in listing if item.session_id not in retired]
@@ -209,25 +211,33 @@ def cmd_continue(args: argparse.Namespace) -> int:
         dry_run=bool(getattr(args, "dry_run", False)) or survey,
         delay_s=getattr(args, "delay", None), manual=source is None,
         caller=_cli().session_id())
-    # C-23.31: a request naming a headless lane run is refused with the reason.
-    # A sweep that merely passed over one reports 0 — its exit code says whether
-    # the sweep ran, not whether every session qualified — but a person who
-    # named one asked a question that has a refusal for an answer.
+    # C-23.31, C-26.13: a request naming a headless lane run or a conversation's
+    # session is refused with the reason. A sweep that merely passed over one
+    # reports 0 — its exit code says whether the sweep ran, not whether every
+    # session qualified — but a person who named one asked a question that has
+    # a refusal for an answer.
     lanes = [item for item in report.outcomes if item.session_id in set(named)
              and "headless lane run" in item.reason]
+    bound = [item for item in report.outcomes if item.session_id in set(named)
+             and item.reason.startswith(registry.CONVERSATION_REASON)]
+    refused = len(lanes) + len(bound)
     if args.json:
         emit(report.to_dict())
-        return int(Exit.REFUSED if named and len(lanes) == len(named) else Exit.OK)
+        return int(Exit.REFUSED if named and refused == len(named) else Exit.OK)
     out(nudge_module.render(report))
     if survey:
         note("subfleet sessions: a survey, because no session was named "
              "(`--all` nudges every interrupted session)")
-    if named and len(lanes) == len(named):
+    if named and refused == len(named):
+        lane_fix = ("a lane's deliverable is its last message; "
+                    "`subfleet runs show <job>` for what it produced")
+        fixes = ([registry.CONVERSATION_FIX] if bound else []) + ([lane_fix] if lanes else [])
         return fail(Exit.REFUSED,
                     "sessions continue: " + ", ".join(
-                        f"{item.session_id[:8]} is a headless lane run" for item in lanes),
-                    "a lane's deliverable is its last message; "
-                    "`subfleet runs show <job>` for what it produced")
+                        [f"{item.session_id[:8]} is a headless lane run" for item in lanes]
+                        + [f"{item.session_id[:8]} is {registry.CONVERSATION_REASON}"
+                           for item in bound]),
+                    "; ".join(fixes))
     return int(Exit.OK)
 
 
@@ -298,10 +308,13 @@ def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
     batch = int(cap if cap is not None
                 else policy.get("sessions", {}).get("revive_max_batch", 8))
     rows: list[dict[str, Any]] = []
+    conversation_ids = {candidate.session_id for candidate in candidates
+                        if candidate.conversation}
     for candidate in candidates[:batch]:
-        if candidate.lane or candidate.retired:
+        if candidate.conversation or candidate.lane or candidate.retired:
             rows.append({"session_id": candidate.session_id, "job_id": None,
-                         "reason": ("headless lane run" if candidate.lane
+                         "reason": (registry.CONVERSATION_REASON if candidate.conversation
+                                    else "headless lane run" if candidate.lane
                                     else "retired by the operator")})
             continue
         request_id = str(uuid.uuid4())
@@ -311,6 +324,7 @@ def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
             workdir=candidate.cwd, task=getattr(args, "task", None),
             tier=getattr(args, "tier", None), caller_session=cli.session_id(),
             caller_pid=cli.caller_pid(), request_id=request_id,
+            conversation_ids=conversation_ids,
             dry_run=bool(getattr(args, "dry_run", False)))
         rows.append({"session_id": candidate.session_id, "job_id": result.job_id,
                      "reason": f"handed off to {args.target}",
@@ -469,6 +483,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
     sessions = _sessions(args)
     policy = _policy(args)
     request_id = getattr(args, "request_id", None) or str(uuid.uuid4())
+    facts = sessions.state([])
     result = handoff_module.handoff(
         sessions, policy,
         session_id=getattr(args, "session_id", None),
@@ -485,7 +500,8 @@ def cmd_handoff(args: argparse.Namespace) -> int:
                   if getattr(args, "o", None) else None),
         current_session=os.environ.get("CLAUDE_CODE_SESSION_ID"),
         request_id=request_id,
-        lane_ids=sessions.state([]).get("lane_sessions") or [],
+        lane_ids=facts.get("lane_sessions") or [],
+        conversation_ids=registry.conversation_ids_of(facts),
         dry_run=bool(getattr(args, "dry_run", False)))
     if args.json:
         emit(result.to_dict())

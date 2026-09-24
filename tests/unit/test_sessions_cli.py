@@ -420,6 +420,63 @@ def test_naming_a_lane_run_in_a_sweep_is_refused_with_the_reason(monkeypatch):
     assert "is a headless lane run" in err and "fix: " in err
 
 
+CONVERSATION = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+
+
+@pytest.mark.parametrize("json_flag", [False, True])
+def test_naming_a_conversations_session_is_refused_with_the_apps_fix(
+        monkeypatch, tmp_path, json_flag):
+    """C-26.13 and C-17.3: a person who names a conversation's session gets
+    exit 7, the reason, and a fix that names the Subfleet app; nothing is sent."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    fx.register(home, CONVERSATION, os.getpid(), started_at=1.0)
+    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3))
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    argv = ["sessions", "continue", "--session", CONVERSATION, "--delay", "0"]
+    code, out, err = run(argv + (["--json"] if json_flag else []), monkeypatch)
+    assert code == int(Exit.REFUSED) == 7
+    assert daemon.pings == [] and daemon.records == []
+    if json_flag:
+        assert json.loads(out)["sessions"][0]["reason"].startswith("bound to a Subfleet conversation")
+    else:
+        assert "is bound to a Subfleet conversation" in err
+        assert "fix: " in err and "Subfleet app" in err
+
+
+@pytest.mark.parametrize("argv", [["sessions", "--json"], ["sessions", "list", "--all", "--json"]])
+def test_a_conversations_session_is_absent_from_every_listing(argv, monkeypatch, tmp_path):
+    """C-26.13: not listed, not even with `--all`."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    fx.register(home, CONVERSATION, os.getpid(), started_at=1.0)
+    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3))
+    fx.register(home, ALICE, os.getpid(), started_at=2.0)
+    fx.transcript(home, ALICE, fx.interrupted())
+    monkeypatch.setattr(sessions_cli, "_sessions",
+                        lambda args: fx.FakeSessions(conversation_sessions=[CONVERSATION]))
+    code, output, errors = run(argv, monkeypatch)
+    assert code == int(Exit.OK)
+    assert [json.loads(row)["session_id"] for row in output.splitlines()] == [ALICE]
+
+
+def test_handoff_of_a_conversations_session_is_refused_by_the_verb(monkeypatch, tmp_path):
+    """C-26.13 through `subfleet handoff`: the verb hands the daemon's list to
+    the kit, and the refusal is exit 7 with the app's fix."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3), cwd=str(repo))
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    code, out, err = run(["handoff", CONVERSATION, "--to", "opus", "-C", str(repo),
+                          "--dry-run"], monkeypatch)
+    assert code == int(Exit.REFUSED) == 7
+    assert "bound to a Subfleet conversation" in err and "Subfleet app" in err
+    assert daemon.submits == []
+
+
 def test_a_sweep_that_merely_passed_over_a_lane_still_exits_zero(monkeypatch):
     """The exit code reports whether the sweep ran, not whether every session
     in the fleet qualified."""

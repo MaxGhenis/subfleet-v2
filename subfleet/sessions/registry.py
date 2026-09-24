@@ -25,6 +25,15 @@ with the reason. Two signals identify one, and either is enough:
   `claude -p` run subfleet did not launch and lane runs whose attempt row the
   ledger no longer holds.
 
+C-26.13 says what else is not the kit's: a session a Subfleet conversation
+binds, or one a conversation turn ran. The daemon reports those as
+`conversation_sessions` beside `lane_sessions`. The transcript shape cannot
+stand in for that list: a conversation's transcript has one SDK prompt per
+turn, so after two turns `headless_transcript` stops calling it a lane and the
+kit would treat it as an interactive session, nudge it, and revive it. Such a
+session is never listed, not even with lanes included; a request naming one is
+refused with `CONVERSATION_REASON` and `CONVERSATION_FIX`.
+
 `find_session` in `subfleet/notify_push.py` already ranks duplicates this way
 for the delivery layer. This module is the listing and refusal side of the same
 rule; both read the same files and neither writes.
@@ -41,8 +50,22 @@ from typing import Any, Iterable
 from . import transcripts
 
 
+#: C-26.13: why the kit leaves a conversation's session alone, and where it
+#: continues instead. The daemon's resume and revive refusals name the same fix.
+CONVERSATION_REASON = "bound to a Subfleet conversation"
+CONVERSATION_FIX = ("continue it in the Subfleet app: open the conversation "
+                    "and send the next message there")
+
+
 def sessions_dir() -> Path:
     return transcripts.claude_dir() / "sessions"
+
+
+def conversation_ids_of(facts: dict[str, Any]) -> set[str]:
+    """C-26.13: the sessions the daemon's `sessions state` reports as a
+    conversation's. A daemon older than C-26.13 reports none."""
+    return {item for item in (facts.get("conversation_sessions") or [])
+            if isinstance(item, str) and item}
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -197,17 +220,22 @@ def is_lane_run(session_id: str, *, lane_ids: Iterable[str] = (),
 
 
 def sessions(*, lane_ids: Iterable[str] = (),
+             conversation_ids: Iterable[str] = (),
              include_lanes: bool = False,
              live_only: bool = True) -> list[Session]:
-    """The session listing (C-23.30, C-23.31).
+    """The session listing (C-23.30, C-23.31, C-26.13).
 
     `live_only` keeps the rows whose pid is still running, which is what a nudge
     or a `ping` can reach. Lane runs are excluded unless `include_lanes`, and
-    when they are included they are marked rather than silently mixed in.
+    when they are included they are marked rather than silently mixed in. A
+    conversation's session is excluded always: it is not the kit's to list.
     """
     marker = set(lane_ids)
+    bound = set(conversation_ids)
     listing: list[Session] = []
     for session_id, candidates in grouped().items():
+        if session_id in bound:
+            continue
         best = speaker(candidates)
         if best is None:
             continue

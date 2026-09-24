@@ -560,3 +560,19 @@ def test_tiny_truncation_budget_never_returns_the_whole_section(limit):
     assert len(cut) <= limit
     if limit >= len(handoff.ELIDED):
         assert "omitted" in cut
+
+
+def test_a_conversations_session_is_refused_rather_than_handed_off(home, policy, repo):
+    """C-26.13: the kit does not hand off a conversation's session; its work
+    continues in its conversation (a labelled cross-provider handoff is the
+    app's, C-30.3). Checked before C-23.31, whose lane reason would mislead."""
+    fx.transcript(home, SESSION, fx.conversation_turns(turns=1), cwd=str(repo))
+    daemon = fx.FakeSessions(conversation_sessions=[SESSION])
+    with pytest.raises(handoff.HandoffError) as raised:
+        handoff.handoff(daemon, policy, session_id=SESSION, last=False, model="astra",
+                        stage_prompt=lambda text: Path("/dev/null"), workdir=repo,
+                        lane_ids=[SESSION], conversation_ids=[SESSION], dry_run=True)
+    assert "bound to a Subfleet conversation" in str(raised.value)
+    assert raised.value.code == 7
+    assert "Subfleet app" in raised.value.fix
+    assert daemon.submits == []

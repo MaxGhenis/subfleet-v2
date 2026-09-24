@@ -1593,15 +1593,40 @@ class Daemon:
         `resume_launch` is handed the operator's own session id. Counting those
         would mark every revived session a lane run permanently, and C-23.31
         makes a lane run un-nudgeable, un-listable and un-revivable: one revive
-        would retire the session from the fleet for good. Every other kind
-        launches under a `--session-id` this daemon minted, so every other kind
-        belongs here.
+        would retire the session from the fleet for good.
+
+        A turn is left out for the same reason and one more. A conversation
+        opened on an existing session (`conversation.open` with `native`) runs
+        its turns with `--resume <that session>`, so a turn's attempt can
+        record a session Subfleet did not create; and a turn's session is not a
+        headless lane run, so C-23.31's label, its reason ("headless lane run")
+        and its fix (`subfleet runs show`) would all be wrong for it. Turn
+        sessions are reported apart, as `conversation_sessions` (C-26.13), which
+        the kit excludes with its own reason. Every other kind launches under a
+        `--session-id` this daemon minted, so every other kind belongs here.
         """
         return sorted({row["native_session_id"] for row in self.store.query(
             "SELECT DISTINCT a.native_session_id FROM attempts a "
             "JOIN jobs j USING(job_id) "
             "WHERE a.native_session_id IS NOT NULL AND j.kind NOT IN ('revive','turn')")
             if row["native_session_id"]})
+
+    def _conversation_session_ids(self) -> list[str]:
+        """C-26.13: every session a conversation binds or a turn job ran.
+
+        Both halves are needed. A conversation records its session only when
+        its first turn settles (`ConversationService._on_outcome`), so until
+        then the turn attempt is the only record of it; and a conversation
+        opened on an existing session binds it before any turn has run. Nothing
+        deletes a conversation row, so a bound session stays the conversation's;
+        a turn's attempt row lasts until retention prunes its job (C-26.12).
+        """
+        ids = {row["native_session_id"] for row in self.store.query(
+            "SELECT DISTINCT a.native_session_id FROM attempts a "
+            "JOIN jobs j USING(job_id) "
+            "WHERE a.native_session_id IS NOT NULL AND j.kind='turn'")}
+        ids |= self.conversations.store.bound_sessions()
+        return sorted(item for item in ids if item)
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
         action = args.action or "state"
@@ -1627,7 +1652,8 @@ class Daemon:
                     "last_revive": latest.get(f"{REVIVE_EVENT}:{session}"),
                     "revive_holder": leases.get(revive_lease_key(session)),
                 }
-            return {"sessions": state, "lane_sessions": self._lane_session_ids()}
+            return {"sessions": state, "lane_sessions": self._lane_session_ids(),
+                    "conversation_sessions": self._conversation_session_ids()}
         if action == "revived":
             if not args.session_id:
                 raise protocol.ProtocolError("sessions revived: session_id is required")

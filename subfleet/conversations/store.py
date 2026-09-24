@@ -269,6 +269,16 @@ class ConversationStore:
             raise ConversationError("unknown-conversation", f"no conversation {conversation_id}")
         return _decode_conversation(row)
 
+    def bound_sessions(self) -> set[str]:
+        """C-26.13: every native session id a conversation binds, archived or not.
+
+        Archiving stops a conversation's dispatch but keeps its row and its
+        session, so an archived conversation still owns the session.
+        """
+        return {row["native_session_id"] for row in self.query(
+            "SELECT native_session_id FROM conversations WHERE native_session_id IS NOT NULL")
+                if row["native_session_id"]}
+
     def by_native(self, provider: str, native_session_id: str) -> dict | None:
         row = self.one("SELECT * FROM conversations WHERE provider=? AND native_session_id=?",
                        (provider, native_session_id))

@@ -21,6 +21,12 @@ v2 changes three things and keeps everything else:
   that admits the attempt (C-23.55). The census the sweep skips on is the lease
   rows read inside that transaction, not a snapshot taken at the start of a pass.
 
+A session a Subfleet conversation binds, or a conversation turn ran, is never
+revived (C-26.13), not with `--revive` and not with `--force`: the conversation
+is its one writer, and a headless continuation beside it is the twin again. The
+daemon refuses the same submission at submit and at admission, so this check is
+the one that explains itself, not the only one.
+
 Everything v1 filtered on survives: the retirement marker (C-23.35), the
 permission-mode check (C-23.35), the original-model rule (C-23.39), the age cap,
 the headless-lane exclusion (C-23.31), and a live lane probe before the launch
@@ -97,6 +103,7 @@ class Candidate:
     model: str | None = None
     desktop_owned: bool = True
     lane: bool = False
+    conversation: bool = False
     retired: dict | None = None
     last_revive: dict | None = None
     live_pids: tuple[int, ...] = ()
@@ -105,7 +112,8 @@ class Candidate:
         return {"session_id": self.session_id, "transcript": self.transcript,
                 "cwd": self.cwd, "permission_mode": self.permission_mode,
                 "model": self.model, "desktop_owned": self.desktop_owned,
-                "lane": self.lane, "retired": self.retired,
+                "lane": self.lane, "conversation": self.conversation,
+                "retired": self.retired,
                 "last_revive": self.last_revive,
                 "live_pids": list(self.live_pids), "state": self.state.to_dict()}
 
@@ -173,7 +181,8 @@ def store_metadata(session_id: str) -> dict[str, Any]:
 
 def inspect(session_id: str, *, lane_ids: set[str], facts: dict[str, Any],
             transcript: str | Path | None = None,
-            now: datetime | None = None) -> Candidate:
+            now: datetime | None = None,
+            conversation_ids: set[str] = frozenset()) -> Candidate:
     """Everything the revive decision needs, read once."""
     path = Path(transcript) if transcript else transcripts.transcript_path(session_id)
     state = transcripts.turn_state(path, now=now or datetime.now(timezone.utc))
@@ -192,6 +201,7 @@ def inspect(session_id: str, *, lane_ids: set[str], facts: dict[str, Any],
         # one it does not know (a tmux CLI session, a lane) is not.
         desktop_owned=bool(meta.get("desktop_owned")),
         lane=registry.is_lane_run(session_id, lane_ids=lane_ids, transcript=path),
+        conversation=session_id in conversation_ids,
         retired=(facts.get("retired") if facts else None),
         last_revive=(facts.get("last_revive") if facts else None),
         live_pids=live.live_pids if live else (),
@@ -206,6 +216,11 @@ def admits(candidate: Candidate, *, policy: dict[str, Any], opt_in: bool,
     something the operator can act on come before the ones that do not.
     """
     settings = policy.get("sessions", {})
+    if candidate.conversation:
+        # C-26.13, first: a conversation's transcript can also look like a lane
+        # run, and "headless lane run" would send the operator the wrong way.
+        return False, (f"{registry.CONVERSATION_REASON} — its conversation is "
+                       f"the session's one writer"), registry.CONVERSATION_FIX
     if candidate.lane:
         # C-23.31: 2026-09-04, the sweep revived five dead `claude -p` lane runs
         # as untracked continuations on lane tokens — a lane's continuation has
@@ -320,7 +335,8 @@ def revive(sessions, policy: dict[str, Any], session_id: str, *,
     lane_ids = set(facts.get("lane_sessions") or [])
     candidate = inspect(session_id, lane_ids=lane_ids,
                         facts=(facts.get("sessions") or {}).get(session_id) or {},
-                        transcript=transcript, now=now)
+                        transcript=transcript, now=now,
+                        conversation_ids=registry.conversation_ids_of(facts))
     admitted, reason, fix = admits(candidate, policy=policy, opt_in=opt_in, force=force)
     if not admitted:
         return Attempted(session_id=session_id, reason=reason, fix=fix,
@@ -366,19 +382,25 @@ def cold_candidates(sessions, policy: dict[str, Any], *,
     instant = now or datetime.now(timezone.utc)
     facts = sessions.state(sorted(only) if only else None)
     lane_ids = set(facts.get("lane_sessions") or [])
+    bound = registry.conversation_ids_of(facts)
     by_id = facts.get("sessions") or {}
     if only:
+        # A named conversation session is inspected so `admits` can refuse it
+        # with its reason (C-26.13); an unnamed one never enters the sweep.
         return [inspect(session_id, lane_ids=lane_ids,
-                        facts=by_id.get(session_id) or {}, now=instant)
+                        facts=by_id.get(session_id) or {}, now=instant,
+                        conversation_ids=bound)
                 for session_id in only]
     live_ids = {item.session_id for item in
                 registry.sessions(lane_ids=lane_ids, include_lanes=True, live_only=True)}
     window = float(policy.get("sessions", {}).get("muster_max_age_h", 2)) * 3600
     rows = transcripts.cold_sessions(live_ids=live_ids, lane_ids=lane_ids,
+                                     conversation_ids=bound,
                                      max_age_s=window, now=instant)
     return [inspect(row.session_id, lane_ids=lane_ids,
                     facts=by_id.get(row.session_id) or {},
-                    transcript=row.transcript, now=instant) for row in rows]
+                    transcript=row.transcript, now=instant,
+                    conversation_ids=bound) for row in rows]
 
 
 def render(attempts: Sequence[Attempted]) -> str:

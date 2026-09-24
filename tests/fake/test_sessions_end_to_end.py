@@ -340,9 +340,11 @@ def test_retirement_uses_event_order_within_one_second(world, monkeypatch):
     client.unretire(ALICE)
     assert client.state([ALICE])["sessions"][ALICE]["retired"] is None
 
-@pytest.mark.parametrize("kind", ["dispatch", "revive"])
+@pytest.mark.parametrize("kind", ["dispatch", "revive", "turn"])
 def test_the_state_op_reports_the_ledgers_own_lane_sessions(world, kind):
-    """C-23.31: a resumed session is not one the daemon created as a lane."""
+    """C-23.31: a resumed session is not one the daemon created as a lane, and
+    C-26.13: a turn's session is reported apart, as a conversation's, because a
+    turn may resume a session Subfleet did not create and is no lane run."""
     service, client, _home, _store, _root, _policy, _base = world
     service.store.add_job({"job_id": "job-x", "request_id": "r-x",
                            "payload_digest": "d", "kind": kind,
@@ -351,7 +353,54 @@ def test_the_state_op_reports_the_ledgers_own_lane_sessions(world, kind):
     service.store.add_attempt({"attempt_id": "job-x/a1", "job_id": "job-x", "seq": 1,
                                "lane_id": "codex-1", "model_requested": "m",
                                "native_session_id": LANE_RUN})
-    assert (LANE_RUN in client.state()["lane_sessions"]) is (kind == "dispatch")
+    facts = client.state()
+    assert (LANE_RUN in facts["lane_sessions"]) is (kind == "dispatch")
+    assert (LANE_RUN in facts["conversation_sessions"]) is (kind == "turn")
+
+
+def bind(service: Daemon, session_id: str, workspace: Path) -> str:
+    """A conversation opened on an existing session, as `conversation.open`
+    with `native` records it (C-24.1), before any turn has run."""
+    conversation, created = service.conversations.store.create_conversation(
+        provider="claude", workspace=str(workspace), workspace_kind="in-place",
+        settings={"model": "opus[1m]", "permission": "ask"}, origin="native",
+        native_session_id=session_id)
+    assert created
+    return conversation["conversation_id"]
+
+
+def test_the_state_op_reports_a_session_a_conversation_binds(world):
+    """C-26.13: binding is enough; no turn has to have run, and archiving the
+    conversation does not give the session back to the kit."""
+    service, client, _home, _store, _root, _policy, base = world
+    cid = bind(service, BOB, base)
+    facts = client.state()
+    assert BOB in facts["conversation_sessions"]
+    assert BOB not in facts["lane_sessions"]
+    service.conversations.store.update_conversation(cid, archived_at=fx.iso(fx.NOW))
+    assert BOB in client.state([BOB])["conversation_sessions"]
+
+
+def test_a_sweep_against_the_daemon_leaves_a_conversations_session_alone(world, live_pids):
+    """C-26.13 with the real `sessions` op: the live, interrupted session a
+    conversation binds gets no nudge record and no notice; the other one does."""
+    service, client, home, _store, _root, policy, base = world
+    first, second, _third = live_pids
+    fx.register(home, BOB, first, started_at=1.0, name="a conversation")
+    fx.transcript(home, BOB, fx.conversation_turns(turns=3))
+    fx.register(home, ALICE, second, started_at=2.0, name="alice")
+    fx.transcript(home, ALICE, fx.interrupted(age_s=1800))
+    bind(service, BOB, base)
+
+    report = nudge_module.sweep(client, policy, scope="interrupted", manual=False,
+                                now=lambda: fx.NOW, sleep=lambda _s: None, delay_s=0)
+
+    notices = service.store.query("SELECT session_id FROM service_notices")
+    assert [row["session_id"] for row in notices] == [ALICE]
+    assert BOB not in {item.session_id for item in report.outcomes}
+    nudged = [json.loads(row["data_json"])["session_id"] for row in service.store.query(
+        "SELECT data_json FROM events WHERE kind=?", (daemon_module.NUDGE_EVENT,))]
+    assert nudged == [ALICE]
 
 
 # --- `sessions revive` (C-23.20, C-23.55, C-6.5) ------------------------------
@@ -565,6 +614,23 @@ def test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job(world):
                              opt_in=True, model="astra", now=fx.NOW)
     assert "refused on main" in str(raised.value)
     assert client.state([ALICE])["sessions"][ALICE]["last_revive"] is None
+
+
+# --- the kit never continues a conversation's session (C-26.13) --------------
+
+def test_the_kit_refuses_before_the_daemon_is_asked(world):
+    """C-26.13 in the kit: `sessions revive` reads the daemon's list and says
+    why without submitting, so the operator gets the reason, not a rejected
+    submission."""
+    service, client, home, store_dir, root, policy, base = world
+    repo = workdir(base)
+    cold_desktop_session(home, store_dir, repo)
+    bind(service, ALICE, repo)
+    held = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                opt_in=True, force=True, model="astra", now=fx.NOW)
+    assert held.admitted is False
+    assert held.reason.startswith("bound to a Subfleet conversation")
+    assert service.store.query("SELECT * FROM jobs") == []
 
 
 # --- `subfleet handoff` (C-23.14, C-23.36, C-23.54) ---------------------------

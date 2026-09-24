@@ -316,12 +316,14 @@ or quarantine. The next message's turn job is submitted only when the
 previous one is terminal and has released them (review F9, F-06). Resume,
 revive and handoff reservations also check `native:*` and `conversation:*`
 (symmetric; review F-08); `_resume_submission` refuses a `turn` source.
-Conversation-bound sessions are listed by the sessions kit but never nudged,
-revived or cold-swept (`sessions state` returns them). An external writer (a
-live pid in `~/.claude/sessions/*.json` naming the session that carries no
-Subfleet markers and is not a recorded owned identity) is an admission wait
-`external-writer` shown in the app ("open in the Claude app; close it there
-to continue here"), not a refusal.
+Conversation-bound sessions, and every session a turn ran, are not the
+sessions kit's: never listed, nudged, revived, cold-swept or handed off
+(`sessions state` reports them as `conversation_sessions`), and a turn's own
+`SessionStart` and `UserPromptSubmit` hooks do nothing (C-26.13). An
+external writer (a live pid in `~/.claude/sessions/*.json` naming the session
+that carries no Subfleet markers and is not a recorded owned identity) is an
+admission wait `external-writer` shown in the app ("open in the Claude app;
+close it there to continue here"), not a refusal.
 
 **D-18. Handoffs are labelled.** Moving a conversation to the other provider,
 or out of a Codex home it cannot run in, creates a new conversation whose
