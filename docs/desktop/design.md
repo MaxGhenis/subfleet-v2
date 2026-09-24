@@ -423,7 +423,9 @@ every writable job and keeps as the attempt's `baseline_tree`; the end one is
 taken at finalization, before the turn's leases are released, so no other
 writer's work lands between the turn and it (`daemon._turn_trees`, receipt
 `<attempt>/trees.json`, also copied into the attempt's evidence as
-`turn_trees` with HEAD before and after). A transient git failure at the end is retried up to
+`turn_trees` with HEAD before and after). A quarantined turn gets its end
+snapshot when it is confirmed dead; a forced release with writers still live
+records that it has none. A transient git failure at the end is retried up to
 three times by the finalization worker; then the failure is recorded and
 finalization goes on without an end snapshot. The conversation store keeps
 both per attempt (`turn_trees`, §3), so a diff outlives the turn job's

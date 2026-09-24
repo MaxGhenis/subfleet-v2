@@ -3193,8 +3193,15 @@ class Daemon:
                 tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
             return
         artifacts = []
-        if census.verified_empty:
-            artifacts, _ = self._salvage(self._job(a["job_id"]), a)
+        job = self._job(a["job_id"])
+        if job["kind"] == "turn":
+            # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
+            # when nothing can still be writing (C-26.13). An operator's one-shot
+            # request is never retried, so a git failure is recorded, not raised.
+            self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
+                             "released from quarantine with writers still live; no end snapshot")
+        elif census.verified_empty:
+            artifacts, _ = self._salvage(job, a)
         with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release}) as tx:
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
@@ -3259,7 +3266,7 @@ class Daemon:
         commit = result.get("commit") or result.get("commit_sha")
         return [{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}], receipt["checkpoint"]
 
-    def _turn_trees(self, job: dict, a: dict) -> dict:
+    def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
         """C-26.10, C-26.13 (design D-25): a turn's end, taken while its leases are held.
 
         HEAD after, and for a writable turn whose admission took a start snapshot
@@ -3268,7 +3275,10 @@ class Daemon:
         The receipt `trees.json` makes a replayed finalization take nothing twice.
         A transient git failure is retried with the worker's backoff up to
         `TURN_TREE_TRIES` times; after that, or on any other failure, the failure
-        is recorded and the turn ends without an end snapshot.
+        is recorded and the turn ends without an end snapshot. A quarantine's
+        release passes `retry=False` (an operator's one-shot request is never
+        offered again, so it records at once), and `error` when writers may still
+        be live: then no snapshot is taken and the error is what is recorded.
         """
         from .conversations import diff as turn_diff
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
@@ -3280,17 +3290,18 @@ class Daemon:
             receipt = {"workspace": job.get("worktree") or job["workdir"], "writable": writable,
                        "head_before": evidence.get("baseline_commit"),
                        "start_tree": a.get("baseline_tree") if writable else None,
-                       "head_after": None, "end_tree": None, "error": None}
-            try:
-                receipt.update(turn_diff.end_snapshot(
-                    receipt["workspace"], head_before=receipt["head_before"], start_tree=receipt["start_tree"],
-                    timeout_s=self.policy["caps"]["workspace_git_timeout_s"]))
-            except (SalvageError, OSError) as exc:
-                failures = self._tree_failures[a["attempt_id"]] = self._tree_failures.get(a["attempt_id"], 0) + 1
-                transient = getattr(exc, "transient", False) or transient_os_error(exc)
-                if transient and failures < TURN_TREE_TRIES:
-                    raise
-                receipt["error"] = f"end snapshot failed: {exc}"[:500]
+                       "head_after": None, "end_tree": None, "error": error}
+            if error is None:
+                try:
+                    receipt.update(turn_diff.end_snapshot(
+                        receipt["workspace"], head_before=receipt["head_before"], start_tree=receipt["start_tree"],
+                        timeout_s=self.policy["caps"]["workspace_git_timeout_s"]))
+                except (SalvageError, OSError) as exc:
+                    failures = self._tree_failures[a["attempt_id"]] = self._tree_failures.get(a["attempt_id"], 0) + 1
+                    transient = getattr(exc, "transient", False) or transient_os_error(exc)
+                    if retry and transient and failures < TURN_TREE_TRIES:
+                        raise
+                    receipt["error"] = f"end snapshot failed: {exc}"[:500]
             self._tree_failures.pop(a["attempt_id"], None)
             receipt["at"] = utcnow()
             self._publish("trees", path, json_bytes(receipt))

@@ -1,5 +1,5 @@
 """C-26.10, C-26.13 (design D-25): a turn's end snapshot, taken by the daemon's own
-finalization code over a real checkout, with no provider process.
+finalization and quarantine code over a real checkout, with no provider process.
 
 The attempt is reserved by the ordinary admission path and then given what
 admission records for a writable turn (kind `turn`, `workspace-write`, the
@@ -15,7 +15,9 @@ import uuid
 
 import pytest
 
+from subfleet import protocol
 from subfleet.conversations import diff as turn_diff
+from subfleet.procs import Containment
 from subfleet.salvage import SalvageError, working_tree
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401 (fixture)
 
@@ -127,3 +129,44 @@ def test_c26_13_transient_snapshot_failures_retry_then_the_failure_is_recorded(s
     monkeypatch.setattr(turn_diff, "end_snapshot", broken)
     assert daemon._turn_trees(job, attempt)["error"] == "end snapshot failed: git write-tree failed: corrupt"
     assert len(calls) == 1
+
+
+def writable_turn_again(daemon, harness):
+    """A second turn attempt in the same checkout (for tests that need two)."""
+    job_id, attempt, adir = reserve(daemon, harness)
+    head = git(harness.workdir, "rev-parse", "HEAD")
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE jobs SET kind='turn', sandbox='workspace-write', in_place=1, worktree=? WHERE job_id=?",
+                   (str(harness.workdir), job_id))
+        tx.execute("UPDATE attempts SET baseline_tree=?, evidence_json=? WHERE attempt_id=?",
+                   (working_tree(harness.workdir, head), json.dumps({"baseline_commit": head}),
+                    attempt["attempt_id"]))
+    return job_id, daemon.store.get_attempt(attempt["attempt_id"]), adir, None, head, None
+
+
+def test_c26_10_a_quarantined_turn_is_released_without_a_salvage_ref(state_daemon, monkeypatch):
+    """C-26.10, C-26.13, C-5.7: confirming a quarantined turn dead takes its end snapshot
+    and writes no salvage ref; a forced release with writers still live records that no
+    end snapshot was taken, never one taken while something may still be writing."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, start = writable_turn(daemon, harness)
+    (harness.workdir / "tracked.txt").write_text("changed before the quarantine\n")
+    daemon._quarantine(attempt, Containment(), "fixture")
+    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
+                               protocol.KillArgs(job_id, confirm_dead=True))
+    assert git(harness.workdir, "for-each-ref", "refs/subfleet-salvage") == ""
+    receipt = json.loads((adir / "trees.json").read_text())
+    assert receipt["start_tree"] == start and receipt["end_tree"] and receipt["error"] is None
+    assert daemon.conversations.store.turn_trees(mid)["end_tree"] == receipt["end_tree"]
+
+    job2, attempt2, adir2, _, _, _ = writable_turn_again(daemon, harness)
+    survivor = Containment(marker_pids=frozenset({42099}))
+    daemon._quarantine(attempt2, survivor, "fixture")
+    monkeypatch.setattr(daemon, "_contain", lambda attempt: survivor)
+    monkeypatch.setattr(turn_diff, "end_snapshot", lambda *a, **k: pytest.fail("no snapshot with writers live"))
+    daemon._resolve_quarantine(daemon.store.get_attempt(attempt2["attempt_id"]),
+                               protocol.KillArgs(job2, force_release=True, operator_note="fixture"))
+    forced = json.loads((adir2 / "trees.json").read_text())
+    assert forced["end_tree"] is None and "writers still live" in forced["error"]
+    assert git(harness.workdir, "for-each-ref", "refs/subfleet-salvage") == ""
