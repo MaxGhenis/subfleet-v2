@@ -17,8 +17,11 @@ so the CLI does not import the daemon-side `procs` module.
 
 That one `ps` reads the state column as well, so the third condition of C-5.11
 costs nothing to notice: a holder that is alive but stopped holds the lock and
-the socket and answers nothing until it is continued. It is refused before the
-socket is touched, and again after a timeout, as `DaemonStopped`.
+answers nothing until it is continued. It is refused before the socket is
+touched, and asked again whenever the socket fails — a connect that is refused
+or times out, or a read that times out — as `DaemonStopped`. The same read
+decides the fix for a daemon that is silent for a reason `ps` cannot see: only a
+holder verified as running makes "not a second daemon" true (C-5.8).
 """
 
 from __future__ import annotations
@@ -47,11 +50,20 @@ DEFAULT_TIMEOUT_S = 15.0
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 DEFAULT_STATE_ROOT = "~/.subfleet"
 START_DAEMON_FIX = "subfleet daemon start"
-#: What to do about a daemon that holds the lock and answers nothing for a
-#: reason `ps` cannot see. Never "start one": the flock would refuse it (C-5.8).
-SILENT_DAEMON_FIX = ("subfleet daemon logs -n 40, then subfleet daemon stop if it "
-                     "is wedged; the recorded holder is running, so starting a "
-                     "second daemon would only fail the lock")
+
+
+def silent_daemon_fix(pid: int) -> str:
+    """What to do about a daemon that holds the lock and answers nothing.
+
+    Only for a `pid` the identity check of C-5.3 has just verified as running:
+    that is what makes "not a second daemon" true, because the flock of C-5.8 is
+    held by a process that exists. A lock that is absent, unreadable, or whose
+    holder cannot be verified says nothing about a second daemon, and the fix
+    there is the ordinary `subfleet daemon start` (C-5.11).
+    """
+    return (f"`subfleet daemon logs -n 40`, then `subfleet daemon stop` if it is "
+            f"wedged; pid {pid} holds {LOCK_NAME}, so starting a second daemon "
+            f"would only fail the lock")
 
 
 def state_root(env: dict[str, str] | None = None) -> Path:
@@ -83,11 +95,16 @@ class DaemonStopped(DaemonUnavailable):
     one, which would fail the flock of C-5.8.
     """
 
-    def __init__(self, pid: int, state: str | None):
-        message, fix = stopped_report(pid, state)
+    def __init__(self, pid: int, state: str | None,
+                 socket_path: Path | str | None = None):
+        message, fix, command = stopped_report(pid, state, socket_path)
         super().__init__(message, fix)
         self.pid = pid
         self.state = state
+        #: The one command `fix` tells the operator to run. `fail()` prints a
+        #: fix bare (subfleet/cli.py) and `doctor`'s rows backtick the command
+        #: they name, so the span each surface needs is kept apart from the prose.
+        self.command = command
 
 
 class DaemonError(Exception):
@@ -259,35 +276,50 @@ KNOWN_PAUSERS: tuple[dict[str, str], ...] = (
      "detail": "clamshell-guard paused it (it pauses heavy processes while the lid "
                "is closed on battery, and resumes them when the lid opens or power "
                "returns; see ~/bin/clamshell-guard-status)",
-     # Not `kill -CONT`: the guard is the operator's thermal policy and would
-     # stop it again on its next pass.
+     # Not `kill -CONT`: the guard is the operator's thermal policy, and while
+     # its condition holds it may stop the process again on a later pass.
      "fix": "open the lid or connect power; ~/bin/clamshell-guard-resume resumes "
-            "everything it paused"},
+            "everything it paused",
+     "command": "~/bin/clamshell-guard-resume"},
 )
 
 
 def paused_by(pid: int) -> dict[str, str] | None:
-    """The `KNOWN_PAUSERS` entry whose marker file lists `pid`, or None."""
+    """The `KNOWN_PAUSERS` entry whose marker file lists `pid`, or None.
+
+    A marker file belongs to another program and is not validated by anything
+    here, so a file that cannot be read *or decoded* is simply no evidence;
+    `read_text` decodes, and a `UnicodeDecodeError` is a `ValueError`. Nothing
+    a pauser writes may turn the diagnosis into a traceback (C-5.11).
+    """
     for pauser in KNOWN_PAUSERS:
         try:
             text = Path(pauser["marker"]).expanduser().read_text()
-        except OSError:
+        except (OSError, ValueError):
             continue
         if any(line.strip() == str(pid) for line in text.splitlines()):
             return pauser
     return None
 
 
-def stopped_report(pid: int, state: str | None) -> tuple[str, str]:
-    """The message and fix for a lock holder that is stopped (C-5.11)."""
+def stopped_report(pid: int, state: str | None,
+                   socket_path: Path | str | None = None) -> tuple[str, str, str]:
+    """Message, fix, and the command the fix names, for a stopped holder (C-5.11).
+
+    The socket is named only when it is there: a holder that is stopped keeps
+    whatever it had, and a daemon killed before it ever bound one leaves the
+    lock alone. `daemon status` prints the socket's presence two lines above.
+    """
+    held = LOCK_NAME
+    if socket_path is not None and Path(socket_path).exists():
+        held = f"{LOCK_NAME} and {SOCKET_NAME}"
     message = (f"daemon pid {pid} is stopped (process state {state!r}: SIGSTOP or a "
-               f"debugger); it holds {LOCK_NAME} and {SOCKET_NAME} but cannot answer "
-               f"until it is continued")
-    fix = f"kill -CONT {pid}"
+               f"debugger); it holds {held} but cannot answer until it is continued")
+    command = f"kill -CONT {pid}"
     pauser = paused_by(pid)
     if pauser is not None:
-        return f"{message}; {pauser['detail']}", pauser["fix"]
-    return message, fix
+        return f"{message}; {pauser['detail']}", pauser["fix"], pauser["command"]
+    return message, command, command
 
 
 def _read_line(conn: socket.socket, deadline_at: float) -> bytes:
@@ -388,8 +420,43 @@ class Client:
         Only a holder whose identity checks out is diagnosed: a state read for
         a pid that is not provably the recorded daemon says nothing about it.
         """
+        return self.silence_report()[0]
+
+    def silence_report(self) -> tuple[DaemonStopped | None, int | None]:
+        """Why a daemon that did not answer did not, from one `ps` (C-5.11).
+
+        `DaemonStopped` for a verified holder that is stopped; otherwise the pid
+        of a holder this check verified as running, or None when the lock is
+        absent, unreadable, or its holder unverifiable. That pid is what makes
+        "do not start a second daemon" a true thing to say, because the flock of
+        C-5.8 is then held by a process that exists; without one the ordinary
+        `subfleet daemon start` is the fix after all.
+        """
         pid, alive, _reason, state = self.holder_report()
-        return DaemonStopped(pid, state) if alive and is_stopped(state) else None
+        if alive and is_stopped(state):
+            return DaemonStopped(pid, state, self.socket_path), pid
+        return None, pid if alive else None
+
+    def unreachable(self, why: str) -> DaemonUnavailable:
+        """The exception for a socket that could not be reached (C-5.11).
+
+        A refused connect is not only "nobody is listening". A stopped daemon
+        accepts connections into its listen backlog, which the daemon sets to 64
+        (subfleet/daemon.py), and once that is full every further connect is
+        refused at once — measured on macOS, where a full AF_UNIX backlog raises
+        `ConnectionRefusedError` rather than timing out, and where closing a
+        queued client does not give the slot back. So the lock holder decides
+        what a failed connect means, and `subfleet daemon start` is the answer
+        only when there is no verified holder to fail the flock against.
+        """
+        stopped, holder = self.silence_report()
+        if stopped is not None:
+            return stopped
+        if holder is None:
+            return DaemonUnavailable(f"no daemon at {self.socket_path}: {why}")
+        return DaemonUnavailable(
+            f"pid {holder} holds {self.lock_path} but {self.socket_path} cannot "
+            f"be reached: {why}", silent_daemon_fix(holder))
 
     def check_available(self) -> None:
         """Raise `DaemonUnavailable` when the lock says the daemon cannot answer.
@@ -407,7 +474,7 @@ class Client:
         if alive is False:
             raise DaemonUnavailable(f"{self.lock_path} is stale: {reason}")
         if alive and is_stopped(state):
-            raise DaemonStopped(pid, state)
+            raise DaemonStopped(pid, state, self.socket_path)
         self._checked = True
 
     # --- the wire ------------------------------------------------------------
@@ -423,27 +490,24 @@ class Client:
         try:
             try:
                 conn.connect(str(self.socket_path))
-            except (FileNotFoundError, ConnectionRefusedError, PermissionError,
-                    NotADirectoryError) as exc:
-                raise DaemonUnavailable(f"no daemon at {self.socket_path}: {exc}") from exc
             except OSError as exc:
-                # A connect that times out is a backlog nobody is accepting
-                # from, which is what a stopped daemon looks like (C-5.11).
-                raise (self.stopped_holder()
-                       or DaemonUnavailable(f"cannot reach {self.socket_path}: "
-                                            f"{exc}")) from exc
+                # Every way a connect can fail asks the holder, refused as well
+                # as timed out: a full backlog is refused, and a backlog fills
+                # precisely because nobody is accepting from it (C-5.11).
+                raise self.unreachable(str(exc)) from exc
             try:
                 conn.sendall(encode(request))
                 line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
                 # The holder is asked again, not remembered from
                 # `check_available`: it may have been stopped mid-call.
-                stopped = self.stopped_holder()
+                stopped, holder = self.silence_report()
                 if stopped is not None:
                     raise stopped from exc
                 raise ProtocolError(
                     f"no response from the daemon within {deadline:g}s",
-                    Exit.OPERATIONAL, SILENT_DAEMON_FIX) from exc
+                    Exit.OPERATIONAL,
+                    silent_daemon_fix(holder) if holder else START_DAEMON_FIX) from exc
             except OSError as exc:
                 raise ProtocolError(f"daemon connection failed: {exc}",
                                     Exit.OPERATIONAL) from exc

@@ -107,6 +107,9 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         return exc.code
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError, ValueError) as exc:
         print(f"subfleet gate: {exc}", file=sys.stderr)
+        if getattr(exc, "fix", None):
+            # A stopped daemon's fix is `kill -CONT`, never `daemon start` (C-5.11).
+            print(f"  fix: {exc.fix}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("subfleet gate: interrupted; the peer job remains in the daemon store", file=sys.stderr)

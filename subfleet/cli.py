@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import plistlib
 import re
@@ -50,6 +51,7 @@ from .client import (
     DaemonStopped,
     DaemonUnavailable,
     is_stopped,
+    proc_status,
     same_process,
     state_root,
 )
@@ -83,9 +85,12 @@ PLIST_PATH = "~/Library/LaunchAgents/com.subfleet.daemon.plist"
 DAEMON_STATUS_PING_TIMEOUT_S = 5.0      # how long `daemon status` waits for a reply
 
 # `ping` reads stdin when no TEXT is given, as v1 does, but never forever
-# (C-17.8). The default wait is what a pipe with a producer behind it needs;
-# the override is for a producer that is slower than that.
+# (C-17.8). The wait bounds every pause a pipe takes, the first byte and each
+# one after it, because a readable descriptor is not an ended one; the override
+# is for a producer that is slower than that. The ceiling is what `select` can
+# still express as a deadline: `-` is the spelling for longer.
 PING_STDIN_WAIT_S = 2.0
+PING_STDIN_WAIT_MAX_S = 86400.0
 PING_STDIN_WAIT_ENV = "SUBFLEET_PING_STDIN_WAIT_S"
 PING_USAGE = ("subfleet ping [--session ID] TEXT, or pipe the message in, or `-` "
               "to read stdin however long it takes")
@@ -1404,9 +1409,12 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
         out(f"{orphan['job_id']} {orphan['state']} {orphan['verdict']}"
             + (f" (pid {orphan['pid']})" if orphan["pid"] else ""))
     if orphans:
+        # A stopped daemon is continued, not started beside (C-5.11); its fix
+        # was already printed with the offline banner above.
+        restart = (f"continue it: {down.fix}" if isinstance(down, DaemonStopped)
+                   else f"start it with `{START_DAEMON}`")
         note(f"  the daemon owns finalization: "
-             + ("it reconciles these on its next pass" if daemon_up
-                else f"start it with `{START_DAEMON}`"))
+             + ("it reconciles these on its next pass" if daemon_up else restart))
     return int(Exit.OK)
 
 
@@ -1707,13 +1715,23 @@ def cmd_why(args: argparse.Namespace) -> int:
 
 
 def _ping_stdin_wait_s(env: dict[str, str] | None = None) -> float:
-    """How long a pipe gets to deliver the message; `SUBFLEET_PING_STDIN_WAIT_S`."""
+    """How long a pipe gets to deliver the message; `SUBFLEET_PING_STDIN_WAIT_S`.
+
+    The value reaches `select`, which cannot express a wait beyond the
+    platform's `time_t`: measured here, `inf` raises `OverflowError` and 1e9
+    raises `EINVAL`. `inf` is a plausible spelling of "as long as it takes", and
+    the point of this wait is that nothing raises, so anything past the ceiling
+    reads as a value that was never meant and falls back to the default, as an
+    unparsable one does. `-` is the spelling for waiting however long it takes.
+    """
     env = os.environ if env is None else env
     try:
         value = float((env.get(PING_STDIN_WAIT_ENV) or "").strip())
     except ValueError:
         return PING_STDIN_WAIT_S
-    return value if value >= 0 else PING_STDIN_WAIT_S
+    if not math.isfinite(value) or not 0 <= value <= PING_STDIN_WAIT_MAX_S:
+        return PING_STDIN_WAIT_S
+    return value
 
 
 def _stdin_refusal(stream: Any, wait_s: float | None) -> str | None:
@@ -1724,6 +1742,9 @@ def _stdin_refusal(stream: Any, wait_s: float | None) -> str | None:
     the one that can hang: `select` reports readable at EOF as well as on
     data, so only a pipe that is still open with nothing in it is refused.
     """
+    if stream is None:
+        # `sys.stdin` is None when the process was handed no file descriptor 0.
+        return "stdin is closed, so there is no message on it"
     try:
         if stream.isatty():
             return "stdin is a terminal, so there is no message on it"
@@ -1740,12 +1761,39 @@ def _stdin_refusal(stream: Any, wait_s: float | None) -> str | None:
     wait = _ping_stdin_wait_s() if wait_s is None else wait_s
     try:
         ready = select.select([stream.fileno()], [], [], wait)[0]
-    except (OSError, ValueError):
+    except (OSError, ValueError, OverflowError):
         return None                      # select could not answer; a read is no worse
     if ready:
         return None
     return (f"stdin is an open pipe nobody wrote to within {wait:g}s (a tool "
             f"harness hands its child a pipe it never writes)")
+
+
+def _stdin_bytes(stream: Any, wait_s: float | None) -> bytes | str:
+    """Everything stdin delivers before it ends or stops delivering (C-17.8).
+
+    `wait_s` None is the `-` positional: read to end of file, however long that
+    takes. Otherwise the same wait that admits the first byte bounds every pause
+    after it, because `select` reporting a descriptor readable is not end of
+    file: a producer that writes one byte and keeps the pipe open would hold a
+    read-to-EOF for as long as it liked, which is the incident with a byte in
+    it. A pipe that has stopped delivering is as finished as one that closed,
+    and what arrived is the message. A stream with no descriptor cannot be
+    selected on and cannot block, for the reason `_stdin_refusal` gives.
+    """
+    try:
+        fd = None if wait_s is None else stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        fd = None
+    if fd is None:
+        return getattr(stream, "buffer", stream).read()
+    chunks: list[bytes] = []
+    while select.select([fd], [], [], wait_s)[0]:
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            break                        # end of file
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _stdin_message(stream: Any = None, wait_s: float | None = None,
@@ -1758,13 +1806,16 @@ def _stdin_message(stream: Any = None, wait_s: float | None = None,
     positional: a caller who names stdin means it, and waits as long as it takes.
     """
     stream = sys.stdin if stream is None else stream
-    if not block:
-        refusal = _stdin_refusal(stream, wait_s)
+    wait = None if block else (_ping_stdin_wait_s() if wait_s is None else wait_s)
+    if stream is None or not block:
+        # A closed stdin is refused whichever form asked for it: `-` names stdin
+        # as well, and there is none to name (C-17.8).
+        refusal = _stdin_refusal(stream, wait)
         if refusal is not None:
             return None, refusal
     try:
-        data = getattr(stream, "buffer", stream).read()
-    except (OSError, ValueError) as exc:
+        data = _stdin_bytes(stream, wait)
+    except (AttributeError, OSError, ValueError, OverflowError) as exc:
         return None, f"stdin could not be read: {exc}"
     text = data.decode("utf-8", "replace") if isinstance(data, bytes) else str(data)
     return (text, None) if text.strip() else (None, "stdin was empty")
@@ -1946,11 +1997,19 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
         return fail(Exit.OPERATIONAL,
                     f"daemon stop: cannot verify that pid {pid} is the recorded "
                     f"daemon (C-5.3); refusing to signal it")
+    # C-5.11: a stopped process only queues SIGTERM; it runs no handler until it
+    # is continued. Asked to stop, it is continued so that it can.
+    state, _started = proc_status(pid)
+    stopped = is_stopped(state)
     try:
         os.kill(pid, _signal.SIGTERM)
+        if stopped:
+            os.kill(pid, _signal.SIGCONT)
     except OSError as exc:
-        return fail(Exit.OPERATIONAL, f"daemon stop: SIGTERM to {pid} failed: {exc}")
-    note(f"{PROG} daemon: SIGTERM sent to pid {pid}")
+        return fail(Exit.OPERATIONAL, f"daemon stop: signalling {pid} failed: {exc}")
+    note(f"{PROG} daemon: SIGTERM sent to pid {pid}"
+         + (f", and SIGCONT, because it was stopped (state {state!r}) and a stopped "
+            f"process runs no handler" if stopped else ""))
     # Wait on the identity we signalled, not on daemon.lock: a daemon that
     # cleans up removes the lock, and a missing lock is not evidence of an exit.
     deadline = time.monotonic() + 15.0

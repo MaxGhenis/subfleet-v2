@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -975,6 +976,45 @@ def test_ping_dash_blocks_on_stdin_however_long_it_takes(pipe, daemon, capsys):
     assert run_cli(["ping", "--session", "sess-1", "-"]) == 0
     assert server.args("ping")["text"] == "a long notice\n"
     capsys.readouterr()
+
+
+def test_ping_does_not_hang_on_a_pipe_that_delivers_a_byte_and_stays_open(daemon, monkeypatch, capsys):
+    """C-17.8 readable is not ended: a producer that writes and keeps the pipe open cannot hold ping."""
+    server = daemon({"ping": ping_ok})
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "0.1")
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"partial")
+    stream = os.fdopen(read_fd, "rb")
+    monkeypatch.setattr(cli.sys, "stdin", stream)
+    # A regression would block the whole suite, so the call runs where it can be abandoned.
+    result: list[int] = []
+    worker = threading.Thread(target=lambda: result.append(run_cli(["ping", "--session", "sess-1"])),
+                              daemon=True)
+    try:
+        worker.start()
+        worker.join(5)
+        assert not worker.is_alive(), "ping blocked on a pipe that stopped delivering"
+    finally:
+        os.close(write_fd)
+        worker.join(5)
+        stream.close()
+    assert result == [0] and server.args("ping")["text"] == "partial"
+    capsys.readouterr()
+
+
+def test_ping_refuses_a_closed_stdin(monkeypatch, capsys):
+    """C-17.8 a process handed no descriptor 0 has `sys.stdin` None: exit 2, not a traceback."""
+    monkeypatch.setattr(cli.sys, "stdin", None)
+    assert run_cli(["ping", "--session", "sess-1"]) == int(Exit.INVALID_INPUT)
+    assert run_cli(["ping", "--session", "sess-1", "-"]) == int(Exit.INVALID_INPUT)
+    assert "stdin is closed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "1e9", "-1", "soon"])
+def test_a_stdin_wait_select_cannot_express_falls_back_to_the_default(monkeypatch, value):
+    """C-17.8 `select` raises on inf and on 1e9 here; a wait it cannot take is the default, not a traceback."""
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", value)
+    assert cli._ping_stdin_wait_s() == cli.PING_STDIN_WAIT_S
 
 
 def test_ping_refuses_a_blank_message_on_the_command_line(capsys):

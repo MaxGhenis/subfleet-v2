@@ -247,6 +247,17 @@ def check_state_root(root: Path) -> dict[str, Any]:
                "C-2.2 lists everything that belongs here")
 
 
+def _quoted(stopped: DaemonStopped) -> str:
+    """A client fix in this file's convention: the command it names, in backticks.
+
+    The client writes its fixes for `fail()`, which prints them bare
+    (subfleet/cli.py); every row here backticks the command it tells the
+    operator to run. `DaemonStopped.command` is that command, and it is a
+    substring of the fix by construction (C-5.11).
+    """
+    return stopped.fix.replace(stopped.command, f"`{stopped.command}`")
+
+
 def check_daemon_lock(root: Path) -> dict[str, Any]:
     """Does `daemon.lock` name a process that is actually alive (C-5.8, C-5.11)?
 
@@ -275,8 +286,9 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
                    "`subfleet daemon start` — a CLI may start one over a dead "
                    "holder, never over a live one (plan amendment 3)")
     if alive and is_stopped(state):
-        stopped = DaemonStopped(pid, state)
-        return row("daemon.lock names a live process", FAIL, str(stopped), stopped.fix)
+        stopped = DaemonStopped(pid, state, client.socket_path)
+        return row("daemon.lock names a live process", FAIL, str(stopped),
+                   _quoted(stopped))
     if alive is None:
         return row("daemon.lock names a live process", UNKNOWN,
                    f"pid {info.get('pid')}: {reason}",
@@ -485,7 +497,7 @@ def check_live(root: Path) -> dict[str, Any]:
     try:
         result = Client(root, timeout=5).call("ping", {"text": ""})
     except DaemonStopped as exc:
-        return row("ping the daemon", FAIL, str(exc), exc.fix)
+        return row("ping the daemon", FAIL, str(exc), _quoted(exc))
     except DaemonUnavailable as exc:
         return row("ping the daemon", FAIL, str(exc), "`subfleet daemon start`")
     except (DaemonError, ProtocolError, OSError) as exc:
