@@ -135,8 +135,11 @@ def dispatch(service, args: protocol.OperationsArgs) -> dict:
         lane = _target(service, args.target)
         lane_id = lane['lane_id'] if lane else None
         if args.dry_run:
+            # C-23.16: a preview of the automatic path judges the same waiting
+            # demand the timer would; a named lane is the operator's and needs none.
             return service.timers.actions.evaluate(view, now=service.timers.now(),
-                                                   target_lane_id=lane_id, dry_run=True)
+                                                   target_lane_id=lane_id, dry_run=True,
+                                                   demand=None if lane_id else lambda: service.timers.current_demand(record=False))
         return service.timers.request('reset_credits', target=lane_id)
     if args.dry_run:
         if args.command == 'watch':

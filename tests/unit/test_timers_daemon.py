@@ -56,6 +56,7 @@ def test_revoked_home_is_excluded_from_the_real_scheduler_without_disabling_epoc
         daemon.store, daemon.policy, daemon.timers = store, policy, timer
         daemon.policy_digest = "test-policy"
         daemon._probe_record = lambda _: None
+        daemon._reset_reservations = {}
         timer.metadata[lane.lane_id] = {'probe_status':'revoked', 'verdict':'auth-revoked', 'revoked_epoch':'old'}
         try:
             decision = daemon._pick({'pinned_lane':lane.lane_id, 'pinned_model':'astra'})

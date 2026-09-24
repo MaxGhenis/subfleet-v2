@@ -194,12 +194,14 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     reset = value["reset_credits"]
     if not isinstance(reset, dict):
         fail("reset_credits", "must be an object")
-    for key in ("enabled", "headroom_floor_pct", "min_interval_min"):
+    for key in ("enabled", "min_interval_min"):
         if key not in reset:
             fail(f"reset_credits.{key}", "required key is missing")
     if not isinstance(reset["enabled"], bool):
         fail("reset_credits.enabled", "must be a boolean")
-    if not _fraction(reset["headroom_floor_pct"], 100):
+    # C-23.16: no fleet headroom sum triggers a spend any more. A policy written
+    # before that still names the floor; it is checked and otherwise ignored.
+    if "headroom_floor_pct" in reset and not _fraction(reset["headroom_floor_pct"], 100):
         fail("reset_credits.headroom_floor_pct", "must be a finite percentage between 0 and 100")
     interval = reset["min_interval_min"]
     if (not isinstance(interval, (int, float)) or isinstance(interval, bool)

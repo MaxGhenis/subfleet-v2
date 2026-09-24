@@ -35,16 +35,33 @@ def test_targeted_reset_spends_only_named_lane_and_retains_interval(store, tmp_p
     assert sum(request.get_method() == 'POST' for request, _ in http.calls) == 1
 
 
-@pytest.mark.parametrize('mode', ['healthy-other-lane', 'disabled-policy', 'unknown-target'])
-def test_target_does_not_bypass_fleet_trigger_or_enable_background_policy(store, tmp_path, mode):
+@pytest.mark.parametrize('mode', ['healthy-other-lane', 'disabled-policy', 'no-waiting-job'])
+def test_operator_names_one_lane_without_demand_or_the_automatic_switch(store, tmp_path, mode):
+    """C-23.16 (e): `reset codex <lane>` spends on that lane alone, whatever the fleet or queue."""
     target = lane(store, tmp_path)
-    if mode == 'healthy-other-lane':
-        lane(store, tmp_path, number=2, utilization=.1)
+    other = lane(store, tmp_path, number=2, utilization=.1 if mode == 'healthy-other-lane' else 1.)
     http = HTTP(store=store)
     resets = component(store, http, enabled=mode != 'disabled-policy')
+    result = resets.evaluate(snapshot(store), now=NOW, target_lane_id=target.lane_id)
+    assert result['status'] == 'confirmed' and result['lane_id'] == target.lane_id
+    assert result['trigger_reason'] == 'operator' and 'job_id' not in result
+    assert store.list_closures(other.lane_id, active_at=NOW.isoformat()) or mode == 'healthy-other-lane'
+    assert sum(request.get_method() == 'POST' for request, _ in http.calls) == 1
+    assert resets.reservations(now=NOW) == {}
+
+
+@pytest.mark.parametrize('mode', ['unknown-target', 'unlimited-target', 'inhibited'])
+def test_operator_lane_still_needs_a_limit_a_known_lane_and_no_hold(store, tmp_path, mode):
+    """C-23.16 (e), (f): the operator's pin keeps C-23.16's limit test and the no-reset marker."""
+    target = lane(store, tmp_path, utilization=.2 if mode == 'unlimited-target' else 1.)
+    http = HTTP(store=store)
+    resets = component(store, http)
+    if mode == 'inhibited':
+        resets.inhibit = tmp_path / 'no-reset'
+        resets.inhibit.write_text('{}')
     result = resets.evaluate(snapshot(store), now=NOW,
                              target_lane_id='missing' if mode == 'unknown-target' else target.lane_id)
-    assert result['status'] in ('not-triggered', 'disabled', 'no-concrete-credit')
+    assert result['status'] == ('inhibited' if mode == 'inhibited' else 'no-eligible-lane')
     assert not http.calls and not store.query('SELECT * FROM actions')
 
 

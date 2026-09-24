@@ -32,11 +32,14 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None):
-        from .actions import ResetCredits
+                 deliver=None, now=None, demand=None):
+        from .actions import ResetCredits, inhibit_path
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
+        # C-23.16 (a): the daemon's admission view of waiting jobs. Without one
+        # no credit is ever spent automatically; an operator's lane still can be.
+        self.demand = demand
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -59,7 +62,8 @@ class Timers:
         self._usage_lock = threading.Lock()
         self._usage_next = 0.0
         self.started = False
-        self.actions = ResetCredits(store, policy, adapter_factory=lambda lane: self.adapter_factory(lane.provider))
+        self.actions = ResetCredits(store, policy, adapter_factory=lambda lane: self.adapter_factory(lane.provider),
+                                    inhibit=inhibit_path(self.root))
         self.alerts = Alerts(store, policy, deliver or (lambda notice: False))
         settings = policy.get('timers', {})
         self.intervals = {'probe': settings.get('probe_interval_s', 60),
@@ -190,10 +194,28 @@ class Timers:
             self._session_mirror = Mirror(self.root, self.policy, now=self.now, cancel=self.cancel)
         self._session_mirror.run_once(options_from(self.policy))
 
+    def current_demand(self, *, record=True):
+        """C-23.16 (a): the waiting jobs, as admission judges them, or None if unknown.
+
+        A provider that raises is no demand: an unreadable queue never spends a
+        credit. The failure is an event unless `record` is false (a preview
+        writes nothing, C-19.1).
+        """
+        if self.demand is None:
+            return None
+        try:
+            return list(self.demand())
+        except Exception as exc:
+            if record:
+                self.store.add_event('timer.error', data={'timer': 'reset_credits', 'stage': 'demand',
+                                                          'error_type': type(exc).__name__})
+            return None
+
     def reset_credits_cycle(self, *, target=None):
         snapshot = self.snapshot()
         result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
-                                       deadline=time.monotonic() + 60, target_lane_id=target)
+                                       deadline=time.monotonic() + 60, target_lane_id=target,
+                                       demand=None if target is not None else self.current_demand)
         if result.get('status') == 'confirmed':
             lane_id = result['lane_id']
             row = next(row for row in snapshot['lanes'] if row['lane_id'] == lane_id)
@@ -519,7 +541,7 @@ class Timers:
         snapshot = self.snapshot()
         if not offline:
             result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
-                                           deadline=time.monotonic() + 60)
+                                           deadline=time.monotonic() + 60, demand=self.current_demand)
             self.mark('reset_credits', error=result.get('error_type'), next_due=self.status()['probe']['next_due'])
             if result.get('status') == 'confirmed':
                 row = next(row for row in snapshot['lanes'] if row['lane_id'] == result['lane_id'])

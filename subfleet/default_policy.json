@@ -112,8 +112,7 @@
     "gate_max_rounds": 4
   },
   "reset_credits": {
-    "enabled": true,
-    "headroom_floor_pct": 15,
+    "enabled": false,
     "min_interval_min": 30
   },
   "timers": {

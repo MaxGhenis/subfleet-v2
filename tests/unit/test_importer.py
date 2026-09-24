@@ -839,7 +839,8 @@ def test_imported_credit_cannot_be_spent_after_its_interval_and_override_expire(
                    "checked_at": now.isoformat(), "account_key": row["account_key"]})
         resets = ResetCredits(store, {}, lambda lane: Credits())
         assert resets.confirmed_override(row["lane_id"], now=now) is None
-        assert resets.evaluate({"lanes": [row]}, now=now)["status"] == "no-concrete-credit"
+        # C-23.16 (e): even an operator naming the lane cannot respend the imported credit.
+        assert resets.evaluate({"lanes": [row]}, now=now, target_lane_id=row["lane_id"])["status"] == "no-concrete-credit"
         assert len(store.query("SELECT * FROM actions")) == 1
     assert calls == ["list"]
 
