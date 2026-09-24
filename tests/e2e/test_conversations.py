@@ -14,6 +14,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import time
 import uuid
 
 import pytest
@@ -273,7 +274,6 @@ def test_a_turn_that_ends_without_a_result_blocks_the_conversation_until_a_perso
     assert ended["state"] == "failed" and ended["state_reason"] == "ended-without-result"
     assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] == "unfinished-turn"
     nxt = conv.submit(cid, "next", after_message_id=mid)
-    import time
     time.sleep(1.0)
     assert conv.message(nxt)["state"] == "queued"
     refused = conv.as_agent("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
@@ -402,14 +402,19 @@ def test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_cl
     provider child through the guardian's relay at `stop_sigint_after_s`, before stdin is
     closed and with no containment. A provider that answers SIGINT with a `result` (as the
     real CLI did) ends interrupted and leaves the conversation free; one that dies without a
-    result ends interrupted and blocks it `unfinished-turn`, its delivery proven."""
+    result ends interrupted and blocks it `unfinished-turn`, its delivery proven.
+
+    The policy clock is the one used: each stop ends well inside the default 10 s SIGINT
+    delay (C-24.7), so a runner built with the default clocks fails this test."""
     conv = conv_with(clocks={"stop_sigint_after_s": 0.5, "stop_close_after_s": 20, "stop_contain_after_s": 30})
     cid = conv.create()
     first = conv.submit(cid, "keep going [fake:stubborn-result]")
     conv.until_state(first, "running")
     conv.e2e.until(lambda: any(e["kind"] == "text.delta" for e in conv.events(cid)), timeout=20)
+    asked = time.monotonic()
     conv.call("turn.interrupt", message_id=first)
     done = conv.until_state(first, "interrupted", "failed", "complete", "delivery-unknown", timeout=20)
+    assert time.monotonic() - asked < 6, "SIGINT came on the default clock, not the policy's"
     assert (done["state"], done["state_reason"]) == ("interrupted", "stopped")
     frames = [(r["tag"], r["op"], r["status"]) for r in relay_log(conv, first)]
     assert frames[2:4] == [("interrupt", "write", "written"), ("signal:int", "signal", "written")]
@@ -421,8 +426,10 @@ def test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_cl
     conv.until_state(second, "running")
     conv.e2e.until(lambda: sum(e["kind"] == "text.delta" and e["message_id"] == second
                                for e in conv.events(cid)) > 0, timeout=20)
+    asked = time.monotonic()
     conv.call("turn.interrupt", message_id=second)
     ended = conv.until_state(second, "interrupted", "failed", "complete", "delivery-unknown", timeout=20)
+    assert time.monotonic() - asked < 6, "SIGINT came on the default clock, not the policy's"
     assert (ended["state"], ended["state_reason"]) == ("interrupted", "stopped")
     assert [r["tag"] for r in relay_log(conv, second)][-1] == "signal:int"   # stdin never closed
     assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] == "unfinished-turn"
@@ -434,13 +441,16 @@ def test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_cl
 
 def test_a_turn_that_ignores_every_stop_is_contained_on_the_policy_clock(conv_with):
     """C-24.7, D-13 step 4, IR-3: interrupt, SIGINT and closing stdin all fail; containment
-    follows at `stop_contain_after_s`, and the delivered turn blocks its conversation (C-24.8)."""
+    follows at `stop_contain_after_s`, well inside the default 30 s, and the delivered turn
+    blocks its conversation (C-24.8)."""
     conv = conv_with(clocks={"stop_sigint_after_s": 0.3, "stop_close_after_s": 0.6, "stop_contain_after_s": 1.0})
     cid = conv.create()
     mid = conv.submit(cid, "[fake:immovable]")
     conv.until_state(mid, "running")
+    asked = time.monotonic()
     conv.call("turn.interrupt", message_id=mid)
     ended = conv.until_state(mid, "interrupted", "failed", "complete", "delivery-unknown", timeout=30)
+    assert time.monotonic() - asked < 15, "containment came on the default clock, not the policy's"
     assert (ended["state"], ended["state_reason"]) == ("interrupted", "stopped")
     assert [r["tag"] for r in relay_log(conv, mid)][-3:] == ["interrupt", "signal:int", "close"]
     attempt = conv.attempt(mid)
@@ -479,7 +489,6 @@ def test_a_message_read_but_never_acknowledged_is_delivery_unknown_until_a_perso
     assert conversation["native_session_id"] is None               # the session was never created
 
     nxt = conv.submit(cid, "after that", after_message_id=mid)
-    import time
     time.sleep(1.0)
     assert conv.message(nxt)["state"] == "queued"
     refused = conv.as_agent("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
