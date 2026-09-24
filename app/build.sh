@@ -1,20 +1,37 @@
 #!/bin/sh
 # Build a local app bundle. Installation and launch are separate operator actions.
+#
+#   app/build.sh [--dev] [OUTPUT_DIRECTORY]
+#
+# The release build is OUTPUT/Subfleet.app (bundle id org.maxghenis.subfleet).
+# --dev builds OUTPUT/SubfleetDev.app, shown as "Subfleet Dev", with bundle id
+# org.maxghenis.subfleet.dev; that build refuses to connect to ~/.subfleet
+# (design D-21, C-29.4). Its bundle directory and executable carry no space:
+# the daemon's person-only check compares the first word of the caller's
+# command line with SUBFLEET_DEV_APP_EXECUTABLE (docs/desktop/app-needs.md).
 set -eu
 
-case "${1-}" in
-  -h|--help)
-    echo "Usage: app/build.sh [OUTPUT_DIRECTORY]"
-    echo "Builds OUTPUT_DIRECTORY/Subfleet.app (default: checkout/build)."
-    exit 0
-    ;;
-esac
+usage() {
+  echo "Usage: app/build.sh [--dev] [OUTPUT_DIRECTORY]"
+  echo "Builds OUTPUT_DIRECTORY/Subfleet.app, or SubfleetDev.app with --dev (default: checkout/build)."
+}
+
+DEV=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --dev) DEV=1; shift ;;
+    --) shift; break ;;
+    -*) usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
 if [ "$#" -gt 1 ]; then
-  echo "Usage: app/build.sh [OUTPUT_DIRECTORY]" >&2
+  usage >&2
   exit 2
 fi
 if [ "$(uname -s)" != Darwin ]; then
-  echo "The Subfleet menu bar app requires macOS and the Swift developer tools." >&2
+  echo "The Subfleet app requires macOS and the Swift developer tools." >&2
   exit 1
 fi
 
@@ -35,19 +52,41 @@ case "$OUTPUT/" in
     ;;
 esac
 
+if [ "$DEV" -eq 1 ]; then
+  NAME=SubfleetDev
+  DISPLAY="Subfleet Dev"
+  BUNDLE_ID=org.maxghenis.subfleet.dev
+  FLAGS="-D SUBFLEET_DEV_BUILD"
+else
+  NAME=Subfleet
+  DISPLAY=Subfleet
+  BUNDLE_ID=org.maxghenis.subfleet
+  FLAGS=""
+fi
+
 ARCH=$(uname -m)
 SDK=${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}
 STAGING=$(mktemp -d "$OUTPUT/.subfleet-build.XXXXXX")
 trap 'rm -rf "$STAGING"' EXIT HUP INT TERM
-APP="$STAGING/Subfleet.app"
+APP="$STAGING/$NAME.app"
 mkdir -p "$APP/Contents/MacOS"
-xcrun swiftc -O -parse-as-library -sdk "$SDK" -target "$ARCH-apple-macos14.0" \
-  "$ROOT/app/SubfleetApp.swift" -o "$APP/Contents/MacOS/Subfleet"
+# Every source under app/Sources (including subdirectories such as Views/) in
+# one compilation. xargs appends the file list after the options.
+# shellcheck disable=SC2086 # FLAGS is a word list on purpose.
+find "$ROOT/app/Sources" -name '*.swift' -print0 | sort -z | \
+  xargs -0 xcrun swiftc -O -parse-as-library -sdk "$SDK" -target "$ARCH-apple-macos14.0" $FLAGS \
+    -o "$APP/Contents/MacOS/$NAME"
 cp "$ROOT/app/Info.plist" "$APP/Contents/Info.plist"
+if [ "$DEV" -eq 1 ]; then
+  plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$APP/Contents/Info.plist"
+  plutil -replace CFBundleName -string "$DISPLAY" "$APP/Contents/Info.plist"
+  plutil -replace CFBundleDisplayName -string "$DISPLAY" "$APP/Contents/Info.plist"
+  plutil -replace CFBundleExecutable -string "$NAME" "$APP/Contents/Info.plist"
+fi
 plutil -lint "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
-if [ -e "$OUTPUT/Subfleet.app" ]; then
-  rm -rf "$OUTPUT/Subfleet.app"
+if [ -e "$OUTPUT/$NAME.app" ]; then
+  rm -rf "$OUTPUT/$NAME.app"
 fi
-mv "$APP" "$OUTPUT/Subfleet.app"
-printf 'Built: %s/Subfleet.app\n' "$OUTPUT"
+mv "$APP" "$OUTPUT/$NAME.app"
+printf 'Built: %s/%s.app (%s)\n' "$OUTPUT" "$NAME" "$BUNDLE_ID"
