@@ -10,7 +10,7 @@ stdout from the start; the store ignores events it already has.
 
 The runner never decides a message's fate beyond reporting the driver's
 outcome to its owner (`on_outcome`); reconciliation, failover and blocking
-belong to the service.
+are `reconcile.py`'s decisions, which the service applies.
 """
 
 from __future__ import annotations
