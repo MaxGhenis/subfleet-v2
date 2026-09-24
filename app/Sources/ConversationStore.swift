@@ -215,8 +215,11 @@ func makeServedChip(for turn: TurnTimeline, provider: String, laneLabels: [Strin
     guard !served.fields.isEmpty else { return nil }
     var fast: String?
     if provider == "codex" {
-        if let tier = served.service_tier { fast = tier == "priority" ? "on" : "off" }
-        else if served.fields["service_tier"] != nil { fast = "off" }
+        // The thread's `serviceTier` is null at standard speed, and served facts
+        // drop nulls when they merge (as the runner does): once a served model is
+        // known, anything but `priority` is standard.
+        if served.service_tier == "priority" { fast = "on" }
+        else if served.service_tier != nil || served.model != nil { fast = "off" }
     } else {
         fast = served.fast_mode_state
     }
