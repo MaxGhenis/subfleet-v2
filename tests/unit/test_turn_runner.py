@@ -146,7 +146,7 @@ def relayed(tmp_path):
     short = Path(tempfile.mkdtemp(prefix="sfrr-", dir="/tmp"))
     servers, pipes, stores = [], [], []
 
-    def make(*, text="hi", server_class=RelayServer, clocks=Clocks(), serve=True):
+    def make(*, text="hi", server_class=RelayServer, clocks=Clocks(), serve=True, before_runner=None):
         adir = tmp_path / "a1"
         adir.mkdir(exist_ok=True)
         server = server_class(short / "r.sock", adir / "stdin.jsonl")
@@ -157,6 +157,8 @@ def relayed(tmp_path):
             server.serve(write_end)
         servers.append(server)
         pipes.append(read_end)
+        if before_runner is not None:
+            before_runner(server, adir)
         store = ConversationStore(tmp_path / "state")
         stores.append(store)
         clock = Clock()
@@ -229,3 +231,67 @@ def test_an_unanswering_relay_is_retried_a_bounded_number_of_times(relayed):
         assert tries <= RESEND_MAX + 2
     assert tries == RESEND_MAX + 1 and runner.stop_reason == "relay-failed"
     assert not (adir / "stdin.jsonl").exists()
+
+
+INIT_LINE = json.dumps({"type": "control_request", "request_id": INIT_REQUEST_ID,
+                        "request": {"subtype": "initialize"}}, separators=(",", ":"))
+
+
+def logged_intent(seq: int, tag: str, line: str) -> dict:
+    return relay_module._intent({"seq": seq, "op": "write", "line": line, "tag": tag,
+                                 "sha256": relay_module.line_sha256(line)})
+
+
+def test_a_relay_log_showing_a_frame_not_written_stops_the_turn_and_sends_nothing(relayed, tmp_path):
+    """C-26.4, IR-27: the log shows a stdin frame whose write failed, which ended relaying
+    for good. A rebuilt runner's handshake finds it, writes nothing more (not even the
+    driver's frames), and stops the turn with reason relay-failed; the escalation then
+    skips the steps that need the relay and reaches containment (C-24.7)."""
+    adir = tmp_path / "a1"
+    adir.mkdir()
+    records = [logged_intent(1, "init", INIT_LINE), {"kind": "failed", "seq": 1, "errno": 32}]
+    (adir / "stdin.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
+    before = (adir / "stdin.jsonl").read_bytes()
+    runner, clock, server, adir = relayed(clocks=Clocks(sigint_after_s=1, close_after_s=2, contain_after_s=3))
+    contained: list[str] = []
+    runner.on_contain = contained.append
+    assert runner.sent == {"init": "failed"}
+    runner._apply(runner.driver.start())
+    assert runner.handshaken and runner.relay_failed
+    assert runner.stop_reason == "relay-failed" and runner.stop_at == clock.now
+    assert runner.outbox == [] and runner.driver.outcome is None
+    clock.now += 3.1
+    runner._timers()
+    runner._send_outbox()
+    assert contained == ["job/a1"] and runner.outbox == []
+    assert (adir / "stdin.jsonl").read_bytes() == before        # nothing was written or logged
+
+
+def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(relayed):
+    """C-26.4, IR-27: the previous daemon left a frame being written, so the new runner
+    reads its intent as `pending`. The relay answers `status` only after that write is
+    logged, and the runner reads the log again then: the frame is written, nothing
+    fails, and the driver's same frame is not sent a second time."""
+    import threading
+    import time
+
+    def in_flight(server, adir):
+        server._lock.acquire()                       # `apply` holds it for the whole frame
+        intent = logged_intent(1, "init", INIT_LINE)
+        server._append(intent)
+        server._records.append({**intent, "status": "pending"})
+
+        def finish():
+            time.sleep(0.3)
+            server._append({"kind": "written", "seq": 1})
+            server._records[-1]["status"] = "written"
+            server._lock.release()
+        threading.Thread(target=finish, daemon=True).start()
+
+    runner, clock, server, adir = relayed(before_runner=in_flight)
+    assert runner.sent == {"init": "pending"}           # read while the write was in flight
+    runner._apply(runner.driver.start())
+    assert runner.handshaken and not runner.relay_failed and runner.stop_reason is None
+    assert runner.sent == {"init": "written"} and runner.outbox == [] and runner.next_seq == 2
+    assert [(r["tag"], r["status"]) for r in read_log(adir / "stdin.jsonl")] == [("init", "written")]
+    assert server.last_applied == 1
