@@ -21,24 +21,39 @@ from .turn import Image, TurnSpec
 TURN_MANIFEST_KEY = "turn"
 
 
-def spec_from_manifest(turn: dict[str, Any], *, lane_identity: str | None, guard_hash: str | None = None,
-                       unified_exec_off: bool = False) -> TurnSpec:
+def lane_email(lane) -> str | None:
+    """The account a lane claims, in the form the provider reports it: the
+    email label (C-1.4). `identity` is `<account>:<org>` uuids, which neither
+    provider's turn protocol reports."""
+    for value in (getattr(lane, "label", None), getattr(lane, "identity", None)):
+        if isinstance(value, str) and "@" in value and ":" not in value:
+            return value
+    return None
+
+
+def spec_from_manifest(turn: dict[str, Any], *, lane_email: str | None, guard_hash: str | None = None,
+                       unified_exec_off: bool = False, model_ref: str | None = None) -> TurnSpec:
     settings = turn["settings"]
+    model_ref = model_ref or turn.get("model_ref")
+    # Codex has no aliases: the server is always asked for the model id admission
+    # routed to. Claude gets the conversation's catalog value (`opus[1m]`), which
+    # `--model` accepts and `initialize` lists (design D-19).
+    model_id = model_ref if turn["provider"] == "codex" and model_ref else settings["model"]
     return TurnSpec(
         provider=turn["provider"], message_id=turn["message_id"], text=turn["text"],
-        model_id=settings["model"], permission=settings["permission"],
+        model_id=model_id, permission=settings["permission"],
         native_session_id=turn.get("native_session_id"), new_session_id=turn.get("new_session_id"),
         effort=settings.get("effort"), fast=bool(settings.get("fast")),
         images=tuple(Image(i["sha256"], i["media_type"], i["path"]) for i in turn.get("images", ())),
-        cwd=turn["cwd"], lane_identity=lane_identity, guard_hash=guard_hash,
-        unified_exec_off=unified_exec_off,
+        cwd=turn["cwd"], lane_email=lane_email, guard_hash=guard_hash,
+        unified_exec_off=unified_exec_off, model_ref=model_ref,
     )
 
 
 def claude_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, lane, credential_env: dict[str, str],
                   model_id: str, adapter: ClaudeAdapter | None = None) -> Launch:
     adapter = adapter or ClaudeAdapter()
-    spec = spec_from_manifest(turn, lane_identity=lane.identity)
+    spec = spec_from_manifest(turn, lane_email=lane_email(lane), model_ref=model_id)
     read_only = adapter.permission_args(Sandbox.READ_ONLY)
     argv = claude_turn.argv(spec, claude_bin=adapter.claude_bin, read_only_flags=read_only)
     session_id = spec.native_session_id or spec.new_session_id
@@ -62,7 +77,7 @@ def claude_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, l
 
 def codex_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, lane, credential_env: dict[str, str],
                  model_id: str, executable: str, override: str, unified_exec_off: bool = False) -> Launch:
-    spec = spec_from_manifest(turn, lane_identity=lane.identity, unified_exec_off=unified_exec_off)
+    spec = spec_from_manifest(turn, lane_email=lane_email(lane), unified_exec_off=unified_exec_off, model_ref=model_id)
     home = lane.home or lane.credential.ref
     if not home:
         raise ValueError("a Codex turn needs its lane's home")

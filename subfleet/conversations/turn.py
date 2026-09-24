@@ -56,7 +56,8 @@ class TurnSpec:
     fast: bool = False
     images: tuple[Image, ...] = ()
     cwd: str = ""
-    lane_identity: str | None = None   # the account the lane claims (C-10.6)
+    lane_email: str | None = None      # the email the lane's label claims (C-1.4, C-10.6)
+    model_ref: str | None = None       # the policy model id admission routed the turn to (D-19)
     guard_hash: str | None = None      # Codex: the hook hash `hooks/list` must report
     unified_exec_off: bool = False     # Codex: C-23.6's switch, as exec launches carry it
 

@@ -55,7 +55,7 @@ class TurnRunner:
                  on_outcome: Callable[["TurnRunner"], None],
                  on_contain: Callable[[str], None],
                  approval_wait_s: float = 3600.0, clock: Callable[[], float] = time.monotonic,
-                 log=None):
+                 log=None, on_catalog: Callable[[str, str | None, list], None] | None = None):
         self.store = store
         self.attempt = attempt
         self.attempt_id = attempt["attempt_id"]
@@ -66,6 +66,8 @@ class TurnRunner:
         self.control_socket = control_socket
         self.on_outcome = on_outcome
         self.on_contain = on_contain
+        self.on_catalog = on_catalog
+        self.catalog_reported = False
         self.approval_wait_s = approval_wait_s
         self.clock = clock
         self.log = log
@@ -92,6 +94,8 @@ class TurnRunner:
         self.outcome_reported = False
         self.stop_reason: str | None = None
         self.late_stop_at: float | None = None
+        self.final_text: str | None = None
+        self.contained = False
         self.finished = threading.Event()
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
@@ -218,6 +222,8 @@ class TurnRunner:
             self.batch_bytes += len(json.dumps(event.data, default=str))
             if event.kind == "served":
                 self.served.update({k: v for k, v in event.data.items() if v is not None})
+            if event.kind == "text" and event.data.get("text"):
+                self.final_text = event.data["text"]
             if event.kind == "accepted":
                 self._flush()
                 self.store.set_state(self.message_id, RUNNING, expect=("starting", "waiting"),
@@ -242,6 +248,14 @@ class TurnRunner:
             self._flush()
             self.ended_at = self.clock()
             self._write_outcome()
+        catalog = getattr(self.driver, "catalog", None)
+        if catalog is not None and not self.catalog_reported and self.on_catalog is not None:
+            self.catalog_reported = True
+            try:
+                self.on_catalog(self.spec.provider, self.attempt.get("lane_id"), catalog)
+            except Exception as exc:         # a catalog record never stops a turn
+                if self.log:
+                    self.log.warning("model catalog from %s not recorded: %s", self.attempt_id, exc)
         self._send_outbox()
 
     def _send_outbox(self) -> None:
@@ -328,7 +342,7 @@ class TurnRunner:
     def _write_outcome(self) -> None:
         outcome = self.driver.outcome
         data = {**asdict(outcome), "served": self.served, "turn_id": getattr(self.driver, "turn_id", None),
-                "stop_reason": self.stop_reason,
+                "stop_reason": self.stop_reason, "final_text": self.final_text,
                 "native_session_id": getattr(self.driver, "thread_id", None) or self.spec.native_session_id
                 or self.spec.new_session_id, "relay_failed": self.relay_failed,
                 "user_frame_written": self.sent.get("user-message") == "written"}

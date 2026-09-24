@@ -166,6 +166,9 @@ def validate_settings(provider: str, settings: Any) -> dict:
             "permission": permission, "auto_continue": auto}
 
 
+# Messages Subfleet writes to repair a session; they go ahead of queued person messages.
+REPAIR_ORIGINS = ("unblock-note", "failover")
+
 PERMISSION_ORDER = {"read-only": 0, "ask": 1, "accept-edits": 2, "bypass": 3}
 
 
@@ -440,11 +443,16 @@ class ConversationStore:
             tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE message_id=?", (*params, message_id))
 
     def next_dispatchable(self) -> list[dict]:
-        """For each unblocked conversation with no live message, its lowest queued one (C-24.5)."""
+        """For each unblocked conversation with no live message, its next queued one
+        (C-24.5): a repair message first (an unblock note, a failover continuation;
+        C-24.8, C-26.7), since the person's queued messages were written expecting
+        it; otherwise the lowest sequence."""
+        repair = ",".join(f"'{origin}'" for origin in REPAIR_ORIGINS)
         rows = self.query(
             "SELECT m.* FROM messages m JOIN conversations c USING(conversation_id) "
             "WHERE m.state='queued' AND c.blocked_by IS NULL AND c.archived_at IS NULL "
-            "AND m.seq = (SELECT MIN(seq) FROM messages q WHERE q.conversation_id=m.conversation_id AND q.state='queued') "
+            "AND m.message_id = (SELECT q.message_id FROM messages q WHERE q.conversation_id=m.conversation_id "
+            f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, q.seq LIMIT 1) "
             f"AND NOT EXISTS (SELECT 1 FROM messages l WHERE l.conversation_id=m.conversation_id AND l.state IN ({','.join('?' * len(LIVE_STATES))})) "
             "ORDER BY m.created_at", LIVE_STATES)
         return [_decode_message(r) for r in rows]

@@ -9,7 +9,6 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-import tomllib
 
 
 ENV_KEYS = (
@@ -73,21 +72,10 @@ def main() -> int:
         print("codex-cli 0.153.3")
         return 0
     if sys.argv[1:2] == ["app-server"]:
-        override = next(arg for arg in sys.argv if arg.startswith("hooks="))
-        hooks = tomllib.loads(override)["hooks"]
-        key, state = next(iter(hooks["state"].items()))
-        for line in sys.stdin:
-            request = json.loads(line)
-            if request.get("method") == "initialize":
-                print(json.dumps({"id": request["id"], "result": {}}), flush=True)
-            elif request.get("method") == "hooks/list":
-                print(json.dumps({"id": request["id"], "result": {"data": [{
-                    "cwd": request["params"]["cwds"][0], "errors": [], "hooks": [{
-                        "key": key, "enabled": state["enabled"],
-                        "trustStatus": "trusted", "currentHash": state["trusted_hash"],
-                    }],
-                }]}}), flush=True)
-        return 0
+        # The guard preflight's hooks/list probe and conversation turns (C-26).
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from tests.fake.interactive_codex import main as app_server
+        return app_server(sys.argv[1:])
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "success")
     if os.environ.get("SUBFLEET_PROBE"):
         # C-11.4: a probe is a tiny read-only turn; the fake answers it at once

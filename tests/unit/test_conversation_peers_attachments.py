@@ -105,3 +105,19 @@ def test_a_changed_copy_is_caught_before_a_frame_is_built(store, tmp_path):
     with pytest.raises(ConversationError) as err:
         attachments.check(store, out["sha256"])
     assert err.value.reason == "attachment-missing"
+
+
+def test_a_development_build_counts_as_the_app_only_on_a_development_state_root(tmp_path, monkeypatch):
+    """C-25.6, D-21: `SUBFLEET_DEV_APP_EXECUTABLE` widens nothing on ~/.subfleet."""
+    from types import SimpleNamespace
+    from subfleet.conversations.peers import APP_EXECUTABLES
+    from subfleet.conversations.service import ConversationService
+    dev = "/Users/x/build/Subfleet Dev.app/Contents/MacOS/Subfleet"
+    monkeypatch.setenv("SUBFLEET_DEV_APP_EXECUTABLE", dev)
+    service = ConversationService.__new__(ConversationService)
+    service.root = tmp_path
+    assert service._app_executables() == (*APP_EXECUTABLES, dev)
+    monkeypatch.setenv("HOME", str(tmp_path.parent))
+    service.root = tmp_path.parent / ".subfleet"
+    service.root.mkdir(exist_ok=True)
+    assert service._app_executables() == APP_EXECUTABLES

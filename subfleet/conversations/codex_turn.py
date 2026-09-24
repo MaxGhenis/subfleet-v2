@@ -77,6 +77,22 @@ def check_hooks(result: Any, cwd: str, hooks_hash: str | None) -> str | None:
     return None
 
 
+def observed_catalog(models: Any) -> list[dict]:
+    """`model/list` as `models.json` keeps it (design D-19)."""
+    out = []
+    for m in models if isinstance(models, list) else ():
+        if not isinstance(m, dict) or not (m.get("id") or m.get("model")):
+            continue
+        model = str(m.get("model") or m.get("id"))
+        out.append({"value": model, "model": model, "display": m.get("displayName"),
+                    "efforts": [str(e.get("reasoningEffort")) for e in m.get("supportedReasoningEfforts") or []
+                                if isinstance(e, dict) and e.get("reasoningEffort")],
+                    "fast": any(isinstance(t, dict) and t.get("id") == FAST_TIER for t in m.get("serviceTiers") or []),
+                    "image_input": ("image" in m["inputModalities"]) if isinstance(m.get("inputModalities"), list)
+                    else None})
+    return out
+
+
 def _line(value: dict) -> str:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
@@ -100,6 +116,7 @@ class CodexTurn:
         self.served_model: str | None = None
         self.outcome: Outcome | None = None
         self.pending: dict[str, tuple[str, dict]] = {}     # request id -> (method, params)
+        self.catalog: list[dict] | None = None              # model/list, for models.json
         self._ready = {"hooks": False, "models": False}
         self._tools: dict[str, bool] = {}
         self._buffers: dict[str, redact.DeltaBuffer] = {}
@@ -235,6 +252,7 @@ class CodexTurn:
         models = (result or {}).get("data") if isinstance(result, dict) else None
         if not isinstance(models, list):
             return "model/list returned no catalog"
+        self.catalog = observed_catalog(models)
         entry = next((m for m in models if isinstance(m, dict) and self.spec.model_id in (m.get("id"), m.get("model"))), None)
         if entry is None:
             return f"{self.spec.model_id} is not in this account's model catalog"
@@ -244,6 +262,9 @@ class CodexTurn:
         tiers = [t.get("id") for t in entry.get("serviceTiers") or [] if isinstance(t, dict)]
         if self.spec.fast and FAST_TIER not in tiers:
             return f"{self.spec.model_id} offers no Fast tier on this account"
+        modalities = entry.get("inputModalities")
+        if self.spec.images and isinstance(modalities, list) and "image" not in modalities:
+            return f"{self.spec.model_id} does not take images"
         return None
 
     def _maybe_thread(self, source: "_Sources") -> Step:

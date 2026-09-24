@@ -185,6 +185,19 @@ def process_inspection_available():
         pytest.skip(f"C-5.3 real daemon tests require permitted sysctl/ps inspection: {exc}")
 
 
+def _sockets(directory, names):
+    """Sockets cannot be copied; a kept state root leaves them out."""
+    import stat
+    out = []
+    for name in names:
+        try:
+            if stat.S_ISSOCK(os.lstat(os.path.join(directory, name)).st_mode):
+                out.append(name)
+        except OSError:
+            pass
+    return out
+
+
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
@@ -207,5 +220,6 @@ def daemon(request, process_inspection_available):
                 import re, shutil, sys
                 keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
                 shutil.rmtree(keep, ignore_errors=True)
-                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True)
+                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
+                                ignore=_sockets)
                 print(f"\n[daemon harness] kept state root at {keep}", file=sys.stderr)

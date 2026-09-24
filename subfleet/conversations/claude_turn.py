@@ -46,13 +46,46 @@ BACKGROUND_CEILING_MS = 120_000
 QUESTION_TOOLS = ("AskUserQuestion",)
 
 
-def expected_model(value: str, models: Any) -> str | None:
-    """The model a catalog `value` serves, `[1m]` removed (design D-19), or None
-    when the catalog does not list the value."""
-    for entry in models if isinstance(models, list) else ():
-        if isinstance(entry, dict) and entry.get("value") == value and entry.get("resolvedModel"):
-            return strip_context(str(entry["resolvedModel"]))
+def catalog_entry(models: Any, value: str, model_ref: str | None = None) -> dict | None:
+    """The `initialize` catalog entry a turn's model resolves to (design D-19).
+
+    The entry whose `value` is the conversation's model; else, when the
+    conversation names the model itself (a policy id such as `claude-opus-5-5`,
+    which `--model` accepts but the catalog lists as `opus[1m]` or `default`),
+    the first entry resolving to the model admission routed the turn to. None
+    when this account's catalog offers neither (observed 2026-09-24: values
+    `default`, `opus[1m]`, `claude-fable-5-1[1m]`, `sonnet`, `haiku`)."""
+    entries = [e for e in (models if isinstance(models, list) else ()) if isinstance(e, dict) and e.get("resolvedModel")]
+    for entry in entries:
+        if entry.get("value") == value:
+            return entry
+    if model_ref:
+        for entry in entries:
+            if strip_context(str(entry["resolvedModel"])) == model_ref:
+                return entry
     return None
+
+
+def expected_model(value: str, models: Any, model_ref: str | None = None) -> str | None:
+    """The model a turn serves, `[1m]` removed, or None when the catalog does
+    not offer it."""
+    entry = catalog_entry(models, value, model_ref)
+    return strip_context(str(entry["resolvedModel"])) if entry else None
+
+
+def observed_catalog(models: Any) -> list[dict]:
+    """The catalog as `models.json` keeps it: what each value serves and offers."""
+    out = []
+    for entry in models if isinstance(models, list) else ():
+        if isinstance(entry, dict) and entry.get("value") and entry.get("resolvedModel"):
+            levels = entry.get("supportedEffortLevels")
+            out.append({"value": str(entry["value"]), "model": strip_context(str(entry["resolvedModel"])),
+                        "context_1m": str(entry["resolvedModel"]).endswith("[1m]"),
+                        "display": entry.get("displayName"),
+                        "efforts": [str(x) for x in levels] if entry.get("supportsEffort") is not False
+                        and isinstance(levels, list) else [],
+                        "fast": entry.get("supportsFastMode")})
+    return out
 
 
 def strip_context(model: str) -> str:
@@ -111,6 +144,7 @@ class ClaudeTurn:
         self.interrupt_requested = False
         self.served_model: str | None = None
         self.expected_model: str | None = None            # from the initialize catalog (D-19)
+        self.catalog: list[dict] | None = None            # the initialize catalog, for models.json
         self.outcome: Outcome | None = None
         self.pending: dict[str, dict[str, Any]] = {}     # request id → original can_use_tool request
         self._tools: dict[str, bool] = {}                 # tool_use id → hidden
@@ -246,26 +280,29 @@ class ClaudeTurn:
                              source=source.next())
         body = response.get("response") or {}
         account = (body.get("account") or {}).get("email")
-        if self.spec.lane_identity and account and account.lower() != self.spec.lane_identity.lower():
+        self.catalog = observed_catalog(body.get("models"))
+        if self.spec.lane_email and account and account.lower() != self.spec.lane_email.lower():
             # C-10.6: the credential answered for another account; nothing is sent.
-            return self._end(FAILED, "identity", detail=f"lane claims {self.spec.lane_identity}, provider says {account}",
+            return self._end(FAILED, "identity", detail=f"lane claims {self.spec.lane_email}, provider says {account}",
                              source=source.next())
-        self.expected_model = expected_model(self.spec.model_id, body.get("models"))
-        if self.expected_model is None:
+        entry = catalog_entry(body.get("models"), self.spec.model_id, self.spec.model_ref)
+        if entry is None:
             return self._end(FAILED, "settings-unsupported",
                              detail=f"{self.spec.model_id} is not in this account's model catalog",
                              source=source.next())
-        effort_levels = _effort_levels(body.get("models"), self.spec.model_id)
-        if self.spec.effort and self.spec.effort not in (effort_levels or []):
+        self.expected_model = strip_context(str(entry["resolvedModel"]))
+        effort_levels = _entry_efforts(entry)
+        if self.spec.effort and self.spec.effort not in effort_levels:
             return self._end(FAILED, "effort-unsupported",
                              detail=f"{self.spec.model_id} offers {', '.join(effort_levels) or 'no effort levels'}",
                              source=source.next())
-        if self.spec.fast and (body.get("fast_mode_disabled_reason") or body.get("fast_mode_state") != "on"):
-            # IR-23: Fast was asked for and this account will not serve it. Nothing
-            # is sent, so the message can be admitted again elsewhere.
-            return self._end(FAILED, "fast-unavailable",
-                             detail=str(body.get("fast_mode_disabled_reason") or body.get("fast_mode_state")),
-                             source=source.next())
+        if self.spec.fast and (body.get("fast_mode_disabled_reason") or body.get("fast_mode_state") != "on"
+                               or entry.get("supportsFastMode") is False):
+            # IR-23: Fast was asked for and this account or model will not serve it.
+            # Nothing is sent, so the message can be admitted again elsewhere.
+            reason = body.get("fast_mode_disabled_reason") or (
+                "the model offers no Fast mode" if entry.get("supportsFastMode") is False else body.get("fast_mode_state"))
+            return self._end(FAILED, "fast-unavailable", detail=str(reason), source=source.next())
         served = {"account": account, "fast_mode_state": body.get("fast_mode_state"),
                   "fast_mode_disabled_reason": body.get("fast_mode_disabled_reason"),
                   "permission_mode": body.get("current_permission_mode")}
@@ -501,16 +538,18 @@ class _Sources:
         return f"{self.offset}:{self.n}"
 
 
+def _entry_efforts(entry: dict) -> list[str]:
+    """The effort levels a catalog entry offers; one without them accepts none."""
+    if entry.get("supportsEffort") is False:
+        return []
+    levels = entry.get("supportedEffortLevels")
+    return [str(x) for x in levels] if isinstance(levels, list) else []
+
+
 def _effort_levels(models: Any, value: str) -> list[str] | None:
-    """The effort levels the catalog entry chosen by `value` offers; an entry
-    without them accepts none (design D-19). None when the value is not listed."""
-    for entry in models if isinstance(models, list) else ():
-        if isinstance(entry, dict) and entry.get("value") == value:
-            if entry.get("supportsEffort") is False:
-                return []
-            levels = entry.get("supportedEffortLevels")
-            return [str(x) for x in levels] if isinstance(levels, list) else []
-    return None
+    """The effort levels the entry chosen by `value` offers, or None when the value is not listed."""
+    entry = catalog_entry(models, value)
+    return None if entry is None else _entry_efforts(entry)
 
 
 def _result_text(content: Any) -> str:

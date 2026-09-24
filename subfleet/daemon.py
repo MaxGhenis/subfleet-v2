@@ -258,6 +258,9 @@ class Daemon:
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
         self.readers = ThreadPoolExecutor(max_workers=32, thread_name_prefix="subfleet-socket")
         self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
+        # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
+        from .conversations.service import ConversationService
+        self.conversations = ConversationService(self)
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
@@ -822,8 +825,11 @@ class Daemon:
         """
         return [{**row, **self.timers.metadata.get(row["lane_id"], {})} for row in self.store.lane_rows()]
 
-    def submit(self, args: protocol.SubmitArgs) -> dict:
+    def submit(self, args: protocol.SubmitArgs, *, turn: dict | None = None) -> dict:
         # Called on a filesystem worker, never on the socket reader pool.
+        # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
+        if (args.kind == "turn") != (turn is not None):
+            raise AdapterError("a turn job needs its conversation's turn block", code=7)
         with self._submit_lock:
             reason = args.unmeasured_reserve_reason
             if reason is not None:
@@ -871,13 +877,15 @@ class Daemon:
                 out = str(Path(args.out_path).expanduser().resolve()) if args.out_path else None
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
-                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place:
+                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
                     # C-13.2: the refusal is about where the job writes. A job that
                     # is not in place writes in a detached worktree the daemon cuts
-                    # for it (C-6.6), wherever its caller happens to stand.
+                    # for it (C-6.6), wherever its caller happens to stand. A
+                    # conversation a person allowed on main is exempt (C-26.10).
                     validate_writable_workdir(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
                 head = git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
-                if sandbox == Sandbox.WORKSPACE_WRITE and head is None:
+                if sandbox == Sandbox.WORKSPACE_WRITE and head is None and turn is None:
+                    # C-26.10: an attended conversation may work outside git.
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write.
@@ -925,6 +933,10 @@ class Daemon:
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
                     unmeasured_reserve_reason=reason)
+                if turn is not None:
+                    # C-6.2 for turns: the message digest, not HEAD or the policy
+                    # hash, so a restart can always re-bind the job (review IR-1).
+                    digest = turn["digest"]
             except SalvageError as exc:
                 # C-6.8: nothing was submitted, so the caller retries; a timed-out
                 # `rev-parse` must not read as "not a repository" or "not on main".
@@ -957,8 +969,13 @@ class Daemon:
             # transaction; the transaction below re-checks with SQL alone.
             instance = (self._caller_instance(args.caller_pid)
                         if sandbox == Sandbox.WORKSPACE_WRITE and args.caller_session else None)
-            cleared = self._writable_precheck(values, instance, write_target)
-            self._validate_conflicts(values, cleared, write_target)
+            if turn is None:
+                cleared = self._writable_precheck(values, instance, write_target)
+                self._validate_conflicts(values, cleared, write_target)
+            else:
+                # C-26.1, IR-12: a turn waits for its workspace at admission (the
+                # `worktree:` lease), it is never refused here.
+                cleared = None
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
             manifest = {"job": values}
@@ -966,6 +983,8 @@ class Daemon:
                 manifest["batch"] = batch
             if resume:
                 manifest["resume"] = resume
+            if turn is not None:
+                manifest["turn"] = turn
             if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
                 prepared_path = jobdir / "prompt.prepared.md"
                 self._publish("prompt-prepared", prepared_path, WRITE_PREAMBLE.encode() + prompt)
@@ -983,7 +1002,8 @@ class Daemon:
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
-                self._validate_conflicts(values, cleared, write_target)
+                if turn is None:
+                    self._validate_conflicts(values, cleared, write_target)
                 columns = ",".join(values)
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
             self._notify()
@@ -1297,7 +1317,7 @@ class Daemon:
 
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
-                        state_root: Path | None = None) -> str | None:
+                        state_root: Path | None = None, full: bool = False):
         """C-14.2: run the Codex guard preflight for this launch.
 
         ``recorder`` (see ``_guard_recorder``) receives the verdict before it is
@@ -1321,7 +1341,7 @@ class Daemon:
             recorder(result)
         if not result.ok or not result.override:
             raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor")
-        return result.override
+        return result if full else result.override
 
     def _guard_recorder(self, lane: Lane, workdir: str, attempt_dir: Path) -> Callable:
         """Keep a preflight verdict's diagnostics beside the attempt (C-14.2).
@@ -1364,6 +1384,10 @@ class Daemon:
             from .gate.service import dispatch
             return dispatch(self, op, args)
         if op == "submit":
+            if (args.get("kind") == "turn" or str(args.get("request_id") or "").startswith("turn:")
+                    or "turn" in args):
+                raise AdapterError("conversation turns are created by the daemon, not submitted", code=7,
+                                   fix="send a message with message.submit")
             return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
         if op == "list":
             a = protocol.coerce_args(protocol.ListArgs, args)
@@ -1576,7 +1600,7 @@ class Daemon:
         return sorted({row["native_session_id"] for row in self.store.query(
             "SELECT DISTINCT a.native_session_id FROM attempts a "
             "JOIN jobs j USING(job_id) "
-            "WHERE a.native_session_id IS NOT NULL AND j.kind<>'revive'")
+            "WHERE a.native_session_id IS NOT NULL AND j.kind NOT IN ('revive','turn')")
             if row["native_session_id"]})
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
@@ -1707,6 +1731,8 @@ class Daemon:
 
     @staticmethod
     def _notice(tx, job: dict, cls: str, rc: int | None, deliverable: str | None, summary: str) -> None:
+        if job.get("kind") == "turn":
+            return      # C-26.12: the conversation, not a notice, carries a turn's end
         if tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
         text = f"{job['job_id']}: {cls}; rc={rc}; deliverable={deliverable or '-'}; out={job.get('out_path') or '-'}\n{summary}"
@@ -1770,6 +1796,7 @@ class Daemon:
                     if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):
                         self._schedule("export:" + j["job_id"], self._export, j["job_id"], paced=True)
                 if self._recovery_complete.is_set():
+                    self._schedule("conversations", self.conversations.tick, paced=True)
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
                 else:
@@ -1918,7 +1945,9 @@ class Daemon:
         not finish raises rather than answering "no HEAD" or "no branch"."""
         cap = self.policy["caps"]["workspace_git_timeout_s"]
         workdir = job.get("worktree") or job["workdir"]
-        if job["sandbox"] == "workspace-write" and (job["in_place"] or job.get("worktree")):
+        turn_allow_main = job.get("kind") == "turn" and bool(
+            ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}).get("allow_main"))
+        if job["sandbox"] == "workspace-write" and (job["in_place"] or job.get("worktree")) and not turn_allow_main:
             # Submission may have waited for capacity while the caller changed
             # branches. Refuse again at admission, including writable retries,
             # for the directory the job writes in (C-13.2): the caller's checkout
@@ -2395,6 +2424,7 @@ class Daemon:
         saturated = False
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
+            tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
             if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
                 self.kill(protocol.KillArgs(job["job_id"]))
                 continue
@@ -2465,6 +2495,11 @@ class Daemon:
                                "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
                 job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
             decision_job = job
+            turn_block = None
+            if job["kind"] == "turn":
+                turn_block = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}
+                if turn_block.get("affinity_lane"):
+                    decision_job = {**job, "affinity_lane": turn_block["affinity_lane"]}   # C-26.2
             if retry:
                 retry = {**job, "pinned_lane": retry["pinned_lane"], "pinned_model": retry["pinned_model"]}
                 kept = self._retry_waits_on_a_slot(retry, extra_exclusions, desktop_account)
@@ -2588,6 +2623,19 @@ class Daemon:
                     # isolate a provider transcript. Resume and revive share
                     # this job-held lease through retry, export and quarantine.
                     leases.append((native_session_lease_key(lane_id, native_session), job["job_id"]))
+                    # C-26.3: one writer per native session whichever lane, so a
+                    # resume or revive and a conversation turn exclude each other.
+                    provider = self.policy["models"][decision.chosen_model]["provider"]
+                    leases.append((f"native:{provider}:{native_session}", job["job_id"]))
+                if turn_block is not None:
+                    leases.append((f"conversation:{turn_block['conversation_id']}", job["job_id"]))
+                    if turn_block.get("native_session_id") or turn_block.get("new_session_id"):
+                        sid = turn_block.get("native_session_id") or turn_block.get("new_session_id")
+                        leases.append((f"native:{turn_block['provider']}:{sid}", job["job_id"]))
+                        held = tx.execute("SELECT lease_key FROM leases WHERE lease_key LIKE ? AND holder<>?",
+                                          (f"native-session:%:{sid}", job["job_id"])).fetchone()
+                        if held:
+                            leases.append((held[0], job["job_id"]))   # contested: waits for the resume/revive
                 if job.get("round_lease"):
                     leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
                 if job["out_path"]:
@@ -2822,24 +2870,34 @@ class Daemon:
             prompt = prompt_path.read_bytes() + suffix.encode()
             prompt_path = adir / "prompt.md"
             self._publish("prompt", prompt_path, prompt)
+        turn_block = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn")
+                      if job["kind"] == "turn" else None)
         try:
-            if job["sandbox"] == "workspace-write":
+            if job["sandbox"] == "workspace-write" and not (turn_block and turn_block.get("allow_main")):
                 # Close the reservation-to-launch window as well: the caller
                 # can switch an in-place checkout after its attempt is reserved.
                 validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
             spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
-            guard_override = None if spec.isolated_review else self._guard_override(
+            guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root)
             resume = None
-            if job["kind"] == "resume":
+            if turn_block is not None:
+                guard = None
+                if lane.provider == "codex":
+                    guard = self._guard_override(adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir),
+                                                 self.root, full=True)
+                launch = self.conversations.launch(job, a, lane, credential_env, adir, model["id"], guard)
+            elif job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
                 resume = manifest.get("resume")
                 if not resume or not self._resume_lane(resume["lane_id"], lane) or resume["model_id"] != model["id"]:
                     raise AdapterError("resume source identity is missing or does not match this attempt",
                                        fix="resubmit the resume from the original job")
-            if resume or (job["kind"] == "revive" and job["caller_session"]):
+            if turn_block is not None:
+                pass
+            elif resume or (job["kind"] == "revive" and job["caller_session"]):
                 # C-23.54: a revive is an ordinary submission, but the launch it
                 # asks for is `--resume <session id>` — continuing the session
                 # named by `caller_session`, which for a revive IS the session
@@ -2885,6 +2943,10 @@ class Daemon:
                    "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]
         if launch.stdin_path:
             command += ["--stdin-path", launch.stdin_path]
+        if turn_block is not None:
+            from .relay import socket_path
+            command += ["--control-socket", str(socket_path(self.root, a["attempt_id"])),
+                        "--relay-peer-lock", str(self.root / "daemon.lock")]
         if self.guardian_start_delay_s:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
         command += ["--", *launch.argv]
@@ -2905,6 +2967,10 @@ class Daemon:
                     else "guardian identity is absent after 2 s")
             boot = procs.boot_id()
             with self.store.transaction("attempt.starting", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+                if job["kind"] == "turn" and tx.execute("SELECT cancel_requested_at FROM jobs WHERE job_id=?",
+                                                        (a["job_id"],)).fetchone()[0]:
+                    # Review IR-2: a message withdrawn during launch never starts.
+                    raise procs.InspectionError("cancelled during launch")
                 tx.execute("UPDATE attempts SET state='starting',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,native_session_id=? WHERE attempt_id=? AND state='reserved'",
                            (child.pid, child.pid, boot, started, launch.native_session_id, a["attempt_id"]))
             os.write(write_fd, b"1")
@@ -2966,6 +3032,9 @@ class Daemon:
             self._begin_finalizing(a, receipt)
             return
         if job["cancel_requested_at"] or age(job["started_at"]) >= job["max_wall_s"]:
+            if job["kind"] == "turn" and self.conversations.stop(
+                    a, job, "wall-limit" if not job["cancel_requested_at"] else "operator-kill"):
+                return      # D-13, IR-4: the provider is stopped first; containment follows
             if not job["cancel_requested_at"]:
                 with self.store.transaction("job.wall_limit", job_id=job["job_id"]) as tx:
                     tx.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=? AND cancel_requested_at IS NULL", (utcnow(), job["job_id"]))
@@ -3232,7 +3301,9 @@ class Daemon:
             if stdout.is_file():
                 self._publish("raw-stream", Path(launch.raw_stream_path), stdout.read_bytes())
         lane = self.store.get_lane(a["lane_id"])
-        adapter = get_adapter(lane.provider)
+        adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
+        if job["kind"] == "turn":
+            self.conversations.release_socket(a["attempt_id"])
         receipt = self._read_json(adir / "exit.json")
         # The receipt on disk decides, not the verdict the caller reached before
         # reading it: a guardian found dead a moment after it published exit.json
@@ -3265,7 +3336,7 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
-        if outcome.cls == OutcomeClass.OK and (not deliverable or not deliverable["bytes"]):
+        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         artifacts = [x for x in [deliverable,
                      self._artifact(Path(launch.stdout_path), "stdout"),
@@ -3276,7 +3347,8 @@ class Daemon:
                      self._artifact(adir / "lane.log", "lane-log"),
                      self._artifact(Path(launch.raw_stream_path), "raw-stream") if launch.raw_stream_path else None,
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
-        salvage_artifacts, checkpoint = self._salvage(job, a)
+        # C-26.10: a turn works in its conversation's workspace and writes no salvage ref.
+        salvage_artifacts, checkpoint = ([], None) if job["kind"] == "turn" else self._salvage(job, a)
         artifacts.extend(salvage_artifacts)
         with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             job = self._job(a["job_id"])
@@ -3287,6 +3359,11 @@ class Daemon:
                 return
             cancel = bool(job["cancel_requested_at"])
             ok = not lost and rc == 0 and outcome.cls == OutcomeClass.OK
+            if job["kind"] == "turn":
+                # C-24.4: the provider's success decides a turn, whatever the exit
+                # status or a stop that came too late (review F4).
+                ok = not lost and outcome.cls == OutcomeClass.OK
+                cancel = cancel and not ok
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
             retry = (not cancel and a["seq"] < job["max_attempts"] and
                      ((lost and job["sandbox"] == "read-only") or
@@ -3387,6 +3464,8 @@ class Daemon:
     def _connection(self, conn: socket.socket) -> None:
         write_lock = threading.Lock()
         pending = []
+        from .conversations.peers import peer_pid
+        peer = peer_pid(conn)       # C-25.6: who is asking, read from the socket
         try:
             with conn.makefile("rb") as reader:
                 while not self.stopping.is_set():
@@ -3403,8 +3482,12 @@ class Daemon:
                         continue
                     # Submission filesystem work and long polls have separate
                     # pools; ordinary read/cancel operations stay responsive.
-                    pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
                     pending = [f for f in pending if not f.done()]
+                    if self.conversations.owns(req.op):
+                        pending.append(self.conversations.pool_for(req.op).submit(
+                            self.conversations.respond, conn, write_lock, req, peer))
+                        continue
+                    pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
                     pending.append(pool.submit(self._respond, conn, write_lock, req))
         except OSError:
             pass
@@ -3464,6 +3547,7 @@ class Daemon:
                 except OSError:
                     pass
         self.timers.stop()
+        self.conversations.close()
         for pool in (self.readers, self.requests, self.waiters, self.workers):
             pool.shutdown(wait=True, cancel_futures=True)
         self.store.close()

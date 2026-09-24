@@ -29,7 +29,9 @@ Environment:
                                 harnesses replace the opener behind it.
 
 Unknown flags are accepted and ignored: the point is to replay a fixture for
-whatever argv the adapter built, not to re-implement Claude Code.
+whatever argv the adapter built, not to re-implement Claude Code. With
+`--input-format stream-json` (a conversation turn) it hands over to
+`tests/fake/interactive_claude.py` instead.
 """
 
 from __future__ import annotations
@@ -106,6 +108,11 @@ def print_profile(argv: list[str]) -> int:
 def main(argv: list[str]) -> int:
     if "--print-profile" in argv:
         return print_profile(argv)
+    if flag_value(argv, "--input-format") == "stream-json":
+        # A conversation turn (C-26): the interactive fake in tests/fake.
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+        from tests.fake.interactive_claude import main as interactive
+        return interactive(argv)
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO")
     if os.environ.get("SUBFLEET_PROBE"):
         # C-11.4: a probe is a tiny read-only turn; answer it at once regardless of the scenario.

@@ -338,6 +338,18 @@ errors. Effort is validated against the chosen entry's
 `supportedEffortLevels`; an entry without them accepts none (review P6).
 Codex settings are validated against `model/list` for the lane's account
 (model, `supportedReasoningEfforts`, Fast = `serviceTiers` id `priority`).
+A probe of Claude Code 2.1.280 (2026-09-24) listed only `default`,
+`opus[1m]`, `claude-fable-5-1[1m]`, `sonnet` and `haiku`; there is no bare
+`opus` or `fable` value. So a Claude model may also be a model id (which
+`--model` accepts): the driver then uses the first entry that resolves to the
+model admission routed the turn to (`model_ref`), and Fast additionally needs
+that entry's `supportsFastMode`. A Codex turn always asks for the routed model
+id; Codex has no aliases. Each driver reports its catalog once per turn and
+the service merges it into `conversations/models.json`, which `models.list`
+reads: per model id, the values that name it (`default` excluded), efforts,
+Fast and image input, with the lanes that reported them. The lane's claimed
+account is its email label, compared with `initialize`'s `account.email`;
+lane `identity` is uuids that no turn protocol reports.
 Fast is independent of model and effort on both providers, and bills
 differently: Codex `serviceTier:"priority"` draws on plan limits; Claude
 `fastMode` draws on usage credits (code.claude.com fast-mode docs), so the
@@ -565,7 +577,7 @@ marked †.
 | `attachment.add` | `{path, sha256?}` → `{sha256, media_type, bytes}` |
 | `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
 | `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, pending_approvals}], next}` (D-24) |
-| `models.list` | `{provider}` → `{models:[{value, id, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
+| `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
 | `turn.diff` | `{message_id, path?}` → `{files:[{path, status, additions, deletions}], diff, truncated}` (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` |
 

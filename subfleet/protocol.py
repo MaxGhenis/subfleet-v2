@@ -15,11 +15,20 @@ from .contracts import Exit
 
 PROTOCOL_VERSION = 1
 
+# C-29: the conversation ops (design §5), answered by subfleet/conversations/service.py.
+CONVERSATION_OPS = (
+    "capabilities", "conversation.list", "conversation.open", "conversation.create", "conversation.settings",
+    "conversation.unblock", "conversation.history", "conversation.events", "conversation.watch",
+    "message.submit", "message.status", "message.cancel", "turn.interrupt", "message.resolve",
+    "approval.list", "approval.get", "approval.respond", "attachment.add", "catalog.refresh", "models.list",
+)
+
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
     "sessions", "pick", "operations",
+    *CONVERSATION_OPS,
 )
 
 

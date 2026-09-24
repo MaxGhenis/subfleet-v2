@@ -110,3 +110,47 @@ class DeltaBuffer:
     def flush(self) -> str:
         ready, self._pending = self._pending, ""
         return scrub(ready) if ready else ""
+
+
+# --- approvals (C-27.1, review IR-20) -------------------------------------------
+
+_SHELL_META = ("$(", "`", "|", ";", "&", ">", "<", "\n")
+
+
+def mask_approval(request: Any) -> tuple[Any, list[dict]]:
+    """Mask value-shaped secrets in an approval request, and nothing else.
+
+    A person must see what they are allowing. Only token-shaped values (PEM
+    blocks, JWTs, prefixed tokens, Bearer tokens, URL passwords) are masked,
+    never by key name, never long base64, and never a span that contains
+    command substitution, a pipe, a separator, a redirection or a newline.
+    Each masked span is reported so the app can show it and offer a reveal.
+    """
+    import hashlib
+    from ..sessions.handoff import _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_PASSWORD_RE
+    spans: list[dict] = []
+
+    def mask_text(text: str, path: str) -> str:
+        for rule, pattern in (("pem", _PEM_RE), ("jwt", _JWT_RE), ("token", _PREFIXED_TOKEN_RE),
+                              ("bearer", _BEARER_RE), ("url-password", _URL_PASSWORD_RE)):
+            def repl(match):
+                value = match.group(0) if rule != "url-password" else match.group(2)
+                if any(meta in value for meta in _SHELL_META):
+                    return match.group(0)
+                spans.append({"path": path, "rule": rule, "length": len(value),
+                              "sha256": hashlib.sha256(value.encode()).hexdigest()})
+                hidden = f"[masked {rule}, {len(value)} chars]"
+                return hidden if rule != "url-password" else match.group(1) + hidden + match.group(3)
+            text = pattern.sub(repl, text)
+        return text
+
+    def walk(value: Any, path: str) -> Any:
+        if isinstance(value, str):
+            return mask_text(value, path)
+        if isinstance(value, dict):
+            return {k: walk(v, f"{path}.{k}") for k, v in value.items()}
+        if isinstance(value, list):
+            return [walk(v, f"{path}[{i}]") for i, v in enumerate(value)]
+        return value
+
+    return walk(request, "$"), spans

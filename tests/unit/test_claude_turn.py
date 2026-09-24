@@ -17,7 +17,7 @@ SID = "0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd"
 
 def spec(**kw):
     base = dict(provider="claude", message_id=MID, text="fix the bug", model_id="opus",
-                permission="ask", native_session_id=SID, effort="high", lane_identity="max@example.org")
+                permission="ask", native_session_id=SID, effort="high", lane_email="max@example.org")
     base.update(kw)
     return TurnSpec(**base)
 
@@ -77,7 +77,7 @@ def test_the_message_is_sent_only_after_initialize_and_carries_its_uuid():
 
 def test_identity_mismatch_ends_the_turn_before_anything_is_sent():
     """C-10.6, C-26.8: the credential answered for another account; nothing is sent."""
-    turn = ClaudeTurn(spec(lane_identity="other@example.org"), read_bytes=lambda p: b"")
+    turn = ClaudeTurn(spec(lane_email="other@example.org"), read_bytes=lambda p: b"")
     step = started(turn)
     assert [f.tag for f in step.frames] == ["close"]
     assert step.outcome.state == "failed" and step.outcome.reason == "identity" and not step.outcome.accepted
@@ -325,3 +325,69 @@ def test_plan_mode_tools_are_off_in_writable_turns():
     for permission in ("ask", "accept-edits", "bypass"):
         command = argv(spec(permission=permission))
         assert "EnterPlanMode" in command[command.index("--disallowedTools") + 1]
+
+
+# The catalog Claude Code 2.1.280 reported on 2026-09-24 for a Max account: no
+# bare `opus` or `fable` value, only the 1M-context entries and `default`.
+OBSERVED = [
+    {"value": "default", "resolvedModel": "claude-opus-5-5[1m]", "supportsEffort": True,
+     "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"], "supportsFastMode": True},
+    {"value": "opus[1m]", "resolvedModel": "claude-opus-5-5[1m]", "supportsEffort": True,
+     "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"], "supportsFastMode": True},
+    {"value": "claude-fable-5-1[1m]", "resolvedModel": "claude-fable-5-1[1m]", "supportsEffort": True,
+     "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"], "supportsFastMode": False},
+    {"value": "sonnet", "resolvedModel": "claude-sonnet-5", "supportsEffort": True,
+     "supportedEffortLevels": ["low", "medium", "high"]},
+    {"value": "haiku", "resolvedModel": "claude-haiku-4-5-20251001"},
+]
+
+
+def observed_init(fast_state="on", email="max@example.org"):
+    return line(type="control_response", response={"subtype": "success", "request_id": INIT_REQUEST_ID, "response": {
+        "account": {"email": email, "organization": "Example", "subscriptionType": "max"},
+        "fast_mode_state": fast_state, "models": OBSERVED}})
+
+
+def test_a_model_id_resolves_through_the_routed_model_when_the_catalog_has_no_such_value():
+    """D-19, C-26.8: `--model claude-opus-5-5` is valid, and the catalog lists that model only
+    as `opus[1m]`/`default`; the entry resolving to the routed model decides effort and Fast."""
+    turn = ClaudeTurn(spec(model_id="claude-opus-5-5", model_ref="claude-opus-5-5", effort="xhigh"),
+                      read_bytes=lambda p: b"")
+    turn.start()
+    step = turn.feed(observed_init(), 0)
+    assert step.outcome is None and [f.tag for f in step.frames] == ["user-message"]
+    assert turn.expected_model == "claude-opus-5-5"
+    # Without the routed model, the same value is not in the catalog.
+    bare = ClaudeTurn(spec(model_id="claude-opus-5-5", effort=None), read_bytes=lambda p: b"")
+    bare.start()
+    assert bare.feed(observed_init(), 0).outcome.reason == "settings-unsupported"
+
+
+def test_fast_on_a_model_without_fast_mode_is_refused_before_sending():
+    """IR-23: the account has Fast on, and this model does not offer it."""
+    turn = ClaudeTurn(spec(model_id="claude-fable-5-1[1m]", effort=None, fast=True), read_bytes=lambda p: b"")
+    turn.start()
+    step = turn.feed(observed_init(), 0)
+    assert step.outcome.reason == "fast-unavailable" and "no Fast" in step.outcome.detail
+    assert all(f.tag != "user-message" for f in step.frames)
+
+
+def test_the_catalog_is_kept_for_models_json():
+    """D-19: what each value serves and offers, recorded from `initialize`."""
+    turn = ClaudeTurn(spec(model_id="opus[1m]", effort=None), read_bytes=lambda p: b"")
+    turn.start()
+    turn.feed(observed_init(), 0)
+    by_value = {entry["value"]: entry for entry in turn.catalog}
+    assert by_value["opus[1m]"] == {"value": "opus[1m]", "model": "claude-opus-5-5", "context_1m": True,
+                                    "display": None, "efforts": ["low", "medium", "high", "xhigh", "max"],
+                                    "fast": True}
+    assert by_value["haiku"]["efforts"] == [] and by_value["claude-fable-5-1[1m]"]["fast"] is False
+
+
+def test_the_lane_claims_its_email_label_not_its_uuid_identity():
+    """C-1.4, C-10.6: `initialize` reports the account's email; a lane's identity is uuids."""
+    from types import SimpleNamespace
+    from subfleet.conversations.launch import lane_email
+    assert lane_email(SimpleNamespace(label="max@example.org", identity="acct-1:org-1")) == "max@example.org"
+    assert lane_email(SimpleNamespace(label="Work account", identity="acct-1:org-1")) is None
+    assert lane_email(SimpleNamespace(label=None, identity=None)) is None
