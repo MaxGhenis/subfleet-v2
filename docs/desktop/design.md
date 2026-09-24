@@ -426,7 +426,8 @@ dirty) (review U-F13).
 **D-26. Detached work keeps its own place.** Turn jobs carry `kind` in
 `status.json` and `list`; the menu panel groups them by conversation ("3
 conversations active, 1 needs approval") apart from detached jobs, and the
-Runs view defaults to non-turn jobs. The app keeps a Compose view for
+Runs view defaults to non-turn jobs (`status.json` shape in §12). The app
+keeps a Compose view for
 detached jobs (task, tier, workspace, optional model pin, Fast, sandbox) with
 a preview through `submit {dry_run:true}` (lane, model, rejected lanes and
 why), dispatch through `submit`, and `why` for waiting jobs (review U-F14,
@@ -436,7 +437,8 @@ U-F15).
 per Claude account the five-hour, weekly and every model-scoped weekly window
 (including Fable) with percent, reset time and evidence label, from
 `provider` and `stale-provider` readings only (C-9.1), plus a Claude
-`earliest_reset` (review U-F7).
+`earliest_reset` (review U-F7). Windows are keyed by scope and window, so a
+model-scoped window never replaces the account window (§12, review IR-34).
 
 ## 3. Data model
 
@@ -769,6 +771,91 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
 - Status strip per turn with stage timestamps from `status` events
   (admitted, spawned, initialized, resumed, accepted), so time spent waiting
   for capacity, starting the provider, and the model are told apart.
+
+### `status.json` (C-18.2, C-29.6; review IR-18, IR-34)
+
+The daemon writes `<state root>/status.json` after every probe cycle and every
+reset-credit pass, both through `Timers.publish_status` (`subfleet/timers.py`),
+on a timer worker. The projection is `subfleet/status_json.py`. Keys the menu
+already decoded keep their meaning; the additions are marked *new*. A decoder
+accepts a snapshot without any *new* key, because an app may be newer than its
+daemon (as C-18.2 already requires for `jobs`).
+
+```jsonc
+{
+  "generated_at": "2026-09-24T18:00:00Z",
+  "offline": false,
+  "jobs": {"live": [JobRow], "recent": [JobRow],
+           "counts": {"queued": 0, "running": 1, "waiting": 0}},
+  "conversations": {                                          // new
+    "available": true, "error": null,
+    "counts": {"active": 3, "needs_approval": 1, "blocked": 0},
+    "turns": {"queued": 0, "running": 2, "waiting": 1},
+    "items": [{"conversation_id": "cv-…", "provider": "claude", "title": "…",
+               "state": "approval-needed", "blocked_by": null,
+               "pending_approvals": 1, "updated_at": "…", "turn": JobRow}],
+    "truncated": false},
+  "codex": {"homes": […], "fleet": {…}},                      // unchanged
+  "claude": {
+    "accounts": [{"lane_id": "claude-3", "email": "…", "probe": {…}, "live": {…},
+                  "windows": [                                // new
+                    {"scope": "account", "window": "five_hour", "model": null,
+                     "status": "provider", "stale": false, "used_percent": 42.0,
+                     "reset_at": "2026-09-24T21:00:00Z", "source": "oauth-usage",
+                     "as_of": "2026-09-24T17:59:40Z", "age_s": 20.0},
+                    {"scope": "account", "window": "seven_day", …},
+                    {"scope": "claude-fable-5-1", "window": "seven_day",
+                     "model": "fable", …}], …}],
+    "earliest_reset": "2026-09-24T21:00:00Z",                 // new
+    "lanes": {"enrolled": 17, "dispatchable_now": 12}}
+}
+```
+
+`JobRow` is `{job_id, kind (new), name, state, wait_reason, next_check_at,
+sandbox, workdir, model, lane_id, attempts, created_at, started_at,
+finished_at, rc, batch}` (C-18.2).
+
+- `jobs` is detached work only: `live`, `recent` and `counts` leave out every
+  job of kind `turn` (C-26.12), so the menu's job list and its counts never
+  show a conversation's turn as a job someone dispatched.
+- `conversations` is read by `conversations.store.status_summary` through a
+  read-only connection of its own (`mode=ro`, `query_only`), in one read
+  transaction, without the conversation store's lock; the control loop and
+  request threads never wait for it. `available: false` means the store could
+  not be read: `error` is `not-read`, `schema` (a newer store) or the SQLite
+  exception's name, `counts` is null and `items` is empty, so the menu shows
+  "unknown", never a zero nobody observed. No `conversations.sqlite3` yet is
+  `available: true` with zero counts.
+- `counts`, over conversations not archived: `active` has a message `queued`
+  or in a live state (design D-12), `needs_approval` has a pending approval,
+  `blocked` has `blocked_by` set. `turns` counts live turn jobs by state from
+  the job store, and is present even when `available` is false.
+- `items` lists only conversations that are active, need approval or are
+  blocked: those needing approval first, then blocked, then the rest, newest
+  `updated_at` first, at most 20 (`truncated` says more exist; the counts
+  cover all of them). `state` is `approval-needed` when an approval is
+  pending, else `blocked` when `blocked_by` is set, else the state of its live
+  message (`waiting`, `starting`, `running`, `delivery-unknown`), else
+  `queued`. `title` is cut to 200 characters. `turn` is the conversation's
+  live turn job (matched by the job name `turn-<conversation id>`, §3), or
+  null when none is queued, waiting or running.
+- `claude.accounts[].windows` has one row per (`scope`, `window`) pair, the
+  key readings are stored under (C-9.8, C-9.9): `scope` is `account` or a
+  policy model id, so the Fable weekly window (`claude-fable-5-1`,
+  `seven_day`) and the account's weekly window are separate rows and neither
+  replaces the other. Rows come only from `provider` and `stale-provider`
+  readings with a utilization in [0, 1] (C-9.1); `status` is that evidence
+  label and `stale` is true for `stale-provider`; `admission-observed`
+  evidence (window `admission`) never appears. `used_percent` is 0 to 100,
+  `reset_at` ISO 8601 UTC or null, `model` the policy's short name for a model
+  scope (null for `account`, or for a model id the policy does not name).
+  Order: account `five_hour`, account `seven_day`, other account windows, then
+  model scopes by name. `probe` and `live` keep reading scope `account` only.
+- `claude.earliest_reset` is the soonest `reset_at` after `generated_at` among
+  account-scope windows of accounts that are enrolled, owned by v2 and not the
+  desktop login (`active`), or null. Unlike `codex.fleet.earliest_reset`, the
+  minimum of every home's five-hour and weekly `reset_at`, it ignores resets
+  already past.
 
 ## 13. Legacy continuity
 

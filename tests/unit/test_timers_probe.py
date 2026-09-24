@@ -456,3 +456,52 @@ def test_c23_47_an_expired_claude_home_login_gets_one_heal_turn_then_a_re_read(r
     timer.probe_cycle()
     assert turns == [("claude-1", "heal")]
     assert timer.metadata["claude-1"]["probe_status"] == "expired-token"
+
+
+def test_c29_6_every_status_write_carries_conversations_batches_kinds_and_scoped_windows(rig, tmp_path):
+    """C-18.1, C-18.2, C-29.6 (IR-18, IR-34): the probe cycle and the reset-credit pass publish one
+    shape: detached jobs with their batch, turn jobs only under their conversation, the conversation
+    counts read from conversations.sqlite3, and each Claude window keyed by scope with its policy name."""
+    import uuid
+    from subfleet.conversations.store import ConversationStore
+    timer, store, clock, adapter, enroll = rig
+    home = tmp_path / "claude-home"
+    home.mkdir()
+    store.put_lane(Lane("claude-1", "claude", "claude:uuid-a:uuid-o", Credential("claude", str(home), "home"),
+                        str(home), LaneOwner.V2, False, True))
+    week = iso(clock() + timedelta(days=3))
+    adapter.responses["claude-1"] = [{"status": "ok", "limit_reached": False, "readings": (
+        Reading("claude-1", "account", "seven_day", .5, week, ReadingLabel.PROVIDER, "oauth-usage", iso(clock())),
+        Reading("claude-1", "claude-haiku-4-5-20251001", "seven_day", .9, week, ReadingLabel.PROVIDER,
+                "oauth-usage", iso(clock())))}] * 2
+    conversations = ConversationStore(timer.root)
+    try:
+        settings = {"model": "opus", "permission": "ask"}
+        cid = conversations.create_conversation(provider="claude", workspace="/w", workspace_kind="in-place",
+                                                settings=settings, origin="new", title="a")[0]["conversation_id"]
+        message = str(uuid.uuid4())
+        conversations.submit_message(conversation_id=cid, message_id=message, after_message_id=None, text="hi",
+                                     attachments=[], settings=settings)
+        common = {"payload_digest": "d", "workdir": "/w", "prompt_path": "/p", "sandbox": "read-only"}
+        store.add_job(job_id="j-detached", request_id="r-1", kind="dispatch", state="queued", **common)
+        store.add_event("job.submitted", job_id="j-detached", data={"batch": {"id": "b", "label": "L", "index": 1, "size": 1}})
+        store.add_job(job_id="t-turn", request_id=f"turn:{message}:0", kind="turn", state="queued",
+                      name=f"turn-{cid}", in_place=1, max_attempts=1, **common)
+        for publish in (timer.probe_cycle, timer.reset_credits_cycle):
+            (timer.root / "status.json").unlink(missing_ok=True)
+            publish()
+            payload = json.loads((timer.root / "status.json").read_text())
+            assert [(row["job_id"], row["kind"], row["batch"]["label"]) for row in payload["jobs"]["live"]] == [
+                ("j-detached", "dispatch", "L")]
+            section = payload["conversations"]
+            assert section["available"] and section["counts"] == {"active": 1, "needs_approval": 0, "blocked": 0}
+            assert section["turns"] == {"queued": 1, "running": 0, "waiting": 0}
+            assert [(item["conversation_id"], item["state"], item["turn"]["job_id"]) for item in section["items"]] == [
+                (cid, "queued", "t-turn")]
+            account = next(row for row in payload["claude"]["accounts"] if row["lane_id"] == "claude-1")
+            assert [(w["scope"], w["model"], w["used_percent"]) for w in account["windows"]] == [
+                ("account", None, 50), ("claude-haiku-4-5-20251001", "haiku", 90)]
+            assert account["live"]["seven_day_pct"] == 50
+            assert payload["claude"]["earliest_reset"] == week
+    finally:
+        conversations.close()

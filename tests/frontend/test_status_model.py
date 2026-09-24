@@ -191,3 +191,24 @@ def test_c18_2_frontend_reads_a_snapshot_from_a_daemon_without_jobs(probe, tmp_p
     result = project(probe, tmp_path, payload)
     assert result["has_jobs_section"] is False and result["job_groups"] == [] and result["recent_jobs"] == []
     assert result["codex"][0]["percentage"] == 25
+
+
+def test_c29_6_frontend_decodes_the_conversation_window_and_kind_additions(probe, tmp_path):
+    """C-29.6, C-18.2 (IR-18, IR-34): today's menu model decodes the added keys; a turn job is not
+    among its jobs, and a nearly full Fable window does not become the account's weekly percentage."""
+    claude = lane("claude")
+    claude["readings"].append({"scope": "claude-fable-5-1", "window": "seven_day", "label": "provider",
+                               "source": "fixture", "utilization": .95, "observed_at": NOW.isoformat(),
+                               "resets_at": (NOW + timedelta(days=2)).isoformat()})
+    jobs = [_job("a", "running", kind="dispatch"), _job("t", "running", kind="turn", name="turn-cv-1")]
+    summary = {"available": True, "counts": {"active": 1, "needs_approval": 1, "blocked": 0}, "truncated": False,
+               "items": [{"conversation_id": "cv-1", "provider": "claude", "title": "a", "state": "approval-needed",
+                          "blocked_by": None, "pending_approvals": 1, "updated_at": NOW.isoformat()}]}
+    payload = build_status({"lanes": [claude], "jobs": jobs, "conversations": summary,
+                            "model_names": {"claude-fable-5-1": "fable"}}, now=NOW)
+    assert [(w["scope"], w["model"]) for w in payload["claude"]["accounts"][0]["windows"]] == [
+        ("account", None), ("account", None), ("claude-fable-5-1", "fable")]
+    assert payload["conversations"]["items"][0]["turn"]["job_id"] == "t"
+    result = project(probe, tmp_path, payload)
+    assert result["claude"][0]["percentage"] == 25 and result["claude"][0]["weekly_percentage"] == 60
+    assert [job["title"] for group in result["job_groups"] for job in group["jobs"]] == ["a"]
