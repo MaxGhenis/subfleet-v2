@@ -993,7 +993,8 @@ def import_reset_settings(writer: _Writer, report: StoreReport, *, roster_dir: P
             report.imported += 1
             report.count("reset-credits-disabled")
             report.note("reset_credits.enabled set to false from v1 auto_reset.enabled; "
-                        "the daemon reads policy.json at startup")
+                        "the daemon reads policy.json at startup, and the policy hash changes "
+                        "as for any edit (C-6.12)")
             if not writer.dry_run:
                 reset["enabled"] = False
                 _publish(policy_path, (json.dumps(policy, indent=2) + "\n").encode())

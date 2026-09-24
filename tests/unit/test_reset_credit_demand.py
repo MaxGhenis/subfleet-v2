@@ -20,6 +20,7 @@ import pytest
 from subfleet.actions import (CAPACITY, LIMITED, RESERVATION_S, UNUSABLE, ResetCredits, demand_verdict,
                               lane_condition, route_lane_state)
 from subfleet.adapters.codex import CodexAdapter
+from subfleet.contracts import ClockSource, Closure, ClosureReason, Reading, ReadingLabel
 from subfleet.scheduler import evaluate
 from subfleet.timers import Timers
 from tests.unit.test_scheduler import attempt, closure, job, lane, policy, reading, view  # noqa: F401  (fixture)
@@ -217,8 +218,9 @@ def test_the_queue_is_not_read_unless_every_cheaper_gate_passes(store, tmp_path)
     assert not calls
     resets = component(store, HTTP())
     assert resets.evaluate(snapshot(store), now=NOW, demand=demand)["status"] == "confirmed"
+    assert calls == [1, 1]                    # read, then read again just before spending
     assert resets.evaluate(snapshot(store), now=NOW, demand=demand)["status"] == "interval-blocked"
-    assert calls == [1]
+    assert calls == [1, 1]
 
 
 def test_a_lane_reset_this_week_with_room_blocks_the_next_spend_whatever_the_interval(store, tmp_path):
@@ -428,3 +430,114 @@ def test_one_evaluation_at_a_time_holds_while_the_queue_is_read(store, tmp_path)
     finally:
         release.set()
         worker.join(2)
+
+
+# --- review round: what a credit can and cannot clear -------------------------
+
+@pytest.mark.parametrize("scopes", [("gpt-6-astra",), ("account", "gpt-6-astra")])
+def test_a_limit_scoped_to_the_jobs_model_is_no_room_and_no_candidate(policy, scopes):
+    """C-23.16 (b), (c), C-23.17: a reset releases account-wide limits only; a model-scoped one would stand."""
+    lanes, readings, closures, _ = codex_fleet(*["limited"] * 5, "unmeasured")
+    closures.extend(closure("codex-6", scope=scope) for scope in scopes)
+    verdict = demand_verdict(evaluate(policy, view(lanes, readings, closures), astra_job()))
+    assert verdict == {"verdict": "codex-demand", "capacity_lanes": [],
+                       "limited_lanes": [f"codex-{n}" for n in range(1, 6)]}
+    only = [lane("codex-1")]
+    alone = demand_verdict(evaluate(policy, view(only, (), [closure("codex-1", scope="gpt-6-astra")]), astra_job()))
+    assert alone == {"verdict": "no-codex-demand", "capacity_lanes": [], "limited_lanes": []}
+
+
+@pytest.mark.parametrize("utilization,verdict", [(.85, "codex-demand"), (.849, "placeable")])
+def test_the_floor_is_the_routing_floor_to_the_reading(policy, utilization, verdict):
+    """C-23.16 (b), C-11.3: at 1 - floor a fresh reading is limited; just under it, the job is placed."""
+    lanes, readings, closures, _ = codex_fleet("limited")
+    lanes.append(lane("codex-2"))
+    snapshot_ = view(lanes, [*readings, reading("codex-2", utilization)], closures)
+    assert demand_verdict(evaluate(policy, snapshot_, astra_job()))["verdict"] == verdict
+
+
+def test_a_full_five_hour_window_under_a_weekly_window_with_room_spends_nothing(store, tmp_path):
+    """C-23.16 (c): `limit_reached` with a fresh weekly reading under the floor reopens within hours."""
+    target = limited_lane(store, tmp_path, utilization=.3)
+    store.put_closure(Closure(target.lane_id, "account", "2026-09-05T14:00:00Z", ClosureReason.PROVIDER_LIMIT,
+                              ClockSource.REPORTED, None))
+    store.add_reading(Reading(target.lane_id, "account", "five_hour", 1., "2026-09-05T14:00:00Z",
+                              ReadingLabel.PROVIDER, "wham", STAMP))
+    http = HTTP()
+    view_ = snapshot(store, **{target.lane_id: {"probe": {"status": "limited", "limit_reached": True,
+                                                          "checked_at": STAMP}}})
+    assert component(store, http).evaluate(view_, now=NOW, demand=wants(store))["status"] == "no-eligible-lane"
+    assert not http.calls
+    weekly = limited_lane(store, tmp_path, 2)              # the weekly window itself is full
+    view_ = snapshot(store, **{target.lane_id: {"probe": {"status": "limited", "limit_reached": True,
+                                                          "checked_at": STAMP}}})
+    result = component(store, http).evaluate(view_, now=NOW, demand=wants(store, target.lane_id, weekly.lane_id))
+    assert result["status"] == "confirmed" and result["lane_id"] == weekly.lane_id
+
+
+def test_no_eligible_lane_means_the_queue_is_not_read(store, tmp_path):
+    """C-23.16 (a): with no lane a credit could go on, waiting jobs are not even judged."""
+    limited_lane(store, tmp_path, utilization=.5)
+    calls = []
+    result = component(store, HTTP()).evaluate(snapshot(store), now=NOW, demand=lambda: calls.append(1) or [])
+    assert result["status"] == "no-eligible-lane" and calls == []
+
+
+def test_the_job_is_judged_again_just_before_the_spend(store, tmp_path):
+    """C-23.16 (a), (b): a lane that opened while entitlements were listed stops the spend."""
+    limited_lane(store, tmp_path)
+    answers = iter([wants(store), [{**wants(store)[0], "verdict": "placeable", "limited_lanes": []}]])
+    http = HTTP()
+    result = component(store, http).evaluate(snapshot(store), now=NOW, demand=lambda: next(answers))
+    assert result["status"] == "demand-changed" and result["verdict"] == "placeable"
+    assert lists(http) == 1 and posts(http) == 0 and not store.query("SELECT * FROM actions")
+
+
+@pytest.mark.parametrize("wait_reason", ["workspace", "route", None])
+def test_a_job_no_longer_waiting_on_capacity_is_not_spent_for(store, tmp_path, wait_reason):
+    """C-23.16 (a): the job must still be waiting on capacity when the action is written."""
+    limited_lane(store, tmp_path)
+    demand = wants(store)
+    store.update_job("job-1", wait_reason=wait_reason, **({} if wait_reason else {"state": "queued"}))
+    http = HTTP()
+    assert component(store, http).evaluate(snapshot(store), now=NOW, demand=demand)["status"] == "demand-gone"
+    assert posts(http) == 0
+
+
+def test_only_a_lane_actually_reset_can_hold_the_next_spend_back(store, tmp_path):
+    """C-23.16 (d): room on a lane never reset is the waiting job's route's business, not (d)'s."""
+    limited_lane(store, tmp_path, 1, days=6)
+    limited_lane(store, tmp_path, 2, utilization=.2)        # never reset, with room
+    limited_lane(store, tmp_path, 3, days=4)
+    resets = component(store, HTTP(), min_interval_min=0)
+    assert resets.evaluate(snapshot(store), now=NOW, target_lane_id="codex-1")["status"] == "confirmed"
+    limit_again(store, "codex-1")
+    result = resets.evaluate(snapshot(store), now=NOW, demand=wants(store, "codex-3", job="pinned-to-three"))
+    assert result["status"] == "confirmed" and result["lane_id"] == "codex-3"
+
+
+def test_an_operator_lane_is_not_held_back_by_a_lane_reset_this_week(store, tmp_path):
+    """C-23.16 (d), (e): one-at-a-time governs the timer; an operator naming a lane is not the timer."""
+    limited_lane(store, tmp_path, 1, days=6)
+    limited_lane(store, tmp_path, 2, days=4)
+    resets = component(store, HTTP(), min_interval_min=0)
+    assert resets.evaluate(snapshot(store), now=NOW, target_lane_id="codex-2")["status"] == "confirmed"
+    assert resets.evaluate(snapshot(store), now=NOW, demand=wants(store))["status"] == "reset-lane-open"
+    operator = resets.evaluate(snapshot(store), now=NOW, target_lane_id="codex-1")
+    assert operator["status"] == "confirmed" and operator["lane_id"] == "codex-1"
+
+
+def test_a_failing_demand_reader_is_reported_not_quiet(store, tmp_path):
+    """C-23.16 (a): the timer's status names the error; nothing is spent."""
+    target = limited_lane(store, tmp_path)
+    def broken():
+        raise KeyError("queue")
+    timers = Timers(store, tmp_path, {"reset_credits": {"enabled": True}}, demand=broken, now=lambda: NOW,
+                    adapter_factory=lambda provider: CodexAdapter(opener=HTTP(), now=lambda: NOW))
+    timers.metadata[target.lane_id] = {"probe_status": "limited", "limit_reached": True, "checked_at": STAMP}
+    try:
+        result = timers.evaluate_resets(timers.snapshot())
+        assert result["status"] == "demand-error" and result["error_type"] == "KeyError"
+        assert not store.query("SELECT * FROM actions")
+    finally:
+        timers.stop()

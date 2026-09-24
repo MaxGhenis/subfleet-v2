@@ -29,8 +29,10 @@ RESERVATION_S = 900
 #: C-23.16 (b), (d): a lane reset this recently is capacity until shown limited.
 RESET_WINDOW = timedelta(days=7)
 
-CAPACITY, LIMITED, UNUSABLE = "capacity", "limited", "unusable"
-_RANK = {UNUSABLE: 0, LIMITED: 1, CAPACITY: 2}
+CAPACITY, LIMITED, CLOSED, UNUSABLE = "capacity", "limited", "closed", "unusable"
+#: A lane's best state across a route's models: room beats a limit a credit
+#: clears, which beats a limit it does not, which beats no use at all.
+_RANK = {UNUSABLE: 0, CLOSED: 1, LIMITED: 2, CAPACITY: 3}
 #: Rejections no quota can change: the lane could not take the job anyway.
 UNUSABLE_REASONS = frozenset({"excluded", "desktop", "owner-v1", "disabled", "identity-mismatch"})
 #: Closures a reset credit is for (C-23.17 releases them) and closures it is not.
@@ -131,32 +133,71 @@ def _shadowed(row: Mapping[str, Any]) -> bool:
     return bool(row.get("app_shadowed") or row.get("shadowed_by_app"))
 
 
+def reset_reservations(store, *, now: str | datetime | None = None) -> dict[str, str]:
+    """C-23.16 (c): lane id -> the waiting job a confirmed reset was spent for.
+
+    A reservation lasts `RESERVATION_S` from the confirmation and ends as soon
+    as that job has an attempt reserved (anywhere), is no longer queued or
+    waiting, or is being cancelled. Admission keeps every other job off a
+    reserved lane while it lasts (`Daemon._capacity_view`). A plain read of the
+    store, so admission needs no timer to ask it.
+    """
+    instant = _time(now or datetime.now(timezone.utc))
+    since = _iso(instant - timedelta(seconds=RESERVATION_S))
+    found: dict[str, str] = {}
+    for action in store.query(
+            "SELECT action_id,request_json,updated_at FROM actions WHERE kind='reset-credit' "
+            "AND state='confirmed' AND updated_at>=? ORDER BY updated_at,action_id", (since,)):
+        try:
+            request = json.loads(action["request_json"] or "{}")
+        except ValueError:
+            continue
+        job_id, lane_id = request.get("job_id"), request.get("lane_id")
+        if not isinstance(job_id, str) or not isinstance(lane_id, str):
+            continue
+        job = store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
+        if job is None or job["state"] not in ("queued", "waiting") or job["cancel_requested_at"]:
+            continue
+        if store.one("SELECT 1 FROM attempts WHERE job_id=? AND reserved_at>=?",
+                     (job_id, action["updated_at"])):
+            continue
+        found[lane_id] = job_id
+    return found
+
+
 def route_lane_state(rejection: Mapping[str, Any], closures: Iterable[Mapping[str, Any]] = ()) -> str:
     """C-23.16 (b): what a lane a job's route rejected is to that job.
 
     `unusable`: no quota would let it take the job (excluded, the desktop login,
     another owner, disabled, a credential that holds another account or is
     latched, the reserve holding it for another model, an auth-dead or operator
-    hold). `limited`: a provider-limit closure (`provider-limit`, `credits`, an
-    imported `cooldown`) or a fresh measured reading below the floor. Anything
-    else is `capacity`: a lane that is only busy (no free slot, a probe holding
-    it, the fleet or a parent at its cap, a reset kept for another job) or not
-    measured yet is where the job will run once there is room, so it waits.
-    `closures` are the lane's active closures in the job's scopes, as the
-    scheduler recorded them beside the rejection.
+    hold). `limited`: out of quota in a way a confirmed reset clears (C-23.17
+    releases account-wide `provider-limit` and `credits` closures and `cooldown`
+    closures of any scope): an account-wide limit closure, an imported
+    cooldown, or a fresh measured reading below the floor. `closed`: out of
+    quota in a way a reset leaves standing, a `provider-limit` or `credits`
+    closure scoped to the job's model; no room, but no candidate either.
+    Anything else is `capacity`: a lane that is only busy (no free slot, a probe
+    holding it, the fleet or a parent at its cap, a reset kept for another job)
+    or not measured yet is where the job will run once there is room, so it
+    waits. `closures` are the lane's active closures in the job's scopes, as
+    the scheduler recorded them beside the rejection.
     """
     reasons = [str(reason) for reason in (rejection.get("reasons") or [rejection.get("reason")]) if reason]
     if any(reason in UNUSABLE_REASONS for reason in reasons) or rejection.get("slot_block") == "credential-latched":
         return UNUSABLE
     if any(reason.startswith("reserve:") and not reason.endswith(":unmeasured") for reason in reasons):
         return UNUSABLE
+    closures = list(closures)
     kinds = {str(row.get("reason") or "") for row in closures}
     if kinds & HOLD_CLOSURES:
         return UNUSABLE
+    if any(row.get("scope") != "account" and row.get("reason") in ("provider-limit", "credits") for row in closures):
+        return CLOSED
     if "below-floor" in reasons or kinds & LIMIT_CLOSURES:
         return LIMITED
     if any(reason.startswith("closed:") for reason in reasons):
-        return LIMITED          # a closure this decision carried no row for is still a closure
+        return CLOSED           # a closure this decision carried no row for: no room, no candidate
     return CAPACITY
 
 
@@ -165,9 +206,10 @@ def demand_verdict(decision: Any) -> dict[str, Any]:
 
     `placeable`: the decision chose a lane. `lane-has-capacity`: some lane of
     its route, of either provider, is capacity by `route_lane_state`, so the
-    job waits for it. `codex-demand`: every lane it could use is limited or
-    unusable, and at least one limited lane is a Codex lane (the lanes a
-    credit could reopen for it). `no-codex-demand`: nothing a credit can fix.
+    job waits for it. `codex-demand`: every lane it could use is limited,
+    closed or unusable, and at least one is a Codex lane `limited` in a way a
+    credit clears (the lanes a credit could reopen for it). `no-codex-demand`:
+    nothing a credit can fix.
     A lane is judged by its best state across the models of the route: a
     lane closed for Astra but with a slot coming for Terra is capacity to a
     job whose chain holds both.
@@ -292,6 +334,10 @@ class ResetCredits:
         self._lock = threading.Lock()
         self._http_slots: dict[str, threading.Lock] = {}
 
+    def describe(self) -> dict:
+        """C-23.16 (f): what an operator needs to know before trusting the timer."""
+        return {"automatic": self._settings()["enabled"], "inhibited_by": self.inhibited()}
+
     def inhibited(self) -> str | None:
         """C-23.16 (f): the no-reset marker's path while it exists, else None.
 
@@ -405,34 +451,20 @@ class ResetCredits:
         return sorted(opened)
 
     def reservations(self, *, now: str | datetime | None = None) -> dict[str, str]:
-        """C-23.16 (c): lane id -> the waiting job a confirmed reset was spent for.
+        """C-23.16 (c): lane id -> the waiting job a confirmed reset was spent for."""
+        return reset_reservations(self.store, now=now)
 
-        A reservation lasts `RESERVATION_S` from the confirmation and ends as
-        soon as that job has an attempt reserved (anywhere), is no longer queued
-        or waiting, or is being cancelled. Admission keeps every other job off
-        a reserved lane while it lasts (`Daemon._pick`).
+    def _weekly_has_room(self, row: dict, instant: datetime) -> bool:
+        """C-23.16 (c): a fresh measured weekly window with headroom: only a shorter window is full.
+
+        `limit_reached` does not say which window it is; a lane whose own fresh
+        weekly reading is under the floor reopens when its five-hour window
+        does, and a weekly credit spent there buys a few hours at most.
         """
-        instant = _time(now or datetime.now(timezone.utc))
-        since = _iso(instant - timedelta(seconds=RESERVATION_S))
-        found: dict[str, str] = {}
-        for action in self.store.query(
-                "SELECT action_id,request_json,updated_at FROM actions WHERE kind='reset-credit' "
-                "AND state='confirmed' AND updated_at>=? ORDER BY updated_at,action_id", (since,)):
-            try:
-                request = json.loads(action["request_json"] or "{}")
-            except ValueError:
-                continue
-            job_id, lane_id = request.get("job_id"), request.get("lane_id")
-            if not isinstance(job_id, str) or not isinstance(lane_id, str):
-                continue
-            job = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
-            if job is None or job["state"] not in ("queued", "waiting") or job["cancel_requested_at"]:
-                continue
-            if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND reserved_at>=?",
-                              (job_id, action["updated_at"])):
-                continue
-            found[lane_id] = job_id
-        return found
+        readings = [asdict(item) if is_dataclass(item) else item for item in row.get("readings") or ()]
+        return any(item.get("scope") == "account" and item.get("window") == "seven_day"
+                   and fresh_provider(item, now=instant, reading_ttl_s=self._ttl())
+                   and item["utilization"] < 1 - self._floor() for item in readings)
 
     def _eligible(self, rows: list[dict], instant: datetime) -> list[dict]:
         """C-23.16: the account reports `limit_reached` in a fresh read of its own usage."""
@@ -440,7 +472,8 @@ class ResetCredits:
                        and (row.get("probe") or {}).get("status") in ("ok", "limited")
                        and self._fresh_usage(row.get("probe") or {}, instant)
                        and (row.get("probe") or {}).get("account_key", row["account_key"]) == row["account_key"]
-                       and self.confirmed_override(row["lane_id"], now=instant) is None], key=_order)
+                       and self.confirmed_override(row["lane_id"], now=instant) is None
+                       and not self._weekly_has_room(row, instant)], key=_order)
 
     def evaluate(self, snapshot: dict, *, now: str | datetime | None = None,
                  cancel: threading.Event | None = None, deadline: float | None = None,
@@ -493,14 +526,18 @@ class ResetCredits:
             if last is not None and (instant - last).total_seconds() < settings["min_interval_min"] * 60:
                 return {**result, "status": "interval-blocked"}
             eligible = self._eligible(rows, instant)
+            reader = demand if callable(demand) else None
             if manual:
                 plan = [(None, [row for row in eligible if row["lane_id"] == target_lane_id])]
             else:
                 opened = self.reset_lanes_open(rows, now=instant)
                 if opened:
                     return {**result, "status": "reset-lane-open", "reset_lanes": opened}
-                if callable(demand):
-                    demand = demand()
+                if not eligible:
+                    # No lane a credit could go on: the queue need not be read.
+                    return {**result, "status": "no-eligible-lane", "candidate_lanes": []}
+                if reader is not None:
+                    demand = reader()
                 if demand is None:
                     return {**result, "status": "no-demand",
                             "detail": "No admission view of waiting jobs; nothing is spent without one."}
@@ -540,6 +577,14 @@ class ResetCredits:
             if (cancel is not None and cancel.is_set()) or time.monotonic() >= deadline:
                 return {**result, "status": "cancelled"}
             job_id = job.get("job_id") if job else None
+            if job_id and reader is not None:
+                # Listing can take seconds per lane. Judge the job again just
+                # before spending: a lane on its route may have opened meanwhile.
+                again = next((item for item in reader() or () if item.get("job_id") == job_id), None)
+                if (again is None or again.get("verdict") != "codex-demand"
+                        or lane.lane_id not in (again.get("limited_lanes") or ())):
+                    return {**result, "status": "demand-changed", "job_id": job_id,
+                            **({"verdict": again.get("verdict")} if again else {})}
             action_id, holder = str(uuid.uuid4()), str(uuid.uuid4())
             request = {"credit_id": credit["id"], "redeem_request_id": str(uuid.uuid4()),
                        "account_key": lane.account_key, "lane_id": lane.lane_id,
@@ -567,9 +612,9 @@ class ResetCredits:
                 if current_last is not None and (instant - current_last).total_seconds() < settings["min_interval_min"] * 60:
                     return {**result, "status": "interval-blocked"}
                 if job_id:
-                    waiting = conn.execute("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?",
+                    waiting = conn.execute("SELECT state,wait_reason,cancel_requested_at FROM jobs WHERE job_id=?",
                                            (job_id,)).fetchone()
-                    if waiting is None or waiting[0] != "waiting" or waiting[1]:
+                    if waiting is None or waiting[0] != "waiting" or waiting[1] != "capacity" or waiting[2]:
                         return {**result, "status": "demand-gone", "job_id": job_id}
                 if conn.execute("SELECT 1 FROM actions WHERE op_key IN (?,?)",
                                 reset_credit_op_keys(lane.account_key, credit["id"])).fetchone():

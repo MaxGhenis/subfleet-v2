@@ -1278,3 +1278,16 @@ def test_v1_reset_hold_becomes_the_no_reset_marker(v1, monkeypatch, hold):
     source.unlink()
     again = run_import(v1, write_report=False, **options).stores["reset-settings"]
     assert os.path.lexists(marker) and again.reasons["no-v1-reset-hold"] == 1
+
+
+@pytest.mark.parametrize("content", ["{not json", json.dumps({"tiers": []}), json.dumps({"reset_credits": []})])
+def test_an_unreadable_policy_is_left_alone(v1, monkeypatch, content):
+    """C-23.16 (f): the import never rewrites a policy it cannot read; the daemon refuses to start on it."""
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    _auto_reset(v1, False)
+    v1["root"].mkdir(parents=True, exist_ok=True)
+    path = v1["root"] / "policy.json"
+    path.write_text(content)
+    entry = run_import(v1, write_report=False).stores["reset-settings"]
+    assert path.read_text() == content
+    assert entry.imported == 0 and entry.reasons["policy-unreadable"] == 1

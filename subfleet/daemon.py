@@ -31,7 +31,7 @@ from typing import Any, Callable
 
 from . import __version__
 from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
-from .actions import demand_verdict
+from .actions import demand_verdict, reset_reservations
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -263,6 +263,11 @@ class Daemon:
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
                              deliver=self._timer_notice, demand=self._reset_demand)
+        # C-23.16 (f): the policy is read once, here; say what it means for resets.
+        resets = self.timers.actions.describe()
+        self.log.info("reset credits: automatic redemption %s; no-reset marker %s",
+                      "on (only for a job waiting on the lane, C-23.16)" if resets["automatic"] else "off",
+                      resets["inhibited_by"] or "absent")
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -586,6 +591,15 @@ class Daemon:
         for lane in view["lanes"]:
             if holder := view["unavailable_lanes"].get(lane["lane_id"]):
                 lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
+        # C-23.16 (c): a lane reset for a waiting job is that job's until it is
+        # placed, so to every other job (and to `open_lanes`, `why`, and the
+        # idle log) it has no slot, like a lane a probe holds. Read here, per
+        # view, so a reset confirmed in the middle of an admission pass is seen
+        # by the jobs that pass evaluates after it; `_route_for` gives the
+        # holder its own lane back.
+        view["reset_reservations"] = reset_reservations(self.store, now=utcnow())
+        for lane_id, holder in view["reset_reservations"].items():
+            view["unavailable_lanes"].setdefault(lane_id, f"reset-reserved:{holder}")
         return self.timers.enrich_view(view)
 
     def _cached_desktop_identity(self) -> capacity.DesktopIdentity:
@@ -692,21 +706,27 @@ class Daemon:
         # C-6.3, C-11: one pure evaluation uses the same transaction's attempt
         # rows as reservation. Desktop file I/O and the desktop profile request
         # happen before entering it (C-3.3, C-10.3).
-        exclusions = job.get("exclusions") or ()
-        if isinstance(exclusions, str):
-            exclusions = json.loads(exclusions)
+        return self._route_for(self._route_view(desktop), job, extra_exclusions)
+
+    def _route_view(self, desktop=None) -> dict:
+        """The capacity view routing evaluates: a confirmed reset's lane reads unmeasured (C-23.17)."""
         view = self._capacity_view(desktop)
         overrides = {lane["lane_id"] for lane in view["lanes"]
                      if self.timers.actions.confirmed_override(lane["lane_id"])}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
-        # C-23.16 (c): a lane reset for a waiting job is that job's until it is
-        # placed. To every other job it has no slot, as a lane a probe holds.
-        unavailable = view.setdefault("unavailable_lanes", {})
-        for lane_id, holder in self._reset_reservations.items():
-            if holder != job.get("job_id"):
-                unavailable.setdefault(lane_id, f"reset-reserved:{holder}")
-        return scheduler.evaluate(self.policy, view,
-                                  {**job, "exclusions": tuple(exclusions) + extra_exclusions,
+        return view
+
+    def _route_for(self, view: dict, job: dict, extra_exclusions: tuple[str, ...] = ()):
+        """`scheduler.evaluate` of one job on `view`, which it does not change."""
+        exclusions = job.get("exclusions") or ()
+        if isinstance(exclusions, str):
+            exclusions = json.loads(exclusions)
+        unavailable = dict(view.get("unavailable_lanes") or {})
+        for lane_id, holder in (view.get("reset_reservations") or {}).items():
+            if holder == job.get("job_id") and unavailable.get(lane_id) == f"reset-reserved:{holder}":
+                del unavailable[lane_id]            # C-23.16 (c): the holder's own lane is open to it
+        return scheduler.evaluate(self.policy, {**view, "unavailable_lanes": unavailable},
+                                  {**job, "exclusions": tuple(exclusions) + tuple(extra_exclusions),
                                    "policy_hash": self.policy_digest})
 
     def _reset_demand(self) -> list[dict]:
@@ -724,18 +744,20 @@ class Daemon:
         `actions.demand_verdict` of the job's decision plus its id and tier.
         """
         waits = self._capacity_waits
-        desktop = self._cached_desktop_identity()
         rows = self.store.query("SELECT * FROM jobs WHERE state='waiting' AND wait_reason='capacity' "
                                 "AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+        rows = [job for job in rows if job["job_id"] in waits]
+        if not rows:
+            return []
+        desktop = self._cached_desktop_identity()
+        view = self._route_view(desktop)            # one view for every job this call judges
         demand = []
         for job in scheduler.ordered_jobs(self.policy, rows):
-            if job["job_id"] not in waits:
-                continue
             try:
                 _, exclusions, retry = self._retry_pin(job)
                 if retry and self._retry_waits_on_a_slot(retry, exclusions, desktop):
                     continue
-                decision = self._pick(job, extra_exclusions=exclusions, desktop=desktop)
+                decision = self._route_for(view, job, exclusions)
             except ROUTE_ERRORS:
                 continue            # C-6.12: a route that cannot be evaluated is no demand
             demand.append({"job_id": job["job_id"], "tier": job["tier"], **demand_verdict(decision)})
@@ -2411,7 +2433,7 @@ class Daemon:
 
     def _admit_pass(self, holds: dict[str, dict], tally: dict) -> None:
         self._recover_probes()
-        self._reset_reservations = self.timers.actions.reservations(now=self.timers.now())
+        self._reset_reservations = reset_reservations(self.store, now=utcnow())
         desktop_account = self._desktop_identity()
         queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
         for gone in set(self._capacity_waits) - {job["job_id"] for job in queued}:
@@ -2458,9 +2480,13 @@ class Daemon:
             behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
                            if scheduler.competes(models, theirs, lanes, their_lanes)), None)
             # C-23.16 (c): a reset spent for this job is its own. No older job can
-            # take that lane (`_pick`), so FIFO has nothing to hold it behind.
-            reserved = job["job_id"] in self._reset_reservations.values()
-            if saturated or (behind and not reserved):
+            # take that lane (`_capacity_view`), so FIFO has nothing to hold it
+            # behind there; whether it is placed there is known only after its
+            # route is evaluated, where a job that would go elsewhere is held.
+            reserved_lane = next((lane for lane, holder in self._reset_reservations.items()
+                                  if holder == job["job_id"]), None)
+            held_behind = behind if reserved_lane is not None else None
+            if saturated or (behind and reserved_lane is None):
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": cap} if saturated else
                                         {"reason": "behind-older-job", "behind": behind, "tier": tier})
@@ -2528,7 +2554,8 @@ class Daemon:
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
                                    if scheduler.competes(models, theirs, lanes, their_lanes)), None)
-                    if behind and not reserved:
+                    held_behind = behind if reserved_lane is not None else None
+                    if behind and reserved_lane is None:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
                         # the pass with its own demand, with no git and no scoring.
@@ -2582,10 +2609,25 @@ class Daemon:
                 needs_probe = self._needs_probe(decision, job)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
                 saturated = live >= cap
+                on_reserved = reserved_lane is not None and decision.chosen_lane == reserved_lane
+                if held_behind and decision.chosen_lane and not on_reserved:
+                    # C-6.9, C-23.16 (c): the reset let this job past an older one
+                    # for its own lane only. Routed elsewhere, it waits its turn,
+                    # on a clock like any held look.
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                    hold = {"reason": "behind-older-job", "behind": held_behind, "tier": tier}
+                    rechecks = self._capacity_wait(job["job_id"], f"reserved-elsewhere:behind:{held_behind}", hold)
+                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
+                               (next_check, job["job_id"]))
+                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                    continue
                 # A job that passes an older waiting job of its tier leaves one
                 # active slot free, so the older job can start the moment its
                 # capacity appears instead of waiting out the jobs that passed it.
-                limit = cap - 1 if waiters.get(tier) and not reserved else cap
+                # A job placed on the lane a reset was spent for takes the slot
+                # that reset made: no older job could have had it (C-23.16 (c)).
+                limit = cap - 1 if waiters.get(tier) and not on_reserved else cap
                 if not decision.chosen_lane or live >= limit:
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                     # C-6.10: a wait that reaches the verdict it reached last time

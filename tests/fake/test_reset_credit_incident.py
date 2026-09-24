@@ -281,7 +281,7 @@ def test_the_reset_lane_goes_to_the_job_it_was_spent_for(fleet, monkeypatch, kep
     assert result["status"] == "confirmed" and result["job_id"] == younger and result["lane_id"] == "codex-6"
     if not kept:
         # Without the reservation the older job, first in admission order, would take it.
-        monkeypatch.setattr(service.timers.actions, "reservations", lambda **kwargs: {})
+        monkeypatch.setattr(daemon_module, "reset_reservations", lambda store, **kwargs: {})
     service.store.update_job(older, next_check_at=utcnow())
     service._admit()
     if kept:
@@ -322,3 +322,122 @@ def test_the_state_root_no_reset_marker_refuses_the_daemon(fleet):
     assert http.consumed() == [] and http.listed() == []
     (service.root / "no-reset").unlink()
     assert service.timers.reset_credits_cycle()["status"] == "confirmed"
+
+
+def test_a_job_no_admission_pass_has_looked_at_is_not_demand(fleet):
+    """C-23.16 (a): a wait a restart forgot, or a job held behind an older one, has had no look."""
+    service, http = fleet
+    for number in range(1, 7):
+        limit(service, number)
+    job_id = submit(service, "waiting")
+    service._admit()
+    assert [row["job_id"] for row in service._reset_demand()] == [job_id]
+    service._capacity_waits.clear()                        # what a restart forgets
+    assert service._reset_demand() == []
+    assert service.timers.reset_credits_cycle()["status"] == "no-demand"
+    assert http.consumed() == [] and http.listed() == []
+
+
+def test_the_preview_judges_the_same_demand_without_listing_a_credit(fleet):
+    """C-23.16 (e), C-19.1: `reset codex --policy --dry-run` reads the queue as the timer would, and spends nothing."""
+    service, http = fleet
+    for number in range(1, 7):
+        limit(service, number)
+    empty = operations.dispatch(service, protocol.OperationsArgs("reset", dry_run=True))
+    assert empty["status"] == "no-demand" and empty["dry_run"] is True
+    job_id = submit(service, "waiting")
+    service._admit()
+    preview = operations.dispatch(service, protocol.OperationsArgs("reset", dry_run=True))
+    assert preview["status"] == "would-evaluate" and preview["job_id"] == job_id
+    assert preview["candidate_lanes"][0] == "codex-6"
+    assert http.calls == [] and not service.store.query("SELECT * FROM actions")
+
+
+def test_a_reset_confirmed_in_the_middle_of_an_admission_pass_is_kept_for_its_job(fleet, monkeypatch):
+    """C-23.16 (c): reservations are read with the capacity they guard, not once per pass."""
+    service, http = fleet
+    service.store.put_lane(Lane("claude-1", "claude", "claude:fake:org", Credential("claude", "fake-token", "env"),
+                                None, LaneOwner.V2, False))
+    busy(service, "claude-1", model="claude-sonnet-5")
+    for number in range(1, 7):
+        limit(service, number)
+    older = submit(service, "older", pinned_model=None, task="review", tier="easy")   # sonnet, opus, astra
+    younger = submit(service, "younger", tier="standard")                             # astra only
+    service._admit()
+    service.store.update_job(older, next_check_at=utcnow())
+    workspace = service._workspace
+    def confirm_mid_pass(job):
+        if job["job_id"] == older and not http.consumed():
+            assert service.timers.reset_credits_cycle()["job_id"] == younger    # lands after the pass began
+        return workspace(job)
+    monkeypatch.setattr(service, "_workspace", confirm_mid_pass)
+    service._admit()
+    assert http.consumed() == ["fake-6"]
+    assert lanes_of(service, older) == []           # evaluated after the confirmation, kept off codex-6
+    service._admit()                                # the next pass sees the job due, as the reset left it
+    assert lanes_of(service, younger) == ["codex-6"] and lanes_of(service, older) == []
+
+
+def _same_tier_pair(service):
+    """A younger Astra job judged first, then an older job of its tier that waits on a busy Claude lane."""
+    service.store.put_lane(Lane("claude-1", "claude", "claude:fake:org", Credential("claude", "fake-token", "env"),
+                                None, LaneOwner.V2, False))
+    busy(service, "claude-1", model="claude-opus-5-5")
+    for number in range(1, 7):
+        limit(service, number)
+    younger = submit(service, "younger", tier="standard")                    # astra only
+    service._admit()
+    older = submit(service, "older", pinned_model=None, task="review", tier="standard")  # opus, then astra
+    with service.store.transaction("fixture.reorder") as tx:
+        # Older in FIFO terms: it was in some other wait when the younger one was looked at.
+        tx.execute("UPDATE jobs SET created_at='2026-01-01T00:00:00Z' WHERE job_id=?", (older,))
+    service._admit()
+    assert state_of(service, older) == state_of(service, younger) == ("waiting", "capacity")
+    return older, younger
+
+
+def test_the_job_a_reset_was_spent_for_passes_an_older_job_for_that_lane(fleet):
+    """C-6.9, C-23.16 (c): no older job can take the reserved lane, so FIFO does not hold its holder back."""
+    service, http = fleet
+    older, younger = _same_tier_pair(service)
+    demand = {row["job_id"]: row["verdict"] for row in service._reset_demand()}
+    assert demand == {older: "lane-has-capacity", younger: "codex-demand"}
+    assert service.timers.reset_credits_cycle()["job_id"] == younger
+    service.store.update_job(older, next_check_at=utcnow())
+    service._admit()
+    assert lanes_of(service, younger) == ["codex-6"] and lanes_of(service, older) == []
+
+
+def test_the_job_a_reset_was_spent_for_keeps_its_place_for_any_other_lane(fleet):
+    """C-6.9, C-23.16 (c): routed to a lane other than its reserved one, the holder waits behind the older job."""
+    service, http = fleet
+    older, younger = _same_tier_pair(service)
+    with service.store.transaction("fixture.exclude") as tx:
+        tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (json.dumps(["codex-5"]), older))
+    assert service.timers.reset_credits_cycle()["job_id"] == younger          # codex-6 kept for it
+    open_lane(service, 5, measured=False)                                       # codex-5 opens, sorts first
+    for job_id in (older, younger):
+        service.store.update_job(job_id, next_check_at=utcnow())
+    service._admit()
+    assert lanes_of(service, younger) == [] and lanes_of(service, older) == []
+    assert service._holds[younger]["reason"] == "behind-older-job" and service._holds[younger]["behind"] == older
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_the_daemon_log_says_what_the_policy_means_for_resets(tmp_path, monkeypatch, enabled):
+    """C-23.16 (f): the policy is read once at startup; the log says automatic redemption is on or off."""
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+    root = tmp_path / "state"
+    root.mkdir()
+    policy = json.loads(Path(DEFAULT_POLICY_PATH).read_text())
+    policy["reset_credits"]["enabled"] = enabled
+    (root / "policy.json").write_text(json.dumps(policy))
+    (root / "no-reset").write_text("{}")
+    service = Daemon(root)
+    try:
+        text = (root / "daemon.log").read_text()
+    finally:
+        service.close()
+    assert ("automatic redemption on" if enabled else "automatic redemption off") in text
+    assert f"no-reset marker {root / 'no-reset'}" in text
