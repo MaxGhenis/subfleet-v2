@@ -459,9 +459,13 @@
       "clauses": [
         "C-30.4"
       ],
-      "status": "open",
-      "evidence": [],
-      "notes": ""
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_importer.py, legacy cockpit section: per-message classification, repeated import creates nothing, held sessions, client journal, dry run, daemon.lock",
+        "tests/unit/test_conversation_store.py: legacy history is terminal, idempotent by id, written first, never dispatched",
+        "tests/e2e/test_legacy_cockpit.py: imported history reopens through the daemon by its native session, and a new message resumes that session while no history row is sent"
+      ],
+      "notes": "Not run against the real v1 state yet. A dry run over a private copy of the real outbox (2026-09-24, scratch state root) placed all 6 finished messages as history in 3 legacy conversations. A real pass needs the daemon stopped (docs/migration.md, 'The legacy cockpit, milestone 9')."
     },
     {
       "id": "R-10",
