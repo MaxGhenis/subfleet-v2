@@ -41,8 +41,18 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
     return result.stdout
 
 
+#: The boot-session UUID once read. A process cannot outlive its boot, so the
+#: UUID never changes under it; legacy `kern.boottime` seconds can shift with a
+#: wall-clock correction and are read again every time (the client's `_BOOT_ID`
+#: follows the same rule). Every `liveness` call used to spend one `sysctl`
+#: subprocess on this, and the daemon asks about every running guardian (C-5.11).
+_BOOT_ID: list[str] = []
+
+
 def boot_id() -> str:
     """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction."""
+    if _BOOT_ID:
+        return _BOOT_ID[0]
     def optional_read(argv):
         try:
             return _read(argv)
@@ -50,6 +60,8 @@ def boot_id() -> str:
             return ""
     value = boot_identity.read_identity(optional_read)
     if value:
+        if boot_identity.session_uuid(value):
+            _BOOT_ID.append(value)
         return value
     raise InspectionError("macOS boot identity is unavailable")
 
@@ -171,6 +183,37 @@ class Containment:
         }
 
 
+def _process_table() -> dict[int, tuple[int, int, str]]:
+    """pid -> (ppid, pgid, stat) from one `ps -axo pid=,ppid=,pgid=,stat=` snapshot."""
+    table: dict[int, tuple[int, int, str]] = {}
+    for row in _read(["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat="]).splitlines():
+        parts = row.split(None, 3)
+        if len(parts) < 4:
+            continue
+        table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3].strip())
+    return table
+
+
+def group_members(pgid: int) -> frozenset[int]:
+    """The live, non-zombie members of process group `pgid`, from one snapshot.
+
+    This is C-5.5's first source alone. It exists for the steady-state record
+    of which group members a running attempt owns, which keeps only group
+    members: the full census also reads every process's environment
+    (`ps -axEww`, megabytes on a busy machine) for markers that record never
+    uses. Containment decisions (release, kill, lost, quarantine) still take the
+    full three-source `containment`. Raises `InspectionError` when `ps` fails.
+    """
+    if not pgid or pgid <= 0:
+        return frozenset()
+    try:
+        table = _process_table()
+    except ValueError as exc:
+        raise InspectionError("group enumeration unavailable") from exc
+    return frozenset(pid for pid, (_, group, stat) in table.items()
+                     if group == pgid and not stat.startswith("Z"))
+
+
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
                 attempt_id: str, root: str | None = None) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
@@ -191,11 +234,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     table: dict[int, tuple[int, int, str]] = {}   # pid -> (ppid, pgid, stat)
     errors: list[str] = []
     try:
-        for row in _read(["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat="]).splitlines():
-            parts = row.split(None, 3)
-            if len(parts) < 4:
-                continue
-            table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3].strip())
+        table = _process_table()
         snapshot = True
     except (InspectionError, ValueError):
         snapshot = False

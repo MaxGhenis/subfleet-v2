@@ -35,8 +35,8 @@ from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
-    START_GRACE_S, TERM_GRACE_S,
-    WAIT_POLL_MAX_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
+    LIVENESS_INTERVAL_S, OWNED_CENSUS_INTERVAL_S, START_GRACE_S, TERM_GRACE_S,
+    WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
@@ -179,6 +179,7 @@ class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
+                 liveness_interval_s: float = LIVENESS_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
@@ -188,6 +189,7 @@ class Daemon:
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
+        self.liveness_interval_s = liveness_interval_s
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
@@ -210,6 +212,8 @@ class Daemon:
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
         self._census_next: dict[str, float] = {}
+        # Attempt id -> when its guardian may next be inspected (LIVENESS_INTERVAL_S).
+        self._liveness_next: dict[str, float] = {}
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -1665,14 +1669,24 @@ class Daemon:
         job_ids = args.job_ids
         if not job_ids:
             job_ids = [j["job_id"] for j in self.dispatch("list", {"mine": args.mine, "last": 1 if args.last else None})["jobs"]]
+        # Everything this answer depends on is in the store, so it is read again
+        # only after a transaction has committed, or every WAIT_RECHECK_S. A
+        # waiter used to re-read every job on every wake-up, and the control
+        # loop wakes all waiters each time any worker finishes: with a few
+        # running attempts that was thousands of store reads a second behind the
+        # one store lock (2026-09-24).
+        seen, recheck_at = None, 0.0
         while True:
-            jobs = [self._job(j) for j in job_ids]
-            pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
-            if all(j["state"] in TERMINAL for j in jobs) and not pending_exports:
-                for job in jobs:
-                    job["attempt"] = self.store.one(
-                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
-                return {"jobs": jobs, "timeout": False}
+            generation = self.store.generation
+            if generation != seen or time.monotonic() >= recheck_at:
+                seen, recheck_at = generation, time.monotonic() + WAIT_RECHECK_S
+                jobs = [self._job(j) for j in job_ids]
+                pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
+                if all(j["state"] in TERMINAL for j in jobs) and not pending_exports:
+                    for job in jobs:
+                        job["attempt"] = self.store.one(
+                            "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+                    return {"jobs": jobs, "timeout": False}
             remaining = deadline - time.monotonic()
             if remaining <= 0 or self.stopping.is_set():
                 return {"timeout": True}
@@ -1725,6 +1739,7 @@ class Daemon:
                     or (paced and time.monotonic() < self._worker_retry_at.get(key, 0))):
                 return
             self._busy.add(key)
+        generation = self.store.generation
         future = self.workers.submit(fn, *args)
         def done(f):
             try:
@@ -1753,7 +1768,12 @@ class Daemon:
             finally:
                 with self._busy_lock:
                     self._busy.discard(key)
-                self._notify()
+                # Waiters read only the store, so a worker that committed
+                # nothing (a running attempt's tick, an idle admission pass)
+                # has nothing to wake them for. Every one of those used to wake
+                # every waiter, twenty times a second per live key.
+                if self.store.generation != generation:
+                    self._notify()
         future.add_done_callback(done)
 
     def _control(self) -> None:
@@ -2938,6 +2958,8 @@ class Daemon:
     def _process_attempt(self, aid: str) -> None:
         a = self.store.get_attempt(aid)
         if not a or a["state"] not in LIVE:
+            self._liveness_next.pop(aid, None)
+            self._census_next.pop(aid, None)
             return
         child = self._children.get(aid)
         if child and child.poll() is not None:
@@ -2983,11 +3005,22 @@ class Daemon:
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
+        # The receipt, the cancel request and the wall limit above are read on
+        # every tick; asking `ps` about the guardian is paced. Each question is
+        # several subprocesses from a large, many-threaded process, and asking
+        # it up to twenty times a second per running attempt stretched every
+        # store-lock hold behind the daemon's requests (C-5.11, 2026-09-24).
+        # A guardian that dies without a receipt is found at most one
+        # interval later.
+        now = time.monotonic()
+        if now < self._liveness_next.get(aid, 0):
+            return
+        self._liveness_next[aid] = now + self.liveness_interval_s
         alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if alive == "alive":
             if time.monotonic() >= self._census_next.get(aid, 0):
                 self._record_owned(a)
-                self._census_next[aid] = time.monotonic() + .5
+                self._census_next[aid] = time.monotonic() + OWNED_CENSUS_INTERVAL_S
             return  # Re-adopted solely by receipt identity, not parentage.
         if alive == "unknown":
             # ps failed or timed out (load, or an inspection outage). A guardian
@@ -3012,13 +3045,34 @@ class Daemon:
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
     def _record_owned(self, a: dict) -> None:
-        census = self._contain(a)
-        if not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
-            return
+        """Record the group members a live attempt owns (C-5.4 signal targets).
+
+        Only group members are ever recorded, so this reads C-5.5's group
+        source alone: the marker scan reads every process's environment
+        (`ps -axEww`, megabytes) and its pids were discarded here. A member
+        already recorded is not asked again; the kill path re-reads identities
+        from a full census while the leader is still ours (`_kill_attempt`), and
+        a recorded identity that no longer matches is never signalled.
+        """
         evidence = json.loads(a["evidence_json"] or "{}")
         before = dict(evidence.get("owned_identities", {}))
-        owned = dict(before)
-        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items() if pid in census.group_pids})
+        try:
+            members = procs.group_members(a.get("pgid") or 0)
+        except procs.InspectionError:
+            return
+        fresh = {}
+        for pid in sorted(members):
+            if str(pid) in before:
+                continue
+            try:
+                ident = procs.identity(pid)
+            except procs.InspectionError:
+                continue
+            if ident is not None:
+                fresh[str(pid)] = dataclasses.asdict(ident)
+        if not fresh or not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+            return
+        owned = {**before, **fresh}
         if owned != before:
             evidence["owned_identities"] = owned
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:

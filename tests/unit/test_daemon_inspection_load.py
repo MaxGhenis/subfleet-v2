@@ -1,0 +1,272 @@
+"""The 2026-09-24 wedge: what one running attempt and one waiter cost the daemon.
+
+With a fanout's five to seven attempts running, the daemon stopped answering
+(a `daemon.status` took 38.8 s; every client gave up at 3-15 s). Each running
+attempt was re-offered to a worker every 50 ms tick, and each of those passes
+asked `ps` about its guardian with three subprocesses (`ps -p lstart`,
+`ps -p stat`, `sysctl kern.bootsessionuuid`); every 0.5 s it also ran the full
+C-5.5 census, whose marker source dumps every process's environment
+(`ps -axEww`, 2.3 MB on that machine), only to keep the group members. Each of
+those passes then woke every `wait` caller, which re-read every job it watched
+behind the one store lock. These tests pin what a running attempt and a waiter
+may cost, so the load stays flat as attempts and waiters are added.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+
+import pytest
+
+from subfleet import daemon as daemon_module
+from subfleet import procs, protocol
+from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.daemon import Daemon
+
+JOB = "20260924-114650-load-probe"
+ATTEMPT = JOB + "/a1"
+BOOT = "0f1e2d3c-4b5a-4968-8776-655443322110"   # synthetic
+STARTED = "Thu Sep 24 11:46:51 2026"
+GUARDIAN, CHILD, PGID = 4242, 4243, 4242
+
+
+class FakePs:
+    """Answers `procs._read` like macOS would for one guardian and its child."""
+
+    def __init__(self):
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv, *, empty_ok=False):
+        argv = [str(part) for part in argv]
+        self.calls.append(argv)
+        if argv[0].endswith("sysctl"):
+            return BOOT + "\n" if argv[-1] == "kern.bootsessionuuid" else "{ sec = 1790255587, usec = 0 }\n"
+        if "pid=,ppid=,pgid=,stat=" in argv:
+            return (f"{GUARDIAN} 1 {PGID} Ss\n{CHILD} {GUARDIAN} {PGID} R\n"
+                    "4300 1 4300 S\n4301 4300 4300 Z\n")
+        if "pid=,command=" in argv:
+            return ""
+        if "lstart=" in argv:
+            return STARTED + "\n"
+        if "stat=" in argv:
+            return "S\n"
+        raise AssertionError(argv)
+
+    def environment_dumps(self):
+        return [argv for argv in self.calls if "-axEww" in argv]
+
+
+@pytest.fixture
+def daemon(tmp_path, monkeypatch):
+    core = Daemon(tmp_path / "state", liveness_interval_s=30)
+    # The constructor recorded this machine's real boot identity; the attempt
+    # below belongs to the fake one, so each test starts with nothing cached.
+    monkeypatch.setattr(procs, "_BOOT_ID", [])
+    home = tmp_path / "home"
+    core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
+                             str(home), LaneOwner.V2, False))
+    core.store.add_job(job_id=JOB, request_id="load-1", payload_digest="digest", kind="run",
+                       state="running", workdir=str(tmp_path), prompt_path=str(tmp_path / "prompt.md"),
+                       sandbox="read-only")
+    core.store.add_attempt(attempt_id=ATTEMPT, job_id=JOB, seq=1, lane_id="codex-1",
+                           model_requested="astra", state="running", guardian_pid=GUARDIAN,
+                           child_pid=CHILD, pgid=PGID, boot_id=BOOT, proc_start=STARTED,
+                           started_at="2026-09-24T11:46:51Z", evidence_json="{}")
+    yield core
+    core.close()
+
+
+def test_boot_session_uuid_is_read_once_per_process(monkeypatch):
+    """C-5.11, C-5.3: the boot-session UUID cannot change under a live process, so it
+    is read once; legacy boottime seconds can shift and are read every time."""
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    assert [procs.boot_id() for _ in range(5)] == [BOOT] * 5
+    assert sum(argv[0].endswith("sysctl") for argv in ps.calls) == 1
+
+    monkeypatch.setattr(procs, "_BOOT_ID", [])
+    legacy = []
+    def seconds_only(argv, *, empty_ok=False):
+        legacy.append(argv)
+        return "" if argv[-1] == "kern.bootsessionuuid" else "{ sec = 100, usec = 1 }"
+    monkeypatch.setattr(procs, "_read", seconds_only)
+    assert [procs.boot_id() for _ in range(3)] == ["100"] * 3
+    assert len(legacy) == 6              # UUID attempt and boottime, each time
+
+
+def test_group_members_is_one_snapshot_without_environments(monkeypatch):
+    """C-5.11, C-5.5: the group source alone: live, non-zombie members from one
+    `ps -axo pid=,ppid=,pgid=,stat=`; no process environment is read."""
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    assert procs.group_members(PGID) == {GUARDIAN, CHILD}
+    assert procs.group_members(4300) == {4300}            # the zombie is not a member
+    assert procs.group_members(0) == frozenset()
+    assert [argv[-1] for argv in ps.calls] == ["pid=,ppid=,pgid=,stat="] * 2
+    assert not ps.environment_dumps()
+
+
+def test_group_members_failure_is_an_inspection_error(monkeypatch):
+    """C-5.5: a failed snapshot is an inspection failure, never an empty group."""
+    def broken(argv, *, empty_ok=False):
+        raise procs.InspectionError("ps unavailable")
+    monkeypatch.setattr(procs, "_read", broken)
+    with pytest.raises(procs.InspectionError):
+        procs.group_members(PGID)
+
+
+def test_running_attempt_inspection_is_paced_and_never_dumps_environments(daemon, monkeypatch):
+    """C-5.11: a second's worth of control ticks (20 at 50 ms) asks `ps` about a running
+    guardian once, runs no `ps -axEww`, and still records the owned group.
+
+    Before the fix the same 20 ticks spent 60 subprocesses on liveness alone
+    (three per tick) and a full census with an environment dump.
+    """
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    asked = []
+    liveness = procs.liveness
+    monkeypatch.setattr(daemon_module.procs, "liveness",
+                        lambda *args: asked.append(args) or liveness(*args))
+
+    for _ in range(20):
+        daemon._process_attempt(ATTEMPT)
+
+    # The tick's question, and the leader re-check that guards recording the
+    # newly seen members (C-5.4): nothing else in 20 ticks.
+    assert len(asked) == 2
+    assert not ps.environment_dumps()
+    # lstart + stat + the one sysctl, then the group snapshot, an identity per
+    # new member (lstart + stat each) and the leader re-check (lstart + stat).
+    assert len(ps.calls) == 3 + 1 + 4 + 2
+    evidence = json.loads(daemon.store.get_attempt(ATTEMPT)["evidence_json"])
+    assert set(evidence["owned_identities"]) == {str(GUARDIAN), str(CHILD)}
+    assert evidence["owned_identities"][str(CHILD)] == {
+        "pid": CHILD, "boot_id": BOOT, "proc_start": STARTED}
+    assert daemon.store.get_attempt(ATTEMPT)["state"] == "running"
+
+    # The next interval: one liveness question (the UUID is remembered) and a
+    # group snapshot that finds nobody new, so nobody is asked about again.
+    ps.calls.clear()
+    daemon._liveness_next[ATTEMPT] = daemon._census_next[ATTEMPT] = 0
+    daemon._process_attempt(ATTEMPT)
+    assert len(asked) == 3
+    assert ps.calls == [["/bin/ps", "-p", str(GUARDIAN), "-o", "lstart="],
+                        ["/bin/ps", "-p", str(GUARDIAN), "-o", "stat="],
+                        ["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat="]]
+
+
+def test_paced_inspection_still_reads_the_receipt_every_tick(daemon, monkeypatch):
+    """C-5.11, C-4.2: pacing covers the `ps` questions only. An exit receipt written
+    between two inspections moves the attempt to `finalizing` on the next tick."""
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    daemon._process_attempt(ATTEMPT)                  # inspected; the next is 30 s away
+    adir = daemon_module.attempt_dir(daemon.root, JOB, 1)
+    adir.mkdir(parents=True, exist_ok=True)
+    (adir / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "child_pid": CHILD,
+                                                "finished_at": "2026-09-24T11:50:00Z"}))
+    daemon._process_attempt(ATTEMPT)
+    assert daemon.store.get_attempt(ATTEMPT)["state"] == "finalizing"
+
+
+def test_a_finished_attempt_leaves_no_pacing_state(daemon, monkeypatch):
+    """C-5.11: pacing state is dropped when the attempt is no longer live."""
+    monkeypatch.setattr(procs, "_read", FakePs())
+    daemon._process_attempt(ATTEMPT)
+    assert ATTEMPT in daemon._liveness_next and ATTEMPT in daemon._census_next
+    with daemon.store.transaction("test.finished") as tx:
+        tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (ATTEMPT,))
+    daemon._process_attempt(ATTEMPT)
+    assert ATTEMPT not in daemon._liveness_next and ATTEMPT not in daemon._census_next
+
+
+def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
+    """C-5.11: a waiter woken without a committed change reads nothing. Before the fix
+    every wake-up re-read every watched job; 200 wake-ups were 200 reads."""
+    monkeypatch.setattr(daemon_module, "WAIT_RECHECK_S", 60)   # only commits may cause a read here
+    reads = []
+    get_job = daemon.store.get_job
+    monkeypatch.setattr(daemon.store, "get_job", lambda job_id: reads.append(job_id) or get_job(job_id))
+    result = {}
+    waiter = threading.Thread(target=lambda: result.update(
+        daemon.wait(protocol.WaitArgs(job_ids=[JOB], deadline_s=20))))
+    waiter.start()
+    while not reads:
+        time.sleep(.001)
+    for _ in range(200):
+        daemon._notify()
+        time.sleep(.001)
+    assert len(reads) == 1
+
+    with daemon.store.transaction("test.finished", job_id=JOB) as tx:
+        tx.execute("UPDATE jobs SET state='succeeded',rc=0 WHERE job_id=?", (JOB,))
+    daemon._notify()
+    waiter.join(timeout=5)
+    assert not waiter.is_alive()
+    assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded"
+    assert len(reads) == 2
+
+
+def test_wait_rechecks_on_its_own_clock_without_a_commit(daemon, monkeypatch):
+    """C-5.11: the generation is a hint; a waiter still looks at least every WAIT_RECHECK_S."""
+    monkeypatch.setattr(daemon_module, "WAIT_RECHECK_S", .05)
+    reads = []
+    get_job = daemon.store.get_job
+    monkeypatch.setattr(daemon.store, "get_job", lambda job_id: reads.append(job_id) or get_job(job_id))
+    assert daemon.wait(protocol.WaitArgs(job_ids=[JOB], deadline_s=.6)) == {"timeout": True}
+    assert 3 <= len(reads) <= 20
+
+
+def test_a_worker_that_commits_nothing_wakes_no_waiter(daemon, monkeypatch):
+    """C-5.11: only `wait` listens, and it reads only the store: a worker pass that
+    committed nothing (a running attempt's tick) has nothing to tell it."""
+    woken = []
+    monkeypatch.setattr(daemon, "_notify", lambda: woken.append(True))
+
+    def settle(key):
+        deadline = time.monotonic() + 5
+        while True:
+            with daemon._busy_lock:
+                if key not in daemon._busy:
+                    return
+            assert time.monotonic() < deadline
+            time.sleep(.005)
+
+    for n in range(20):
+        daemon._schedule(f"idle-{n}", lambda: None)
+        settle(f"idle-{n}")
+    assert woken == []
+
+    def commit():
+        with daemon.store.transaction("test.change", job_id=JOB) as tx:
+            tx.execute("UPDATE jobs SET wait_reason='x' WHERE job_id=?", (JOB,))
+    daemon._schedule("changes", commit)
+    settle("changes")
+    assert woken == [True]
+
+
+def test_store_generation_counts_committed_changes_only(tmp_path):
+    """C-5.11: the generation moves only when a top-level transaction commits a change."""
+    from subfleet.store import Store
+    store = Store(tmp_path / "s.sqlite3")
+    try:
+        start = store.generation
+        with store.transaction("test.noop"):
+            pass
+        assert store.generation == start
+        with pytest.raises(RuntimeError):
+            with store.transaction("test.rolled-back") as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES ('t','k','{}')")
+                raise RuntimeError("rollback")
+        assert store.generation == start
+        with store.transaction("test.outer") as tx:
+            tx.execute("INSERT INTO events(ts,kind,data_json) VALUES ('t','k','{}')")
+            with store.transaction("test.inner") as inner:
+                inner.execute("INSERT INTO events(ts,kind,data_json) VALUES ('t','k','{}')")
+            assert store.generation == start       # nothing is visible until the outer commit
+        assert store.generation == start + 1
+    finally:
+        store.close()
