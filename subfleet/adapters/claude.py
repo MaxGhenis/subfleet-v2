@@ -1474,7 +1474,10 @@ class ClaudeAdapter(Adapter):
         transcript = self._find_transcript(notes, session_id)
         served_model = _single_served_model(summary)
 
-        corpus = "\n".join([stderr, *summary.texts()])
+        # C-9.2: only provider-marked error text is classified. A successful turn
+        # that talks about limits, logins or organisation access must not cool
+        # or disable the lane that served it.
+        corpus = "\n".join([stderr, *summary.error_texts()])
         scrubbed = _scrub_non_limit(corpus)
 
         evidence: dict[str, Any] = {

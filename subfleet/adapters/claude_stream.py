@@ -256,6 +256,29 @@ class StreamSummary:
                 return message.text
         return ""
 
+    def error_texts(self) -> tuple[str, ...]:
+        """The strings the provider itself marked as errors, the only text that
+        text classification reads (C-9.2).
+
+        An assistant frame counts when it carries an `error` kind or an API-error
+        marker; the result counts unless it says `is_error: false`; `errors` on
+        the result's error shape always count. The prose of a turn that did not
+        fail is the model talking, and a model can discuss usage limits, logins
+        or organisation access without any of them applying to the lane that
+        served it."""
+        out: list[str] = []
+        for message in self.assistants:
+            marked = (message.error is not None
+                      or message.raw.get("is_api_error_message") is True
+                      or message.raw.get("isApiErrorMessage") is True)
+            if message.text and marked:
+                out.append(message.text)
+        if self.result is not None:
+            if self.result.text and self.result.is_error is not False:
+                out.append(self.result.text)
+            out.extend(self.result.errors)
+        return tuple(out)
+
     def texts(self) -> tuple[str, ...]:
         """Every human-readable string the stream carries, for text classification.
         Deliberately excludes the prompt: nothing here echoes what was sent."""
