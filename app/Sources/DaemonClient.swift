@@ -271,7 +271,7 @@ struct UnixSocketTransport: DaemonTransport {
                 let start = buffer.count
                 buffer.append(contentsOf: chunk[0..<count])
                 if let newline = buffer[start...].firstIndex(of: UInt8(ascii: "\n")) {
-                    return buffer[buffer.startIndex..<newline]
+                    return Data(buffer[buffer.startIndex..<newline])
                 }
                 if buffer.count > maxResponseBytes {
                     throw DaemonClientError.transport("the answer exceeded \(maxResponseBytes) bytes")
@@ -383,12 +383,11 @@ final class DaemonClient: DaemonCalling, @unchecked Sendable {
     func callAsync<Args: Encodable, Result: Decodable>(_ op: DaemonOperation<Args, Result>, _ args: Args) async throws -> Result {
         try await withCheckedThrowingContinuation { continuation in
             DaemonClient.queue.async {
-                continuation.resume(with: Result_.init { try self.call(op, args) })
+                continuation.resume(with: Swift.Result { try self.call(op, args) })
             }
         }
     }
 
-    private typealias Result_ = Swift.Result
     private static let queue = DispatchQueue(label: "org.maxghenis.subfleet.daemon-client", attributes: .concurrent)
 }
 

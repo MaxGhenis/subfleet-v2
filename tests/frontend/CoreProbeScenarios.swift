@@ -118,6 +118,18 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                 results.append(["do": action])
             case "sendable":
                 results.append(["do": action, "keys": outbox.sendable().map(\.key)])
+            case "engine-pump":
+                // The app's pump: send, then keep only the newest `keep` closed entries.
+                let engine = ConversationEngine(client: client, outbox: outbox)
+                engine.keptClosedEntries = step["keep"]?.int ?? engine.keptClosedEntries
+                results.append(["do": action, "report": project(engine.pump())])
+            case "stop":
+                // Stop as the app does it, from the state the app last saw.
+                let key = resolve(step["key"]?.string)
+                let engine = ConversationEngine(client: client, outbox: outbox)
+                let stop = stopAction(for: key, state: step["state"]?.string, outboxEntry: outbox.entry(key))
+                let receipt = try engine.stop(stop)
+                results.append(["do": action, "action": project(stop), "receipt": receipt.map(jsonObject) as Any? ?? NSNull()])
             case "raw-submit":
                 // A late copy of a journaled submit reaching the daemon (for tombstones).
                 let key = resolve(step["key"]?.string)

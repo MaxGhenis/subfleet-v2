@@ -579,6 +579,8 @@ final class ConversationEngine {
     let sender: OutboxSender
     /// Long-poll wait for events and the watch feed (design §5: at most 50).
     var pollWait: Double = 25
+    /// Closed outbox entries kept after each pump (their text feeds the timeline).
+    var keptClosedEntries = 200
 
     init(client: DaemonCalling, outbox: Outbox) {
         self.client = client
@@ -661,8 +663,12 @@ final class ConversationEngine {
                                  settings: settings)
     }
 
+    /// Send what the outbox holds; keep the newest `keptClosedEntries` closed
+    /// entries and drop older ones (open entries are never dropped).
     func pump() -> OutboxSender.Report {
-        sender.pump()
+        let report = sender.pump()
+        try? outbox.prune(keep: keptClosedEntries)
+        return report
     }
 
     func withdraw(_ messageID: String) throws -> OutboxSender.WithdrawOutcome {
@@ -681,7 +687,13 @@ final class ConversationEngine {
             case .inFlight: return nil
             }
         case .cancel(let messageID):
-            return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
+            do {
+                return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
+                // It left `queued` since the app looked, and the provider may have
+                // it: the daemon's fix is `turn.interrupt` (op_message_cancel).
+                return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+            }
         case .interrupt(let messageID):
             return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
         }

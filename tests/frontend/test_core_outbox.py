@@ -232,3 +232,71 @@ def test_d22_a_message_waits_for_its_conversation(core_probe, tmp_path, daemon):
     ])
     assert out["results"][2]["report"]["retrying"] == ["req-8"] and out["results"][3]["keys"] == []
     assert out["results"][5]["report"]["acknowledged"] == ["req-8", m1]
+
+
+def test_d22_pruning_keeps_open_entries_and_the_chain(core_probe, tmp_path, daemon):
+    """The app's pump drops closed entries beyond what it keeps; an open entry
+    stays, and it still chains after the last message the daemon accepted."""
+    harness, server = daemon
+    m1, m2, m3, m4 = ids(4)
+    server.faults[("message.submit", m4)] = "refuse"
+    out = run_steps(core_probe, tmp_path, server, [
+        create_step(harness, "req-10"),
+        *({"do": "submit", "conversation": "@draft:req-10", "message_id": m, "text": f"message {i}"}
+          for i, m in enumerate((m1, m2, m3, m4))),
+        {"do": "engine-pump", "keep": 0}, {"do": "sendable"},
+        {"do": "advance", "seconds": 1}, {"do": "sendable"}, {"do": "engine-pump", "keep": 0},
+    ])
+    first = out["results"][5]["report"]
+    assert first["acknowledged"] == ["req-10", m1, m2, m3] and first["retrying"] == [m4]
+    assert out["results"][6]["keys"] == [] and out["results"][8]["keys"] == [m4]   # kept, after its backoff
+    assert out["results"][9]["report"]["acknowledged"] == [m4]
+    assert out["entries"] == []                                   # everything closed, none kept
+    assert out["calls"][-1] == f"message.submit {m4} after={m3} answered"
+    cid = harness.store.query("SELECT conversation_id FROM messages WHERE message_id=?", (m4,))[0]["conversation_id"]
+    assert out["chains"] == {cid: m4}
+    assert [(r["message_id"], r["after_message_id"]) for r in person_rows(harness, cid)] == [
+        (m1, None), (m2, m1), (m3, m2), (m4, m3)]
+
+
+def test_d22_pruning_keeps_the_newest_closed_entries(core_probe, tmp_path, daemon):
+    harness, server = daemon
+    m1, m2, m3 = ids(3)
+    out = run_steps(core_probe, tmp_path, server, [
+        create_step(harness, "req-11"),
+        *({"do": "submit", "conversation": "@draft:req-11", "message_id": m, "text": f"message {i}"}
+          for i, m in enumerate((m1, m2, m3))),
+        {"do": "engine-pump", "keep": 2},
+    ])
+    assert [(e["key"], e["state"], e["text"]) for e in out["entries"]] == [
+        (m2, "acknowledged", "message 1"), (m3, "acknowledged", "message 2")]
+
+
+def test_design_12_stop_cancels_while_queued_and_interrupts_once_it_moved(core_probe, tmp_path, daemon):
+    """Stop from the state the app last saw (`queued`): `message.cancel` withdraws a
+    message still queued; one that left the queue meanwhile is answered `too-late`,
+    and Stop becomes `turn.interrupt` (the daemon's own fix for that refusal)."""
+    harness, server = daemon
+    queued, moved = ids(2)
+    journal = tmp_path / "support" / "outbox.json"
+    first = run_steps(core_probe, tmp_path, server, [
+        create_step(harness, "req-12"),
+        {"do": "submit", "conversation": "@draft:req-12", "message_id": queued, "text": "first"},
+        {"do": "engine-pump"},
+        {"do": "stop", "key": queued, "state": "queued"},
+        {"do": "submit", "conversation": "@conv:req-12", "message_id": moved, "text": "second"},
+        {"do": "engine-pump"},
+    ], journal=journal)
+    stopped = first["results"][3]
+    assert stopped["action"] == {"action": "cancel", "message_id": queued}
+    assert stopped["receipt"]["state"] == "cancelled" and stopped["receipt"]["state_reason"] == "withdrawn"
+    assert first["results"][5]["report"]["acknowledged"] == [moved]
+    # The daemon moves the second message on before the app's Stop arrives.
+    assert harness.store.set_state(moved, "waiting", expect=("queued",))
+    second = run_steps(core_probe, tmp_path, server, [{"do": "stop", "key": moved, "state": "queued"}], journal=journal)
+    result = second["results"][0]
+    assert "error" not in result, result
+    assert result["action"] == {"action": "cancel", "message_id": moved}
+    assert second["calls"] == [f"message.cancel {moved} answered", f"turn.interrupt {moved} answered"]
+    assert result["receipt"]["state"] == "waiting" and result["receipt"]["stop_requested"] is True
+    assert harness.store.message(moved)["stop_requested_at"]
