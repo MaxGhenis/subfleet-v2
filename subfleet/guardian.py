@@ -91,11 +91,12 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     if control_socket:
         if stdin_path:
             raise RuntimeError("a control socket and a stdin file are exclusive")
-        from .relay import RelayServer, daemon_peer_check
+        from .relay import RelayServer, advertisement, daemon_peer_check
         relay = RelayServer(control_socket, attempt_dir / "stdin.jsonl",
                             allowed_peer=daemon_peer_check(relay_peer_lock) if relay_peer_lock else None)
         relay.bind()
         start["control_socket"] = str(control_socket)
+        start["relay"] = advertisement()          # version and frame cap (review IR-27)
     _receipt(attempt_dir / "start.json", start)
     child = None
     spawn_error = None

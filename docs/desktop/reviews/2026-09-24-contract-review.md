@@ -59,7 +59,7 @@ where it is implemented; "open" means not yet built.
 | 24 | `EnterPlanMode` and `ExitPlanMode` are disallowed in writable Claude turns; plan approval is listed as unsupported | P5 | `claude_turn.py` |
 | 25 | `<synthetic>` rows that are not API errors (for example "No response requested.") are ignored | P6 | `claude_turn.py` |
 | 26 | Claude fixtures use observed catalog values (`default`, `opus[1m]`, `claude-fable-5-1[1m]`, `sonnet`, `haiku`) | P6 | tests |
-| 27 | Relay frame cap advertised; Claude messages whose frame would exceed it are refused at submit; bounded resends; a relay status handshake before replay | F5 | `relay.py`, `service.py` |
+| 27 | Relay frame cap advertised; Claude messages whose frame would exceed it are refused at submit; bounded resends; a relay status handshake before replay | F5 | `relay.py` (`status`, `advertisement`, `FrameTooLarge`), `guardian.py` (`start.json` `relay`), `runner.py` (`_handshake`, `_unacknowledged`, `_refuse_frame`), `service.py` (`LIMITS`); C-26.4; `tests/unit/test_relay.py`, `tests/unit/test_turn_runner.py`, `tests/process/test_guardian_relay.py` |
 | 28 | `conversation.handoff` op: pending messages move with the handoff, withdrawn from the source under the cancel guard | U-F11 | `service.py` |
 | 29 | Each client has one watch and one events poll; a new one supersedes the old; abandoned polls end within 250 ms | U-F3 | `events.py` |
 | 30 | Catalog indexes everything, with pinned exclusion predicates and archived handling | U-F5 | `catalog.py` |

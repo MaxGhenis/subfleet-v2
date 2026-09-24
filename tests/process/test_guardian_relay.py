@@ -115,3 +115,28 @@ def test_only_the_daemon_named_by_the_lock_may_write(guardian):
     assert not (attempt / "stdin.jsonl").exists()
     process.kill()
     process.wait(5)
+
+
+def test_the_relay_advertises_its_cap_and_answers_status(guardian):
+    """C-26.4, IR-27: `start.json` names the relay's version and frame cap; `status`
+    answers what was applied and whether the child runs; a frame over the cap is
+    refused by the client before anything is sent, and the connection stays usable."""
+    from subfleet.relay import FRAME_MAX, RELAY_VERSION, FrameTooLarge
+    attempt, sock, process = guardian
+    start = json.loads(wait_for(lambda: (attempt / "start.json").exists() and (attempt / "start.json").read_text()))
+    assert start["relay"] == {"version": RELAY_VERSION, "frame_max": FRAME_MAX}
+    client = RelayClient(sock, timeout_s=5)
+    client.frame_max = 1                     # replaced by the relay's own advertisement
+    status = client.status()
+    assert status["applied"] == 0 and status["child"] == "running" and status["closed"] is False
+    assert client.frame_max == FRAME_MAX
+    assert client.send(1, "write", line='{"n":1}', tag="init").ok
+    client.frame_max = 64
+    with pytest.raises(FrameTooLarge):
+        client.send(2, "write", line="x" * 100, tag="user-message")
+    assert client.status()["applied"] == 1
+    assert client.send(2, "close", tag="close").ok
+    receipt = json.loads(wait_for(lambda: (attempt / "exit.json").exists() and (attempt / "exit.json").read_text()))
+    assert receipt["rc"] == 0
+    assert [(r["seq"], r["tag"]) for r in read_log(attempt / "stdin.jsonl")] == [(1, "init"), (2, "close")]
+    process.wait(5)

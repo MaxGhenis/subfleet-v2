@@ -166,3 +166,21 @@ def test_an_interrupted_write_is_pending_after_a_restart(tmp_path):
     assert relay.apply(F(2, line="y"))["error"] == "closed"
     os.close(read_end)
     relay._close_pipe()
+
+
+def test_status_reports_what_was_applied_and_the_cap_without_logging(server, tmp_path):
+    """C-26.4, IR-27: `status` is not a frame: it carries no number, is never logged, and
+    answers the version, the frame cap, the frames applied and whether stdin is closed."""
+    from subfleet.relay import FRAME_MAX, RELAY_VERSION
+    relay, _ = server
+    assert relay.apply({"op": "status"}) == {"ok": True, "status": {
+        "version": RELAY_VERSION, "frame_max": FRAME_MAX, "applied": 0, "closed": False, "child": "none"}}
+    relay.apply(F(1, line="one", tag="init"))
+    relay.apply(F(2, line="two", tag="user-message"))
+    assert relay.apply({"op": "status"})["status"]["applied"] == 2
+    assert relay.apply(F(3, "close", tag="close"))["ok"]
+    status = relay.apply({"op": "status"})["status"]
+    assert status["applied"] == 3 and status["closed"] is True
+    assert [r["seq"] for r in read_log(tmp_path / "stdin.jsonl")] == [1, 2, 3]
+    # A numbered "status" is a malformed frame, not a status request.
+    assert relay.apply({"seq": 4, "op": "status", "sha256": line_sha256(None)})["error"] == "bad-frame"

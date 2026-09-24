@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..policy import CONVERSATION_DEFAULTS
-from ..relay import RelayClient, RelayError, read_log
+from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
 from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
@@ -102,12 +102,16 @@ class TurnRunner:
         self.commands: "queue.Queue[tuple]" = queue.Queue()
         self.driver = make_driver(spec, self._read_attachment)
         self.relay = RelayClient(control_socket, timeout_s=30)
-        logged = read_log(self.adir / "stdin.jsonl")
-        self.sent: dict[str, str] = {r["tag"]: r["status"] for r in logged if r.get("tag")}
-        self.next_seq = len(logged) + 1
-        # A signal that found no child is not a relay failure; a stdin frame that
-        # was not fully written is (C-26.4).
-        self.relay_failed = any(r["status"] != "written" and r.get("op") != "signal" for r in logged)
+        # What the relay applied, from its log; confirmed by the status handshake
+        # before anything is sent (`_handshake`, review IR-27). Until then a
+        # `pending` record may be a write still in flight, not a failure.
+        self._load_log()
+        self.relay_failed = False
+        self.handshaken = False
+        self.relay_version: int | None = None
+        self.resends = 0                       # consecutive unacknowledged sends of the head frame
+        self.resend_at = 0.0
+        self.frame_refused: str | None = None  # the tag of a frame over the relay's cap (never sent)
         self.outbox: list = []                 # frames the relay has not acknowledged yet
         self.offset = 0                        # bytes of stdout consumed
         self.partial = b""
@@ -286,22 +290,82 @@ class TurnRunner:
                     self.log.warning("model catalog from %s not recorded: %s", self.attempt_id, exc)
         self._send_outbox()
 
+    def _load_log(self) -> bool:
+        """Read `stdin.jsonl`; True when it shows a stdin frame that was not fully
+        written (a signal that found no child is not a relay failure; C-26.4)."""
+        logged = read_log(self.adir / "stdin.jsonl")
+        self.logged = len(logged)
+        self.sent: dict[str, str] = {r["tag"]: r["status"] for r in logged if r.get("tag")}
+        self.next_seq = len(logged) + 1
+        return any(r["status"] != "written" and r.get("op") != "signal" for r in logged)
+
+    def _handshake(self) -> bool:
+        """Review IR-27: before this runner sends or replays anything, ask the relay
+        what it applied. The answer comes after any frame the previous daemon left
+        in flight has been written and logged, so the log read afterwards is final
+        and a frame shown `pending` a moment earlier is not mistaken for a failure.
+        It also carries the relay's frame cap. A relay older than version 2 has
+        no status; its log is read as before."""
+        if self.handshaken:
+            return True
+        try:
+            status = self.relay.status()
+        except RelayError as exc:
+            self._unacknowledged(f"relay status: {exc}")
+            return False                    # asked again later; nothing is sent meanwhile
+        self.resends = 0
+        unwritten = self._load_log()
+        self.handshaken = True
+        if status is not None:
+            self.relay_version = status.get("version")
+            if status["applied"] != self.logged:
+                # The log and the relay disagree: nothing is sent on a guess.
+                self._relay_lost(f"the relay applied {status['applied']} frames, its log shows {self.logged}")
+                return True
+        if unwritten:
+            # A frame the log shows unwritten ended relaying for good (C-26.4); a
+            # runner rebuilt after a restart stops the turn as its predecessor did.
+            self._relay_lost("the relay log shows a frame that was not written")
+        return True
+
+    def _unacknowledged(self, why: str) -> None:
+        """IR-27: the relay did not answer. The same number is sent again (a
+        duplicate is recognised by its hash) after a doubling pause, at most
+        RESEND_MAX times; then the relay counts as failed."""
+        self.resends += 1
+        if self.resends > RESEND_MAX:
+            self._relay_lost(f"{why}; no answer after {RESEND_MAX} retries")
+        else:
+            self.resend_at = self.clock() + RESEND_BASE_S * 2 ** (self.resends - 1)
+
     def _send_outbox(self) -> None:
         while self.outbox:
-            frame = self.outbox[0]
-            if self.sent.get(frame.tag) == "written":
-                self.outbox.pop(0)            # replayed: already delivered to the provider
-                continue
             if self.relay_failed:
                 self.outbox.clear()
                 return
+            if self.resends and self.clock() < self.resend_at:
+                return                          # IR-27: the next try waits its turn
+            if not self._handshake():
+                return
+            frame = self.outbox[0] if self.outbox else None
+            if frame is None or self.relay_failed:
+                self.outbox.clear()
+                return
+            if self.sent.get(frame.tag) == "written":
+                self.outbox.pop(0)            # replayed: already delivered to the provider
+                continue
             try:
                 if frame.op == "signal":
                     ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
                 else:
                     ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
-            except RelayError:
-                return                          # retried with the same number next pass
+            except FrameTooLarge as exc:
+                self._refuse_frame(frame, exc)
+                continue
+            except RelayError as exc:
+                self._unacknowledged(f"frame {frame.tag}: {exc}")
+                return
+            self.resends = 0
             if ack.ok:
                 self.sent[frame.tag] = "written"
                 self.next_seq += 1
@@ -314,11 +378,29 @@ class TurnRunner:
                 self.outbox.pop(0)
                 continue
             # conflict, failed, closed, gap, peer-refused: nothing more is written.
-            self.relay_failed = True
-            if self.log:
-                self.log.warning("turn %s relay refused frame %s: %s", self.attempt_id, frame.tag, ack.error)
-            self.outbox.clear()
+            self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}")
             return
+
+    def _refuse_frame(self, frame: Frame, exc: FrameTooLarge) -> None:
+        """A frame over the relay's cap is never sent (IR-27). Nothing after it can
+        be sent in order either, so stdin is closed: the provider ends at EOF and
+        the turn is reconciled from what the relay log shows (C-24.6)."""
+        if self.log:
+            self.log.warning("turn %s frame %s not sent: %s", self.attempt_id, frame.tag, exc)
+        self.frame_refused = self.frame_refused or frame.tag
+        self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close")]
+
+    def _relay_lost(self, why: str) -> None:
+        """Nothing more can be written (C-26.4). A turn with no terminal event is
+        then stopped as a stop request would stop it; the steps that need the
+        relay are skipped, so containment ends it (D-13, design §6)."""
+        self.relay_failed = True
+        self.outbox.clear()
+        if self.log:
+            self.log.warning("turn %s relay failed: %s", self.attempt_id, why)
+        if self.driver.outcome is None and self.stop_at is None:
+            self.stop_reason = self.stop_reason or "relay-failed"
+            self.stop_at = self.clock()
 
     # --- time ------------------------------------------------------------------
 
@@ -375,7 +457,8 @@ class TurnRunner:
                 "stop_reason": self.stop_reason, "final_text": self.final_text,
                 "native_session_id": getattr(self.driver, "thread_id", None) or self.spec.native_session_id
                 or self.spec.new_session_id, "relay_failed": self.relay_failed,
-                "user_frame_written": self.sent.get("user-message") == "written"}
+                "user_frame_written": self.sent.get("user-message") == "written",
+                "frame_refused": self.frame_refused, "relay_version": self.relay_version}
         from ..guardian import atomic_publish
         atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
 
