@@ -290,3 +290,58 @@ def test_model_mismatch_on_the_thread_stops_before_the_turn():
 def test_the_schema_check_is_not_vacuous(bad):
     """C-26.8 the pinned schema rejects malformed frames, so the checks above can fail."""
     assert errors(bad, CLIENT_REQUEST, CLIENT_REQUEST)
+
+
+def test_a_turn_that_used_a_tool_ends_when_the_thread_goes_idle():
+    """C-26.5: live 0.153.3 sends no `turn/completed` after a tool ran; `idle` after
+    the turn started ends it, but only once asked to settle (the runner's grace)."""
+    turn = CodexTurn(spec())
+    to_running(turn)
+    turn.feed(note("thread/status/changed", threadId="thr-1", status={"type": "active", "activeFlags": []}), 10)
+    turn.feed(note("item/completed", threadId="thr-1", turnId="turn-1", completedAtMs=3,
+                   item={"type": "agentMessage", "id": "m1", "text": "Done."}), 11)
+    idle = turn.feed(note("thread/status/changed", threadId="thr-1", status={"type": "idle"}), 12)
+    assert idle.outcome is None and turn.idle_pending
+    step = turn.settle_idle()
+    assert turn.outcome.state == "complete" and step.frames[-1].tag == "close"
+    assert step.events[-1].kind == "turn.completed" and step.events[-1].data["ended_by"] == "thread-idle"
+    assert turn.settle_idle().events == []          # once only
+
+
+def test_idle_before_the_turn_started_is_not_an_end_and_turn_completed_wins():
+    turn = CodexTurn(spec())
+    to_thread(turn)
+    turn.feed(note("thread/status/changed", threadId=None, status={"type": "idle"}), 3)
+    assert not turn.idle_pending
+    turn2 = CodexTurn(spec())
+    to_running(turn2)
+    turn2.feed(note("thread/status/changed", threadId="thr-1", status={"type": "idle"}), 10)
+    done = turn2.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "completed", "items": []}), 11)
+    assert done.outcome.state == "complete" and turn2.settle_idle().events == []
+
+
+def test_idle_after_a_final_error_or_a_stop_settles_to_that():
+    limited = CodexTurn(spec())
+    to_running(limited)
+    limited.feed(note("error", threadId="thr-1", turnId="turn-1", willRetry=False,
+                      error={"message": "limit", "codexErrorInfo": "usageLimitExceeded"}), 10)
+    limited.feed(note("thread/status/changed", threadId="thr-1", status={"type": "idle"}), 11)
+    assert limited.settle_idle().outcome.reason == "limited"
+    stopped = CodexTurn(spec())
+    to_running(stopped)
+    stopped.interrupt()
+    stopped.feed(note("thread/status/changed", threadId="thr-1", status={"type": "idle"}), 11)
+    assert stopped.settle_idle().outcome.state == "interrupted"
+
+
+def test_a_blocking_hook_is_shown_as_activity():
+    """C-26.11: the never-rules guard blocking a command reaches the person (observed live)."""
+    turn = CodexTurn(spec())
+    to_running(turn)
+    step = turn.feed(note("hook/completed", threadId="thr-1", turnId="turn-1", run={
+        "id": "pre-tool-use:0", "eventName": "preToolUse", "status": "blocked", "statusMessage": "never-rules guard",
+        "entries": [{"kind": "feedback", "text": "[local-main] Branch from origin/main"}]}), 10)
+    assert step.events[0].kind == "hook" and step.events[0].data["status"] == "blocked"
+    assert "local-main" in step.events[0].data["feedback"]
+    quiet = turn.feed(note("hook/completed", threadId="thr-1", run={"status": "completed", "entries": []}), 11)
+    assert quiet.events == []

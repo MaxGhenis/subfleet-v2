@@ -20,6 +20,11 @@ Each turn picks its behaviour with a `[fake:<scenario>]` directive in its text:
     exit-after-ack    `turn/started`, then exits
     wrong-model       the thread serves another model than asked for
 
+Like a live 0.153.3 server (docs/desktop/reviews/2026-09-24-live-probes.md), it
+reports the thread `active` when a turn starts and `idle` when it ends, and
+sends `turn/completed` only for a turn that used no tool: after a command ran
+or was declined, `idle` is the last word.
+
 Environment: `SUBFLEET_FAKE_TURN_LOG` appends argv and every stdin line.
 `SUBFLEET_FAKE_THREAD_ACTIVE=1` answers `thread/resume` with an active thread.
 """
@@ -65,6 +70,7 @@ class Server:
         self.lock = threading.Lock()
         self.thread: dict | None = None
         self.rollout: Path | None = None
+        self.tool_used = False
         self.log({"argv": argv, "pid": os.getpid()})
 
     def log(self, row: dict) -> None:
@@ -189,7 +195,9 @@ class Server:
         self.record("response_item", {"type": "message", "role": "user", "client_id": params.get("clientUserMessageId"),
                                       "content": [{"type": "input_text", "text": text}]})
         turn = {"id": turn_id, "items": [], "status": "inProgress"}
+        self.tool_used = False
         self.send({"id": rid, "result": {"turn": turn}})
+        self.notify("thread/status/changed", {"threadId": thread_id, "status": {"type": "active", "activeFlags": []}})
         self.notify("turn/started", {"threadId": thread_id, "turn": turn})
         self.notify("item/completed", {"threadId": thread_id, "turnId": turn_id, "completedAtMs": now_ms(),
                                        "item": {"type": "userMessage", "id": f"u-{turn_id}", "content": []}})
@@ -218,7 +226,9 @@ class Server:
 
     def finish(self, thread_id: str, turn_id: str, status: str, *, error: dict | None = None):
         turn = {"id": turn_id, "items": [], "status": status, "durationMs": 5, "error": error}
-        self.notify("turn/completed", {"threadId": thread_id, "turn": turn})
+        self.notify("thread/status/changed", {"threadId": thread_id, "status": {"type": "idle"}})
+        if not self.tool_used:
+            self.notify("turn/completed", {"threadId": thread_id, "turn": turn})
         return None
 
     def interrupted(self) -> bool:
@@ -247,6 +257,7 @@ class Server:
     def scenario_approval(self, thread_id, turn_id, reply):
         item_id = f"cmd-{uuid.uuid4().hex[:8]}"
         command = "echo approved-by-person"
+        self.tool_used = True
         item = {"type": "commandExecution", "id": item_id, "command": command, "commandActions": [],
                 "cwd": self.thread["cwd"], "status": "inProgress"}
         self.notify("item/started", {"threadId": thread_id, "turnId": turn_id, "startedAtMs": now_ms(), "item": item})
