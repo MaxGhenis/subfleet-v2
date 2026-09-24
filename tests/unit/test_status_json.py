@@ -320,3 +320,11 @@ def test_c29_6_claude_earliest_reset_is_the_soonest_future_account_reset_admissi
     result = build_status(build_view(lanes, rows, now=NOW, desktop_account="claude-desk@example.org"))
     assert result["claude"]["earliest_reset"] == "2026-09-05T16:00:00Z"
     assert build_status(build_view([claude_lane("claude-1")], now=NOW))["claude"]["earliest_reset"] is None
+
+
+@pytest.mark.parametrize("resets_at", [None, "", "not a time", 1790000000])
+def test_c29_6_an_unreadable_reset_clock_is_null_not_an_error(resets_at):
+    """C-29.6 a window whose reset clock cannot be read still publishes, with `reset_at` null."""
+    from subfleet.status_json import scoped_windows
+    rows = scoped_windows({"readings": [claude_reading(resets_at=resets_at)]})
+    assert [(row["used_percent"], row["reset_at"]) for row in rows] == [(40, None)]

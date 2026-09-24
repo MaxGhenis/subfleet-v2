@@ -658,8 +658,8 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
     open_marks, live_marks = ",".join("?" * len(_OPEN_STATES)), ",".join("?" * len(LIVE_STATES))
     try:
         db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=timeout_s,
-                             isolation_level=None, check_same_thread=False)
-    except sqlite3.Error as exc:
+                             isolation_level=None)
+    except (sqlite3.Error, OSError) as exc:
         return {"available": False, "error": type(exc).__name__}
     try:
         db.row_factory = sqlite3.Row
@@ -689,10 +689,10 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
             f" OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id AND m.state IN ({open_marks})) "
             " OR EXISTS (SELECT 1 FROM approvals a WHERE a.conversation_id=c.conversation_id AND a.state='pending')) "
             "ORDER BY CASE WHEN pending_approvals > 0 THEN 0 WHEN c.blocked_by IS NOT NULL THEN 1 ELSE 2 END, "
-            "c.updated_at DESC, c.conversation_id LIMIT ?",
+            "c.updated_at DESC, c.conversation_id DESC LIMIT ?",
             (*LIVE_STATES, *_OPEN_STATES, max(0, int(limit)) + 1)).fetchall()
         db.execute("COMMIT")
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, OSError) as exc:
         return {"available": False, "error": type(exc).__name__}
     finally:
         db.close()

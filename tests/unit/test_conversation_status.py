@@ -68,6 +68,10 @@ def test_c29_6_counts_and_list_by_attention(store, tmp_path):
     archived = conv(store, "archived")
     approval(store, archived, send(store, archived, "approval-needed"))
     store.update_conversation(archived, blocked_by="delivery-unknown", archived_at="2026-09-24T00:00:00Z")
+    with store.transaction() as tx:                      # explicit clocks: no same-millisecond ties
+        for minute, cid in enumerate((idle, queued, running, blocked, asking, archived)):
+            tx.execute("UPDATE conversations SET updated_at=? WHERE conversation_id=?",
+                       (f"2026-09-24T10:{minute:02d}:00.000Z", cid))
 
     summary = status_summary(tmp_path)
     assert summary["available"] is True and summary["truncated"] is False

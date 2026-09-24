@@ -89,7 +89,7 @@ def _iso_or_none(value: Any) -> str | None:
         return None
     try:
         return timestamp(value)
-    except (TypeError, ValueError):
+    except (AttributeError, TypeError, ValueError):      # not an ISO string or a datetime
         return None
 
 
