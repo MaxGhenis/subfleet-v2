@@ -25,10 +25,10 @@ follow `docs/reference/claude-hooks.md` (fetched 2026-09-05) — not memory:
   C-5.1 markers (`launched_by_subfleet`), and Claude Code runs these hook
   commands with the provider's own environment. A conversation turn is a
   `claude -p` Subfleet starts once per message, so without this every turn's
-  `SessionStart` (source `startup`, then `resume` on each later turn) would
-  hand the conversation's session to the nudge worker as if a restart had cut
-  it off, and every `UserPromptSubmit` would add pending notices to Claude's
-  context beside the message the person sent from the app.
+  `SessionStart` (source `startup` under `--session-id`, `resume` under
+  `--resume`) would hand the conversation's session to the nudge worker as if
+  a restart had cut it off, and every `UserPromptSubmit` would add pending
+  notices to Claude's context beside the message the person sent from the app.
 
 * **PostToolUse** on Bash — layer 2. Ask the daemon which of this session's
   jobs are still running, take a file lease so two hooks never wait on one job,

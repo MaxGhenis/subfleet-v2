@@ -29,8 +29,7 @@ The rules, all of them from C-23.33 and C-23.34:
   wake does, because outside a restart an interrupted tail is often just a long
   tool call;
 * a session a Subfleet conversation binds, or a conversation turn ran, is never
-  nudged (C-26.13): its next message comes from the app, and the conversation
-  would otherwise see a nudge as a message nobody sent.
+  nudged (C-26.13): its next turn is the next message sent in the Subfleet app.
 
 Delivery is one `ping` — a notice row the daemon's delivery ladder carries
 (C-15.2). This package never opens a session's socket.
