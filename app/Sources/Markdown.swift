@@ -6,7 +6,9 @@
 // links, autolinks and bare URLs, images (shown as links; nothing is fetched),
 // escapes, soft and hard breaks. An unclosed fence runs to the end, so a code
 // block streams as code. Raw HTML is shown as text. `MarkdownBounds` keeps the
-// rendering cost bounded (C-29.8). Foundation only.
+// rendering cost bounded (C-29.8): nesting deeper than `MarkdownBounds.nesting`
+// is shown as text, and scanning ahead for links, code spans and bare URLs has a
+// work budget, so no input can exhaust the stack or stall a render. Foundation only.
 
 import Foundation
 
@@ -47,11 +49,45 @@ enum Markdown {
     static func parse(_ text: String) -> [MarkdownBlock] {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false).map { expandTabs(String($0)) }
-        return BlockParser(lines: lines).parse()
+        return BlockParser(lines: lines, budget: ScanBudget()).parse()
     }
 
     static func parseInlines(_ text: String) -> [MarkdownInline] {
-        InlineParser(text).parse()
+        InlineParser(text, depth: 0, budget: ScanBudget()).parse()
+    }
+
+    /// How deep inlines nest (emphasis, strong, strikethrough, links), counted up to `cap`.
+    static func depth(_ inlines: [MarkdownInline], cap: Int = MarkdownBounds.nesting) -> Int {
+        guard cap > 0 else { return 0 }
+        var deepest = 0
+        for inline in inlines {
+            switch inline {
+            case .emphasis(let inner), .strong(let inner), .strikethrough(let inner), .link(let inner, _):
+                deepest = max(deepest, 1 + depth(inner, cap: cap - 1))
+                if deepest >= cap { return cap }
+            default:
+                continue
+            }
+        }
+        return deepest
+    }
+
+    /// How deep blocks nest (quotes and list items), counted up to `cap`.
+    static func depth(_ blocks: [MarkdownBlock], cap: Int = MarkdownBounds.nesting) -> Int {
+        guard cap > 0 else { return 0 }
+        var deepest = 0
+        for block in blocks {
+            switch block {
+            case .quote(let inner):
+                deepest = max(deepest, 1 + depth(inner, cap: cap - 1))
+            case .list(_, _, _, let items):
+                for item in items { deepest = max(deepest, 1 + depth(item.blocks, cap: cap - 1)) }
+            default:
+                continue
+            }
+            if deepest >= cap { return cap }
+        }
+        return deepest
     }
 
     /// Tabs to spaces, with tab stops of 4, for indentation arithmetic.
@@ -132,6 +168,12 @@ enum Markdown {
 enum MarkdownBounds {
     static let codeLines = 40
     static let blocks = 200
+    /// Block quotes and list items nest at most this deep, and so do inlines
+    /// (emphasis, links); anything deeper is shown as text.
+    static let nesting = 32
+    /// Characters one parse may scan ahead looking for the end of a link, code
+    /// span or bare URL; past it, the rest of those are shown as text.
+    static let scanBudget = 2_000_000
 
     static func code(_ text: String, maxLines: Int = codeLines) -> (shown: String, hiddenLines: Int) {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
@@ -167,6 +209,12 @@ private func dropLeading(_ line: String, _ count: Int) -> String {
     return String(line[index...])
 }
 
+/// The work left for one parse's look-ahead scans, shared by nested parsers.
+private final class ScanBudget {
+    var remaining: Int
+    init(_ remaining: Int = MarkdownBounds.scanBudget) { self.remaining = remaining }
+}
+
 private struct ListMarker {
     var ordered: Bool
     var number: Int
@@ -179,10 +227,18 @@ private struct ListMarker {
 
 private struct BlockParser {
     let lines: [String]
+    let budget: ScanBudget
 
-    func parse() -> [MarkdownBlock] { parseBlocks(lines) }
+    func parse() -> [MarkdownBlock] { parseBlocks(lines, depth: 0) }
 
-    func parseBlocks(_ lines: [String]) -> [MarkdownBlock] {
+    private func inlines(_ text: String) -> [MarkdownInline] {
+        InlineParser(text, depth: 0, budget: budget).parse()
+    }
+
+    /// `depth` is how many quotes and list items enclose these lines; at
+    /// `MarkdownBounds.nesting` a quote or list marker is paragraph text.
+    func parseBlocks(_ lines: [String], depth: Int) -> [MarkdownBlock] {
+        let nests = depth < MarkdownBounds.nesting
         var blocks: [MarkdownBlock] = []
         var paragraph: [String] = []
         var i = 0
@@ -190,7 +246,7 @@ private struct BlockParser {
         func flush() {
             guard !paragraph.isEmpty else { return }
             let text = paragraph.map { dropLeading($0, 3) }.joined(separator: "\n")
-            blocks.append(.paragraph(Markdown.parseInlines(text.trimmingCharacters(in: .whitespaces))))
+            blocks.append(.paragraph(inlines(text.trimmingCharacters(in: .whitespaces))))
             paragraph = []
         }
 
@@ -235,13 +291,13 @@ private struct BlockParser {
             }
             if indent < 4, let heading = atxHeading(stripped) {
                 flush()
-                blocks.append(.heading(level: heading.level, content: Markdown.parseInlines(heading.text)))
+                blocks.append(.heading(level: heading.level, content: inlines(heading.text)))
                 i += 1
                 continue
             }
             if indent < 4, !paragraph.isEmpty, let level = setextLevel(stripped) {
                 let text = paragraph.map { dropLeading($0, 3) }.joined(separator: "\n").trimmingCharacters(in: .whitespaces)
-                blocks.append(.heading(level: level, content: Markdown.parseInlines(text)))
+                blocks.append(.heading(level: level, content: inlines(text)))
                 paragraph = []
                 i += 1
                 continue
@@ -255,11 +311,11 @@ private struct BlockParser {
             if indent < 4, i + 1 < lines.count, line.contains("|"), let alignments = delimiterRow(lines[i + 1]),
                tableCells(line).count == alignments.count {
                 flush()
-                let header = tableCells(line).map(Markdown.parseInlines)
+                let header = tableCells(line).map(inlines)
                 var rows: [[[MarkdownInline]]] = []
                 i += 2
                 while i < lines.count, !isBlank(lines[i]), !startsOtherBlock(lines[i]) {
-                    var cells = tableCells(lines[i]).map(Markdown.parseInlines)
+                    var cells = tableCells(lines[i]).map(inlines)
                     if cells.count < alignments.count {
                         cells += Array(repeating: [], count: alignments.count - cells.count)
                     }
@@ -269,7 +325,7 @@ private struct BlockParser {
                 blocks.append(.table(header: header, alignments: alignments, rows: rows))
                 continue
             }
-            if indent < 4, stripped.hasPrefix(">") {
+            if indent < 4, nests, stripped.hasPrefix(">") {
                 flush()
                 var inner: [String] = []
                 var lastWasText = false
@@ -289,13 +345,13 @@ private struct BlockParser {
                         break
                     }
                 }
-                blocks.append(.quote(parseBlocks(inner)))
+                blocks.append(.quote(parseBlocks(inner, depth: depth + 1)))
                 continue
             }
-            if indent < 4, let marker = listMarker(line),
+            if indent < 4, nests, let marker = listMarker(line),
                paragraph.isEmpty || (!isBlank(marker.content) && (!marker.ordered || marker.number == 1)) {
                 flush()
-                let (block, next) = parseList(lines, from: i)
+                let (block, next) = parseList(lines, from: i, depth: depth)
                 blocks.append(block)
                 i = next
                 continue
@@ -307,7 +363,7 @@ private struct BlockParser {
         return blocks
     }
 
-    func parseList(_ lines: [String], from start: Int) -> (MarkdownBlock, Int) {
+    func parseList(_ lines: [String], from start: Int, depth: Int) -> (MarkdownBlock, Int) {
         guard let first = listMarker(lines[start]) else { return (.paragraph([]), start + 1) }
         var items: [MarkdownListItem] = []
         var tight = true
@@ -347,7 +403,7 @@ private struct BlockParser {
                 checked = task.checked
                 body[0] = task.rest
             }
-            items.append(MarkdownListItem(blocks: parseBlocks(body), checked: checked))
+            items.append(MarkdownListItem(blocks: parseBlocks(body, depth: depth + 1), checked: checked))
         }
         return (.list(ordered: first.ordered, start: first.number, tight: tight, items: items), i)
     }
@@ -390,31 +446,42 @@ private struct BlockParser {
         return nil
     }
 
-    func isThematicBreak(_ line: String) -> Bool {
-        let characters = line.filter { $0 != " " }
-        guard characters.count >= 3, let first = characters.first, "-*_".contains(first) else { return false }
-        return characters.allSatisfy { $0 == first }
+    /// Three or more of one of `-*_`, spaces between allowed. One pass, no copy:
+    /// block tests run on every line at every nesting level.
+    func isThematicBreak<S: StringProtocol>(_ line: S) -> Bool {
+        var first: Character?
+        var count = 0
+        for character in line where character != " " {
+            if let first {
+                guard character == first else { return false }
+            } else {
+                guard "-*_".contains(character) else { return false }
+                first = character
+            }
+            count += 1
+        }
+        return count >= 3
     }
 
     func listMarker(_ line: String) -> ListMarker? {
         let indent = leadingSpaces(line)
-        let body = Array(line.dropFirst(indent))
-        guard !body.isEmpty else { return nil }
+        let body = line.dropFirst(indent)
+        guard let head = body.first else { return nil }
         var ordered = false
         var number = 1
         var symbol: Character
         var width: Int
-        if "-+*".contains(body[0]) {
-            symbol = body[0]
+        if "-+*".contains(head) {
+            symbol = head
             width = 1
         } else {
             let digits = body.prefix { $0.isASCII && $0.isNumber }
-            guard (1...9).contains(digits.count), digits.count < body.count, body[digits.count] == "." || body[digits.count] == ")" else {
-                return nil
-            }
+            guard (1...9).contains(digits.count) else { return nil }
+            let delimiter = body.dropFirst(digits.count).first
+            guard delimiter == "." || delimiter == ")", let delimiter else { return nil }
             ordered = true
             number = Int(String(digits)) ?? 1
-            symbol = body[digits.count]
+            symbol = delimiter
             width = digits.count + 1
         }
         let after = body.dropFirst(width)
@@ -433,17 +500,17 @@ private struct BlockParser {
         let padding = spaces >= 5 ? 1 : spaces
         let text = spaces >= 5 ? String(after.dropFirst(1)) : content
         // A thematic break is not a list item ("- - -", "* * *").
-        if !ordered && isThematicBreak(String(body)) { return nil }
+        if !ordered && isThematicBreak(body) { return nil }
         return ListMarker(ordered: ordered, number: number, symbol: symbol, indent: indent,
                           contentOffset: indent + width + padding, content: text)
     }
 
     func taskBox(_ line: String) -> (checked: Bool, rest: String)? {
-        let characters = Array(line)
-        guard characters.count >= 4, characters[0] == "[", characters[2] == "]", characters[3] == " " else { return nil }
+        let characters = Array(line.prefix(4))
+        guard characters.count == 4, characters[0] == "[", characters[2] == "]", characters[3] == " " else { return nil }
         switch characters[1] {
-        case " ": return (false, String(characters.dropFirst(4)))
-        case "x", "X": return (true, String(characters.dropFirst(4)))
+        case " ": return (false, String(line.dropFirst(4)))
+        case "x", "X": return (true, String(line.dropFirst(4)))
         default: return nil
         }
     }
@@ -533,10 +600,18 @@ private enum InlineToken: Equatable {
 
 private struct InlineParser {
     let characters: [Character]
+    /// How many links enclose this text (a link label is parsed at depth + 1).
+    let depth: Int
+    let budget: ScanBudget
 
-    init(_ text: String) {
+    init(_ text: String, depth: Int, budget: ScanBudget) {
         characters = Array(text)
+        self.depth = depth
+        self.budget = budget
     }
+
+    /// Links may open here: not too deep, and look-ahead budget left.
+    private var linksAllowed: Bool { depth + 1 < MarkdownBounds.nesting && budget.remaining > 0 }
 
     func parse() -> [MarkdownInline] {
         var tokens: [InlineToken] = []
@@ -588,18 +663,20 @@ private struct InlineParser {
                     i += run
                 }
             case "!" where i + 1 < characters.count && characters[i + 1] == "[":
-                if let (label, destination, end) = linkAt(i + 1) {
+                if linksAllowed, let (label, destination, end) = linkAt(i + 1) {
                     flushText()
-                    tokens.append(.node(.image(alt: Markdown.plainText(InlineParser(label).parse()), source: destination)))
+                    let alt = Markdown.plainText(InlineParser(label, depth: depth + 1, budget: budget).parse())
+                    tokens.append(.node(.image(alt: alt, source: destination)))
                     i = end
                 } else {
                     text.append(character)
                     i += 1
                 }
             case "[":
-                if let (label, destination, end) = linkAt(i) {
+                if linksAllowed, let (label, destination, end) = linkAt(i) {
                     flushText()
-                    tokens.append(.node(.link(InlineParser(label).parse(), destination: destination)))
+                    tokens.append(.node(.link(InlineParser(label, depth: depth + 1, budget: budget).parse(),
+                                              destination: destination)))
                     i = end
                 } else {
                     text.append(character)
@@ -646,7 +723,7 @@ private struct InlineParser {
             }
         }
         flushText()
-        return InlineParser.resolve(tokens)
+        return InlineParser.resolve(tokens, nesting: MarkdownBounds.nesting - depth)
     }
 
     private func count(of character: Character, at index: Int) -> Int {
@@ -655,9 +732,12 @@ private struct InlineParser {
         return end - index
     }
 
+    /// The next run of exactly `length` backticks; nil when there is none, or
+    /// when the look-ahead budget runs out first.
     private func findBacktickRun(length: Int, from start: Int) -> Int? {
         var i = start
-        while i < characters.count {
+        defer { budget.remaining -= i - start }
+        while i < characters.count, budget.remaining > i - start {
             if characters[i] == "`" {
                 let run = count(of: "`", at: i)
                 if run == length { return i }
@@ -669,12 +749,19 @@ private struct InlineParser {
         return nil
     }
 
-    /// `[label](destination "title")` starting at the `[`.
+    /// `[label](destination "title")` starting at the `[`; nil when it is not
+    /// one, or when the look-ahead budget runs out before its end.
     private func linkAt(_ open: Int) -> (String, String, Int)? {
-        var depth = 0
+        var scanned = 0
+        defer { budget.remaining -= scanned }
+        func affordable(_ index: Int) -> Bool {
+            scanned = index - open
+            return budget.remaining > scanned
+        }
+        var brackets = 0
         var i = open
         var close: Int?
-        while i < characters.count {
+        while i < characters.count, affordable(i) {
             let character = characters[i]
             if character == "\\" { i += 2; continue }
             if character == "`" {
@@ -683,10 +770,10 @@ private struct InlineParser {
                 i += run
                 continue
             }
-            if character == "[" { depth += 1 }
+            if character == "[" { brackets += 1 }
             if character == "]" {
-                depth -= 1
-                if depth == 0 { close = i; break }
+                brackets -= 1
+                if brackets == 0 { close = i; break }
             }
             i += 1
         }
@@ -696,12 +783,15 @@ private struct InlineParser {
         var destination = ""
         if j < characters.count, characters[j] == "<" {
             j += 1
-            while j < characters.count, characters[j] != ">", characters[j] != "\n" { destination.append(characters[j]); j += 1 }
+            while j < characters.count, affordable(j), characters[j] != ">", characters[j] != "\n" {
+                destination.append(characters[j])
+                j += 1
+            }
             guard j < characters.count, characters[j] == ">" else { return nil }
             j += 1
         } else {
             var parens = 0
-            while j < characters.count {
+            while j < characters.count, affordable(j) {
                 let character = characters[j]
                 if character == " " || character == "\n" { break }
                 if character == "(" { parens += 1 }
@@ -718,14 +808,15 @@ private struct InlineParser {
                 j += 1
             }
         }
-        while j < characters.count, characters[j] == " " || characters[j] == "\n" { j += 1 }
+        guard affordable(j) else { return nil }
+        while j < characters.count, affordable(j), characters[j] == " " || characters[j] == "\n" { j += 1 }
         if j < characters.count, "\"'(".contains(characters[j]) {
             let closer: Character = characters[j] == "(" ? ")" : characters[j]
             j += 1
-            while j < characters.count, characters[j] != closer { j += 1 }
-            guard j < characters.count else { return nil }
+            while j < characters.count, affordable(j), characters[j] != closer { j += 1 }
+            guard j < characters.count, characters[j] == closer else { return nil }
             j += 1
-            while j < characters.count, characters[j] == " " { j += 1 }
+            while j < characters.count, affordable(j), characters[j] == " " { j += 1 }
         }
         guard j < characters.count, characters[j] == ")" else { return nil }
         return (String(characters[(open + 1)..<close]), destination, j + 1)
@@ -762,14 +853,19 @@ private struct InlineParser {
         else if rest.hasPrefix("http://") { prefix = ""; lead = 7 }
         else if rest.hasPrefix("www.") { prefix = "https://"; lead = 4 }
         else { return nil }
+        guard budget.remaining > 0 else { return nil }
         var end = start
         while end < characters.count, !characters[end].isWhitespace, characters[end] != "<" { end += 1 }
+        budget.remaining -= end - start
         var text = String(characters[start..<end])
+        let opens = text.reduce(0) { $0 + ($1 == "(" ? 1 : 0) }
+        var closes = text.reduce(0) { $0 + ($1 == ")" ? 1 : 0) }
         while let last = text.last {
             if "?!.,:*_~'\"".contains(last) {
                 text.removeLast()
-            } else if last == ")" && text.filter({ $0 == ")" }).count > text.filter({ $0 == "(" }).count {
+            } else if last == ")" && closes > opens {
                 text.removeLast()
+                closes -= 1
             } else {
                 break
             }
@@ -780,7 +876,9 @@ private struct InlineParser {
 
     // MARK: Emphasis (CommonMark's delimiter procedure, simplified)
 
-    static func resolve(_ input: [InlineToken]) -> [MarkdownInline] {
+    /// `nesting`: how deep the emphasis made here may nest; a pair whose node
+    /// would nest deeper is left as its characters.
+    static func resolve(_ input: [InlineToken], nesting: Int) -> [MarkdownInline] {
         // The opener search is quadratic in the worst case; a pathological run of
         // delimiters is shown literally rather than risk a slow render.
         guard input.count <= 4000 else { return flatten(input) }
@@ -810,8 +908,12 @@ private struct InlineParser {
                 closerIndex += 1
                 continue
             }
-            let use = closer.character == "~" ? closer.count : (closer.count >= 2 && opener.count >= 2 ? 2 : 1)
             let inner = flatten(Array(tokens[(o + 1)..<closerIndex]))
+            guard Markdown.depth(inner, cap: nesting) + 1 <= nesting else {
+                closerIndex += 1
+                continue
+            }
+            let use = closer.character == "~" ? closer.count : (closer.count >= 2 && opener.count >= 2 ? 2 : 1)
             let node: MarkdownInline = closer.character == "~" ? .strikethrough(inner)
                 : use == 2 ? .strong(inner) : .emphasis(inner)
             opener.count -= use

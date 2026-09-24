@@ -156,3 +156,81 @@ def test_inlines_become_presentation_intents(core_probe, tmp_path):
 @pytest.mark.parametrize("text", ["", "\n\n", "   ", "*", "**", "[", "`", "> ", "- ", "1.", "|", "```", "#"])
 def test_degenerate_input_does_not_fail(core_probe, tmp_path, text):
     assert isinstance(md(core_probe, tmp_path, text), list)
+
+
+# --- C-29.8: bounded cost. Before the bounds, 20 000 nested quotes overflowed the
+# stack, and 16 000 "[a](" took about half a minute on an idle machine.
+
+NESTING = 32
+
+
+def block_depth(blocks: list[dict]) -> int:
+    deepest = 0
+    for block in blocks:
+        if block["type"] == "quote":
+            deepest = max(deepest, 1 + block_depth(block["blocks"]))
+        elif block["type"] == "list":
+            deepest = max([deepest] + [1 + block_depth(item["blocks"]) for item in block["items"]])
+    return deepest
+
+
+def inline_depth(inlines: list[dict]) -> int:
+    deepest = 0
+    for inline in inlines:
+        for key in ("emphasis", "strong", "strike"):
+            if key in inline:
+                deepest = max(deepest, 1 + inline_depth(inline[key]))
+        if "link" in inline:
+            deepest = max(deepest, 1 + inline_depth(inline["label"]))
+    return deepest
+
+
+def innermost(blocks: list[dict]) -> dict:
+    block = blocks[0]
+    while block["type"] in ("quote", "list"):
+        block = (block["blocks"] if block["type"] == "quote" else block["items"][0]["blocks"])[0]
+    return block
+
+
+def md_bounded(core_probe, tmp_path, text: str) -> list[dict]:
+    """Parse in well under 10 s even on a loaded machine (each case takes
+    milliseconds; the unbounded scans took tens of seconds)."""
+    path = tmp_path / f"{uuid.uuid4().hex}.md"
+    path.write_text(text)
+    return run_probe(core_probe, "markdown", path, timeout=10)
+
+
+@pytest.mark.parametrize("unit", ["> ", ">", "- ", "1. ", "> - "])
+def test_c29_8_deep_block_nesting_stops_at_the_bound(core_probe, tmp_path, unit):
+    blocks = md_bounded(core_probe, tmp_path, unit * 20_000 + "x")
+    assert block_depth(blocks) == NESTING
+    deepest = innermost(blocks)
+    assert deepest["type"] == "paragraph" and deepest["content"][0]["text"].endswith("x")   # the rest is text
+
+
+def test_c29_8_deep_inline_nesting_stops_at_the_bound(core_probe, tmp_path):
+    emphasis = md_bounded(core_probe, tmp_path, "*a " * 600 + "a* " * 600)
+    assert inline_depth(emphasis[0]["content"]) == NESTING
+    links = md_bounded(core_probe, tmp_path, "[" * 5_000 + "x" + "](u)" * 5_000)
+    assert NESTING - 2 <= inline_depth(links[0]["content"]) <= NESTING
+    shallow = md_bounded(core_probe, tmp_path, "*a " * 20 + "a* " * 20)
+    assert inline_depth(shallow[0]["content"]) == 20                                      # below it, unchanged
+
+
+@pytest.mark.parametrize("unit", ["[", "[a", "[a](", "![", "[a](x \"", "[a](<"])
+def test_c29_8_unclosed_links_are_text_without_a_slow_scan(core_probe, tmp_path, unit):
+    text = unit * (60_000 // len(unit))
+    assert md_bounded(core_probe, tmp_path, text) == [para(t(text))]
+
+
+@pytest.mark.parametrize("text", ["(http://" * 7_500, "``a`" * 15_000, "`" + "a``" * 20_000, "*_" * 30_000])
+def test_c29_8_other_long_runs_parse_in_bounded_time(core_probe, tmp_path, text):
+    blocks = md_bounded(core_probe, tmp_path, text)
+    assert len(blocks) == 1 and blocks[0]["type"] == "paragraph" and blocks[0]["content"]
+
+
+def test_c29_8_a_url_with_many_closing_parens_is_linear(core_probe, tmp_path):
+    blocks = md_bounded(core_probe, tmp_path, "see http://a.b/c" + ")" * 60_000)
+    content = blocks[0]["content"]
+    assert content[1] == {"link": "http://a.b/c", "label": [t("http://a.b/c")]}
+    assert content[2] == t(")" * 60_000)
