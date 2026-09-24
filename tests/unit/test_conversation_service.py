@@ -372,6 +372,153 @@ def test_events_reset_a_client_whose_cursor_is_below_the_floor(svc):
     assert at_floor["reset"] is False and [e["seq"] for e in at_floor["events"]] == [text]
 
 
+# --- dispatch refusals (C-26.1, C-24.3) ------------------------------------------
+
+
+def test_a_refusal_that_may_pass_keeps_the_message_waiting_with_a_reason_and_a_backoff(svc):
+    """C-26.1, C-24.3: an operational refusal (exit 1) before any provider saw the
+    message leaves it queued with `deferred: <why>`; it is not submitted again every
+    tick, but after 2 s, then 4 s, and goes on normally once submit accepts it."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.daemon.refuse = AdapterError("could not inspect the workdir: git rev-parse timed out after 60 s", code=1)
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert message["state"] == "queued"
+    assert message["state_reason"] == "deferred: could not inspect the workdir: git rev-parse timed out after 60 s"
+    for _ in range(5):
+        svc._dispatch()
+    assert len(svc.daemon.submits) == 1
+    svc.clock.now += 2.1
+    svc._dispatch()
+    assert len(svc.daemon.submits) == 2
+    svc.clock.now += 3
+    svc._dispatch()
+    assert len(svc.daemon.submits) == 2                  # the second wait is 4 s
+    svc.clock.now += 1.1
+    svc.daemon.refuse = None
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert len(svc.daemon.submits) == 3
+    assert message["state"] == "waiting" and message["state_reason"] is None and message["job_id"] == "job-3"
+
+
+def test_the_backoff_is_capped(svc):
+    """C-26.1: the wait doubles up to five minutes."""
+    cid = conversation(svc)
+    submit(svc, cid)
+    svc.daemon.refuse = OSError("disk full")
+    for _ in range(12):
+        svc._dispatch()
+        svc.clock.now += service_module.DEFER_MAX_S + 0.1
+    count, due = next(iter(svc._deferred.values()))
+    assert count == 12 and due - svc.clock.now <= service_module.DEFER_MAX_S
+    assert svc.store.message(next(iter(svc._deferred)))["state_reason"] == "deferred: OSError: disk full"
+
+
+@pytest.mark.parametrize("refusal, reason", [
+    (AdapterError("writable job refused on main", code=7), "not-delivered: writable job refused on main"),
+    (protocol.ProtocolError("workdir must be a directory"), "not-delivered: workdir must be a directory"),
+    (ConversationError("attachment-missing", "attachment abc is gone"), "not-delivered: attachment-missing"),
+])
+def test_a_permanent_refusal_fails_the_message_with_its_reason(svc, refusal, reason):
+    """C-26.1, design §9: the daemon's own refusal of the message as it is (exit 2 or 7)
+    fails it, never delivered, with the reason; it is not tried again."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.daemon.refuse = refusal
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert (message["state"], message["state_reason"]) == ("failed", reason)
+    svc.clock.now += 1000
+    svc._dispatch()
+    assert len(svc.daemon.submits) == 1
+
+
+def test_an_unknown_model_fails_before_submit(svc):
+    """C-26.8: a model this fleet does not route is refused before any job exists."""
+    cid = conversation(svc)
+    mid = str(uuid.uuid4())
+    svc.store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None, text="x", attachments=[],
+                             settings={**SETTINGS, "model": "gpt-9"})
+    svc._dispatch()
+    assert svc.store.message(mid)["state_reason"] == "not-delivered: unknown-model"
+    assert svc.daemon.submits == []
+
+
+def test_one_conversations_defect_never_holds_up_another(svc, caplog):
+    """C-26.1: an unexpected error submitting one message defers that message (logged)
+    and the next conversation's message is still submitted in the same pass."""
+    a, b = conversation(svc), conversation(svc)
+    first, second = submit(svc, a), submit(svc, b)
+    svc.daemon.refuse = lambda args: KeyError("defect") if args.request_id.startswith(f"turn:{first}") else None
+    with caplog.at_level(logging.ERROR, logger="test-conversations"):
+        svc._dispatch()
+    assert svc.store.message(first)["state_reason"].startswith("deferred: KeyError")
+    assert svc.store.message(second)["state"] == "waiting"
+    assert any("KeyError" in r.message for r in caplog.records)
+
+
+def test_a_readmitted_message_is_deferred_and_submitted_again_as_waiting(svc):
+    """IR-1, C-26.1: a waiting message with no job (re-admitted) that submit defers stays
+    waiting, says why, and is submitted as turn_seq+1 later."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "waiting", reason="readmit:external-writer", turn_seq=1, job_id=None)
+    svc.daemon.refuse = AdapterError("could not inspect the workdir", code=1)
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert (message["state"], message["state_reason"]) == ("waiting", "deferred: could not inspect the workdir")
+    svc.daemon.refuse = None
+    svc.clock.now += 3
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert message["state"] == "waiting" and message["job_id"] == "job-2"
+    assert svc.daemon.submits[-1].request_id == f"turn:{mid}:1"
+
+
+def test_a_message_withdrawn_while_its_job_is_submitted_leaves_no_live_job(svc):
+    """IR-2, C-24.7: a person's cancel that lands between the job insert and the binding
+    wins; the new job is cancelled before it has an attempt."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+
+    def cancel_now(job_id):
+        receipt = svc.handle("message.cancel", {"message_id": mid}, None)
+        assert receipt["state"] == "cancelled"
+    svc.daemon.after_insert = cancel_now
+    svc._dispatch()
+    assert svc.store.message(mid)["state"] == "cancelled"
+    job = svc.daemon.store.one("SELECT state, cancel_requested_at FROM jobs WHERE job_id='job-1'")
+    assert job["state"] == "cancelled" and job["cancel_requested_at"]
+
+
+def test_stopping_a_message_that_waits_to_be_submitted_again_withdraws_it(svc):
+    """C-24.7: a re-admitted or deferred message with no job is withdrawn by a stop,
+    and the dispatcher never submits it."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "waiting", reason="readmit:fast-unavailable", turn_seq=1, job_id=None)
+    receipt = svc.handle("turn.interrupt", {"message_id": mid}, None)
+    assert receipt["state"] == "cancelled"
+    svc._dispatch()
+    assert svc.daemon.submits == []
+    other = submit(svc, conversation(svc))
+    svc.store.set_state(other, "waiting", reason="readmit:external-writer", turn_seq=1, job_id=None)
+    svc.store.update_message(other, stop_requested_at="2026-09-24T00:00:00.000Z")
+    svc._dispatch()
+    assert svc.store.message(other)["state"] == "cancelled" and svc.daemon.submits == []
+
+
+def test_a_queued_message_cancelled_before_dispatch_stays_cancelled(svc):
+    """C-24.7: the ordinary withdrawal of a queued message."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    assert svc.handle("message.cancel", {"message_id": mid}, None)["state"] == "cancelled"
+    svc._dispatch()
+    assert svc.daemon.submits == []
+
+
 # --- turn jobs retention must keep (C-26.12, IR-17) -------------------------------
 
 

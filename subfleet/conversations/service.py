@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import signal
+import sqlite3
 import stat
 import subprocess
 import threading
@@ -26,6 +27,7 @@ from typing import Any
 
 from .. import protocol
 from ..adapters.base import AdapterError
+from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULTS
 from . import attachments as attachment_store
 from .classify import TurnAdapter, read_turn
@@ -59,6 +61,10 @@ MAX_READMITS = 3
 CONTINUATION_TEXT = ("Continue from where you left off; the previous turn stopped at a usage limit "
                      "on another account.")
 CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
+# A turn submit refused before any provider saw the message waits and is tried
+# again after 2, 4, 8, ... seconds, at most every 5 minutes (C-26.1).
+DEFER_BASE_S = 2.0
+DEFER_MAX_S = 300.0
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
 # times that is wedged outside the cap (a directory walk, `ps`) and is stopped.
 CATALOG_KILL_AFTER_S = 60.0
@@ -78,6 +84,8 @@ class ConversationService:
         self._poll_slots: dict[tuple, threading.Event] = {}
         self.log = daemon.log
         self.clock = time.monotonic
+        # message id -> (refusals in a row, monotonic time of the next try)
+        self._deferred: dict[str, tuple[int, float]] = {}
         self._catalog_lock = threading.RLock()
         self._catalog_proc: subprocess.Popen | None = None
         self._catalog_started = 0.0            # monotonic time of the run this service last started
@@ -453,9 +461,14 @@ class ConversationService:
             message = self.store.message(message_id)
         except ConversationError:
             return self._tombstone(message_id, args.get("conversation_id"))
-        if message["state"] == QUEUED and not self._turn_job(message):
-            if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED,)):
+        if message["state"] in (QUEUED, WAITING) and not message["job_id"] and not self._turn_job(message):
+            # No job carries it (queued, or waiting to be submitted again): the
+            # conversation store decides. A job the dispatcher submits meanwhile
+            # finds the message cancelled and is cancelled in turn (_dispatch_one).
+            if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING),
+                                    unbound=True):
                 return self._receipt(self.store.message(message_id))
+            message = self.store.message(message_id)
         if message["state"] in (QUEUED, WAITING):
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
@@ -502,6 +515,10 @@ class ConversationService:
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,))
+            elif job is None:
+                # Waiting to be submitted again (a re-admission or a deferral): no
+                # provider has it. The dispatcher also withdraws a stopped message.
+                self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,), unbound=True)
         return self._receipt(self.store.message(message_id))
 
     def op_message_resolve(self, args, peer) -> dict:
@@ -735,32 +752,89 @@ class ConversationService:
         return dict(row) if row else None
 
     def _dispatch(self) -> None:
-        for message in self.store.next_dispatchable() + self._readmittable():
-            conversation = self.store.conversation(message["conversation_id"])
-            job = self._turn_job(message)
-            if job is None and not self._previous_released(conversation, message):
-                continue
-            if job is None:
-                try:
-                    job = self._submit_turn(conversation, message)
-                except ConversationError as exc:
-                    self.store.set_state(message["message_id"], FAILED, reason=exc.reason,
-                                         expect=(QUEUED, WAITING))
-                    continue
-                except (protocol.ProtocolError, AdapterError, OSError, ValueError) as exc:
-                    # Refused before any provider saw it: the message waits, it is not failed.
-                    self.store.update_message(message["message_id"])
-                    self.log.warning("turn submit for %s deferred: %s", message["message_id"], exc)
-                    continue
-            if job and message["state"] in (QUEUED, WAITING):
-                self.store.set_state(message["message_id"], WAITING, reason=message.get("state_reason"),
-                                     expect=(QUEUED, WAITING), job_id=job["job_id"])
+        candidates = self.store.next_dispatchable() + self._resubmittable()
+        seen = {m["message_id"] for m in candidates}
+        with self._lock:
+            self._deferred = {mid: value for mid, value in self._deferred.items() if mid in seen}
+        now = self.clock()
+        for message in candidates:
+            deferred = self._deferred.get(message["message_id"])
+            if deferred and now < deferred[1]:
+                continue                        # backing off (C-26.1)
+            try:
+                self._dispatch_one(message)
+            except Exception as exc:            # one message never holds up the others
+                self.log.error("dispatch of %s failed: %s: %s", message["message_id"], type(exc).__name__, exc)
 
-    def _readmittable(self) -> list[dict]:
-        rows = self.store.query("SELECT * FROM messages WHERE state='waiting' AND state_reason LIKE 'readmit:%'")
-        out = []
+    def _dispatch_one(self, message: dict) -> None:
+        mid = message["message_id"]
+        conversation = self.store.conversation(message["conversation_id"])
+        job = self._turn_job(message)
+        if job is None and message.get("stop_requested_at"):
+            # Stopped by a person while waiting to be submitted again: nothing was sent.
+            self.store.set_state(mid, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING), unbound=True)
+            return
+        if job is None and conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
+            # Never run a worktree conversation in the checkout it was cut from.
+            self._defer(message, "the conversation's worktree was not created; repeat conversation.create")
+            return
+        if job is None and not self._previous_released(conversation, message):
+            return
+        if job is None:
+            try:
+                job = self._submit_turn(conversation, message)
+            except Exception as exc:
+                permanent, why = _refusal(exc)
+                if permanent:
+                    # The daemon refused the turn outright: it never reached a provider.
+                    with self._lock:
+                        self._deferred.pop(mid, None)
+                    self.store.set_state(mid, FAILED, reason=f"not-delivered: {why}"[:200], expect=(QUEUED, WAITING))
+                else:
+                    self._defer(message, why)
+                    if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
+                                            sqlite3.Error)):
+                        self.log.error("turn submit for %s failed: %s: %s", mid, type(exc).__name__, exc)
+                return
+        with self._lock:
+            self._deferred.pop(mid, None)
+        if message["state"] not in (QUEUED, WAITING):
+            return
+        reason = message.get("state_reason")
+        if reason and not reason.startswith("readmit:"):
+            reason = None                       # a deferral is over once the job exists
+        if self.store.set_state(mid, WAITING, reason=reason, expect=(QUEUED, WAITING), job_id=job["job_id"]):
+            return
+        # The message moved while its job was being submitted: a person withdrew it
+        # (message.cancel). Its new job must not run (IR-2): cancelled outright while
+        # it has no attempt, else flagged, which `_launch` re-reads before starting.
+        if self.store.message(mid)["state"] == CANCELLED and not self._cancel_job_without_attempt(job["job_id"]):
+            with self.daemon.store.transaction("job.cancel_requested", job_id=job["job_id"]) as tx:
+                tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?",
+                           (utcnow(), job["job_id"]))
+            self.daemon._notify()
+
+    def _defer(self, message: dict, why: str) -> None:
+        """A submit refused before any provider saw the message: it keeps waiting,
+        says why, and is not submitted again until its backoff passes."""
+        mid = message["message_id"]
+        with self._lock:
+            count = self._deferred.get(mid, (0, 0.0))[0] + 1
+            delay = min(DEFER_MAX_S, DEFER_BASE_S * 2 ** (count - 1))
+            self._deferred[mid] = (count, self.clock() + delay)
+        reason = f"deferred: {why}"[:200]
+        if message.get("state_reason") != reason:
+            self.store.set_state(mid, message["state"], reason=reason, expect=(message["state"],))
+        if count & (count - 1) == 0:            # 1, 2, 4, 8, ...: the log stays bounded
+            self.log.warning("turn submit for %s deferred (%d in a row, next try in %g s): %s",
+                             mid, count, delay, why)
+
+    def _resubmittable(self) -> list[dict]:
+        """Waiting messages with no job: re-admitted after a failure that provably
+        never delivered them (IR-1, IR-23), or deferred on their way back."""
         from .store import _decode_message
-        for row in rows:
+        out = []
+        for row in self.store.query("SELECT * FROM messages WHERE state='waiting' AND job_id IS NULL"):
             message = _decode_message(row)
             if not self._turn_job(message):
                 out.append(message)
@@ -1019,6 +1093,23 @@ def policy_model(policy: dict, provider: str, value: str) -> str:
             return short
     raise ConversationError("unknown-model", f"{value!r} is not a {provider} model this fleet routes",
                             fix="pick a model from models.list")
+
+
+def _refusal(exc: BaseException) -> tuple[bool, str]:
+    """A turn submit that raised before any job existed: (permanent, why).
+
+    Permanent is the daemon's own refusal of this message as it is (invalid
+    input, exit 2, or a policy refusal, exit 7: a checkout on main without
+    `allow_main`, a missing attachment, a model the fleet does not route).
+    Everything else (an operational failure, exit 1, such as git timing out while
+    inspecting the workspace; a store or file error; a defect) may pass on a later
+    try, so the message waits.
+    """
+    if isinstance(exc, ConversationError):
+        return exc.code != int(Exit.OPERATIONAL), exc.reason
+    if isinstance(exc, (AdapterError, protocol.ProtocolError)):
+        return int(exc.code) != int(Exit.OPERATIONAL), str(exc) or type(exc).__name__
+    return False, f"{type(exc).__name__}: {exc}"
 
 
 def _iso_ago(seconds: float) -> str:
