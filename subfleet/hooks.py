@@ -20,6 +20,16 @@ follow `docs/reference/claude-hooks.md` (fetched 2026-09-05) — not memory:
   re-reads the transcript after the delay and applies the age cap, the dedupe,
   the cooldown and the liveness re-check against what it can actually see.
 
+  Both events do nothing at all inside a process Subfleet launched (C-26.13):
+  a conversation turn, a lane run, or a probe. Every such process carries the
+  C-5.1 markers (`launched_by_subfleet`), and Claude Code runs these hook
+  commands with the provider's own environment. A conversation turn is a
+  `claude -p` Subfleet starts once per message, so without this every turn's
+  `SessionStart` (source `startup`, then `resume` on each later turn) would
+  hand the conversation's session to the nudge worker as if a restart had cut
+  it off, and every `UserPromptSubmit` would add pending notices to Claude's
+  context beside the message the person sent from the app.
+
 * **PostToolUse** on Bash — layer 2. Ask the daemon which of this session's
   jobs are still running, take a file lease so two hooks never wait on one job,
   long-poll it, and exit 2 with the notice on stderr when it finishes inside
@@ -75,6 +85,21 @@ EVENTS = {
 }
 SESSION_EVENTS = ("SessionStart", "UserPromptSubmit")
 
+#: The C-5.1 markers that name a process Subfleet launched. Every launch path
+#: sets `SUBFLEET_ATTEMPT`: an attempt, turns included (`Daemon._launch`, with
+#: `SUBFLEET_JOB` and `SUBFLEET_ROOT`), an admission probe
+#: (`Daemon._execute_probe`, the same three), and an enrollment turn
+#: (`Daemon._enrollment_turn`, `SUBFLEET_ATTEMPT` and `SUBFLEET_ROOT`). The
+#: guardian starts the provider with the environment it was given
+#: (`subprocess.Popen` without `env=` in `guardian.run_guardian`), and Claude
+#: Code 2.1.280 runs its `SessionStart` and `UserPromptSubmit` hook commands
+#: with all three set, in `-p` and in `--input-format stream-json` mode, for a
+#: new session and a `--resume`d one (`docs/desktop/reviews/
+#: 2026-09-24-live-probes.md`, "Hooks inside a Subfleet launch").
+#: `SUBFLEET_ROOT` is not used: every path that sets it also sets
+#: `SUBFLEET_ATTEMPT`.
+LAUNCH_MARKERS = ("SUBFLEET_ATTEMPT", "SUBFLEET_JOB")
+
 #: Documented default for a command hook is 600 s; plan B rev 4 requires it be
 #: set explicitly rather than inherited. `SUBFLEET_HOOK_TIMEOUT_S` moves both
 #: the written entry and this process's own budget together.
@@ -105,6 +130,20 @@ def timeout_s() -> int:
     except ValueError:
         return HOOK_TIMEOUT_S
     return value if value > 0 else HOOK_TIMEOUT_S
+
+
+def launched_by_subfleet(env: Any = None) -> str | None:
+    """The C-5.1 marker naming this process as one Subfleet launched, or None.
+
+    A hook runs in the environment of the Claude Code process that invoked it,
+    so a marker here means that process is a conversation turn, a lane run or a
+    probe the daemon started (C-26.13).
+    """
+    values = os.environ if env is None else env
+    for name in LAUNCH_MARKERS:
+        if str(values.get(name) or "").strip():
+            return name
+    return None
 
 
 def settings_path() -> Path:
@@ -335,13 +374,19 @@ def _offline_pending(root: Path, session: str) -> list[dict[str, Any]]:
 
 def session_event(event: str, payload: dict[str, Any], root: Path,
                   *, client: Client | None = None,
-                  stdout: Any = None) -> int:
+                  stdout: Any = None, env: Any = None) -> int:
     """SessionStart / UserPromptSubmit: surface and mark (C-15.2 layer 3, C-15.3).
 
     Always exits 0. Exit 2 on SessionStart blocks the session from starting and
     on UserPromptSubmit erases the user's prompt, so nothing this hook can go
     wrong with is worth either outcome (`docs/reference/claude-hooks.md` §3).
+
+    Inside a process Subfleet launched it does nothing (C-26.13): no wake, no
+    daemon call, no output. That session is a conversation's or a lane's, and
+    neither is a session the kit may nudge or a prompt a notice may join.
     """
+    if launched_by_subfleet(env):
+        return int(Exit.OK)
     stdout = sys.stdout if stdout is None else stdout
     session = payload_session(payload)
     if not session:

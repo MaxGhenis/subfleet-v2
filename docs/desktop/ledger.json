@@ -375,7 +375,8 @@
       "source": "transition plan Stage 5 release checks",
       "clauses": [
         "C-24.5",
-        "C-26.3"
+        "C-26.3",
+        "C-26.13"
       ],
       "status": "open",
       "evidence": [],

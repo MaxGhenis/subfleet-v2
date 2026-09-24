@@ -59,6 +59,45 @@ review IR-3 (the escalation sends SIGINT through the relay before closing
 stdin, and only containment ever sends SIGTERM), and it is why a SIGTERM or
 crash after delivery blocks a Claude conversation (`unfinished-turn`, C-24.8).
 
+## Hooks inside a Subfleet launch
+
+Whether a turn's own hooks can tell they run inside a Subfleet launch. The
+probe ran Claude Code 2.1.280 with `env -i` (so nothing of the probing
+session's environment leaked in), a scratch `HOME` and `CLAUDE_CONFIG_DIR`
+holding no settings or login (the `-p` run answered "Not logged in", so no
+model call was made), the three C-5.1
+variables set to synthetic values, and `--settings` naming a `SessionStart`
+and a `UserPromptSubmit` command hook that wrote down only the `SUBFLEET_*`
+variables they saw and their hook JSON. Four runs: `-p "hi"`; and
+`--input-format stream-json` with one user frame, new without and with
+`--session-id <uuid>`, and with `--resume` of the first stream-json session.
+
+| Run | SessionStart `source` | Markers in each hook |
+|---|---|---|
+| `-p "hi"` | `startup` | `SUBFLEET_ATTEMPT`, `SUBFLEET_JOB`, `SUBFLEET_ROOT` |
+| stream-json, new | `startup` | the same three |
+| stream-json, `--session-id` | `startup` | the same three |
+| stream-json, `--resume` | `resume` | the same three |
+
+In stream-json mode the CLI printed `hook_started` / `hook_response` for
+`SessionStart:startup` or `SessionStart:resume` before `system/init`. The
+`SessionStart` JSON carried `session_id`, `transcript_path`, `cwd`,
+`hook_event_name` and `source`; `UserPromptSubmit` carried `session_id`,
+`transcript_path`, `cwd`, `prompt_id`, `permission_mode`, `hook_event_name`
+and `prompt`. Each stream-json user frame was written to the transcript with
+`promptSource: "sdk"`, and the resumed run added an `isMeta` user row.
+
+So before C-26.13 every conversation turn handed its session to the sessions
+kit's nudge worker (`subfleet hook SessionStart` calls `wake_worker`, and
+`resume` is a source the worker honours, C-23.33), and every
+`UserPromptSubmit` could add pending notices to Claude's context beside the
+person's message. A conversation's transcript also gains one `sdk` prompt per
+turn, so after two turns `transcripts.headless_transcript` stops treating it
+as a lane run (C-23.31). The hook now does nothing when a marker is set
+(C-26.13), and the end-to-end test
+`test_a_turns_session_hooks_see_the_daemons_markers_and_do_nothing` runs
+`subfleet hook` from inside real turn launches with the daemon's own markers.
+
 ## Still to do live
 
 - A Claude approval and an AskUserQuestion with a tool no hook approves.

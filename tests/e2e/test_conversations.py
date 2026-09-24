@@ -160,6 +160,49 @@ def test_a_claude_conversation_streams_completes_and_continues_in_the_same_sessi
     assert "opus[1m]" in models["claude"]["claude-opus-5-5"]["values"]
 
 
+@pytest.fixture
+def hooked(e2e):
+    """Conversations whose fake Claude runs `subfleet hook <event>` the way
+    Claude Code runs a command hook, inside the turn process the daemon and its
+    guardian launched, so the hook sees whatever environment they gave it."""
+    e2e.env["SUBFLEET_FAKE_TURN_LOG"] = str(e2e.root / "turns.jsonl")
+    e2e.env["SUBFLEET_FAKE_HOOK_COMMAND"] = f"{sys.executable} -m subfleet hook"
+    e2e.start()
+    return Conversations(e2e)
+
+
+def test_a_turns_session_hooks_see_the_daemons_markers_and_do_nothing(hooked):
+    """C-26.13 with C-5.1: every turn runs SessionStart (`startup`, then
+    `resume`) and UserPromptSubmit with the markers `Daemon._launch` set, and
+    neither says anything, even with a notice pending for the session: a
+    turn's session is the conversation's, not one the sessions kit may wake,
+    and its prompt is the person's message, not a place for notices."""
+    conv = hooked
+    cid = conv.create()
+    first = conv.submit(cid, "hello there")
+    assert conv.until_state(first, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
+    session = conv.call("conversation.open", conversation_id=cid)["conversation"]["native_session_id"]
+    assert session
+    pinged = conv.call("ping", session_id=session, text="subfleet: a resume nudge for this session")
+    assert pinged["notice_id"] is not None
+
+    second = conv.submit(cid, "and again", after_message_id=first)
+    assert conv.until_state(second, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
+
+    ran = [row for row in conv.turn_log() if "hook" in row]
+    assert [(row["hook"], row["source"]) for row in ran] == [
+        ("SessionStart", "startup"), ("UserPromptSubmit", None),
+        ("SessionStart", "resume"), ("UserPromptSubmit", None)], ran
+    assert all(row.get("rc") == 0 and row.get("stdout") == "" for row in ran), ran
+    jobs = [conv.e2e.rows("SELECT job_id FROM jobs WHERE request_id=?", (f"turn:{mid}:0",))[0]["job_id"]
+            for mid in (first, second)]
+    for row, job_id in zip(ran, [jobs[0], jobs[0], jobs[1], jobs[1]]):
+        assert row["markers"] == {"SUBFLEET_JOB": job_id, "SUBFLEET_ATTEMPT": f"{job_id}/a1",
+                                  "SUBFLEET_ROOT": str(conv.e2e.root)}, row
+    notices = conv.e2e.rows("SELECT state FROM service_notices WHERE session_id=?", (session,))
+    assert [row["state"] for row in notices] == ["pending"]
+
+
 def pending_approval(conv, cid: str) -> dict:
     return conv.e2e.until(lambda: next(iter(conv.call("approval.list", conversation_id=cid)["approvals"]), None),
                           timeout=30)

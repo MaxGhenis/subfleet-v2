@@ -29,6 +29,18 @@ Environment:
     SUBFLEET_FAKE_FAST        the `fast_mode_state` to report (default "on")
     SUBFLEET_FAKE_TURN_LOG    append argv and every stdin line here (JSON lines)
     CLAUDE_FAKE_PROJECTS_DIR  write the session transcript under this directory
+    SUBFLEET_FAKE_HOOK_COMMAND
+                              run this command as a SessionStart hook at startup
+                              and a UserPromptSubmit hook for each message, as
+                              Claude Code 2.1.280 runs a command hook: its own
+                              process, this process's environment, the hook JSON
+                              on stdin, and the event name appended (the shape
+                              `daemon install --hooks` writes). Source `startup`
+                              for `--session-id`, `resume` for `--resume`, as
+                              observed (docs/desktop/reviews/2026-09-24-live-
+                              probes.md, "Hooks inside a Subfleet launch"). Each
+                              run is logged to SUBFLEET_FAKE_TURN_LOG with its rc
+                              and stdout.
 """
 
 from __future__ import annotations
@@ -37,7 +49,9 @@ import json
 import os
 import queue
 import re
+import shlex
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -153,6 +167,26 @@ class Fake:
             self.inbox.put(row)
         self.inbox.put(None)
 
+    def hook(self, event: str, **fields) -> None:
+        """Run the configured command hook for `event`, if there is one."""
+        command = os.environ.get("SUBFLEET_FAKE_HOOK_COMMAND")
+        if not command:
+            return
+        body = {"session_id": self.session_id,
+                "transcript_path": str(self.transcript) if self.transcript else "",
+                "cwd": os.getcwd(), "hook_event_name": event, **fields}
+        try:
+            done = subprocess.run([*shlex.split(command), event], input=json.dumps(body),
+                                  capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.log({"hook": event, "error": f"{type(exc).__name__}: {exc}", "pid": os.getpid()})
+            return
+        # The C-5.1 markers the hook inherited: ids and a path, never a secret.
+        markers = {name: os.environ[name] for name in ("SUBFLEET_ATTEMPT", "SUBFLEET_JOB", "SUBFLEET_ROOT")
+                   if name in os.environ}
+        self.log({"hook": event, "rc": done.returncode, "stdout": done.stdout,
+                  "source": fields.get("source"), "markers": markers, "pid": os.getpid()})
+
     def next_row(self, timeout: float | None = None) -> dict | None:
         try:
             return self.inbox.get(timeout=timeout)
@@ -162,6 +196,7 @@ class Fake:
     # --- the session -----------------------------------------------------------
 
     def run(self) -> int:
+        self.hook("SessionStart", source="resume" if flag(self.argv, "--resume") else "startup")
         threading.Thread(target=self.reader, daemon=True).start()
         while True:
             row = self.next_row()
@@ -197,6 +232,7 @@ class Fake:
             str(b.get("text") or "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
         images = [b for b in content or [] if isinstance(b, dict) and b.get("type") == "image"] \
             if isinstance(content, list) else []
+        self.hook("UserPromptSubmit", prompt=text)
         match = DIRECTIVE.search(text)
         scenario = match.group(1) if match else "reply"
         self.interrupted.clear()
