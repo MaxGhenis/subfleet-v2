@@ -138,7 +138,7 @@ struct ComposerView: View {
             }
             ZStack(alignment: .topLeading) {
                 ComposerTextView(text: $text, onSubmit: submit, onImage: addImage)
-                    .frame(minHeight: 54, maxHeight: 180)
+                    .frame(height: composerHeight)
                 if text.isEmpty {
                     Text(live == nil ? "Message \(conversation.provider == "codex" ? "Codex" : "Claude")"
                                      : "Queue a follow-up while this turn runs")
@@ -220,6 +220,13 @@ struct ComposerView: View {
         } message: {
             Text("From \(PermissionPolicy(rawValue: conversation.settings.permission)?.label ?? conversation.settings.permission) to \(PermissionPolicy(rawValue: widenTo ?? "")?.label ?? ""). The agent will do more without asking you.")
         }
+    }
+
+    /// Starts at two lines and grows with the text to at most about ten.
+    private var composerHeight: CGFloat {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(0) { $0 + max(1, Int(ceil(Double($1.count) / 110))) }
+        return min(200, max(44, CGFloat(lines) * 18 + 14))
     }
 
     private func submit() {

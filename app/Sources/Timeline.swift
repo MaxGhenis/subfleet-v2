@@ -455,6 +455,9 @@ struct Timeline: Equatable {
         turn.settings = receipt.settings ?? turn.settings
         turn.stopRequested = receipt.stop_requested ?? turn.stopRequested
         if let served = receipt.served { turn.receiptServed = served }
+        if turn.personText == nil, let text = receipt.text {
+            turn.personText = text + (receipt.text_truncated == true ? "\n…" : "")
+        }
         turns[receipt.message_id] = turn
         sortOrder()
     }

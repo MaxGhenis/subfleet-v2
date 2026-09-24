@@ -568,3 +568,15 @@ def test_the_daemon_keeps_the_catalog_and_the_list_reports_it(conv):
     catalog = e2e.until(indexed, timeout=60)
     assert catalog["state"] == "fresh" and catalog["generated_at"] and catalog["stale_after_s"] == 180
     assert (e2e.root / "catalog.json").is_file()
+
+
+def test_receipts_carry_the_persons_text_for_other_clients(conv):
+    """C-25.2: `conversation.open` and `message.status` receipts include the message's
+    text (bounded), so a client that did not send it can still show it."""
+    cid = conv.create()
+    mid = conv.submit(cid, "hello from another client")
+    conv.until_state(mid, "complete", "failed", "delivery-unknown")
+    assert conv.message(mid)["text"] == "hello from another client"
+    assert conv.message(mid)["text_truncated"] is False
+    opened = conv.call("conversation.open", conversation_id=cid)["messages"]
+    assert [m["text"] for m in opened] == ["hello from another client"]

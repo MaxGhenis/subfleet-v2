@@ -56,6 +56,7 @@ POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "conversation.create"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
 MAX_WAIT_S = 50.0
+RECEIPT_TEXT_CHARS = 20_000
 
 # A failure that provably never delivered the message: the next turn job may
 # carry the same message again (review IR-1, IR-23). Everything else settles it.
@@ -261,7 +262,7 @@ class ConversationService:
             conversation = self._open_native(native)
         cid = conversation["conversation_id"]
         cursor = self.store.one("SELECT COALESCE(MAX(seq),0) s FROM events WHERE conversation_id=?", (cid,))["s"]
-        return {"conversation": self._view(conversation), "messages": [self._receipt(m) for m in self.store.messages(cid)],
+        return {"conversation": self._view(conversation), "messages": [self._receipt(m, text=True) for m in self.store.messages(cid)],
                 "events_cursor": cursor, "pending_approvals": [self._approval_view(a) for a in
                                                                self.store.approvals(conversation_id=cid)]}
 
@@ -507,7 +508,7 @@ class ConversationService:
         out = []
         for mid in list(args.get("message_ids") or [])[:200]:
             try:
-                out.append(self._receipt(self.store.message(canonical_uuid(mid))))
+                out.append(self._receipt(self.store.message(canonical_uuid(mid)), text=True))
             except ConversationError:
                 out.append({"message_id": mid, "state": "unknown"})
         return {"messages": out}
@@ -596,12 +597,22 @@ class ConversationService:
             self.store.update_conversation(conversation["conversation_id"], blocked_by=None)
         return self._receipt(self.store.message(message_id))
 
-    def _receipt(self, message: dict, *, created: bool | None = None) -> dict:
+    def _receipt(self, message: dict, *, created: bool | None = None, text: bool = False) -> dict:
         out = {k: message.get(k) for k in ("message_id", "conversation_id", "seq", "origin", "continues", "state",
                                            "state_reason", "settings", "served", "turn_ref", "updated_at")}
         out["stop_requested"] = bool(message.get("stop_requested_at"))
         if created is not None:
             out["created"] = created
+        if text:
+            # C-25.2: a client that did not send the message (another window, a
+            # restarted app, the CLI) still shows what the person wrote.
+            try:
+                body = self.store.message_text(message)
+            except OSError:
+                body = None
+            if body is not None:
+                out["text"] = body[:RECEIPT_TEXT_CHARS]
+                out["text_truncated"] = len(body) > RECEIPT_TEXT_CHARS
         return out
 
     # --- ops: approvals --------------------------------------------------------

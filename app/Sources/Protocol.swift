@@ -261,6 +261,9 @@ struct Receipt: Codable, Equatable {
     var updated_at: String?
     var stop_requested: Bool?
     var created: Bool?
+    /// The person's text (`conversation.open`, `message.status`), at most 20,000 characters.
+    var text: String?
+    var text_truncated: Bool?
 
     var messageState: MessageState? { MessageState(rawValue: state) }
     /// A tombstone left by withdrawing a message the daemon never received.
