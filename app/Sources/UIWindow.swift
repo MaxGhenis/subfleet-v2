@@ -280,9 +280,13 @@ struct ConversationView: View {
             if conversation.live_elsewhere == true {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "rectangle.on.rectangle").foregroundStyle(.orange)
+                    // No fixedSize here: outside the scroll view, a text sized to its ideal
+                    // height at the narrowest width set the window's minimum height, and the
+                    // window's content overflowed it (2.1.2 build 7).
                     Text("Open in the Claude app or a terminal. Close it there to continue here; "
                          + "a message you send waits until then.")
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 14).padding(.top, 6)
             }
