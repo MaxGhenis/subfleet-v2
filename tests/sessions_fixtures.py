@@ -192,6 +192,21 @@ def headless(age_s: float = 1800) -> list[dict[str, Any]]:
             assistant_tool_use(uuid="lane-cut", at=ago(age_s))]
 
 
+def conversation_turns(age_s: float = 1800, *, turns: int = 3) -> list[dict[str, Any]]:
+    """A Subfleet conversation's transcript: one `sdk` prompt per turn, which is
+    how Claude Code 2.1.280 records each stream-json user frame (live-probes
+    record), the last turn cut off mid tool call. After two turns the shape is
+    no longer a lane's (C-23.31), which is why C-26.13 needs the daemon's list."""
+    entries: list[dict[str, Any]] = []
+    for n in range(turns - 1):
+        start = age_s + 60 * (turns - n) + 30
+        entries += [headless_prompt(f"message {n}", uuid=f"m{n}", at=ago(start)),
+                    assistant_text(f"reply {n}", uuid=f"r{n}", at=ago(start - 20))]
+    entries += [headless_prompt(f"message {turns - 1}", uuid=f"m{turns - 1}", at=ago(age_s + 30)),
+                assistant_tool_use(uuid="conversation-cut", at=ago(age_s))]
+    return entries
+
+
 def with_mode(entries: Sequence[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     """Stamp a permission mode on the last user turn (C-23.35's candidate filter)."""
     rows = [dict(entry) for entry in entries]
@@ -249,12 +264,18 @@ class FakeSessions:
                  nudges: dict[str, dict] | None = None,
                  revives: dict[str, dict] | None = None,
                  lane_sessions: Iterable[str] = (),
+                 conversation_sessions: Iterable[str] = (),
                  revive_holders: dict[str, str] | None = None,
+                 reports_conversations: bool = True,
                  now: datetime = NOW):
         self.retired = dict(retired or {})
         self.nudges = dict(nudges or {})
         self.revives = dict(revives or {})
         self.lane_sessions = list(lane_sessions)
+        self.conversation_sessions = list(conversation_sessions)
+        # False: answer `state` as the daemon before C-26.13 did, with no
+        # `conversation_sessions` key at all (b739a12's `Daemon.sessions`).
+        self.reports_conversations = reports_conversations
         self.revive_holders = dict(revive_holders or {})
         self.now = now
         self.pings: list[tuple[str, str]] = []
@@ -269,12 +290,15 @@ class FakeSessions:
         keys = session_ids if session_ids is not None else sorted(
             set(self.retired) | set(self.nudges) | set(self.revives)
             | set(self.revive_holders))
-        return {"sessions": {key: {"retired": self.retired.get(key),
-                                   "last_nudge": self.nudges.get(key),
-                                   "last_revive": self.revives.get(key),
-                                   "revive_holder": self.revive_holders.get(key)}
-                             for key in keys},
-                "lane_sessions": list(self.lane_sessions)}
+        reply = {"sessions": {key: {"retired": self.retired.get(key),
+                                    "last_nudge": self.nudges.get(key),
+                                    "last_revive": self.revives.get(key),
+                                    "revive_holder": self.revive_holders.get(key)}
+                              for key in keys},
+                 "lane_sessions": list(self.lane_sessions)}
+        if self.reports_conversations:
+            reply["conversation_sessions"] = list(self.conversation_sessions)
+        return reply
 
     def record_nudge(self, session_id: str, *, dedupe_key: str | None,
                      cooldown_s: float | None, kind: str = "nudge",

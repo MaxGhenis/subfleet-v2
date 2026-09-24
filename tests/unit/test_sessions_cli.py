@@ -370,7 +370,7 @@ def test_the_cold_sweep_can_hand_off_instead_of_reviving(monkeypatch):
                                      source_cwd="/repo", redactions=2)
         return handoff_module.Dispatched(brief=brief, job_id="job-1")
 
-    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: fx.FakeSessions())
     monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
     monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
     monkeypatch.setattr(revive_module, "cold_candidates",
@@ -418,6 +418,290 @@ def test_naming_a_lane_run_in_a_sweep_is_refused_with_the_reason(monkeypatch):
     code, out, err = run(["sessions", "continue", "--session", lane], monkeypatch)
     assert code == int(Exit.REFUSED) == 7
     assert "is a headless lane run" in err and "fix: " in err
+
+
+CONVERSATION = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+
+
+@pytest.mark.parametrize("json_flag", [False, True])
+def test_naming_a_conversations_session_is_refused_with_the_apps_fix(
+        monkeypatch, tmp_path, json_flag):
+    """C-26.13 and C-17.3: a person who names a conversation's session gets
+    exit 7, the reason, and a fix that names the Subfleet app; nothing is sent."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    fx.register(home, CONVERSATION, os.getpid(), started_at=1.0)
+    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3))
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    argv = ["sessions", "continue", "--session", CONVERSATION, "--delay", "0"]
+    code, out, err = run(argv + (["--json"] if json_flag else []), monkeypatch)
+    assert code == int(Exit.REFUSED) == 7
+    assert daemon.pings == [] and daemon.records == []
+    if json_flag:
+        assert json.loads(out)["sessions"][0]["reason"].startswith("bound to a Subfleet conversation")
+    else:
+        assert "is bound to a Subfleet conversation" in err
+        assert "fix: " in err and "Subfleet app" in err
+
+
+@pytest.mark.parametrize("argv", [["sessions", "--json"], ["sessions", "list", "--all", "--json"]])
+def test_a_conversations_session_is_absent_from_every_listing(argv, monkeypatch, tmp_path):
+    """C-26.13: not listed, not even with `--all`."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    fx.register(home, CONVERSATION, os.getpid(), started_at=1.0)
+    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3))
+    fx.register(home, ALICE, os.getpid(), started_at=2.0)
+    fx.transcript(home, ALICE, fx.interrupted())
+    monkeypatch.setattr(sessions_cli, "_sessions",
+                        lambda args: fx.FakeSessions(conversation_sessions=[CONVERSATION]))
+    code, output, errors = run(argv, monkeypatch)
+    assert code == int(Exit.OK)
+    assert [json.loads(row)["session_id"] for row in output.splitlines()] == [ALICE]
+
+
+def test_handoff_of_a_conversations_session_is_refused_by_the_verb(monkeypatch, tmp_path):
+    """C-26.13 through `subfleet handoff`: the verb hands the daemon's list to
+    the kit, and the refusal is exit 7 with the app's fix."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3), cwd=str(repo))
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    code, out, err = run(["handoff", CONVERSATION, "--to", "opus", "-C", str(repo),
+                          "--dry-run"], monkeypatch)
+    assert code == int(Exit.REFUSED) == 7
+    assert "bound to a Subfleet conversation" in err and "Subfleet app" in err
+    assert daemon.submits == []
+
+
+# --- the cold scope names a conversation's session (C-26.13) ------------------
+
+@pytest.fixture
+def cold_kit(tmp_path, monkeypatch):
+    """A `~/.claude` and an empty desktop store under `tmp_path`, a real repo
+    directory, and the kit's daemon seams pointed at a `FakeSessions` that
+    reports CONVERSATION as a conversation's and LANE as a lane run's."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    fx.desktop_store(tmp_path, monkeypatch)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fx.transcript(home, CONVERSATION, [{**entry, "cwd": str(repo)}
+                                       for entry in fx.conversation_turns(turns=3)])
+    fx.transcript(home, ALICE, [{**entry, "cwd": str(repo)} for entry in
+                                fx.with_mode(fx.interrupted(), "bypassPermissions")])
+    fx.transcript(home, LANE, [{**entry, "cwd": str(repo)} for entry in fx.headless()])
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION], lane_sessions=[LANE])
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    return daemon, repo
+
+
+LANE = "8f2c1d90-4a7b-4f31-9c22-0d5b6e7a1234"
+
+
+@pytest.mark.parametrize("argv", [
+    ["sessions", "continue", "--scope", "cold", CONVERSATION, "--revive", "--force"],
+    ["sessions", "continue", "--scope", "cold", "--session", CONVERSATION],
+    ["sessions", "continue", "--scope", "cold", "--session", CONVERSATION, "--dry-run"],
+    ["sessions", "continue", "--scope", "cold", CONVERSATION, "--handoff", "--to", "opus"],
+    ["sessions", "continue", "--scope", "cold", "--session", CONVERSATION, "--handoff",
+     "--to", "astra", "--dry-run"],
+], ids=["revive-force", "bare", "dry-run", "handoff", "handoff-dry-run"])
+def test_the_cold_scope_refuses_a_named_conversations_session(argv, cold_kit, monkeypatch):
+    """C-26.13 and C-17.3 in the cold scope, the one `subfleet revive <id>`
+    reaches: naming a conversation's session exits 7 with the reason and the
+    app's fix on stderr, the held row (with the fix) on stdout, and nothing
+    submitted, whether the recovery asked for is a revive or a handoff."""
+    daemon, _repo = cold_kit
+    code, out, err = run(argv, monkeypatch)
+    assert code == int(Exit.REFUSED) == 7, (out, err)
+    assert f"{CONVERSATION[:8]} is bound to a Subfleet conversation" in err
+    assert "fix: " in err and "Subfleet app" in err
+    assert CONVERSATION[:8] in out and "Subfleet app" in out
+    assert daemon.submits == [] and daemon.records == []
+
+
+@pytest.mark.parametrize("handoff", [False, True], ids=["revive", "handoff"])
+def test_the_cold_scope_refusal_holds_under_json(handoff, cold_kit, monkeypatch):
+    """C-26.13 with C-17.3 and C-17.4: `--json` changes the format, not the
+    verdict; stdout is the JSON object, and the refusal is its exit code."""
+    daemon, _repo = cold_kit
+    argv = ["sessions", "continue", "--scope", "cold", CONVERSATION, "--json"]
+    argv += ["--handoff", "--to", "opus"] if handoff else ["--revive"]
+    code, out, err = run(argv, monkeypatch)
+    assert code == int(Exit.REFUSED) == 7
+    rows = json.loads(out)["sessions"]
+    assert len(rows) == 1 and rows[0]["session_id"] == CONVERSATION
+    assert rows[0]["reason"].startswith("bound to a Subfleet conversation")
+    assert "Subfleet app" in rows[0]["fix"]
+    assert err == "" and daemon.submits == []
+
+
+@pytest.mark.parametrize("argv", [
+    ["revive", CONVERSATION],
+    ["revive", CONVERSATION, "--revive"],
+    ["revive", "--session", CONVERSATION, "--revive", "--dry-run"],
+])
+def test_v1s_revive_spelling_naming_a_conversations_session_exits_seven(argv, cold_kit, monkeypatch):
+    """C-26.13 through C-17.1's v1 spelling: `compat` maps `subfleet revive
+    <id>` to `sessions continue --scope cold`, so agents and skills that still
+    use it get the same refusal."""
+    daemon, _repo = cold_kit
+    code, out, err = run_v1(argv, monkeypatch)
+    assert code == int(Exit.REFUSED) == 7, (out, err)
+    assert "bound to a Subfleet conversation" in err and "Subfleet app" in err
+    assert daemon.submits == []
+
+
+def test_the_cold_scope_refuses_a_named_lane_run_the_same_way(cold_kit, monkeypatch):
+    """C-23.31 in the cold scope: a named headless lane run is refused with the
+    reason and the lane's fix, as the interrupted scope refuses one."""
+    daemon, _repo = cold_kit
+    code, out, err = run(["sessions", "continue", "--scope", "cold", LANE, "--revive"],
+                         monkeypatch)
+    assert code == int(Exit.REFUSED) == 7, (out, err)
+    assert f"{LANE[:8]} is a headless lane run" in err and "runs show" in err
+    assert daemon.submits == []
+
+
+def test_a_cold_handoff_holds_a_conversations_session_and_hands_off_the_rest(cold_kit, monkeypatch):
+    """C-26.13 in `--scope cold --handoff`: the conversation's session is held
+    with its reason and fix and nothing is submitted for it; the other named
+    session is still handed off. A request that is not refused whole exits 0."""
+    daemon, repo = cold_kit
+    code, out, err = run(["sessions", "continue", "--scope", "cold", CONVERSATION, ALICE,
+                          "--handoff", "--to", "astra"], monkeypatch)
+    assert code == int(Exit.OK), (out, err)
+    assert [args.name for args in daemon.submits] == [f"handoff-{ALICE[:8]}"]
+    assert daemon.submits[0].workdir == str(repo.resolve())
+    held = next(line for line in out.splitlines() if CONVERSATION[:8] in line)
+    assert "bound to a Subfleet conversation" in held
+    assert "fix: continue it in the Subfleet app" in out
+    assert "handed off to astra" in out
+
+
+def test_a_cold_handoff_checks_the_daemons_list_again_at_handoff(cold_kit, monkeypatch):
+    """C-26.13, the second fence: a candidate the census did not mark (here a
+    session that became a conversation's after the scan) is refused by
+    `handoff` against the daemon's list read for the handoff, with exit 7 and
+    the fix, and the rest of the batch still goes (it once raised out of the
+    loop and dropped the rest)."""
+    from subfleet.sessions import revive as revive_module
+    daemon, repo = cold_kit
+    missed = [revive_module.Candidate(session_id=CONVERSATION, cwd=str(repo)),
+              revive_module.Candidate(session_id=ALICE, cwd=str(repo))]
+    monkeypatch.setattr(revive_module, "cold_candidates", lambda *a, **k: missed)
+    code, out, err = run(["sessions", "continue", "--scope", "cold", "--handoff",
+                          "--to", "astra", "--json"], monkeypatch)
+    assert code == int(Exit.OK), (out, err)
+    rows = {row["session_id"]: row for row in json.loads(out)["sessions"]}
+    assert rows[CONVERSATION]["job_id"] is None
+    assert "bound to a Subfleet conversation" in rows[CONVERSATION]["reason"]
+    assert "Subfleet app" in rows[CONVERSATION]["fix"]
+    assert rows[ALICE]["job_id"] == "job-1"
+    assert [args.name for args in daemon.submits] == [f"handoff-{ALICE[:8]}"]
+    assert [] in daemon.state_calls, "the handoff read the daemon's lists"
+
+    code, out, err = run(["sessions", "continue", "--scope", "cold", "--handoff",
+                          "--to", "astra", CONVERSATION], monkeypatch)
+    assert code == int(Exit.REFUSED) == 7, (out, err)
+    assert "Subfleet app" in err
+
+
+def test_sessions_revive_dry_run_of_a_conversations_session_is_still_refused(cold_kit, monkeypatch):
+    """C-26.13: `--dry-run` rehearses a revive; it does not turn the refusal of
+    a conversation's session into an answer (as `handoff --dry-run` does not)."""
+    daemon, _repo = cold_kit
+    for extra in ([], ["--json"]):
+        code, out, err = run(["sessions", "revive", CONVERSATION, "--revive", "--dry-run",
+                              *extra], monkeypatch)
+        assert code == int(Exit.REFUSED) == 7, (extra, out, err)
+    assert daemon.submits == []
+
+
+def test_sessions_revive_dry_run_of_an_ordinary_hold_still_exits_zero(monkeypatch):
+    """C-17.3: any other hold under `--dry-run` is the answer the rehearsal was
+    asked for, as before."""
+    from subfleet.sessions import revive as revive_module
+    held = revive_module.Attempted(session_id=ALICE, admitted=False,
+                                   reason="the desktop app owns this session",
+                                   fix=revive_module.OPT_IN_FIX,
+                                   candidate=revive_module.Candidate(session_id=ALICE))
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "revive", lambda *a, **k: held)
+    code, out, err = run(["sessions", "revive", ALICE, "--dry-run"], monkeypatch)
+    assert code == int(Exit.OK) and "the desktop app owns this session" in out
+
+
+# --- a daemon older than C-26.13 (no `conversation_sessions`) -----------------
+
+@pytest.fixture
+def older_daemon(tmp_path, monkeypatch):
+    """The window between a code update and `subfleet daemon stop/start`: the
+    CLI is new, and the daemon answers `sessions state` as b739a12's did, with
+    `sessions` and `lane_sessions` only, although it already ran conversations.
+
+    CONVERSATION is a conversation's session after three turns, in
+    `bypassPermissions`, cold and unregistered: `headless_transcript` no longer
+    calls it a lane (C-23.31), and nothing else would stop `--revive --force`.
+    LIVE is the same shape with a live registry row, for the nudge and the
+    listing."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    fx.desktop_store(tmp_path, monkeypatch)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for session in (CONVERSATION, LIVE):
+        fx.transcript(home, session, [{**entry, "cwd": str(repo)} for entry in
+                                      fx.with_mode(fx.conversation_turns(turns=3),
+                                                   "bypassPermissions")])
+    fx.register(home, LIVE, os.getpid(), started_at=1.0)
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION, LIVE],
+                             reports_conversations=False)
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    return daemon, repo
+
+
+LIVE = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d"
+
+
+@pytest.mark.parametrize("argv", [
+    ["sessions", "revive", CONVERSATION, "--revive", "--force"],
+    ["sessions", "revive", CONVERSATION, "--revive", "--force", "--json"],
+    ["sessions", "continue", "--scope", "cold", "--revive", "--force"],
+    ["sessions", "continue", "--scope", "cold", CONVERSATION, "--revive", "--force"],
+    ["sessions", "continue", "--scope", "cold", "--handoff", "--to", "astra"],
+    ["sessions", "continue", "--session", LIVE, "--delay", "0"],
+    ["sessions", "continue", "--scope", "idle", "--all", "--delay", "0"],
+    ["sessions", "list", "--all", "--json"],
+    ["handoff", CONVERSATION, "--to", "opus", "--dry-run"],
+], ids=["revive", "revive-json", "cold-sweep", "cold-named", "cold-handoff",
+        "interrupted", "idle", "list", "handoff"])
+def test_a_daemon_older_than_the_conversation_fence_is_refused_not_trusted(
+        argv, older_daemon, monkeypatch):
+    """C-26.13 with C-25.1 and C-17.3: a `state` reply without
+    `conversation_sessions` is a daemon older than the clause, not a daemon
+    with no conversations. Every verb that reads it exits 69 with the restart
+    as its fix, and nothing is submitted, nudged or recorded. Before this, the
+    kit read the silence as an empty list and `sessions revive --revive
+    --force` submitted a revive of a conversation's session."""
+    daemon, repo = older_daemon
+    if argv[0] == "handoff":
+        argv = [*argv, "-C", str(repo)]
+    code, out, err = run(argv, monkeypatch)
+    assert code == int(Exit.DAEMON_UNAVAILABLE) == 69, (out, err)
+    assert "conversation_sessions" in err and "C-26.13" in err
+    assert "fix: subfleet daemon stop && subfleet daemon start" in err
+    assert out == ""
+    assert daemon.submits == [] and daemon.pings == [] and daemon.records == []
+    assert daemon.revives == {} and daemon.state_calls, "the reply was read, then refused"
 
 
 def test_a_sweep_that_merely_passed_over_a_lane_still_exits_zero(monkeypatch):

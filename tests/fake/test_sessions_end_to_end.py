@@ -340,9 +340,11 @@ def test_retirement_uses_event_order_within_one_second(world, monkeypatch):
     client.unretire(ALICE)
     assert client.state([ALICE])["sessions"][ALICE]["retired"] is None
 
-@pytest.mark.parametrize("kind", ["dispatch", "revive"])
+@pytest.mark.parametrize("kind", ["dispatch", "revive", "turn"])
 def test_the_state_op_reports_the_ledgers_own_lane_sessions(world, kind):
-    """C-23.31: a resumed session is not one the daemon created as a lane."""
+    """C-23.31: a resumed session is not one the daemon created as a lane, and
+    C-26.13: a turn's session is reported apart, as a conversation's, because a
+    turn may resume a session Subfleet did not create and is no lane run."""
     service, client, _home, _store, _root, _policy, _base = world
     service.store.add_job({"job_id": "job-x", "request_id": "r-x",
                            "payload_digest": "d", "kind": kind,
@@ -351,7 +353,54 @@ def test_the_state_op_reports_the_ledgers_own_lane_sessions(world, kind):
     service.store.add_attempt({"attempt_id": "job-x/a1", "job_id": "job-x", "seq": 1,
                                "lane_id": "codex-1", "model_requested": "m",
                                "native_session_id": LANE_RUN})
-    assert (LANE_RUN in client.state()["lane_sessions"]) is (kind == "dispatch")
+    facts = client.state()
+    assert (LANE_RUN in facts["lane_sessions"]) is (kind == "dispatch")
+    assert (LANE_RUN in facts["conversation_sessions"]) is (kind == "turn")
+
+
+def bind(service: Daemon, session_id: str, workspace: Path) -> str:
+    """A conversation opened on an existing session, as `conversation.open`
+    with `native` records it (C-24.1), before any turn has run."""
+    conversation, created = service.conversations.store.create_conversation(
+        provider="claude", workspace=str(workspace), workspace_kind="in-place",
+        settings={"model": "opus[1m]", "permission": "ask"}, origin="native",
+        native_session_id=session_id)
+    assert created
+    return conversation["conversation_id"]
+
+
+def test_the_state_op_reports_a_session_a_conversation_binds(world):
+    """C-26.13: binding is enough; no turn has to have run, and archiving the
+    conversation does not give the session back to the kit."""
+    service, client, _home, _store, _root, _policy, base = world
+    cid = bind(service, BOB, base)
+    facts = client.state()
+    assert BOB in facts["conversation_sessions"]
+    assert BOB not in facts["lane_sessions"]
+    service.conversations.store.update_conversation(cid, archived_at=fx.iso(fx.NOW))
+    assert BOB in client.state([BOB])["conversation_sessions"]
+
+
+def test_a_sweep_against_the_daemon_leaves_a_conversations_session_alone(world, live_pids):
+    """C-26.13 with the real `sessions` op: the live, interrupted session a
+    conversation binds gets no nudge record and no notice; the other one does."""
+    service, client, home, _store, _root, policy, base = world
+    first, second, _third = live_pids
+    fx.register(home, BOB, first, started_at=1.0, name="a conversation")
+    fx.transcript(home, BOB, fx.conversation_turns(turns=3))
+    fx.register(home, ALICE, second, started_at=2.0, name="alice")
+    fx.transcript(home, ALICE, fx.interrupted(age_s=1800))
+    bind(service, BOB, base)
+
+    report = nudge_module.sweep(client, policy, scope="interrupted", manual=False,
+                                now=lambda: fx.NOW, sleep=lambda _s: None, delay_s=0)
+
+    notices = service.store.query("SELECT session_id FROM service_notices")
+    assert [row["session_id"] for row in notices] == [ALICE]
+    assert BOB not in {item.session_id for item in report.outcomes}
+    nudged = [json.loads(row["data_json"])["session_id"] for row in service.store.query(
+        "SELECT data_json FROM events WHERE kind=?", (daemon_module.NUDGE_EVENT,))]
+    assert nudged == [ALICE]
 
 
 # --- `sessions revive` (C-23.20, C-23.55, C-6.5) ------------------------------
@@ -565,6 +614,195 @@ def test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job(world):
                              opt_in=True, model="astra", now=fx.NOW)
     assert "refused on main" in str(raised.value)
     assert client.state([ALICE])["sessions"][ALICE]["last_revive"] is None
+
+
+# --- resume and revive never continue a conversation's session (C-26.13) -----
+
+def finished_job(service: Daemon, job_id: str, kind: str, session_id: str, workdir: Path) -> None:
+    """A terminal job whose one attempt ran `session_id` on codex-1."""
+    service.store.add_job({"job_id": job_id, "request_id": f"r-{job_id}", "payload_digest": "d",
+                           "kind": kind, "workdir": str(workdir), "prompt_path": str(workdir / "p.md"),
+                           "sandbox": "read-only", "state": "succeeded", "rc": 0,
+                           "finished_at": fx.iso(fx.NOW)})
+    service.store.add_attempt({"attempt_id": f"{job_id}/a1", "job_id": job_id, "seq": 1,
+                               "lane_id": "codex-1", "state": "succeeded",
+                               "model_requested": service.policy["models"]["astra"]["id"],
+                               "native_session_id": session_id})
+
+
+def resume_args(root: Path, source: str, workdir: Path):
+    from subfleet.protocol import SubmitArgs
+    return SubmitArgs(request_id=str(uuid.uuid4()), kind="resume", workdir=str(workdir),
+                      prompt_path=str(stage(root)("continue")), sandbox="read-only",
+                      parent_job_id=source)
+
+
+def assert_refused_for_the_app(raised) -> None:
+    assert raised.value.code == 7
+    assert "continues only in its conversation" in str(raised.value)
+    assert "Subfleet app" in (raised.value.fix or "")
+
+
+def test_resume_refuses_a_turn_source(world):
+    """C-26.3, C-26.13: a turn's session continues with the conversation's next
+    message, never through `subfleet resume`; the fix names the app."""
+    service, client, _home, _store, root, _policy, base = world
+    finished_job(service, "turn-job", "turn", LANE_RUN, base)
+    with pytest.raises(daemon_module.AdapterError) as raised:
+        client.submit(resume_args(root, "turn-job", base))
+    assert_refused_for_the_app(raised)
+    assert "turn-job is a conversation turn" in str(raised.value)
+    assert service.store.query("SELECT * FROM jobs WHERE kind='resume'") == []
+
+
+def test_resume_of_a_job_whose_session_a_conversation_has_bound_is_refused(world):
+    """C-26.13: a detached job's session a person has since opened as a
+    conversation is the conversation's. Accepted before the binding, and
+    refused, with the conversation named, after it."""
+    service, client, _home, _store, root, _policy, base = world
+    finished_job(service, "lane-job", "dispatch", ALICE, base)
+    accepted = client.submit(resume_args(root, "lane-job", base))
+    assert accepted["created"] is True
+    cid = bind(service, ALICE, base)
+    with pytest.raises(daemon_module.AdapterError) as raised:
+        client.submit(resume_args(root, "lane-job", base))
+    assert_refused_for_the_app(raised)
+    assert f"conversation {cid}" in str(raised.value)
+
+
+def test_a_queued_resume_whose_session_becomes_a_conversations_fails_at_admission(world):
+    """C-26.13, the submit/admission race: the job was accepted, then a person
+    opened its session in the app. Admission fails it with exit 7 and launches
+    nothing; waiting on the `native:` lease would only take turns with the
+    conversation."""
+    service, client, _home, _store, root, _policy, base = world
+    finished_job(service, "lane-job", "dispatch", ALICE, base)
+    job_id = client.submit(resume_args(root, "lane-job", base))["job_id"]
+    bind(service, ALICE, base)
+    service._admit()                                    # noqa: SLF001 - one pass
+    job = service.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    assert service.store.list_attempts(job_id) == []
+    notice = service.store.query("SELECT text FROM notices WHERE job_id=?", (job_id,))[0]
+    assert "continues only in its conversation" in notice["text"] and "Subfleet app" in notice["text"]
+
+
+def revive_submit_args(root: Path, repo: Path):
+    candidate = revive_module.Candidate(session_id=ALICE, cwd=str(repo))
+    return revive_module.submit_args(candidate, model="astra", request_id=str(uuid.uuid4()),
+                                     prompt_path=str(stage(root)(revive_module.REVIVE_MESSAGE)))
+
+
+@pytest.mark.parametrize("kind", ["resume", "revive"])
+def test_a_retry_of_an_accepted_continuation_finds_its_job_after_the_binding(world, kind):
+    """C-6.2 before C-26.13: a person opened the session in the app after its
+    resume or revive was accepted. A retry of that request (same id, same
+    payload) still returns the job id it was given, not exit 7 with no id, and
+    another payload under that id is still exit 2; the admission pass then
+    fails the job with exit 7 before any attempt, and a new request is refused
+    at submit."""
+    service, client, home, store_dir, root, _policy, base = world
+    if kind == "resume":
+        finished_job(service, "lane-job", "dispatch", ALICE, base)
+        args = resume_args(root, "lane-job", base)
+    else:
+        base = workdir(base)
+        cold_desktop_session(home, store_dir, base)
+        args = revive_submit_args(root, base)
+    accepted = client.submit(args)
+    assert accepted["created"] is True
+    bind(service, ALICE, base)
+
+    again = client.submit(args)
+    assert again == {"job_id": accepted["job_id"], "request_id": args.request_id,
+                     "created": False}
+    other = replace(args, prompt_path=str(stage(root)("something else entirely")))
+    with pytest.raises(daemon_module.protocol.ProtocolError) as raised:
+        client.submit(other)
+    assert raised.value.code == 2 and "different payload" in str(raised.value)
+
+    service._admit()                                    # noqa: SLF001 - one pass
+    job = service.store.get_job(accepted["job_id"])
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    assert service.store.list_attempts(accepted["job_id"]) == []
+    fresh = replace(args, request_id=str(uuid.uuid4()))
+    with pytest.raises(daemon_module.AdapterError) as refused:
+        client.submit(fresh)
+    assert_refused_for_the_app(refused)
+    assert service.store.query(f"SELECT job_id FROM jobs WHERE kind='{kind}'") == [
+        {"job_id": accepted["job_id"]}]
+
+
+def test_a_retry_whose_accepted_job_was_pruned_is_refused_like_a_new_request(world, monkeypatch):
+    """C-26.13 with C-6.2: the retry check and the job lookup are two reads,
+    and retention deletes job rows without the submit lock. A request the
+    daemon had accepted whose job is gone by the lookup makes a new job, so it
+    is refused as a new request is, with nothing stored."""
+    service, client, _home, _store, root, _policy, base = world
+    finished_job(service, "lane-job", "dispatch", ALICE, base)
+    bind(service, ALICE, base)
+    monkeypatch.setattr(service, "_accepted_request", lambda request_id: True)
+    with pytest.raises(daemon_module.AdapterError) as raised:
+        client.submit(resume_args(root, "lane-job", base))
+    assert_refused_for_the_app(raised)
+    assert service.store.query("SELECT * FROM jobs WHERE kind='resume'") == []
+
+
+@pytest.mark.parametrize("how", ["bound", "turn"])
+def test_the_daemon_refuses_a_revive_of_a_conversations_session(world, how):
+    """C-26.13 at submit, whatever client sends it: a revive whose session a
+    conversation binds, or a turn ran, is refused with exit 7 and the app's fix
+    before anything is stored."""
+    service, client, home, store_dir, root, _policy, base = world
+    repo = workdir(base)
+    cold_desktop_session(home, store_dir, repo)
+    if how == "bound":
+        bind(service, ALICE, repo)
+    else:
+        finished_job(service, "turn-job", "turn", ALICE, repo)
+    candidate = revive_module.Candidate(session_id=ALICE, cwd=str(repo))
+    args = revive_module.submit_args(candidate, model="astra", request_id=str(uuid.uuid4()),
+                                     prompt_path=str(stage(root)(revive_module.REVIVE_MESSAGE)))
+    with pytest.raises(daemon_module.AdapterError) as raised:
+        client.submit(args)
+    assert_refused_for_the_app(raised)
+    assert service.store.query("SELECT * FROM jobs WHERE kind='revive'") == []
+
+
+def test_a_queued_revive_whose_session_becomes_a_conversations_fails_at_admission(world):
+    """C-26.13 with C-23.55: the revive lease binds only Subfleet's own
+    launches, and a conversation is one; a revive accepted before the binding
+    is failed by the admission pass that would have launched it."""
+    service, client, home, store_dir, root, policy, base = world
+    repo = workdir(base)
+    cold_desktop_session(home, store_dir, repo)
+    result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                  opt_in=True, model="astra", now=fx.NOW)
+    assert result.admitted is True
+    bind(service, ALICE, repo)
+    service._admit()                                    # noqa: SLF001 - one pass
+    job = service.store.get_job(result.job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    assert service.store.list_attempts(result.job_id) == []
+    assert service.store.one("SELECT * FROM leases WHERE lease_key=?",
+                             (revive_lease_key(ALICE),)) is None
+    notice = service.store.query("SELECT text FROM notices WHERE job_id=?", (result.job_id,))[0]
+    assert "revive refused" in notice["text"] and "Subfleet app" in notice["text"]
+
+
+def test_the_kit_refuses_before_the_daemon_is_asked(world):
+    """C-26.13 in the kit: `sessions revive` reads the daemon's list and says
+    why without submitting, so the operator gets the reason, not a rejected
+    submission."""
+    service, client, home, store_dir, root, policy, base = world
+    repo = workdir(base)
+    cold_desktop_session(home, store_dir, repo)
+    bind(service, ALICE, repo)
+    held = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                opt_in=True, force=True, model="astra", now=fx.NOW)
+    assert held.admitted is False
+    assert held.reason.startswith("bound to a Subfleet conversation")
+    assert service.store.query("SELECT * FROM jobs") == []
 
 
 # --- `subfleet handoff` (C-23.14, C-23.36, C-23.54) ---------------------------

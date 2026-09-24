@@ -450,13 +450,15 @@ class ColdSession:
 
 
 def cold_sessions(*, live_ids: set[str], lane_ids: set[str], max_age_s: float,
-                  now: datetime | None = None) -> list[ColdSession]:
+                  now: datetime | None = None,
+                  conversation_ids: set[str] = frozenset()) -> list[ColdSession]:
     """Recently-active interrupted transcripts with no live registry row.
 
     A morning account switch restarts only what was running at switch time, so
     sessions the overnight idle reaper already killed come back cold. Headless
-    lane runs are excluded here (C-23.31) and retirement is applied by the
-    caller, which is the side that can ask the daemon.
+    lane runs (C-23.31) and conversations' sessions (C-26.13) are excluded here,
+    and retirement is applied by the caller, which is the side that can ask the
+    daemon.
     """
     now = now or datetime.now(timezone.utc)
     cutoff = now.timestamp() - max_age_s
@@ -472,7 +474,8 @@ def cold_sessions(*, live_ids: set[str], lane_ids: set[str], max_age_s: float,
             continue
         for entry in entries:
             session_id = entry.name[:-len(".jsonl")]
-            if session_id in live_ids or session_id in lane_ids:
+            if session_id in live_ids or session_id in lane_ids \
+                    or session_id in conversation_ids:
                 continue
             try:
                 if entry.stat().st_mtime < cutoff:

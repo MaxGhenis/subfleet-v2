@@ -694,7 +694,8 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
             sandbox: str | None = None, caller_session: str | None = None,
             caller_pid: int | None = None, out_path: str | None = None,
             current_session: str | None = None, request_id: str | None = None,
-            lane_ids: Any = None, dry_run: bool = False) -> Dispatched:
+            lane_ids: Any = None, conversation_ids: Any = None,
+            dry_run: bool = False) -> Dispatched:
     """Build one brief and submit it through the ordinary path (C-23.54).
 
     `--to` is a routing pin, so the brief inherits the same model resolution,
@@ -703,6 +704,13 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
     """
     caps = {**policy.get("sessions", {}).get("handoff_caps", {})}
     canonical, transcript = resolve_source(session_id, last, current=current_session)
+    if canonical in set(conversation_ids or ()):
+        # C-26.13, before the lane check: a conversation's transcript can look
+        # like a lane run. Its work continues in its conversation, and a
+        # labelled cross-provider handoff of it is the app's (C-30.3).
+        raise HandoffError(
+            f"{canonical} is {registry.CONVERSATION_REASON}; the kit does not "
+            "hand it off", 7, registry.CONVERSATION_FIX)
     if registry.is_lane_run(canonical, lane_ids=lane_ids or (), transcript=transcript):
         # C-23.31: a headless lane run is never continued, and a request naming
         # one is refused with the reason. Its transcript is one brief and one

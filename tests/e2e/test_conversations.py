@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
 import socket
 import subprocess
 import sys
@@ -21,6 +22,7 @@ import pytest
 from subfleet.conversations.service import CONTINUATION_TEXT
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERPID is macOS")
+TERMINAL_JOB_STATES = ("succeeded", "failed", "cancelled", "lost")
 
 CLIENT = r'''
 import json, socket, sys
@@ -158,6 +160,150 @@ def test_a_claude_conversation_streams_completes_and_continues_in_the_same_sessi
     assert job["kind"] == "turn" and job["state"] == "succeeded"
     models = json.loads((conv.e2e.root / "conversations" / "models.json").read_text())
     assert "opus[1m]" in models["claude"]["claude-opus-5-5"]["values"]
+
+
+@pytest.fixture
+def hooked(e2e):
+    """Conversations whose fake Claude runs `subfleet hook <event>` the way
+    Claude Code runs a command hook, inside the turn process the daemon and its
+    guardian launched, so the hook sees whatever environment they gave it."""
+    e2e.env["SUBFLEET_FAKE_TURN_LOG"] = str(e2e.root / "turns.jsonl")
+    e2e.env["SUBFLEET_FAKE_HOOK_COMMAND"] = f"{sys.executable} -m subfleet hook"
+    e2e.start()
+    return Conversations(e2e)
+
+
+def test_a_turns_session_hooks_see_the_daemons_markers_and_surface_no_ping(hooked):
+    """C-26.13 with C-5.1: every turn runs SessionStart (`startup`, then
+    `resume`) and UserPromptSubmit with the markers `Daemon._launch` set, and
+    neither says anything while the only notice pending for the session is a
+    `ping`: a turn's session is the conversation's, not one the sessions kit may
+    wake, and its prompt is the person's message, not a place for a nudge. The
+    `ping` stays pending."""
+    conv = hooked
+    cid = conv.create()
+    first = conv.submit(cid, "hello there")
+    assert conv.until_state(first, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
+    session = conv.call("conversation.open", conversation_id=cid)["conversation"]["native_session_id"]
+    assert session
+    pinged = conv.call("ping", session_id=session, text="subfleet: a resume nudge for this session")
+    assert pinged["notice_id"] is not None
+
+    second = conv.submit(cid, "and again", after_message_id=first)
+    assert conv.until_state(second, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
+
+    ran = [row for row in conv.turn_log() if "hook" in row]
+    assert [(row["hook"], row["source"]) for row in ran] == [
+        ("SessionStart", "startup"), ("UserPromptSubmit", None),
+        ("SessionStart", "resume"), ("UserPromptSubmit", None)], ran
+    assert all(row.get("rc") == 0 and row.get("stdout") == "" for row in ran), ran
+    jobs = [conv.e2e.rows("SELECT job_id FROM jobs WHERE request_id=?", (f"turn:{mid}:0",))[0]["job_id"]
+            for mid in (first, second)]
+    for row, job_id in zip(ran, [jobs[0], jobs[0], jobs[1], jobs[1]]):
+        assert row["markers"] == {"SUBFLEET_JOB": job_id, "SUBFLEET_ATTEMPT": f"{job_id}/a1",
+                                  "SUBFLEET_ROOT": str(conv.e2e.root)}, row
+    notices = conv.e2e.rows("SELECT state FROM service_notices WHERE session_id=?", (session,))
+    assert [row["state"] for row in notices] == ["pending"]
+
+
+@pytest.fixture
+def dispatching(e2e):
+    """`hooked`, and a fake Claude whose `[fake:bash]` turn runs `subfleet run`
+    as its Bash tool would: in the turn's process tree, with CLAUDECODE and
+    CLAUDE_CODE_SESSION_ID naming the conversation's session."""
+    e2e.env["SUBFLEET_FAKE_TURN_LOG"] = str(e2e.root / "turns.jsonl")
+    e2e.env["SUBFLEET_FAKE_HOOK_COMMAND"] = f"{sys.executable} -m subfleet hook"
+    e2e.env["SUBFLEET_FAKE_BASH_COMMAND"] = shlex.join(
+        [sys.executable, "-m", "subfleet.cli", *e2e.run_args("astra", "--name", "from-a-turn")])
+    e2e.start()
+    return Conversations(e2e)
+
+
+def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispatching):
+    """C-26.13 with C-15.1, C-15.2 and C-15.3: a detached job an agent in turn 1
+    dispatched carries the conversation's session as its caller, so its
+    completion notice is that session's. Turn 1's hooks ran before it existed,
+    and nothing between turns delivers it, so it is still `pending` when turn 2
+    starts; turn 2's `SessionStart` surfaces it once and marks it `surfaced`.
+    A `ping` left for the same session is surfaced by neither hook and stays
+    `pending`."""
+    conv = dispatching
+    e2e = conv.e2e
+    cid = conv.create()
+    first = conv.submit(cid, "send this out for review [fake:bash]")
+    assert conv.until_state(first, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
+    session = conv.call("conversation.open", conversation_id=cid)["conversation"]["native_session_id"]
+    assert session
+    ran = [row for row in conv.turn_log() if "bash" in row]
+    assert len(ran) == 1 and ran[0]["rc"] == 0 and ran[0]["session_id"] == session, ran
+    job_id = ran[0]["stdout"].strip()
+    job = e2e.job(job_id)
+    assert (job["kind"], job["caller_session"]) == ("dispatch", session)
+    e2e.until(lambda: e2e.job(job_id)["state"] in TERMINAL_JOB_STATES, timeout=60)
+    notice = e2e.until(lambda: next(iter(e2e.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))), None),
+                       timeout=30)
+    assert (notice["session_id"], notice["state"]) == (session, "pending")
+    assert all(row["stdout"] == "" for row in conv.turn_log() if "hook" in row)
+    pinged = conv.call("ping", session_id=session, text="subfleet: a resume nudge for this session")
+    assert pinged["notice_id"] is not None
+
+    second = conv.submit(cid, "what came back?", after_message_id=first)
+    assert conv.until_state(second, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
+    hooks_ran = [row for row in conv.turn_log() if "hook" in row]
+    assert [(row["hook"], row["source"]) for row in hooks_ran] == [
+        ("SessionStart", "startup"), ("UserPromptSubmit", None),
+        ("SessionStart", "resume"), ("UserPromptSubmit", None)], hooks_ran
+    started, prompted = hooks_ran[2], hooks_ran[3]
+    assert started["rc"] == 0 and prompted["rc"] == 0
+    context = json.loads(started["stdout"])["hookSpecificOutput"]["additionalContext"]
+    assert "1 detached run dispatched by this session" in context and job_id in context
+    assert prompted["stdout"] == "", "surfaced once, by the first hook of the turn"
+    assert "resume nudge" not in started["stdout"] + prompted["stdout"]
+    assert e2e.rows("SELECT state, transport FROM notices WHERE job_id=?", (job_id,)) == [
+        {"state": "surfaced", "transport": "hook:SessionStart"}]
+    assert [row["state"] for row in e2e.rows(
+        "SELECT state FROM service_notices WHERE session_id=?", (session,))] == ["pending"]
+
+
+def test_a_conversations_session_is_refused_by_resume_revive_and_the_sessions_kit(conv):
+    """C-26.3, C-26.13 through the real CLI and daemon: after one turn the
+    `sessions` op reports the session as a conversation's (not a lane's);
+    `subfleet resume` of the turn job, `sessions revive`, `sessions continue`
+    in the interrupted and cold scopes (revive and handoff), v1's `subfleet
+    revive <id>` through the front door, and `handoff` naming the session are
+    each refused with exit 7, and each fix names the Subfleet app. Nothing is
+    submitted."""
+    cid = conv.create()
+    mid = conv.submit(cid, "hello there")
+    assert conv.until_state(mid, "complete", "failed", "delivery-unknown", timeout=60)["state"] == "complete"
+    session = conv.call("conversation.open", conversation_id=cid)["conversation"]["native_session_id"]
+    turn_job = conv.attempt(mid)["job_id"]
+    facts = conv.call("sessions", action="state", session_ids=[])
+    assert session in facts["conversation_sessions"] and session not in facts["lane_sessions"]
+
+    e2e = conv.e2e
+    before = e2e.rows("SELECT COUNT(*) AS n FROM jobs")[0]["n"]
+    resumed = e2e.cli("resume", turn_job, "keep going")
+    assert resumed.rc == 7, resumed
+    assert "is a conversation turn" in resumed.stderr and "Subfleet app" in resumed.stderr
+    revived = e2e.cli("sessions", "revive", session, "--revive", "--force", "--json")
+    assert revived.rc == 7, revived
+    assert json.loads(revived.stdout)["reason"].startswith("bound to a Subfleet conversation")
+    nudged = e2e.cli("sessions", "continue", "--session", session, "--delay", "0")
+    assert nudged.rc == 7 and "Subfleet app" in nudged.stderr, nudged
+    handed = e2e.cli("handoff", session, "--to", "opus", "--dry-run")
+    assert handed.rc == 7 and "Subfleet app" in handed.stderr, handed
+    cold = e2e.cli("sessions", "continue", "--scope", "cold", session, "--revive", "--force")
+    assert cold.rc == 7 and "Subfleet app" in cold.stderr, cold
+    cold_handoff = e2e.cli("sessions", "continue", "--scope", "cold", "--session", session,
+                           "--handoff", "--to", "opus")
+    assert cold_handoff.rc == 7 and "Subfleet app" in cold_handoff.stderr, cold_handoff
+    front_door = subprocess.run([str(Path(sys.executable).parent / "subfleet"), "revive", session,
+                                 "--revive"], env=e2e.env, input="", capture_output=True,
+                                text=True, timeout=60)
+    assert front_door.returncode == 7 and "Subfleet app" in front_door.stderr, front_door
+    assert e2e.rows("SELECT COUNT(*) AS n FROM jobs")[0]["n"] == before
+    assert e2e.rows("SELECT * FROM service_notices WHERE session_id=?", (session,)) == []
 
 
 def pending_approval(conv, cid: str) -> dict:

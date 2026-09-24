@@ -27,7 +27,9 @@ The rules, all of them from C-23.33 and C-23.34:
   last turn changed during the wait is skipped;
 * a sweep started by hand waits for a longer quiet window than a `SessionStart`
   wake does, because outside a restart an interrupted tail is often just a long
-  tool call.
+  tool call;
+* a session a Subfleet conversation binds, or a conversation turn ran, is never
+  nudged (C-26.13): its next turn is the next message sent in the Subfleet app.
 
 Delivery is one `ping` — a notice row the daemon's delivery ladder carries
 (C-15.2). This package never opens a session's socket.
@@ -292,17 +294,21 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
     # the set that can be skipped — a session with no record has nothing to say.
     facts = sessions.state(sorted(wanted) if wanted else None)
     lane_ids = lane_ids_of(facts)
+    bound = registry.conversation_ids_of(facts)
     state_by_id = facts.get("sessions") or {}
     # A caller who names a session gets an answer about it even when it is a
-    # lane run, so the refusal can name the reason (C-23.31).
-    listing = registry.sessions(lane_ids=lane_ids, include_lanes=bool(wanted),
-                                live_only=True)
+    # lane run, so the refusal can name the reason (C-23.31). A conversation's
+    # session is never in the listing at all (C-26.13).
+    listing = registry.sessions(lane_ids=lane_ids, conversation_ids=bound,
+                                include_lanes=bool(wanted), live_only=True)
     if wanted:
         listing = [item for item in listing if item.session_id in wanted]
         for session_id in sorted(wanted - {item.session_id for item in listing}):
             report.outcomes.append(Outcome(
                 session_id=session_id, scope=scope,
-                reason="not a live registered session (no inbox to reach)"))
+                reason=(f"{registry.CONVERSATION_REASON} — never nudged (C-26.13)"
+                        if session_id in bound
+                        else "not a live registered session (no inbox to reach)")))
     report.duplicates = registry.duplicate_report(listing)
 
     # C-17.1 preserves v1's immediate `tickle --session <id>`. That exception

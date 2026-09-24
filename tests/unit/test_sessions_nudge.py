@@ -457,3 +457,46 @@ def test_the_sweep_asks_the_daemon_for_state_once(home, policy):
     sweep(daemon, policy, scope="interrupted", manual=False)
     assert len(daemon.state_calls) == 1
     assert {session for session, _text in daemon.pings} == {ALICE, BOB}
+
+
+# --- a conversation's session (C-26.13) ---------------------------------------
+
+CONVERSATION = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+
+
+def test_a_conversations_session_is_never_nudged_by_a_sweep(home, policy):
+    """C-26.13: a live, interrupted session a conversation binds looks like any
+    other after its third turn, and the sweep still leaves it alone: its next
+    message comes from the Subfleet app."""
+    live(home, CONVERSATION, entries=fx.conversation_turns(turns=3))
+    live(home, ALICE, entries=fx.interrupted(age_s=1800), started_at=2.0)
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    report = sweep(daemon, policy, scope="interrupted", manual=False)
+    assert [session for session, _text in daemon.pings] == [ALICE]
+    assert CONVERSATION not in {item.session_id for item in report.outcomes}
+    assert all(record["session_id"] != CONVERSATION for record in daemon.records)
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_naming_a_conversations_session_is_refused_with_the_reason(home, policy, force):
+    """C-26.13: a person who names one gets the reason, and `--force` does not
+    override it; neither a nudge record nor a notice is written."""
+    live(home, CONVERSATION, entries=fx.conversation_turns(turns=3))
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    report = sweep(daemon, policy, scope="interrupted", manual=True,
+                   only=[CONVERSATION], force=force)
+    assert daemon.pings == [] and daemon.records == []
+    assert [item.session_id for item in report.outcomes] == [CONVERSATION]
+    assert report.outcomes[0].reason.startswith("bound to a Subfleet conversation")
+    assert "C-26.13" in report.outcomes[0].reason
+
+
+def test_a_session_start_wake_for_a_conversations_session_sends_nothing(home, policy):
+    """C-26.13 behind the hook: even a wake that reached the worker (a hook
+    configured by other means, or an older hook) nudges nobody."""
+    live(home, CONVERSATION, entries=fx.conversation_turns(turns=3, age_s=60))
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    report = nudge.wake(daemon, policy, CONVERSATION, source="resume",
+                        now=clock, sleep=lambda _s: None, delay_s=0)
+    assert daemon.pings == []
+    assert report.outcomes[0].reason.startswith("bound to a Subfleet conversation")

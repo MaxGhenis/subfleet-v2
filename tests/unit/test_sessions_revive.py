@@ -381,3 +381,44 @@ def test_old_claude_cli_reported_as_host_fault_not_no_lane(world, policy, tmp_pa
     result = attempt(daemon, policy, COLD, tmp_path, opt_in=True)
     every_reason = " ".join(filter(None, (result.reason, result.fix)))
     assert "no lane serves" not in every_reason
+
+
+# --- a conversation's session (C-26.13) ---------------------------------------
+
+CONVERSATION = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+
+
+@pytest.mark.parametrize("opt_in,force", [(False, False), (True, False), (True, True)])
+def test_a_conversations_session_is_never_revived(world, policy, tmp_path, opt_in, force):
+    """C-26.13: the conversation is the session's one writer, so a headless
+    revive beside it is the 2026-09-04 twin; `--revive` and `--force` do not
+    change that, and the fix points at the Subfleet app."""
+    cold_session(world, CONVERSATION, entries=fx.conversation_turns(turns=3))
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    result = attempt(daemon, policy, CONVERSATION, tmp_path, opt_in=opt_in, force=force)
+    assert result.admitted is False
+    assert daemon.submits == [] and daemon.revives == {}
+    assert result.reason.startswith("bound to a Subfleet conversation")
+    assert "Subfleet app" in result.fix
+    assert result.candidate.conversation is True
+
+
+def test_a_short_conversation_is_refused_as_a_conversation_not_as_a_lane(world, policy, tmp_path):
+    """C-26.13 before C-23.31: a one-turn conversation's transcript looks like a
+    lane run, and the lane refusal's reason would send the operator the wrong way."""
+    cold_session(world, CONVERSATION, entries=fx.conversation_turns(turns=1), desktop_owned=False)
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    result = attempt(daemon, policy, CONVERSATION, tmp_path, opt_in=True)
+    assert result.candidate.lane is True
+    assert result.reason.startswith("bound to a Subfleet conversation")
+
+
+def test_the_cold_sweep_never_sees_a_conversations_session(world, policy):
+    """C-26.13: a cold sweep is a directory scan, and a conversation's session is
+    not in it; named, it is inspected so the refusal can say why."""
+    cold_session(world)
+    cold_session(world, CONVERSATION, entries=fx.conversation_turns(turns=3))
+    daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
+    assert [item.session_id for item in revive.cold_candidates(daemon, policy, now=fx.NOW)] == [COLD]
+    named = revive.cold_candidates(daemon, policy, only=[CONVERSATION], now=fx.NOW)
+    assert [item.conversation for item in named] == [True]

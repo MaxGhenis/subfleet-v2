@@ -170,3 +170,54 @@ def test_a_missing_sessions_directory_is_an_empty_listing(home):
     assert registry.rows() == []
     assert registry.sessions() == []
     assert registry.find(SESSION) is None
+
+
+# --- a conversation's session (C-26.13) ---------------------------------------
+
+def test_a_conversations_transcript_stops_looking_like_a_lane_after_two_turns(home):
+    """C-26.13's reason: the transcript shape cannot keep a conversation's
+    session out of the kit. Each turn adds one `sdk` prompt, so from the third
+    turn C-23.31's shape test calls it an interactive session."""
+    fx.transcript(home, "two-turns", fx.conversation_turns(turns=2))
+    fx.transcript(home, SESSION, fx.conversation_turns(turns=3))
+    assert registry.is_lane_run("two-turns", lane_ids=set()) is True
+    assert registry.is_lane_run(SESSION, lane_ids=set()) is False
+
+
+@pytest.mark.parametrize("include_lanes", [False, True])
+@pytest.mark.parametrize("live_only", [True, False])
+def test_a_conversations_session_is_never_listed(home, include_lanes, live_only):
+    """C-26.13: a session the daemon reports as a conversation's is not in the
+    kit's listing, whatever the caller includes, while others still are."""
+    fx.register(home, SESSION, os.getpid(), started_at=1.0)
+    fx.transcript(home, SESSION, fx.conversation_turns(turns=3))
+    fx.register(home, "someone-else", os.getpid(), started_at=2.0)
+    fx.transcript(home, "someone-else", fx.interrupted())
+    listing = registry.sessions(conversation_ids={SESSION}, include_lanes=include_lanes,
+                                live_only=live_only)
+    assert [item.session_id for item in listing] == ["someone-else"]
+
+
+def test_the_daemons_conversation_list_is_read_defensively():
+    """C-26.13: junk in the list is not an id, and an empty list is none."""
+    assert registry.conversation_ids_of(
+        {"conversation_sessions": ["a", "", None, 3, "b"]}) == {"a", "b"}
+    assert registry.conversation_ids_of(
+        {"lane_sessions": ["x"], "conversation_sessions": []}) == set()
+
+
+@pytest.mark.parametrize("reply", [
+    {"sessions": {}, "lane_sessions": ["x"]},
+    {"sessions": {}, "lane_sessions": [], "conversation_sessions": None},
+    {"sessions": {}, "lane_sessions": [], "conversation_sessions": "a"},
+], ids=["missing", "null", "not-a-list"])
+def test_a_daemon_that_does_not_report_the_list_is_a_version_signal(reply):
+    """C-26.13 with C-25.1: the daemon before C-26.13 ran conversations and
+    answered `state` without `conversation_sessions`. Its silence is not "no
+    conversation holds a session": the kit raises `SessionsUnsupported`, whose
+    fix restarts the daemon, rather than fail open."""
+    from subfleet.sessions.client import SessionsUnsupported
+    with pytest.raises(SessionsUnsupported) as raised:
+        registry.conversation_ids_of(reply)
+    assert "conversation_sessions" in str(raised.value)
+    assert raised.value.fix == "subfleet daemon stop && subfleet daemon start"
