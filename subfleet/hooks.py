@@ -20,15 +20,27 @@ follow `docs/reference/claude-hooks.md` (fetched 2026-09-05) — not memory:
   re-reads the transcript after the delay and applies the age cap, the dedupe,
   the cooldown and the liveness re-check against what it can actually see.
 
-  Both events do nothing at all inside a process Subfleet launched (C-26.13):
-  a conversation turn, a lane run, or a probe. Every such process carries the
-  C-5.1 markers (`launched_by_subfleet`), and Claude Code runs these hook
+  Inside a process Subfleet launched (C-26.13) — a conversation turn, a lane
+  run, or a probe — both events behave differently. Every such process carries
+  the C-5.1 markers (`launched_by_subfleet`), and Claude Code runs these hook
   commands with the provider's own environment. A conversation turn is a
-  `claude -p` Subfleet starts once per message, so without this every turn's
-  `SessionStart` (source `startup` under `--session-id`, `resume` under
-  `--resume`) would hand the conversation's session to the nudge worker as if
-  a restart had cut it off, and every `UserPromptSubmit` would add pending
-  notices to Claude's context beside the message the person sent from the app.
+  `claude -p` Subfleet starts once per message, with source `startup` under
+  `--session-id` and `resume` under `--resume`. So there:
+
+  - `SessionStart` hands no wake to the sessions kit, which would otherwise
+    treat every turn as a restart that cut the conversation's session off;
+  - both events surface, and mark, only notices that name a job (C-15.1).
+    A job an agent in turn 1 dispatched with `subfleet run` carries the
+    conversation's session as `caller_session` (`cli.session_id` reads
+    `CLAUDE_CODE_SESSION_ID`), and when it ends after the turn does, this is
+    the layer that delivers it: layer 2 asks only for jobs still running
+    (`_candidates`), and a turn's process is stopped once it outlives its
+    result by `conversations.runner.AFTER_RESULT_S` (C-26.5).
+    A notice that names no job — a `ping`, a sessions-kit nudge, a timer
+    alert (the daemon's `service_notices`, returned with `job_id` None), or an
+    imported v1 continuation — is left pending and unprinted: it is addressed
+    to a person's session, and a turn's prompt is the message the person sent
+    from the app.
 
 * **PostToolUse** on Bash — layer 2. Ask the daemon which of this session's
   jobs are still running, take a file lease so two hooks never wait on one job,
@@ -372,6 +384,18 @@ def _offline_pending(root: Path, session: str) -> list[dict[str, Any]]:
 
 # --- the events ---------------------------------------------------------------
 
+def names_a_job(row: dict[str, Any]) -> bool:
+    """True for a C-15.1 completion notice: a row that names the job it reports.
+
+    The daemon's `notice.pending` returns `notices` rows beside
+    `service_notices` rows, the latter with `job_id` None and a negated
+    `notice_id` (`ping`, a sessions-kit nudge, a timer alert); an imported v1
+    outbox continuation is a `notices` row with no job (`importer.import_outbox`).
+    """
+    job_id = row.get("job_id")
+    return isinstance(job_id, str) and bool(job_id.strip())
+
+
 def session_event(event: str, payload: dict[str, Any], root: Path,
                   *, client: Client | None = None,
                   stdout: Any = None, env: Any = None) -> int:
@@ -381,17 +405,18 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
     on UserPromptSubmit erases the user's prompt, so nothing this hook can go
     wrong with is worth either outcome (`docs/reference/claude-hooks.md` §3).
 
-    Inside a process Subfleet launched it does nothing (C-26.13): no wake, no
-    daemon call, no output. That session is a conversation's or a lane's, and
-    neither is a session the kit may nudge or a prompt a notice may join.
+    Inside a process Subfleet launched (C-26.13) there is no wake, and only
+    notices that name a job are surfaced and marked; the rest stay pending.
+    That session is a conversation's or a lane's: the kit may not nudge it, and
+    a `ping` or a nudge is not for a turn's prompt, but the completion of a job
+    the session itself dispatched is exactly what its next turn needs.
     """
-    if launched_by_subfleet(env):
-        return int(Exit.OK)
+    launched = launched_by_subfleet(env)
     stdout = sys.stdout if stdout is None else stdout
     session = payload_session(payload)
     if not session:
         return int(Exit.OK)
-    if event == "SessionStart":
+    if event == "SessionStart" and not launched:
         try:
             wake_worker(session, payload, root)
         except Exception:                               # noqa: BLE001 - see below
@@ -403,6 +428,8 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows = _pending(client, session)
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows, marked = _offline_pending(root, session), False
+    if launched:
+        rows = [row for row in rows if names_a_job(row)]
     if not rows:
         return int(Exit.OK)
     context = render_pending(rows)

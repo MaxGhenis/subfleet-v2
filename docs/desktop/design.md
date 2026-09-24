@@ -320,8 +320,11 @@ the daemon refuses a resume or revive of a conversation's session at submit
 and fails one at admission if its session became a conversation's since.
 Conversation-bound sessions, and every session a turn ran, are not the
 sessions kit's: never listed, nudged, revived, cold-swept or handed off
-(`sessions state` reports them as `conversation_sessions`), and a turn's own
-`SessionStart` and `UserPromptSubmit` hooks do nothing (C-26.13). An
+(`sessions state` reports them as `conversation_sessions`). A turn's own
+`SessionStart` hook wakes nothing, and its `SessionStart` and
+`UserPromptSubmit` hooks surface only notices that name a job: the completion
+of work the conversation dispatched reaches its next turn, and a `ping` or a
+nudge does not (C-26.13). An
 external writer (a live pid in `~/.claude/sessions/*.json` naming the session
 that carries no Subfleet markers and is not a recorded owned identity) is an
 admission wait `external-writer` shown in the app ("open in the Claude app;

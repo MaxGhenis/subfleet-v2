@@ -22,6 +22,7 @@ its text:
     exit-before-ack   reads the message, then exits without replaying it
     background        a success result, then more assistant text before EOF
     wrong-model       serves another model than the one asked for
+    bash              runs SUBFLEET_FAKE_BASH_COMMAND as its Bash tool, then succeeds
 
 Environment:
 
@@ -29,6 +30,14 @@ Environment:
     SUBFLEET_FAKE_FAST        the `fast_mode_state` to report (default "on")
     SUBFLEET_FAKE_TURN_LOG    append argv and every stdin line here (JSON lines)
     CLAUDE_FAKE_PROJECTS_DIR  write the session transcript under this directory
+    SUBFLEET_FAKE_BASH_COMMAND
+                              the command the `bash` scenario runs, under
+                              `/bin/sh -c` in this process's cwd, with
+                              CLAUDECODE=1 and CLAUDE_CODE_SESSION_ID set to this
+                              session: the two variables `cli.in_claude_session`
+                              records the harness exporting to every Bash tool
+                              process. Logged to SUBFLEET_FAKE_TURN_LOG with its
+                              rc, stdout and stderr.
     SUBFLEET_FAKE_HOOK_COMMAND
                               run this command as a SessionStart hook at startup
                               and a UserPromptSubmit hook for each message, as
@@ -356,6 +365,34 @@ class Fake:
                                                           "delta": {"type": "text_delta", "text": f"still {n}\n"}}})
             time.sleep(0.05)
         return self.result(True, text=reply)
+
+    def scenario_bash(self, model: str, reply: str):
+        """One Bash tool call, run without a permission request (as for a command an
+        allow rule approved), its output returned as the tool result."""
+        command = os.environ.get("SUBFLEET_FAKE_BASH_COMMAND")
+        if not command:
+            self.say(model, "fake claude has no SUBFLEET_FAKE_BASH_COMMAND")
+            return self.result(False, "error_during_execution")
+        tool_id = f"toolu_{uuid.uuid4().hex[:10]}"
+        self.emit({"type": "assistant", "parent_tool_use_id": None, "message": {
+            "id": f"msg_{uuid.uuid4().hex[:12]}", "type": "message", "role": "assistant", "model": model,
+            "content": [{"type": "tool_use", "id": tool_id, "name": "Bash",
+                         "input": {"command": command, "description": "Run the command"}}]}})
+        env = {**os.environ, "CLAUDECODE": "1", "CLAUDE_CODE_SESSION_ID": self.session_id}
+        try:
+            done = subprocess.run(["/bin/sh", "-c", command], capture_output=True, text=True,
+                                  timeout=120, env=env)
+            rc, stdout, stderr = done.returncode, done.stdout, done.stderr
+        except (OSError, subprocess.SubprocessError) as exc:
+            rc, stdout, stderr = None, "", f"{type(exc).__name__}: {exc}"
+        self.log({"bash": command, "rc": rc, "stdout": stdout, "stderr": stderr[-4000:],
+                  "session_id": self.session_id, "pid": os.getpid()})
+        self.emit({"type": "user", "parent_tool_use_id": None, "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": tool_id, "content": stdout or stderr,
+             "is_error": rc != 0}]}})
+        self.say(model, "The command ran." if rc == 0 else f"The command failed (rc={rc}).")
+        return self.result(rc == 0, "success" if rc == 0 else "error_during_execution",
+                           text="The command ran.")
 
     def scenario_limit(self, model: str, reply: str):
         resets = int(time.time()) + 3 * 3600

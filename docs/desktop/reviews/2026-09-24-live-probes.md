@@ -93,10 +93,14 @@ kit's nudge worker (`subfleet hook SessionStart` calls `wake_worker`, and
 `UserPromptSubmit` could add pending notices to Claude's context beside the
 person's message. A conversation's transcript also gains one `sdk` prompt per
 turn, so after two turns `transcripts.headless_transcript` stops treating it
-as a lane run (C-23.31). The hook now does nothing when a marker is set
-(C-26.13), and the end-to-end test
-`test_a_turns_session_hooks_see_the_daemons_markers_and_do_nothing` runs
-`subfleet hook` from inside real turn launches with the daemon's own markers.
+as a lane run (C-23.31). With a marker set, the hook now hands no wake to
+the kit and surfaces only notices that name a job (C-26.13); a first version
+surfaced nothing at all, which also withheld the completion of a job a turn
+had dispatched from every later turn, and review caught it. The end-to-end
+tests `test_a_turns_session_hooks_see_the_daemons_markers_and_surface_no_ping`
+and `test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not`
+run `subfleet hook` from inside real turn launches with the daemon's own
+markers.
 
 ## Still to do live
 
