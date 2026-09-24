@@ -23,10 +23,12 @@ def app_sources() -> list[Path]:
     return sources
 
 
-def compile_probe(binary: Path, probe: Path, flag: str, *, timeout: int = 900) -> Path:
-    """Build `binary`; the machine may be loaded, so the timeout is generous."""
+def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout: int = 900) -> Path:
+    """Build `binary` from the app's sources and the probe file(s); the machine
+    may be loaded, so the timeout is generous."""
+    probes = probe if isinstance(probe, list) else [probe]
     command = ["xcrun", "swiftc", "-D", flag, "-parse-as-library", "-target", f"{platform.machine()}-apple-macos14.0",
-               *map(str, app_sources()), str(probe), "-o", str(binary)]
+               *map(str, app_sources()), *map(str, probes), "-o", str(binary)]
     compiled = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
     assert compiled.returncode == 0, compiled.stderr[-20000:]
     return binary
