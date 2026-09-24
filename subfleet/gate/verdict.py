@@ -74,10 +74,12 @@ def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any
         raise VerdictFormatError("peer verdict must be a JSON object")
     if value.get("artifact_revision") != expected_revision:
         raise GateError("peer verdict is bound to a different artifact revision", 4)
-    try:
+    try:  # the journal must be able to store what counts
         json.dumps(value, ensure_ascii=False).encode("utf-8")
-    except UnicodeEncodeError as exc:  # a lone surrogate escape: the journal cannot store it
+    except UnicodeEncodeError as exc:  # a lone surrogate escape
         raise VerdictFormatError("peer verdict contains text that is not valid Unicode") from exc
+    except RecursionError as exc:
+        raise VerdictFormatError("peer verdict is nested too deeply") from exc
     if before.strip() or after.strip():
         raise VerdictFormatError("peer output contains text outside the verdict sentinel")
     if type(value.get("schema_version")) is not int or value["schema_version"] != SCHEMA_VERSION:
@@ -107,13 +109,8 @@ def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any
 _EMPTY = (None, [], {}, "")
 _CLIP = 200
 # Diagnosis only (rejected_output_evidence): these can refuse or lock a re-ask, never accept.
-_QUOTES = r"""[\\"'`]*"""
-_VERDICT_TOKEN = re.compile(r"(?<!\w)" + _QUOTES + r"verdict" + _QUOTES
-                            + r"""\s*[:=]\s*[\[{(\\"'`\s]*([A-Za-z][\w -]*)""", re.IGNORECASE)
-_CONCERN_TOKEN = re.compile(r"(?<!\w)" + _QUOTES + r"(?:findings|notes)" + _QUOTES
-                            + r"\s*[:=]\s*[\[{(]\s*[^\s\]})]", re.IGNORECASE)
-_REVISION_TOKEN = re.compile(r"(?<!\w)" + _QUOTES + r"artifact_revision" + _QUOTES + r"\s*[:=]",
-                             re.IGNORECASE)
+# Every pattern is bounded, so a scan stays linear in the output's length.
+_SCHEMA_KEY = re.compile(r"(?<![A-Za-z])(?:verdict|findings|notes|artifact_revision)\W{0,3}:", re.IGNORECASE)
 _UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
 _FENCE_OPEN = re.compile(r"\A\s*```[\w-]*[ \t]*\n")
 _FENCE_CLOSE = re.compile(r"\n[ \t]*```\s*\Z")
@@ -175,28 +172,32 @@ def _read(fragment: str) -> _Members | None:
 def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> dict[str, Any]:
     """Diagnose output parse_verdict rejected, only to decide whether it may be re-asked.
 
-    Nothing found here is ever a verdict or part of one: it can only forbid a
-    re-ask (`refusal`) or keep the re-ask from approving (`outcome_lock`) (C-23.9).
-    It fails closed: what it cannot read refuses the re-ask.
+    Nothing found here is ever a verdict or part of one. It can only forbid a
+    re-ask (`refusal`) or keep the re-ask's approval from counting
+    (`outcome_lock`) (C-23.9), and it fails closed: what it cannot read refuses.
 
-    Each begin sentinel opens a block that runs to the next sentinel of either
-    kind or to the end of the output. Every block must read as a JSON object
-    (see _read), and so must the text outside the blocks when it holds an
-    artifact_revision member. Each object read must name exactly the reviewed
-    revision in every artifact_revision member, with no key repeated inside it;
-    it must not approve with findings or notes, or request changes without a
-    finding. The lock reads the whole output, JSON or not: any `verdict` key,
-    in any quoting, whose value is not approve (an empty or placeholder value
-    names nothing), and any nonempty findings or notes.
+    The re-ask is for a verdict object the gate could read but not accept. Each
+    begin sentinel opens a block that runs to the next sentinel of either kind
+    or to the end of the output, and every block must read as a JSON object
+    (see _read). Text outside the blocks that writes a verdict-schema key as
+    `key:` (_SCHEMA_KEY) must read the same way, as one object. At least one
+    object must be read. Every object read must name exactly the reviewed
+    revision in each artifact_revision member, with no key repeated inside it,
+    and must not approve with findings or notes or request changes without a
+    finding. An approval from the re-ask counts only when every object read
+    named approve or no verdict (empty, null, or the template's placeholder)
+    and listed no findings or notes. Prose is never read.
     """
-    refusals, verdicts, lock, outside = [], [], [], []
+    refusals, verdicts, lock, outside, read_any = [], [], [], [], False
 
     def read(fragment: str, unreadable: str) -> None:
+        nonlocal read_any
         try:
             members = _read(fragment)
             if members is None:
                 refusals.append(unreadable)
                 return
+            read_any = True
             refusals.extend(_segment_refusals(members, expected_revision))
             verdicts.extend(item if isinstance(item, str) else json.dumps(_plain(item), sort_keys=True)
                             for item in _values(members, "verdict") if item is not None)
@@ -218,16 +219,11 @@ def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> di
         begin = following
     outside.append(text[cursor:])
     rest = "".join(outside)
-    if _REVISION_TOKEN.search(rest):
-        read(rest, "revision JSON outside the verdict blocks cannot be read as one JSON object")
-
-    scan = _UNICODE_ESCAPE.sub(lambda match: chr(int(match.group(1), 16)), text)
-    scan = scan.replace(TEMPLATE_VERDICT, "")
-    verdicts += [value for value in (match.group(1).strip() for match in _VERDICT_TOKEN.finditer(scan))
-                 if value != "null"]
-    if _CONCERN_TOKEN.search(scan):
-        lock.append("listed findings or notes")
-    # An empty, null, or placeholder verdict names nothing, like a missing one.
+    if _SCHEMA_KEY.search(_UNICODE_ESCAPE.sub(lambda match: chr(int(match.group(1), 16)), rest)):
+        read(rest, "verdict fields outside the verdict blocks cannot be read as one JSON object")
+    if not read_any and not refusals:
+        refusals.append("the output holds no verdict object to re-emit")
+    # An empty or placeholder verdict names nothing, like a missing one.
     verdicts = list(dict.fromkeys(clip(item) for item in verdicts if item not in ("", TEMPLATE_VERDICT)))
     lock = [f"named verdict {item!r}" for item in verdicts if item != "approve"] + lock
     return {"refusal": refusals[0] if refusals else None, "verdicts": verdicts,

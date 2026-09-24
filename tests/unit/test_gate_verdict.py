@@ -84,6 +84,7 @@ FORMAT_FAILURES = [
     envelope(payload()).replace('"findings": []', '"findings": NaN'),
     VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END,
     envelope(payload(summary="\ud800")),
+    envelope(payload(summary=json.loads("[" * 30_000 + "]" * 30_000))),
 ]
 NEVER_FORMAT_FAILURES = [
     (envelope(payload(artifact_revision={**REVISION, "sha256": "b" * 64})), "different"),
@@ -112,6 +113,22 @@ def test_c23_9_binding_and_contradiction_failures_are_never_format_failures(text
     assert not isinstance(error.value, VerdictFormatError) and error.value.code == 4
 
 
+def test_c23_9_verdict_the_journal_cannot_serialize_is_a_format_failure(monkeypatch):
+    """C-3.2, C-23.9 (amended): nesting json.loads accepts but json.dumps cannot store never escapes."""
+    import subfleet.gate.verdict as verdict_module
+    dumps = verdict_module.json.dumps
+
+    def shallow_dumps(value, *args, **kwargs):
+        if kwargs.get("ensure_ascii") is False:
+            raise RecursionError("maximum recursion depth exceeded")
+        return dumps(value, *args, **kwargs)
+
+    text = envelope(payload())
+    monkeypatch.setattr(verdict_module.json, "dumps", shallow_dumps)
+    with pytest.raises(VerdictFormatError, match="nested too deeply"):
+        parse_verdict(text, REVISION)
+
+
 def test_c23_9_non_utf8_output_is_a_format_failure():
     """C-23.9 (amended): undecodable bytes are a malformed envelope, not an operational error."""
     assert decode_output(envelope(payload()).encode()) == envelope(payload())
@@ -123,8 +140,9 @@ OTHER = {**REVISION, "sha256": "b" * 64}
 
 
 @pytest.mark.parametrize("text,refusal,verdicts,lock", [
-    ("prose only, no block", None, [], []),
     ("preface\n" + envelope(payload()), None, ["approve"], []),
+    (envelope({k: v for k, v in payload().items() if k != "verdict"}), None, [], []),
+    (envelope(payload(verdict="")) + "x", None, [], []),
     ("preface\n" + envelope(payload(verdict="changes_requested", findings=[FINDING])), None,
      ["changes_requested"], ["named verdict 'changes_requested'", "listed findings or notes"]),
     (envelope(payload(verdict="blocked")) + envelope(payload()), None, ["blocked", "approve"],
@@ -132,10 +150,8 @@ OTHER = {**REVISION, "sha256": "b" * 64}
     (envelope(payload()).replace('"approve"', '"blocked", "verdict": "approve"'), None,
      ["blocked", "approve"], ["named verdict 'blocked'"]),
     (envelope(payload(verdict=TEMPLATE_VERDICT)) + envelope(payload()), None, ["approve"], []),
-    (envelope(payload(verdict="")) + "x", None, [], []),
     (envelope(payload(verdict=None, findings=[FINDING])), None, [], ["listed findings or notes"]),
-    (envelope(payload(verdict=["approve"])) + "x", None, ['["approve"]', "approve"],
-     ["named verdict '[\"approve\"]'"]),
+    (envelope(payload(verdict=["approve"])) + "x", None, ['["approve"]'], ["named verdict '[\"approve\"]'"]),
     (envelope(payload(verdict="\ud800")) + "x", None, ["\\ud800"], ["named verdict '\\\\ud800'"]),
     # Blocks that read only after repair (fence, escape, trailing comma, JSON string) are held to the same rules.
     (envelope(payload()).replace('"notes": []', '"notes": [],'), None, ["approve"], []),
@@ -145,23 +161,27 @@ OTHER = {**REVISION, "sha256": "b" * 64}
      "different artifact revision", ["approve"], []),
     (envelope(payload(artifact_revision=OTHER, summary=f"Plan {REVISION['sha256']}.")).replace('"notes": []', '"notes": [],'),
      "different artifact revision", ["approve"], []),
-    (f"{VERDICT_BEGIN}\n```json\n{json.dumps(payload(summary='Match \\\\d+.'))}\n```\n{VERDICT_END}".replace("\\\\d", "\\d"),
+    (f"{VERDICT_BEGIN}\n```json\n{json.dumps(payload())}\n```\n{VERDICT_END}".replace("Reviewed", "Match \\d+;"),
      None, ["approve"], []),
     (envelope(json.dumps(payload(verdict="blocked"))), None, ["blocked"], ["named verdict 'blocked'"]),
     (VERDICT_BEGIN + json.dumps(payload(verdict="blocked")), None, ["blocked"], ["named verdict 'blocked'"]),
-    # What cannot be read, even after repair, refuses the re-ask; verdict keys in any quoting still lock.
+    # What cannot be read, even after repair, refuses the re-ask.
+    ("prose only, no block", "no verdict object to re-emit", [], []),
     (f"{VERDICT_BEGIN}{{not json{VERDICT_END} and more", "cannot be read as a JSON object", [], []),
-    (f"{VERDICT_BEGIN}{{verdict: 'changes_requested'}}{VERDICT_END}", "cannot be read as a JSON object",
-     ["changes_requested"], ["named verdict 'changes_requested'"]),
-    (envelope([payload()]), "cannot be read as a JSON object", ["approve"], []),
-    ("Verdict: blocked, see below.", None, ["blocked"], ["named verdict 'blocked'"]),
-    ('{"\\u0076erdict": "blocked"}', None, ["blocked"], ["named verdict 'blocked'"]),
-    ('"previous_verdict": {"verdict": "approve"}', None, ["approve"], []),
-    # Revision JSON outside the blocks must itself read as one object bound to the reviewed revision.
+    (f"{VERDICT_BEGIN}{{verdict: 'changes_requested'}}{VERDICT_END}", "cannot be read as a JSON object", [], []),
+    (envelope([payload()]), "cannot be read as a JSON object", [], []),
+    (VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END, "too deeply nested", [], []),
+    # Verdict fields outside the blocks must read as one object, bound to the reviewed revision.
+    ("Verdict: blocked, see below.\n" + envelope(payload()), "outside the verdict blocks", ["approve"], []),
+    ("**Findings:** none\n" + envelope(payload()), "outside the verdict blocks", ["approve"], []),
+    ('"previous_verdict": {"verdict": "approve"}', "outside the verdict blocks", [], []),
     (json.dumps(payload(artifact_revision=OTHER)), "different artifact revision", ["approve"], []),
+    (json.dumps({k: v for k, v in payload().items() if k != "artifact_revision"}),
+     "different artifact revision", ["approve"], []),
+    (json.dumps(payload()).replace('"artifact_revision"', '"\\u0061rtifact_revision"').replace(
+        REVISION["sha256"], "b" * 64), "different artifact revision", ["approve"], []),
     ("```json\n" + json.dumps(payload()) + "\n```", None, ["approve"], []),
-    ("I checked " + json.dumps(payload(artifact_revision=REVISION)), "outside the verdict blocks cannot be read",
-     ["approve"], []),
+    ("I checked " + json.dumps(payload(artifact_revision=REVISION)), "outside the verdict blocks", [], []),
     # Readable blocks: exact binding, no duplicate keys, no contradiction.
     (envelope(payload()) + envelope(payload(artifact_revision={**REVISION, "bytes": 9})),
      "different artifact revision", ["approve"], []),
@@ -175,12 +195,9 @@ OTHER = {**REVISION, "sha256": "b" * 64}
      ["listed findings or notes"]),
     ("x" + envelope(payload(notes=["n"])), "approves with findings or notes", ["approve"],
      ["listed findings or notes"]),
-    ("x" + envelope(payload(findings="none")), "approves with findings or notes", ["approve"],
-     ["listed findings or notes"]),
     ("x" + envelope(payload(notes=None, findings=None)), None, ["approve"], []),
     ("x" + envelope(payload(verdict="changes_requested")), "requests changes without a finding",
      ["changes_requested"], ["named verdict 'changes_requested'"]),
-    (VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END, "too deeply nested", [], []),
 ])
 def test_c23_9_rejected_output_diagnosis_only_forbids_or_constrains_a_reask(text, refusal, verdicts, lock):
     """C-23.9 (amended): every block, readable or not, can refuse a re-ask or lock it; none becomes a verdict."""
@@ -193,13 +210,19 @@ def test_c23_9_rejected_output_diagnosis_only_forbids_or_constrains_a_reask(text
         assert refusal in evidence["refusal"]
 
 
-def test_c23_9_rejected_output_diagnosis_is_linear_in_sentinel_count():
-    """C-23.9 (amended): a flood of begin sentinels cannot stall the gate lock."""
+@pytest.mark.parametrize("text", [
+    VERDICT_BEGIN * 40_000 + VERDICT_END,
+    *(character * 200_000 for character in ('"', "'", "`", "\\", " ", ",")),
+    "verdict:" + " " * 200_000,
+    VERDICT_BEGIN + ("," + " " * 1000) * 200,
+    VERDICT_BEGIN + ("\n" + " " * 1000) * 200,
+])
+def test_c23_9_rejected_output_diagnosis_is_linear(text):
+    """C-23.9 (amended): no peer output can make the diagnosis stall the daemon."""
     import time
-    text = VERDICT_BEGIN * 40_000 + VERDICT_END
     started = time.perf_counter()
     rejected_output_evidence(text, REVISION)
-    assert time.perf_counter() - started < 2
+    assert time.perf_counter() - started < 0.5
 
 
 @pytest.mark.parametrize("status", ["mismatch", "unattested", None])

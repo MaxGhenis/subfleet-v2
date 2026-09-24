@@ -530,6 +530,14 @@ def js_literal(text):
      "cannot be read as a JSON object"),                                  # a finding quotes the sentinel
     (abandoned_then_approve, "cannot be read as a JSON object"),
     (lambda text: text.replace('"summary":', '"summary": "x" "y",'), "cannot be read as a JSON object"),
+    # Verdict fields outside any readable object: the gate cannot tell what they say, so no re-ask.
+    (lambda text: "Verdict: **changes_requested**; rollback missing.\n" + text, "outside the verdict blocks"),
+    (lambda text: "**Verdict:** approve\n" + text, "outside the verdict blocks"),
+    (lambda text: "verdict: >-\n  changes_requested\nfindings:\n  - rollback missing\n", "outside the verdict blocks"),
+    (lambda text: text + '\n{"\\u0061rtifact_revision": {"kind": "plan", "sha256": "' + "0" * 64 + '", "bytes": 1}}',
+     "bound to a different artifact revision"),                           # an escaped key is still read
+    (then(members(artifact_revision=None), bare_json), "bound to a different artifact revision"),
+    (lambda text: "Looks good to me; nothing to change.", "no verdict object to re-emit"),
 ])
 def test_unreadable_output_without_the_reviewed_revision_is_never_reasked(core, tmp_path, transform, refusal):
     """C-23.9 (amended): a block the gate cannot read must still carry the reviewed revision's digest."""
@@ -557,8 +565,6 @@ def string_wrapped(text):
     (then(members(verdict="blocked"), string_wrapped), "named verdict 'blocked'"),
     (members(verdict=None, findings=[FINDING]), "listed findings or notes"),
     (members(verdict="approve | changes_requested | blocked", findings=[FINDING]), "listed findings or notes"),
-    (lambda text: "Verdict: changes_requested; see below.\n" + members(verdict=None)(text),
-     "named verdict 'changes_requested'"),                                  # a verdict key outside JSON
 ])
 def test_unreadable_non_approval_still_locks_the_reask_outcome(core, tmp_path, first, lock):
     """C-23.9 (amended): a non-approval anywhere in the rejected output's JSON keeps the re-ask from approving."""
@@ -600,6 +606,32 @@ def test_lone_surrogate_in_a_valid_verdict_never_wedges_the_gate(core, tmp_path,
     else:
         assert "not valid Unicode" in state_of(core, started)["rounds"][-1]["format_reask"]["reason"]
     assert state_of(core, started)["status"] in {"reviewing", "blocked"}
+
+
+@pytest.mark.parametrize("depth", [20_000, 60_000])
+def test_deeply_nested_verdict_never_escapes_the_gate_op(core, tmp_path, depth):
+    """C-3.2, C-17.1: nesting too deep to parse or store blocks or re-asks; it never raises."""
+    deep = lambda text: text.replace('"summary":', '"summary": ' + "[" * depth + "]" * depth + ', "s":')  # noqa: E731
+    _, started = start(core, tmp_path)
+    finish(core, started, transform=deep)
+    result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert result["code"] in (None, 4)
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] in (None, 4)
+
+
+def test_recursion_while_consuming_blocks_the_round_instead_of_raising(core, tmp_path, monkeypatch):
+    """C-3.2, C-17.1: an evaluation too deep for the stack blocks with 4; the gate is never left reviewing."""
+    import subfleet.gate.service as service_module
+    _, started = start(core, tmp_path)
+    finish(core, started)
+
+    def too_deep(*args, **kwargs):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(service_module, "parse_verdict", too_deep)
+    blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert blocked["code"] == 4 and "recursion" in blocked["message"]
+    assert state_of(core, started)["status"] == "blocked" and gate_leases(core) == []
 
 
 @pytest.mark.parametrize("change", [{"enabled": 0}, {"owner": "v1"}])

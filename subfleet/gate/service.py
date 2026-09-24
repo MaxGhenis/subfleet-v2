@@ -361,9 +361,9 @@ class GateService:
 
         A format failure is re-asked once, on the lane and model of the dispatch it
         came from, for the same captured revision. It is not re-asked when the
-        diagnosis of the rejected output refuses (a revision-binding failure, an
-        unreadable block without the reviewed digests, a contradiction), or when
-        that lane can no longer run it; a second format failure blocks the round.
+        diagnosis of the rejected output refuses (nothing readable, a block it
+        cannot read, a revision-binding failure, a contradiction), or when that
+        lane can no longer run it; a second format failure blocks the round.
         """
         spent = record.get("format_reask")
         if spent:
@@ -459,7 +459,7 @@ class GateService:
                 reask = self._plan_reask(record, job, attempt, artifact, body, exc)
                 raise
             verdict = self._reasked_outcome(record, parsed)
-        except (GateError, OSError, UnicodeError) as exc:
+        except (GateError, OSError, UnicodeError, RecursionError) as exc:
             error = str(exc)
         holder = f"gate-round:{record['peer_run_id']}"
         with self.store.transaction("gate.round-consumed", job_id=record["peer_run_id"], data={"gate_id": state["id"]}) as tx:
