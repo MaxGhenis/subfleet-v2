@@ -101,6 +101,7 @@ def test_c26_12_cancelling_a_turn_job_writes_no_notice(ledger):
 
 
 def test_c25_1_capabilities_advertise_the_kind_filter(state_daemon):  # noqa: F811
-    """C-25.1 a client sends `kind`/`include_turns` only to a daemon that says it honours them."""
+    """C-25.1, C-26.12 the daemon that honours `kind`/`include_turns` advertises `jobs.kind.v1`. The client
+    half (`runs` sends the fields only after reading it) is `unit/test_cli_turns.py`."""
     daemon, _ = state_daemon
     assert "jobs.kind.v1" in daemon.conversations.handle("capabilities", {}, None)["capabilities"]

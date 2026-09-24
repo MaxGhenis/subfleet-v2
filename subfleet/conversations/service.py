@@ -39,7 +39,7 @@ from .turn import (
 # `jobs.kind.v1`: `list` honours `kind` and `include_turns` and leaves turn jobs out by
 # default; `status.json` rows carry `kind` (C-18.2, C-26.12, C-29.6).
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
-                "jobs.kind.v1")
+                protocol.JOBS_KIND_CAPABILITY)
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": 64 * 1024 * 1024}
 OPS = frozenset(protocol.CONVERSATION_OPS)

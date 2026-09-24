@@ -275,6 +275,13 @@ class Closure:  # C-9.6
     source_event: str | None
 
 
+#: C-17.1, C-26.12: the kinds the job ledger holds (`jobs.kind`), as the code
+#: submits them: `dispatch` (`run`), `resume`, `revive` (`sessions revive`),
+#: `gate-review` (`gate`), `handoff` (`handoff`), and `turn`, which only the
+#: conversation dispatcher creates (C-26.1). `runs --kind` names one of them.
+JOB_KINDS = ("dispatch", "resume", "revive", "gate-review", "handoff", "turn")
+
+
 @dataclass(frozen=True)
 class JobSpec:
     """What `submit` carries (C-6)."""

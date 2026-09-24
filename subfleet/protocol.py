@@ -23,6 +23,15 @@ CONVERSATION_OPS = (
     "approval.list", "approval.get", "approval.respond", "attachment.add", "catalog.refresh", "models.list",
 )
 
+#: What `decode_request` answers for an op this daemon does not serve. A client
+#: reads it as a version signal (the daemon is older than the op), not as a
+#: failed request (C-25.1).
+UNKNOWN_OP = "unknown op"
+
+#: C-25.1, C-26.12: the capability that says `list` honours `kind` and
+#: `include_turns`. A client sends those fields only to a daemon advertising it.
+JOBS_KIND_CAPABILITY = "jobs.kind.v1"
+
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
@@ -152,7 +161,8 @@ class ListArgs:
     # C-26.12: turn jobs are the conversation's, so `list` leaves them out unless
     # asked. `kind` lists only that kind (`turn` lists only turns); without it,
     # `include_turns` lists every kind. A daemon that predates these fields
-    # ignores them (C-16.2); the `jobs.kind.v1` capability says they are honoured.
+    # ignores them (C-16.2), so a client sends them only to a daemon whose
+    # `capabilities` lists JOBS_KIND_CAPABILITY (C-25.1; `cli.cmd_runs`).
     kind: str | None = None
     include_turns: bool = False
 
@@ -305,7 +315,7 @@ def decode_request(line: bytes | str) -> Request:
         raise ProtocolError(f"unsupported protocol version {data.get('v')!r}; this daemon speaks {PROTOCOL_VERSION}")
     op = data.get("op")
     if op not in OPS:
-        raise ProtocolError(f"unknown op {op!r}")
+        raise ProtocolError(f"{UNKNOWN_OP} {op!r}")
     args = data.get("args") or {}
     if not isinstance(args, dict):
         raise ProtocolError("args must be an object")
