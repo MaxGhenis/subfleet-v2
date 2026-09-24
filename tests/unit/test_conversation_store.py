@@ -149,16 +149,126 @@ def test_event_batches_are_idempotent_and_watermarked(store):
 
 
 def test_compaction_sets_a_floor_that_resets_stale_cursors(store):
-    """C-25.4 deltas are removed after the turn; a client behind the floor is told to reload."""
+    """C-25.4, IR-6: deltas are removed after the turn; `reset` is true exactly when the
+    cursor is below the floor, the highest sequence number compaction removed."""
     c = conv(store)
     kw = dict(conversation_id=c["conversation_id"], message_id="m", attempt_id="j/a1")
     store.append_events(events=[("stdout", str(i), 1, "text.delta", {"text": str(i)}) for i in range(5)]
-                        + [("stdout", "9", 1, "text", {"text": "01234"})], stdout_offset=10, stdin_seq=1, **kw)
-    first = store.events_after(c["conversation_id"], 0)["events"]
+                        + [("stdout", "9", 1, "text", {"text": "01234"}),
+                           ("stdout", "10", 1, "turn.completed", {})], stdout_offset=10, stdin_seq=1, **kw)
+    seqs = [e["seq"] for e in store.events_after(c["conversation_id"], 0)["events"]]
+    last_delta, text, completed = seqs[4], seqs[5], seqs[6]
+    assert store.events_after(c["conversation_id"], 0)["reset"] is False       # nothing removed yet
     assert store.compact("j/a1") == 5
-    assert store.events_after(c["conversation_id"], first[1]["seq"])["reset"] is True
-    assert store.events_after(c["conversation_id"], 0)["reset"] is False
+    assert store.floor(c["conversation_id"]) == last_delta
+    for cursor in (0, seqs[0], seqs[3], last_delta - 1):
+        page = store.events_after(c["conversation_id"], cursor)
+        assert page["reset"] is True and page["floor"] == last_delta, cursor
+    for cursor in (last_delta, text, completed):
+        assert store.events_after(c["conversation_id"], cursor)["reset"] is False, cursor
+    # A client that read every delta but not the final text is not sent back.
+    assert [e["kind"] for e in store.events_after(c["conversation_id"], last_delta)["events"]] == ["text", "turn.completed"]
+    assert [e["kind"] for e in store.events_after(c["conversation_id"], 0)["events"]] == ["text", "turn.completed"]
+
+
+def test_the_floor_only_rises_and_an_attempt_without_deltas_moves_nothing(store):
+    """C-25.4: a second compaction never lowers the floor; an attempt with no deltas is
+    marked compacted and leaves the floor where it was."""
+    c = conv(store)
+    cid = c["conversation_id"]
+    store.append_events(conversation_id=cid, message_id="m1", attempt_id="j1/a1", stdout_offset=1, stdin_seq=1,
+                        events=[("stdout", "1", 1, "thinking.delta", {"text": "a"})])
+    store.append_events(conversation_id=cid, message_id="m2", attempt_id="j2/a1", stdout_offset=1, stdin_seq=1,
+                        events=[("stdout", "1", 1, "text.delta", {"text": "b"}), ("stdout", "2", 1, "text", {"text": "b"})])
+    store.append_events(conversation_id=cid, message_id="m3", attempt_id="j3/a1", stdout_offset=1, stdin_seq=1,
+                        events=[("stdout", "1", 1, "text", {"text": "c"})])
+    assert store.compact("j2/a1") == 1
+    high = store.floor(cid)
+    assert store.compact("j1/a1") == 1
+    assert store.floor(cid) == high
+    assert store.compact("j3/a1") == 0
+    assert store.floor(cid) == high and store.mark("j3/a1")["compacted"] == 1
+
+
+def test_a_replay_after_compaction_does_not_bring_deltas_back(store):
+    """C-26.6, C-25.4: a runner replaying a compacted attempt's stdout stores no delta
+    again, so nothing appears above the floor that a client could mistake for new."""
+    c = conv(store)
+    kw = dict(conversation_id=c["conversation_id"], message_id="m", attempt_id="j/a1")
+    batch = [("stdout", "1", 1, "text.delta", {"text": "x"}), ("stdout", "2", 1, "text", {"text": "x"})]
+    store.append_events(events=batch, stdout_offset=5, stdin_seq=1, **kw)
+    store.compact("j/a1")
+    assert store.append_events(events=batch, stdout_offset=5, stdin_seq=1, **kw) == 0
     assert [e["kind"] for e in store.events_after(c["conversation_id"], 0)["events"]] == ["text"]
+
+
+def test_compactable_lists_settled_messages_attempts_once(store):
+    """IR-6: only attempts whose message is terminal, settled before the cutoff, and not
+    yet compacted are candidates; the job store's word on the attempt is the caller's."""
+    c = conv(store)
+    cid = c["conversation_id"]
+    done, live = mid(), mid()
+    store.submit_message(conversation_id=cid, message_id=done, after_message_id=None, text="1", attachments=[],
+                         settings=SETTINGS)
+    store.submit_message(conversation_id=cid, message_id=live, after_message_id=done, text="2", attachments=[],
+                         settings=SETTINGS)
+    for message, attempt in ((done, "a/a1"), (live, "b/a1")):
+        store.append_events(conversation_id=cid, message_id=message, attempt_id=attempt, stdout_offset=1,
+                            stdin_seq=1, events=[("stdout", "1", 1, "text.delta", {"text": "x"})])
+    store.set_state(done, "complete")
+    store.set_state(live, "running")
+    later = "9999-01-01T00:00:00.000Z"
+    assert [r["attempt_id"] for r in store.compactable(settled_before=later, limit=10)] == ["a/a1"]
+    assert store.compactable(settled_before="2000-01-01T00:00:00.000Z", limit=10) == []
+    store.compact("a/a1")
+    assert store.compactable(settled_before=later, limit=10) == []
+
+
+def test_a_worktree_is_recorded_through_update_conversation(store):
+    """C-24.1, D-16: the workspace and the worktree record change through the store's
+    update, which writes the change feed; unknown fields are still refused."""
+    c = conv(store, workspace_kind="worktree")
+    start = store.changes_after(0)["next"]
+    record = {"path": "/state/worktrees/conversation-x", "branch": "subfleet/x", "source": "/w", "base": "abc"}
+    after = store.update_conversation(c["conversation_id"], workspace=record["path"], worktree=record)
+    assert after["workspace"] == record["path"] and after["worktree"] == record
+    assert store.conversation(c["conversation_id"])["worktree"] == record
+    assert [ch["conversation_id"] for ch in store.changes_after(start)["changes"]] == [c["conversation_id"]]
+    with pytest.raises(ValueError):
+        store.update_conversation(c["conversation_id"], workspace="")
+    with pytest.raises(ValueError):
+        store.update_conversation(c["conversation_id"], provider="codex")
+
+
+def test_an_earlier_conversation_store_gains_the_worktree_column(tmp_path):
+    """C-24.1: a store written before `worktree_json` existed opens, keeps schema 1, and
+    reads its conversations with no worktree."""
+    import sqlite3
+    root = tmp_path / "state"
+    first = ConversationStore(root)
+    c = conv(first)
+    first.close()
+    db = sqlite3.connect(root / "conversations.sqlite3")
+    db.execute("ALTER TABLE conversations DROP COLUMN worktree_json")
+    db.commit()
+    db.close()
+    again = ConversationStore(root)
+    try:
+        assert again.conversation(c["conversation_id"])["worktree"] is None
+        assert again.one("SELECT MAX(version) v FROM schema_version")["v"] == 1
+    finally:
+        again.close()
+
+
+def test_an_unbound_move_refuses_a_message_a_job_already_carries(store):
+    """IR-2: a withdrawal guarded by `unbound` loses to a dispatcher that bound a job first."""
+    c = conv(store)
+    m = mid()
+    store.submit_message(conversation_id=c["conversation_id"], message_id=m, after_message_id=None, text="x",
+                         attachments=[], settings=SETTINGS)
+    store.set_state(m, "waiting", expect=("queued",), job_id="job-1")
+    assert not store.set_state(m, "cancelled", expect=("queued", "waiting"), unbound=True)
+    assert store.message(m)["state"] == "waiting"
 
 
 def test_page_size_is_bounded(store):

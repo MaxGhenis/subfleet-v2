@@ -455,6 +455,7 @@ CREATE TABLE conversations (
   settings_json     TEXT NOT NULL,            -- {model, effort, fast, permission, auto_continue}
   origin            TEXT NOT NULL CHECK (origin IN ('new','native','handoff','legacy')),
   handoff_from_json TEXT,
+  worktree_json     TEXT,                     -- a worktree conversation's {path, branch, source, repository, base}
   blocked_by        TEXT,                     -- unfinished-turn | delivery-unknown | quarantined-turn
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
   UNIQUE (provider, native_session_id)
@@ -518,7 +519,8 @@ Driver output is persisted in batches: at most one transaction per attempt
 per 250 ms or 64 KiB, which also advances `attempt_marks`; the events
 long-poll is woken per batch (review F-09). When an attempt is terminal and
 its message terminal, its `text.delta`/`thinking.delta` rows are deleted in
-one transaction that sets `floors.compacted_through` (review F6).
+one transaction that sets `floors.compacted_through` to the highest sequence
+number removed (review F6, IR-6; C-25.4 says when).
 
 A turn job in `state.sqlite3` is an ordinary `jobs` row with `kind='turn'`,
 `request_id='turn:<message id>:<n>'`, `in_place=1`, `max_attempts=1`,
@@ -565,7 +567,7 @@ marked †.
 | `conversation.settings` | `{conversation_id, settings, confirm_widen?†}` → `{conversation}`; widening is person-only |
 | `conversation.unblock` † | `{conversation_id, choice:"continue"|"leave", confirm:true}` → `{conversation}` |
 | `conversation.history` | `{conversation_id, before?, limit?}` → a page of the native transcript, newest first, scrubbed (D-11), at most 4 MiB read per call |
-| `conversation.events` | `{conversation_id, after, limit?, wait_s?}` → `{events, next, reset}`; long-poll ≤ 50 s; page ≤ 256 KiB; `reset:true` when `after` < the floor |
+| `conversation.events` | `{conversation_id, after, limit?, wait_s?}` → `{events, next, reset, floor}`; long-poll ≤ 50 s; page ≤ 256 KiB; `reset:true` exactly when `after` < the floor |
 | `message.submit` | `{conversation_id, message_id, after_message_id, text, attachments:[sha256], settings}` → Receipt; same id + digest returns the stored receipt; different digest exit 2 `message-id-conflict`; unknown predecessor exit 2 `out-of-order` |
 | `message.status` | `{message_ids}` → `{messages:[Receipt]}` |
 | `message.cancel` | `{message_id}` → Receipt (§4) |
