@@ -96,14 +96,20 @@ Commit on `fix/mirror-load-time-gap`; clause C-23.28, second half.
 
 - **Hot pass.** Every `sessions.mirror_hot_interval_s` (2 s) the daemon runs a
   hot pass on the mirror's worker and lock.
-  - It re-lists only folders whose directory mtime changed and spreads each new
-    or changed record at once.
-  - The app writes by rename, so every app write changes its folder's mtime.
-    That includes the old account's folder, where parked sessions keep saving.
-    The live store had 0 in-place rewrites among 217,706 files, and an 8-minute
-    watch saw every write bump the directory.
+  - It re-lists only folders whose directory mtime changed, puts each new
+    session whose transcript exists into every folder that lacks it, and fills
+    stale empty copies. Title, flag and setting changes still spread with the
+    60 s full pass.
+  - The app writes by rename, and writes in place only when the rename fails,
+    so an app write normally changes its folder's mtime. That includes the old
+    account's folder, where parked sessions keep saving. The live store had 0
+    in-place rewrites among 217,706 files, and an 8-minute watch saw every
+    write bump the directory. The 10-minute stat sweep catches the rest.
   - A record whose transcript does not exist yet is retried on later hot
-    passes.
+    passes, whichever pass listed it first.
+  - It shares the full pass's worker, so it waits behind a full pass in flight:
+    1–2 s warm, ~9 s for the sweep, ~45 s for the first pass after a daemon
+    restart.
   - The hot pass does not wait for a logout. On 2026-09-24 a logout preceded
     the next load by 12 s to 10.5 min, but an org switch loads the next folder in
     the same second it is logged. What matters is that everything written up to
@@ -134,19 +140,29 @@ Commit on `fix/mirror-load-time-gap`; clause C-23.28, second half.
     and `--json`), in a note under `subfleet sessions list`, and in a new
     `desktop sidebar load` doctor row, which uses the new `warn` status.
 - **Write safety.**
-  - Copies are assembled beside the destination and renamed in, keeping the
-    source's mtime and mode.
-  - New files are owner-only (0600), like the app's own. Before this, the
-    mirror's rewrites and fallback copies took the process umask, and 200,852
-    of the 217,706 records were 0644. All 120 org folders are 0700, so no other
-    user could reach them.
+  - Copies are assembled beside the destination and put in place in one step,
+    keeping the source's mtime. A new name is placed create-only, with a hard
+    link that fails if the app took the name meanwhile. A replacement (a flag
+    write or a repair) is abandoned if the target changed since the pass
+    decided, checked again right before the rename.
+  - Every file the mirror places is owner-only (0600), like the app's own.
+    Before this, copies kept their source's mode, rewrites and fallback copies
+    took the process umask, and 200,852 of the 217,706 records were 0644. All
+    120 org folders are 0700, so no other user could reach them.
   - A copy whose source vanished no longer aborts the whole pass.
   - Flag sync re-reads the record and patches only the synced fields. If those
     fields moved since the inventory, it skips the write and holds that
     session's merge base, so the next pass decides on what is there.
-  - When the app's latest load found its folder missing (a first login to that
-    account and org), the full pass creates the folder, so it can be seeded and
-    a relaunch lists it.
+  - An app's stale re-save no longer undoes a user's archive, star or rename.
+    The app saves from memory, so a session still running from an earlier
+    account (or a loaded folder the mirror wrote into) writes back the value it
+    held. A copy whose synced fields returned to exactly what the mirror
+    overwrote, in a folder the app has not freshly loaded since, has no say in
+    the merge and is written back. Before this, flag sync took such a re-save
+    for a user's change and spread it to every account.
+  - A folder that cannot be listed is skipped for that pass rather than taken
+    as empty, and the write journal merges rows another process (a manual
+    `sessions mirror`) saved, so the report counts every late copy.
 
 Measured against the live store with dry runs of the new code (no store writes):
 
@@ -172,11 +188,20 @@ different measure (RSS), so it is given only for scale.
   can still miss the load. The report then counts it.
 - **Writes into the loaded folder.** A flag, title or setting the mirror writes
   into the folder the app has loaded does not reach the running app, and the
-  app's next save of that record overwrites it there. The report counts these
+  app's next save of that record overwrites it there (the mirror then writes it
+  back, and the other folders keep the right value). The report counts these
   as `stale`. Preventing that needs the app to reload, which only it can do.
 - **Dependence on the app's log.** The report relies on the app's log lines.
   The log is a diagnostic, not an interface. If the lines change, the report
   says `unknown` rather than guessing, and copying is unaffected.
-- **A first login to a new account and org.** Its sidebar is empty until a
-  relaunch after the mirror creates and seeds the folder, and the report says
-  so.
+- **A first login to a new account and org.** The app finds no folder, lists
+  nothing, and creates the folder in the same second (it writes
+  `scheduled-tasks.json` there). The mirror seeds it right after, so the
+  sidebar is empty until a relaunch, and the report counts every seeded
+  session as waiting for one.
+- **Mid-switch folders.** During a switch the app briefly initializes the old
+  account with the new org, and creates that folder too (16:38:05 on
+  2026-09-24). The app's logs from 2026-09-09 to 09-24 hold 13 missing-folder
+  loads, and every one of those folders now exists, created in the second the
+  app logged it. The mirror seeds them like any other folder; they cost disk,
+  not correctness.

@@ -472,6 +472,12 @@ def cmd_mirror(args: argparse.Namespace) -> int:
         if gap.get("status") == "relaunch":
             note(f"  sidebar: {gap['detail']}")
             note(f"  fix: {RELAUNCH_FIX}")
+        elif gap.get("status") == "unknown":
+            # Without the app's log the mirror cannot tell whether a copy landed
+            # in the folder the running app has loaded, so it says what it can.
+            note("  sidebar: the app's log does not say which folder it loaded; a "
+                 "running app lists copies only when it next loads a folder")
+            note(f"  fix: {RELAUNCH_FIX}")
     return int(Exit.OK if result.state != "error" else Exit.OPERATIONAL)
 
 

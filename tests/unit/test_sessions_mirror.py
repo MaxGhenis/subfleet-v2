@@ -246,9 +246,10 @@ def test_cancellation_during_flag_publication_finishes_the_matching_merge_base(w
     write = mirror._write_json
 
     def cancel_after_first_write(target, value, **kwargs):
-        write(target, value, **kwargs)
+        inode = write(target, value, **kwargs)
         if target.name.startswith("local_"):
             cancel.set()
+        return inode
 
     monkeypatch.setattr(mirror, "_write_json", cancel_after_first_write)
     result = running.run_once()

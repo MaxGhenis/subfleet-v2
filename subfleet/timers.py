@@ -71,10 +71,10 @@ class Timers:
         mirror_interval = policy.get('sessions', {}).get('mirror_interval_s', 60)
         if mirror_interval:
             self.intervals['mirror'] = mirror_interval
-            # The app lists a session folder only when it loads it, so a record
-            # must reach every folder before the next account switch: the hot
-            # pass spreads what changed within seconds. It shares the mirror's
-            # worker and lock, and is off whenever the mirror is.
+            # The app lists a session folder only when it loads it, so a new
+            # session must reach every folder before the next account switch:
+            # the hot pass spreads new sessions within seconds. It shares the
+            # mirror's worker and lock, and is off whenever the mirror is.
             hot_interval = policy.get('sessions', {}).get('mirror_hot_interval_s', 2)
             if hot_interval:
                 self.intervals['mirror_hot'] = hot_interval
@@ -202,7 +202,7 @@ class Timers:
         self._mirror_engine().run_once(options_from(self.policy))
 
     def mirror_hot_cycle(self):
-        """One hot sidebar pass (C-23.28): spread what changed, within seconds.
+        """One hot sidebar pass (C-23.28): spread new sessions within seconds.
 
         Returns whether it changed anything, which is what decides whether this
         run is worth a `timer.run` event.

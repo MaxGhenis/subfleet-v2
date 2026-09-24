@@ -23,19 +23,24 @@ the mirror, whose passes were then taking up to two hours, copied them at
 
 * **Win the race to the switch.** A hot pass runs every
   `sessions.mirror_hot_interval_s` (2 s). It re-lists only the folders whose
-  directory changed since it last looked, and spreads each new or changed
-  record at once. The app writes every record by write-then-rename (never in
-  place, observed across all 217,706 files on 2026-09-24), so a record write
-  always changes its folder. That includes the old account's folder, where
-  sessions still running at a switch keep saving. The 60 s full pass keeps
-  flag sync, repair, revival and pruning.
+  directory changed since it last looked, puts each new session whose
+  transcript exists into every folder that lacks it, and fills stale empty
+  copies. The app writes a record by write-then-rename and writes in place
+  only when the rename fails (no in-place rewrite among 217,706 files on
+  2026-09-24), so a record write normally changes its folder. That includes
+  the old account's folder, where sessions still running at a switch keep
+  saving. The hot pass shares the full pass's worker, so it waits behind a
+  full pass in flight: 1-2 s warm, ~9 s for the ten-minute sweep, ~45 s for
+  the first pass after a daemon restart. Title, flag and setting changes
+  spread with the 60 s full pass, which also repairs, revives and prunes.
 * **Stay incremental.** A pass that re-parsed every file could not keep up:
   its payload cache held 128 MB of the ~300 MB of distinct parsed records,
   so warm passes re-read most of 218k files, and a daemon restart threw away
-  what was left. The cache now holds only the fields the mirror reads (~13 MB),
-  keyed by the file's bytes. A folder whose directory is unchanged is not
-  re-listed, and a changed one is diffed by inode. A full stat sweep every
-  `SWEEP_INTERVAL_S` catches a write that kept its inode.
+  what was left. The cache now holds only the fields the mirror reads, one
+  payload per distinct file content (9,619 payloads, 16.4 MB, on 2026-09-24).
+  A folder whose directory is unchanged is not re-listed, and a changed one
+  is diffed by inode. A full stat sweep every `SWEEP_INTERVAL_S` catches a
+  write that kept its inode.
 * **Report what lost the race.** Every copy is journaled with the file's
   ctime. The app's log names the folder it loaded and when. A journaled copy
   into that folder that postdates the load, and that the app has not since
@@ -45,8 +50,12 @@ the mirror, whose passes were then taking up to two hours, copied them at
 * **A write into the loaded folder does not reach the running app.** The app
   serializes each record from memory on its next save, with no read-merge.
   So a flag, title or setting the mirror writes into the folder the app has
-  loaded does not appear in its sidebar, and the app's next save of that
-  record overwrites it there. The load-gap report counts these as `stale`.
+  loaded, or into the folder of a session still running from an earlier
+  account, does not reach that app's memory, and its next save of the record
+  writes the old value back. The load-gap report counts these as `stale`, and
+  flag sync does not mistake such a re-save for a user's edit: a copy that
+  returned to exactly the values the mirror overwrote, in a folder the app
+  has not freshly loaded since, is re-asserted rather than spread.
 
 Ported from v1 `bin/subfleet-mirror` v5.0, whose hard-won identity rules survive
 intact:
@@ -124,14 +133,15 @@ DEFAULT_HANG_MIN = 30.0
 DEFAULT_STALL_MIN = 10.0
 # Bound retained metadata and projected payloads separately. Equal mirrored
 # copies share a payload; a cache limit never limits which sessions a pass
-# processes. 217,706 entries and 8,159 distinct projections (~13 MB) were
-# measured on 2026-09-24; the entry limit leaves room for years of growth.
+# processes. 217,706 entries with 9,619 distinct contents (16.4 MB of payloads)
+# were measured on 2026-09-24; the entry limit leaves room for years of growth.
 ENTRY_CACHE_LIMIT = 1_000_000
 PAYLOAD_CACHE_BYTES = 128 * 1024 * 1024
 PROGRESS_INTERVAL_S = 5.0
 #: A full pass stats every entry at least this often. Between sweeps a folder
 #: whose directory is unchanged is not re-listed, and a re-listed one is diffed
-#: by inode; both rely on the app's write-then-rename (C-23.28).
+#: by inode; both rely on the app's write-then-rename, and the sweep bounds how
+#: long its in-place fallback write can go unseen (C-23.28).
 SWEEP_INTERVAL_S = 600.0
 #: The archive glob is re-walked when a new dead session appears or this long
 #: after the last walk; on 2026-09-24 it held 56k files and none of the 126
@@ -143,6 +153,10 @@ UNRESOLVED_RETRY_S = 3600.0
 #: Journaled writes into folders the app has not loaded are kept this long, so
 #: a load the log reports late still finds the copies that followed it.
 JOURNAL_WINDOW_S = 900.0
+#: A flag write's row, which keeps the values it replaced, is kept this long,
+#: so a re-save from an app's stale memory is recognized as one (C-23.28). The
+#: app's log (main.log plus main1.log) covered more than a day on 2026-09-24.
+STALE_WINDOW_S = 12 * 3600.0
 JOURNAL_LIMIT = 50_000
 #: A hot pass rewrites its sidecar block at most this often unless it changed
 #: something.
@@ -159,10 +173,26 @@ PROJECTED = ("sessionId", "cliSessionId", "isArchived", "isStarred", "title",
 FLAG_FIELDS = ("cliSessionId", "isArchived", "isStarred", "title", "titleSource",
                "sessionSettings")
 FLAG_WRITES = ("isArchived", "isStarred", "title", "titleSource", "sessionSettings")
+#: The merge-based fields, each with the record keys it covers.
+SYNCED = {"isArchived": ("isArchived",), "isStarred": ("isStarred",),
+          "title": ("title", "titleSource")}
+
+
+def _normal(key: str, value: Any) -> Any:
+    """A synced value as flag sync compares it."""
+    if key in ("isArchived", "isStarred"):
+        return bool(value)
+    if key == "titleSource":
+        return value or "auto"
+    return value or ""
 
 
 class _Cancelled(Exception):
     pass
+
+
+class _Unlisted(Exception):
+    """A folder could not be listed this pass; it is skipped, not taken as empty."""
 
 
 @dataclass
@@ -197,17 +227,20 @@ class _Write:
     kind: str                   # added | repaired | updated
     at: float                   # epoch seconds, on the mirror's clock
     ctime_ns: int               # the file's ctime right after the write
+    #: For a flag write, the synced values it replaced (only those it changed).
+    before: dict[str, Any] | None = None
 
     def to_row(self) -> list[Any]:
         return [self.folder, self.name, self.identity, self.title, self.kind,
-                self.at, self.ctime_ns]
+                self.at, self.ctime_ns, self.before]
 
     @classmethod
     def from_row(cls, row: Any) -> "_Write | None":
         try:
-            folder, name, identity, title, kind, at, ctime_ns = row
+            folder, name, identity, title, kind, at, ctime_ns, *rest = row
+            before = rest[0] if rest and isinstance(rest[0], dict) else None
             return cls(str(folder), str(name), str(identity), str(title), str(kind),
-                       float(at), int(ctime_ns))
+                       float(at), int(ctime_ns), before)
         except (TypeError, ValueError):
             return None
 
@@ -282,14 +315,52 @@ def _temporary(path: Path) -> Path:
     return path.with_name(path.name + ".tmp-subfleet")
 
 
-def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
-                mtime: float | None = None) -> int | None:
-    """Atomic replace, owner-only like the app's own files; returns the new inode.
+def _signature_of(path: str | Path) -> tuple[int, ...]:
+    info = os.stat(path)
+    return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size, info.st_ctime_ns)
 
-    Per-account sidebar ordering is the file's mtime, so a flag-sync write that
-    changed one boolean must not reorder the sidebar: the previous mtime (or the
-    one given) is set on the temporary file before the rename, so the live file
-    is never touched after it is in place.
+
+def _install(temporary: Path, destination: Path, *, expect: tuple[int, ...] | None,
+             exclusive: bool) -> bool:
+    """Put a finished temporary file in place; False if the destination moved.
+
+    `exclusive` is create-only: a hard link fails if the name was taken since
+    the pass looked, so a file the app just created is never replaced.
+    `expect` is the signature the pass decided on; the destination is re-read
+    right before the rename, which narrows the window in which an app save can
+    be lost to the rename itself.
+    """
+    if exclusive:
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            temporary.unlink()
+            return False
+        temporary.unlink()
+        return True
+    if expect is not None:
+        try:
+            current = _signature_of(destination)
+        except FileNotFoundError:
+            current = None
+        if current != expect:
+            temporary.unlink()
+            return False
+    os.replace(temporary, destination)
+    return True
+
+
+def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
+                mtime: float | None = None, expect: tuple[int, ...] | None = None,
+                exclusive: bool = False) -> int | None:
+    """Atomic write, owner-only like the app's own files.
+
+    Returns the new file's inode, or None when `expect` or `exclusive` found
+    the destination changed and nothing was written. Per-account sidebar
+    ordering is the file's mtime, so a flag-sync write that changed one boolean
+    must not reorder the sidebar: the previous mtime (or the one given) is set
+    on the temporary file before it is put in place, so the live file is never
+    touched after that.
     """
     stamp = mtime
     if keep_mtime and stamp is None:
@@ -309,7 +380,8 @@ def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
         if stamp is not None:
             os.utime(temporary, (stamp, stamp))
         inode = os.stat(temporary).st_ino
-        os.replace(temporary, path)
+        if not _install(temporary, path, expect=expect, exclusive=exclusive):
+            return None
     except BaseException:
         try:
             temporary.unlink()
@@ -319,11 +391,14 @@ def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
     return inode
 
 
-def _copy_entry(source: Path, destination: Path) -> int:
-    """Copy an index file atomically, keeping its mtime and mode; returns the inode.
+def _copy_entry(source: Path, destination: Path, *, expect: tuple[int, ...] | None = None,
+                exclusive: bool = False) -> int | None:
+    """Copy an index file atomically, owner-only, keeping its mtime.
 
     The app lists a folder in one sweep at load, so a copy must never be visible
-    half-written: it is assembled beside the destination and renamed into place.
+    half-written: it is assembled beside the destination and put in place in
+    one step. Returns the inode, or None when the destination changed (see
+    `_install`).
     """
     temporary = _temporary(destination)
     try:
@@ -332,8 +407,10 @@ def _copy_entry(source: Path, destination: Path) -> int:
         pass
     try:
         shutil.copy2(source, temporary)
+        os.chmod(temporary, 0o600)
         inode = os.stat(temporary).st_ino
-        os.replace(temporary, destination)
+        if not _install(temporary, destination, expect=expect, exclusive=exclusive):
+            return None
     except BaseException:
         try:
             temporary.unlink()
@@ -468,35 +545,62 @@ def _rank(data: dict) -> Any:
 
 
 class _Journal:
-    """The mirror's own writes into the desktop store, kept in the state root."""
+    """The mirror's own writes into the desktop store, kept in the state root.
+
+    More than one process writes it: the daemon keeps one Mirror for its life,
+    and a `sessions mirror` pass journals its own copies in between. Rows this
+    process added and has not saved are kept apart, so reading the file again
+    (when another process saved it) or saving over it merges instead of
+    dropping anyone's rows.
+    """
 
     def __init__(self, path: Path):
         self.path = path
         self._rows: list[_Write] | None = None
-        self._changed = False
+        self._added: list[_Write] = []
+        self._seen: tuple[int, ...] | None = None
+
+    def _stat(self) -> tuple[int, ...] | None:
+        try:
+            info = os.stat(self.path)
+        except OSError:
+            return None
+        return (info.st_ino, info.st_mtime_ns, info.st_size)
+
+    def _read(self) -> list[_Write]:
+        self._seen = self._stat()
+        raw = _load(self.path).get("writes")
+        rows = [_Write.from_row(item) for item in raw] if isinstance(raw, list) else []
+        return [row for row in rows if row is not None]
 
     def rows(self) -> list[_Write]:
         if self._rows is None:
-            raw = _load(self.path).get("writes")
-            rows = [_Write.from_row(item) for item in raw] if isinstance(raw, list) else []
-            self._rows = [row for row in rows if row is not None]
+            self._rows = self._read() + self._added
         return self._rows
 
-    def reload(self) -> None:
-        self._rows, self._changed = None, False
+    def refresh(self) -> None:
+        """Re-read the file if another process saved it since this one looked."""
+        if self._rows is not None and self._stat() != self._seen:
+            on_disk = self._read()
+            known = {json.dumps(row.to_row(), sort_keys=True, default=str) for row in on_disk}
+            self._rows = on_disk + [row for row in self._added
+                                    if json.dumps(row.to_row(), sort_keys=True,
+                                                  default=str) not in known]
 
     def add(self, row: _Write) -> None:
         self.rows().append(row)
-        self._changed = True
+        self._added.append(row)
 
     def save(self, keep: Callable[[_Write], bool]) -> None:
+        self.refresh()
         rows = self.rows()
         kept = [row for row in rows if keep(row)][-JOURNAL_LIMIT:]
-        if not self._changed and len(kept) == len(rows):
+        if not self._added and len(kept) == len(rows):
             return
         self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         _write_json(self.path, {"version": 1, "writes": [row.to_row() for row in kept]})
-        self._rows, self._changed = kept, False
+        self._rows, self._added = kept, []
+        self._seen = self._stat()
 
 
 class Mirror:
@@ -536,8 +640,7 @@ class Mirror:
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
-        info = path.stat()
-        return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size, info.st_ctime_ns)
+        return _signature_of(path)
 
     def _forget(self, path: str | Path) -> None:
         old = self._entries.pop(os.fspath(path), None)
@@ -781,15 +884,18 @@ class Mirror:
             current.entries_scanned += len(state.names)
             return None, []
         current.folders_scanned += 1
-        self._dirty.discard(path)
         try:
             with os.scandir(path) as listing:
                 # The same ~1.8k names recur in every folder; interned, the
                 # folders' listings share one string per name.
                 found = sorted((sys.intern(item.name), item.inode()) for item in listing
                                if item.name.startswith("local_") and item.name.endswith(".json"))
-        except OSError:
-            found = []
+        except OSError as exc:
+            # Unknown is not empty: an empty view would hide every session the
+            # folder holds and invite copies over them. List it again next pass.
+            self._dirty.add(path)
+            raise _Unlisted(str(path)) from exc
+        self._dirty.discard(path)
         previous = state.names if state is not None else frozenset()
         files: dict[str, dict] = {}
         ids: dict[str, list[str]] = {}
@@ -855,7 +961,7 @@ class Mirror:
     # --- writes into the store -----------------------------------------------
 
     def _journal_write(self, destination: Path, inode: int | None, identity: str,
-                       data: dict, kind: str) -> None:
+                       data: dict, kind: str, before: dict[str, Any] | None = None) -> None:
         """Journal a write, unless the app replaced the file before we looked."""
         try:
             info = os.stat(destination)
@@ -866,16 +972,19 @@ class Mirror:
         folder = f"{destination.parent.parent.name}/{destination.parent.name}"
         self.journal.add(_Write(folder, destination.name, identity,
                                 str(data.get("title") or ""), kind,
-                                self.now().timestamp(), info.st_ctime_ns))
+                                self.now().timestamp(), info.st_ctime_ns, before or None))
 
     def _place(self, source: Path, destination: Path, identity: str, data: dict,
-               kind: str, current: Pass) -> bool:
+               kind: str, current: Pass, *, expect: tuple[int, ...] | None = None,
+               exclusive: bool = False) -> bool:
         self._dirty.add(destination.parent)
         try:
-            inode = _copy_entry(source, destination)
+            inode = _copy_entry(source, destination, expect=expect, exclusive=exclusive)
         except OSError:
             current.skipped += 1              # the source moved; a later pass retries
             return False
+        if inode is None:
+            return False                      # the destination moved; decide again next pass
         self._forget(destination)
         self._journal_write(destination, inode, identity, data, kind)
         return True
@@ -894,18 +1003,31 @@ class Mirror:
             present = existing(path, name)
             if present is None:                             # the name is free
                 if not options.dry_run:
-                    if (path / name).exists():
-                        # Someone took the name since the listing; the next
-                        # pass sees who and decides again.
-                        self._dirty.add(path)
-                        continue
-                    if not self._place(source, path / name, identity, data, "added", current):
+                    # Create-only: a name someone took since the listing is left
+                    # alone, and the next pass sees who and decides again.
+                    if not self._place(source, path / name, identity, data, "added",
+                                       current, exclusive=True):
                         continue
                     note(path, name, data, identity)
                 current.added += 1
             elif not (present.get("cliSessionId") or ""):   # stale empty
                 if not options.dry_run:
-                    if not self._place(source, path / name, identity, data, "repaired", current):
+                    # Replace only the stale record the pass classified: its
+                    # signature from the listing, or (past the cache limit) one
+                    # read now from a file that is still empty.
+                    cached = self._entries.get(os.path.join(path, name))
+                    if cached is not None:
+                        expect = cached[0]
+                    else:
+                        try:
+                            expect = _signature_of(path / name)
+                            still = _load(path / name, strict=True).get("cliSessionId")
+                        except (OSError, ValueError):
+                            continue
+                        if still:
+                            continue
+                    if not self._place(source, path / name, identity, data, "repaired",
+                                       current, expect=expect):
                         continue
                     note(path, name, data, identity)
                 current.repaired += 1
@@ -926,10 +1048,12 @@ class Mirror:
                             stamp: float | None = source.stat().st_mtime
                         except OSError:
                             stamp = None
-                        inode = _write_json(destination, body, mtime=stamp)
+                        inode = _write_json(destination, body, mtime=stamp, exclusive=True)
                     except (OSError, ValueError):
                         current.skipped += 1
                         continue
+                    if inode is None:
+                        continue                    # the name was taken meanwhile
                     self._forget(destination)
                     projected = _project(body)
                     self._journal_write(destination, inode, identity, projected, "added")
@@ -1014,6 +1138,55 @@ class Mirror:
             revived += 1
         return revived
 
+    def _stale(self, folder_files: dict[Path, dict[str, dict]]) -> dict[tuple[Path, str], set[str]]:
+        """Copies whose synced fields are an app's stale memory, not a user's edit.
+
+        The app saves a record from memory with no read-merge. A copy the mirror
+        wrote into, that has since been rewritten (its ctime moved), and whose
+        synced values are back to exactly the values the mirror replaced, in a
+        folder the app has not freshly loaded since that write, was re-saved by
+        an app that never saw the write: the loaded folder's app, or a session
+        still running from an earlier account. Counting that as a user action
+        would undo the user's real change in every account (the merge base
+        spreads the CHANGE). Returns `(folder, name) -> the synced fields that
+        are stale there`. Without the app's log this is empty, which is the old
+        behaviour.
+        """
+        state = self._desktop_state()
+        if state.covers_since is None:
+            return {}
+        horizon = max(state.covers_since.timestamp(), self.now().timestamp() - STALE_WINDOW_S)
+        latest: dict[tuple[str, str], _Write] = {}
+        for row in self.journal.rows():
+            if row.kind == "updated" and row.before and row.at >= horizon:
+                key = (row.folder, row.name)
+                if key not in latest or row.at >= latest[key].at:
+                    latest[key] = row
+        base = store_dir()
+        stale: dict[tuple[Path, str], set[str]] = {}
+        for (folder, name), row in latest.items():
+            loaded = state.fresh_loads.get(folder)
+            # Log times are whole seconds; a load in the write's second may
+            # have followed it, and then the app holds the mirror's value.
+            if loaded is not None and loaded.timestamp() + 1 > row.at:
+                continue
+            path = base.joinpath(*folder.split("/"))
+            data = folder_files.get(path, {}).get(name)
+            if data is None:
+                continue
+            try:
+                if os.stat(path / name).st_ctime_ns == row.ctime_ns:
+                    continue                          # still the mirror's own write
+            except OSError:
+                continue
+            fields = {field for field, keys in SYNCED.items()
+                      if any(key in row.before for key in keys)
+                      and all(_normal(key, data.get(key)) == _normal(key, row.before.get(key))
+                              for key in keys if key in row.before)}
+            if fields:
+                stale[(path, name)] = fields
+        return stale
+
     def sync_flags(self, folder_files: dict[Path, dict[str, dict]],
                    stems: dict[str, Path], options: Options,
                    current: Pass) -> set[tuple[Path, str]]:
@@ -1024,14 +1197,17 @@ class Mirror:
         propagates and archive and un-archive both work. On first divergence with
         no base — the historical backlog — archived-anywhere and starred-anywhere
         win, and a divergent title prefers a manual rename, then the most recently
-        active copy.
+        active copy. A copy `_stale` names is an app's stale re-save: it has no
+        say in the decision, and is written back to the decided value.
 
         A write re-reads the whole file and patches only the synced fields, so
         the rest of the record is the app's newest. A copy whose synced fields
-        moved since this pass read it is left alone, and that session's merge
-        base is not advanced, so the next pass decides again on what is there.
+        moved since this pass read it, or that changes again before the rename,
+        is left alone, and that session's merge base is not advanced, so the
+        next pass decides again on what is there.
         """
         base_all = _load(self.flags_path)
+        stale = self._stale(folder_files)
         groups: dict[str, list[tuple[Path, str, dict]]] = {}
         for path, files in folder_files.items():
             for name, data in files.items():
@@ -1062,6 +1238,10 @@ class Mirror:
         def active_of(data: dict) -> Any:
             return data.get("lastActivityAt") or data.get("createdAt") or 0
 
+        def deciding(copies: list[tuple[Path, str, dict]], field: str) -> list[tuple[Path, str, dict]]:
+            voices = [item for item in copies if field not in stale.get((item[0], item[1]), ())]
+            return voices or copies
+
         for identity, copies in groups.items():
             self._checkpoint(current)
             for path, name, _data in copies:
@@ -1069,12 +1249,13 @@ class Mirror:
             base = base_all.get(identity) or {}
             base = dict(base)
             for flag, bootstrap in (("isArchived", True), ("isStarred", True)):
-                values = {bool(data.get(flag)) for _p, _n, data in copies}
+                values = {bool(data.get(flag)) for _p, _n, data in deciding(copies, flag)}
                 if len(values) == 1:
                     resolved = values.pop()
                 else:
                     recorded = base.get(flag)
                     resolved = (not recorded) if isinstance(recorded, bool) else bootstrap
+                if any(bool(data.get(flag)) != resolved for _p, _n, data in copies):
                     for path, name, data in copies:
                         if bool(data.get(flag)) != resolved:
                             writable(path, name)[flag] = resolved
@@ -1094,22 +1275,27 @@ class Mirror:
                         writable(path, name)["sessionSettings"] = {**settings, "ultracode": True}
 
             title: str | None = None
-            variants = {(title_of(data), source_of(data)) for _p, _n, data in copies}
+            voices = deciding(copies, "title")
+            variants = {(title_of(data), source_of(data)) for _p, _n, data in voices}
+            decided: tuple[str, str] | None = None
             if len(variants) > 1:
                 recorded = base_all.get(identity, {}).get("title")
-                candidates = [data for _p, _n, data in copies
+                candidates = [data for _p, _n, data in voices
                               if recorded is None or title_of(data) != recorded]
                 if candidates:
                     manual = [data for data in candidates if source_of(data) == "manual"]
                     winner = max(manual or candidates, key=active_of)
-                    title, source = title_of(winner), source_of(winner)
-                    for path, name, data in copies:
-                        if (title_of(data), source_of(data)) != (title, source):
-                            target = writable(path, name)
-                            target["title"], target["titleSource"] = title, source
-                    current.retitled += 1
+                    decided = (title_of(winner), source_of(winner))
             elif variants:
-                title = next(iter(variants))[0]
+                decided = next(iter(variants))
+            if decided is not None:
+                title = decided[0]
+                if any((title_of(data), source_of(data)) != decided for _p, _n, data in copies):
+                    for path, name, data in copies:
+                        if (title_of(data), source_of(data)) != decided:
+                            target = writable(path, name)
+                            target["title"], target["titleSource"] = decided
+                    current.retitled += 1
 
             # A title resolution above may have replaced shared snapshots with
             # writable copies. The transcript anchor must compare those new
@@ -1166,19 +1352,26 @@ class Mirror:
                 target = path / name
                 self._dirty.add(path)
                 try:
+                    expect = _signature_of(target)
                     body = _load(target, strict=True)
-                    if any(body.get(key) != original.get(key) for key in FLAG_FIELDS):
+                    if (_signature_of(target) != expect
+                            or any(body.get(key) != original.get(key) for key in FLAG_FIELDS)):
                         held.add(identity)          # moved under us; decide next pass
                         continue
+                    before = {key: body.get(key) for keys in SYNCED.values() for key in keys
+                              if key in resolved and body.get(key) != resolved.get(key)}
                     for key in FLAG_WRITES:
                         if key in resolved:
                             body[key] = resolved[key]
                     self._forget(target)
-                    inode = _write_json(target, body, keep_mtime=True)
+                    inode = _write_json(target, body, keep_mtime=True, expect=expect)
                 except (OSError, ValueError):
                     held.add(identity)
                     continue
-                self._journal_write(target, inode, identity, resolved, "updated")
+                if inode is None:
+                    held.add(identity)              # the app saved it just now
+                    continue
+                self._journal_write(target, inode, identity, resolved, "updated", before)
             for identity in held:
                 if identity in base_all:
                     fresh[identity] = base_all[identity]
@@ -1219,6 +1412,7 @@ class Mirror:
                 current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
                 return current           # deliberately without touching the sidecar
+            self.journal.refresh()
             self._record(current)
             self._pass_payloads = {}
             self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
@@ -1233,8 +1427,9 @@ class Mirror:
             current.finished_at = _iso(self.now())
             self._record(current, load_gap=self._settle(options))
         finally:
-            self._pass_payloads = {}
             if lock is not None:
+                # Only the pass that holds the lock owns the per-pass payloads.
+                self._pass_payloads = {}
                 try:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 finally:
@@ -1242,12 +1437,13 @@ class Mirror:
         return current
 
     def run_hot(self, options: Options | None = None) -> Pass:
-        """Spread what changed since the last look, within seconds (C-23.28).
+        """Spread new sessions within seconds of their first write (C-23.28).
 
-        The app reads a folder only when it loads it, so a record must be in
+        The app reads a folder only when it loads it, so a session must be in
         every folder before the next account switch. This pass lists only the
-        folders whose directory changed, and spreads each new or changed record
-        whose transcript exists. Flags, repair of unchanged copies, revival and
+        folders whose directory changed, puts each new or changed record whose
+        transcript exists into every folder that lacks the session, and fills
+        stale empty copies. Title, flag and setting changes, revival and
         pruning stay with the full pass. The first pass in a process is a full
         one, because spreading needs to know what every folder already holds.
         It shares the full pass's lock and never touches the full pass's
@@ -1265,6 +1461,7 @@ class Mirror:
                 current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
                 return current
+            self.journal.refresh()
             self._pass_payloads = {}
             self._hot(current, options)
             current.state = "ok"
@@ -1274,8 +1471,8 @@ class Mirror:
             current.error = f"{type(exc).__name__}: {exc}"
             current.finished_at = _iso(self.now())
         finally:
-            self._pass_payloads = {}
             if lock is not None:
+                self._pass_payloads = {}
                 try:
                     try:
                         self._record_hot(current, self._settle(options))
@@ -1299,34 +1496,8 @@ class Mirror:
             return None
         return stream
 
-    def _adopt(self, options: Options) -> None:
-        """Create the folder the app loaded but found missing, so it can be seeded.
-
-        The app lists nothing for an account and org it has never saved a
-        session under, and only creates the folder on its first save; until then
-        a relaunch lists nothing either. The folder comes from the app's own log,
-        and only when that load is the app's latest, so the pairs it tries
-        mid-switch are never created.
-        """
-        if options.dry_run:
-            return
-        load = self._desktop_state().load
-        if load is None or not load.missing:
-            return
-        if any(value and (value in load.account or value in load.org)
-               for value in options.exclude):
-            return
-        path = store_dir() / load.account / load.org
-        if path.exists():
-            return
-        try:
-            path.mkdir(parents=True, mode=0o700)
-        except OSError:
-            pass
-
     def _pass(self, current: Pass, options: Options) -> None:
         self._checkpoint(current, "finding accounts")
-        self._adopt(options)
         folders = self.folders(options.exclude)
         current.accounts = len(folders)
         if not folders:
@@ -1340,16 +1511,25 @@ class Mirror:
 
         folder_files: dict[Path, dict[str, dict]] = {}
         folder_ids: dict[Path, set[str]] = {}
+        fresh_ids: set[str] = set()
         self._checkpoint(current, "reading entries")
         for _account, _org, path in folders:
             self._checkpoint(current)
-            files, _fresh = self._scan(path, current, sweep=sweep)
+            try:
+                files, fresh = self._scan(path, current, sweep=sweep)
+            except _Unlisted:
+                continue                    # neither a source nor a target this pass
             folder_files[path] = files if files is not None else self._files(path)
             folder_ids[path] = set(self._folders[path].ids)
+            for name in fresh:
+                identity = folder_files[path][name].get("cliSessionId") or ""
+                if identity:
+                    fresh_ids.add(identity)
 
         # Remove deleted files and excluded folders only after a full inventory.
         # A cancelled scan must not evict entries it simply did not reach yet.
         self._drop_folders(folders)
+        folders = [item for item in folders if item[2] in folder_files]
         self._inventoried = True
         by_name: dict[str, dict[Path, dict]] = {}
         if options.prune:
@@ -1377,6 +1557,14 @@ class Mirror:
                 if identity not in canonical or score > canonical[identity][0]:
                     canonical[identity] = (score, data, name, path / name)
         current.sessions = len(canonical)
+        # A new record this pass read before its transcript existed is no
+        # longer fresh to the hot pass, so hand it over to the hot pass's retry.
+        instant = time.monotonic()
+        for identity in fresh_ids:
+            if identity in canonical:
+                self._retry.pop(identity, None)
+            else:
+                self._retry.setdefault(identity, instant)
 
         def note(path: Path, name: str, data: dict, identity: str) -> None:
             folder_files[path][name] = data
@@ -1423,11 +1611,17 @@ class Mirror:
         folders = self.folders(options.exclude)
         current.accounts = len(folders)
         fresh: list[tuple[Path, str]] = []
+        unlisted: set[Path] = set()
         for _account, _org, path in folders:
             self._checkpoint(current)
-            _files, names = self._scan(path, current, sweep=False)
+            try:
+                _files, names = self._scan(path, current, sweep=False)
+            except _Unlisted:
+                unlisted.add(path)
+                continue
             fresh.extend((path, name) for name in names)
         self._drop_folders(folders)
+        folders = [item for item in folders if item[2] not in unlisted]
 
         instant = time.monotonic()
         identities: dict[str, float] = {}
@@ -1503,9 +1697,13 @@ class Mirror:
             horizon = self.now().timestamp() - JOURNAL_WINDOW_S
             since = load.fresh_started_at.timestamp() if load is not None else None
 
+            stale_horizon = self.now().timestamp() - STALE_WINDOW_S
+
             def keep(row: _Write) -> bool:
                 if row.at >= horizon:
                     return True
+                if row.before and row.at >= stale_horizon:
+                    return True                 # `_stale` still needs it
                 return (load is not None and row.folder == load.folder
                         and since is not None and row.at >= since)
 
@@ -1518,14 +1716,18 @@ class Mirror:
         """The sessions the running app cannot list, because they arrived after its load.
 
         `pending` counts the mirror's copies into the folder the app last loaded
-        that postdate that load and that the app has not rewritten since (a
-        rewrite means the app holds the record). A copy that filled a new name
-        is listed by any later load; one that replaced a stale empty record the
-        app already held is re-read only by a load that started from an empty
-        list. `stale` counts flag, title and setting writes into that folder
-        after the load, which the running app does not see either. A copy made
-        in the same second as the load is counted, because the log cannot order
-        the two.
+        that postdate that load and that the running app cannot list:
+
+        * a copy that filled a new name, until the app rewrites the file (it
+          writes only records it holds) or loads the folder again;
+        * a copy that replaced a stale empty record the app already held, until
+          a load that starts from an empty list. The app holds the empty record,
+          so its re-save puts the empty id back; such a file still counts, and
+          the next full pass repairs it again.
+
+        `stale` counts flag, title and setting writes into that folder after the
+        load, which the running app does not see either. A copy made in the same
+        second as the load is counted, because the log cannot order the two.
         """
         if state is None:
             state = self._desktop_state()
@@ -1557,14 +1759,17 @@ class Mirror:
                 info = os.stat(folder / name)
             except OSError:
                 continue                     # gone: nothing left to list
-            if info.st_ctime_ns != row.ctime_ns:
-                continue                     # the app rewrote it, so it holds it
+            rewritten = info.st_ctime_ns != row.ctime_ns
             if name in copied:
-                if self._file(folder, name).get("isArchived"):
+                # `_entry`, not the cache: the file may have changed since any pass.
+                now_holds = self._entry(folder / name)
+                if rewritten and (copied[name].kind == "added" or now_holds.get("cliSessionId")):
+                    continue                 # the app rewrote it, so it holds it
+                if now_holds.get("isArchived"):
                     archived += 1
                 else:
                     pending.append(copied[name])
-            elif row.kind == "updated" and row.at >= started:
+            elif row.kind == "updated" and row.at >= started and not rewritten:
                 stale += 1
         pending.sort(key=lambda row: row.at, reverse=True)
         short = _short(load.account, load.org)

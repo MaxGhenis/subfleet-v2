@@ -570,9 +570,11 @@ P-23.40 under provenance/attestation.
 > that folder (at launch, on an account or org switch, and at the first login after a logout), so a
 > record the mirror copies into the loaded folder afterwards is missing from the running app's
 > sidebar until its next load, and a flag the mirror writes there is overwritten by the app's next
-> save of that record. The mirror therefore spreads each new or changed record within
-> `mirror_hot_interval_s` (2 s, a `policy.json` cap under C-6.4) of the write, and reports, from a
-> journal of its own writes and the app's log, how many of its copies into the loaded folder
+> save of that record. The mirror therefore puts each new session whose transcript exists into every
+> folder within about `mirror_hot_interval_s` (2 s, a `policy.json` cap under C-6.4) of the write
+> while no full pass holds its worker (title, flag and setting changes spread with the full pass);
+> it does not count an app's re-save of a value it never saw as a user's change; and it reports,
+> from a journal of its own writes and the app's log, how many of its copies into the loaded folder
 > postdate that load and still wait for a relaunch (`sessions mirror --status`, `sessions list`,
 > `doctor`).
 
@@ -588,7 +590,8 @@ P-23.40 under provenance/attestation.
   hours, copied them at 17:13-17:14, and the running app listed none until it relaunched at
   17:24:47. The app bundle (2.7032.0) reads a session folder only in `doInitialize`; nothing
   watches it. A healthy mirror can therefore still leave sessions out of the sidebar, so the
-  clause now requires spreading within seconds and reporting the copies a relaunch would list.
+  clause now requires spreading new sessions within seconds, not mistaking an app's stale re-save
+  for a user's flag change, and reporting the copies a relaunch would list.
   Evidence: `docs/reports/2026-09-24-mirror-load-gap.md`.
 
 ### P-23.29 — a keepalive pass is bounded

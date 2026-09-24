@@ -126,9 +126,11 @@ def count_entry_reads(monkeypatch) -> list[Path]:
 # --- what the app's log says it loaded (desktop.py) ---------------------------
 
 def test_the_loaded_folder_is_the_one_the_loaded_line_names(tmp_path):
-    """C-23.28: mid-switch the app initializes pairs it never loads (the old
-    account with the new org); only the "Loaded ... from <folder>" line, or a
-    missing-folder line, says which folder the sidebar lists. This is the
+    """C-23.28: mid-switch the app first initializes the old account with the
+    new org (loading it if its folder exists, logging it missing if not), then
+    the real pair a second or so later; the "Initialization succeeded" lines
+    alone would name the wrong pair. The last "Loaded ... from <folder>" or
+    missing-folder line says which folder the sidebar lists. This is the
     2026-09-24 16:38:05 sequence."""
     store = tmp_path / "claude-code-sessions"
     log = tmp_path / "main.log"
@@ -390,31 +392,29 @@ def test_the_journal_keeps_only_what_can_still_matter(world):
     assert rows == []
 
 
-def test_a_folder_the_app_loaded_but_found_missing_is_created_and_seeded(world):
-    """C-23.28: the app lists nothing for an account and org it never saved a
-    session under, and a relaunch would list nothing either until something
-    creates the folder. The mirror creates the folder the app's latest load
-    named, owner-only like the app's own, and seeds it. The pairs the app tries
-    mid-switch are never created."""
+def test_a_load_that_found_its_folder_missing_leaves_every_seeded_copy_pending(world):
+    """C-23.28: the app initializes an account and org it never saved a session
+    under, finds no folder, lists nothing, and creates the folder in the same
+    second (writing `scheduled-tasks.json` there; 16:38:05 on 2026-09-24). The
+    mirror seeds it after that load, so every seeded session waits for a
+    relaunch, and the report says so. The mirror itself never creates a folder."""
     home, store, _root, log = world
     openable(home, store, ONE, ACCOUNT_A, ORG_A)
     say(log,
-        "2026-09-05 11:00:00 [info] [LocalSessionManager] Initialization succeeded — "
-        f"accountId={ACCOUNT_A}, orgId=org-new, existingSessions=12",
-        "2026-09-05 11:00:00 [info] [LocalSessionManager] Session storage directory does not "
-        f"exist yet, skipping load: {store / ACCOUNT_A / 'org-new'}",
         "2026-09-05 11:00:00 [info] [LocalSessionManager] Initialization succeeded — "
         "accountId=acct-new, orgId=org-new, existingSessions=0",
         "2026-09-05 11:00:00 [info] [LocalSessionManager] Session storage directory does not "
         f"exist yet, skipping load: {store / 'acct-new' / 'org-new'}")
     running = engine(world)
-    assert running.run_once().added == 2
-    created = store / "acct-new" / "org-new"
-    assert (created / f"local_{ONE}.json").is_file()
-    assert stat.S_IMODE(created.stat().st_mode) == 0o700
-    assert not (store / ACCOUNT_A / "org-new").exists(), "a mid-switch pair is not created"
+    assert running.run_once().added == 1
+    assert not (store / "acct-new").exists(), "the mirror creates no folder of its own"
+    created = store / "acct-new" / "org-new"                     # what the app does
+    created.mkdir(parents=True, mode=0o700)
+    (created / "scheduled-tasks.json").write_text("{}")
+    assert running.run_once().added == 1
     gap = running.load_gap()
     assert gap["status"] == "relaunch" and gap["pending"] == 1
+    assert "the running app lists a folder only when it loads it" in gap["detail"]
 
 
 # --- the hot pass: spread before the next switch ------------------------------
@@ -698,23 +698,25 @@ def test_the_archive_is_walked_again_only_for_a_new_dead_session(world, monkeypa
 
 def test_copies_are_atomic_owner_only_and_keep_the_sidebar_order(world):
     """C-23.28: the app lists a folder in one sweep, so a copy is assembled
-    beside its destination and renamed in; it keeps the source's mtime (the
-    sidebar's order) and mode, and a written record is owner-only like the
-    app's own (0600)."""
+    beside its destination and put in place in one step; it keeps the source's
+    mtime (the sidebar's order), and every file the mirror places is owner-only
+    like the app's own (0600), whatever the source's mode."""
     home, store, _root, _log = world
     source = openable(home, store, ONE, ACCOUNT_A, ORG_A, name="local_shared.json")
     os.chmod(source, 0o600)
     os.utime(source, (1_700_000_000, 1_700_000_000))
     openable(home, store, TWO, ACCOUNT_B, ORG_B, name="local_shared.json")   # a collision
-    openable(home, store, THREE, ACCOUNT_A, ORG_A, name="local_three.json")
+    three = openable(home, store, THREE, ACCOUNT_A, ORG_A, name="local_three.json",
+                     settings={"ultracode": True})
+    os.chmod(three, 0o644)
     running = engine(world)
     running.run_once()
     fallback = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
     copy = store / ACCOUNT_B / ORG_B / "local_three.json"
     assert stat.S_IMODE(fallback.stat().st_mode) == 0o600
     assert fallback.stat().st_mtime == 1_700_000_000
-    assert stat.S_IMODE(copy.stat().st_mode) == stat.S_IMODE(
-        (store / ACCOUNT_A / ORG_A / "local_three.json").stat().st_mode)
+    assert stat.S_IMODE((store / ACCOUNT_A / ORG_A / "local_three.json").stat().st_mode) == 0o644
+    assert stat.S_IMODE(copy.stat().st_mode) == 0o600, "a copy is owner-only whatever its source"
     assert not list(store.glob("*/*/*.tmp-subfleet")), "no temporary file is left"
     assert not mirror._temporary(copy).name.endswith((".json", ".json.tmp")), \
         "the app lists *.json and promotes *.json.tmp; the mirror's temporaries are neither"
@@ -728,10 +730,10 @@ def test_a_copy_that_fails_is_skipped_and_the_pass_goes_on(world, monkeypatch):
     openable(home, store, TWO, ACCOUNT_A, ORG_A)
     copy = mirror._copy_entry
 
-    def vanish(source, destination):
+    def vanish(source, destination, **kwargs):
         if ONE in source.name:
             raise FileNotFoundError(source)
-        return copy(source, destination)
+        return copy(source, destination, **kwargs)
 
     monkeypatch.setattr(mirror, "_copy_entry", vanish)
     result = engine(world).run_once()
@@ -741,7 +743,7 @@ def test_a_copy_that_fails_is_skipped_and_the_pass_goes_on(world, monkeypatch):
 
 def test_flag_sync_patches_the_newest_record_and_keeps_what_it_does_not_sync(world, monkeypatch):
     """C-23.28: a flag write re-reads the file and patches only the synced
-    fields, so what the app saved since the inventory survives."""
+    fields, so what the app saved after the inventory survives."""
     home, store, _root, _log = world
     openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
     running = engine(world)
@@ -749,14 +751,13 @@ def test_flag_sync_patches_the_newest_record_and_keeps_what_it_does_not_sync(wor
     source = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
     rewrite(source, {**json.loads(source.read_text()), "isArchived": True})
     target = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
-    load = mirror._load
+    stale = running._stale                               # noqa: SLF001 - after the inventory
 
-    def app_saves_first(path, **kwargs):
-        if path == target and kwargs.get("strict"):
-            rewrite(path, {**json.loads(path.read_text()), "remoteMcpServersConfig": {"new": 1}})
-        return load(path, **kwargs)
+    def app_saves_after_the_inventory(folder_files):
+        rewrite(target, {**json.loads(target.read_text()), "remoteMcpServersConfig": {"new": 1}})
+        return stale(folder_files)
 
-    monkeypatch.setattr(mirror, "_load", app_saves_first)
+    monkeypatch.setattr(running, "_stale", app_saves_after_the_inventory)
     assert running.run_once().flag_synced == 1
     written = json.loads(target.read_text())
     assert written["isArchived"] is True and written["remoteMcpServersConfig"] == {"new": 1}
@@ -808,7 +809,6 @@ def test_the_hot_pass_is_a_two_second_timer_on_the_mirror_worker(tmp_path):
             try:
                 assert timers.intervals.get("mirror_hot") == expected
                 assert "mirror_hot" in timers.status()
-                assert hasattr(timers, "mirror_hot_cycle")
             finally:
                 timers.stop()
     finally:
@@ -931,3 +931,242 @@ def test_doctor_warns_when_the_running_app_cannot_list_mirrored_sessions(world):
     assert doctor.exit_code([item]) == 0
     say(log, *loads(store, ACCOUNT_B, ORG_B, "2026-09-06 11:30:00"))
     assert row()["status"] == doctor.PASS
+
+
+# --- regressions from the adversarial review of 2026-09-24 ------------------------
+
+def at(hour: int, minute: int):
+    """A mirror clock at a fixed instant on the fixture day (UTC)."""
+    return lambda: datetime(2026, 9, 5, hour, minute, tzinfo=UTC)
+
+
+def test_the_hot_timer_is_queued_on_the_mirror_worker(tmp_path, monkeypatch):
+    """C-23.28: both mirror passes go to the one-worker mirror pool, so a hot
+    pass never runs beside a full pass on the same Mirror, and neither takes a
+    probe or keepalive slot."""
+    from subfleet.store import Store
+    from subfleet.timers import Timers
+    store = Store(tmp_path / "state.sqlite3")
+    timers = Timers(store, tmp_path, fx.policy())
+    submitted = []
+    try:
+        monkeypatch.setattr(timers._mirror, "submit",
+                            lambda fn, name, *a: submitted.append(("mirror", name)))
+        monkeypatch.setattr(timers._cycles, "submit",
+                            lambda fn, name, *a: submitted.append(("cycles", name)))
+        timers.start()
+        timers._due = {name: 0 for name in timers.intervals}
+        timers.tick()
+        assert {("mirror", "mirror"), ("mirror", "mirror_hot")} <= set(submitted)
+        assert not [item for item in submitted
+                    if item[0] == "cycles" and item[1].startswith("mirror")]
+    finally:
+        timers.stop()
+        store.close()
+
+
+def test_a_record_the_full_pass_read_before_its_transcript_is_retried_by_the_hot_pass(world):
+    """C-23.28: whichever pass lists a new record first, a transcript that
+    follows it gets the session spread by the next hot pass, not a full pass
+    a minute later."""
+    home, store, _root, _log = world
+    running = engine(world)
+    running.run_once()
+    fx.index_entry(store, ACCOUNT_A, ORG_A, ONE, settings={"ultracode": True})
+    assert running.run_once().added == 0                  # no transcript yet
+    fx.transcript(home, ONE, fx.completed())
+    assert running.run_hot().added == 1
+    assert len(copies(store, ONE)) == 2
+
+
+def test_a_folder_that_cannot_be_listed_is_skipped_not_taken_as_empty(world, monkeypatch):
+    """C-23.28: an unreadable listing is not an empty folder. Taken as one, it
+    hid what the folder held, and a later pass copied a session into it beside
+    its own fallback-named copy."""
+    home, store, _root, _log = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A, name="local_original.json",
+             settings={"ultracode": True})
+    fx.index_entry(store, ACCOUNT_B, ORG_B, ONE, name=f"local_{ONE}.json",
+                   settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    blocked = store / ACCOUNT_B / ORG_B
+    scandir = os.scandir
+
+    def unreadable(path):
+        if Path(path) == blocked:
+            raise PermissionError(path)
+        return scandir(path)
+
+    monkeypatch.setattr(mirror, "SWEEP_INTERVAL_S", 0.0)
+    monkeypatch.setattr(mirror.os, "scandir", unreadable)
+    assert running.run_once().state == "ok"
+    monkeypatch.setattr(mirror.os, "scandir", scandir)
+    monkeypatch.setattr(mirror, "SWEEP_INTERVAL_S", 600.0)
+    running.run_once()
+    running.run_hot()
+    assert sorted(path.name for path in copies(store, ONE) if path.parent == blocked) == \
+        [f"local_{ONE}.json"], "one entry per session per folder"
+
+
+def test_journal_rows_another_process_wrote_survive_the_daemons_saves(world):
+    """C-23.28: the daemon keeps one Mirror for its life; a `sessions mirror`
+    pass in another process journals its own copies, and the daemon's next
+    save keeps them, so the report counts every late copy."""
+    home, store, _root, log = world
+    say(log, *loads(store, ACCOUNT_B, ORG_B, BEFORE))
+    daemon, other = engine(world), engine(world)
+    openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    daemon.run_once()
+    openable(home, store, TWO, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    assert other.run_once().added == 1
+    openable(home, store, THREE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    assert daemon.run_hot().added == 1
+    assert engine(world).load_gap()["pending"] == 3
+    assert daemon.load_gap()["pending"] == 3
+
+
+def test_an_apps_stale_resave_does_not_undo_an_archive_everywhere(world):
+    """C-23.28 and the merge base: the user archives a session in account A.
+    The mirror writes the archive into B, where the same session is still
+    running from before the switch, and that app process saves B's record from
+    memory, unarchived. That re-save is not a user's un-archive: the archive
+    stands everywhere and B's copy is put back."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    say(log, *loads(store, ACCOUNT_B, ORG_B, "2026-09-05 08:00:00"),
+        *loads(store, ACCOUNT_A, ORG_A, "2026-09-05 09:00:00"))
+    running = engine(world)
+    running.now = at(10, 0)
+    running.run_once()
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isArchived": True})
+    running.now = at(10, 30)
+    assert running.run_once().flag_synced == 1
+    rewrite(b_copy, {**json.loads(b_copy.read_text()), "isArchived": False})
+    running.now = at(10, 31)
+    running.run_once()
+    assert all(row["isArchived"] for row in copies(store, ONE).values())
+    running.now = at(10, 32)
+    assert running.run_once().flag_synced == 0, "settled"
+
+
+def test_an_apps_stale_resave_does_not_undo_a_rename_everywhere(world):
+    """C-23.28: the same for a manual rename; B's running session re-saves its
+    old automatic title from memory, and the rename stands."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B)):
+        openable(home, store, ONE, account, org, title="auto name",
+                 settings={"ultracode": True})
+    say(log, *loads(store, ACCOUNT_B, ORG_B, "2026-09-05 08:00:00"),
+        *loads(store, ACCOUNT_A, ORG_A, "2026-09-05 09:00:00"))
+    running = engine(world)
+    running.now = at(10, 0)
+    running.run_once()
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "title": "what Max called it",
+                     "titleSource": "manual"})
+    running.now = at(10, 30)
+    assert running.run_once().retitled == 1
+    rewrite(b_copy, {**json.loads(b_copy.read_text()), "title": "auto name",
+                     "titleSource": "auto", "lastActivityAt": 5000})
+    running.now = at(10, 31)
+    running.run_once()
+    assert {row["title"] for row in copies(store, ONE).values()} == {"what Max called it"}
+
+
+def test_an_undo_after_the_app_reloaded_the_folder_is_the_users(world):
+    """C-23.28: once the app has freshly loaded B, it holds the mirror's value,
+    so a later change in B is the user's own and spreads as before."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    say(log, *loads(store, ACCOUNT_A, ORG_A, "2026-09-05 09:00:00"))
+    running = engine(world)
+    running.now = at(10, 0)
+    running.run_once()
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isArchived": True})
+    running.now = at(10, 30)
+    running.run_once()
+    say(log, *loads(store, ACCOUNT_B, ORG_B, "2026-09-05 10:40:00"))       # a switch to B
+    rewrite(b_copy, {**json.loads(b_copy.read_text()), "isArchived": False})  # the user un-archives
+    running.now = at(10, 45)
+    running.run_once()
+    assert not any(row["isArchived"] for row in copies(store, ONE).values())
+
+
+def test_a_name_taken_between_the_listing_and_the_copy_is_left_alone(world, monkeypatch):
+    """C-23.28: a new copy is placed create-only, so a record the app creates
+    under that name meanwhile is never replaced."""
+    home, store, _root, _log = world
+    running = engine(world)
+    running.run_once()
+    openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    target = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    copy2 = mirror.shutil.copy2
+
+    def the_app_creates_it_meanwhile(source, destination, **kwargs):
+        result = copy2(source, destination, **kwargs)
+        if not target.exists():
+            target.write_text(json.dumps({"sessionId": "the app's", "cliSessionId": TWO}))
+        return result
+
+    monkeypatch.setattr(mirror.shutil, "copy2", the_app_creates_it_meanwhile)
+    assert running.run_hot().added == 0
+    assert json.loads(target.read_text())["sessionId"] == "the app's"
+    assert not list(store.glob("*/*/*.tmp-subfleet"))
+
+
+def test_a_replacement_is_abandoned_if_the_target_moved_after_the_decision(tmp_path):
+    """C-23.28: a flag write or repair names the signature it decided on; an
+    app save that lands before the rename wins, and nothing is left behind."""
+    target = tmp_path / "local_x.json"
+    target.write_text("{}")
+    expect = mirror._signature_of(target)
+    rewrite(target, {"app": "newer"})
+    assert mirror._write_json(target, {"mirror": "older"}, expect=expect) is None
+    assert json.loads(target.read_text()) == {"app": "newer"}
+    source = tmp_path / "source.json"
+    source.write_text(json.dumps({"mirror": "older"}))
+    assert mirror._copy_entry(source, target, expect=expect) is None
+    assert json.loads(target.read_text()) == {"app": "newer"}
+    assert not list(tmp_path.glob("*.tmp-subfleet"))
+
+
+def test_a_repair_the_app_overwrote_with_its_stale_record_still_waits(world):
+    """C-23.28: the app holds the stale empty record it loaded, so its re-save
+    puts the empty id back; that is not the app holding the repair, and the
+    session still waits for a fresh load."""
+    home, store, _root, log = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
+    stale = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    body = {"sessionId": f"local_{ONE}", "cliSessionId": "", "title": "stale"}
+    stale.write_text(json.dumps(body))
+    say(log, *loads(store, ACCOUNT_B, ORG_B, BEFORE))
+    running = engine(world)
+    assert running.run_once().repaired == 1
+    rewrite(stale, body)                          # the app re-saves what it holds
+    gap = running.load_gap()
+    assert gap["status"] == "relaunch" and gap["pending"] == 1
+
+
+def test_a_pass_that_copied_says_to_relaunch_even_without_the_apps_log(world, monkeypatch):
+    """C-17.4 and C-23.28: with no load in the app's log the mirror cannot tell
+    whether a copy reached the loaded folder, so it keeps v1's advice."""
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+    from subfleet import cli
+    home, store, root, _log = world
+    openable(home, store, ONE, ACCOUNT_A, ORG_A)
+    monkeypatch.setenv("SUBFLEET_HOME", str(root))
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        assert cli.main(["sessions", "mirror"]) == 0
+    assert "added 1" in out.getvalue()
+    assert "does not say which folder it loaded" in err.getvalue()
+    assert "quit and reopen" in err.getvalue()

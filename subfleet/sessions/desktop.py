@@ -23,12 +23,16 @@ app has loaded, and when. The app logs both to `~/Library/Logs/Claude/main.log`:
 
 The "Initialization succeeded" line is written before the app clears its list
 and reads the folder, so a file older than it was listed. The "Loaded" line
-names the exact folder read, which matters because the app also logs
-initializations for account and org pairs it never loads (the old account with
-the new org, mid-switch). `existingSessions` is the size of the in-memory list
-before that load: 0 at launch. A load that keeps a non-empty list (a re-login
-to the same account and org) adds new ids but does not re-read records it
-already holds.
+names the exact folder read. Mid-switch the app briefly initializes the old
+account with the new org: it loads that folder when it exists and logs the
+missing-folder line when it does not (and in both cases creates the folder,
+writing `scheduled-tasks.json` there), then initializes and loads the real
+pair a second or so later. So the latest load line is the sidebar's folder once
+the switch has settled; for those one to four seconds it names the transient
+pair. `existingSessions` is the size of the in-memory list before that load: 0
+at launch. A load that keeps a non-empty list (a re-login to the same account
+and org) adds new ids but does not re-read records it already holds, so only a
+load that starts from an empty list is "fresh" for a record the app holds.
 
 The log is a diagnostic, not an interface: this module reads it read-only,
 never depends on it for copying, and reports `None` rather than guessing when
@@ -41,7 +45,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 
@@ -102,6 +106,13 @@ class AppState:
     #: A logout after that load: the list stays in memory until the next login.
     logged_out_at: datetime | None = None
     error: str | None = None
+    #: `"<account>/<org>" ->` the start of the latest fresh load of that folder
+    #: anywhere in the log read so far, so a caller can ask whether the app has
+    #: re-read a folder since some instant.
+    fresh_loads: dict[str, datetime] = field(default_factory=dict)
+    #: The earliest instant the log read so far covers; before it, the absence
+    #: of a load says nothing.
+    covers_since: datetime | None = None
 
 
 class DesktopLog:
@@ -122,6 +133,8 @@ class DesktopLog:
         self._offset = 0
         self._partial = b""
         self._pending_init: tuple[str, str, datetime, int] | None = None
+        self._fresh_loads: dict[str, datetime] = {}
+        self._covers_since: datetime | None = None
         self.state = AppState()
 
     # --- time and paths ------------------------------------------------------
@@ -197,9 +210,17 @@ class DesktopLog:
         load = Load(account=folder[0], org=folder[1], started_at=started,
                     fresh_started_at=started if fresh else previous.fresh_started_at,
                     loaded_at=None if missing else at, count=count, missing=missing)
-        self.state = AppState(load=load, logged_out_at=None, error=None)
+        self._fresh_loads[load.folder] = load.fresh_started_at
+        self.state = AppState(load=load, logged_out_at=None, error=None,
+                              fresh_loads=dict(self._fresh_loads),
+                              covers_since=self._covers_since)
 
     def _consume(self, data: bytes, *, final: bool = False) -> None:
+        if self._covers_since is None and data:
+            first = _LINE.match((self._partial + data).split(b"\n", 1)[0]
+                                .decode("utf-8", "replace"))
+            if first:
+                self._covers_since = self._instant(first.group(1))
         data = self._partial + data
         lines = data.split(b"\n")
         self._partial = b"" if final else lines.pop()
@@ -247,8 +268,8 @@ class DesktopLog:
         except OSError as exc:
             self.state = replace(self.state, error=f"cannot read {self.path}: {exc.strerror}")
             return self.state
-        if self.state.error:
-            self.state = replace(self.state, error=None)
+        self.state = replace(self.state, error=None, fresh_loads=dict(self._fresh_loads),
+                             covers_since=self._covers_since)
         return self.state
 
 
