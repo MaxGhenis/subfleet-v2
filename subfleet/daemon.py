@@ -1396,6 +1396,17 @@ class Daemon:
                 sql += " AND caller_session=?"; params.append(a.mine)
             if a.running:
                 sql += " AND state NOT IN ('succeeded','failed','cancelled','lost')"
+            # C-26.12: a turn job is its conversation's, not detached work; it is
+            # listed only when asked for, so `runs`, `wait --mine` and `wait --last`
+            # never take one for a job this caller dispatched.
+            if a.kind is not None:
+                if not isinstance(a.kind, str) or not a.kind:
+                    raise protocol.ProtocolError("kind must name a job kind")
+                sql += " AND kind=?"; params.append(a.kind)
+            elif not isinstance(a.include_turns, bool):
+                raise protocol.ProtocolError("include_turns must be true or false")
+            elif not a.include_turns:
+                sql += " AND kind<>'turn'"
             sql += " ORDER BY created_at DESC, rowid DESC"
             if a.last is not None:
                 if not isinstance(a.last, int) or a.last < 0:
@@ -1533,7 +1544,10 @@ class Daemon:
         hold = self._holds.get(job["job_id"]) if pending else None
         wait = self._capacity_waits.get(job["job_id"]) if pending else None
         recheck = ({key: wait[key] for key in ("rechecks", "since", "checked_at", "label")} if wait else None)
-        standing = {"job_id": job["job_id"], "state": job["state"], "tier": job["tier"],
+        standing = {"job_id": job["job_id"], "kind": job["kind"], "state": job["state"], "tier": job["tier"],
+                    # C-26.12: a turn is named `turn-<conversation id>` (design §3).
+                    "conversation_id": (job["name"][len("turn-"):] if job["kind"] == "turn"
+                                        and str(job["name"] or "").startswith("turn-") else None),
                     "wait_reason": job["wait_reason"], "next_check_at": job["next_check_at"],
                     "hold": hold, "recheck": recheck, "decision_source": source,
                     "decided_at": row["evaluated_at"] if row else None}

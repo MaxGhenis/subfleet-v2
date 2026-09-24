@@ -205,11 +205,19 @@ class Offline:
     """
 
     def list_jobs(self, *, session: str | None = None, running: bool = False,
-                  last: int = 20) -> list[dict[str, Any]]:
+                  last: int = 20, kind: str | None = None,
+                  include_turns: bool = False) -> list[dict[str, Any]]:
+        """The ledger as the daemon's `list` op answers it (C-17.5, C-26.12):
+        turn jobs only when `kind` names them or `include_turns` is set."""
         where, params = [], []
         if session:
             where.append("j.caller_session = ?")
             params.append(session)
+        if kind is not None:
+            where.append("j.kind = ?")
+            params.append(kind)
+        elif not include_turns:
+            where.append("COALESCE(j.kind, '') <> 'turn'")
         if running:
             placeholders = ",".join("?" for _ in LIVE_JOB_STATES)
             where.append(f"j.state IN ({placeholders})")
@@ -346,6 +354,8 @@ class Offline:
             "readings": readings,
             "closures": closures,
             "running": self.list_jobs(running=True, last=50),
+            # C-26.12: conversations' turns, counted apart from detached work.
+            "turns": self.list_jobs(running=True, last=50, kind="turn"),
         }
 
     # --- kill (C-17.5, C-5.3, C-5.4) ----------------------------------------

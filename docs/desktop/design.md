@@ -426,8 +426,8 @@ dirty) (review U-F13).
 **D-26. Detached work keeps its own place.** Turn jobs carry `kind` in
 `status.json` and `list`; the menu panel groups them by conversation ("3
 conversations active, 1 needs approval") apart from detached jobs, and the
-Runs view defaults to non-turn jobs (`status.json` shape in §12). The app
-keeps a Compose view for
+Runs view defaults to non-turn jobs (`list` and `runs` leave turns out
+unless asked; `status.json` shape in §12). The app keeps a Compose view for
 detached jobs (task, tier, workspace, optional model pin, Fast, sandbox) with
 a preview through `submit {dry_run:true}` (lane, model, rejected lanes and
 why), dispatch through `submit`, and `why` for waiting jobs (review U-F14,

@@ -2,7 +2,7 @@
 
   subfleet [status]              lanes, readings, closures, running jobs
   subfleet run ...               submit a job; detached by default in a Claude session
-  subfleet runs [--mine ...]     the job ledger, newest first     (alias: jobs)
+  subfleet runs [--mine ...]     the job ledger, newest first; no turns unless --kind turn (alias: jobs)
   subfleet runs show <id>        one job's metadata and artifacts (alias: show)
   subfleet runs reap             reconcile jobs whose runner is gone
   subfleet wait <id>...          long-poll until terminal; rc = the job's rc
@@ -299,9 +299,14 @@ def format_status(data: dict[str, Any]) -> str:
     readings = rows_of(data.get("readings"))
     closures = rows_of(data.get("closures"))
     # `daemon.status` carries every job the store holds as `jobs` (it is the
-    # capacity view); only the live ones belong under this heading.
-    running = [row for row in rows_of(data.get("running") or data.get("jobs"))
-               if row.get("state") not in TERMINAL_STATES]
+    # capacity view); only the live ones belong under this heading. A turn job
+    # is its conversation's (C-26.12): it is counted on its own line, never as
+    # a running job.
+    live = [row for row in rows_of(data.get("running") or data.get("jobs"))
+            if row.get("state") not in TERMINAL_STATES]
+    running = [row for row in live if row.get("kind") != "turn"]
+    turns = [row for row in (rows_of(data.get("turns")) if "turns" in data else live)
+             if row.get("kind") == "turn" and row.get("state") not in TERMINAL_STATES]
     by_lane: dict[str, list[dict[str, Any]]] = {}
     for reading in readings:
         by_lane.setdefault(str(reading.get("lane_id")), []).append(reading)
@@ -363,6 +368,8 @@ def format_status(data: dict[str, Any]) -> str:
     lines.append(f"running jobs: {len(running)}")
     if running:
         lines.append(format_runs(running))
+    if turns:
+        lines.append(f"conversation turns: {len(turns)} live — {PROG} runs --kind turn")
     return "\n".join(lines)
 
 
@@ -1084,6 +1091,10 @@ def cmd_runs(args: argparse.Namespace) -> int:
         return cmd_runs_reap(args)
     if args.last < 0:
         return fail(Exit.INVALID_INPUT, "runs: --last must be non-negative")
+    kind = getattr(args, "kind", None)
+    include_turns = bool(getattr(args, "include_turns", False))
+    if kind is not None and not kind.strip():
+        return fail(Exit.INVALID_INPUT, "runs: --kind must name a job kind")
     mine = None
     if args.mine:
         mine = session_id()
@@ -1095,14 +1106,15 @@ def cmd_runs(args: argparse.Namespace) -> int:
     try:
         client = _client(args)
         result = client.call("list", _asdict(protocol.ListArgs(
-            mine=mine, running=bool(args.running), last=args.last or None)))
+            mine=mine, running=bool(args.running), last=args.last or None,
+            kind=kind, include_turns=include_turns)))
         rows = rows_of(result.get("jobs") or result.get("rows"))
     except DaemonUnavailable:
         offline = True
         store = _offline(args)
         try:
             rows = store.list_jobs(session=mine, running=bool(args.running),
-                                   last=args.last)
+                                   last=args.last, kind=kind, include_turns=include_turns)
         except OfflineUnavailable as exc:
             return _daemon_down(exc)
         _note_schema(store)
@@ -1323,7 +1335,8 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
     except DaemonError:
         pass                              # it answered, so it is there
     try:
-        rows = _offline(args).list_jobs(running=True, last=500)
+        # A turn's runner can be orphaned like any job's (C-4.2), so reap sees turns too.
+        rows = _offline(args).list_jobs(running=True, last=500, include_turns=True)
     except OfflineUnavailable as exc:
         if daemon_up:
             return fail(Exit.OPERATIONAL,
@@ -2266,6 +2279,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs.add_argument("--mine", action="store_true",
                         help="only this session's jobs (CLAUDE_CODE_SESSION_ID)")
     p_runs.add_argument("--running", action="store_true", help="only unfinished jobs")
+    # C-17.1, C-26.12: conversations' turn jobs are left out unless asked for.
+    kinds = p_runs.add_mutually_exclusive_group()
+    kinds.add_argument("--kind", metavar="KIND",
+                       help="only jobs of this kind (dispatch, resume, revive, gate-review, turn)")
+    kinds.add_argument("--include-turns", action="store_true",
+                       help="also list conversations' turn jobs")
     _add_json(p_runs)
     p_runs.set_defaults(handler=cmd_runs, runs_command=None)
     runs_sub = p_runs.add_subparsers(dest="runs_command")

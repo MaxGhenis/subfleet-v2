@@ -149,6 +149,12 @@ class ListArgs:
     mine: str | None = None        # caller session id; None lists all
     running: bool = False
     last: int | None = None
+    # C-26.12: turn jobs are the conversation's, so `list` leaves them out unless
+    # asked. `kind` lists only that kind (`turn` lists only turns); without it,
+    # `include_turns` lists every kind. A daemon that predates these fields
+    # ignores them (C-16.2); the `jobs.kind.v1` capability says they are honoured.
+    kind: str | None = None
+    include_turns: bool = False
 
 
 @dataclass

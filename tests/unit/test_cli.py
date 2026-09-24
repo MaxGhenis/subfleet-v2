@@ -622,7 +622,8 @@ def test_runs_renders_the_table_and_json_lines(daemon, capsys):
     assert run_cli(["runs", "--last", "5", "--running"]) == 0
     table = capsys.readouterr().out
     assert "RUNNING" in table and JOB in table and "astra" in table
-    assert server.args("list") == {"mine": None, "running": True, "last": 5}
+    assert server.args("list") == {"mine": None, "running": True, "last": 5,
+                                   "kind": None, "include_turns": False}   # C-26.12: no turns unless asked
     assert run_cli(["jobs", "--json"]) == 0
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert len(lines) == 2 and json.loads(lines[0])["job_id"] == JOB
