@@ -58,6 +58,8 @@ class Store:
         self.read_only = read_only if readonly is None else readonly
         self._lock = threading.RLock()
         self._depth = 0
+        # C-3.6: the audit event each open transaction will record, innermost last.
+        self._audits: list[dict[str, Any]] = []
         if not self.read_only:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
@@ -149,13 +151,17 @@ class Store:
             savepoint = f"store_{depth}"
             self.connection.execute("BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}")
             self._depth += 1
+            audit = {"kind": kind, "job_id": job_id, "attempt_id": attempt_id,
+                     "lane_id": lane_id, "data": data}
+            self._audits.append(audit)
             before = self.connection.total_changes
             try:
                 yield self.connection
                 if self.connection.total_changes != before:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
-                        (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))
+                        (utc_now(), audit["kind"], audit["job_id"], audit["attempt_id"],
+                         audit["lane_id"], _json(audit["data"] or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
             except BaseException:
                 if depth == 0:
@@ -165,7 +171,25 @@ class Store:
                     self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
                 raise
             finally:
+                self._audits.pop()
                 self._depth -= 1
+
+    def retitle(self, kind: str, **refs: Any) -> None:
+        """C-3.6: name the innermost open transaction's event for what it turned out to do.
+
+        A transaction that decides inside itself (admission either reserves an
+        attempt or leaves the job waiting) is opened under the name of the
+        outcome that is commoner and retitled when the other happens, so the
+        event never reports something that did not occur. `refs` may set
+        `job_id`, `attempt_id`, `lane_id` or `data`. Only the thread that holds
+        the transaction can be here: the lock is held from BEGIN to COMMIT.
+        """
+        if set(refs) - {"job_id", "attempt_id", "lane_id", "data"}:
+            raise ValueError(f"invalid audit fields {sorted(refs)}")
+        with self._lock:
+            if not self._audits:
+                raise sqlite3.OperationalError("retitle outside a transaction")
+            self._audits[-1].update(kind=kind, **refs)
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         with self._lock:

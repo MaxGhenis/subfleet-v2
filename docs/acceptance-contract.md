@@ -43,6 +43,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 - **C-3.3** Transactions never span a subprocess call, a network call, a filesystem sync, or a sleep. Artifact copying, `ps`, `git`, and provider probes run outside transactions.
 - **C-3.4** Readers other than the daemon (the CLI in offline mode, the menu bar app, Logpile) open the database read-only. Only the daemon and the guardian receipt path write, and the guardian writes files, not rows.
 - **C-3.5** The CLI refuses to write to a store whose `schema_version` is newer than it knows (exit 1 with both versions).
+- **C-3.6** An event is named for what its transaction did. A transaction that decides inside itself is opened under the name of its commoner outcome and retitled (`Store.retitle`) when the other happens: admission's transaction opens as `job.capacity_waiting`, which is what every arm but the reservation writes (a capacity wait, a wait for a changed probe identity, a held lease), and becomes `attempt.reserved`, carrying the attempt id and the lane, only once the attempt row is inserted; a revive skipped there is `job.revive_skipped` (C-23.55). A transaction that changes nothing still writes no event (C-3.2) (incident: 2026-09-20, every pass that left a job waiting wrote an `attempt.reserved` event with no attempt id, 97,554 of them beside 193 real reservations, and only the order of the rows could tell the two apart; on 2026-09-24 the live store still gained about 1,780 a day against 61 attempts reserved).
 
 ## 4. Job and attempt state machines
 
