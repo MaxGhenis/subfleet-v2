@@ -822,18 +822,24 @@ finished_at, rc, batch}` (C-18.2).
   read-only connection of its own (`mode=ro`, `query_only`), in one read
   transaction, without the conversation store's lock; the control loop and
   request threads never wait for it. `available: false` means the store could
-  not be read: `error` is `not-read`, `schema` (a newer store) or the SQLite
-  exception's name, `counts` is null and `items` is empty, so the menu shows
-  "unknown", never a zero nobody observed. No `conversations.sqlite3` yet is
-  `available: true` with zero counts.
+  not be read: `error` is `not-read`, `schema` (a newer store), or the name of
+  the SQLite or OS exception the reader met (for example `DatabaseError`,
+  `OperationalError`, `PermissionError`), or of anything else it raised, which
+  `publish_status` catches so the file is still written; `counts` is null and
+  `items` is empty, so the menu shows "unknown", never a zero nobody observed.
+  No `conversations.sqlite3` yet (`stat` reports `FileNotFoundError`) is
+  `available: true` with zero counts; a root the reader may not search is
+  `PermissionError`, not "no file".
 - `counts`, over conversations not archived: `active` has a message `queued`
   or in a live state (design D-12), `needs_approval` has a pending approval,
   `blocked` has `blocked_by` set. `turns` counts live turn jobs by state from
   the job store, and is present even when `available` is false.
 - `items` lists only conversations that are active, need approval or are
   blocked: those needing approval first, then blocked, then the rest, newest
-  `updated_at` first, at most 20 (`truncated` says more exist; the counts
-  cover all of them). `state` is `approval-needed` when an approval is
+  `updated_at` first and, between equal `updated_at`, the later-created
+  conversation first (ids begin with their creation millisecond; two created
+  in the same millisecond fall to the id's random tail), at most 20
+  (`truncated` says more exist; the counts cover all of them). `state` is `approval-needed` when an approval is
   pending, else `blocked` when `blocked_by` is set, else the state of its live
   message (`waiting`, `starting`, `running`, `delivery-unknown`), else
   `queued`. `title` is cut to 200 characters. `turn` is the conversation's

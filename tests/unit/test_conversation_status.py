@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 import time
@@ -84,6 +85,25 @@ def test_c29_6_counts_and_list_by_attention(store, tmp_path):
                                         "pending_approvals", "updated_at"}
 
 
+def test_c29_6_equal_updates_list_the_later_created_conversation_first(tmp_path, monkeypatch):
+    """C-29.6, D-26 between two conversations updated at the same instant, the one created later (its id's
+    millisecond prefix is larger) is listed first, whatever the ids' random tails say."""
+    from subfleet.conversations import store as store_module
+    ids = iter(["cv-1790000000000-ffffffffffff", "cv-1790000000005-000000000000"])
+    monkeypatch.setattr(store_module, "new_id", lambda prefix: next(ids))
+    s = ConversationStore(tmp_path)
+    try:
+        older, newer = conv(s, "older"), conv(s, "newer")
+        assert (older, newer) == ("cv-1790000000000-ffffffffffff", "cv-1790000000005-000000000000")
+        for cid in (older, newer):
+            send(s, cid, "running")
+        with s.transaction() as tx:
+            tx.execute("UPDATE conversations SET updated_at='2026-09-24T10:00:00.000Z'")
+    finally:
+        s.close()
+    assert [item["conversation_id"] for item in status_summary(tmp_path)["items"]] == [newer, older]
+
+
 def test_c29_6_the_list_is_bounded_and_says_so(store, tmp_path):
     """C-29.6 the list is bounded; the counts still cover every conversation; titles are bounded."""
     for n in range(5):
@@ -143,3 +163,32 @@ def test_c29_6_an_unreadable_or_newer_store_is_unavailable_never_zero(tmp_path):
     (broken / "conversations.sqlite3").write_bytes(b"not a database, just bytes" * 100)
     result = status_summary(broken)
     assert result["available"] is False and result["error"] == "DatabaseError"
+
+
+def test_c29_6_an_os_error_opening_the_store_is_unavailable_never_zero(store, tmp_path, monkeypatch):
+    """C-29.6 an OS error on the way to the file (here `PermissionError` from the connect) is
+    `available: false` with the exception's name, exactly as a SQLite error is."""
+    send(store, conv(store), "running")
+
+    real = sqlite3.connect
+
+    def refuse(target, *args, **kwargs):
+        if "conversations.sqlite3" in str(target):
+            raise PermissionError(13, "Permission denied")
+        return real(target, *args, **kwargs)
+    monkeypatch.setattr(sqlite3, "connect", refuse)
+    assert status_summary(tmp_path) == {"available": False, "error": "PermissionError"}
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root searches any directory")
+def test_c29_6_a_root_the_reader_cannot_search_is_unavailable_not_no_conversations(store, tmp_path):
+    """C-29.6 a state root the reader may not search hides the file from `stat` with `PermissionError`,
+    not `FileNotFoundError`: that is a store not read, never zero conversations."""
+    send(store, conv(store), "running")
+    assert status_summary(tmp_path)["counts"]["active"] == 1
+    os.chmod(tmp_path, 0o600)
+    try:
+        assert status_summary(tmp_path) == {"available": False, "error": "PermissionError"}
+    finally:
+        os.chmod(tmp_path, 0o700)
+    assert status_summary(tmp_path)["counts"]["active"] == 1

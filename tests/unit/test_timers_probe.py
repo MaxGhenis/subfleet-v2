@@ -505,3 +505,34 @@ def test_c29_6_every_status_write_carries_conversations_batches_kinds_and_scoped
             assert payload["claude"]["earliest_reset"] == week
     finally:
         conversations.close()
+
+
+@pytest.mark.parametrize("failure, error", [("connect", "PermissionError"), ("reader", "RuntimeError")])
+def test_c29_6_a_conversation_reader_failure_never_stops_the_status_write(rig, monkeypatch, failure, error):
+    """C-18.1, C-29.6 the probe cycle writes status.json whatever the conversation reader meets: an OS error
+    opening the store (answered by `status_summary` itself) or anything it raises (answered by
+    `publish_status`) publishes `available: false` under the exception's name, never zeros, and the
+    rest of the file is still written."""
+    import sqlite3
+    from subfleet.conversations import store as conversation_store
+    from subfleet.conversations.store import ConversationStore
+    timer, store, clock, adapter, enroll = rig
+    ConversationStore(timer.root).close()                   # a store file exists, so the reader opens it
+    if failure == "connect":
+        real = sqlite3.connect
+
+        def refuse(target, *args, **kwargs):              # the conversation store only; state.sqlite3 still opens
+            if "conversations.sqlite3" in str(target):
+                raise PermissionError(13, "Permission denied")
+            return real(target, *args, **kwargs)
+        monkeypatch.setattr(sqlite3, "connect", refuse)
+    else:
+        def broken(root, **kwargs):
+            raise RuntimeError("reader bug")
+        monkeypatch.setattr(conversation_store, "status_summary", broken)
+    (timer.root / "status.json").unlink(missing_ok=True)
+    timer.probe_cycle()
+    payload = json.loads((timer.root / "status.json").read_text())
+    assert payload["conversations"]["available"] is False and payload["conversations"]["error"] == error
+    assert payload["conversations"]["counts"] is None
+    assert "claude" in payload and "jobs" in payload

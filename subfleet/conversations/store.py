@@ -640,25 +640,32 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
     `query_only`), never the `ConversationStore`'s, so the timer thread that
     publishes `status.json` takes neither that store's lock nor a write lock, and
     the control loop and request threads never wait for it. All reads are one
-    read transaction, so the counts and the list are one snapshot. A missing
-    file is no conversations; one that cannot be read, or has a newer schema, is
-    `available: false` with the error's type, never zeros.
+    read transaction, so the counts and the list are one snapshot. A file that
+    is not there is no conversations; one that cannot be read, or has a newer
+    schema, is `available: false` with the error's type (a SQLite or an OS
+    exception's name, or `schema`), never zeros. "Not there" is only what `stat`
+    reports as `FileNotFoundError`: a root this reader may not search raises
+    `PermissionError`, which `Path.exists` would have read as no file and so as
+    zeros nobody observed.
 
     Counted over conversations not archived: `active` has a message queued or in
     a live state (C-24.4), `needs_approval` has a pending approval, `blocked`
     has `blocked_by` set. Listed: those three kinds only, those needing
-    approval first, then blocked, then the rest, newest update first, at most
-    `limit`. A listed conversation's `state` is `approval-needed` or `blocked`
-    when it is either, else its live message's state, else `queued`.
+    approval first, then blocked, then the rest, newest update first and,
+    between equal updates, the later-created conversation first (an id begins
+    with its creation millisecond, `new_id`), at most `limit`. A listed
+    conversation's `state` is `approval-needed` or `blocked` when it is either,
+    else its live message's state, else `queued`.
     """
     counts = {"active": 0, "needs_approval": 0, "blocked": 0}
     path = Path(root) / "conversations.sqlite3"
-    if not path.exists():
-        return {"available": True, "counts": counts, "items": [], "truncated": False}
     open_marks, live_marks = ",".join("?" * len(_OPEN_STATES)), ",".join("?" * len(LIVE_STATES))
     try:
+        path.stat()
         db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=timeout_s,
                              isolation_level=None)
+    except FileNotFoundError:
+        return {"available": True, "counts": counts, "items": [], "truncated": False}
     except (sqlite3.Error, OSError) as exc:
         return {"available": False, "error": type(exc).__name__}
     try:

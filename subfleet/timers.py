@@ -214,11 +214,19 @@ class Timers:
         conversation summary (read through its own read-only connection,
         `conversations.store.status_summary`), and the policy's short name for
         each Claude model id, which labels model-scoped windows.
+
+        The conversation reader never stops the file being written: it answers
+        a store it cannot read with `available: false`, and anything it raises
+        instead is published the same way, under the exception's name (C-29.6:
+        unknown, never zeros), so lanes and jobs still reach the menu.
         """
         from .conversations.store import status_summary
         from .status_json import attach_batches, write_status
         attach_batches(self.store, snapshot)
-        snapshot['conversations'] = status_summary(self.root)
+        try:
+            snapshot['conversations'] = status_summary(self.root)
+        except Exception as exc:   # noqa: BLE001 - the file must still be written
+            snapshot['conversations'] = {'available': False, 'error': type(exc).__name__}
         snapshot['model_names'] = {entry['id']: short for short, entry in self.policy.get('models', {}).items()
                                    if isinstance(entry, dict) and entry.get('id')}
         return write_status(self.root, snapshot, now=self.now())
