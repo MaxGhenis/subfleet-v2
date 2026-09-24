@@ -30,7 +30,7 @@ Paths are relative to `~/chief-of-staff/state/subfleet/` (v1 state root, "S") or
 | `S/runs/` (500 dirs, `meta.json`, `prompt.md`, `out.md`, `err.log`, `lane.log`) | The v1 ledger | import read-only | one `jobs` row and one `attempts` row per directory; `job_id` keeps the v1 id; `request_id` = `v1:<id>`; state from rc (0 `succeeded`, 4 or 5 `failed`, -9/143/killed `interrupted`, never finalized `lost`); `artifacts` rows point at the v1 paths (not copied); `imported: true`; live entries per principle 3 |
 | `S/runs-out/` (15 files: `<name>.err.log`, `<name>.MODEL_ATTESTED`) | Side files from named runs | retain read-only | not imported; referenced by the v1 rows they belong to if a run names them |
 | `S/notices/` (152 per-session JSONL files) | Parked completion notices per caller session | import | `notices` rows with `state: pending` for entries v1 marked unsurfaced, `surfaced` otherwise; `session_id` from the file name |
-| `S/outbox.sqlite3` (`messages`: 6 rows, status, receipt) | The notice outbox for socket pushes | import | rows with a non-delivered status become `notices` with `state: offered`, transport `v1-socket`; delivered rows are `acknowledged` only if `receipt` is present, else `offered` |
+| `S/outbox.sqlite3` (`messages`: 6 rows, status, receipt), `S/outbox-attachments/` | The legacy desktop cockpit's message outbox (corrected 2026-09-24; it was listed as a notice outbox) | import at milestone 9 (C-30.4) | each message by itself: a `finished`, `error` or `cancelled` message of a Claude session whose transcript is found becomes a read-only history row, under its legacy id, of that session's one `legacy` conversation in `conversations.sqlite3`; every other message keeps its legacy owner, with its whole session; each message is in the report with its disposition; image snapshots stay in v1. The six notices an earlier pass made from this row stay as they are |
 | `S/gates/` (117 entries) | Gate state directories | retain read-only until milestone 7 | active gates finish in v1 by default; at milestone 7 a gate imports only if subject fingerprint, approvals, peer evidence, and action state all verify (plan A step 6); never rebuilt from a summary |
 | `S/tickles/` (5,823 files), `S/revive/` (244 logs), `S/revive-lane.json`, `S/session-locks/` (10), `S/session-continuations.lock`, `S/native-workers.json` | Sessions kit state | retain read-only until milestone 6 | tickle dedup records import as `events` of kind `tickle` with their timestamps so the sessions kit does not re-nudge; revive logs are not imported; `native-workers.json` (two claude worker ids) imports as `events` of kind `native-worker` for the twin check |
 | `S/history.jsonl` (2,400 lines), `S/lane-usage.jsonl` (1,733 lines) | Rolling token sums and burn history | drop for quota; retain file | never imported as readings or percentages; the file stays for the compare script and for `docs/reports/B-capacity.md`-style audits |
@@ -45,7 +45,7 @@ Paths are relative to `~/chief-of-staff/state/subfleet/` (v1 state root, "S") or
 | `D/decisions.jsonl` (16,710 lines), `D/rotation.json` | Routing decision journal and last-used rotation | retain read-only | inputs to the shadow-week compare script; not imported |
 | `S/prompts/` (17), `S/briefs/` (26), `S/dispatch/` (1) | Prompt and brief files named by runs | retain read-only | referenced by imported v1 artifacts where a run names them |
 | `S/integration-events/v1/` | Traycer events spool, schema v1 | retain; keep writing | the daemon emits `run.started`, `run.bound`, `run.finished`, `handoff.created` to the same spool from milestone 5 |
-| `S/cockpit-client/pending-messages.json` | Cockpit branch client state | drop | the cockpit branch is not carried |
+| `S/cockpit-client/` (`pending-messages.json`, `images-<uuid>/`) | The legacy cockpit app's journal of unacknowledged sends and their image snapshots | retain read-only; reported at milestone 9 (C-30.4) | every journal entry keeps its legacy owner and is reported, with the outbox status for its id, and holds its session's history back; nothing is sent |
 | `S/composer-attachments/` (empty), `S/iariw-drain.json`, `S/iariw-drain.log`, `S/autopick.log`, `S/brief.md` | Job-specific or regenerated | drop after inspection | `brief.md` is regenerated from the store; the drain files belong to one finished campaign |
 | `S/*.lock`, `S/broker.lock`, `S/broker.sock`, `S/.integration-events.salt.lock`, `S/keepalive.json.lock`, `S/reset-policy.json.lock`, `S/revive.lock`, `S/rollout-scan.lock`, `D/cooldowns.json.lock` | File locks and the v1 broker socket | drop | SQLite and `daemon.lock` replace them; never copied |
 | `S/integration-events.salt` | Salt for event ids | import | copied to `$SUBFLEET_HOME/integration-events.salt` so event ids stay stable across the cutover |
@@ -107,3 +107,29 @@ Stop admission; drain or re-adopt attempts; `VACUUM INTO '<state root>/backups/s
 Not in the manifest, left alone: `~/.local/state/delegate/cooldowns.json.bak-2026-09-04`. Nothing under `~/chief-of-staff` changed.
 
 Open from this run: the two OAuth payload windows (`extra_usage`, `nimbus_quill`) need a manifest decision (import as readings with their own scope, or drop); the 916 orphaned notices are v1's own retention gap and stay out.
+
+The outbox row above was the notice mapping; C-30.4 replaced it on 2026-09-24 (next section).
+
+## The legacy cockpit, milestone 9
+
+`outbox.sqlite3` turned out to be the legacy desktop cockpit's message outbox,
+not a notice outbox: one row per message the cockpit sent into a native
+session, keyed by the client's UUID (`subfleet/conversations/legacy.py` records
+what the cockpit's code writes, with citations). C-30.4 classifies each message
+by itself into conversation history, and reports the rest:
+
+```sh
+# what a pass would do: nothing under the state root changes but the report
+uv run python -m subfleet.importer --legacy-cockpit --v1-state ~/chief-of-staff/state/subfleet --dry-run
+# the pass itself, with the daemon stopped (it is conversations.sqlite3's writer)
+uv run python -m subfleet.importer --legacy-cockpit --v1-state ~/chief-of-staff/state/subfleet
+```
+
+`--claude-dir` names another `~/.claude` for the transcripts, `--json` prints
+the report. The report lists every message and journal entry by id with its
+disposition: `history`, `already-imported`, `legacy-owned`,
+`session-held-by-legacy-owner`, `transcript-not-found`,
+`session-not-continuable`, `conversation-has-own-messages`,
+`message-id-conflict`, `not-a-claude-session` or `unreadable-row`. Every
+disposition but the first two leaves the message where it is, and a later pass
+imports it once its reason is gone.

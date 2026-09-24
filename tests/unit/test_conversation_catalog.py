@@ -15,7 +15,7 @@ from pathlib import Path
 from subfleet.conversations import catalog
 from subfleet.sessions import transcripts
 
-SESSION = "0957da09-b6d9-4911-b2f6-407ec5ca20be"
+SESSION = "5e551011-0000-4000-8000-0000000000c1"
 
 
 def write_transcript(projects: Path, session_id: str, cwd: str, *, mode: str | None = "default",

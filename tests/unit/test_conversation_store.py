@@ -228,3 +228,82 @@ def test_native_sessions_map_to_one_conversation(store):
     b, created_b = store.create_conversation(provider="claude", workspace="/w", workspace_kind="in-place",
                                              settings=SETTINGS, origin="native", native_session_id="sid")
     assert created and not created_b and a["conversation_id"] == b["conversation_id"]
+
+
+# --- legacy history (C-30.4) ---------------------------------------------------
+
+LEGACY_SETTINGS = {"model": None, "effort": None, "fast": None, "permission": None, "auto_continue": None,
+                   "service_tier": None}
+
+
+def history(store, c, message_id, text="from the cockpit", state="complete", **kw):
+    base = dict(conversation_id=c["conversation_id"], message_id=message_id, text=text, state=state,
+                state_reason="legacy-finished", settings=LEGACY_SETTINGS, created_at="2026-08-31T19:34:55.437Z",
+                updated_at="2026-08-31T19:37:55.484Z", turn_ref=message_id)
+    base.update(kw)
+    return store.insert_legacy_history(**base)
+
+
+def test_legacy_history_is_terminal_and_never_dispatched(store):
+    """C-30.4, C-24.5: a history row is terminal, has no job or predecessor, and
+    no dispatch path selects it; a state that is not terminal is refused."""
+    c = conv(store, origin="legacy", native_session_id="5e551011-0000-4000-8000-00000000000a")
+    first, second = mid(), mid()
+    row, created = history(store, c, first)
+    history(store, c, second, state="failed", state_reason="legacy-error: provider-failed")
+    assert created and row["origin"] == "legacy" and row["state"] == "complete" and row["seq"] == 1
+    assert row["job_id"] is None and row["after_message_id"] is None and row["turn_seq"] == 0
+    assert row["turn_ref"] == first and row["attachments"] == [] and row["settings"] == LEGACY_SETTINGS
+    assert row["created_at"] == "2026-08-31T19:34:55.437Z"
+    assert store.message_text(row) == "from the cockpit"
+    assert stat.S_IMODE(os.stat(row["text_path"]).st_mode) == 0o600
+    assert store.next_dispatchable() == [] and store.live_messages() == []
+    for state in ("queued", "waiting", "starting", "running", "approval-needed", "delivery-unknown"):
+        with pytest.raises(ConversationError) as err:
+            history(store, c, mid(), state=state)
+        assert err.value.reason == "not-terminal"
+    assert [m["message_id"] for m in store.messages(c["conversation_id"])] == [first, second]
+
+
+def test_legacy_history_is_idempotent_by_id_and_never_rewritten(store):
+    """C-30.4 repeated imports create nothing new; C-24.2 an id is never reused
+    for other content or in another conversation."""
+    c = conv(store, origin="legacy", native_session_id="s1")
+    other = conv(store, origin="legacy", native_session_id="s2")
+    m = mid()
+    first, created = history(store, c, m)
+    again, created_again = history(store, c, m)
+    assert created and not created_again and first == again
+    with pytest.raises(ConversationError) as err:
+        history(store, c, m, text="other text")
+    assert err.value.reason == "message-id-conflict"
+    with pytest.raises(ConversationError) as err:
+        history(store, other, m)
+    assert err.value.reason == "message-id-conflict"
+    person = mid()
+    store.submit_message(conversation_id=other["conversation_id"], message_id=person, after_message_id=None,
+                         text="mine", attachments=[], settings=SETTINGS)
+    with pytest.raises(ConversationError) as err:
+        store.insert_legacy_history(conversation_id=other["conversation_id"], message_id=person, text="mine",
+                                    state="complete", state_reason=None, settings=LEGACY_SETTINGS,
+                                    created_at="2026-08-31T00:00:00.000Z", updated_at="2026-08-31T00:00:00.000Z")
+    assert err.value.reason == "message-id-conflict"
+    assert store.message_text(store.message(m)) == "from the cockpit"
+
+
+def test_legacy_history_goes_first_and_the_conversation_continues_after_it(store):
+    """C-30.4, C-24.2, C-30.2: history never lands after a conversation's own
+    messages; after it, the conversation takes a person's message as its first
+    (no predecessor), and only that message is dispatchable."""
+    c = conv(store, origin="legacy", native_session_id="s1")
+    old = mid()
+    history(store, c, old)
+    new = mid()
+    store.submit_message(conversation_id=c["conversation_id"], message_id=new, after_message_id=None,
+                         text="continue here", attachments=[], settings=SETTINGS)
+    assert [m["message_id"] for m in store.next_dispatchable()] == [new]
+    with pytest.raises(ConversationError) as err:
+        history(store, c, mid())
+    assert err.value.reason == "history-after-messages"
+    assert [(m["seq"], m["origin"]) for m in store.messages(c["conversation_id"])] == [(1, "legacy"), (2, "person")]
+    assert store.message(old)["state"] == "complete"
