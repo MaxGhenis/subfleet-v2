@@ -57,16 +57,28 @@ def copies(store: Path, session_id: str) -> dict[Path, dict]:
 
 
 def count_entry_reads(monkeypatch):
-    read = mirror._load
+    """Every index file the inventory opens (flag sync's write-time re-read aside)."""
+    read = mirror._read_entry
     seen = []
 
-    def counted(path, **kwargs):
+    def counted(path):
         if path.name.startswith("local_"):
             seen.append(path)
-        return read(path, **kwargs)
+        return read(path)
 
-    monkeypatch.setattr(mirror, "_load", counted)
+    monkeypatch.setattr(mirror, "_read_entry", counted)
     return seen
+
+
+def rewrite(path: Path, data: dict) -> None:
+    """Replace an index file the way the app does: write beside it, then rename.
+
+    The app never rewrites one in place (2026-09-24: 0 of 217,706 files), and
+    the mirror's inventory relies on it between full sweeps.
+    """
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(data), encoding="utf-8")
+    temporary.replace(path)
 
 
 def test_large_mirror_reuses_unchanged_entries_and_propagates_one_edit(world, monkeypatch):
@@ -93,7 +105,7 @@ def test_large_mirror_reuses_unchanged_entries_and_propagates_one_edit(world, mo
     old_snapshot = running._entry(path)
     data = json.loads(path.read_text())
     data.update(isArchived=True, title="Operator title", titleSource="manual")
-    path.write_text(json.dumps(data))
+    rewrite(path, data)
     result = running.run_once()
     assert result.flag_synced == result.retitled == 1
     assert reads[640:] == [path]
@@ -144,7 +156,7 @@ def test_transient_read_failure_is_retried_without_a_metadata_change(world, monk
     """C-23.28: an I/O failure must not become a cached, apparently empty entry."""
     home, store, _root = world
     path = openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
-    read = Path.read_text
+    read = Path.read_bytes
     failed = False
 
     def fail_once(target, *args, **kwargs):
@@ -154,7 +166,7 @@ def test_transient_read_failure_is_retried_without_a_metadata_change(world, monk
             raise OSError("transient read failure")
         return read(target, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", fail_once)
+    monkeypatch.setattr(Path, "read_bytes", fail_once)
     running = engine(world)
     signature = running._signature(path)
     assert running.run_once().added == 0
@@ -205,7 +217,9 @@ def test_cancelled_inventory_reports_progress_without_advancing_last_success(wor
     monkeypatch.setattr(running, "_record", observe)
     monkeypatch.setattr(running, "_entry", cancel_after_read)
     result = running.run_once()
-    assert result.state == "cancelled" and result.entries_scanned == 1
+    # Account A's folder is unchanged since the last pass, so its one entry is
+    # counted without being opened; B's copy is the read that cancels.
+    assert result.state == "cancelled" and result.entries_scanned == 2
     assert result.stage == "reading entries"
     assert any(row["stage"] == "reading entries" and row["state"] == "running" for row in recorded)
     assert running.sidecar()["last_ok_at"] == previous_ok
@@ -227,7 +241,7 @@ def test_cancellation_during_flag_publication_finishes_the_matching_merge_base(w
     path = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
     data = json.loads(path.read_text())
     data["isArchived"] = True
-    path.write_text(json.dumps(data))
+    rewrite(path, data)
     cancel = running.cancel = threading.Event()
     write = mirror._write_json
 

@@ -2064,7 +2064,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/sessions/mirror.py",
   "test_name": "test_mirror_heartbeat_reads_per_pass_sidecar_with_thirty_minute_cutoff",
-  "notes": "2026-08-19 07:08: a quiet log produced a false \"stalled\"; an 8.5-minute pass was observed 2026-08-18. GAP, milestone 6."
+  "notes": "2026-08-19 07:08: a quiet log produced a false \"stalled\"; an 8.5-minute pass was observed 2026-08-18. GAP, milestone 6. 2026-09-24: health is not reach. The app reads a session folder only when it loads it, so C-23.28 also requires the 2 s hot pass and the load-gap report (tests/unit/test_sessions_mirror_load_gap.py)."
  },
  {
   "id": 160,
