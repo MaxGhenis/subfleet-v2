@@ -1,7 +1,10 @@
 """The one-off `decisions` prune: what it keeps, what it proves, what it refuses.
 
 Every store here is a synthetic one built in a temp directory; nothing in this
-file reads `~/.subfleet`. Every test names the clause it proves (C-20.5).
+file reads `~/.subfleet`. Each test names the clause it proves (C-20.5), or the
+brief decision it pins where the contract has no clause for the behaviour — it
+has none for a free-space guard, a gzip row backup, or a `--vacuum` rebuild,
+which belong to this one-off pass rather than to the daemon.
 """
 
 from __future__ import annotations
@@ -20,8 +23,9 @@ import pytest
 from subfleet import prune_decisions
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.offline import Offline
-from subfleet.prune_decisions import PruneRefused, PruneVerificationError, prune
-from subfleet.store import SchemaVersionError, Store
+from subfleet.prune_decisions import (PruneRefused, PruneStopped, PruneVerificationError,
+                                      prune)
+from subfleet.store import SCHEMA_VERSION, SchemaVersionError, Store
 
 TERMINAL = "20260920-100000-terminal"
 MIXED = "20260920-110000-mixed"
@@ -118,6 +122,79 @@ def applied(root: Path, **kwargs):
     return prune(root, apply=True, confirm=True, write_report=False, **kwargs)
 
 
+def closed_store(root: Path) -> Path:
+    """A seeded store with nothing holding it open and no `-wal`/`-shm` beside it.
+
+    SQLite creates both sidecars whenever a WAL database is opened, read-only
+    included, so a fixture that keeps a connection open cannot tell what the
+    pass itself put in the state root.
+    """
+    with Store(root / "state.sqlite3") as store:
+        seed_job(store, root, TERMINAL)
+        for index in range(4):
+            seed_decision(store, TERMINAL, f"waiting {index}")
+    for sidecar in ("state.sqlite3-wal", "state.sqlite3-shm"):
+        (root / sidecar).unlink(missing_ok=True)
+    return root / "state.sqlite3"
+
+
+def mutating(root: Path, mutate):
+    """A `_verify` that runs `mutate` on a second connection first, then verifies.
+
+    The before-fingerprints were taken at the top of the pass and the last batch
+    has committed, so a write here is exactly the drift each detector exists to
+    catch. The pass is between transactions at that point and the store is in
+    WAL, so a second connection can write.
+    """
+    original = prune_decisions._verify
+
+    def probe(conn, report, **kwargs):
+        other = sqlite3.connect(root / "state.sqlite3", timeout=5)
+        try:
+            mutate(other)
+            other.commit()
+        finally:
+            other.close()
+        return original(conn, report, **kwargs)
+
+    return probe
+
+
+class Answers(list):
+    """What `Connection.execute` hands back, for a canned pragma answer."""
+
+    def fetchall(self):
+        return list(self)
+
+
+class Answering:
+    """A connection that answers one statement itself and delegates every other.
+
+    `PRAGMA integrity_check` and `PRAGMA foreign_key_check` cannot be made to
+    fail on a healthy file without corrupting it, so those two detectors are
+    driven with the answer SQLite gives for a file that is not healthy.
+    """
+
+    def __init__(self, conn, statement, answers):
+        self._conn, self._statement, self._answers = conn, statement, Answers(answers)
+
+    def execute(self, sql, *args):
+        return self._answers if sql == self._statement else self._conn.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def answering(statement: str, answers: list[tuple]):
+    """A `_verify` that sees `statement` answered with `answers`."""
+    original = prune_decisions._verify
+
+    def probe(conn, report, **kwargs):
+        return original(Answering(conn, statement, answers), report, **kwargs)
+
+    return probe
+
+
 # --- the keep set --------------------------------------------------------------
 
 def test_the_keep_set_is_exactly_what_a_reader_or_an_attempt_holds(seeded):
@@ -175,17 +252,24 @@ def test_the_daemon_and_offline_readers_keep_the_rows_they_each_select(seeded):
 
 # --- the dry run ---------------------------------------------------------------
 
-def test_the_dry_run_is_the_default_and_writes_nothing_but_its_report(seeded):
-    """Brief: the default pass plans in full and mutates nothing."""
-    store, root = seeded
-    before = snapshot(root)
-    files = sorted(path.name for path in root.iterdir())
+def test_the_dry_run_is_the_default_and_writes_no_file_of_its_own_but_the_report(tmp_path):
+    """C-3.4: the dry run opens the store read-only, so it writes no row and no file of its own.
+
+    The store is built and closed first: the pass's own connection makes
+    SQLite's `-wal` and `-shm` appear beside a WAL database, and those are the
+    only new names a dry run may leave.
+    """
+    root = tmp_path / "root"
+    closed_store(root)
+    assert sorted(path.name for path in root.iterdir()) == ["state.sqlite3"]
     report = prune(root, write_report=False)
     assert report.dry_run is True
     assert report.batches == 0 and report.deleted == 0
-    assert snapshot(root) == before
-    assert sorted(path.name for path in root.iterdir()) == files
+    assert {path.name for path in root.iterdir()} - {"state.sqlite3"} <= {
+        "state.sqlite3-wal", "state.sqlite3-shm"}
     assert not (root / "backups").exists()
+    before = snapshot(root)
+    files = sorted(path.name for path in root.iterdir())
     saved = prune(root)
     assert Path(saved.path).name.startswith("decisions-prune-report-")
     assert sorted(path.name for path in root.iterdir()) == sorted(files + [Path(saved.path).name])
@@ -193,7 +277,7 @@ def test_the_dry_run_is_the_default_and_writes_nothing_but_its_report(seeded):
 
 
 def test_the_dry_run_counts_what_a_real_pass_deletes(seeded):
-    """Brief: the dry run's numbers are the pass's, not an estimate of it."""
+    """Brief decision 4: the dry run's numbers are the pass's, not an estimate of it."""
     store, root = seeded
     dry = prune(root, write_report=False)
     real = applied(root, batch_size=2)
@@ -203,7 +287,7 @@ def test_the_dry_run_counts_what_a_real_pass_deletes(seeded):
 
 
 def test_apply_without_the_confirmation_is_refused(seeded):
-    """Brief: writing takes --apply and --i-understand-this-deletes-decisions together."""
+    """Brief decision 4: writing takes --apply and --i-understand-this-deletes-decisions."""
     store, root = seeded
     before = snapshot(root)
     with pytest.raises(PruneRefused) as refusal:
@@ -235,34 +319,38 @@ def test_a_daemon_holding_the_lock_refuses_the_write_pass(seeded):
     assert len(decision_ids(root)) == 12
 
 
-def test_the_pass_holds_the_lock_for_its_whole_length(seeded):
-    """C-3.4: a check released before the work leaves a window for a second writer."""
+def test_the_pass_holds_the_lock_for_its_whole_length(seeded, monkeypatch):
+    """C-3.4: a check released before the work leaves a window for a second writer.
+
+    Asked at three points, so a lock let go anywhere in between shows as a
+    False: before the first DELETE (`_backup_rows`), after the last one
+    (`_verify`), and after the rebuild (`_reverify`).
+    """
     store, root = seeded
     held: list[bool] = []
-    original = prune_decisions._backup_rows
 
-    def probe(*args, **kwargs):
-        handle = os.open(root / "daemon.lock", os.O_RDWR)
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            fcntl.flock(handle, fcntl.LOCK_UN)
-            held.append(False)
-        except BlockingIOError:
-            held.append(True)
-        finally:
-            os.close(handle)
-        return original(*args, **kwargs)
+    def probing(original):
+        def probe(*args, **kwargs):
+            handle = os.open(root / "daemon.lock", os.O_RDWR)
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(handle, fcntl.LOCK_UN)
+                held.append(False)
+            except BlockingIOError:
+                held.append(True)
+            finally:
+                os.close(handle)
+            return original(*args, **kwargs)
+        return probe
 
-    prune_decisions._backup_rows = probe
-    try:
-        applied(root, batch_size=2)
-    finally:
-        prune_decisions._backup_rows = original
-    assert held == [True]
+    for name in ("_backup_rows", "_verify", "_reverify"):
+        monkeypatch.setattr(prune_decisions, name, probing(getattr(prune_decisions, name)))
+    applied(root, batch_size=2, vacuum=True)
+    assert held == [True, True, True]
 
 
 def test_a_volume_without_room_for_the_backups_is_refused_with_the_numbers(seeded, monkeypatch):
-    """Brief: the backups come first, so the pass refuses before it deletes anything."""
+    """Brief decision 6: the backups come first, so the pass refuses before it deletes."""
     store, root = seeded
     before = snapshot(root)
     monkeypatch.setattr(prune_decisions.shutil, "disk_usage",
@@ -279,8 +367,56 @@ def test_a_volume_without_room_for_the_backups_is_refused_with_the_numbers(seede
     assert report.space["sufficient"] is False
 
 
+def test_one_volume_is_charged_for_the_backups_and_the_rebuild_together(seeded):
+    """Brief decision 6: `--vacuum` writes a second whole database on the state root's volume."""
+    store, root = seeded
+    with_vacuum = prune(root, write_report=False, vacuum=True)
+    size = with_vacuum.space["database_bytes"]
+    assert with_vacuum.space["same_volume"] is True
+    assert with_vacuum.space["rebuild_bytes"] == max(
+        size - with_vacuum.decisions["delete_bytes"], 0) > 0
+    assert with_vacuum.space["volumes"][str(root)]["needed"] == (
+        int(size * prune_decisions.NEEDED_FACTOR) + with_vacuum.space["rebuild_bytes"]
+        + prune_decisions.NEEDED_MARGIN)
+    assert "the rebuild" in with_vacuum.space["formula"]
+    # Without the rebuild the same volume needs only the two backups and the margin.
+    without = prune(root, write_report=False)
+    assert without.space["rebuild_bytes"] == 0
+    assert without.space["volumes"][str(root)]["needed"] == (
+        int(size * prune_decisions.NEEDED_FACTOR) + prune_decisions.NEEDED_MARGIN)
+    assert prune_decisions.NEEDED_MARGIN_TEXT in without.space["formula"]
+
+
+def test_a_backup_dir_on_another_volume_charges_each_volume_for_its_half(seeded, monkeypatch):
+    """Brief decision 6: with --backup-dir elsewhere each volume is measured for what it takes."""
+    store, root = seeded
+    elsewhere = root.parent / "other-volume" / "backups"
+    mounts = {str(prune_decisions._existing(root)): 1,
+              str(prune_decisions._existing(elsewhere)): 2}
+    monkeypatch.setattr(prune_decisions, "_volume", lambda path: mounts[str(path)])
+    frees = {str(root): 8 << 30, str(root.parent): 1024}
+    monkeypatch.setattr(prune_decisions.shutil, "disk_usage",
+                        lambda path: types.SimpleNamespace(total=1 << 40, used=0,
+                                                           free=frees[str(path)]))
+    report = prune(root, write_report=False, backup_dir=elsewhere, vacuum=True)
+    size = report.space["database_bytes"]
+    assert report.space["same_volume"] is False
+    assert report.space["volumes"][str(root.parent)]["needed"] == int(
+        size * prune_decisions.NEEDED_FACTOR)
+    assert report.space["volumes"][str(root)]["needed"] == (
+        report.space["rebuild_bytes"] + prune_decisions.NEEDED_MARGIN)
+    assert report.space["sufficient"] is False
+    before = snapshot(root)
+    with pytest.raises(PruneRefused) as refusal:
+        applied(root, backup_dir=elsewhere, vacuum=True)
+    assert refusal.value.code == 7
+    assert str(root.parent) in str(refusal.value)        # the volume without the room
+    assert "1.02 KB free" in str(refusal.value)
+    assert snapshot(root) == before
+
+
 def test_a_backup_that_is_already_there_is_refused_rather_than_overwritten(seeded):
-    """Brief: the evidence of an earlier pass is never written over."""
+    """Brief decision 6: the evidence of an earlier pass is never written over."""
     store, root = seeded
     stamp = "20260920T100000Z"
     (root / "backups").mkdir(mode=0o700)
@@ -294,18 +430,51 @@ def test_a_backup_that_is_already_there_is_refused_rather_than_overwritten(seede
     assert snapshot(root) == before
 
 
-def test_a_schema_newer_than_this_build_is_refused(seeded):
-    """C-3.5: the pass opens the store through Store, so it inherits that refusal."""
+def test_a_schema_newer_than_this_build_is_refused(seeded, capsys):
+    """C-3.5: the store is newer than this build, so the pass exits 1 naming both versions."""
     store, root = seeded
     store.connection.execute("INSERT INTO schema_version VALUES (?,?)",
                              (99, "2026-09-20T10:00:00Z"))
     with pytest.raises(SchemaVersionError):
         prune(root, write_report=False)
+    assert prune_decisions.main(["--state-root", str(root), "--no-report"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert (f"subfleet: prune decisions: store schema 99 is newer than supported schema "
+            f"{SCHEMA_VERSION}") in captured.err
+    assert "  fix: " in captured.err
     assert len(decision_ids(root)) == 12
 
 
+def test_a_schema_behind_this_build_is_refused_before_a_write_can_migrate_it(seeded):
+    """C-3.1: a write-open migrates an older store, writing rows outside this pass's proof.
+
+    `Store.__init__` runs the numbered migrations and inserts `schema_version`
+    and `events` rows before `_pass` takes its copy or its fingerprints, so the
+    copy offered as the restore path would already be a migrated store and the
+    proof would call the store untouched.
+    """
+    store, root = seeded
+    store.connection.execute("DELETE FROM schema_version")
+    store.connection.execute("INSERT INTO schema_version VALUES (?,?)",
+                             (SCHEMA_VERSION - 1, "2026-09-20T10:00:00Z"))
+    before = snapshot(root)
+    with pytest.raises(PruneRefused) as refusal:
+        applied(root)
+    assert refusal.value.code == 7
+    assert f"schema {SCHEMA_VERSION - 1} and this build at {SCHEMA_VERSION}" in str(refusal.value)
+    assert refusal.value.fix.startswith("subfleet daemon start")
+    assert snapshot(root) == before
+    # The dry run records the mismatch and still plans: it opens the store
+    # read-only, which `Store` never migrates.
+    report = prune(root, write_report=False)
+    assert report.schema == {"store": SCHEMA_VERSION - 1, "build": SCHEMA_VERSION}
+    assert report.decisions["delete"] == 5
+    assert snapshot(root) == before
+
+
 def test_a_missing_store_is_refused(tmp_path):
-    """Brief: the pass names what it could not find instead of creating it."""
+    """Brief decision 1: the pass names what it could not find instead of creating it."""
     with pytest.raises(PruneRefused) as refusal:
         prune(tmp_path, write_report=False)
     assert refusal.value.code == 7
@@ -315,7 +484,7 @@ def test_a_missing_store_is_refused(tmp_path):
 # --- the proofs ----------------------------------------------------------------
 
 def test_every_other_table_is_byte_identical_after_the_pass(seeded):
-    """Brief: jobs, attempts, artifacts, notices, leases and the rest are untouched."""
+    """C-3.2: jobs, attempts, artifacts, notices, leases and the rest are untouched."""
     store, root = seeded
     before = snapshot(root)
     report = applied(root, batch_size=2)
@@ -347,7 +516,7 @@ def test_events_gain_one_row_per_batch_and_rewrite_no_history(seeded):
 
 
 def test_the_deleted_rows_round_trip_out_of_the_gzip_backup(seeded):
-    """Brief: every deleted row is recoverable, and the report's digest names the file."""
+    """Brief decision 6: every deleted row is recoverable, and the digest names the file."""
     store, root = seeded
     before = {row["decision_id"]: row for row in rows(root, "decisions", "decision_id")}
     report = applied(root, batch_size=2)
@@ -367,7 +536,7 @@ def test_the_deleted_rows_round_trip_out_of_the_gzip_backup(seeded):
 
 
 def test_the_whole_store_is_copied_and_checked_before_the_first_delete(seeded):
-    """docs/migration.md: `VACUUM INTO` a copy, then `PRAGMA integrity_check` on it."""
+    """Brief decision 6, docs/migration.md: `VACUUM INTO` a copy, then check it."""
     store, root = seeded
     before = decision_ids(root)
     report = applied(root, batch_size=2)
@@ -402,7 +571,7 @@ def test_the_store_passes_integrity_and_foreign_key_checks(seeded):
 
 def test_a_verification_failure_reports_the_restore_path_and_saves_the_report(seeded,
                                                                              monkeypatch):
-    """Brief: a proof that does not hold exits non-zero and names the copy to restore from."""
+    """Brief decision 8: a proof that does not hold exits non-zero and names the copy."""
     store, root = seeded
     original = prune_decisions._reader_bytes
     calls: list[int] = []
@@ -419,7 +588,11 @@ def test_a_verification_failure_reports_the_restore_path_and_saves_the_report(se
     with pytest.raises(PruneVerificationError) as failure:
         prune(root, apply=True, confirm=True, batch_size=2)
     assert failure.value.code == 1
-    assert "restore from the copy" in failure.value.fix
+    fix = failure.value.fix
+    # All three files, because SQLite replays a log left beside the database.
+    assert "`state.sqlite3`, `state.sqlite3-wal` and `state.sqlite3-shm`" in fix
+    assert failure.value.report.backups["copy"]["path"] in fix
+    assert "PRAGMA integrity_check" in fix
     assert failure.value.report.verification["ok"] is False
     assert failure.value.report.errors
     saved = json.loads(Path(failure.value.report.path).read_text())
@@ -427,10 +600,91 @@ def test_a_verification_failure_reports_the_restore_path_and_saves_the_report(se
     assert saved["backups"]["copy"]["path"].endswith(".sqlite3")
 
 
+# --- each detector in its failing direction ------------------------------------
+
+def test_a_change_to_another_table_fails_the_proof(seeded, monkeypatch):
+    """C-3.2: every table but `decisions` and `events` must be digest-identical after."""
+    store, root = seeded
+    monkeypatch.setattr(prune_decisions, "_verify", mutating(root, lambda other: other.execute(
+        "UPDATE jobs SET state='lost' WHERE job_id=?", (TERMINAL,))))
+    with pytest.raises(PruneVerificationError) as failure:
+        applied(root, batch_size=2)
+    assert "jobs changed" in str(failure.value)
+    assert failure.value.report.verification["tables_identical"] is False
+    assert failure.value.report.verification["ok"] is False
+
+
+def test_a_rewritten_events_row_fails_the_proof(seeded, monkeypatch):
+    """C-3.2: `events` is the append-only audit spine, so a row already there cannot change."""
+    store, root = seeded
+    monkeypatch.setattr(prune_decisions, "_verify", mutating(root, lambda other: other.execute(
+        "UPDATE events SET kind='tampered' WHERE event_id=(SELECT MIN(event_id) FROM events)")))
+    with pytest.raises(PruneVerificationError) as failure:
+        applied(root, batch_size=2)
+    assert "events rewrote history" in str(failure.value)
+    assert failure.value.report.verification["events_append_only"] is False
+
+
+def test_an_extra_events_row_fails_the_proof(seeded, monkeypatch):
+    """C-3.2: one transaction, one events row — so a batch may add exactly one."""
+    store, root = seeded
+    monkeypatch.setattr(prune_decisions, "_verify", mutating(root, lambda other: other.execute(
+        "INSERT INTO events(ts,kind,data_json) VALUES"
+        " ('2026-09-20T10:00:00Z','decisions.pruned','{}')")))
+    with pytest.raises(PruneVerificationError) as failure:
+        applied(root, batch_size=2)
+    assert "events gained {'decisions.pruned': 4}, not 3 decisions.pruned rows" in str(failure.value)
+
+
+def test_an_edited_surviving_row_fails_the_proof(seeded, monkeypatch):
+    """C-11.5: the rows the plan kept must still be those rows, byte for byte."""
+    store, root = seeded
+    monkeypatch.setattr(prune_decisions, "_verify", mutating(root, lambda other: other.execute(
+        "UPDATE decisions SET policy_hash='other'"
+        " WHERE decision_id=(SELECT MIN(decision_id) FROM decisions)")))
+    with pytest.raises(PruneVerificationError) as failure:
+        applied(root, batch_size=2)
+    assert "the kept decisions changed" in str(failure.value)
+    assert failure.value.report.verification["decisions_identical"] is False
+
+
+def test_a_job_that_loses_its_last_decision_fails_the_proof(seeded, monkeypatch):
+    """C-11.5: every job that had a decision still has one, so the distinct count cannot move."""
+    store, root = seeded
+    monkeypatch.setattr(prune_decisions, "_verify", mutating(root, lambda other: other.execute(
+        "DELETE FROM decisions WHERE job_id=?", (LIVE,))))
+    with pytest.raises(PruneVerificationError) as failure:
+        applied(root, batch_size=2)
+    assert "2 jobs have decisions, not 3" in str(failure.value)
+
+
+def test_an_integrity_check_that_is_not_ok_fails_the_proof(seeded, monkeypatch):
+    """C-3.1: the store's own integrity check is part of the proof, not a formality."""
+    store, root = seeded
+    monkeypatch.setattr(prune_decisions, "_verify",
+                        answering("PRAGMA integrity_check", [("row 7 missing from index",)]))
+    with pytest.raises(PruneVerificationError) as failure:
+        applied(root, batch_size=2)
+    assert "integrity_check: row 7 missing from index" in str(failure.value)
+    assert failure.value.report.verification["integrity_check"] == "row 7 missing from index"
+    assert failure.value.report.verification["ok"] is False
+
+
+def test_a_foreign_key_check_that_reports_rows_fails_the_proof(seeded, monkeypatch):
+    """C-3.1: `decisions.job_id` references `jobs`, and the proof asks rather than assumes."""
+    store, root = seeded
+    monkeypatch.setattr(prune_decisions, "_verify",
+                        answering("PRAGMA foreign_key_check", [("decisions", 9, "jobs", 0)]))
+    with pytest.raises(PruneVerificationError) as failure:
+        applied(root, batch_size=2)
+    assert "foreign_key_check reported 1 rows" in str(failure.value)
+    assert failure.value.report.verification["foreign_key_check"] == "1 rows"
+
+
 # --- idempotence and space -----------------------------------------------------
 
 def test_a_second_apply_changes_nothing_and_writes_no_backup(seeded):
-    """Brief: the keep set is everything that is left, so the pass has nothing to do."""
+    """Brief decision 8: the keep set is everything left, so the pass has nothing to do."""
     store, root = seeded
     applied(root, batch_size=2)
     before = snapshot(root)
@@ -519,3 +773,27 @@ def test_main_applies_and_prints_a_human_report(seeded, capsys):
     assert "decisions-pruned-" in printed and "state-" in printed
     assert "5 rows" in printed
     assert len(decision_ids(root)) == 7
+
+
+def test_a_dry_run_reads_one_snapshot_while_a_daemon_keeps_writing(seeded, monkeypatch):
+    """C-3.4, C-11.5 the 2026-09-21 dry run: a row written mid-plan for a waiting job no longer fails the check."""
+    store, root = seeded
+    store.close()
+    real_plan = prune_decisions.plan
+    writer = sqlite3.connect(str(root / "state.sqlite3"), timeout=5)
+
+    def plan_then_the_daemon_writes(conn):
+        planned = real_plan(conn)
+        # What the live daemon did: a waiting job's newest decision, after the plan was read.
+        writer.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) "
+                       "VALUES(?,NULL,'2099-01-01T00:00:00Z','h','{}')", (LIVE,))
+        writer.commit()
+        return planned
+    monkeypatch.setattr(prune_decisions, "plan", plan_then_the_daemon_writes)
+    try:
+        report = prune_decisions.prune(root, write_report=False)
+    finally:
+        writer.close()
+    assert report.dry_run and report.deleted == 0
+    assert report.decisions["total"] == len(decision_ids(root)) - 1     # the plan's instant, not the row after it
+    assert rows(root, "decisions", "decision_id")[-1]["evaluated_at"] == "2099-01-01T00:00:00Z"
