@@ -35,12 +35,12 @@ where it is implemented; "open" means not yet built.
 |---|---|---|---|
 | 1 | The dispatcher looks up `turn:<message>:<turn_seq>` first and binds it; never inserts another while one is not terminal; a turn's payload digest is the message digest | F2, F-07 | `dispatch.py` |
 | 2 | Cancel atomicity lives in the job store: `message.cancel` sets the job's cancel only while no attempt row exists; `_launch` re-reads the cancel flag inside the `attempt.starting` transaction | F3 | `service.py`, `daemon.py` |
-| 3 | Stop order: control interrupt, then SIGINT through a new relay `signal` op the guardian applies to its own unreaped child, then close stdin, then containment; each step bounded | F1 | `relay.py`, `guardian.py`, `runner.py` |
+| 3 | Stop order: control interrupt, then SIGINT through a new relay `signal` op the guardian applies to its own unreaped child, then close stdin, then containment; each step bounded | F1 | `relay.py`, `guardian.py`, `runner.py`; the bounds are policy `conversations.stop_*_after_s`, validated in `policy.py` (C-24.7; `tests/unit/test_turn_runner.py`, `tests/unit/test_policy.py`) |
 | 4 | Every daemon-initiated stop of a turn (wall limit, operator kill, approval timeout) escalates as IR-3, with reasons `wall-limit`, `operator-kill`, `approval-timeout` | F4, U-F4 | `runner.py`, `daemon.py` |
 | 5 | The unfinished-turn block fires on delivery (user frame written), not only acknowledgement | F1 | `reconcile.py` |
 | 6 | Compaction only after the attempt is terminal; reset exactly when the cursor is below the floor | F6 | `store.py`, `service.py` |
 | 7 | Withdrawing a never-received message leaves a tombstone so a late submit of that id is cancelled | F10 | `service.py` |
-| 8 | Turn wall limit and approval expiry end with named reasons and withdrawn approvals | F4, F-05 | `runner.py` |
+| 8 | Turn wall limit and approval expiry end with named reasons and withdrawn approvals | F4, F-05 | `runner.py`; the expiry is policy `conversations.approval_wait_s` (C-26.9) |
 | 9 | Claude classification reads provider-authored text only | F-02 | PR #39 |
 | 10 | Codex turn classification: `usageLimitExceeded`/`rateLimitExceeded` limited with a closure from the latest `account/rateLimits/updated`; `unauthorized` unknown plus a usage probe, never auth-dead on its own | F-01 | `classify.py` |
 | 11 | The socket `submit` op refuses `kind:"turn"`, `turn:` request ids and turn-only fields; binding requires the manifest's `turn` block to name the message | F-12 | `daemon.py`, `dispatch.py` |

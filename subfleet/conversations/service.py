@@ -27,7 +27,7 @@ from . import attachments as attachment_store
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
-from .runner import TurnRunner
+from .runner import Clocks, TurnRunner
 from .store import (
     ConversationError, ConversationStore, canonical_uuid, validate_settings, widens, utcnow,
 )
@@ -712,7 +712,7 @@ class ConversationService:
                                 conversation_id=turn["conversation_id"], attempt_dir=adir,
                                 control_socket=start["control_socket"], on_outcome=self._on_outcome,
                                 on_contain=self._on_contain, log=self.log,
-                                approval_wait_s=float(self.daemon.policy.get("conversations", {}).get("approval_wait_s", 3600)),
+                                clocks=Clocks.from_policy(self.daemon.policy),   # C-24.7, C-26.5, C-26.9
                                 on_catalog=self._on_catalog)
             self.runners[aid] = runner
             self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])

@@ -59,6 +59,24 @@ SESSION_DEFAULTS: dict[str, Any] = {
 }
 
 
+#: `conversations.*` (C-24.7, C-26.5, C-26.9): the clocks of a live conversation
+#: turn, in seconds, read by `TurnRunner` (`subfleet/conversations/runner.py`).
+#: A stop escalates as design D-13 and review IR-3 order it: the provider's own
+#: interrupt at once, then SIGINT through the guardian's relay, then closing
+#: stdin, then C-5.6 containment, each that many seconds after the stop was
+#: requested. `after_result_s` is how long a process may outlive its terminal
+#: event before the same escalation stops it (D-15: the 120 s background ceiling
+#: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's bound
+#: on an unanswered approval.
+CONVERSATION_DEFAULTS: dict[str, float] = {
+    "approval_wait_s": 3600,
+    "stop_sigint_after_s": 10,
+    "stop_close_after_s": 20,
+    "stop_contain_after_s": 30,
+    "after_result_s": 135,
+}
+
+
 def policy_hash(path: str | Path) -> str:
     """C-11.1: hash the policy file's exact bytes."""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -256,6 +274,25 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if (not isinstance(item, int) or isinstance(item, bool) or item <= 0):
             fail(f"sessions.handoff_caps.{key}", "must be a positive whole number of characters")
     value["sessions"]["handoff_caps"] = caps
+
+    # `conversations` (C-24.7, C-26.5, C-26.9): every clock is a positive number
+    # of seconds, and the stop escalation keeps its order (SIGINT, then closing
+    # stdin, then containment), because each step is only worth taking while the
+    # previous one had its chance to end the turn.
+    supplied = value.get("conversations", {})
+    if not isinstance(supplied, dict):
+        fail("conversations", "must be an object")
+    clocks = {**CONVERSATION_DEFAULTS, **supplied}
+    for key in CONVERSATION_DEFAULTS:
+        item = clocks[key]
+        if (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or not math.isfinite(item) or item <= 0):
+            fail(f"conversations.{key}", "must be a positive finite number of seconds")
+    if not clocks["stop_sigint_after_s"] < clocks["stop_close_after_s"] < clocks["stop_contain_after_s"]:
+        fail("conversations.stop_close_after_s",
+             "the stop escalation must keep its order: "
+             "stop_sigint_after_s < stop_close_after_s < stop_contain_after_s")
+    value["conversations"] = clocks
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()

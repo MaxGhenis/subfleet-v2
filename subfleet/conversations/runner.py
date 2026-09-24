@@ -19,10 +19,11 @@ import json
 import queue
 import threading
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from ..policy import CONVERSATION_DEFAULTS
 from ..relay import RelayClient, RelayError, read_log
 from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
@@ -37,12 +38,39 @@ READ_CHUNK = 1 << 20
 
 # Stop escalation (design D-13, review IR-3), seconds after the stop request:
 # the provider's interrupt at once, then SIGINT (ends a Claude turn; SIGTERM
-# would leave it resumable), then closing stdin, then C-5.6 containment.
-SIGINT_AFTER_S = 10.0
-CLOSE_AFTER_S = 20.0
-CONTAIN_AFTER_S = 30.0
+# would leave it resumable), then closing stdin, then C-5.6 containment. The
+# policy's `conversations` section sets them (C-24.7, `policy.CONVERSATION_DEFAULTS`).
+SIGINT_AFTER_S = float(CONVERSATION_DEFAULTS["stop_sigint_after_s"])
+CLOSE_AFTER_S = float(CONVERSATION_DEFAULTS["stop_close_after_s"])
+CONTAIN_AFTER_S = float(CONVERSATION_DEFAULTS["stop_contain_after_s"])
 # Background work after the terminal event (D-15): the CLI's own ceiling plus a margin.
-AFTER_RESULT_S = 120.0 + 15.0
+AFTER_RESULT_S = float(CONVERSATION_DEFAULTS["after_result_s"])
+# Review IR-27: an unacknowledged frame is resent at most this many times, with
+# a doubling pause from RESEND_BASE_S, before the relay counts as failed.
+RESEND_MAX = 5
+RESEND_BASE_S = 0.2
+
+
+@dataclass(frozen=True)
+class Clocks:
+    """A turn's clocks, from policy `conversations` (C-24.7, C-26.5, C-26.9)."""
+
+    sigint_after_s: float = SIGINT_AFTER_S
+    close_after_s: float = CLOSE_AFTER_S
+    contain_after_s: float = CONTAIN_AFTER_S
+    after_result_s: float = AFTER_RESULT_S
+    approval_wait_s: float = float(CONVERSATION_DEFAULTS["approval_wait_s"])
+
+    @classmethod
+    def from_policy(cls, policy: dict) -> "Clocks":
+        """The loader (`policy.load_policy`) has validated and filled the section;
+        a policy map that did not pass through it gets the same defaults."""
+        section = {**CONVERSATION_DEFAULTS, **(policy.get("conversations") or {})}
+        return cls(sigint_after_s=float(section["stop_sigint_after_s"]),
+                   close_after_s=float(section["stop_close_after_s"]),
+                   contain_after_s=float(section["stop_contain_after_s"]),
+                   after_result_s=float(section["after_result_s"]),
+                   approval_wait_s=float(section["approval_wait_s"]))
 
 
 def make_driver(spec: TurnSpec, read_bytes: Callable[[str], bytes]):
@@ -54,7 +82,7 @@ class TurnRunner:
                  attempt_dir: Path, control_socket: str,
                  on_outcome: Callable[["TurnRunner"], None],
                  on_contain: Callable[[str], None],
-                 approval_wait_s: float = 3600.0, clock: Callable[[], float] = time.monotonic,
+                 clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None):
         self.store = store
         self.attempt = attempt
@@ -68,7 +96,7 @@ class TurnRunner:
         self.on_contain = on_contain
         self.on_catalog = on_catalog
         self.catalog_reported = False
-        self.approval_wait_s = approval_wait_s
+        self.clocks = clocks
         self.clock = clock
         self.log = log
         self.commands: "queue.Queue[tuple]" = queue.Queue()
@@ -296,28 +324,30 @@ class TurnRunner:
 
     def _timers(self) -> None:
         now = self.clock()
+        clocks = self.clocks
         if self.stop_at is not None and self.driver.outcome is None:
             waited = now - self.stop_at
-            if waited >= SIGINT_AFTER_S and "sigint" not in self.escalated:
+            if waited >= clocks.sigint_after_s and "sigint" not in self.escalated:
                 self.escalated.add("sigint")
                 self.outbox.append(Frame("signal:int", "signal", "INT"))
-            if waited >= CLOSE_AFTER_S and "close" not in self.escalated:
+            if waited >= clocks.close_after_s and "close" not in self.escalated:
                 self.escalated.add("close")
                 self.outbox.append(Frame("close", "close"))
-            if waited >= CONTAIN_AFTER_S and "contain" not in self.escalated:
+            if waited >= clocks.contain_after_s and "contain" not in self.escalated:
                 self.escalated.add("contain")
                 self.on_contain(self.attempt_id)
-        if self.ended_at is not None and now - self.ended_at >= AFTER_RESULT_S and "late" not in self.escalated:
+        if self.ended_at is not None and now - self.ended_at >= clocks.after_result_s and "late" not in self.escalated:
             # D-15: background work outlived the ceiling; stop it the same way.
             self.escalated.add("late")
             self.outbox.append(Frame("signal:int:late", "signal", "INT"))
             self.late_stop_at = now
         late = self.late_stop_at
-        if late is not None and now - late >= CONTAIN_AFTER_S - SIGINT_AFTER_S and "late-contain" not in self.escalated:
+        if (late is not None and now - late >= clocks.contain_after_s - clocks.sigint_after_s
+                and "late-contain" not in self.escalated):
             self.escalated.add("late-contain")
             self.on_contain(self.attempt_id)
         for request_id, since in list(self.approval_seen.items()):
-            if now - since >= self.approval_wait_s and self.driver.outcome is None:
+            if now - since >= clocks.approval_wait_s and self.driver.outcome is None:
                 # IR-8: the person did not answer in time. Subfleet does not answer
                 # the approval (C-27.2); it stops the turn.
                 self.approval_seen.pop(request_id, None)
