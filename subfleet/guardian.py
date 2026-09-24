@@ -54,8 +54,13 @@ def _output(path: Path):
 
 def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                  stdin_path: str | None, stdout_path: str, stderr_path: str,
-                 start_delay_s: float = 0, launch_fd: int | None = None) -> int:
-    """Run argv in a new session, writing start before spawn and exit after wait."""
+                 start_delay_s: float = 0, launch_fd: int | None = None,
+                 control_socket: str | None = None) -> int:
+    """Run argv in a new session, writing start before spawn and exit after wait.
+
+    With `control_socket`, the child's stdin is a pipe fed only through the relay
+    (C-26.4): the socket is bound before `start.json` names it, and frames are
+    applied once each, in order, logged to `stdin.jsonl`."""
     os.umask(0o077)
     os.setsid()
     # Keep the leader alive while a child ignores TERM, so the daemon can
@@ -82,18 +87,41 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     }
     if not start["proc_start"]:
         raise RuntimeError("guardian could not establish its process start identity")
+    relay = None
+    if control_socket:
+        if stdin_path:
+            raise RuntimeError("a control socket and a stdin file are exclusive")
+        from .relay import RelayServer
+        relay = RelayServer(control_socket, attempt_dir / "stdin.jsonl")
+        relay.bind()
+        start["control_socket"] = str(control_socket)
     _receipt(attempt_dir / "start.json", start)
     child = None
     spawn_error = None
     try:
         with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
-            with open(stdin_path or os.devnull, "rb") as stdin:
-                # Timer observation begins at the provider launch boundary, after
-                # credential lookup and worker queueing (C-23.19).
-                if os.environ.get("SUBFLEET_PROBE"):
-                    _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
-                child = subprocess.Popen(argv, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
-                rc = child.wait()
+            if relay is not None:
+                read_end, write_end = os.pipe()
+                try:
+                    child = subprocess.Popen(argv, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr)
+                except OSError:
+                    os.close(write_end)
+                    raise
+                finally:
+                    os.close(read_end)
+                relay.serve(write_end)
+                try:
+                    rc = child.wait()
+                finally:
+                    relay.stop()
+            else:
+                with open(stdin_path or os.devnull, "rb") as stdin:
+                    # Timer observation begins at the provider launch boundary, after
+                    # credential lookup and worker queueing (C-23.19).
+                    if os.environ.get("SUBFLEET_PROBE"):
+                        _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
+                    child = subprocess.Popen(argv, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
+                    rc = child.wait()
     except OSError as exc:
         rc = 127
         # OSError contains the executable/path and errno, never child env.
@@ -118,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stderr-path", "--stderr", required=True)
     parser.add_argument("--start-delay-s", type=float, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--launch-fd", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--control-socket")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -126,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     rc = run_guardian(command, attempt_dir=args.attempt_dir, cwd=args.cwd,
                       stdin_path=args.stdin_path, stdout_path=args.stdout_path,
                       stderr_path=args.stderr_path, start_delay_s=args.start_delay_s,
-                      launch_fd=args.launch_fd)
+                      launch_fd=args.launch_fd, control_socket=args.control_socket)
     if rc < 0:
         # Preserve subprocess's signal returncode as well as the raw receipt.
         if -rc not in {signal.SIGKILL, signal.SIGSTOP}:
