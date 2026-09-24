@@ -65,6 +65,8 @@ CONVERSATION_DEFAULTS: dict[str, float] = {
     "catalog_interval_s": 60,        # C-30.1, design D-23: a catalog run this often; 0: on request only
     "compact_after_s": 300,          # C-25.4: a settled turn keeps its deltas this long
     "compact_per_tick": 20,          # C-25.4: attempts compacted per conversation tick
+    "max_active_turns": 3,           # C-26.9: turns running at once, apart from detached jobs
+    "turn_slots_per_lane": 1,        # C-26.9: turns on one lane at once, apart from detached jobs
 }
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -282,7 +284,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
     # days kept after a turn ends).
     for section, defaults, may_be_zero, whole in (
-            ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"}, {"compact_per_tick"}),
+            ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
+             {"compact_per_tick", "max_active_turns", "turn_slots_per_lane"}),
             ("retention", RETENTION_DEFAULTS, {"turn_keep_days"}, {"jobs", "bytes", "turn_jobs", "turn_bytes"})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):

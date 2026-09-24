@@ -351,15 +351,26 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
     # Repeated tiers on Fable and Terra do not create another admission chance.
     chain = list(dict.fromkeys(chain))
-    in_flight = dict(view.get("in_flight", {}))
-    if "in_flight" not in view:
+    # C-26.9: a conversation turn has its own capacity, counted apart from
+    # detached jobs: `conversations.max_active_turns` across the fleet and
+    # `conversations.turn_slots_per_lane` per lane. Neither kind waits for the
+    # other's slots; an attended turn never waits behind background work.
+    is_turn = _row(job).get("kind") == "turn"
+    conversation_caps = policy.get("conversations") or {}
+    key = "in_flight_turns" if is_turn else "in_flight"
+    in_flight = dict(view.get(key, {}))
+    if key not in view:
+        turn_jobs = {_row(item).get("job_id") for item in view.get("jobs", ()) if _row(item).get("kind") == "turn"}
         for item in view.get("attempts", ()):
             attempt = _row(item)
-            if attempt.get("state") in ACTIVE_ATTEMPTS:
+            if attempt.get("state") in ACTIVE_ATTEMPTS and (attempt.get("job_id") in turn_jobs) == is_turn:
                 identity = attempt["lane_id"]
                 in_flight[identity] = in_flight.get(identity, 0) + 1
     capacity_blocks = _parent_blocks(policy, view, job)
-    if sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
+    if is_turn:
+        if sum(in_flight.values()) >= int(conversation_caps.get("max_active_turns", 3)):
+            capacity_blocks.append("fleet")
+    elif sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
         capacity_blocks.append("fleet")
     evaluations: list[dict[str, Any]] = []
     messages: list[str] = []
@@ -414,7 +425,8 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                            if row["lane_id"] == identity)
             lane_measured = any(row["lane_id"] == identity and fresh_provider(
                 row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
-            slot_cap = (caps["max_in_flight_per_lane"] if lane_measured else
+            slot_cap = (int(conversation_caps.get("turn_slots_per_lane", 1)) if is_turn else
+                        caps["max_in_flight_per_lane"] if lane_measured else
                         min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
             if identity in view.get("unavailable_lanes", {}):
                 detail["slot_block"] = view["unavailable_lanes"][identity]

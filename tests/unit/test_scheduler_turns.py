@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from subfleet.scheduler import evaluate, ordered_jobs, probe_required, waiter_class
 from tests.unit.test_scheduler import (  # noqa: F401  (fixtures)
+    attempt,
     NOW, TOMORROW, closure, job, lane, policy, reading, reserve_policy, view,
 )
 
@@ -58,3 +59,41 @@ def test_a_conversation_keeps_its_account_while_it_is_a_candidate(policy):
     assert moved.chosen_lane == "claude-2"
     # Affinity is a turn's only; a detached job routes on headroom.
     assert evaluate(policy, view(lanes, rows), job(pinned_model="opus", affinity_lane="claude-1")).chosen_lane == "claude-2"
+
+
+def _running(lane_id, job_id, kind):
+    return attempt(lane_id, job_id), {"job_id": job_id, "kind": kind, "state": "running"}
+
+
+def test_a_turn_has_its_own_capacity_while_detached_work_fills_the_fleet(policy):
+    """C-26.9 detached jobs holding every lane slot and the whole fleet cap leave a
+    turn its own slot: an attended turn never waits behind background work."""
+    lanes = [lane("claude-1"), lane("claude-2")]
+    rows = [reading("claude-1", .2), reading("claude-2", .3)]
+    pairs = [_running("claude-1", f"d{i}", "dispatch") for i in range(2)] + \
+            [_running("claude-2", f"e{i}", "dispatch") for i in range(2)]
+    snapshot = view(lanes, rows, attempts=[a for a, _ in pairs], jobs=[j for _, j in pairs])
+    assert sum(snapshot["in_flight"].values()) == policy["caps"]["max_active_attempts"]
+    detached = evaluate(policy, snapshot, job(pinned_model="opus"))
+    assert detached.chosen_lane is None
+    turn = evaluate(policy, snapshot, job(pinned_model="opus", kind="turn"))
+    assert turn.chosen_lane in ("claude-1", "claude-2")
+
+
+def test_turns_fill_their_own_slots_and_fleet_cap(policy):
+    """C-26.9 one turn per lane (`conversations.turn_slots_per_lane`) and at most
+    `conversations.max_active_turns` across the fleet, counted apart from detached jobs."""
+    lanes = [lane("claude-1"), lane("claude-2"), lane("claude-3"), lane("claude-4")]
+    rows = [reading(f"claude-{n}", .1 * n) for n in range(1, 5)]
+    one = [_running("claude-1", "t1", "turn")]
+    snapshot = view(lanes, rows, attempts=[a for a, _ in one], jobs=[j for _, j in one])
+    turn = evaluate(policy, snapshot, job(pinned_model="opus", kind="turn", affinity_lane="claude-1"))
+    assert turn.chosen_lane != "claude-1"
+    reasons = {r["lane_id"]: r["reasons"] for r in turn.evaluations[0]["rejections"]}
+    assert "no-slot" in reasons["claude-1"]
+    # A detached job does not count the turn against the lane.
+    assert evaluate(policy, snapshot, job(pinned_model="opus", pinned_lane="claude-1")).chosen_lane == "claude-1"
+    full = [_running(f"claude-{n}", f"t{n}", "turn") for n in range(1, 1 + policy["conversations"]["max_active_turns"])]
+    snapshot = view(lanes, rows, attempts=[a for a, _ in full], jobs=[j for _, j in full])
+    assert evaluate(policy, snapshot, job(pinned_model="opus", kind="turn")).chosen_lane is None
+    assert evaluate(policy, snapshot, job(pinned_model="opus")).chosen_lane is not None

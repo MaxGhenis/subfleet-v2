@@ -250,7 +250,12 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
     active_closures = [row for item in closures
                        if not (row := _row(item)).get("released_at") and _time(row["until_at"]) > instant]
     attempt_rows, job_rows = [_row(item) for item in attempts], [_row(item) for item in jobs]
-    counts = Counter(row["lane_id"] for row in attempt_rows if row["state"] in ACTIVE_ATTEMPT_STATES)
+    # C-26.9: conversation turns have their own capacity, so their attempts are
+    # counted apart from detached jobs' (`in_flight` stays the detached count).
+    turn_jobs = {row["job_id"] for row in job_rows if row.get("kind") == "turn"}
+    active = [row for row in attempt_rows if row["state"] in ACTIVE_ATTEMPT_STATES]
+    counts = Counter(row["lane_id"] for row in active if row.get("job_id") not in turn_jobs)
+    turn_counts = Counter(row["lane_id"] for row in active if row.get("job_id") in turn_jobs)
     roster = []
     for item in lanes:
         lane = _row(item)
@@ -265,6 +270,7 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
         lane["readings"] = [row for row in evidence if row["lane_id"] == identity]
         lane["closures"] = [row for row in active_closures if row["lane_id"] == identity]
         lane["in_flight"] = counts[identity]
+        lane["in_flight_turns"] = turn_counts[identity]
         lane["measured"] = any(fresh_provider(row, now=instant, reading_ttl_s=reading_ttl_s)
                                for row in lane["readings"])
         roster.append(lane)
@@ -272,6 +278,7 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
     return {"lanes": roster, "readings": evidence, "closures": active_closures,
             "attempts": attempt_rows, "jobs": job_rows,
             "in_flight": {lane["lane_id"]: counts[lane["lane_id"]] for lane in roster},
+            "in_flight_turns": {lane["lane_id"]: turn_counts[lane["lane_id"]] for lane in roster},
             "now": timestamp, "reading_ttl_s": reading_ttl_s}
 
 
