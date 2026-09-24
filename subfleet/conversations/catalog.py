@@ -326,19 +326,8 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
         path = transcripts.transcript_path(session_id)
         if path is None:
             return None
-        record = _claude_record(path)
-        if record.get("headless"):
-            return {"continuable": False, "continue_blocker": "a Subfleet lane run"}
-        cwd = record.get("cwd") or transcripts.last_cwd(path)
-        if not cwd or not os.path.isdir(cwd):
-            return {"continuable": False, "continue_blocker": "its working directory no longer exists"}
-        if cwd.startswith(("/tmp/", "/private/tmp/")):
-            return {"continuable": False, "continue_blocker": "tmp-workspace"}
-        model = record.get("model") or ""
-        return {"cwd": cwd, "title": record.get("title") or record.get("first_prompt"),
-                "model_value": _claude_value(model), "permission": map_permission(record.get("permission_mode")),
-                "permission_source": record.get("permission_mode"), "continuable": True, "lane_id": None}
-    homes = [(Path(r["home"]), r["lane_id"]) for r in lanes if r.get("provider") == "codex" and r.get("home")]
+        return claude_session(path)
+    homes =[(Path(r["home"]), r["lane_id"]) for r in lanes if r.get("provider") == "codex" and r.get("home")]
     for base, lane_id in homes + [(Path(home) if home else Path.home() / ".codex", None)]:
         matches = list((base / "sessions").rglob(f"rollout-*{session_id}.jsonl")) if (base / "sessions").is_dir() else []
         if len(matches) != 1:
@@ -350,6 +339,27 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
                 or record.get("first_prompt"), "model_value": record.get("model") or "",
                 "permission": "read-only", "continuable": True, "lane_id": lane_id}
     return None
+
+
+def claude_session(path: Path) -> dict:
+    """One Claude transcript's facts for a conversation row: its cwd, title, model
+    value and D-9 permission, and whether it continues here (C-30.2, IR-15).
+
+    `conversation.open` of a native session and the legacy cockpit import
+    (C-30.4) create a conversation from exactly these facts.
+    """
+    record = _claude_record(path)
+    if record.get("headless"):
+        return {"continuable": False, "continue_blocker": "a Subfleet lane run"}
+    cwd = record.get("cwd") or transcripts.last_cwd(path)
+    if not cwd or not os.path.isdir(cwd):
+        return {"continuable": False, "continue_blocker": "its working directory no longer exists"}
+    if cwd.startswith(("/tmp/", "/private/tmp/")):
+        return {"continuable": False, "continue_blocker": "tmp-workspace"}
+    model = record.get("model") or ""
+    return {"cwd": cwd, "title": record.get("title") or record.get("first_prompt"),
+            "model_value": _claude_value(model), "permission": map_permission(record.get("permission_mode")),
+            "permission_source": record.get("permission_mode"), "continuable": True, "lane_id": None}
 
 
 def _claude_value(model_id: str) -> str:
