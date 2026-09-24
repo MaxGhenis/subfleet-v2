@@ -211,6 +211,37 @@ def test_c25_4_a_reset_reads_the_log_again_from_zero(core_probe, tmp_path, harne
     assert result["turns"][mid]["outcome"]["state"] == "complete"
 
 
+def test_c25_4_a_reset_keeps_the_approval_id_of_a_pending_card(core_probe, tmp_path, harness):
+    """A card made again by re-reading the log after a reset keeps the approval id
+    `approval.list` gave it, so the person can still answer it."""
+    cid = harness.create()["conversation_id"]
+    mid = harness.submit(cid, "run it")["message_id"]
+    turn = harness.attempt(cid, mid)
+    turn.feed(claude_init(), replay(mid), *claude_stream("msg_a", ["Checking\n", "first\n"]))
+    claude_approval(turn, mid, "perm-r")
+    partial = page(harness, cid, limit=2)                   # read before the approval was
+    assert "approval.requested" not in [e["kind"] for e in partial["events"]]
+    approvals = harness.call("approval.list", conversation_id=cid)["approvals"]
+    assert [a["state"] for a in approvals] == ["pending"]
+    assert turn.compact() > 0
+    stale = page(harness, cid, after=partial["next"])
+    assert stale["reset"] is True
+    fresh = page(harness, cid, after=0)
+    result = fold(core_probe, tmp_path, cid, [
+        {"page": partial}, {"approvals": approvals, "snapshot": True}, {"page": stale, "snapshot": True},
+        {"page": fresh},
+    ])
+    assert result["results"] == ["applied:2", "approvals", "reset", f"applied:{len(fresh['events'])}"]
+    joined, after_reset = result["snapshots"]
+    assert [c["card"]["approval_id"] for c in items_of(joined, mid, "approval")] == [approvals[0]["approval_id"]]
+    assert items_of(after_reset, mid, "approval") == []
+    cards = items_of(result, mid, "approval")
+    assert len(cards) == 1
+    card = cards[0]["card"]
+    assert card["request_id"] == "perm-r" and card["approval_id"] == approvals[0]["approval_id"]
+    assert card["state"] == "pending" and result["pending_cards"]
+
+
 def test_c29_9_a_superseded_poll_changes_nothing(core_probe, tmp_path, harness):
     cid = harness.create()["conversation_id"]
     mid = harness.submit(cid, "hello")["message_id"]

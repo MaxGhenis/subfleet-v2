@@ -12,7 +12,9 @@
 // - `tool.started`/`tool.completed` make one activity row per tool call.
 // - `status` phases and `accepted` feed the turn's status strip; `served` merges
 //   into the turn's served facts; `limits`, `diff` are kept per turn.
-// - `approval.requested` adds a card; `approval.resolved` answers or withdraws it;
+// - `approval.requested` adds a card (it carries the daemon's approval id once
+//   `attach` has seen that approval, also when a reset makes the card again);
+//   `approval.resolved` answers or withdraws it;
 //   `turn.completed` records the outcome and withdraws what is still pending
 //   (the driver withdraws pending requests when a turn ends without an event).
 // - `reset: true` means compacted deltas were missed: the event-derived state is
@@ -172,6 +174,9 @@ struct Timeline: Equatable {
     private(set) var firstEventTS: String?
     private(set) var resets = 0
     private(set) var unknownKinds: [String: Int] = [:]
+    /// Every approval `attach` has seen, by approval id. A card the events make
+    /// again (after a reset re-reads the log) gets its approval id back from here.
+    private var knownApprovals: [String: ApprovalView] = [:]
 
     init(conversationID: String) {
         self.conversationID = conversationID
@@ -322,8 +327,9 @@ struct Timeline: Equatable {
                 card.requestID = requestID
                 turn.items[index].content = .approval(card)
             } else {
-                let card = ApprovalCard(requestID: requestID, approvalID: nil, kind: kind, display: display,
-                                        options: options, state: .pending)
+                let card = ApprovalCard(requestID: requestID,
+                                        approvalID: knownApprovalID(in: turn, kind: kind, display: display),
+                                        kind: kind, display: display, options: options, state: .pending)
                 turn.items.append(TimelineItem(id: "approval:\(id):\(requestID ?? "seq\(event.seq)")", messageID: id,
                                                content: .approval(card), ts: event.ts))
             }
@@ -478,6 +484,7 @@ struct Timeline: Equatable {
     /// display; an approval with no card yet gets one.
     mutating func attach(approvals: [ApprovalView]) {
         for approval in approvals where approval.conversation_id == conversationID {
+            knownApprovals[approval.approval_id] = approval
             ensureTurn(approval.message_id)
             guard var turn = turns[approval.message_id] else { continue }
             let state: ApprovalCard.State = approval.state == "pending" ? .pending
@@ -506,6 +513,20 @@ struct Timeline: Equatable {
             }
             turns[approval.message_id] = turn
         }
+    }
+
+    /// The id of a known approval for a card an event is making: same message,
+    /// kind and display, not yet held by another card of the turn; the oldest first.
+    private func knownApprovalID(in turn: TurnTimeline, kind: String, display: ApprovalDisplay) -> String? {
+        let held = Set(turn.items.compactMap { item -> String? in
+            if case .approval(let card) = item.content { return card.approvalID }
+            return nil
+        })
+        return knownApprovals.values
+            .filter { $0.message_id == turn.messageID && $0.kind == kind && $0.display == display
+                && !held.contains($0.approval_id) }
+            .min { ($0.created_at, $0.approval_id) < ($1.created_at, $1.approval_id) }?
+            .approval_id
     }
 
     /// Every card still waiting for the person.
