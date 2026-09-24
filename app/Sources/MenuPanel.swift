@@ -18,8 +18,25 @@ final class QuotaStore: ObservableObject {
     let url: URL
     private var timer: Timer?
 
-    init(url: URL = statusFileURL(), automaticallyReload: Bool = true) {
-        self.url = url
+    /// Set when this is the development build pointed at ~/.subfleet (D-21):
+    /// the snapshot there is not read.
+    let refusal: String?
+
+    /// The snapshot of the resolved endpoint (C-29.1), or an explicit file.
+    init(url: URL? = nil, automaticallyReload: Bool = true) {
+        if let url {
+            self.url = url
+            refusal = nil
+        } else {
+            switch resolveDaemonEndpoint() {
+            case .ready(let endpoint):
+                self.url = endpoint.statusURL
+                refusal = nil
+            case .refused(let root, let reason):
+                self.url = root.appendingPathComponent("status.json")
+                refusal = reason
+            }
+        }
         load()
         if automaticallyReload {
             timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -38,6 +55,11 @@ final class QuotaStore: ObservableObject {
 
     func load() {
         loadedAt = Date()
+        if let refusal {
+            snap = nil
+            readError = refusal
+            return
+        }
         do {
             snap = try JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: url))
             readError = nil
