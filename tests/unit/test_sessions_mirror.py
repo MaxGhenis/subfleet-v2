@@ -170,7 +170,7 @@ def test_transient_read_failure_is_retried_without_a_metadata_change(world, monk
     running = engine(world)
     signature = running._signature(path)
     assert running.run_once().added == 0
-    assert path not in running._entries
+    assert str(path) not in running._entries
     assert running._signature(path) == signature
     assert running.run_once().added == 1
     assert len(copies(store, ONE)) == 2

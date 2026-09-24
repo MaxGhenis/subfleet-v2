@@ -509,7 +509,9 @@ class Mirror:
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.dir = self.root / "sessions"
         self.cancel = cancel
-        self._entries: dict[Path, tuple[tuple[int, ...], bytes]] = {}
+        # Keyed by path string: a `Path` caches its parsed parts, which cost
+        # ~300 MiB across 218k entries on 2026-09-24; a string costs ~35 MiB.
+        self._entries: dict[str, tuple[tuple[int, ...], bytes]] = {}
         self._payloads: dict[bytes, _Payload] = {}
         self._payload_bytes = 0
         self._pass_payloads: dict[bytes, dict] = {}
@@ -537,8 +539,8 @@ class Mirror:
         info = path.stat()
         return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size, info.st_ctime_ns)
 
-    def _forget(self, path: Path) -> None:
-        old = self._entries.pop(path, None)
+    def _forget(self, path: str | Path) -> None:
+        old = self._entries.pop(os.fspath(path), None)
         if old is not None:
             payload = self._payloads[old[1]]
             payload.refs -= 1
@@ -563,7 +565,7 @@ class Mirror:
             payload = self._payloads[digest] = _Payload(value, size)
             self._payload_bytes += size
         payload.refs += 1
-        self._entries[path] = (signature, digest)
+        self._entries[os.fspath(path)] = (signature, digest)
         return payload.value
 
     def _entry(self, path: Path) -> dict:
@@ -574,7 +576,7 @@ class Mirror:
         """
         try:
             signature = self._signature(path)
-            cached = self._entries.get(path)
+            cached = self._entries.get(os.fspath(path))
             if cached is not None and cached[0] == signature:
                 return self._payloads[cached[1]].value
             self._forget(path)
@@ -597,7 +599,7 @@ class Mirror:
 
     def _file(self, folder: Path, name: str) -> dict:
         """A listed entry's projection, from the cache when it holds one."""
-        cached = self._entries.get(folder / name)
+        cached = self._entries.get(os.path.join(folder, name))
         if cached is not None:
             return self._payloads[cached[1]].value
         return self._entry(folder / name)
@@ -782,7 +784,9 @@ class Mirror:
         self._dirty.discard(path)
         try:
             with os.scandir(path) as listing:
-                found = sorted((item.name, item.inode()) for item in listing
+                # The same ~1.8k names recur in every folder; interned, the
+                # folders' listings share one string per name.
+                found = sorted((sys.intern(item.name), item.inode()) for item in listing
                                if item.name.startswith("local_") and item.name.endswith(".json"))
         except OSError:
             found = []
@@ -791,17 +795,18 @@ class Mirror:
         ids: dict[str, list[str]] = {}
         fresh: list[str] = []
         complete = signature is not None
+        base = os.fspath(path)
         for name, inode in found:
             self._checkpoint(current)
-            entry = path / name
-            cached = self._entries.get(entry)
+            key = os.path.join(base, name)
+            cached = self._entries.get(key)
             if (not sweep and cached is not None and name in previous
                     and cached[0][1] == inode):
                 data = self._payloads[cached[1]].value
             else:
                 before = cached[1] if cached is not None else None
-                data = self._entry(entry)
-                after = self._entries.get(entry)
+                data = self._entry(path / name)
+                after = self._entries.get(key)
                 if after is None:
                     complete = False
                 if data and (after is None or after[1] != before):
@@ -966,18 +971,22 @@ class Mirror:
         else:
             # Largest file wins on duplicate stems: an archive can hold several
             # snapshots of one session, and the largest is the longest conversation.
+            # Only the dead sessions' files are stat'ed and kept; holding a Path
+            # for each of 56k archive files cost ~120 MiB (2026-09-24).
             archive = {}
             for name in globbing.iglob(os.path.expanduser(pattern), recursive=True):
                 if current is not None:
                     self._checkpoint(current)
-                path = Path(name)
+                stem = os.path.splitext(os.path.basename(name))[0]
+                if stem not in wanted:
+                    continue
                 try:
-                    size = path.stat().st_size
+                    size = os.stat(name).st_size
                 except OSError:            # an archive sync may unlink mid-walk
                     continue
-                previous = archive.get(path.stem)
+                previous = archive.get(stem)
                 if previous is None or size > previous[0]:
-                    archive[path.stem] = (size, path)
+                    archive[stem] = (size, Path(name))
             self._archive = (pattern, time.monotonic(), archive, wanted)
         revived = 0
         for identity, data in sorted(dead.items()):
