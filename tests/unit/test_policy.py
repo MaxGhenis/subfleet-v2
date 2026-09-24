@@ -217,3 +217,49 @@ def test_unknown_model_is_exit_two_naming_input_key(name):
     assert caught.value.key == "job.pinned_model"
     assert str(DEFAULT_POLICY_PATH) in str(caught.value)
     assert "unknown model" in str(caught.value)
+
+
+def test_conversation_and_retention_sections_default_and_follow_the_policy_file(tmp_path, policy_data):
+    """C-30.1, C-25.4, C-26.9, C-8.4, C-26.12: the catalog interval, compaction
+    thresholds, approval wait and both retention budgets are policy data."""
+    from subfleet.policy import CONVERSATION_DEFAULTS, RETENTION_DEFAULTS
+    policy_data.pop("conversations", None)
+    policy_data.pop("retention", None)
+    policy = load_policy(write_policy(tmp_path, policy_data))
+    assert policy["conversations"] == CONVERSATION_DEFAULTS
+    assert policy["conversations"]["catalog_interval_s"] == 60
+    assert policy["retention"] == RETENTION_DEFAULTS
+    assert (policy["retention"]["jobs"], policy["retention"]["bytes"]) == (500, 2 * 1024 ** 3)
+    assert (policy["retention"]["turn_jobs"], policy["retention"]["turn_bytes"],
+            policy["retention"]["turn_keep_days"]) == (2000, 4 * 1024 ** 3, 14)
+    policy_data["conversations"] = {"catalog_interval_s": 0, "compact_after_s": 0}
+    policy_data["retention"] = {"turn_jobs": 50, "turn_keep_days": 0}
+    policy = load_policy(write_policy(tmp_path, policy_data))
+    assert policy["conversations"]["catalog_interval_s"] == 0 and policy["conversations"]["compact_after_s"] == 0
+    assert policy["conversations"]["approval_wait_s"] == 3600
+    assert policy["retention"]["turn_jobs"] == 50 and policy["retention"]["turn_keep_days"] == 0
+    assert policy["retention"]["jobs"] == 500
+
+
+@pytest.mark.parametrize("section, key, value", [
+    ("conversations", "catalog_interval_s", -5),
+    ("conversations", "catalog_interval_s", True),
+    ("conversations", "compact_after_s", -1),
+    ("conversations", "compact_per_tick", 2.5),
+    ("retention", "turn_jobs", 0),
+    ("retention", "bytes", "2GiB"),
+    ("retention", "turn_keep_days", -1),
+])
+def test_conversation_and_retention_values_are_validated(tmp_path, policy_data, section, key, value):
+    """C-11.1: a bad value names its section and key; zero only where it means none."""
+    policy_data[section] = {key: value}
+    with pytest.raises(PolicyError, match=f"{section}.{key}"):
+        load_policy(write_policy(tmp_path, policy_data))
+
+
+def test_a_section_that_is_not_an_object_is_refused(tmp_path, policy_data):
+    """C-11.1: `conversations` and `retention` are objects."""
+    for section in ("conversations", "retention"):
+        data = {**policy_data, section: [1]}
+        with pytest.raises(PolicyError, match=section):
+            load_policy(write_policy(tmp_path, data))

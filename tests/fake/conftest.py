@@ -31,6 +31,10 @@ class Harness:
         # cases describe mechanics the rule sits on top of, so the policy starts with it off.
         policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
         policy.setdefault("reserve", {})["models"] = []
+        # C-30.1: these daemons run under the real HOME; a timed catalog run would
+        # index the host's own sessions. The catalog is covered with an isolated
+        # HOME in tests/e2e and tests/unit/test_conversation_service.py.
+        policy.setdefault("conversations", {})["catalog_interval_s"] = 0
         (root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
         self.process: subprocess.Popen | None = None
         self.logs = []

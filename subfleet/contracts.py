@@ -222,6 +222,11 @@ KEEPALIVE_TIMEOUT_S = 60
 ALERT_REALERT_HOURS = 6
 RETENTION_MAX_JOBS = 500
 RETENTION_MAX_BYTES = 2 * 1024 ** 3
+# C-26.12, design §9: conversation turn jobs have a budget of their own, and each
+# is kept at least this many days after it ends.
+TURN_RETENTION_MAX_JOBS = 2000
+TURN_RETENTION_MAX_BYTES = 4 * 1024 ** 3
+TURN_RETENTION_KEEP_DAYS = 14
 
 # Codex window durations in minutes (C-9.7).
 WINDOW_KEYS = {300: "five_hour", 10080: "seven_day"}

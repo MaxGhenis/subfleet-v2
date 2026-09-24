@@ -28,6 +28,9 @@ SCHEMA_VERSION = 1
 PROVIDERS = ("claude", "codex")
 EVENT_ROW_MAX = 64 * 1024
 PAGE_BYTES = 256 * 1024
+# Streamed fragments a settled turn no longer needs: its `text` and `thinking`
+# events carry the whole of each (design §3).
+DELTA_KINDS = ("text.delta", "thinking.delta")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
@@ -43,6 +46,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   settings_json     TEXT NOT NULL,
   origin            TEXT NOT NULL CHECK (origin IN ('new','native','handoff','legacy')),
   handoff_from_json TEXT,
+  worktree_json     TEXT,
   request_id        TEXT UNIQUE,
   blocked_by        TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
@@ -227,6 +231,11 @@ class ConversationStore:
                 raise ConversationError("schema", f"conversations.sqlite3 is schema {version}; this build knows {SCHEMA_VERSION}",
                                         code=1, fix="install the release that created it")
             self._db.executescript(SCHEMA)
+            # Additive columns keep schema 1: a build without them still reads the
+            # rows (it selects by name and ignores what it does not know).
+            columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
+            if "worktree_json" not in columns:
+                self._db.execute("ALTER TABLE conversations ADD COLUMN worktree_json TEXT")
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
         self.changed = threading.Condition()
@@ -321,15 +330,21 @@ class ConversationStore:
         return self.conversation(cid), True
 
     def update_conversation(self, conversation_id: str, **fields: Any) -> dict:
-        allowed = {"native_session_id", "title", "lane_id", "settings", "blocked_by", "allow_main", "archived_at"}
+        allowed = {"native_session_id", "title", "lane_id", "settings", "blocked_by", "allow_main", "archived_at",
+                   "workspace", "worktree"}
         unknown = set(fields) - allowed
         if unknown:
             raise ValueError(f"unknown conversation fields {sorted(unknown)}")
+        if "workspace" in fields and (not isinstance(fields["workspace"], str) or not fields["workspace"]):
+            raise ValueError("a conversation's workspace is a directory path")
         sets, params = [], []
         for key, value in fields.items():
             if key == "settings":
                 sets.append("settings_json=?")
                 params.append(json.dumps(value))
+            elif key == "worktree":
+                sets.append("worktree_json=?")
+                params.append(json.dumps(value, sort_keys=True) if value is not None else None)
             elif key == "allow_main":
                 sets.append("allow_main=?")
                 params.append(int(bool(value)))
@@ -424,8 +439,9 @@ class ConversationStore:
         return Path(message["text_path"]).read_text(encoding="utf-8")
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,
-                  expect: tuple[str, ...] | None = None, **fields: Any) -> bool:
-        """Move a message; with `expect`, only from those states. Returns whether it moved."""
+                  expect: tuple[str, ...] | None = None, unbound: bool = False, **fields: Any) -> bool:
+        """Move a message; with `expect`, only from those states, and with `unbound`,
+        only while no job is bound to it. Returns whether it moved."""
         if state not in MESSAGE_STATES:
             raise ValueError(f"unknown state {state}")
         allowed = {"job_id", "turn_seq", "turn_ref", "served", "stop_requested_at", "resolution"}
@@ -440,6 +456,8 @@ class ConversationStore:
         if expect:
             where += f" AND state IN ({','.join('?' * len(expect))})"
             wparams += list(expect)
+        if unbound:
+            where += " AND job_id IS NULL"
         with self.transaction() as tx:
             cur = tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE {where}", (*params, *wparams))
             if cur.rowcount:
@@ -570,7 +588,11 @@ class ConversationStore:
         now = utcnow()
         written = 0
         with self.transaction() as tx:
+            mark = tx.execute("SELECT compacted FROM attempt_marks WHERE attempt_id=?", (attempt_id,)).fetchone()
+            compacted = bool(mark and mark["compacted"])
             for source, position, ordinal, kind, data in events:
+                if compacted and kind in DELTA_KINDS:
+                    continue            # removed by compaction; a replay never brings them back
                 body = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
                 if len(body.encode()) > EVENT_ROW_MAX:
                     body = json.dumps({"truncated": True, "kind": kind})
@@ -585,12 +607,18 @@ class ConversationStore:
                        (attempt_id, message_id, stdout_offset, stdin_seq))
         return written
 
+    def floor(self, conversation_id: str) -> int:
+        """The highest event sequence number compaction removed, or 0 (C-25.4)."""
+        row = self.one("SELECT compacted_through FROM floors WHERE conversation_id=?", (conversation_id,))
+        return int(row["compacted_through"]) if row else 0
+
     def events_after(self, conversation_id: str, after: int, *, limit: int = 500,
                      max_bytes: int = PAGE_BYTES) -> dict:
-        floor = self.one("SELECT compacted_through FROM floors WHERE conversation_id=?", (conversation_id,))
-        # A client that has seen something, but not everything up to the floor,
-        # missed compacted rows: it reloads the conversation (C-25.4).
-        reset = bool(floor) and 0 < after < floor["compacted_through"]
+        floor = self.floor(conversation_id)
+        # C-25.4, IR-6: reset exactly when the cursor is below the floor. The row at
+        # the floor was removed, so a cursor below it missed at least that row; a
+        # cursor at or above it had read every removed row before it was removed.
+        reset = after < floor
         rows = self.query("SELECT seq,message_id,kind,data_json,ts FROM events WHERE conversation_id=? AND seq>? "
                           "ORDER BY seq LIMIT ?", (conversation_id, after, max(1, min(limit, 1000))))
         out, size, nxt = [], 0, after
@@ -601,22 +629,36 @@ class ConversationStore:
             out.append({"seq": row["seq"], "message_id": row["message_id"], "kind": row["kind"], "ts": row["ts"],
                         "data": json.loads(row["data_json"])})
             nxt = row["seq"]
-        return {"events": out, "next": nxt, "reset": reset}
+        return {"events": out, "next": nxt, "reset": reset, "floor": floor}
 
     def compact(self, attempt_id: str) -> int:
-        """Remove an ended attempt's delta rows; record the floor (design §3)."""
+        """Remove an attempt's delta rows and raise its conversation's floor to the
+        highest sequence number removed (design §3, C-25.4). Only for an attempt
+        that has ended and whose message is settled: the caller checks (IR-6). The
+        attempt is marked compacted even when it had no deltas, so it is visited once."""
+        kinds = ",".join("?" * len(DELTA_KINDS))
         with self.transaction() as tx:
-            row = tx.execute("SELECT conversation_id, MAX(seq) AS top FROM events WHERE attempt_id=?",
-                             (attempt_id,)).fetchone()
-            if not row or row["conversation_id"] is None:
-                return 0
-            deleted = tx.execute("DELETE FROM events WHERE attempt_id=? AND kind IN ('text.delta','thinking.delta')",
-                                 (attempt_id,)).rowcount
-            tx.execute("INSERT INTO floors(conversation_id,compacted_through) VALUES (?,?) ON CONFLICT(conversation_id) "
-                       "DO UPDATE SET compacted_through=MAX(compacted_through,excluded.compacted_through)",
-                       (row["conversation_id"], row["top"]))
+            row = tx.execute(f"SELECT conversation_id, MAX(seq) AS top FROM events WHERE attempt_id=? AND kind IN ({kinds})",
+                             (attempt_id, *DELTA_KINDS)).fetchone()
+            deleted = 0
+            if row and row["top"] is not None:
+                deleted = tx.execute(f"DELETE FROM events WHERE attempt_id=? AND kind IN ({kinds})",
+                                     (attempt_id, *DELTA_KINDS)).rowcount
+                tx.execute("INSERT INTO floors(conversation_id,compacted_through) VALUES (?,?) ON CONFLICT(conversation_id) "
+                           "DO UPDATE SET compacted_through=MAX(compacted_through,excluded.compacted_through)",
+                           (row["conversation_id"], row["top"]))
             tx.execute("UPDATE attempt_marks SET compacted=1 WHERE attempt_id=?", (attempt_id,))
             return deleted
+
+    def compactable(self, *, settled_before: str, limit: int) -> list[dict]:
+        """Attempts not yet compacted whose message reached a terminal state no later
+        than `settled_before` (UTC ISO), oldest first. Whether the attempt itself has
+        ended is the job store's to say; the caller asks it (IR-6)."""
+        terminal = ",".join("?" * len(TERMINAL_STATES))
+        return self.query(
+            "SELECT k.attempt_id, k.message_id, m.conversation_id, m.state FROM attempt_marks k "
+            f"JOIN messages m USING(message_id) WHERE k.compacted=0 AND m.state IN ({terminal}) "
+            "AND m.updated_at<=? ORDER BY m.updated_at LIMIT ?", (*TERMINAL_STATES, settled_before, max(1, int(limit))))
 
     # --- the change feed (C-29.9) ----------------------------------------------
 
@@ -648,6 +690,8 @@ def _decode_conversation(row: dict) -> dict:
     out = dict(row)
     out["settings"] = json.loads(out.pop("settings_json"))
     out["handoff_from"] = json.loads(out.pop("handoff_from_json")) if out.get("handoff_from_json") else None
+    worktree = out.pop("worktree_json", None)
+    out["worktree"] = json.loads(worktree) if worktree else None
     out["allow_main"] = bool(out["allow_main"])
     return out
 

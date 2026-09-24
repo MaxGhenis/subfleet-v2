@@ -14,15 +14,22 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import shutil
+import signal
+import sqlite3
 import stat
+import subprocess
 import threading
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .. import protocol
 from ..adapters.base import AdapterError
+from ..contracts import Exit
+from ..policy import CONVERSATION_DEFAULTS
 from . import attachments as attachment_store
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
@@ -41,7 +48,9 @@ LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "att
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": 64 * 1024 * 1024}
 OPS = frozenset(protocol.CONVERSATION_OPS)
 POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
-FILE_OPS = frozenset({"attachment.add", "conversation.history"})
+# C-25.3: file copies, transcript reads and a worktree's checkout (the one git
+# call an op makes) run on the dedicated file pool, never the request pool.
+FILE_OPS = frozenset({"attachment.add", "conversation.history", "conversation.create"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
 MAX_WAIT_S = 50.0
 
@@ -55,6 +64,15 @@ MAX_READMITS = 3
 CONTINUATION_TEXT = ("Continue from where you left off; the previous turn stopped at a usage limit "
                      "on another account.")
 CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
+# A turn submit refused before any provider saw the message waits and is tried
+# again after 2, 4, 8, ... seconds, at most every 5 minutes (C-26.1).
+DEFER_BASE_S = 2.0
+DEFER_MAX_S = 300.0
+# A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
+# times that is wedged outside the cap (a directory walk, `ps`) and is stopped.
+CATALOG_KILL_AFTER_S = 60.0
+# Attempt states that have ended; `quarantined` has not (its processes may live).
+ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 
 
 class ConversationService:
@@ -68,6 +86,14 @@ class ConversationService:
         self._lock = threading.RLock()
         self._poll_slots: dict[tuple, threading.Event] = {}
         self.log = daemon.log
+        self.clock = time.monotonic
+        # message id -> (refusals in a row, monotonic time of the next try)
+        self._deferred: dict[str, tuple[int, float]] = {}
+        self._catalog_lock = threading.RLock()
+        self._catalog_proc: subprocess.Popen | None = None
+        self._catalog_started = 0.0            # monotonic time of the run this service last started
+        self._catalog_killed = False
+        self._catalog_last: float | None = None   # the last start or request; None: the first tick starts one
 
     def close(self) -> None:
         for runner in list(self.runners.values()):
@@ -191,16 +217,25 @@ class ConversationService:
 
     # --- ops: conversations ----------------------------------------------------
 
+    def config(self) -> dict:
+        """The policy's `conversations` section over its defaults (C-26.9, C-30.1, C-25.4)."""
+        return {**CONVERSATION_DEFAULTS, **(self.daemon.policy.get("conversations") or {})}
+
     def op_conversation_list(self, args, peer) -> dict:
         conversations = [self._view(c) for c in self.store.list_conversations(
             provider=args.get("provider"), limit=int(args.get("limit") or 200))]
         out = {"conversations": conversations}
         if args.get("include_catalog", True):
-            from .catalog import read_catalog
+            from .catalog import read_catalog, refresh_running
             bound = {(c["provider"], c["native_session_id"]) for c in conversations if c["native_session_id"]}
-            out["catalog"] = read_catalog(self.root, query=args.get("query"), exclude=bound,
-                                          limit=int(args.get("limit") or 200), before=args.get("before"),
-                                          include_archived=bool(args.get("include_archived")))
+            # D-23: the catalog is read as it is; a missing or old one is reported,
+            # and the control loop's next run replaces it. Nothing here scans.
+            catalog = read_catalog(self.root, query=args.get("query"), exclude=bound,
+                                   limit=int(args.get("limit") or 200), before=args.get("before"),
+                                   include_archived=bool(args.get("include_archived")),
+                                   stale_after_s=self._catalog_stale_after_s())
+            catalog["refreshing"] = bool(refresh_running(self.root))
+            out["catalog"] = catalog
         return out
 
     def _view(self, conversation: dict) -> dict:
@@ -208,9 +243,10 @@ class ConversationService:
                               "ORDER BY seq DESC LIMIT 1", (conversation["conversation_id"],))
         pending = self.store.one("SELECT COUNT(*) n FROM approvals WHERE conversation_id=? AND state='pending'",
                                  (conversation["conversation_id"],))["n"]
-        return {**{k: conversation[k] for k in ("conversation_id", "provider", "native_session_id", "title",
-                                                "workspace", "workspace_kind", "allow_main", "lane_id", "settings",
-                                                "origin", "handoff_from", "blocked_by", "created_at", "updated_at")},
+        return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title",
+                                                    "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
+                                                    "settings", "origin", "handoff_from", "blocked_by", "created_at",
+                                                    "updated_at")},
                 "last_message": last, "pending_approvals": pending,
                 "active": bool(last and last["state"] not in TERMINAL_STATES and last["state"] != QUEUED)}
 
@@ -267,30 +303,78 @@ class ConversationService:
         if kind not in ("in-place", "worktree"):
             raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
         self._check_workspace(provider, workspace, settings)
+        existing = self.store.one("SELECT conversation_id FROM conversations WHERE request_id=?", (request_id,))
+        if kind == "worktree" and existing is None and self._git_toplevel(workspace) is None:
+            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
         conversation, created = self.store.create_conversation(
             provider=provider, workspace=workspace, workspace_kind=kind, settings=settings, origin="new",
             title=args.get("title"), allow_main=allow_main, request_id=request_id)
-        if created and kind == "worktree":
-            path = self._cut_worktree(workspace, conversation["conversation_id"])
-            conversation = self.store.update_conversation(conversation["conversation_id"], **{})
-            self.store.query("UPDATE conversations SET workspace=? WHERE conversation_id=?",
-                             (path, conversation["conversation_id"]))
-            conversation = self.store.conversation(conversation["conversation_id"])
+        if conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
+            # A new conversation, or a repeat of a create whose cut failed or was
+            # cut short by a crash: the same request id finishes the same worktree.
+            conversation = self._cut_worktree(conversation)
         return {"conversation": self._view(conversation), "created": created}
 
-    def _cut_worktree(self, repo: str, cid: str) -> str:
-        import subprocess
-        top = subprocess.run(["git", "-C", repo, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                             timeout=20)
-        if top.returncode:
+    def _git_toplevel(self, directory: str) -> str | None:
+        from ..salvage import SalvageError, git_toplevel
+        try:
+            return git_toplevel(directory, timeout_s=self._git_timeout_s())
+        except SalvageError as exc:
+            raise ConversationError("git-unavailable", f"could not inspect {directory}: {exc}", code=1,
+                                    fix="try again") from exc
+
+    def _git_timeout_s(self, key: str = "workspace_git_timeout_s") -> float:
+        return float((self.daemon.policy.get("caps") or {}).get(key) or 60)
+
+    def _cut_worktree(self, conversation: dict) -> dict:
+        """D-16, D-25: a new worktree on its own branch, cut from the checkout the
+        person picked, recorded on the conversation (path, branch, source, base).
+        Idempotent: a worktree an interrupted earlier call already added on this
+        conversation's branch is adopted; a directory that is not one is rebuilt."""
+        cid = conversation["conversation_id"]
+        source = conversation["workspace"]
+        top = self._git_toplevel(source)
+        if top is None:
             raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
-        target = self.root / "worktrees" / f"conversation-{cid}"
+        parent = self.root / "worktrees"
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target = parent / f"conversation-{cid}"
         branch = f"subfleet/{cid}"
-        made = subprocess.run(["git", "-C", top.stdout.strip(), "worktree", "add", "-b", branch, str(target)],
-                              capture_output=True, text=True, timeout=60)
-        if made.returncode:
-            raise ConversationError("worktree-failed", made.stderr.strip()[-300:] or "git worktree add failed", code=1)
-        return str(target)
+        timeout = self._git_timeout_s()
+
+        def git(*argv: str, cwd: str | Path = top, cap: float = timeout) -> subprocess.CompletedProcess:
+            try:
+                return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True, timeout=cap)
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
+                                        fix="repeat conversation.create with the same request_id") from exc
+
+        adopted = False
+        if target.exists():
+            head = git("symbolic-ref", "--quiet", "--short", "HEAD", cwd=target) if (target / ".git").is_file() else None
+            if head is not None and head.returncode == 0 and head.stdout.strip() == branch:
+                adopted = True
+            else:
+                # Not a worktree on this branch (an add cut short). No turn ever ran
+                # in it: a conversation dispatches only once its worktree is recorded.
+                shutil.rmtree(target, ignore_errors=True)
+                git("worktree", "prune")
+        if not adopted:
+            has_branch = git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0
+            argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]
+            made = git(*argv, cap=self._git_timeout_s("worktree_add_timeout_s"))
+            if made.returncode:
+                raise ConversationError("worktree-failed", made.stderr.strip()[-300:] or "git worktree add failed",
+                                        code=1, fix="repeat conversation.create with the same request_id")
+            os.chmod(target, 0o700)
+        base = git("rev-parse", "--verify", "HEAD", cwd=target)
+        # A conversation started in a subdirectory works in the same subdirectory.
+        relative = os.path.relpath(source, top)
+        inside = target / relative if relative != "." and not relative.startswith("..") else target
+        workspace = inside if inside.is_dir() else target
+        record = {"path": str(target), "branch": branch, "source": source, "repository": top,
+                  "base": base.stdout.strip() if base.returncode == 0 else None, "created_at": utcnow()}
+        return self.store.update_conversation(cid, workspace=str(workspace), worktree=record)
 
     def op_conversation_settings(self, args, peer) -> dict:
         conversation = self.store.conversation(args["conversation_id"])
@@ -389,6 +473,9 @@ class ConversationService:
         conversation = self.store.conversation(args["conversation_id"])
         if conversation.get("archived_at"):
             raise ConversationError("archived", "the conversation is archived")
+        if conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
+            raise ConversationError("worktree-missing", "the conversation's worktree was not created",
+                                    fix="repeat conversation.create with the same request_id")
         settings = validate_settings(conversation["provider"], args.get("settings") or conversation["settings"])
         if widens(conversation["settings"], settings):
             raise ConversationError("settings-mismatch", "a message cannot widen the conversation's permissions",
@@ -429,9 +516,14 @@ class ConversationService:
             message = self.store.message(message_id)
         except ConversationError:
             return self._tombstone(message_id, args.get("conversation_id"))
-        if message["state"] == QUEUED and not self._turn_job(message):
-            if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED,)):
+        if message["state"] in (QUEUED, WAITING) and not message["job_id"] and not self._turn_job(message):
+            # No job carries it (queued, or waiting to be submitted again): the
+            # conversation store decides. A job the dispatcher submits meanwhile
+            # finds the message cancelled and is cancelled in turn (_dispatch_one).
+            if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING),
+                                    unbound=True):
                 return self._receipt(self.store.message(message_id))
+            message = self.store.message(message_id)
         if message["state"] in (QUEUED, WAITING):
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
@@ -478,6 +570,10 @@ class ConversationService:
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,))
+            elif job is None:
+                # Waiting to be submitted again (a re-admission or a deferral): no
+                # provider has it. The dispatcher also withdraws a stopped message.
+                self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,), unbound=True)
         return self._receipt(self.store.message(message_id))
 
     def op_message_resolve(self, args, peer) -> dict:
@@ -552,8 +648,11 @@ class ConversationService:
         return attachment_store.add(self.store, args.get("path"), args.get("sha256"))
 
     def op_catalog_refresh(self, args, peer) -> dict:
-        from .catalog import request_refresh
-        return request_refresh(self.root)
+        """D-23: start a run now; the handler never waits for it (C-25.3)."""
+        from .catalog import read_catalog
+        requested = self._start_catalog()
+        generated = read_catalog(self.root, limit=1)["generated_at"]
+        return {"requested": requested["requested"], "running": requested["running"], "generated_at": generated}
 
     # --- policy checks ---------------------------------------------------------
 
@@ -583,13 +682,123 @@ class ConversationService:
     # --- the control loop ------------------------------------------------------
 
     def tick(self) -> None:
-        """Called on the control loop's worker pool, never on a request thread."""
-        try:
-            self._dispatch()
-            self._adopt_runners()
-            self._settle_unstarted()
-        except Exception as exc:
-            self.log.error("conversation tick failed: %s: %s", type(exc).__name__, exc)
+        """Called on the control loop's worker pool, never on a request thread. Each
+        step is independent: one that fails is logged and the others still run."""
+        for step in (self._catalog_tick, self._dispatch, self._adopt_runners, self._settle_unstarted,
+                     self._reap_runners, self._compact):
+            try:
+                step()
+            except Exception as exc:
+                self.log.error("conversation tick step %s failed: %s: %s", step.__name__, type(exc).__name__, exc)
+
+    # --- the catalog timer (C-30.1, design D-23) --------------------------------
+
+    def _catalog_tick(self) -> None:
+        """Start a catalog run every `catalog_interval_s`. Never waits for one: the
+        run is a separate process this tick only starts, reaps, or stops when it
+        outlives `CATALOG_KILL_AFTER_S`."""
+        self._reap_catalog()
+        interval = float(self.config()["catalog_interval_s"])
+        if interval <= 0:
+            return                              # policy: on request only
+        last = self._catalog_last
+        if self._catalog_proc is None and (last is None or self.clock() - last >= interval):
+            self._start_catalog()
+
+    def _catalog_stale_after_s(self) -> float:
+        """Three missed runs; with the timer off, three of the default interval."""
+        interval = float(self.config()["catalog_interval_s"]) or float(CONVERSATION_DEFAULTS["catalog_interval_s"])
+        return 3 * interval
+
+    def _start_catalog(self) -> dict:
+        from .catalog import refresh_running, spawn_refresh
+        with self._catalog_lock:
+            self._reap_catalog()
+            if self._catalog_proc is not None:
+                return {"requested": False, "running": True}
+            self._catalog_last = self.clock()
+            try:
+                process = spawn_refresh(self.root)
+            except OSError as exc:
+                self.log.warning("catalog run not started: %s", exc)
+                return {"requested": False, "running": bool(refresh_running(self.root))}
+            if process is None:                 # another run holds the lock
+                return {"requested": False, "running": bool(refresh_running(self.root))}
+            self._catalog_proc, self._catalog_started, self._catalog_killed = process, self.clock(), False
+            return {"requested": True, "running": True}
+
+    def _reap_catalog(self) -> None:
+        with self._catalog_lock:
+            process = self._catalog_proc
+            if process is None:
+                return
+            if process.poll() is not None:
+                self._catalog_proc = None
+                if process.returncode and not self._catalog_killed:
+                    self.log.warning("catalog run exited %s", process.returncode)
+                return
+            if self._catalog_killed or self.clock() - self._catalog_started < CATALOG_KILL_AFTER_S:
+                return
+            # Still unreaped, so its pid (and the group it leads, start_new_session)
+            # cannot have been reused: the signal reaches only this run. A later
+            # tick reaps it; nothing here waits for it.
+            self.log.warning("catalog run %s outlived %g s; stopping it", process.pid, CATALOG_KILL_AFTER_S)
+            self._catalog_killed = True
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    # --- compaction (C-25.4, review IR-6) ---------------------------------------
+
+    def _compact(self) -> None:
+        """Remove the delta rows of attempts that have ended, whose message settled
+        at least `compact_after_s` ago, and that no live runner still reads."""
+        config = self.config()
+        cutoff = _iso_ago(float(config["compact_after_s"]))
+        live = {aid for aid, runner in list(self.runners.items()) if not runner.finished.is_set()}
+        for row in self.store.compactable(settled_before=cutoff, limit=int(config["compact_per_tick"])):
+            if row["attempt_id"] in live:
+                continue
+            attempt = self.daemon.store.one("SELECT state FROM attempts WHERE attempt_id=?", (row["attempt_id"],))
+            # An attempt row retention already removed belonged to a job that had ended.
+            if attempt is not None and attempt["state"] not in ATTEMPT_ENDED:
+                continue
+            self.store.compact(row["attempt_id"])
+
+    # --- runners and retention (C-26.12, review IR-17) --------------------------
+
+    def _reap_runners(self) -> None:
+        """Forget runners that have finished once the job store has ended their
+        attempt; until then `_adopt_runners` must keep seeing them."""
+        for aid, runner in list(self.runners.items()):
+            if not runner.finished.is_set():
+                continue
+            attempt = self.daemon.store.one("SELECT state FROM attempts WHERE attempt_id=?", (aid,))
+            if attempt is None or attempt["state"] not in ("starting", "running", "finalizing"):
+                self.runners.pop(aid, None)
+
+    def retention_pins(self) -> set[str]:
+        """Turn jobs retention must keep (C-26.12): every turn job of a message that
+        is not terminal, of a blocked conversation, and of a live runner. Read-only
+        and cheap; retention asks again inside each delete transaction."""
+        jobs = self.daemon.store
+        pinned = {aid.rsplit("/", 1)[0] for aid, runner in list(self.runners.items()) if not runner.finished.is_set()}
+        terminal = ",".join("?" * len(TERMINAL_STATES))
+        for row in self.store.query(f"SELECT message_id, job_id FROM messages WHERE state NOT IN ({terminal})",
+                                    TERMINAL_STATES):
+            if row["job_id"]:
+                pinned.add(row["job_id"])
+            # Every turn job the message ever had (`turn:<id>:<n>`), by the unique index.
+            prefix = f"turn:{row['message_id']}:"
+            pinned.update(r["job_id"] for r in jobs.query(
+                "SELECT job_id FROM jobs WHERE request_id>=? AND request_id<?", (prefix, prefix[:-1] + ";")))
+        for row in self.store.query("SELECT conversation_id FROM conversations WHERE blocked_by IS NOT NULL"):
+            pinned.update(r["job_id"] for r in jobs.query("SELECT job_id FROM jobs WHERE kind='turn' AND name=?",
+                                                          (f"turn-{row['conversation_id']}",)))
+        return pinned
+
+    # --- dispatch (design §4) ---------------------------------------------------
 
     def _turn_job(self, message: dict) -> dict | None:
         """The main store decides which job carries a message (IR-1)."""
@@ -598,32 +807,89 @@ class ConversationService:
         return dict(row) if row else None
 
     def _dispatch(self) -> None:
-        for message in self.store.next_dispatchable() + self._readmittable():
-            conversation = self.store.conversation(message["conversation_id"])
-            job = self._turn_job(message)
-            if job is None and not self._previous_released(conversation, message):
-                continue
-            if job is None:
-                try:
-                    job = self._submit_turn(conversation, message)
-                except ConversationError as exc:
-                    self.store.set_state(message["message_id"], FAILED, reason=exc.reason,
-                                         expect=(QUEUED, WAITING))
-                    continue
-                except (protocol.ProtocolError, AdapterError, OSError, ValueError) as exc:
-                    # Refused before any provider saw it: the message waits, it is not failed.
-                    self.store.update_message(message["message_id"])
-                    self.log.warning("turn submit for %s deferred: %s", message["message_id"], exc)
-                    continue
-            if job and message["state"] in (QUEUED, WAITING):
-                self.store.set_state(message["message_id"], WAITING, reason=message.get("state_reason"),
-                                     expect=(QUEUED, WAITING), job_id=job["job_id"])
+        candidates = self.store.next_dispatchable() + self._resubmittable()
+        seen = {m["message_id"] for m in candidates}
+        with self._lock:
+            self._deferred = {mid: value for mid, value in self._deferred.items() if mid in seen}
+        now = self.clock()
+        for message in candidates:
+            deferred = self._deferred.get(message["message_id"])
+            if deferred and now < deferred[1]:
+                continue                        # backing off (C-26.1)
+            try:
+                self._dispatch_one(message)
+            except Exception as exc:            # one message never holds up the others
+                self.log.error("dispatch of %s failed: %s: %s", message["message_id"], type(exc).__name__, exc)
 
-    def _readmittable(self) -> list[dict]:
-        rows = self.store.query("SELECT * FROM messages WHERE state='waiting' AND state_reason LIKE 'readmit:%'")
-        out = []
+    def _dispatch_one(self, message: dict) -> None:
+        mid = message["message_id"]
+        conversation = self.store.conversation(message["conversation_id"])
+        job = self._turn_job(message)
+        if job is None and message.get("stop_requested_at"):
+            # Stopped by a person while waiting to be submitted again: nothing was sent.
+            self.store.set_state(mid, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING), unbound=True)
+            return
+        if job is None and conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
+            # Never run a worktree conversation in the checkout it was cut from.
+            self._defer(message, "the conversation's worktree was not created; repeat conversation.create")
+            return
+        if job is None and not self._previous_released(conversation, message):
+            return
+        if job is None:
+            try:
+                job = self._submit_turn(conversation, message)
+            except Exception as exc:
+                permanent, why = _refusal(exc)
+                if permanent:
+                    # The daemon refused the turn outright: it never reached a provider.
+                    with self._lock:
+                        self._deferred.pop(mid, None)
+                    self.store.set_state(mid, FAILED, reason=f"not-delivered: {why}"[:200], expect=(QUEUED, WAITING))
+                else:
+                    self._defer(message, why)
+                    if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
+                                            sqlite3.Error)):
+                        self.log.error("turn submit for %s failed: %s: %s", mid, type(exc).__name__, exc)
+                return
+        with self._lock:
+            self._deferred.pop(mid, None)
+        if message["state"] not in (QUEUED, WAITING):
+            return
+        reason = message.get("state_reason")
+        if reason and not reason.startswith("readmit:"):
+            reason = None                       # a deferral is over once the job exists
+        if self.store.set_state(mid, WAITING, reason=reason, expect=(QUEUED, WAITING), job_id=job["job_id"]):
+            return
+        # The message moved while its job was being submitted: a person withdrew it
+        # (message.cancel). Its new job must not run (IR-2): cancelled outright while
+        # it has no attempt, else flagged, which `_launch` re-reads before starting.
+        if self.store.message(mid)["state"] == CANCELLED and not self._cancel_job_without_attempt(job["job_id"]):
+            with self.daemon.store.transaction("job.cancel_requested", job_id=job["job_id"]) as tx:
+                tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?",
+                           (utcnow(), job["job_id"]))
+            self.daemon._notify()
+
+    def _defer(self, message: dict, why: str) -> None:
+        """A submit refused before any provider saw the message: it keeps waiting,
+        says why, and is not submitted again until its backoff passes."""
+        mid = message["message_id"]
+        with self._lock:
+            count = self._deferred.get(mid, (0, 0.0))[0] + 1
+            delay = min(DEFER_MAX_S, DEFER_BASE_S * 2 ** (count - 1))
+            self._deferred[mid] = (count, self.clock() + delay)
+        reason = f"deferred: {why}"[:200]
+        if message.get("state_reason") != reason:
+            self.store.set_state(mid, message["state"], reason=reason, expect=(message["state"],))
+        if count & (count - 1) == 0:            # 1, 2, 4, 8, ...: the log stays bounded
+            self.log.warning("turn submit for %s deferred (%d in a row, next try in %g s): %s",
+                             mid, count, delay, why)
+
+    def _resubmittable(self) -> list[dict]:
+        """Waiting messages with no job: re-admitted after a failure that provably
+        never delivered them (IR-1, IR-23), or deferred on their way back."""
         from .store import _decode_message
-        for row in rows:
+        out = []
+        for row in self.store.query("SELECT * FROM messages WHERE state='waiting' AND job_id IS NULL"):
             message = _decode_message(row)
             if not self._turn_job(message):
                 out.append(message)
@@ -712,7 +978,7 @@ class ConversationService:
                                 conversation_id=turn["conversation_id"], attempt_dir=adir,
                                 control_socket=start["control_socket"], on_outcome=self._on_outcome,
                                 on_contain=self._on_contain, log=self.log,
-                                approval_wait_s=float(self.daemon.policy.get("conversations", {}).get("approval_wait_s", 3600)),
+                                approval_wait_s=float(self.config()["approval_wait_s"]),
                                 on_catalog=self._on_catalog)
             self.runners[aid] = runner
             self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
@@ -797,8 +1063,11 @@ class ConversationService:
                 self.store.set_state(message["message_id"], FAILED, reason=f"not-delivered: {reason}",
                                      expect=live, served=served)
         elif reason == "limited":
+            # C-26.7: the continuation is written first, so no reader sees the limited
+            # message failed without it; it cannot dispatch while the original is live.
+            if message["state"] in live:
+                self._continue_elsewhere(conversation, message)
             self.store.set_state(message["message_id"], FAILED, reason="limited", expect=live, served=served)
-            self._continue_elsewhere(conversation, message)
         elif turn.get("user_frame_written") or turn.get("accepted"):
             # Delivered, and no terminal event: reconcile, and block a Claude
             # conversation until the person decides (C-24.8, IR-5).
@@ -826,8 +1095,8 @@ class ConversationService:
         while current.get("continues"):
             chain += 1
             current = self.store.message(current["continues"])
-        if chain >= 2:
-            return
+        if chain >= 2 or self.store.one("SELECT 1 FROM messages WHERE continues=?", (message["message_id"],)):
+            return                              # at most two, and one per limited message
         last = self.store.one("SELECT message_id FROM messages WHERE conversation_id=? AND origin='person' "
                               "ORDER BY seq DESC LIMIT 1", (conversation["conversation_id"],))
         self.store.submit_message(conversation_id=conversation["conversation_id"], message_id=str(uuid.uuid4()),
@@ -882,6 +1151,29 @@ def policy_model(policy: dict, provider: str, value: str) -> str:
             return short
     raise ConversationError("unknown-model", f"{value!r} is not a {provider} model this fleet routes",
                             fix="pick a model from models.list")
+
+
+def _refusal(exc: BaseException) -> tuple[bool, str]:
+    """A turn submit that raised before any job existed: (permanent, why).
+
+    Permanent is the daemon's own refusal of this message as it is (invalid
+    input, exit 2, or a policy refusal, exit 7: a checkout on main without
+    `allow_main`, a missing attachment, a model the fleet does not route).
+    Everything else (an operational failure, exit 1, such as git timing out while
+    inspecting the workspace; a store or file error; a defect) may pass on a later
+    try, so the message waits.
+    """
+    if isinstance(exc, ConversationError):
+        return exc.code != int(Exit.OPERATIONAL), exc.reason
+    if isinstance(exc, (AdapterError, protocol.ProtocolError)):
+        return int(exc.code) != int(Exit.OPERATIONAL), str(exc) or type(exc).__name__
+    return False, f"{type(exc).__name__}: {exc}"
+
+
+def _iso_ago(seconds: float) -> str:
+    """UTC ISO time `seconds` ago, in the conversation store's format."""
+    stamp = datetime.now(UTC) - timedelta(seconds=seconds)
+    return stamp.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _read_json(path: Path) -> dict | None:

@@ -515,3 +515,56 @@ def test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice(conv)
     kinds = [e["kind"] for e in conv.events(cid)]
     assert kinds.count("approval.requested") == 1 and kinds.count("turn.completed") == 1
     assert conv.attempt(mid)["outcome_class"] == "ok"
+
+
+def test_a_worktree_conversation_runs_its_turns_in_its_own_worktree(conv):
+    """D-16, D-25, C-24.1, C-26.12: `conversation.create` with a worktree cuts one on its
+    own branch, records and returns its path and branch, and every turn runs there; the
+    checkout it was cut from keeps its branch. A turn job leaves no notice (IR-17)."""
+    e2e = conv.e2e
+    created = conv.call("conversation.create", provider="claude", request_id=str(uuid.uuid4()),
+                        workspace=str(e2e.workdir), workspace_kind="worktree",
+                        settings={"model": "opus[1m]", "permission": "ask", "effort": None, "fast": False})
+    view = created["conversation"]
+    cid, worktree = view["conversation_id"], view["worktree"]
+    assert worktree["branch"] == f"subfleet/{cid}" and view["workspace"] == worktree["path"]
+    assert Path(worktree["path"]).resolve() == (e2e.root / "worktrees" / f"conversation-{cid}").resolve()
+    branch = subprocess.run(["git", "-C", worktree["path"], "symbolic-ref", "--short", "HEAD"],
+                            capture_output=True, text=True, env=e2e.env).stdout.strip()
+    assert branch == f"subfleet/{cid}"
+
+    mid = conv.submit(cid, "work in the worktree")
+    assert conv.until_state(mid, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    launched = [row for row in conv.turn_log() if "argv" in row]
+    assert [os.path.realpath(row["cwd"]) for row in launched] == [os.path.realpath(worktree["path"])]
+    source = subprocess.run(["git", "-C", str(e2e.workdir), "symbolic-ref", "--short", "HEAD"],
+                            capture_output=True, text=True, env=e2e.env).stdout.strip()
+    assert source == "feature/e2e"
+    opened = conv.call("conversation.open", conversation_id=cid)["conversation"]
+    assert opened["worktree"] == worktree
+    job = conv.attempt(mid)["job_id"]
+    assert e2e.rows("SELECT * FROM notices WHERE job_id=?", (job,)) == []
+
+
+def test_the_daemon_keeps_the_catalog_and_the_list_reports_it(conv):
+    """C-30.1, D-23: the control loop runs the catalog out of process; `catalog.refresh`
+    starts a run without waiting; `conversation.list` reports the catalog's state and
+    finds a session written after the daemon started."""
+    e2e = conv.e2e
+    project = Path(e2e.env["CLAUDE_FAKE_PROJECTS_DIR"]) / "-elsewhere"
+    project.mkdir(parents=True, exist_ok=True)
+    session = str(uuid.uuid4())
+    (project / f"{session}.jsonl").write_text(json.dumps(
+        {"type": "user", "cwd": str(e2e.workdir), "sessionId": session,
+         "message": {"role": "user", "content": "an earlier desktop session"}}) + "\n")
+    listed = conv.call("conversation.list")["catalog"]
+    assert listed["state"] in ("absent", "fresh") and "refreshing" in listed
+
+    def indexed():
+        conv.call("catalog.refresh")
+        catalog = conv.call("conversation.list", query="earlier desktop")["catalog"]
+        return catalog if [i["native_session_id"] for i in catalog["items"]] == [session] else None
+
+    catalog = e2e.until(indexed, timeout=60)
+    assert catalog["state"] == "fresh" and catalog["generated_at"] and catalog["stale_after_s"] == 180
+    assert (e2e.root / "catalog.json").is_file()

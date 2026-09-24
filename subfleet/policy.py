@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
-    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S,
+    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS,
+    TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
     Closure, Decision, Exit, Lane, Reading,
 )
 
@@ -56,6 +57,25 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
     "mirror_ultracode_default": True,
+}
+
+#: `conversations.*` (C-24 to C-30): the desktop workspace's timings.
+CONVERSATION_DEFAULTS: dict[str, float] = {
+    "approval_wait_s": 3600,         # C-26.9: an unanswered approval stops its turn
+    "catalog_interval_s": 60,        # C-30.1, design D-23: a catalog run this often; 0: on request only
+    "compact_after_s": 300,          # C-25.4: a settled turn keeps its deltas this long
+    "compact_per_tick": 20,          # C-25.4: attempts compacted per conversation tick
+}
+
+#: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
+#: pruned against separate budgets, so a busy conversation never evicts the
+#: evidence of detached work, and the reverse.
+RETENTION_DEFAULTS: dict[str, float] = {
+    "jobs": RETENTION_MAX_JOBS,
+    "bytes": RETENTION_MAX_BYTES,
+    "turn_jobs": TURN_RETENTION_MAX_JOBS,
+    "turn_bytes": TURN_RETENTION_MAX_BYTES,
+    "turn_keep_days": TURN_RETENTION_KEEP_DAYS,
 }
 
 
@@ -256,6 +276,27 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if (not isinstance(item, int) or isinstance(item, bool) or item <= 0):
             fail(f"sessions.handoff_caps.{key}", "must be a positive whole number of characters")
     value["sessions"]["handoff_caps"] = caps
+
+    # `conversations` and `retention`: whole counts where the value counts
+    # things, and zero only where it means "at once", "never on a timer" or "keep
+    # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
+    # days kept after a turn ends).
+    for section, defaults, may_be_zero, whole in (
+            ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"}, {"compact_per_tick"}),
+            ("retention", RETENTION_DEFAULTS, {"turn_keep_days"}, {"jobs", "bytes", "turn_jobs", "turn_bytes"})):
+        supplied = value.get(section, {})
+        if not isinstance(supplied, dict):
+            fail(section, "must be an object")
+        settings = {**defaults, **supplied}
+        for key in defaults:
+            item = settings[key]
+            if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
+                    or item < 0 or (item == 0 and key not in may_be_zero)):
+                fail(f"{section}.{key}", "must be a nonnegative finite number" if key in may_be_zero
+                     else "must be a positive finite number")
+            if key in whole and item != int(item):
+                fail(f"{section}.{key}", "must be a whole number")
+        value[section] = settings
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()
