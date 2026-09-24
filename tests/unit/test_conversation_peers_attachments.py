@@ -7,7 +7,7 @@ import os
 import pytest
 
 from subfleet.conversations import attachments
-from subfleet.conversations.peers import Proc, judge
+from subfleet.conversations.peers import Proc, executable_path, judge
 from subfleet.conversations.store import ConversationError, ConversationStore
 
 APP = "/Applications/Subfleet.app/Contents/MacOS/Subfleet"
@@ -19,14 +19,35 @@ def chain_of(*procs):
 
 def test_the_app_is_a_person():
     """C-25.6 the installed app's executable may approve."""
-    v = judge(10, chain=chain_of(Proc(10, 1, "??", f"{APP} HOME=/Users/m")))
+    v = judge(10, chain=chain_of(Proc(10, 1, "??", f"{APP} HOME=/Users/m")), executable=lambda pid: APP)
     assert v.person and v.reason == "the Subfleet app"
+
+
+def test_the_app_is_known_by_its_executable_path_even_with_spaces():
+    """C-25.6, D-21: the kernel's executable path decides, not the command line, which
+    cannot be split back into a path with spaces (reported from the app build)."""
+    dev = "/Users/m/build/Subfleet Dev.app/Contents/MacOS/Subfleet Dev"
+    command = f"{dev} HOME=/Users/m"
+    assert judge(10, chain=chain_of(Proc(10, 1, "??", command)), app_executables=(dev,),
+                 executable=lambda pid: dev).person
+    # Another program whose command line merely starts like the app is not the app.
+    assert not judge(10, chain=chain_of(Proc(10, 1, "??", f"{APP} --flag")),
+                     executable=lambda pid: "/usr/bin/python3").person
+
+
+def test_executable_path_reads_the_running_process():
+    """The helper reads a live process's executable (libproc `proc_pidpath`)."""
+    import sys
+    assert executable_path(os.getpid()) == os.path.realpath(sys.executable)
+    assert executable_path(2 ** 22 + 12345) is None
 
 
 def test_a_terminal_is_a_person_and_a_headless_agent_is_not():
     """C-25.6 a process with a controlling terminal may; one without may not."""
-    assert judge(10, chain=chain_of(Proc(10, 9, "ttys003", "/bin/zsh"), Proc(9, 1, "ttys003", "login"))).person
-    assert not judge(10, chain=chain_of(Proc(10, 9, "??", "/usr/bin/python3 x.py"), Proc(9, 1, "??", "node"))).person
+    assert judge(10, chain=chain_of(Proc(10, 9, "ttys003", "/bin/zsh"), Proc(9, 1, "ttys003", "login")),
+                 executable=lambda pid: "/bin/zsh").person
+    assert not judge(10, chain=chain_of(Proc(10, 9, "??", "/usr/bin/python3 x.py"), Proc(9, 1, "??", "node")),
+                     executable=lambda pid: "/usr/bin/python3").person
 
 
 @pytest.mark.parametrize("ancestor", [
