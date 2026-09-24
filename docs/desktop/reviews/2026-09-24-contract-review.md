@@ -65,6 +65,6 @@ where it is implemented; "open" means not yet built.
 | 30 | Catalog indexes everything, with pinned exclusion predicates and archived handling | U-F5 | `catalog.py` |
 | 31 | Stage 3: continue a Codex-app thread by copying its rollout into the lane that shares the app's account and calling `thread/fork` | U-F2 | live |
 | 32 | Writable Codex policy refused until the live never-rules test is recorded | SEC-3 | `service.py` |
-| 33 | Ledger R-4 cites C-26.11, C-14.2, C-14.3, C-23.6; M-14 cites C-29.6, C-18.1 | SEC-3, U-F7 | `ledger.json` |
+| 33 | Ledger R-4 cites C-26.11, C-14.2, C-14.3, C-23.6; M-14 cites C-29.6, C-18.1 | SEC-3, U-F7 | `ledger.json` (done) |
 | 34 | `status.json` windows keyed by (scope, window), never replacing the account window | U-F7 | `status_json.py` |
 | 35 | Load test: 4 concurrent turns at 50 deltas/s keep commits batched and admission latency bounded | F-09 | tests |

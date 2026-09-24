@@ -43,6 +43,9 @@ CLOSE_AFTER_S = 20.0
 CONTAIN_AFTER_S = 30.0
 # Background work after the terminal event (D-15): the CLI's own ceiling plus a margin.
 AFTER_RESULT_S = 120.0 + 15.0
+# Codex: how long `turn/completed` may lag the thread going idle before the
+# idle ends the turn (codex_turn module docstring; observed lag 0.01 s).
+IDLE_GRACE_S = 2.0
 
 
 def make_driver(spec: TurnSpec, read_bytes: Callable[[str], bytes]):
@@ -96,6 +99,7 @@ class TurnRunner:
         self.late_stop_at: float | None = None
         self.final_text: str | None = None
         self.contained = False
+        self.idle_since: float | None = None
         self.finished = threading.Event()
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
@@ -296,6 +300,13 @@ class TurnRunner:
 
     def _timers(self) -> None:
         now = self.clock()
+        if getattr(self.driver, "idle_pending", False) and self.driver.outcome is None:
+            if self.idle_since is None:
+                self.idle_since = now
+            elif now - self.idle_since >= IDLE_GRACE_S:
+                self._apply(self.driver.settle_idle())
+        else:
+            self.idle_since = None
         if self.stop_at is not None and self.driver.outcome is None:
             waited = now - self.stop_at
             if waited >= SIGINT_AFTER_S and "sigint" not in self.escalated:

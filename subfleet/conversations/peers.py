@@ -13,6 +13,7 @@ Subfleet runs and headless agents, not against the user.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import socket
 import subprocess
@@ -50,6 +51,19 @@ def _ps(argv: list[str]) -> str:
     return subprocess.run(argv, capture_output=True, text=True, timeout=5, env=env, check=False).stdout
 
 
+def executable_path(pid: int) -> str | None:
+    """The caller's executable as the kernel records it (`proc_pidpath`), which
+    keeps a path with spaces whole; `ps -o command` cannot be split to recover
+    one (`/Applications/Subfleet Dev.app/...` reads as `.../Subfleet`)."""
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        buffer = ctypes.create_string_buffer(4096)          # PROC_PIDPATHINFO_MAXSIZE
+        length = libproc.proc_pidpath(int(pid), buffer, ctypes.c_uint32(4096))
+    except (OSError, AttributeError, ValueError):
+        return None
+    return buffer.value.decode("utf-8", "replace") if length > 0 else None
+
+
 def process_chain(pid: int) -> list[Proc]:
     """The caller and its ancestors, each with its environment (read in memory,
     never stored)."""
@@ -73,7 +87,8 @@ def process_chain(pid: int) -> list[Proc]:
 
 
 def judge(pid: int | None, *, chain: Callable[[int], list[Proc]] = process_chain,
-          app_executables: tuple[str, ...] = APP_EXECUTABLES, root: str | None = None) -> Verdict:
+          app_executables: tuple[str, ...] = APP_EXECUTABLES, root: str | None = None,
+          executable: Callable[[int], str | None] = executable_path) -> Verdict:
     if pid is None:
         return Verdict(False, "the caller's process could not be identified", None)
     procs = chain(pid)
@@ -86,8 +101,9 @@ def judge(pid: int | None, *, chain: Callable[[int], list[Proc]] = process_chain
         if any(marker in proc.command for marker in MARKERS) or (root_marker and root_marker in proc.command):
             return Verdict(False, "the caller carries Subfleet's attempt markers", pid)
     caller = procs[0]
-    executable = caller.command.split(" ", 1)[0]
-    if executable in app_executables or os.path.realpath(executable) in {os.path.realpath(p) for p in app_executables}:
+    path = executable(caller.pid)
+    allowed = {os.path.realpath(p) for p in app_executables}
+    if path and (path in app_executables or os.path.realpath(path) in allowed):
         return Verdict(True, "the Subfleet app", pid)
     if caller.tty not in ("??", "-", ""):
         return Verdict(True, f"a terminal ({caller.tty})", pid)

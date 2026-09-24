@@ -11,6 +11,15 @@ requires), `model/list` to validate the requested model, effort and Fast tier,
 the turn and stdin is closed; the server exits on EOF (observed 2026-09-24:
 exit 0 within 0.02 s).
 
+A live 0.153.3 server sends `turn/completed` only for a turn that used no
+tool: after a command ran, or a hook blocked one, the last thing it sends is
+`thread/status/changed` to `idle` (observed 2026-09-24, see
+docs/desktop/reviews/2026-09-24-live-probes.md). So `idle` after our turn
+started marks the end: the driver sets `idle_pending`, and the runner calls
+`settle_idle()` when no `turn/completed` has followed within a short grace.
+The state then comes from what the stream showed: a stop request, a final
+error, or else completion.
+
 Wire notes: JSON-RPC 2.0 without the `"jsonrpc"` member (README at tag
 rust-v0.153.3). Requests the driver sends use fixed ids per purpose, so a
 replayed driver recognises the responses to the frames it already sent.
@@ -117,6 +126,8 @@ class CodexTurn:
         self.outcome: Outcome | None = None
         self.pending: dict[str, tuple[str, dict]] = {}     # request id -> (method, params)
         self.catalog: list[dict] | None = None              # model/list, for models.json
+        self.idle_pending = False                           # the thread went idle after our turn started
+        self.final_error: dict | None = None                # an `error` notification that will not be retried
         self._ready = {"hooks": False, "models": False}
         self._tools: dict[str, bool] = {}
         self._buffers: dict[str, redact.DeltaBuffer] = {}
@@ -351,13 +362,19 @@ class CodexTurn:
             return self._item_started(params.get("item") or {}, source)
         if method == "item/completed":
             return self._item_completed(params.get("item") or {}, source)
+        if method == "thread/status/changed":
+            return self._thread_status(params.get("status") or {}, source)
+        if method == "hook/completed":
+            return self._hook(params.get("run") or {}, source)
         if method == "turn/diff/updated":
             diff = redact.truncate(redact.scrub(str(params.get("diff") or "")), 20_000)
             return Step(events=[Event("diff", {"diff": diff}, source.next())])
         if method == "error":
             error = params.get("error") or {}
-            if _limit_error(error) and not params.get("willRetry"):
-                self.limited = True
+            if not params.get("willRetry"):
+                self.final_error = error if isinstance(error, dict) else {"message": str(error)}
+                if _limit_error(error):
+                    self.limited = True
             return Step(events=[Event("error", {"message": redact.bounded_text(str(error.get("message") or ""))[:2000],
                                                 "kind": _error_kind(error), "will_retry": bool(params.get("willRetry"))},
                                       source.next())])
@@ -372,6 +389,45 @@ class CodexTurn:
         if method == "turn/completed":
             return self._completed(params.get("turn") or {}, source)
         return Step()
+
+    def _thread_status(self, status: dict, source: "_Sources") -> Step:
+        kind = status.get("type")
+        if kind == "active":
+            self.idle_pending = False
+        elif kind == "idle" and self.accepted and self.outcome is None:
+            self.idle_pending = True
+        elif kind == "systemError" and self.outcome is None:
+            return self._end(FAILED, "system-error", detail="the Codex thread reported a system error",
+                             source=source.next())
+        return Step()
+
+    def _hook(self, run: dict, source: "_Sources") -> Step:
+        """A hook the server ran: shown when it blocked, failed, or said something."""
+        entries = [str(e.get("text") or "") for e in run.get("entries") or [] if isinstance(e, dict)]
+        status = run.get("status")
+        if status == "completed" and not any(entries):
+            return Step()
+        return Step(events=[Event("hook", {"event": run.get("eventName"), "status": status,
+                                           "name": run.get("statusMessage"),
+                                           "feedback": redact.bounded_text("\n".join(e for e in entries if e))[:2000]},
+                                  source.next())])
+
+    def settle_idle(self) -> Step:
+        """End the turn from `thread/status/changed: idle` when no `turn/completed`
+        followed (see the module docstring). Called by the runner after its grace."""
+        if self.outcome is not None or not self.idle_pending:
+            return Step()
+        step = self._flush("cmd:idle")
+        if self.interrupt_requested:
+            state, reason = INTERRUPTED, "stopped"
+        elif self.final_error is not None:
+            state = FAILED
+            reason = "limited" if self.limited else (_error_kind(self.final_error) or "failed")
+        else:
+            state, reason = COMPLETE, None
+        detail = redact.bounded_text(str(self.final_error.get("message") or ""))[:1000] if self.final_error else None
+        return step.extend(self._end(state, reason, detail=detail, source="cmd:idle",
+                                     extra={"ended_by": "thread-idle"}))
 
     def _delta(self, kind: str, block: str, text: str, source: "_Sources") -> Step:
         self.answered = True
