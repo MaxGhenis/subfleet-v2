@@ -161,8 +161,16 @@ def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any]) -> list[dict[st
     tiers = policy["tiers"]
     default = "standard" if "standard" in tiers else tiers[0]
     rank = {tier: index for index, tier in enumerate(tiers)}
+    # C-26.9: within a tier, attended conversation turns go before detached jobs.
     return sorted((_row(job) for job in jobs), key=lambda job: (
-        rank.get(job.get("tier") or default, len(tiers)), job.get("created_at") or ""))
+        rank.get(job.get("tier") or default, len(tiers)), job.get("kind") != "turn",
+        job.get("created_at") or ""))
+
+
+def waiter_class(job: Any, tier: str) -> str:
+    """C-26.9: turns and detached jobs keep separate C-6.9 queues, so a waiting
+    turn never holds a detached job back and a detached job never holds a turn."""
+    return f"{tier}#turn" if _row(job).get("kind") == "turn" else tier
 
 
 def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
@@ -389,6 +397,11 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                 reasons.append("excluded")
             if lane.get("desktop") and not job.get("allow_desktop"):
                 reasons.append("desktop")
+            if (job.get("kind") == "turn" and model["provider"] == "claude"
+                    and lane.get("credential_kind") == "home"):
+                # C-26.2: a home lane has its own config directory; the
+                # conversation's transcript is not there.
+                reasons.append("config-dir")
             if lane.get("owner") != "v2":
                 reasons.append("owner-v1")
             if not lane.get("enabled", True):
@@ -426,14 +439,27 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                         "reason": authorization_reason, "lane_id": identity, "model_id": model["id"]}
                 elif verdict["state"] != "slack":
                     reasons.append(f"reserve:{reserved}:{verdict['state']}")
+                elif job.get("kind") == "turn" and verdict.get("requires_probe"):
+                    # C-26.9: a turn never waits on a probe; a lane that needs one
+                    # is not a candidate for it.
+                    reasons.append(f"reserve:{reserved}:probe-required")
             if reasons:
                 rejections.append({"lane_id": identity, "reason": reasons[0], "reasons": reasons, **detail})
             else:
                 candidates.append(identity)
                 details[identity] = detail
 
+        affinity = job.get("affinity_lane") if job.get("kind") == "turn" else None
+
         def comparator(identity: str) -> tuple:
             row = details[identity]
+            if affinity is not None:
+                # C-26.2: a conversation keeps the account that served its last
+                # turn while that account stays a candidate (prompt cache).
+                return (identity != affinity, *base_comparator(identity, row))
+            return base_comparator(identity, row)
+
+        def base_comparator(identity: str, row: dict) -> tuple:
             if model["provider"] == "codex":
                 return (not row["measured"], row["seven_day_reset"] or "9999", identity)
             reserve = row.get("reserve") or {}
@@ -568,6 +594,9 @@ def probe_required(decision: Decision, job: Any) -> bool:
         return True
     if job.get("kind") == "revive":
         return True
+    if job.get("kind") == "turn":
+        # C-26.9: `evaluate` already refused every lane a turn would need a probe for.
+        return False
     evaluation = next(row for row in decision.evaluations if row["model"] == decision.chosen_model)
     if (evaluation["candidate_details"][decision.chosen_lane].get("reserve") or {}).get("requires_probe"):
         return True
