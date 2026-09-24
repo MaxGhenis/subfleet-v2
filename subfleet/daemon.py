@@ -840,13 +840,27 @@ class Daemon:
                     raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model")
             batch = self._batch_label(args.batch)
             resume = None
+            # C-26.13: a resume or revive continues a native session, and a
+            # conversation's session is continued only by its conversation, so
+            # the twin the `native:` lease would merely serialize is refused
+            # here. A resume's session is its source attempt's; a revive's is
+            # `caller_session`.
+            fence: tuple[str | None, str] | None = None
             if args.kind == "resume":
                 args, resume = self._resume_submission(args)
+                fence = (resume["native_session_id"], "resume")
             elif args.kind == "revive":
-                # C-26.13: a revive continues `caller_session`; a conversation's
-                # session is continued only by its conversation, so the twin
-                # the native lease would merely serialize is refused here.
-                self._refuse_conversation_session(args.caller_session, "revive")
+                fence = (args.caller_session, "revive")
+            # C-6.2 before C-26.13: a session can become a conversation's after
+            # its resume or revive was accepted (`conversation.open` with
+            # `native` binds it at once), so a retry of that request is
+            # answered from its job below, as C-6.2 answers every retry, and
+            # admission fails the job if it has not launched. Only a request
+            # the daemon has not accepted is refused here, before the rest of
+            # validation, so the refusal is what a new request hears.
+            accepted = bool(fence) and self._accepted_request(args.request_id)
+            if fence and not accepted:
+                self._refuse_conversation_session(*fence)
             # An empty task or tier is none: `evaluate` would reject '' on every
             # pass of a job submit had accepted (C-6.12).
             args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
@@ -956,6 +970,10 @@ class Daemon:
                 if existing["payload_digest"] != digest:
                     raise protocol.ProtocolError("request id already used with a different payload")
                 return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False}
+            if fence and accepted:
+                # The accepted job is gone (retention pruned it since the check
+                # above), so this request makes a new job after all.
+                self._refuse_conversation_session(*fence)
             job_id = ids.job_id(args.name or args.task or model,
                                 existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
             jobdir = self.root / "jobs" / job_id
@@ -1049,6 +1067,11 @@ class Daemon:
             raise ValueError(f"unknown lane {args.pinned_lane}")
         return lane
 
+    def _accepted_request(self, request_id: Any) -> bool:
+        """C-6.2: whether a job already holds `request_id`, so this submit is a retry."""
+        return isinstance(request_id, str) and self.store.one(
+            "SELECT 1 FROM jobs WHERE request_id=?", (request_id,)) is not None
+
     def _accepted_pin(self, request_id: str) -> dict | None:
         """The lane an already accepted request was pinned to, when that is a lane id (C-6.2)."""
         row = self.store.one("SELECT pinned_lane FROM jobs WHERE request_id=?", (request_id,))
@@ -1084,7 +1107,7 @@ class Daemon:
             raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job")
         # C-26.13: a detached job's session a person has since opened as a
         # conversation (`conversation.open` with `native`) is the conversation's.
-        self._refuse_conversation_session(native, "resume")
+        # `submit` refuses it, after C-6.2's retry check (`_accepted_request`).
         # A continuation belongs to the source execution workspace, even when
         # that was an allocated worktree containing uncommitted provider work.
         # Independent allows continuing a cancelled source without reviving its

@@ -687,6 +687,67 @@ def test_a_queued_resume_whose_session_becomes_a_conversations_fails_at_admissio
     assert "continues only in its conversation" in notice["text"] and "Subfleet app" in notice["text"]
 
 
+def revive_submit_args(root: Path, repo: Path):
+    candidate = revive_module.Candidate(session_id=ALICE, cwd=str(repo))
+    return revive_module.submit_args(candidate, model="astra", request_id=str(uuid.uuid4()),
+                                     prompt_path=str(stage(root)(revive_module.REVIVE_MESSAGE)))
+
+
+@pytest.mark.parametrize("kind", ["resume", "revive"])
+def test_a_retry_of_an_accepted_continuation_finds_its_job_after_the_binding(world, kind):
+    """C-6.2 before C-26.13: a person opened the session in the app after its
+    resume or revive was accepted. A retry of that request (same id, same
+    payload) still returns the job id it was given, not exit 7 with no id, and
+    another payload under that id is still exit 2; the admission pass then
+    fails the job with exit 7 before any attempt, and a new request is refused
+    at submit."""
+    service, client, home, store_dir, root, _policy, base = world
+    if kind == "resume":
+        finished_job(service, "lane-job", "dispatch", ALICE, base)
+        args = resume_args(root, "lane-job", base)
+    else:
+        base = workdir(base)
+        cold_desktop_session(home, store_dir, base)
+        args = revive_submit_args(root, base)
+    accepted = client.submit(args)
+    assert accepted["created"] is True
+    bind(service, ALICE, base)
+
+    again = client.submit(args)
+    assert again == {"job_id": accepted["job_id"], "request_id": args.request_id,
+                     "created": False}
+    other = replace(args, prompt_path=str(stage(root)("something else entirely")))
+    with pytest.raises(daemon_module.protocol.ProtocolError) as raised:
+        client.submit(other)
+    assert raised.value.code == 2 and "different payload" in str(raised.value)
+
+    service._admit()                                    # noqa: SLF001 - one pass
+    job = service.store.get_job(accepted["job_id"])
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    assert service.store.list_attempts(accepted["job_id"]) == []
+    fresh = replace(args, request_id=str(uuid.uuid4()))
+    with pytest.raises(daemon_module.AdapterError) as refused:
+        client.submit(fresh)
+    assert_refused_for_the_app(refused)
+    assert service.store.query(f"SELECT job_id FROM jobs WHERE kind='{kind}'") == [
+        {"job_id": accepted["job_id"]}]
+
+
+def test_a_retry_whose_accepted_job_was_pruned_is_refused_like_a_new_request(world, monkeypatch):
+    """C-26.13 with C-6.2: the retry check and the job lookup are two reads,
+    and retention deletes job rows without the submit lock. A request the
+    daemon had accepted whose job is gone by the lookup makes a new job, so it
+    is refused as a new request is, with nothing stored."""
+    service, client, _home, _store, root, _policy, base = world
+    finished_job(service, "lane-job", "dispatch", ALICE, base)
+    bind(service, ALICE, base)
+    monkeypatch.setattr(service, "_accepted_request", lambda request_id: True)
+    with pytest.raises(daemon_module.AdapterError) as raised:
+        client.submit(resume_args(root, "lane-job", base))
+    assert_refused_for_the_app(raised)
+    assert service.store.query("SELECT * FROM jobs WHERE kind='resume'") == []
+
+
 @pytest.mark.parametrize("how", ["bound", "turn"])
 def test_the_daemon_refuses_a_revive_of_a_conversations_session(world, how):
     """C-26.13 at submit, whatever client sends it: a revive whose session a
