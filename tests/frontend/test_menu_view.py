@@ -8,17 +8,13 @@ import pytest
 
 from tests.frontend.test_status_model import NOW, ROOT, _job, lane, pytestmark
 from subfleet.status_json import build_status
+from tests.frontend.swift import compile_probe
 
 
 @pytest.fixture(scope="session")
 def menu_probe(tmp_path_factory):
-    binary = tmp_path_factory.mktemp("subfleet-menu-view") / "probe"
-    result = subprocess.run(
-        ["xcrun", "swiftc", "-D", "SUBFLEET_VIEW_TEST", "-parse-as-library",
-         str(ROOT / "app/SubfleetApp.swift"), str(ROOT / "tests/frontend/MenuViewProbe.swift"),
-         "-o", str(binary)], capture_output=True, text=True, timeout=120)
-    assert result.returncode == 0, result.stderr
-    return binary
+    return compile_probe(tmp_path_factory.mktemp("subfleet-menu-view") / "probe",
+                         ROOT / "tests/frontend/MenuViewProbe.swift", "SUBFLEET_VIEW_TEST")
 
 
 def invoke(menu_probe, path, *extra):

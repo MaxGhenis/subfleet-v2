@@ -10,6 +10,7 @@ import sys
 import pytest
 
 from subfleet.status_json import build_status
+from tests.frontend.swift import compile_probe
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,12 +22,8 @@ pytestmark = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun"
 @pytest.fixture(scope="session")
 def probe(tmp_path_factory):
     """Compile production model code with Foundation only; no AppKit entry point."""
-    binary = tmp_path_factory.mktemp("subfleet-swift-model") / "probe"
-    compiled = subprocess.run(["xcrun", "swiftc", "-D", "SUBFLEET_MODEL_TEST", "-parse-as-library",
-                               str(ROOT / "app/SubfleetApp.swift"), str(ROOT / "tests/frontend/StatusModelProbe.swift"),
-                               "-o", str(binary)], capture_output=True, text=True, timeout=120)
-    assert compiled.returncode == 0, compiled.stderr
-    return binary
+    return compile_probe(tmp_path_factory.mktemp("subfleet-swift-model") / "probe",
+                         ROOT / "tests/frontend/StatusModelProbe.swift", "SUBFLEET_MODEL_TEST")
 
 
 def lane(provider, *, label="provider", **overrides):
