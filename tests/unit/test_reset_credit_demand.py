@@ -541,3 +541,34 @@ def test_a_failing_demand_reader_is_reported_not_quiet(store, tmp_path):
         assert not store.query("SELECT * FROM actions")
     finally:
         timers.stop()
+
+
+def test_an_operator_may_reset_a_lane_whose_five_hour_window_alone_is_full(store, tmp_path):
+    """C-23.16 (c), (e): the five-hour rule is the timer's; an operator naming the lane is not the timer."""
+    target = limited_lane(store, tmp_path, utilization=.3)
+    store.put_closure(Closure(target.lane_id, "account", "2026-09-05T14:00:00Z", ClosureReason.PROVIDER_LIMIT,
+                              ClockSource.REPORTED, None))
+    view_ = snapshot(store, **{target.lane_id: {"probe": {"status": "limited", "limit_reached": True,
+                                                          "checked_at": STAMP}}})
+    resets = component(store, HTTP())
+    assert resets.evaluate(view_, now=NOW, demand=wants(store))["status"] == "no-eligible-lane"
+    operator = resets.evaluate(view_, now=NOW, target_lane_id=target.lane_id)
+    assert operator["status"] == "confirmed" and operator["lane_id"] == target.lane_id
+
+
+def test_a_preview_that_fails_to_read_the_queue_cannot_relabel_a_timer_result(store, tmp_path):
+    """C-23.16 (a): the demand error travels with its own evaluation, not on the shared component."""
+    limited_lane(store, tmp_path)
+    calls = []
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise KeyError("preview")
+        return []
+    timers = Timers(store, tmp_path, {"reset_credits": {"enabled": True}}, demand=flaky, now=lambda: NOW)
+    timers.metadata["codex-1"] = {"probe_status": "limited", "limit_reached": True, "checked_at": STAMP}
+    try:
+        assert timers.current_demand(record=False) is None          # a preview's failure
+        assert timers.evaluate_resets(timers.snapshot())["status"] == "no-demand"
+    finally:
+        timers.stop()

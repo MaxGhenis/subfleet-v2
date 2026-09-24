@@ -40,7 +40,6 @@ class Timers:
         # C-23.16 (a): the daemon's admission view of waiting jobs. Without one
         # no credit is ever spent automatically; an operator's lane still can be.
         self.demand = demand
-        self.demand_error = None
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -195,19 +194,20 @@ class Timers:
             self._session_mirror = Mirror(self.root, self.policy, now=self.now, cancel=self.cancel)
         self._session_mirror.run_once(options_from(self.policy))
 
-    def current_demand(self, *, record=True):
+    def current_demand(self, *, record=True, errors=None):
         """C-23.16 (a): the waiting jobs, as admission judges them, or None if unknown.
 
         A provider that raises is no demand: an unreadable queue never spends a
         credit. The failure is an event unless `record` is false (a preview
-        writes nothing, C-19.1).
+        writes nothing, C-19.1), and its type is appended to `errors` if given.
         """
         if self.demand is None:
             return None
         try:
             return list(self.demand())
         except Exception as exc:
-            self.demand_error = type(exc).__name__
+            if errors is not None:
+                errors.append(type(exc).__name__)
             if record:
                 self.store.add_event('timer.error', data={'timer': 'reset_credits', 'stage': 'demand',
                                                           'error_type': type(exc).__name__})
@@ -218,14 +218,16 @@ class Timers:
 
         A demand reader that raised spends nothing, and says so: the result is
         `demand-error` with its `error_type`, so the timer's status shows it
-        rather than a quiet `no-demand`.
+        rather than a quiet `no-demand`. The error travels with this call, not
+        on the component, so a preview on another thread cannot relabel it.
         """
-        self.demand_error = None
+        errors = []
         result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
                                        deadline=time.monotonic() + 60, target_lane_id=target,
-                                       demand=None if target is not None else self.current_demand)
-        if self.demand_error and result.get('status') in ('no-demand', 'demand-changed'):
-            result = {**result, 'status': 'demand-error', 'error_type': self.demand_error}
+                                       demand=None if target is not None else
+                                       (lambda: self.current_demand(errors=errors)))
+        if errors and result.get('status') in ('no-demand', 'demand-changed'):
+            result = {**result, 'status': 'demand-error', 'error_type': errors[-1]}
         return result
 
     def reset_credits_cycle(self, *, target=None):

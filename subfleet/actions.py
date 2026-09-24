@@ -472,8 +472,7 @@ class ResetCredits:
                        and (row.get("probe") or {}).get("status") in ("ok", "limited")
                        and self._fresh_usage(row.get("probe") or {}, instant)
                        and (row.get("probe") or {}).get("account_key", row["account_key"]) == row["account_key"]
-                       and self.confirmed_override(row["lane_id"], now=instant) is None
-                       and not self._weekly_has_room(row, instant)], key=_order)
+                       and self.confirmed_override(row["lane_id"], now=instant) is None], key=_order)
 
     def evaluate(self, snapshot: dict, *, now: str | datetime | None = None,
                  cancel: threading.Event | None = None, deadline: float | None = None,
@@ -530,6 +529,9 @@ class ResetCredits:
             if manual:
                 plan = [(None, [row for row in eligible if row["lane_id"] == target_lane_id])]
             else:
+                # C-23.16 (c): the timer spends no weekly credit where only a shorter
+                # window is full; an operator naming the lane may.
+                eligible = [row for row in eligible if not self._weekly_has_room(row, instant)]
                 opened = self.reset_lanes_open(rows, now=instant)
                 if opened:
                     return {**result, "status": "reset-lane-open", "reset_lanes": opened}
