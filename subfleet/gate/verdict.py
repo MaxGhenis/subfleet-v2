@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .errors import GateError
@@ -18,8 +19,9 @@ TEMPLATE_VERDICT = "approve | changes_requested | blocked"
 class VerdictFormatError(GateError):
     """Peer output that is not a well-formed verdict envelope (C-23.9).
 
-    Only this failure may be re-asked, once, within its round. A payload bound to
-    another revision, or a contradictory verdict, raises a plain GateError instead.
+    It is the first form failure parse_verdict met, which can hide a revision-binding
+    failure or a contradiction elsewhere in the output. The output may be re-asked,
+    once within its round, only if rejected_output_evidence also finds no refusal.
     """
 
     def __init__(self, message: str):
@@ -50,10 +52,12 @@ def decode_output(body: bytes) -> str:
 def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any]:
     """Accept exactly v1's sentinel object with an unambiguous JSON interpretation.
 
-    Envelope and field-shape failures raise VerdictFormatError. The revision binding
-    is checked as soon as the payload is an object, before any text outside the
-    sentinels is reported, so a payload bound to another revision (or to none) is
-    never classed as a format failure. Contradictory verdicts are not format failures.
+    Envelope and field-shape failures raise VerdictFormatError. Once the single
+    payload is a JSON object, its revision binding is checked before text outside
+    the sentinels is reported, so that payload's binding failure (another revision,
+    or none) is a plain GateError, as is a contradictory verdict. A failure found
+    earlier (duplicate sentinels, invalid JSON) is reported first; see
+    rejected_output_evidence for what else then forbids a re-ask.
     """
     if text.count(VERDICT_BEGIN) != 1 or text.count(VERDICT_END) != 1:
         raise VerdictFormatError("peer output is missing or duplicates the verdict sentinel")
@@ -97,10 +101,23 @@ def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any
 
 
 _EMPTY = (None, [], {}, "")
+_VERDICT_MEMBER = re.compile(r'"verdict"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_CONCERN_MEMBER = re.compile(r'"(?:findings|notes)"\s*:\s*\[\s*[^\s\]]')
+_CLIP = 200
+
+
+def clip(value: str, limit: int = _CLIP) -> str:
+    """Bound peer-controlled text and keep it storable (no lone surrogates)."""
+    value = value.encode("utf-8", "backslashreplace").decode("utf-8")
+    return value if len(value) <= limit else value[:limit] + "..."
 
 
 class _Members(list):
     """Every member of one JSON object, duplicates included (diagnosis only)."""
+
+
+def _values(members: _Members, name: str) -> list[Any]:
+    return [item for key, item in members if key == name]
 
 
 def _plain(value: Any) -> Any:
@@ -111,49 +128,95 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _duplicated(value: Any) -> bool:
+    if isinstance(value, _Members):
+        keys = [key for key, _ in value]
+        return len(keys) != len(set(keys)) or any(_duplicated(item) for _, item in value)
+    return isinstance(value, list) and any(_duplicated(item) for item in value)
+
+
+def _identity(expected_revision: dict[str, Any]) -> list[str]:
+    """The reviewed revision's digests: what an unreadable block must at least carry."""
+    return [str(expected_revision[key]).lower() for key in ("sha256", "head_sha", "base_sha")
+            if expected_revision.get(key)]
+
+
 def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> dict[str, Any]:
     """Diagnose output parse_verdict rejected, only to decide whether it may be re-asked.
 
     Nothing found here is ever a verdict or part of one: it can only forbid a
-    re-ask or constrain its outcome (C-23.9). Every sentinel-delimited segment is
-    scanned, duplicate JSON members included. A segment that is a JSON object
-    naming another artifact revision, or none, is a revision-binding failure; one
-    that approves with findings or notes, or requests changes without a finding,
-    is contradictory. Either forbids the re-ask (`refusal`). Every verdict such a
-    segment names, other than the template's placeholder, is kept, so that a
-    re-ask cannot turn a rejected non-approval into an approval.
+    re-ask (`refusal`) or keep the re-ask from approving (`outcome_lock`) (C-23.9).
+
+    Each begin sentinel opens a block that runs to the next sentinel of either
+    kind or to the end of the output. A block that parses as a JSON object must
+    name the reviewed revision, in every artifact_revision member and without
+    duplicated keys inside it; it must not approve with findings or notes or
+    request changes without a finding. A block that does not parse, and any
+    artifact_revision JSON outside the blocks, must at least contain the reviewed
+    revision's digests. The lock reads the whole output, unparsed text included:
+    any JSON "verdict" string other than approve (an empty or placeholder one
+    names nothing) and any nonempty findings or notes. Prose is never read.
     """
-    refusals, verdicts = [], []
-    start = text.find(VERDICT_BEGIN)
-    while start != -1:
-        body = start + len(VERDICT_BEGIN)
-        end = text.find(VERDICT_END, body)
-        if end == -1:
-            break
+    refusals, verdicts, lock = [], [], []
+    identity, outside = _identity(expected_revision), []
+
+    def carries_identity(fragment: str) -> bool:
+        lowered = fragment.lower()
+        return all(digest in lowered for digest in identity)
+
+    cursor, begin, end = 0, text.find(VERDICT_BEGIN), None
+    while begin != -1:
+        outside.append(text[cursor:begin])
+        body = begin + len(VERDICT_BEGIN)
+        if end is None or -1 < end < body:  # once no end sentinel follows, none follows later
+            end = text.find(VERDICT_END, body)
+        following = text.find(VERDICT_BEGIN, body)
+        stop = min((index for index in (end, following) if index != -1), default=len(text))
+        segment = text[body:stop]
         try:
-            value = json.loads(text[body:end], object_pairs_hook=_Members)
-            if isinstance(value, _Members):
-                refusals += _segment_refusals(value, expected_revision)
-                verdicts += [item if isinstance(item, str) else json.dumps(_plain(item), sort_keys=True)
-                             for key, item in value
-                             if key == "verdict" and item is not None and item != TEMPLATE_VERDICT]
+            value = json.loads(segment, object_pairs_hook=_Members)
+            if not isinstance(value, _Members):
+                raise ValueError("not a JSON object")
+            refusals += _segment_refusals(value, expected_revision)
+            verdicts += [item if isinstance(item, str) else json.dumps(_plain(item), sort_keys=True)
+                         for item in _values(value, "verdict") if item is not None]
+            if any(item not in _EMPTY for item in _values(value, "findings") + _values(value, "notes")):
+                lock.append("listed findings or notes")
         except ValueError:
-            pass  # not JSON: no binding or verdict can be read from this segment
+            if not carries_identity(segment):
+                refusals.append("a verdict block the gate cannot read lacks the reviewed revision")
         except RecursionError:
             refusals.append("a verdict block in the output is too deeply nested to diagnose")
-        start = text.find(VERDICT_BEGIN, body)
-    return {"refusal": refusals[0] if refusals else None, "verdicts": verdicts}
+        cursor = stop + len(VERDICT_END) if stop == end else stop
+        begin = following
+    outside.append(text[cursor:])
+    rest = "".join(outside)
+    if '"artifact_revision"' in rest and not carries_identity(rest):
+        refusals.append("revision JSON outside the verdict blocks lacks the reviewed revision")
+
+    scan = text.replace(TEMPLATE_VERDICT, "")
+    for match in _VERDICT_MEMBER.finditer(scan):
+        try:
+            verdicts.append(json.loads(f'"{match.group(1)}"'))
+        except ValueError:
+            verdicts.append(match.group(1))
+    # An empty or placeholder verdict names nothing, like a missing one.
+    verdicts = list(dict.fromkeys(clip(item) for item in verdicts if item not in ("", TEMPLATE_VERDICT)))
+    lock = [f"named verdict {item!r}" for item in verdicts if item != "approve"] + lock
+    if _CONCERN_MEMBER.search(scan):
+        lock.append("listed findings or notes")
+    return {"refusal": refusals[0] if refusals else None, "verdicts": verdicts,
+            "outcome_lock": list(dict.fromkeys(lock))}
 
 
 def _segment_refusals(members: _Members, expected_revision: dict[str, Any]) -> list[str]:
-    def values(name):
-        return [_plain(item) for key, item in members if key == name]
     refusals = []
-    revisions, verdict = values("artifact_revision"), values("verdict")
-    if not revisions or any(item != expected_revision for item in revisions):
+    revisions, verdict = _values(members, "artifact_revision"), _values(members, "verdict")
+    if (not revisions or any(_duplicated(item) or _plain(item) != expected_revision
+                             for item in revisions)):
         refusals.append("a verdict block in the output is bound to a different artifact revision")
-    findings = [item for item in values("findings") if item not in _EMPTY]
-    if "approve" in verdict and (findings or any(item not in _EMPTY for item in values("notes"))):
+    findings = [item for item in _values(members, "findings") if item not in _EMPTY]
+    if "approve" in verdict and (findings or any(item not in _EMPTY for item in _values(members, "notes"))):
         refusals.append("a verdict block in the output approves with findings or notes")
     if "changes_requested" in verdict and not findings:
         refusals.append("a verdict block in the output requests changes without a finding")

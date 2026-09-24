@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
 
-from subfleet.gate.round import OUTPUT_RULE, QUOTE_LIMIT, peer_prompt, reask_prompt
+from subfleet.gate.round import OUTPUT_RULE, QUOTE_LIMIT, peer_prompt, prepare_reask, reask_prompt
 from subfleet.gate.service import GateService, dispatch
 from subfleet.gate.verdict import VERDICT_BEGIN, VERDICT_END
 from tests.fake.test_gate_end_to_end import arguments, finish, wire
@@ -85,6 +86,7 @@ def test_prose_before_sentinel_is_reasked_once_and_the_retry_approval_is_recorde
     assert reask["first_attempt"]["peer_run_id"] == started["job_id"]
     assert reask["first_attempt"]["lane_id"] == first_attempt["lane_id"]
     assert reask["first_attempt"]["candidate_verdicts"] == ["approve"]
+    assert reask["first_attempt"]["outcome_lock"] == []
     # The first dispatch's hold ended with the re-ask's commit; the re-ask takes the same key.
     assert gate_leases(core) == []
 
@@ -100,8 +102,10 @@ def test_prose_before_sentinel_is_reasked_once_and_the_retry_approval_is_recorde
     assert submitted["prompt_path"] == reask["peer_prompt"] == str(directory / "peer-prompt.retry1.md")
     prompt = Path(submitted["prompt_path"]).read_text()
     assert Path(retry["prompt_path"]).read_text() == prompt  # the daemon's copy of the same bytes
-    assert prompt.startswith((directory / "peer-prompt.md").read_text().rstrip("\n"))
-    assert prompt.endswith(OUTPUT_RULE)
+    original = (directory / "peer-prompt.md").read_text()
+    assert original.endswith(OUTPUT_RULE)
+    assert prompt.startswith(original.removesuffix(OUTPUT_RULE).rstrip("\n"))
+    assert prompt.endswith(OUTPUT_RULE) and prompt.count(OUTPUT_RULE) == 1
     assert json.dumps(reask["reason"]) in prompt
     assert json.dumps((directory / "peer-output.md").read_text()) in prompt
 
@@ -138,6 +142,20 @@ def fenced(text):
     return f"```json\n{text}```\n"
 
 
+def fence_inside(text):
+    """A code fence inside the sentinels: the block itself is no longer JSON."""
+    return text.replace(VERDICT_BEGIN + "\n", VERDICT_BEGIN + "\n```json\n").replace(
+        "\n" + VERDICT_END, "\n```\n" + VERDICT_END)
+
+
+def trailing_comma(text):
+    return re.sub(r"\]\s*}\s*\n" + re.escape(VERDICT_END), "],}\n" + VERDICT_END, text)
+
+
+def other_sha(text):
+    return re.sub(r'"sha256": "[0-9a-f]{64}"', '"sha256": "' + "0" * 64 + '"', text)
+
+
 def echoed_template(text):
     """The peer echoes the prompt's template block before its own: a duplicate sentinel."""
     return text + text
@@ -152,6 +170,8 @@ def echoed_template(text):
     (members(schema_version=None), "unsupported schema"),
     (members(findings=None), "array of objects"),
     (lambda text: text.replace('"findings":[]', '"findings":[],'), "invalid JSON"),
+    (trailing_comma, "invalid JSON"),                                        # still names the revision
+    (fence_inside, "invalid JSON"),
     (lambda text: text.split(VERDICT_BEGIN, 1)[1].replace(VERDICT_END, ""), "missing or duplicates"),
     (echoed_template, "missing or duplicates"),
     (lambda text: text.encode().replace(b"The copied plan", b"The copied \xff plan"), "not UTF-8"),
@@ -314,11 +334,9 @@ def test_each_round_has_its_own_reask(core, tmp_path):
     reasking = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
     finish(core, reasking, transform=prose_before)
     assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 4
-    args = arguments(plan)
     from subfleet import cli
     continued = cli.build_parser().parse_args(["gate", "continue", started["gate_id"], "--main-approve",
                                                "--expect-sha256", hashlib.sha256(plan.read_bytes()).hexdigest()])
-    del args
     second = dispatch(core, "gate.continue", wire(continued))
     finish(core, second, transform=prose_before)
     reasking = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
@@ -330,34 +348,32 @@ def test_each_round_has_its_own_reask(core, tmp_path):
     assert len(core.store.list_jobs()) == 4
 
 
-def test_reask_attestation_mismatch_is_discarded_and_rerun_as_a_new_round(core, tmp_path):
-    """C-23.43: the re-ask's own attestation is checked; a mismatch re-runs as any round does."""
+@pytest.mark.parametrize("first", [
+    prose_before,
+    then(members(verdict="changes_requested", findings=[FINDING]), prose_before),
+])
+def test_reask_that_fails_attestation_blocks_instead_of_opening_a_round(core, tmp_path, first):
+    """C-23.9 (amended), C-23.43: a failed re-ask blocks as its first output did; no automatic new round."""
     _, started = start(core, tmp_path)
-    finish(core, started, transform=prose_before)
+    finish(core, started, transform=first)
     reasking = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
     finish(core, reasking, attestation="mismatch")
+    blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert blocked["code"] == 4 and blocked["round"] == 1
+    assert "mismatch" in blocked["message"] and "format re-ask" in blocked["message"]
+    record, = state_of(core, started)["rounds"]
+    assert record["status"] == "blocked" and record["verdict"] is None and record["format_reask"]
+    assert len(core.store.list_jobs()) == 2 and gate_leases(core) == []
+
+
+def test_first_dispatch_attestation_failure_still_reruns_the_round(core, tmp_path):
+    """C-23.43: only a round's first dispatch is re-run on an attestation failure, format failure or not."""
+    _, started = start(core, tmp_path)
+    finish(core, started, attestation="mismatch", transform=prose_before)
     rerun = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
     assert rerun["code"] is None and rerun["round"] == 2
     first, second = state_of(core, started)["rounds"]
-    assert first["status"] == "blocked" and "mismatch" in first["error"] and first["format_reask"]
-    assert second["status"] == "reviewing" and "format_reask" not in second
-
-
-def crash_on(core, monkeypatch, started, transition):
-    """C-3.2: die after the named journal commit, before its effects are published."""
-    service = core._gate_service
-    original = service._save
-
-    def save(state, name):
-        original(state, name)
-        if name == transition:
-            raise OSError(f"simulated daemon crash after {name}")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(service, "_save", save)
-        with pytest.raises(OSError, match="simulated daemon crash"):
-            dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
-    core._gate_service = GateService(core)
+    assert "mismatch" in first["error"] and "format_reask" not in first
 
 
 def test_crash_after_reask_commit_submits_the_reask_once_after_restart(core, tmp_path, monkeypatch):
@@ -455,3 +471,191 @@ def test_reask_prompt_quotes_untrusted_output_and_ends_with_the_rule():
     quoted = json.loads(bounded.split("Earlier output: ", 1)[1].split("\n", 1)[0])
     assert quoted.startswith("H" * (QUOTE_LIMIT // 2)) and quoted.endswith("T" * (QUOTE_LIMIT // 2))
     assert f"[... {QUOTE_LIMIT} characters omitted ...]" in quoted
+
+
+def placeholder_revision(text):
+    return re.sub(r'"artifact_revision": ?\{[^}]*\}', '"artifact_revision":REVISION', text)
+
+
+def nested_duplicate_sha(text):
+    expected = re.search(r'"sha256": "([0-9a-f]{64})"', text).group(1)
+    return text.replace(f'"sha256": "{expected}"', f'"sha256": "{"0" * 64}", "sha256": "{expected}"')
+
+
+def bare_json(text):
+    return text.replace(VERDICT_BEGIN, "").replace(VERDICT_END, "")
+
+
+def array_wrapped(text):
+    return text.replace(VERDICT_BEGIN + "\n", VERDICT_BEGIN + "\n[").replace("\n" + VERDICT_END, "]\n" + VERDICT_END)
+
+
+@pytest.mark.parametrize("transform,refusal", [
+    (then(other_sha, trailing_comma), "cannot read lacks the reviewed revision"),
+    (then(other_sha, fence_inside), "cannot read lacks the reviewed revision"),
+    (then(other_sha, array_wrapped), "cannot read lacks the reviewed revision"),
+    (then(placeholder_revision, prose_before), "cannot read lacks the reviewed revision"),
+    (then(members(artifact_revision=None), trailing_comma), "cannot read lacks the reviewed revision"),
+    (nested_duplicate_sha, "bound to a different artifact revision"),
+    (then(other_sha, bare_json), "outside the verdict blocks lacks the reviewed revision"),
+])
+def test_unreadable_output_without_the_reviewed_revision_is_never_reasked(core, tmp_path, transform, refusal):
+    """C-23.9 (amended): a block the gate cannot read must still carry the reviewed revision's digest."""
+    _, started = start(core, tmp_path)
+    finish(core, started, transform=transform)
+    blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert blocked["code"] == 4 and "not re-asked" in blocked["message"] and refusal in blocked["message"]
+    assert "format_reask" not in state_of(core, started)["rounds"][-1]
+    assert not (round_dir(core, started) / "peer-prompt.retry1.md").exists()
+    assert len(core.store.list_jobs()) == 1
+
+
+def requests_changes(text):
+    return members(verdict="changes_requested", findings=[FINDING])(text)
+
+
+def abandoned_then_approve(text):
+    """An unterminated changes_requested block, then an approving one."""
+    abandoned = requests_changes(text).split("\n" + VERDICT_END)[0].rstrip("}")
+    return abandoned + "\n" + text
+
+
+@pytest.mark.parametrize("first,lock", [
+    (then(requests_changes, fence_inside), "named verdict 'changes_requested'"),
+    (then(requests_changes, trailing_comma), "named verdict 'changes_requested'"),
+    (then(members(verdict="blocked"), trailing_comma), "named verdict 'blocked'"),
+    (then(requests_changes, lambda text: text.replace("Add rollback.", "Match \\d+ first.")),
+     "named verdict 'changes_requested'"),                                  # invalid JSON escape
+    (then(requests_changes, lambda text: text.replace("Add rollback.", f"Quote {VERDICT_END} verbatim.")),
+     "named verdict 'changes_requested'"),                                  # a finding quotes the sentinel
+    (then(requests_changes, array_wrapped), "named verdict 'changes_requested'"),
+    (abandoned_then_approve, "named verdict 'changes_requested'"),
+    (members(verdict=None, findings=[FINDING]), "listed findings or notes"),
+    (members(verdict="approve | changes_requested | blocked", findings=[FINDING]), "listed findings or notes"),
+])
+def test_unreadable_non_approval_still_locks_the_reask_outcome(core, tmp_path, first, lock):
+    """C-23.9 (amended): a non-approval anywhere in the rejected output's JSON keeps the re-ask from approving."""
+    _, started = start(core, tmp_path)
+    finish(core, started, transform=first)
+    reasking = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert reasking["code"] is None, reasking
+    assert lock in state_of(core, started)["rounds"][-1]["format_reask"]["first_attempt"]["outcome_lock"]
+    finish(core, reasking)
+    blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert blocked["code"] == 4 and "format re-ask returned approve" in blocked["message"]
+    assert lock in blocked["message"] and "first output: " in blocked["message"]
+    assert not list((core.root / "gates").glob("*/certificate.json"))
+
+
+def test_lone_surrogate_verdict_is_recorded_safely_and_locks_approval(core, tmp_path):
+    """C-3.2, C-23.9 (amended): peer text that SQLite cannot store never wedges the gate."""
+    _, started = start(core, tmp_path)
+    finish(core, started, transform=members(verdict="\ud800"))
+    reasking = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert reasking["code"] is None
+    assert state_of(core, started)["rounds"][-1]["format_reask"]["first_attempt"]["candidate_verdicts"] == ["\\ud800"]
+    finish(core, reasking)
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 4
+
+
+@pytest.mark.parametrize("change", [{"enabled": 0}, {"owner": "v1"}])
+def test_reask_is_not_pinned_to_a_lane_that_can_no_longer_run_it(core, tmp_path, change):
+    """C-11.2, C-23.9 (amended): an unusable first lane blocks the round instead of waiting forever."""
+    _, started = start(core, tmp_path)
+    finish(core, started, transform=prose_before)
+    lane_id = core.store.list_attempts(started["job_id"])[-1]["lane_id"]
+    core.store.update_lane(lane_id, **change)
+    blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert blocked["code"] == 4 and f"lane {lane_id} can no longer run it" in blocked["message"]
+    assert not (round_dir(core, started) / "peer-prompt.retry1.md").exists()
+    assert len(core.store.list_jobs()) == 1
+
+
+def test_crash_before_the_reask_commits_leaves_no_undispatched_prompt(core, tmp_path, monkeypatch):
+    """C-3.2, C-23.9 (amended): a re-ask prompt planned before a crash is removed if the re-ask never happens."""
+    plan, started = start(core, tmp_path)
+    finish(core, started, transform=prose_before)
+    service = core._gate_service
+    original = service._journal
+
+    def journal(state, transition):
+        if transition == "round-format-reask":
+            raise OSError("simulated daemon crash inside the consume transaction")
+        original(state, transition)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(service, "_journal", journal)
+        with pytest.raises(OSError, match="simulated daemon crash"):
+            dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert (round_dir(core, started) / "peer-prompt.retry1.md").exists()
+    core._gate_service = GateService(core)
+    plan.write_text("Changed while the daemon was down\n")
+    blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert blocked["code"] == 4 and "changed while the peer" in blocked["message"]
+    assert not (round_dir(core, started) / "peer-prompt.retry1.md").exists()
+    assert len(core.store.list_jobs()) == 1
+
+
+@pytest.mark.parametrize("reasked", [False, True])
+def test_dispatch_accepted_before_a_crash_is_adopted_after_a_policy_change(core, tmp_path, monkeypatch, reasked):
+    """C-6.2, C-23.10: an unjournaled dispatch whose digest changed is adopted, never orphaned on the lease."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("A concrete plan.\n")
+    original = GateService._save
+
+    def save(self, state, name):
+        if name == "round-submitted" and bool(state["rounds"][-1].get("format_reask")) == reasked:
+            raise OSError("simulated daemon crash before journaling the dispatch")
+        original(self, state, name)
+
+    if reasked:
+        started = dispatch(core, "gate.start", wire(arguments(plan)))
+        finish(core, started, transform=prose_before)
+    with monkeypatch.context() as patch:
+        patch.setattr(GateService, "_save", save)
+        with pytest.raises(OSError, match="simulated daemon crash"):
+            if reasked:
+                dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+            else:
+                dispatch(core, "gate.start", wire(arguments(plan)))
+    gate_id = next((core.root / "gates").iterdir()).name
+    accepted = [job["job_id"] for job in core.store.list_jobs()]
+    assert len(accepted) == (2 if reasked else 1)
+    unjournaled = next(job for job in accepted if ("-reask-" in job) == reasked)
+    core.policy_digest = "edited"
+    core._gate_service = GateService(core)
+    adopted = dispatch(core, "gate.poll", {"gate_id": gate_id})
+    assert adopted["code"] is None and adopted["job_id"] == unjournaled
+    assert len(core.store.list_jobs()) == len(accepted)
+    finish(core, adopted)
+    assert dispatch(core, "gate.poll", {"gate_id": gate_id})["code"] == 0
+    assert gate_leases(core) == []
+
+
+def test_reask_argv_is_rebuilt_not_patched(core, tmp_path):
+    """C-23.9 (amended): an account literally named like a flag cannot misplace the re-ask's pin."""
+    _, started = start(core, tmp_path)
+    record = state_of(core, started)["rounds"][-1]
+    record["exclude_accounts"] = ["-a", "-p"]
+    record["peer_argv"] = record["peer_argv"] + ["-x", "-a", "-x", "-p"]
+    dispatch_fields = prepare_reask(record, lane_id="codex-1", error="e", previous="p")
+    argv = dispatch_fields["peer_argv"]
+    assert argv[argv.index("-p") + 1] == dispatch_fields["peer_prompt"]
+    assert argv[argv.index("-o") + 1] == dispatch_fields["peer_output"]
+    assert argv[-6:] == ["-a", "codex-1", "-x", "-a", "-x", "-p"]
+
+
+def test_result_names_the_reask_whatever_its_verdict(core, tmp_path):
+    """C-17.1, C-23.9 (amended): a blocked or capped round still says its verdict came from the re-ask."""
+    _, started = start(core, tmp_path)
+    finish(core, started, transform=prose_before)
+    finish(core, dispatch(core, "gate.poll", {"gate_id": started["gate_id"]}), verdict="blocked")
+    blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert blocked["code"] == 4 and "format re-ask" in blocked["message"]
+    assert blocked["message"].startswith("The copied plan is consistent.")
+    _, capped = start(core, tmp_path / "..", "--max-rounds", "1", text="Another plan.\n")
+    finish(core, capped, transform=prose_before)
+    finish(core, dispatch(core, "gate.poll", {"gate_id": capped["gate_id"]}), verdict="changes_requested")
+    result = dispatch(core, "gate.poll", {"gate_id": capped["gate_id"]})
+    assert result["code"] == 4 and "maximum of 1 peer rounds" in result["message"]
+    assert "format re-ask" in result["message"]
