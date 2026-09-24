@@ -16,7 +16,7 @@ SID = "0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd"
 
 
 def spec(**kw):
-    base = dict(provider="claude", message_id=MID, text="fix the bug", model_id="claude-opus-5-5",
+    base = dict(provider="claude", message_id=MID, text="fix the bug", model_id="opus",
                 permission="ask", native_session_id=SID, effort="high", lane_identity="max@example.org")
     base.update(kw)
     return TurnSpec(**base)
@@ -29,7 +29,12 @@ def line(**row):
 INIT_OK = line(type="control_response", response={"subtype": "success", "request_id": INIT_REQUEST_ID, "response": {
     "account": {"email": "max@example.org"}, "fast_mode_state": "off",
     "models": [{"value": "default", "resolvedModel": "claude-opus-5-5[1m]", "supportsEffort": True,
-                "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]}]}})
+                "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]},
+               {"value": "opus", "resolvedModel": "claude-opus-5-5", "supportsEffort": True,
+                "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]},
+               {"value": "opus[1m]", "resolvedModel": "claude-opus-5-5[1m]", "supportsEffort": True,
+                "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]},
+               {"value": "haiku", "resolvedModel": "claude-haiku-4-5-20251001"}]}})
 
 
 def started(turn):
@@ -43,11 +48,14 @@ def test_argv_carries_resume_model_effort_and_the_permission_policy():
     """C-26.8, design D-7: ask mode routes permission prompts to the host; bypass does not."""
     assert argv(spec()) == ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json",
                             "--verbose", "--include-partial-messages", "--replay-user-messages",
-                            "--model", "claude-opus-5-5", "--effort", "high", "--resume", SID,
-                            "--permission-mode", "default", "--permission-prompt-tool", "stdio"]
+                            "--model", "opus", "--effort", "high", "--resume", SID,
+                            "--permission-mode", "default", "--permission-prompt-tool", "stdio",
+                            "--disallowedTools", "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger",
+                            "--settings", '{"disableAllHooks":false}']
     bypass = argv(spec(permission="bypass", native_session_id=None, new_session_id=SID, fast=True, effort=None))
-    assert "--session-id" in bypass and "--permission-prompt-tool" not in bypass
-    assert bypass[-2:] == ["--settings", '{"fastMode":true}']
+    # C-26.11: every writable mode keeps the user's hooks on and routes interaction prompts to the person.
+    assert "--session-id" in bypass and bypass[bypass.index("--permission-prompt-tool") + 1] == "stdio"
+    assert bypass[-2:] == ["--settings", '{"disableAllHooks":false,"fastMode":true}']
     with pytest.raises(ValueError):
         argv(spec(permission="everything"))
 
@@ -81,6 +89,9 @@ def test_an_effort_the_model_does_not_offer_is_refused_before_sending():
     step = started(turn)
     assert step.outcome.reason == "effort-unsupported"
     assert all(f.tag != "user-message" for f in step.frames)
+    # An entry without effort levels accepts none (haiku); an unlisted value is refused.
+    assert started(ClaudeTurn(spec(model_id="haiku", effort="low"), read_bytes=lambda p: b"")).outcome.reason == "effort-unsupported"
+    assert started(ClaudeTurn(spec(model_id="gpt-9"), read_bytes=lambda p: b"")).outcome.reason == "settings-unsupported"
 
 
 def test_streamed_text_thinking_tools_and_completion():
@@ -140,7 +151,7 @@ def test_requires_user_interaction_offers_no_one_tap_allow():
     turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
     started(turn)
     step = turn.feed(line(type="control_request", request_id="r", request={
-        "subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": {}, "requires_user_interaction": True}), 5)
+        "subtype": "can_use_tool", "tool_name": "ExitPlanMode", "input": {}, "requires_user_interaction": True}), 5)
     assert step.approvals[0].options == ("deny", "cancel-turn")
 
 
@@ -224,3 +235,69 @@ def test_replay_produces_the_same_events_and_frames():
     events, frames = run()
     assert frames == ["init", "user-message", "close"]
     assert len({source for _, source in events}) == len(events)
+
+
+def test_lifecycle_started_acknowledges_before_the_echo():
+    """C-24.4 `command_lifecycle started` for our uuid is the provider's acknowledgement."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    assert turn.feed(line(type="command_lifecycle", command_uuid="other", state="started"), 1).events == []
+    step = turn.feed(line(type="command_lifecycle", command_uuid=MID, state="queued"), 2)
+    assert not turn.accepted
+    step = turn.feed(line(type="command_lifecycle", command_uuid=MID, state="started"), 3)
+    assert turn.accepted and step.events[0].data["by"] == "lifecycle"
+
+
+def test_one_m_context_values_attest_against_their_resolved_model():
+    """C-26.8 `opus[1m]` serves `claude-opus-5-5[1m]` in init and `claude-opus-5-5` in
+    assistant frames: neither is a mismatch; `<synthetic>` is never one."""
+    turn = ClaudeTurn(spec(model_id="opus[1m]"), read_bytes=lambda p: b"")
+    started(turn)
+    assert turn.feed(line(type="system", subtype="init", model="claude-opus-5-5[1m]"), 1).outcome is None
+    assert turn.feed(line(type="assistant", message={"id": "m", "model": "claude-opus-5-5", "content": []}), 2).outcome is None
+    synthetic = {"type": "assistant", "is_api_error_message": True, "error": "rate_limit", "message": {
+        "model": "<synthetic>", "role": "assistant", "type": "message", "content": [{"type": "text", "text": "limit"}],
+        "usage": {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}}
+    step = turn.feed(json.dumps(synthetic), 3)
+    assert step.outcome is None and turn.limited and step.events[0].kind == "error"
+
+
+def test_ask_user_question_is_answered_by_adding_answers_only():
+    """C-27.2 a clarifying question becomes a `question` approval; the answer is the
+    original input plus `answers`, nothing else."""
+    turn = ClaudeTurn(spec(permission="bypass"), read_bytes=lambda p: b"")
+    started(turn)
+    questions = [{"question": "Which branch?", "options": [{"label": "main"}, {"label": "dev"}]}]
+    step = turn.feed(line(type="control_request", request_id="q1", request={
+        "subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": {"questions": questions},
+        "requires_user_interaction": True}), 4)
+    approval = step.approvals[0]
+    assert approval.kind == "question" and approval.options == ("answer", "deny", "cancel-turn")
+    assert approval.request["input"] == {"questions": questions}
+    with pytest.raises(ValueError):
+        turn.respond("q1", "answer", answers={})
+    reply = json.loads(turn.respond("q1", "answer", answers={"Which branch?": "dev"}).frames[0].line)
+    assert reply["response"]["response"] == {"behavior": "allow", "updatedInput": {
+        "questions": questions, "answers": {"Which branch?": "dev"}}}
+
+
+def test_a_success_that_races_a_stop_is_complete():
+    """C-24.4 the provider's success wins over a late stop, recorded as stop_too_late."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    turn.interrupt()
+    end = turn.feed(line(type="result", subtype="success", is_error=False, result="done"), 9)
+    assert end.outcome.state == "complete" and end.events[-1].data["stop_too_late"] is True
+
+
+def test_output_after_result_is_kept_without_changing_the_outcome():
+    """C-26.5 background output after `result` attaches to the message; a second
+    `result` changes nothing."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    turn.feed(line(type="result", subtype="success", is_error=False, result="done"), 9)
+    late = turn.feed(line(type="assistant", message={"id": "m2", "model": "claude-opus-5-5",
+                                                     "content": [{"type": "text", "text": "background done"}]}), 10)
+    assert [e.kind for e in late.events] == ["text"] and late.frames == [] and late.outcome is None
+    again = turn.feed(line(type="result", subtype="error_during_execution", is_error=True), 11)
+    assert again.outcome is None and turn.outcome.state == "complete"

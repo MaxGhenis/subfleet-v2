@@ -29,21 +29,31 @@ ID_INIT, ID_HOOKS, ID_MODELS, ID_THREAD, ID_TURN, ID_INTERRUPT = 1, 2, 3, 4, 5, 
 FAST_TIER = "priority"
 LIMIT_ERRORS = ("usageLimitExceeded", "rateLimitExceeded")
 
+# The thread is always opened read-only: a writable `thread/start` with a cwd
+# writes `[projects."<cwd>"] trust_level = "trusted"` into the lane's
+# config.toml (verified 2026-09-24), and a read-only thread with a writable
+# turn policy does not. The writable policy rides on each turn (C-26.11).
+THREAD_SANDBOX = "read-only"
 POLICY = {
-    # permission -> (thread sandbox, approvalPolicy, turn sandboxPolicy)
-    "ask": ("workspace-write", "on-request", {"type": "workspaceWrite", "networkAccess": False}),
-    "accept-edits": ("workspace-write", "on-request", {"type": "workspaceWrite", "networkAccess": False}),
-    "bypass": ("workspace-write", "never", {"type": "workspaceWrite", "networkAccess": False}),
-    "read-only": ("read-only", "never", {"type": "readOnly", "networkAccess": False}),
+    # permission -> (approvalPolicy, turn sandboxPolicy)
+    "ask": ("on-request", {"type": "workspaceWrite", "networkAccess": False}),
+    "accept-edits": ("on-request", {"type": "workspaceWrite", "networkAccess": False}),
+    "bypass": ("never", {"type": "workspaceWrite", "networkAccess": False}),
+    "read-only": ("never", {"type": "readOnly", "networkAccess": False}),
 }
+WRITABLE = ("ask", "accept-edits", "bypass")
 
 
-def argv(executable: str, override: str) -> list[str]:
+def argv(executable: str, override: str, *, unified_exec_off: bool = False) -> list[str]:
     """The turn server's command. `override` is the verified `-c hooks=…` value
-    (`PreflightResult.override`); a turn is never launched without it."""
+    (`PreflightResult.override`); a turn is never launched without it, and it
+    carries C-23.6's switch whenever an exec launch would."""
     if not override or not override.startswith("hooks="):
         raise ValueError("a Codex turn requires the verified hooks override")
-    return [executable, "app-server", "--listen", "stdio://", "-c", override]
+    command = [executable, "app-server", "--listen", "stdio://", "-c", override]
+    if unified_exec_off:
+        command += ["-c", "features.unified_exec=false"]
+    return command
 
 
 def check_hooks(result: Any, cwd: str, hooks_hash: str | None) -> str | None:
@@ -163,9 +173,13 @@ class CodexTurn:
             msg = json.loads(text)
         except ValueError:
             return Step()
-        if not isinstance(msg, dict) or self.phase == "ended":
+        if not isinstance(msg, dict):
             return Step()
         source = _Sources(offset)
+        if self.phase == "ended":
+            if "method" in msg and "id" not in msg and msg["method"].startswith("item/"):
+                return Step(events=self._notification(msg["method"], msg.get("params") or {}, source).events)
+            return Step()
         if "method" in msg and "id" in msg:
             return self._server_request(msg, source)
         if "method" in msg:
@@ -236,8 +250,8 @@ class CodexTurn:
         if not all(self._ready.values()):
             return Step()
         self.phase = "thread"
-        sandbox, approval, _ = POLICY[self.spec.permission]
-        common = {"cwd": self.spec.cwd, "model": self.spec.model_id, "sandbox": sandbox,
+        approval, _ = POLICY[self.spec.permission]
+        common = {"cwd": self.spec.cwd, "model": self.spec.model_id, "sandbox": THREAD_SANDBOX,
                   "approvalPolicy": approval, "approvalsReviewer": "user",
                   "serviceTier": FAST_TIER if self.spec.fast else None}
         if self.spec.native_session_id:
@@ -268,7 +282,7 @@ class CodexTurn:
                   "service_tier": (result or {}).get("serviceTier"), "sandbox": (result or {}).get("sandbox"),
                   "approval_policy": (result or {}).get("approvalPolicy"), "native_session_id": thread_id}
         self.phase = "turn"
-        _, approval, sandbox_policy = POLICY[self.spec.permission]
+        approval, sandbox_policy = POLICY[self.spec.permission]
         params: dict[str, Any] = {
             "threadId": thread_id, "clientUserMessageId": self.spec.message_id,
             "input": self._input(), "model": self.spec.model_id, "cwd": self.spec.cwd,
@@ -415,14 +429,19 @@ class CodexTurn:
             if method == "item/commandExecution/requestApproval":
                 kind, options = "command", ("allow", "allow-session", "deny", "cancel-turn")
                 summary = {"command": redact.truncate(redact.scrub(str(params.get("command") or "")), redact.INPUT_MAX),
-                           "cwd": params.get("cwd"), "reason": params.get("reason")}
+                           "cwd": params.get("cwd"), "reason": params.get("reason"),
+                           # Every field that changes what is granted is shown (C-27.1).
+                           "input_kind": params.get("kind"),
+                           "network": params.get("networkApprovalContext"),
+                           "execpolicy_amendment": params.get("proposedExecpolicyAmendment"),
+                           "network_amendments": params.get("proposedNetworkPolicyAmendments")}
             elif method == "item/fileChange/requestApproval":
                 kind, options = "file-change", ("allow", "allow-session", "deny", "cancel-turn")
                 summary = {"reason": params.get("reason"), "grant_root": params.get("grantRoot")}
             else:
                 kind, options = "permissions", ("allow-turn", "deny")
                 summary = {"permissions": params.get("permissions"), "reason": params.get("reason"), "cwd": params.get("cwd")}
-            return Step(approvals=[Approval(rid, kind, summary, options)],
+            return Step(approvals=[Approval(rid, kind, summary, options, request={"method": method, "params": params})],
                         events=[Event("approval.requested", {"request_id": rid, "kind": kind, **summary,
                                                              "options": list(options)}, source.next())])
         # C-27.4: refused, visibly; credentials are never supplied.

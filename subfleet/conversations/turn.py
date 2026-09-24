@@ -31,7 +31,7 @@ TERMINAL_STATES = (COMPLETE, FAILED, INTERRUPTED, CANCELLED)
 MESSAGE_STATES = (QUEUED, *LIVE_STATES, *TERMINAL_STATES)
 
 PERMISSIONS = ("ask", "accept-edits", "bypass", "read-only")
-DECISIONS = ("allow", "allow-session", "allow-turn", "deny", "cancel-turn")
+DECISIONS = ("allow", "allow-session", "allow-turn", "answer", "deny", "cancel-turn")
 
 
 @dataclass(frozen=True)
@@ -58,7 +58,7 @@ class TurnSpec:
     cwd: str = ""
     lane_identity: str | None = None   # the account the lane claims (C-10.6)
     guard_hash: str | None = None      # Codex: the hook hash `hooks/list` must report
-    guard_key: str | None = None
+    unified_exec_off: bool = False     # Codex: C-23.6's switch, as exec launches carry it
 
 
 @dataclass(frozen=True)
@@ -78,9 +78,10 @@ class Event:
 @dataclass(frozen=True)
 class Approval:
     provider_request_id: str
-    kind: str                 # tool | command | file-change | permissions
-    summary: dict[str, Any]
+    kind: str                 # tool | question | command | file-change | permissions
+    summary: dict[str, Any]   # display fields for the event (scrubbed, bounded)
     options: tuple[str, ...]
+    request: dict[str, Any] = field(default_factory=dict)   # the provider's exact request (kept 0600)
 
 
 @dataclass(frozen=True)

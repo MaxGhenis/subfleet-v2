@@ -34,8 +34,27 @@ UNSUPPORTED = "Subfleet does not support this request; answer it in the provider
 PERMISSION_FLAGS = {
     "ask": ("--permission-mode", "default", "--permission-prompt-tool", "stdio"),
     "accept-edits": ("--permission-mode", "acceptEdits", "--permission-prompt-tool", "stdio"),
-    "bypass": ("--permission-mode", "bypassPermissions"),
+    # Bypass still sends what no mode auto-approves (AskUserQuestion, ask rules)
+    # to the person instead of letting `-p` deny it (design D-9).
+    "bypass": ("--permission-mode", "bypassPermissions", "--permission-prompt-tool", "stdio"),
 }
+# Tools that schedule work for a session that will not exist after the turn (D-15).
+DISALLOWED_TOOLS = ("Monitor", "CronCreate", "ScheduleWakeup", "RemoteTrigger")
+BACKGROUND_CEILING_MS = 120_000
+QUESTION_TOOLS = ("AskUserQuestion",)
+
+
+def expected_model(value: str, models: Any) -> str | None:
+    """The model a catalog `value` serves, `[1m]` removed (design D-19), or None
+    when the catalog does not list the value."""
+    for entry in models if isinstance(models, list) else ():
+        if isinstance(entry, dict) and entry.get("value") == value and entry.get("resolvedModel"):
+            return strip_context(str(entry["resolvedModel"]))
+    return None
+
+
+def strip_context(model: str) -> str:
+    return model[:-4] if model.endswith("[1m]") else model
 
 
 def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[str, ...] = ()) -> list[str]:
@@ -56,11 +75,23 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         command += list(read_only_flags)
     elif spec.permission in PERMISSION_FLAGS:
         command += list(PERMISSION_FLAGS[spec.permission])
+        command += ["--disallowedTools", ",".join(DISALLOWED_TOOLS)]
+        # Command-line settings outrank project and local settings, so a workspace
+        # file cannot switch the user's never-rules hook off (C-26.11).
+        settings: dict[str, Any] = {"disableAllHooks": False}
+        if spec.fast:
+            settings["fastMode"] = True
+        command += ["--settings", json.dumps(settings, separators=(",", ":"))]
     else:
         raise ValueError(f"unknown permission {spec.permission!r}")
-    if spec.fast:
+    if spec.permission == "read-only" and spec.fast:
         command += ["--settings", json.dumps({"fastMode": True}, separators=(",", ":"))]
     return command
+
+
+def environment() -> dict[str, str]:
+    """Variables every Claude turn adds (D-15)."""
+    return {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": str(BACKGROUND_CEILING_MS)}
 
 
 def _line(value: dict) -> str:
@@ -77,6 +108,7 @@ class ClaudeTurn:
         self.limited = False
         self.interrupt_requested = False
         self.served_model: str | None = None
+        self.expected_model: str | None = None            # from the initialize catalog (D-19)
         self.outcome: Outcome | None = None
         self.pending: dict[str, dict[str, Any]] = {}     # request id → original can_use_tool request
         self._tools: dict[str, bool] = {}                 # tool_use id → hidden
@@ -105,13 +137,20 @@ class ClaudeTurn:
         return Step(frames=[Frame("interrupt", "write", _line(request))],
                     events=[Event("status", {"phase": "stopping"}, "cmd:interrupt")])
 
-    def respond(self, request_id: str, decision: str, message: str | None = None) -> Step:
+    def respond(self, request_id: str, decision: str, message: str | None = None,
+                answers: dict | None = None) -> Step:
         """A person's answer to one pending `can_use_tool` request (C-27.1, C-27.2)."""
         request = self.pending.pop(request_id, None)
         if request is None:
             return Step()
         if decision == "allow":
             result: dict[str, Any] = {"behavior": "allow", "updatedInput": request.get("input") or {}}
+        elif decision == "answer":
+            if not isinstance(answers, dict) or not answers:
+                self.pending[request_id] = request
+                raise ValueError("an answer needs the chosen answers")
+            # The only change Subfleet makes to a request's input (C-27.2).
+            result = {"behavior": "allow", "updatedInput": {**(request.get("input") or {}), "answers": answers}}
         elif decision in ("deny", "cancel-turn"):
             result = {"behavior": "deny", "message": message or "Denied in Subfleet."}
             if decision == "cancel-turn":
@@ -149,10 +188,18 @@ class ClaudeTurn:
             row = json.loads(text)
         except ValueError:
             return Step()
-        if not isinstance(row, dict) or self.phase == "ended":
+        if not isinstance(row, dict):
             return Step()
         source = _Sources(offset)
         kind = row.get("type")
+        if self.phase == "ended":
+            # After the terminal event: background output belongs to the same
+            # message and never changes its outcome (C-26.5).
+            if kind in ("assistant", "user", "stream_event") and not row.get("parent_tool_use_id"):
+                handler = {"assistant": self._assistant, "user": self._user, "stream_event": self._stream_event}[kind]
+                step = handler(row, source)
+                return Step(events=step.events)
+            return Step()
         if kind == "control_response":
             return self._control_response(row, source)
         if kind == "control_request":
@@ -162,6 +209,12 @@ class ClaudeTurn:
             if self.pending.pop(request_id, None) is not None:
                 return Step(resolved=[request_id],
                             events=[Event("approval.resolved", {"request_id": request_id, "decision": "withdrawn"},
+                                          source.next())])
+            return Step()
+        if kind == "command_lifecycle":
+            if row.get("command_uuid") == self.spec.message_id and row.get("state") == "started" and not self.accepted:
+                self.accepted = True
+                return Step(events=[Event("accepted", {"message_id": self.spec.message_id, "by": "lifecycle"},
                                           source.next())])
             return Step()
         if row.get("parent_tool_use_id"):
@@ -195,8 +248,13 @@ class ClaudeTurn:
             # C-10.6: the credential answered for another account; nothing is sent.
             return self._end(FAILED, "identity", detail=f"lane claims {self.spec.lane_identity}, provider says {account}",
                              source=source.next())
+        self.expected_model = expected_model(self.spec.model_id, body.get("models"))
+        if self.expected_model is None:
+            return self._end(FAILED, "settings-unsupported",
+                             detail=f"{self.spec.model_id} is not in this account's model catalog",
+                             source=source.next())
         effort_levels = _effort_levels(body.get("models"), self.spec.model_id)
-        if self.spec.effort and effort_levels is not None and self.spec.effort not in effort_levels:
+        if self.spec.effort and self.spec.effort not in (effort_levels or []):
             return self._end(FAILED, "effort-unsupported",
                              detail=f"{self.spec.model_id} offers {', '.join(effort_levels) or 'no effort levels'}",
                              source=source.next())
@@ -239,11 +297,17 @@ class ClaudeTurn:
                 "reason": request.get("decision_reason"),
                 "blocked_path": request.get("blocked_path"),
             }
-            options = ("deny", "cancel-turn") if request.get("requires_user_interaction") else ("allow", "deny", "cancel-turn")
-            approval = Approval(request_id, "tool", summary, options)
+            if name in QUESTION_TOOLS:
+                kind, options = "question", ("answer", "deny", "cancel-turn")
+                summary["questions"] = (request.get("input") or {}).get("questions")
+            elif request.get("requires_user_interaction"):
+                kind, options = "tool", ("deny", "cancel-turn")
+            else:
+                kind, options = "tool", ("allow", "deny", "cancel-turn")
+            approval = Approval(request_id, kind, summary, options, request=request)
             return Step(approvals=[approval],
                         events=[Event("approval.requested", {"request_id": request_id, **summary,
-                                                             "options": list(options)}, source.next())])
+                                                             "kind": kind, "options": list(options)}, source.next())])
         # Anything else (authentication refreshes, hooks, MCP messages) is refused (C-27.4).
         response = {"type": "control_response",
                     "response": {"subtype": "error", "request_id": request_id, "error": UNSUPPORTED}}
@@ -307,8 +371,9 @@ class ClaudeTurn:
         step = Step()
         model = message.get("model")
         if isinstance(model, str) and model:
-            step.extend(self._check_model(model, source))
-            if self.outcome is not None:
+            check = self._check_model(model, source)
+            step.extend(check)
+            if check.outcome is not None:
                 return step
         message_id = str(message.get("id") or self._message_id or "")
         for index, block in enumerate(message.get("content") or []):
@@ -372,16 +437,19 @@ class ClaudeTurn:
         denials = row.get("permission_denials") or []
         end = self._end(state, reason, detail=detail, source=source.next(),
                         extra={"permission_denials": len(denials), "num_turns": row.get("num_turns"),
-                               "fast_mode_state": row.get("fast_mode_state")})
+                               "fast_mode_state": row.get("fast_mode_state"),
+                               "stop_too_late": ok and self.interrupt_requested})
         return step.extend(end)
 
     # --- helpers ---------------------------------------------------------------
 
     def _check_model(self, model: str, source: "_Sources") -> Step:
-        if model == "<synthetic>":
+        if model == "<synthetic>" or self.outcome is not None:
             return Step()
-        self.served_model = model
-        if model_matches_requested(model, self.spec.model_id):
+        served = strip_context(model)
+        self.served_model = served
+        expected = self.expected_model or strip_context(self.spec.model_id)
+        if served == expected or model_matches_requested(served, expected):
             return Step()
         # C-26.8: stop at once; a turn on the wrong model is not the turn asked for.
         step = Step(frames=[] if self.interrupt_requested else [Frame("interrupt", "write", _line(
@@ -417,20 +485,15 @@ class _Sources:
         return f"{self.offset}:{self.n}"
 
 
-def _effort_levels(models: Any, model_id: str) -> list[str] | None:
-    """The effort levels Claude offers for `model_id`, or None when it does not say."""
-    if not isinstance(models, list):
-        return None
-    for entry in models:
-        if not isinstance(entry, dict):
-            continue
-        resolved = str(entry.get("resolvedModel") or "").split("[")[0]
-        value = str(entry.get("value") or "")
-        if model_id in (resolved, value) or (resolved and model_matches_requested(resolved, model_id)):
-            levels = entry.get("supportedEffortLevels")
+def _effort_levels(models: Any, value: str) -> list[str] | None:
+    """The effort levels the catalog entry chosen by `value` offers; an entry
+    without them accepts none (design D-19). None when the value is not listed."""
+    for entry in models if isinstance(models, list) else ():
+        if isinstance(entry, dict) and entry.get("value") == value:
             if entry.get("supportsEffort") is False:
                 return []
-            return [str(x) for x in levels] if isinstance(levels, list) else None
+            levels = entry.get("supportedEffortLevels")
+            return [str(x) for x in levels] if isinstance(levels, list) else []
     return None
 
 

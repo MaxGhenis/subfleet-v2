@@ -1,21 +1,30 @@
 # Desktop workspace: design
 
-Status: Stage 1 contract, 2026-09-24. Binding clauses are C-24 to C-30 in
+Revision 2, 2026-09-24. Binding clauses are C-24 to C-30 in
 `docs/acceptance-contract.md`; this document is the specification those
 clauses cite. Transition plan: `~/subfleet-desktop-transition-20260924.md`.
-Code maps of the base revision (`3f155e5`) that this design is built on are in
-`docs/desktop/maps/`; citations of the form `file.py:N` refer to that revision.
+Code maps of the base revision (`3f155e5`) are in `docs/desktop/maps/`;
+citations of the form `file.py:N` refer to that revision.
+
+Revision 2 folds in an adversarial review of revision 1 by five independent
+lenses (durability, v2 integration, security, provider protocol, product),
+recorded in `docs/desktop/reviews/2026-09-24-contract-review.md` with each
+finding's disposition. Probes cited as "verified" were run this session
+against the installed Claude Code 2.1.280 and codex-cli 0.153.3 without model
+calls (scratch homes with no credentials, or `shouldQuery:false` messages).
 
 ## 1. Outcome
 
 Max starts, follows up on, approves or denies, stops, inspects, and reopens
 real Claude and Codex coding conversations in the installed Subfleet app,
 across all enrolled subscription accounts, without switching to the Claude or
-Codex apps. The native Swift cockpit built on 2026-08-30 is recovered and
-pointed at the v2 daemon. The daemon stays the only execution authority.
+Codex apps. The daemon stays the only execution authority. The app is built
+new (Max, 2026-09-24: "feel free to build it as if from scratch"); the legacy
+cockpit is a record of requirements and edge cases
+(`maps/legacy-swift.md`), not a code base.
 
 What Max asked of the app (archived Codex task `01a04752…`, 2026-08-28 to
-2026-09-01), each a ledger row in `docs/desktop/ledger.json`:
+2026-09-01), each a row in `docs/desktop/ledger.json`:
 
 - replace the Claude and Codex apps; no more signing in and out of accounts;
   a conversation moves to an account with capacity;
@@ -33,715 +42,770 @@ What Max asked of the app (archived Codex task `01a04752…`, 2026-08-28 to
 
 ## 2. Decisions
 
-Each decision names what it rests on. "Verified" means observed this session
-by running the installed tool or reading the code; "doc" means an official
-document; anything else is marked.
+### Execution
 
-**D-1. A turn is a job.** Every conversation turn is one v2 job of kind
-`turn`, admitted like any job (C-6.3, C-11), with exactly one attempt, one
-guardian, and one provider process that lives for that turn only. This keeps
-C-23.54 (every provider launch is a submission), C-5.1 (one guardian per
-attempt), per-turn credential resolution, closures, the Fable reserve, and
-attestation. The provider process runs in its bidirectional mode (Claude
-stream-json, Codex app-server), not the one-shot mode v2 uses today, so the
-daemon can stream output, answer approvals and interrupt the turn. The daemon
-closes the process's stdin after the provider's terminal event for the turn,
-and the process exits. Verified: `codex app-server` 0.153.3 exits with rc 0
-0.02 s after stdin EOF and answers `initialize` 0.26 s after spawn; Claude
-2.1.280 with `--input-format stream-json` exits with rc 0 on stdin EOF after
-answering an SDK `initialize` control request. The exit receipt still defines
-completion of the attempt; the provider's terminal event defines completion
-of the turn (D-9).
+**D-1. A turn is a job, with turn rules.** Every conversation turn is one v2
+job of kind `turn` with exactly one attempt, one guardian, and one provider
+process that lives for that turn. It is admitted by the same `evaluate` in the
+same reserving transaction as every job (C-6.3), so closures, the Fable
+reserve, identity, desktop and slot caps all apply, and C-23.54 holds. The
+provider runs in its bidirectional mode (Claude stream-json, Codex
+app-server) so the daemon can stream output, answer approvals and interrupt.
+Turn jobs differ from detached jobs in exactly these ways, each a clause in
+C-26:
+
+- only the daemon's dispatcher creates them, through an internal submit; the
+  socket `submit` op refuses `kind:"turn"` and request ids beginning `turn:`
+  (review F-12);
+- `max_attempts` 1, no parent, no caller-session notice (the conversation is
+  the delivery channel; review F-10);
+- no salvage ref: the receipt records the workspace's HEAD before and after,
+  and tree objects of the working tree at start and end for the diff (D-25),
+  creating no ref (review F-14);
+- no deliverable export; the outcome is the driver's (D-9), classified by a
+  turn classifier over structured provider evidence only (review F-01, F-02);
+- their own retention budget and pinning rule (§9).
+
+Verified: `codex app-server` answers `initialize` 0.26 s after spawn and
+exits rc 0 0.02 s after stdin EOF; Claude with `--input-format stream-json`
+answers an SDK `initialize` control request with `account`, `models` and
+`fast_mode_state` and exits rc 0 on stdin EOF.
 
 *Rejected for this release: warm workers.* A process that outlives its turn
 holds a lane slot while idle, resolves its credential once, escapes per-turn
-admission, and needs per-turn receipts that the guardian cannot give
-(`maps/v2-store-jobs.md` §7). The first release measures per-turn start
-latency (Stage 3) and states it; a warm worker is a later change with its own
-contract section.
+admission, and cannot give per-turn receipts (`maps/v2-store-jobs.md` §7).
+Stage 3 measures per-turn start latency and the release states it.
 
-**D-2. The guardian gains a control relay.** For a turn attempt the guardian
-owns the child's stdin as a pipe and listens on a private Unix socket. The
-daemon sends numbered frames; the guardian appends each accepted frame to
-`<attempt>/stdin.jsonl` (fsync) before writing it to the pipe, and
-acknowledges by sequence number. A resent frame whose number was already
-applied is acknowledged without being written again, so a daemon restart
-mid-send never duplicates provider input. The guardian does not parse
-provider messages. Section 6.
+**D-2. The guardian relays numbered frames.** For a turn attempt the guardian
+owns the child's stdin as a pipe and listens on `<state>/run/<16 hex>.sock`,
+accepting only the process `daemon.lock` names (pid, boot id, start time via
+`LOCAL_PEERPID`, re-read per connection). Frames carry a sequence number, a
+tag and the SHA-256 of their line. The guardian logs an intent (fsync), writes
+the pipe, then logs `written` or `failed`. A resent number is a duplicate only
+when its hash matches and it was written; different content is a conflict; a
+failed or unfinished write is never reported as applied and ends relaying.
+The guardian never parses provider messages. Implemented and tested
+(`subfleet/relay.py`; reviews SEC-6, F5).
 
-**D-3. Turn drivers are pure and replayable.** A driver per provider turns
-(stdout lines, relay acknowledgements, operator commands) into (events,
-outgoing frames, a turn outcome). It holds no I/O. The daemon feeds it by
-tailing `<attempt>/stdout` from a persisted byte offset. After a daemon
-restart the driver is rebuilt by replaying `stdin.jsonl` and `stdout` from
-the start of the attempt; events carry their source offsets, so replay
-appends nothing twice. Section 7.
+**D-3. Drivers are pure and replayable.** A driver per provider turns
+(stdout lines with byte offsets, operator commands) into (events, frames,
+approvals, at most one outcome) and does no I/O. The runner tails
+`<attempt>/stdout`. After a daemon restart the runner rebuilds the driver by
+replaying stdout from the start and consults `stdin.jsonl`: a frame whose tag
+is logged as written is not sent again. Each attempt keeps a watermark
+`(stdout offset, stdin seq)` updated in the transaction that stores the events
+it covers; replay stores nothing at or below it (review F6). Events are keyed
+`(attempt, source, position, ordinal)` with no NULL part: `source` is
+`stdout` (position = byte offset) or `command` (position = the command's tag).
 
-**D-4. Conversations are daemon rows; history is the native transcript.** A
-conversation row binds a provider, a native session id (once known), a
-workspace, settings, and (for Codex) a lane home. Long-term history is read
-from the native transcript (Claude `~/.claude/projects/<slug>/<id>.jsonl`,
-Codex `<home>/sessions/**/rollout-*-<id>.jsonl`), which also records every
-turn Subfleet runs. Daemon events cover the live turn and are compacted after
-it ends. Nothing Subfleet does rewrites a native transcript.
+**D-4. Conversations have their own store.** Conversation state lives in
+`<state>/conversations.sqlite3` (WAL, `synchronous=FULL`, 0600), written only
+by the daemon through its own connection and lock. `state.sqlite3` keeps
+schema 5: every retained release still opens it, so daemon rollback stays
+possible (review F-11), and streamed events never contend for the main
+store's single lock or add `events` audit rows to it (review F-09). The main
+store is the source of truth for jobs and attempts; a message's binding to its
+turn job is repaired on start-up by looking up request ids `turn:<message
+id>:<n>` (review F-07). Long-term history is the native transcript
+(Claude `~/.claude/projects/<slug>/<id>.jsonl`, Codex
+`<home>/sessions/**/rollout-*-<id>.jsonl`), which records every turn Subfleet
+runs; nothing Subfleet does rewrites one.
+
+### Routing and failover
 
 **D-5. Claude conversations move between accounts; Codex conversations stay
-in their home.** Every enrolled Claude lane launches with the daemon user's
-default config directory and passes only `CLAUDE_CODE_OAUTH_TOKEN`
-(`maps/v2-claude-adapter.md` §1; all 17 Claude lanes are `keychain-token`,
-observed in `lanes.json`), so a Claude transcript can be resumed under any
-Claude lane. Admission therefore routes each Claude turn by model across the
-eligible Claude lanes, which is the account failover Max asked for. A Codex
-thread lives in one `CODEX_HOME`, so a Codex conversation is pinned to the
-lane that holds its thread and waits for that lane's capacity; moving it is
-an explicit, labelled handoff (D-15).
+home.** A Claude transcript can be resumed under any Claude lane that
+launches with the default config directory, which is every lane whose
+credential kind is `keychain-token` or `env` (all 17 today, `lanes.json`); a
+`home`-kind Claude lane sets `CLAUDE_CONFIG_DIR` and is not a candidate for
+turns (review F-13). Admission routes each Claude turn by model across those
+lanes, preferring the lane that served the conversation's previous turn while
+it stays eligible for the model (not closed, above the headroom floor,
+identity verified), so turns keep the account and its prompt cache; a move
+happens on a closure, a limit, the floor, or a person's "move", and each move
+is a `served` event with its reason (review U-F10). A Codex thread lives in
+one `CODEX_HOME`, so a Codex conversation is pinned to the lane holding its
+thread; while its lane is limited the app shows the reset time and offers a
+labelled handoff (D-18). Stage 3 tests relocating a thread between lane homes
+(copy the rollout, `thread/resume`, attest); only a clean result adds a
+`relocate` action (review U-F11).
 
-**D-6. One writer per native session, whichever lane.** A turn job takes the
-lease `conversation:<conversation id>` and the lane-independent lease
-`native:<provider>:<native session id>`, and is refused while any existing
-`native-session:<lane>:<id>` lease (resume, revive) or a live process outside
-Subfleet holds the same session. For Claude, "outside Subfleet" is a live
-pid in `~/.claude/sessions/<pid>.json` naming the session id
-(`sessions/registry.py`); for Codex, a live `codex` process whose environment
-names the lane home and whose rollout is being appended within the last 10 s
-(the lane homes are Subfleet's; an external writer there is a bug, reported,
-not waited on). The app shows "open in the Claude app; close it there to
-continue here" rather than failing silently.
+**D-6. Failover is a labelled continuation, never a re-send.** Both providers
+take the message into the native transcript before the model answers (Claude
+records it before the API request, binary offset 193639230; Codex returns the
+turn id before any model call and persists the user message with its
+`client_id`, both verified), so a limit is never "before acceptance" in a way
+that allows re-sending (reviews P1, P2, F-03). When a Claude turn ends
+`failed (limited)`:
 
-**D-7. Permission policy is per conversation, explicit, and never widened
-silently.** The policy is part of every message's settings and its digest.
+- the lane's closure is recorded at finalization (C-9.6) before anything else
+  happens;
+- if the conversation's `auto_continue` setting is on (default on, because
+  Max asked for it), the daemon queues one *continuation*: a new message with
+  a new id, `origin:"failover"`, `continues:<original id>`, and the fixed text
+  "Continue from where you left off; the previous turn stopped at a usage
+  limit.", excluded from the limited lane;
+- at most two continuations per original message; the app shows each as
+  "continued on <account> after a usage limit".
 
-| Setting | Claude flags | Codex `turn/start` |
-|---|---|---|
-| `ask` | `--permission-mode default --permission-prompt-tool stdio` | `approvalPolicy:"on-request"`, `approvalsReviewer:"user"`, `sandboxPolicy:{type:"workspaceWrite", networkAccess:false}` |
-| `accept-edits` | `--permission-mode acceptEdits --permission-prompt-tool stdio` | same as `ask` (Codex has no separate edit class) |
-| `bypass` | `--permission-mode bypassPermissions` | `approvalPolicy:"never"`, `sandboxPolicy:{type:"workspaceWrite", networkAccess:false}` (today's v2 posture) |
-| `read-only` | the v2 read-only flag set (`claude.py:1211-1225`) | `approvalPolicy:"never"`, `sandboxPolicy:{type:"readOnly", networkAccess:false}` |
+A Codex conversation whose lane is limited waits for that lane (admission
+`capacity` wait on the closure); moving it is a labelled handoff (D-18).
 
-Codex never receives `dangerFullAccess`, `externalSandbox`, or a granular or
-experimental policy. The never-rules deny hooks keep applying: Claude loads
-user settings in every mode except `read-only` (as today); every Codex turn
-server starts with the verified `-c hooks=` override (D-11). A new
-conversation's default is the provider's configured default (Claude
-`permissions.defaultMode` in `~/.claude/settings.json`; Codex `bypass`, which
-is v2's current behaviour), shown in the composer. Continuing an existing
-native session defaults to the permission mode its transcript last recorded
-(`transcripts.last_permission_mode`). Any change is a person's click, and a
-change to a wider policy on an existing conversation asks for confirmation.
+**D-7. Attended turns are ordered first and hold nothing back.** Turn jobs
+sort ahead of detached jobs within their tier. A turn that cannot be placed
+never enters `waiters` for detached jobs, so it neither holds them
+`behind-older-job` nor causes `slot-kept`; turns hold back only other
+competing turns (review F-04). Turns never trigger an admission probe: a lane
+whose verdict would require one (C-11.4 unmeasured writable, C-11.7
+`requires_probe`) is not a candidate for a turn, reason `probe-required`
+(review F-03). Turns count against `max_active_attempts` and per-lane slots
+like any attempt (review F-05); this is ordering, not reserved capacity
+(plan amendment 11). A turn waiting on an approval holds its slot for at most
+`approval_wait_s` (policy, default 3600 s), after which its approvals are
+withdrawn and the turn is stopped (D-12) with reason `approval-timeout`.
 
-**D-8. Displayed reasoning is what the provider's own app displays.** Max
-asked for "what it's thinking, like the Claude app." Claude `thinking` block
-text and Codex `item/reasoning/summaryTextDelta` summaries are events. Codex
-raw reasoning (`item/reasoning/textDelta`), Claude `redacted_thinking`, and
-signatures are never stored or sent. Tool activity carries the tool name, a
-scrubbed input summary of at most 500 characters, and a scrubbed result
-preview of at most 2 KB; a call that reads credentials
-(`handoff.sensitive_tool_call`) is shown as "credential access (hidden)" with
-neither input nor result. Scrubbing reuses `handoff.scrub_secrets`.
+### Safety
 
-**D-9. States are honest and separate.** Local acknowledgement, provider
-acceptance, and turn completion are three facts, never one. Message states:
+**D-8. Only a person approves, resolves, or widens.** Person-only operations
+are `approval.respond`, `approval.get` (full input), `message.resolve`,
+`conversation.settings` that widens the permission policy or sets
+`allow_main`, and `conversation.unblock`. The daemon reads the caller's pid
+with `LOCAL_PEERPID` (verified available from Python on this macOS) and
+refuses (exit 7) when the caller or any ancestor is a live guardian's
+descendant or carries `SUBFLEET_ATTEMPT`/`SUBFLEET_ROOT`, and accepts only
+when the caller is the installed Subfleet app's executable or has a
+controlling terminal. Approval nonces appear only in person-only results.
+This is a boundary against agents Subfleet launched and headless agents; any
+process of the same user that drives a terminal remains inside the trust
+boundary, as with `daemon.sock` today (review SEC-1).
+
+**D-9. Permission policy.** Per conversation, part of every message's
+settings and digest. Mapping from an existing Claude session's last recorded
+mode, applied once when the conversation row is created: `bypassPermissions`
+→ `bypass`; `acceptEdits` → `accept-edits`; `default`, `manual` → `ask`;
+`plan`, `dontAsk` → `read-only`; `auto`, anything else, or none → `ask`
+(review SEC-7). A new conversation starts at `ask`. Widening is person-only
+with `confirm_widen: true`.
+
+| Setting | Claude flags | Codex thread (`thread/start`, `thread/resume`) | Codex `turn/start` |
+|---|---|---|---|
+| `ask` | `--permission-mode default --permission-prompt-tool stdio` | `sandbox:"read-only"`, `approvalPolicy:"on-request"`, `approvalsReviewer:"user"` | `sandboxPolicy:{type:"workspaceWrite", networkAccess:false}`, `approvalPolicy:"on-request"` |
+| `accept-edits` | `--permission-mode acceptEdits --permission-prompt-tool stdio` | same | same |
+| `bypass` | `--permission-mode bypassPermissions --permission-prompt-tool stdio` | `sandbox:"read-only"`, `approvalPolicy:"never"` | `sandboxPolicy` workspaceWrite, `approvalPolicy:"never"` |
+| `read-only` | the v2 read-only flag set (`claude.py:1211-1225`) | `sandbox:"read-only"`, `approvalPolicy:"never"` | `sandboxPolicy:{type:"readOnly", networkAccess:false}` |
+
+- Every Claude turn outside `read-only` passes
+  `--settings '{"disableAllHooks":false,…}'`, which outranks project and
+  local settings, so a workspace file cannot switch off the user's
+  never-rules hook (review SEC-2).
+- `bypass` still routes the prompts no mode auto-approves (AskUserQuestion,
+  ask rules) to the person instead of letting `-p` deny them (review P5).
+- The Codex thread is always opened read-only and the writable policy rides
+  on each turn. Verified: a `thread/start` with `sandbox:"workspace-write"`
+  and a `cwd` adds `[projects."<cwd>"] trust_level = "trusted"` to the home's
+  `config.toml`; with `sandbox:"read-only"` plus a `workspaceWrite` turn
+  policy it adds nothing (review SEC-4). Stage 3 confirms a live turn writes
+  under the turn policy.
+- Codex never receives `dangerFullAccess`, `externalSandbox`, granular or
+  experimental policies. Codex turns carry C-23.6's `unified_exec` switch
+  whenever exec launches do.
+- A writable turn (Claude `accept-edits`, any writable Codex turn) is
+  refused, exit 7, when its workspace (realpath) equals or contains the state
+  root, `~/.claude`, `~/.codex`, an enrolled lane home, or the guard hook's
+  directory (review SEC-8). Claude `bypass` can write anywhere whatever the
+  workspace, as the Claude app does; its protection is the never-rules hook.
+- Until Stage 3 shows the never-rules hook denying a forbidden Bash command
+  and an `apply_patch` inside a live app-server turn, Codex conversations run
+  `read-only` only (review SEC-3).
+
+**D-10. The Codex guard covers the turn server.** Each Codex turn process is
+`<PreflightResult.executable> app-server --listen stdio:// -c <verified
+override>` after the C-14.2 preflight passes for this lane and cwd. Before the
+thread opens, the driver calls `hooks/list {cwds:[cwd]}` on the same server
+and applies the preflight's own checks; any difference ends the turn
+`failed (guard-refused)` before the message is sent. Credential requests
+(`account/chatgptAuthTokens/refresh`, `attestation/generate`) and unknown
+methods get JSON-RPC -32601. The experimental API is never negotiated.
+Implemented in `codex_turn.py`, frames validated against the pinned schema.
+
+**D-11. What is shown, and what is kept.** Events and op results carry the
+assistant's text, the reasoning the provider's own app displays (Claude
+`thinking` text, Codex reasoning summaries), tool names, scrubbed input
+summaries (500 characters) and scrubbed result previews (2 KiB); a
+credential-reading call shows as hidden. Codex raw reasoning, Claude
+`redacted_thinking` and signatures never enter events or op results. At
+rest, the attempt's `stdout`, `stdin.jsonl`, `prompt.md` and the message text
+hold unscrubbed provider content: 0600 in 0700 directories, retained under §9,
+never exported, never in notices, never in a handoff brief unscrubbed
+(review SEC-9, P9). Approvals are the exception to display redaction: the
+person sees the full input with token-shaped values masked in place, never
+truncated or suppressed (review SEC-5; §8).
+
+### States, stops, ambiguity
+
+**D-12. States are the provider's facts.** Local acknowledgement, provider
+acknowledgement and turn completion are separate:
 
 | State | Meaning |
 |---|---|
-| `queued` | Durably accepted by the daemon; waiting behind the conversation's current turn |
-| `waiting` | Its turn job waits for admission (reason: capacity, lease-held, workspace, route) |
-| `starting` | An attempt is reserved or its provider process is starting; the provider has not acknowledged the message |
-| `running` | The provider acknowledged the message (Claude replayed user message with our uuid; Codex `turn/start` response with a turn id) |
-| `approval-needed` | Running, with at least one unanswered approval request |
-| `complete` | The provider reported the turn finished successfully |
-| `failed` | The provider reported failure, or the turn could not start and the message provably never reached the provider (reason recorded) |
-| `interrupted` | Stopped by the person; the provider confirmed or the process ended after an interrupt request |
-| `cancelled` | Withdrawn while `queued` or `waiting`, before any provider saw it |
-| `delivery-unknown` | The provider may have received the message and no terminal evidence exists; blocks the conversation until reconciled |
+| `queued` | Durably accepted; waiting behind the conversation's current turn |
+| `waiting` | Its turn job waits for admission (capacity, lease, external writer, workspace, route) |
+| `starting` | An attempt is reserved or starting; the provider has not acknowledged the message |
+| `running` | Acknowledged: Claude `command_lifecycle {command_uuid:<id>, state:"started"}` when `system/init.capabilities` has `msg_lifecycle_v1`, else the replayed user message with our uuid (both verified in a `shouldQuery:false` probe); Codex `turn/start` response with a turn id |
+| `approval-needed` | Running with an unanswered approval |
+| `complete` | The provider reported success (Claude `result` subtype `success`; Codex `turn.status:"completed"`), even if a stop was requested (recorded as `stop_too_late`) |
+| `failed` | The provider reported failure, or the message provably never reached it |
+| `interrupted` | The provider reported the turn stopped, after a person's stop |
+| `cancelled` | Withdrawn before its job had an attempt |
+| `delivery-unknown` | The provider may have it and no terminal evidence exists |
 
-**D-10. No automatic replay after ambiguity.** A message whose delivery is
-uncertain is never sent again automatically. Reconciliation reads the native
-transcript: Claude records the user message with the uuid Subfleet assigned
-(Stage 3 verifies this; until then the Claude path treats absence as
-ambiguous), and Codex records `clientId` on the `userMessage` item
-(`README@rust-v0.153.3:222`). Present → the message was delivered and its
-turn ended without a terminal event (`interrupted` if a stop was requested,
-else `failed` with `ended-without-result`). Absent after the process is
-verified gone → `failed` with `not-delivered`, and the person may resend
-(a new message id). Unreadable or still ambiguous → `delivery-unknown` until
-the person resolves it (`message.resolve`, strict `confirm:true`).
+**D-13. Stopping a Claude turn never leaves it resumable by accident.**
+Claude documents that SIGTERM leaves the turn unfinished and that the next
+`--resume` continues it (headless docs, "Stop a run with SIGTERM"), so every
+stop path escalates, each step ending at the first `result`: (1) control
+`interrupt`; (2) close stdin through the relay; (3) SIGINT to the recorded
+child pid after a C-5.3 identity check; (4) only then C-5.6 containment.
+`turn.interrupt` records `stop_requested_at` on the message; the job's
+cancel request is set only at step 4 (reviews F1, F4, P4). A Codex turn stops
+with `turn/interrupt`, then containment.
 
-**D-11. The Codex guard covers the turn server.** Each Codex turn process is
-`codex app-server --listen stdio:// -c <verified override>` launched from
-`PreflightResult.executable` after the ordinary preflight (C-14.2) passes for
-this lane and cwd. Before `thread/start` or `thread/resume` the driver calls
-`hooks/list {cwds:[cwd]}` on the same server and requires exactly the checks
-`guard/preflight.py:632-648` makes; any difference ends the turn as `failed`
-with `guard-refused` before the message is sent. Server requests for
-credentials (`account/chatgptAuthTokens/refresh`, `attestation/generate`) and
-unknown methods get JSON-RPC error -32601 and change nothing else. The
-experimental API is never negotiated (`capabilities.experimentalApi` absent).
+A Claude attempt that ends without a terminal `result` after its message was
+acknowledged (killed at step 4, crashed, quarantined) sets the conversation
+`blocked_by:"unfinished-turn"`. The next message waits until the person
+chooses: *continue it* (the next turn resumes and Claude continues the
+unfinished turn) or *leave it* (the next message is sent with a one-line
+system note that the previous turn was stopped and must not be resumed). The
+choice is person-only and recorded.
 
-**D-12. Pre-acceptance limits reroute without replay.** A Claude turn that
-ends with a rate-limit rejection or credit error before the provider echoed
-the user message, or a Codex `turn/start` that fails with a limit before a
-turn id exists, provably did not consume the message. The message returns to
-`waiting`, the lane's closure is recorded as today (C-9.6), and admission
-places the next attempt elsewhere (a new job; the old one keeps its
-evidence). After acceptance, a limit ends the turn as `failed` (`limited`);
-the app offers "continue on another account", which sends a new message with
-a new id and never re-sends the old one.
+**D-14. No re-send after ambiguity.** A message whose delivery is uncertain is
+never sent again automatically. Reconciliation, in order: (1) the attempt's
+own stdout (acknowledgement events of D-12 mean delivered); (2) the native
+transcript after the attempt's recorded `transcript_offset` (Claude: a user
+record with our uuid; Codex: a `UserMessage` item with `client_id` equal to
+the message id, verified to be persisted in the rollout); (3) otherwise
+`delivery-unknown`, blocking only its conversation until the person resolves
+it (`message.resolve`, strict `confirm:true`, recorded). Absence is
+`not-delivered` only when the process is verified gone, the transcript was
+readable, and the relay log shows the user-message frame was not written.
 
-**D-13. Turns skip admission probes and headless framing.** The turn itself
-is the capacity test (D-12), so admission does not run its pre-launch probe
-(`daemon.py:2213-2275`) for turn jobs, and turn prompts carry neither
-`HEADLESS_BLOCK` (`claude.py:122-134`) nor the write preamble. Turn jobs are
-excluded from `_lane_session_ids` (`daemon.py:1565-1580`), so a conversation's
-native session stays listable and continuable.
+**D-15. Background work ends with the turn.** Claude keeps `-p` alive after
+input closes while a background subagent, workflow or monitor runs, up to
+`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (default 600 000; verified in the
+binary). Turns launch with the ceiling at 120 000 and without the tools that
+schedule work for a session that no longer exists (`Monitor`, `CronCreate`,
+`ScheduleWakeup`, `RemoteTrigger`). Output after the terminal event is
+attached to the same message and never changes its outcome; a process still
+alive `ceiling + 15 s` after `result` is stopped by the D-13 escalation
+(review P3).
 
-**D-14. Attended turns order ahead, never reserve.** Turn jobs sort ahead of
-detached jobs of the same tier in admission ordering (`scheduler.ordered_jobs`)
-and are exempt from `behind-older-job` holds by detached jobs. They get no
-reserved capacity and bypass no rule in `evaluate`. Plan amendment 11 declined
-an interactive allowance; ordering is not an allowance, and the change is
-recorded for Max as a decision.
+### Workspace, identity, settings
 
-**D-15. Handoffs are labelled.** Moving a conversation to the other provider,
-or out of a Codex home it cannot run in, dispatches a new conversation whose
-first message is a continuity brief built by `sessions/handoff.py` (scrubbed,
-bounded). The new conversation records `handoff_from` (provider, native id,
-transcript path, brief sha256). The app labels it "handoff from …", never
-"continued".
+**D-16. Workspace.** A conversation is bound to one directory for its life:
+an existing session's recorded cwd, or for a new conversation a directory the
+person picks (default: a new git worktree when the directory is a
+repository). Turns run in place and hold `worktree:<git toplevel or
+directory>`; two conversations on one checkout take turns (a lease wait,
+never a refusal; review F-06). A directory outside git is allowed. A checkout
+on `main` or `master` needs `allow_main`, person-only, settable at creation or
+on an existing conversation with confirmation. C-13.2 still binds every
+detached job.
 
-**D-16. Workspace.** A conversation is bound to one workspace directory for
-its life: an existing session's recorded cwd, or for a new conversation a
-directory the person picks, with a default of a new git worktree when the
-directory is a repository. Turns run in place there and hold the lease
-`worktree:<git toplevel or directory>`. Attended turns are not dispatched
-jobs, so two dispatched-job guards change for them: a directory outside git
-is allowed (salvage is skipped and the receipt says so), and a checkout on
-`main` or `master` requires the conversation's explicit `allow_main`, set by a
-person when the conversation is created (C-13.2 keeps binding every
-dispatched job).
+**D-17. One writer per native session.** A turn holds `conversation:<id>` and
+`native:<provider>:<native session id>` from reservation through finalization
+or quarantine. The next message's turn job is submitted only when the
+previous one is terminal and has released them (review F9, F-06). Resume,
+revive and handoff reservations also check `native:*` and `conversation:*`
+(symmetric; review F-08); `_resume_submission` refuses a `turn` source.
+Conversation-bound sessions are listed by the sessions kit but never nudged,
+revived or cold-swept (`sessions state` returns them). An external writer (a
+live pid in `~/.claude/sessions/*.json` naming the session that carries no
+Subfleet markers and is not a recorded owned identity) is an admission wait
+`external-writer` shown in the app ("open in the Claude app; close it there
+to continue here"), not a refusal.
 
-**D-17. The app is a client of an explicit endpoint.** The app talks to
+**D-18. Handoffs are labelled.** Moving a conversation to the other provider,
+or out of a Codex home it cannot run in, creates a new conversation whose
+first message is a continuity brief (`sessions/handoff.py`, scrubbed,
+bounded), recording `handoff_from` (provider, native id, transcript path,
+brief SHA-256). The app labels it "handoff from …".
+
+**D-19. Model identity.** Claude settings store the `initialize` catalog's
+`value` (for example `opus`, `opus[1m]`, `claude-fable-5-1[1m]`); the expected
+served id is that entry's `resolvedModel` with any `[1m]` suffix removed;
+`system/init.model` is compared after removing `[1m]`; assistant messages
+with model `<synthetic>` are excluded from the check and classified as API
+errors. Effort is validated against the chosen entry's
+`supportedEffortLevels`; an entry without them accepts none (review P6).
+Codex settings are validated against `model/list` for the lane's account
+(model, `supportedReasoningEfforts`, Fast = `serviceTiers` id `priority`).
+Fast is independent of model and effort on both providers, and bills
+differently: Codex `serviceTier:"priority"` draws on plan limits; Claude
+`fastMode` draws on usage credits (code.claude.com fast-mode docs), so the
+composer labels Claude Fast "bills usage credits", asks once per conversation,
+and routes a Fast turn only to lanes last seen with Fast available; a served
+Fast state that differs from the request is a visible `served` warning
+(review U-F9). Verified: the no-auth fallback catalog lists `priority`
+("Fast") per model.
+
+The pickers read `models.list`, built from policy `models` joined with a
+per-provider catalog persisted by the drivers after each `initialize` or
+`model/list` (and lane homes' `models_cache.json`). `message.submit`
+validates against it; a value not yet observed is accepted as `unverified`
+and the driver checks it before the message is sent (review U-F8).
+
+**D-20. Clarifying questions are approvals.** Claude's AskUserQuestion reaches
+the host as `can_use_tool` with `requires_user_interaction`; it becomes an
+approval of kind `question`, the app renders the questions and options, and
+the answer is `allow` with `updatedInput` equal to the original input plus
+`answers` (the only input change Subfleet ever makes; review P5). An answer
+may be one of the offered labels or the person's own text.
+
+### Client and catalog
+
+**D-21. The app is a client of an explicit endpoint.** It talks to
 `<SUBFLEET_HOME or ~/.subfleet>/daemon.sock` using protocol v1 and the new
-ops, after a `capabilities` check. It never runs `~/.local/bin/subfleet-local`,
-never reads `~/chief-of-staff/state/subfleet`, never starts a broker, and
-never falls back to a v1 path. A development build uses bundle id
-`org.maxghenis.subfleet.dev` and requires `SUBFLEET_HOME` to name a state root
-other than `~/.subfleet`.
+ops after a `capabilities` check; never runs `~/.local/bin/subfleet-local`,
+reads `~/chief-of-staff/state/subfleet`, starts a broker, or falls back to
+v1. A development build uses bundle id `org.maxghenis.subfleet.dev` and
+refuses `~/.subfleet`.
 
-**D-18. Catalog runs out of process.** Discovery of existing native sessions
-scans large trees (35 GB of Claude transcripts, 17,825 Codex rollouts;
-`maps/v2-sessions.md` §1). It runs as a separate short-lived process
-(`python -m subfleet.conversations.catalog`) that the daemon starts on a timer
-and on request, with a wall-clock cap, writing `catalog.json` atomically. The
-daemon never scans those trees on a request thread or its control thread.
+**D-22. The outbox keeps order.** The app journals every mutating op with its
+idempotency key before sending it, including `conversation.create` (keyed by
+a client draft id). Per conversation at most one `message.submit` is
+outstanding, sent in journal order, and each carries `after_message_id` (the
+client's previous message in that conversation, or null); the daemon refuses
+`out-of-order` (exit 2) until the predecessor is committed. A journaled send
+that has no receipt can be withdrawn locally only after a `message.status`
+lookup shows the daemon never received it (review F10).
+
+**D-23. Catalog runs out of process.** Discovery of existing native sessions
+runs as `python -m subfleet.conversations.catalog`, started by the daemon every
+60 s and on request, capped at 20 s wall clock per run, writing
+`catalog.json` atomically with titles and first prompts passed through the
+scrubber. It indexes every session, not a recent slice: a (path, size, mtime)
+cache means a run re-reads only what changed, and a first build that needs
+several capped runs publishes `complete:false` until done. Exclusions come
+before any limit: Claude lane runs (`headless_transcript`, and the daemon's
+attempts' native ids); Codex rollouts whose `session_meta` source is `exec` or
+a subagent. `conversation.list` pages newest first and `query` matches title,
+cwd and first-prompt preview across the whole index (review U-F5). The daemon
+never scans the Claude projects tree or Codex session trees on a request or
+control thread.
+
+**D-24. One feed, one focused poll, and notifications.** The app long-polls
+one global `conversation.watch` (a compact change feed: conversation, message,
+state, pending approvals) and `conversation.events` only for the conversation
+on screen. Both run on a dedicated bounded pool (8 threads) with at most one
+of each per client; the `requests` pool that `message.submit` and the session
+hooks use is never held by a poll (review U-F3). A turn that completes, fails,
+needs approval, or becomes `delivery-unknown` while its conversation is not
+focused posts a local notification; the Dock badge counts pending approvals.
+
+**D-25. Changes are shown per turn and per conversation.** At the start and
+end of each writable turn in a git workspace the daemon writes the working
+tree as a tree object through a temporary index (the C-6.8 fast snapshot),
+creating no ref. `turn.diff` returns the file list, stats and unified diff
+between them (bounded, on the history pool); `conversation.diff` compares the
+conversation's base to now. The app shows a Changes pane with Reveal in
+Finder and Open in editor, and never commits, pushes or merges. A worktree
+conversation offers explicit "Open PR" and "Remove worktree" (refused while
+dirty) (review U-F13).
+
+**D-26. Detached work keeps its own place.** Turn jobs carry `kind` in
+`status.json` and `list`; the menu panel groups them by conversation ("3
+conversations active, 1 needs approval") apart from detached jobs, and the
+Runs view defaults to non-turn jobs. The app keeps a Compose view for
+detached jobs (task, tier, workspace, optional model pin, Fast, sandbox) with
+a preview through `submit {dry_run:true}` (lane, model, rejected lanes and
+why), dispatch through `submit`, and `why` for waiting jobs (review U-F14,
+U-F15).
+
+**D-27. Per-account windows include model scopes.** `status.json` publishes
+per Claude account the five-hour, weekly and every model-scoped weekly window
+(including Fable) with percent, reset time and evidence label, from
+`provider` and `stale-provider` readings only (C-9.1), plus a Claude
+`earliest_reset` (review U-F7).
 
 ## 3. Data model
 
-Migration 6 (`store.py` `MIGRATIONS`), additive; `SCHEMA_VERSION = 6`.
-Every row change is one transaction with its `events` row (C-3.2).
+`conversations.sqlite3` (D-4), schema version 1, created on first use:
 
 ```sql
 CREATE TABLE conversations (
-  conversation_id  TEXT PRIMARY KEY,          -- "cv-" + 26-char ULID
-  provider         TEXT NOT NULL CHECK (provider IN ('claude','codex')),
-  native_session_id TEXT,                     -- Claude session uuid / Codex thread id; NULL until known
-  title            TEXT,
-  workspace        TEXT NOT NULL,             -- absolute directory
-  workspace_kind   TEXT NOT NULL CHECK (workspace_kind IN ('in-place','worktree')),
-  allow_main       INTEGER NOT NULL DEFAULT 0,
-  lane_id          TEXT REFERENCES lanes(lane_id), -- Codex: the home holding the thread; Claude: NULL
-  settings_json    TEXT NOT NULL,             -- {model, effort, fast, permission}
-  origin           TEXT NOT NULL CHECK (origin IN ('new','native','handoff','legacy')),
+  conversation_id   TEXT PRIMARY KEY,         -- "cv-" + 26-char ULID
+  provider          TEXT NOT NULL CHECK (provider IN ('claude','codex')),
+  native_session_id TEXT,
+  title             TEXT,
+  workspace         TEXT NOT NULL,
+  workspace_kind    TEXT NOT NULL CHECK (workspace_kind IN ('in-place','worktree')),
+  allow_main        INTEGER NOT NULL DEFAULT 0,
+  lane_id           TEXT,                     -- Codex: the home holding the thread
+  settings_json     TEXT NOT NULL,            -- {model, effort, fast, permission, auto_continue}
+  origin            TEXT NOT NULL CHECK (origin IN ('new','native','handoff','legacy')),
   handoff_from_json TEXT,
-  created_at       TEXT NOT NULL,
-  updated_at       TEXT NOT NULL,
-  archived_at      TEXT,
+  blocked_by        TEXT,                     -- unfinished-turn | delivery-unknown | quarantined-turn
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
   UNIQUE (provider, native_session_id)
 );
-
 CREATE TABLE messages (
-  message_id       TEXT PRIMARY KEY,          -- client UUID, canonical lowercase
-  conversation_id  TEXT NOT NULL REFERENCES conversations(conversation_id),
-  seq              INTEGER NOT NULL,          -- order within the conversation
-  digest           TEXT NOT NULL,             -- sha256 over canonical {conversation_id, text, attachment sha256s, settings}
-  text_path        TEXT NOT NULL,             -- <state>/conversations/<cv>/messages/<message id>.md, 0600
-  attachments_json TEXT NOT NULL,             -- [{"sha256","media_type","bytes"}]
-  settings_json    TEXT NOT NULL,
-  state            TEXT NOT NULL,             -- D-9
-  state_reason     TEXT,
-  job_id           TEXT REFERENCES jobs(job_id),  -- latest turn job
-  turn_ref         TEXT,                      -- Claude user message uuid / Codex turn id
-  resolution_json  TEXT,                      -- who/when/how a delivery-unknown was resolved
-  created_at       TEXT NOT NULL,
-  updated_at       TEXT NOT NULL,
+  message_id        TEXT PRIMARY KEY,         -- client UUID, canonical lowercase
+  conversation_id   TEXT NOT NULL REFERENCES conversations,
+  seq               INTEGER NOT NULL,
+  after_message_id  TEXT,
+  origin            TEXT NOT NULL,            -- person | failover | unblock-note
+  continues         TEXT,                     -- failover: the original message id
+  digest            TEXT NOT NULL,
+  text_path         TEXT NOT NULL,            -- conversations/<cv>/messages/<id>.md
+  attachments_json  TEXT NOT NULL,
+  settings_json     TEXT NOT NULL,
+  state             TEXT NOT NULL,
+  state_reason      TEXT,
+  turn_seq          INTEGER NOT NULL DEFAULT 0,  -- n in request id turn:<id>:<n>
+  job_id            TEXT,                     -- main-store job; repaired from request ids
+  turn_ref          TEXT,                     -- Claude uuid acknowledgement / Codex turn id
+  served_json       TEXT,                     -- lane, account label, model, effort, fast state
+  stop_requested_at TEXT,
+  resolution_json   TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   UNIQUE (conversation_id, seq)
 );
-
 CREATE TABLE approvals (
-  approval_id      TEXT PRIMARY KEY,          -- "ap-" + ULID
-  message_id       TEXT NOT NULL REFERENCES messages(message_id),
-  attempt_id       TEXT NOT NULL REFERENCES attempts(attempt_id),
-  provider_request_id TEXT NOT NULL,          -- Claude control request_id / Codex JSON-RPC id
-  kind             TEXT NOT NULL,             -- tool | command | file-change | permissions
-  summary_json     TEXT NOT NULL,             -- scrubbed display fields
-  options_json     TEXT NOT NULL,             -- decisions the provider allows
-  nonce            TEXT NOT NULL,             -- 128-bit random, returned to the client, required to respond
-  state            TEXT NOT NULL CHECK (state IN ('pending','answered','expired','withdrawn')),
-  decision_json    TEXT,
-  created_at       TEXT NOT NULL,
-  answered_at      TEXT,
+  approval_id       TEXT PRIMARY KEY,
+  message_id        TEXT NOT NULL REFERENCES messages,
+  attempt_id        TEXT NOT NULL,
+  provider_request_id TEXT NOT NULL,
+  kind              TEXT NOT NULL,            -- tool | question | command | file-change | permissions
+  request_path      TEXT NOT NULL,            -- the exact provider request, 0600
+  request_sha256    TEXT NOT NULL,
+  display_json      TEXT NOT NULL,
+  options_json      TEXT NOT NULL,
+  nonce             TEXT NOT NULL,
+  state             TEXT NOT NULL CHECK (state IN ('pending','answered','withdrawn')),
+  decision_json     TEXT, created_at TEXT NOT NULL, answered_at TEXT,
   UNIQUE (attempt_id, provider_request_id)
 );
-
 CREATE TABLE attachments (
-  sha256           TEXT PRIMARY KEY,
-  media_type       TEXT NOT NULL CHECK (media_type IN ('image/png','image/jpeg','image/gif','image/webp')),
-  bytes            INTEGER NOT NULL,
-  path             TEXT NOT NULL,             -- <state>/attachments/<sha256>.<ext>, 0600
-  created_at       TEXT NOT NULL,
-  last_used_at     TEXT NOT NULL
+  sha256 TEXT PRIMARY KEY, media_type TEXT NOT NULL, bytes INTEGER NOT NULL,
+  path TEXT NOT NULL, created_at TEXT NOT NULL, last_used_at TEXT NOT NULL
 );
-
-CREATE TABLE conversation_events (
-  seq              INTEGER PRIMARY KEY AUTOINCREMENT,
-  conversation_id  TEXT NOT NULL REFERENCES conversations(conversation_id),
-  message_id       TEXT,
-  attempt_id       TEXT,
-  source_offset    INTEGER,                   -- byte offset in the attempt stdout that produced it
-  kind             TEXT NOT NULL,
-  data_json        TEXT NOT NULL,             -- whitelisted fields only; at most 64 KiB
-  ts               TEXT NOT NULL,
-  UNIQUE (attempt_id, source_offset, kind)
+CREATE TABLE attempt_marks (
+  attempt_id TEXT PRIMARY KEY, stdout_offset INTEGER NOT NULL, stdin_seq INTEGER NOT NULL,
+  compacted INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX conversation_events_by_conversation ON conversation_events(conversation_id, seq);
+CREATE TABLE events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id TEXT NOT NULL, message_id TEXT, attempt_id TEXT,
+  source TEXT NOT NULL, position TEXT NOT NULL, ordinal INTEGER NOT NULL,
+  kind TEXT NOT NULL, data_json TEXT NOT NULL, ts TEXT NOT NULL,
+  UNIQUE (attempt_id, source, position, ordinal)
+);
+CREATE TABLE floors (conversation_id TEXT PRIMARY KEY, compacted_through INTEGER NOT NULL);
 ```
 
-`jobs` gains nothing: a turn job is `kind='turn'`, `in_place=1`,
-`independent=1`, `max_attempts=1`, `name='turn-<conversation id>'`, and its
-`manifest.json` carries `{"turn": {conversation_id, message_id, provider,
-native_session_id, lane_id, settings, attachments}}`. Turn prompts live in
-`jobs/<id>/prompt.md` as today (C-23.1).
+Driver output is persisted in batches: at most one transaction per attempt
+per 250 ms or 64 KiB, which also advances `attempt_marks`; the events
+long-poll is woken per batch (review F-09). When an attempt is terminal and
+its message terminal, its `text.delta`/`thinking.delta` rows are deleted in
+one transaction that sets `floors.compacted_through` (review F6).
 
-`C-2.2` gains `conversations/`, `attachments/`, `catalog.json` and `run/`
-(relay sockets). Files 0600, directories 0700 (C-2.3).
+A turn job in `state.sqlite3` is an ordinary `jobs` row with `kind='turn'`,
+`request_id='turn:<message id>:<n>'`, `in_place=1`, `max_attempts=1`,
+`parent_job_id` NULL, `name='turn-<conversation id>'`, and a `manifest.json`
+`turn` block naming the conversation and message. Its payload digest is the
+message digest (not HEAD or the policy hash).
 
-## 4. State machine
+## 4. Dispatch
 
-```
-submit ──► queued ──(no earlier live message)──► waiting ──(attempt reserved)──► starting
-queued|waiting ──(message.cancel)──► cancelled
-starting ──(provider ack)──► running ◄──► approval-needed
-starting ──(proven not delivered: spawn error, guard refused, pre-acceptance limit)──►
-          waiting (reroutable, D-12)  |  failed (not reroutable)
-running|approval-needed ──(terminal success)──► complete
-running|approval-needed ──(terminal failure)──► failed
-running|approval-needed ──(stop requested, then terminal or exit)──► interrupted
-starting|running|approval-needed ──(exit without terminal event)──► reconcile (D-10)
-reconcile ──► failed | interrupted | delivery-unknown
-delivery-unknown ──(message.resolve confirm:true)──► failed (resolution recorded)
-```
+The dispatcher runs on the control loop's worker pool. For each conversation
+whose lowest-seq live message is `queued`, and whose previous turn job is
+terminal with its leases released, it:
 
-One turn per conversation at a time: the dispatcher submits the turn job for
-the lowest-seq `queued` message only when no message of the conversation is in
-`waiting`, `starting`, `running`, `approval-needed` or `delivery-unknown`.
-Independent conversations run concurrently, limited only by admission.
+1. looks up `jobs.request_id = 'turn:<id>:<turn_seq>'`; if present, binds it;
+2. otherwise publishes `prompt.md` and `manifest.json`, then inserts the job
+   row in one main-store transaction, then binds `messages.job_id` and sets
+   `waiting` in one conversation-store transaction.
 
-The dispatcher runs on the control loop's worker pool, never on a request
-thread. Submitting the turn job uses the ordinary `submit` path internally
-(C-23.54), with `request_id = "turn:" + message_id + ":" + n` where `n` counts
-reroutes, so a daemon crash between persisting the message and submitting its
-job resubmits idempotently.
+A crash between the two transactions is repaired by step 1 on the next pass.
+`turn_seq` increments only for a failover continuation, which is a new
+message, so no message ever has two live turn jobs.
+
+`message.cancel` withdraws a `queued` message in the conversation store; for
+a `waiting` message it sets the job's `cancel_requested_at` in a main-store
+transaction guarded by "no attempt row exists", and marks the message
+`cancelled` only if that guard held (review F3). `_launch` re-reads the cancel
+flag inside the `attempt.starting` transaction and releases the gate only
+if it is still null.
 
 ## 5. Wire protocol additions
 
-All new ops are protocol `v: 1` (C-16.1). `PROTOCOL_VERSION` does not change.
-Errors use `Exit` codes and `ok:false` (never the gate style). Handlers only
-validate, write one transaction, call `_notify()` and return; none waits on a
-provider, a probe, `ps`, or git.
+All new ops are protocol `v: 1`; `PROTOCOL_VERSION` does not change. Errors
+use `Exit` codes and `ok:false`. Handlers validate, write at most one
+transaction per store, wake the control loop and return; none waits on a
+provider, a probe, `ps`, git, or a catalog scan. Person-only ops (D-8) are
+marked †.
 
-### `capabilities`
+| Op | Arguments → result |
+|---|---|
+| `capabilities` | `{}` → `{protocol:1, daemon_version, conversation_schema:1, capabilities:[…], limits:{…}}`. A daemon without it answers "unknown op"; the client then sends no conversation op. |
+| `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem]}}` |
+| `conversation.open` | `{conversation_id}` or `{native:{provider, session_id, home?}}` → `{conversation, messages (latest 50), events_cursor, pending_approvals}`. Opening a native session creates its row once, applying D-9's mapping. |
+| `conversation.create` | `{request_id, provider, workspace, workspace_kind, allow_main†, title?, settings}` → `{conversation, created}` |
+| `conversation.settings` | `{conversation_id, settings, confirm_widen?†}` → `{conversation}`; widening is person-only |
+| `conversation.unblock` † | `{conversation_id, choice:"continue"|"leave", confirm:true}` → `{conversation}` |
+| `conversation.history` | `{conversation_id, before?, limit?}` → a page of the native transcript, newest first, scrubbed (D-11), at most 4 MiB read per call |
+| `conversation.events` | `{conversation_id, after, limit?, wait_s?}` → `{events, next, reset}`; long-poll ≤ 50 s; page ≤ 256 KiB; `reset:true` when `after` < the floor |
+| `message.submit` | `{conversation_id, message_id, after_message_id, text, attachments:[sha256], settings}` → Receipt; same id + digest returns the stored receipt; different digest exit 2 `message-id-conflict`; unknown predecessor exit 2 `out-of-order` |
+| `message.status` | `{message_ids}` → `{messages:[Receipt]}` |
+| `message.cancel` | `{message_id}` → Receipt (§4) |
+| `turn.interrupt` | `{message_id}` → Receipt (D-13) |
+| `message.resolve` † | `{message_id, resolution:"not-delivered"|"delivered", confirm:true}` → Receipt |
+| `approval.list` | `{conversation_id?}` → `{approvals:[{approval_id, message_id, kind, display, options, created_at, state}]}` (no nonce) |
+| `approval.get` † | `{approval_id}` → `{approval, request (masked in place), request_sha256, nonce}` |
+| `approval.respond` † | `{approval_id, nonce, request_sha256, decision, answers?, message?}` → `{approval, receipt}` |
+| `attachment.add` | `{path, sha256?}` → `{sha256, media_type, bytes}` |
+| `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
+| `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, pending_approvals}], next}` (D-24) |
+| `models.list` | `{provider}` → `{models:[{value, id, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
+| `turn.diff` | `{message_id, path?}` → `{files:[{path, status, additions, deletions}], diff, truncated}` (D-25) |
+| `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` |
 
-Request `{}`. Result:
+Receipt: `{message_id, conversation_id, seq, origin, state, state_reason,
+created, settings, served, stop_requested, updated_at}`.
 
-```json
-{"protocol": 1, "daemon_version": "2.1.0", "schema_version": 6,
- "capabilities": ["conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1"],
- "limits": {"message_bytes": 1048576, "attachment_bytes": 20971520, "attachments_per_message": 8,
-            "events_page_bytes": 262144, "events_wait_s": 50}}
-```
+Event kinds: `status`, `accepted`, `served`, `text.delta`, `text`,
+`thinking.delta`, `thinking`, `tool.started`, `tool.completed`, `diff`,
+`approval.requested`, `approval.resolved`, `limits`, `error`,
+`turn.completed`.
 
-A daemon without the op answers `ok:false`, code 2, "unknown op"; the client
-treats that as "no conversation support" and sends no conversation op. A
-client sends a field whose silent omission would change the outcome only after
-seeing the capability that defines it (C-16.2's "unknown fields are ignored").
-
-### `conversation.list`
-
-`{"include_catalog": true, "provider": null, "query": null, "limit": 200}` →
-`{"conversations": [Conversation], "catalog": {"generated_at", "stale": bool,
-"items": [CatalogItem]}}`. Catalog items already bound to a conversation are
-returned once, inside the conversation.
-
-`Conversation`: `{conversation_id, provider, native_session_id, title,
-workspace, workspace_kind, lane_id, settings, origin, handoff_from,
-created_at, updated_at, last_message: {message_id, state, updated_at} | null,
-active: bool, blocked_by: null | "external-writer" | "delivery-unknown" |
-"lane-disabled"}`.
-
-`CatalogItem`: `{provider, native_session_id, title, title_source, cwd,
-model, permission_mode, home, updated_at, live_elsewhere: bool,
-continuable: bool, continue_blocker: null | string}`.
-
-### `conversation.open`
-
-`{"conversation_id": "cv-…"}` or `{"native": {"provider": "claude",
-"session_id": "…", "home": null}}`. Opening a native session creates (once)
-its conversation row with `origin:"native"`, settings from the transcript's
-last model and permission mode, and the transcript's cwd as workspace
-(`in-place`). Result: `{conversation, messages: [Message] (latest 50),
-events_cursor: int, pending_approvals: [Approval]}`.
-
-### `conversation.create`
-
-`{"request_id", "provider", "workspace", "workspace_kind", "allow_main",
-"title"?, "settings": {model, effort?, fast: bool, permission}}` →
-`{conversation, created: bool}`. `workspace_kind:"worktree"` makes the daemon
-cut a worktree from the repository at `workspace` on a new branch
-`subfleet/<conversation id>` (git work runs on a worker, not the request
-thread; the result says `preparing` until done). Idempotent on `request_id`.
-
-### `conversation.history`
-
-`{"conversation_id", "before": cursor|null, "limit": 50}` → bounded page of
-the native transcript rendered as `[{role, text, ts, id, kind}]`, newest
-first, with `next_before`. Reads at most 4 MiB of transcript per call, from
-the tail, on a dedicated history pool; tool results are scrubbed previews
-(D-8).
-
-### `message.submit`
-
-```json
-{"conversation_id": "cv-…", "message_id": "<uuid4>", "text": "…",
- "attachments": ["<sha256>", …],
- "settings": {"model": "opus", "effort": "high", "fast": false, "permission": "bypass"}}
-```
-
-→ `Receipt`. The daemon computes the digest; a repeated `message_id` with the
-same digest returns the stored receipt (`created:false`); a different digest
-is exit 2 `message-id-conflict`. Unknown attachment hashes, more than 8
-attachments, text over 1 MiB, or settings the provider catalog rejects
-(`model`, `effort`, `fast`) are exit 2 before anything is stored.
-
-`Receipt`: `{message_id, conversation_id, seq, state, state_reason, job_id,
-created: bool, settings, served: {lane_id, account_label, model, effort,
-fast_state} | null, updated_at}`.
-
-### `message.status`
-
-`{"message_ids": [...]}` → `{"messages": [Receipt]}`.
-
-### `message.cancel`
-
-`{"message_id"}` → Receipt. Allowed in `queued` and `waiting` only; anything
-later is exit 2 with the fix "use turn.interrupt".
-
-### `turn.interrupt`
-
-`{"message_id"}` → Receipt. Allowed in `starting`, `running`,
-`approval-needed`. Records the request; the driver sends Claude
-`control_request {subtype:"interrupt"}` or Codex `turn/interrupt {threadId,
-turnId}`. If no terminal event arrives within 20 s the attempt is killed
-through `_kill_attempt` (C-5.4) and the message becomes `interrupted` or
-reconciles (D-10). It never touches another conversation's process.
-
-### `message.resolve`
-
-`{"message_id", "resolution": "not-delivered" | "delivered", "confirm": true}`
-→ Receipt. Only from `delivery-unknown`; `confirm` must be the JSON literal
-`true`. Records who (client pid/uid) and when. Never resends.
-
-### `conversation.events`
-
-`{"conversation_id", "after": seq, "limit": 500, "wait_s": 25}` →
-`{"events": [Event], "next": seq, "reset": false}`. Long-polls up to
-`wait_s` (at most 50, below the client's deadline) when no event is newer
-than `after`. Pages are cut at 256 KiB. If `after` precedes compacted events,
-`reset:true` tells the client to reload `conversation.open`.
-
-`Event`: `{seq, message_id, kind, ts, data}` with kinds `status`,
-`accepted`, `text.delta`, `text`, `thinking.delta`, `thinking`,
-`tool.started`, `tool.completed`, `approval.requested`,
-`approval.resolved`, `limits`, `turn.completed`, `error`, `served`.
-
-### `approval.list` / `approval.respond`
-
-`approval.list {"conversation_id"?}` → `{"approvals": [Approval]}` with
-`Approval = {approval_id, message_id, kind, summary, options, nonce,
-created_at, state}`.
-
-`approval.respond {"approval_id", "nonce", "decision": "allow" | "allow-session"
-| "deny" | "cancel-turn", "message"?}` → `{approval, receipt}`. Refused (exit
-2) when the approval is not `pending`, the nonce differs, the attempt is no
-longer live, or `decision` is not in `options`. Exactly one response is
-written per approval (unique by state transition); a duplicate returns the
-recorded decision.
-
-### `attachment.add`
-
-`{"path": "/abs/path.png", "sha256"?}` → `{"sha256", "media_type", "bytes"}`.
-The daemon opens the path with `O_NOFOLLOW|O_NONBLOCK`, requires a regular
-file owned by the daemon's uid, at most 20 MiB, and PNG, JPEG, GIF or WebP
-magic bytes; it copies into `attachments/<sha256>.<ext>` (0600, fsync) and
-re-hashes the copy. A supplied `sha256` must match. Runs on a dedicated pool.
-
-### `catalog.refresh`
-
-`{}` → `{"requested": true, "running": bool, "generated_at"}`. Starts the
-catalog process unless one is running.
+Decisions accepted by `approval.respond`: `allow`, `allow-session`,
+`allow-turn`, `deny`, `cancel-turn`, `answer` (with `answers`), each only when
+the approval's `options` list it (review P8). Codex `acceptForSession` is
+labelled "for the rest of this turn" unless Stage 3 shows it survives
+`thread/resume` in a new process (review U-F17).
 
 ## 6. Guardian control relay
 
-`python -m subfleet.guardian … --control-socket <path> -- <argv>`:
-
-- The socket path is `<state>/run/<first 16 hex of sha256(attempt id)>.sock`
-  (under the 103-byte limit; `cli.py:73`), bound before `start.json` is
-  written, mode 0600 in a 0700 directory, and recorded in `start.json` as
-  `control_socket`.
-- The child's stdin is a pipe the guardian creates. stdout and stderr stay
-  files (C-5.1).
-- The guardian accepts one connection at a time, checks the peer's uid with
-  `getpeereid`, and reads NDJSON frames: `{"seq": n, "op": "write", "line":
-  "<one JSON line without newline>"}` or `{"seq": n, "op": "close"}`.
-- For `seq <= last_applied` it replies `{"seq": n, "ok": true, "dup": true}`.
-  For `seq == last_applied + 1` it appends the frame to `stdin.jsonl`, fsyncs,
-  writes `line + "\n"` to the pipe (or closes it), and replies `{"seq": n,
-  "ok": true}`. Any other `seq` is `{"ok": false, "error": "gap"}`. A write
-  after the child closed stdin replies `{"ok": false, "error": "closed"}`.
-- `last_applied` is recovered from `stdin.jsonl` if the guardian restarts its
-  relay thread; the guardian never re-writes a logged frame.
-- A daemon disconnect leaves the pipe open. The child exiting ends the relay;
-  `exit.json` is written as today.
-
-The daemon's relay client retries a frame on reconnect with the same `seq`,
-so a crash between send and acknowledgement is safe (D-2).
+As D-2. Launch: `python -m subfleet.guardian … --control-socket
+<state>/run/<16 hex>.sock --relay-peer-lock <state>/daemon.lock -- <argv>`.
+The socket is bound before `start.json` names it (`control_socket`). The
+daemon resends a frame after reconnecting with the same number and content;
+`conflict` or `failed` moves the turn to reconciliation (D-14).
 
 ## 7. Provider turn drivers
 
-Both drivers are pure (`subfleet/conversations/claude_turn.py`,
-`codex_turn.py`), built from the turn manifest and fed `(stdout_line,
-offset)`, `(ack, seq)`, and operator commands (`interrupt`,
-`approval_response`). Each emits events (section 5), frames, and at most one
-outcome.
+`subfleet/conversations/claude_turn.py` and `codex_turn.py` (pure, D-3).
 
-### Claude
-
-argv (every flag verified in `claude --help` 2.1.280 except the hidden
-`--permission-prompt-tool`, which the binary registers and accepted in the
-verified probe):
+**Claude.** Command (all flags verified in 2.1.280, `--permission-prompt-tool`
+hidden but registered and accepted):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose
        --include-partial-messages --replay-user-messages
-       --model <model id> [--effort <effort>]
+       --model <catalog value> [--effort <level>]
        (--session-id <new uuid> | --resume <native session id>)
-       <permission flags from D-7>
-       [--settings '{"fastMode": true}']
+       <permission flags, D-9>
+       --disallowedTools Monitor,CronCreate,ScheduleWakeup,RemoteTrigger
+       --settings '{"disableAllHooks":false[,"fastMode":true]}'
 ```
 
-Environment exactly as `ClaudeAdapter.build_launch` (credential only in
-`CLAUDE_CODE_OAUTH_TOKEN`; `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
-removed; read-only removals), cwd = workspace.
+Environment as `ClaudeAdapter.build_launch` (credential only in
+`CLAUDE_CODE_OAUTH_TOKEN`) plus `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=120000`.
+Frames: `initialize` control request; after its success, the user message
+with the message id as `uuid`; `close` after `result`. The `initialize`
+response is checked before the message is sent: `account.email` against the
+lane's identity (C-10.6), effort against the catalog entry (D-19); its
+`fast_mode_state` is recorded. Mapping: `command_lifecycle started` or the
+replayed user message → `accepted`; text and thinking deltas (scrubbed a line
+at a time); complete blocks; `tool_use` / `tool_result`; `can_use_tool` →
+approval (`question` when it is AskUserQuestion); other host requests →
+error `control_response` and an `error` event; `rate_limit_event` → `limits`;
+model check per D-19; `result` → outcome.
 
-Frames: (1) `{"type":"control_request","request_id":"init-1","request":{"subtype":"initialize"}}`;
-(2) after the `initialize` success, the user message
-`{"type":"user","uuid":"<message id>","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"text","text":…},{"type":"image","source":{"type":"base64","media_type":…,"data":…}}…]}}`;
-(3) `close` after `result`.
+**Codex.** Command: `<verified executable> app-server --listen stdio:// -c
+<verified override> [-c features.unified_exec=false]`, `CODEX_HOME=<lane
+home>`, API keys removed. Frames: `initialize`; then `initialized`,
+`hooks/list {cwds:[cwd]}`, `model/list {}`; then `thread/start` (new) or
+`thread/resume {threadId, excludeTurns:true}` with `sandbox:"read-only"`;
+then `turn/start {threadId, clientUserMessageId, input:[text, localImage…],
+model, effort, serviceTier, approvalPolicy, approvalsReviewer:"user",
+sandboxPolicy, cwd}`; `turn/interrupt` on stop; `close` after
+`turn/completed`. The thread response's `status.type:"active"` means another
+writer (`external-writer`). Every frame validates against the pinned
+0.153.3 schema (`tests/fixtures/codex/app-server-0.153.3/`).
 
-The `initialize` response carries `account.email` (checked against the
-lane's identity, C-10.6: mismatch ends the turn as `failed`, `identity`,
-before the message is sent), `models[].supportedEffortLevels` (effort
-validation), and `fast_mode_state` (verified in the probe). Mapping:
-`type:"user"` with our uuid → `accepted`; `stream_event` text deltas →
-`text.delta`; thinking deltas → `thinking.delta`; `assistant` text/thinking
-blocks → `text`/`thinking`; `tool_use` → `tool.started`; `user` tool results →
-`tool.completed`; `control_request` `can_use_tool` → an approval (section 8);
-any other `control_request` → error `control_response` ("not supported by
-Subfleet") and an `error` event; `rate_limit_event` → `limits`; `system/init`
-and every `assistant.message.model` → model check (mismatch ends the turn with
-`control_request interrupt` and `failed`, `model-mismatch`); `result` →
-`turn.completed` and the outcome. Classification and attestation reuse
-`claude_stream.py` and `ClaudeAdapter.attest` over this attempt's transcript
-range, after fixing the prose-limit misclassification
-(`maps/v2-claude-adapter.md` §2 "Defect") so a successful turn that mentions
-a usage limit is not `limited`.
-
-### Codex
-
-argv: `<PreflightResult.executable> app-server --listen stdio:// -c <override>`
-with `CODEX_HOME=<lane home>` and API keys removed (as `codex.py:443-450`).
-
-Frames: `initialize {"clientInfo":{"name":"subfleet","title":"Subfleet","version":…}}`,
-`initialized`, `hooks/list {cwds:[workspace]}` (D-11), `model/list {}`
-(settings validation: effort in `supportedReasoningEfforts`, Fast only if
-`serviceTiers` lists `priority`), then `thread/start {cwd, model, sandbox,
-approvalPolicy, approvalsReviewer:"user", serviceTier}` for a new
-conversation or `thread/resume {threadId, cwd, model, approvalPolicy,
-approvalsReviewer, sandbox, serviceTier, excludeTurns:true}`, then
-`turn/start {threadId, clientUserMessageId:<message id>, input:[{type:"text",
-text}, {type:"localImage", path:<attachment copy>}…], model, effort,
-serviceTier: "priority" | null, approvalPolicy, approvalsReviewer:"user",
-sandboxPolicy, cwd}`; `turn/interrupt` on request; `close` after
-`turn/completed`. `thread/start` with a writable sandbox writes project trust
-into the lane's `config.toml` (README:174); the guard cache fingerprint
-includes `config.toml`, so the next preflight re-probes, which is correct.
-
-Mapping: `turn/start` response with `turn.id` → `accepted`;
-`item/agentMessage/delta` → `text.delta`; `item/reasoning/summaryTextDelta` →
-`thinking.delta`; `item/started`/`item/completed` for `commandExecution`,
-`fileChange`, `webSearch`, `mcpToolCall` → `tool.*`; `turn/diff/updated` →
-a `tool.completed` "diff" preview; approval server requests → section 8;
-`account/rateLimits/updated` and `thread/tokenUsage/updated` → `limits`;
-`error` → `error`; `turn/completed` → `turn.completed` and the outcome.
-Attestation matches `turn_context.turn_id` in the rollout to our turn id
-(`maps/v2-codex-adapter.md` §2) and records `model` and `serviceTier`.
+**Classification.** A turn attempt is classified from the driver's outcome
+and structured provider evidence only, never from prose (reviews F-01,
+F-02): Claude `result.subtype`, `result.errors`, `api_error_status`,
+synthetic API-error rows, `rate_limit_event`, stderr, and the absence of
+`system/init`; Codex `turn.status`, `turn.error.codexErrorInfo`
+(`usageLimitExceeded`/`rateLimitExceeded` → limited with a closure;
+`unauthorized` → auth-dead), JSON-RPC errors, and `account/rateLimits/updated`
+readings. Attestation: Claude as `ClaudeAdapter.attest` over the attempt's
+transcript range; Codex by `turn_context.turn_id` in the rollout. PR #39
+(C-9.2, error text only) is a prerequisite for the Claude path.
 
 ## 8. Approvals
 
-A provider request becomes an `approvals` row, a `approval.requested` event,
-and the message state `approval-needed`, in one transaction. The row stores
-the provider's request id; the response frame is built only by the driver:
+A provider request becomes one `approvals` row (exact request stored at
+`request_path`, 0600), an `approval.requested` event with display fields, and
+the message state `approval-needed`, in one transaction. The display
+includes every field that changes what is granted: Codex `grantRoot`,
+`networkApprovalContext`, requested `permissions`, `kind:"writeStdin"`,
+`cwd`, and whether the command runs outside the sandbox; Claude
+`blocked_path`, `decision_reason` and the full input. `approval.get` returns
+the exact request with token-shaped values masked in place, never truncated.
+`approval.respond` must carry the `request_sha256` the person saw.
 
-| Provider request | Options | Frames |
+| Provider request | Options | Reply |
 |---|---|---|
-| Claude `can_use_tool` | allow, deny, cancel-turn | allow → `{"type":"control_response","response":{"subtype":"success","request_id":…,"response":{"behavior":"allow","updatedInput":<original input>}}}`; deny → `{"behavior":"deny","message":<text or "Denied in Subfleet">}`; cancel-turn → deny with `"interrupt":true` |
-| Claude `can_use_tool` with `requires_user_interaction:true` | deny, cancel-turn | one-tap allow is not offered (the provider's own rule) |
-| Codex `item/commandExecution/requestApproval` | allow, allow-session, deny, cancel-turn | `{"decision":"accept"}`, `"acceptForSession"`, `"decline"`, `"cancel"` |
-| Codex `item/fileChange/requestApproval` | same | same |
-| Codex `item/permissions/requestApproval` | allow-turn, deny | `{"permissions": <requested>, "scope":"turn"}` / `{"permissions":{}}` |
-| Codex `item/tool/requestUserInput`, `mcpServer/elicitation/request` | deny | `{"answers":{}}` / `{"action":"cancel","content":null}`, plus an `error` event naming the unsupported request |
+| Claude `can_use_tool` | allow, deny, cancel-turn | `{"behavior":"allow","updatedInput":<original>}`; deny `{"behavior":"deny","message":…}`; cancel-turn adds `"interrupt":true` |
+| Claude `can_use_tool`, AskUserQuestion | answer, deny, cancel-turn | `allow` with `updatedInput` = original + `answers` |
+| Claude `can_use_tool`, other `requires_user_interaction` | deny, cancel-turn | |
+| Codex command / file-change approval | allow, allow-session, deny, cancel-turn | `accept`, `acceptForSession`, `decline`, `cancel` |
+| Codex permissions approval | allow-turn, deny | `{"permissions":<requested>,"scope":"turn"}`, `{"permissions":{}}` |
+| Codex user input, MCP elicitation, legacy approvals | none (refused) | `{"answers":{}}`, `{"action":"cancel"}`, `{"decision":"abort"}`, plus an `error` event |
 
-`allow` never widens beyond what the provider asked (no `updatedPermissions`,
-no execpolicy or network amendments). Approvals never expire on their own
-(Claude prompts do not time out, `doc-typescript.md:1051`); a turn stopped or
-ended moves its pending approvals to `withdrawn`, and Claude receives
-`control_cancel_request` only for requests the CLI sent. After a daemon
-restart, pending approvals are re-derived from the replayed driver state; a
-Claude `initialize` response's `pending_permission_requests` is matched by
-request id and never creates a duplicate row.
+`allow` never adds `updatedPermissions`, execpolicy or network amendments.
+Pending approvals survive a daemon restart (re-derived by replay; a
+re-announced request is matched by id) and are withdrawn when the turn ends
+or `approval_wait_s` passes (D-7).
 
-## 9. Attachments and drafts
+## 9. Attachments, drafts, retention
 
-The app keeps drafts (text, attachment list, settings) per conversation in
-`~/Library/Application Support/<bundle id>/drafts/<conversation id>.json`,
-0600, written atomically on each edit (debounced 300 ms), deleted only after
-a receipt for the message that consumed it. Pasted images are written by the
-app to `…/drafts/images/<uuid>.png` (0600), then registered with
-`attachment.add` when sent; the daemon's copy is what the provider sees.
-Pending sends (message id + payload) are journaled in `…/outbox.json` before
-the first `message.submit` and retried with the same id until a receipt
-exists (C-24.3). Daemon attachments are kept while any non-terminal message
-references them and 30 days after last use; retention deletes nothing else.
+- The app keeps drafts per conversation (text, attachments, settings) in
+  `~/Library/Application Support/<bundle id>/drafts/`, 0600, written
+  atomically after each edit (300 ms debounce), deleted after the receipt of
+  the message that consumed it. Pasted images are written there first and
+  registered with `attachment.add` on send.
+- `attachment.add` opens without following symlinks, requires a regular file
+  owned by the daemon's user, at most 20 MiB, PNG/JPEG/GIF/WebP magic,
+  copies to `attachments/<sha256>.<ext>` (0600, fsync) and re-hashes the copy.
+  `message.submit` updates `last_used_at` for each hash in its transaction.
+  Retention deletes an attachment row in one transaction that re-checks "no
+  non-terminal message references it and last use ≥ 30 days ago", then
+  unlinks (review F11). The driver checks size and hash before building
+  frames; a missing file fails the message `not-delivered`
+  (`attachment-missing`) before any frame is sent. Copies inside attempt
+  directories follow job retention.
+- Turn jobs have their own retention budget (default 2,000 turn jobs or
+  4 GiB). A turn job is pinned while its message is non-terminal or its
+  conversation is blocked, and for 14 days after it ends. Pruning copies the
+  served facts onto the message row first (they already are, at
+  finalization), then removes the job directory and rows; the conversation
+  store has no foreign key into the main store.
 
 ## 10. Catalog and history
 
-`subfleet.conversations.catalog` (a process, D-18) writes
-`<state>/catalog.json`:
+`catalog.json` (D-23):
 
-- Claude: depth-1 `*.jsonl` under `~/.claude/projects` (or
-  `SUBFLEET_CLAUDE_DIR`), newest 400 by mtime; per file the last
-  `custom-title` in a 256 KiB tail (observed in every recent transcript this
-  session: 2,619 `custom-title` records across 25 files), else the first real
-  user prompt (160 characters), `cwd`, last model, last permission mode;
-  excluded when `headless_transcript` says it is a lane run; `live_elsewhere`
-  from the pid registry.
-- Codex: rollouts under every enrolled Codex lane home and under `~/.codex`
-  (the Codex app's home), newest 400 by path date; title from
-  `session_index.jsonl` `thread_name` (observed in `~/.codex`), else the first
-  user message; `continuable` only for lane homes; `~/.codex` threads are
-  history plus handoff (D-15), because no lane owns that home and C-10.3 keeps
-  the desktop login out of admission.
-- A per-file cache keyed by (path, size, mtime) makes a refresh re-read only
-  changed files. Wall-clock cap 20 s; a capped run writes what it has with
-  `complete:false`.
-
-`conversation.history` renders transcript pages for a conversation; the app
-shows history and the live turn's events in one timeline, de-duplicated by
-message uuid (Claude) or turn id (Codex).
+- Claude: depth-1 `*.jsonl` under `~/.claude/projects`, newest 400 by mtime;
+  per file the last `custom-title` from a 256 KiB tail (present in every
+  recent transcript inspected: 2,619 records across 25 files), else the first
+  real user prompt (160 characters, scrubbed), `cwd`, last model and
+  permission mode; lane runs excluded; `live_elsewhere` from the pid
+  registry, ignoring Subfleet-owned pids.
+- Codex: rollouts under every enrolled Codex lane home and under `~/.codex`,
+  newest 400 by path date; title from `session_index.jsonl` `thread_name`;
+  `continuable` only in lane homes (`~/.codex` threads continue by handoff,
+  C-10.3).
+- Per-file cache keyed by (path, size, mtime); 20 s cap; `complete:false`
+  when capped.
 
 ## 11. Recovery
 
-- Daemon restart: guardians and turn processes keep running (C-5.1). The
-  daemon re-adopts attempts as today, reconnects relays from
-  `start.json.control_socket`, and rebuilds each driver by replay (D-3).
-  Pending approvals survive; the person can still answer them.
-- App quit or crash: nothing in the daemon depends on the app. The app
-  reloads drafts and its outbox journal and resends unacknowledged messages
-  with their original ids.
-- A turn process that exits without a terminal event reconciles (D-10).
-- `delivery-unknown` blocks only its conversation.
+- Daemon restart: guardians and turn processes keep running (C-5.1); the
+  daemon re-adopts attempts as today, repairs message bindings (§4),
+  reconnects relays and rebuilds drivers by replay (D-3). Pending approvals
+  survive.
+- App quit or crash: nothing depends on the app; it reloads drafts and its
+  outbox journal and resends unacknowledged ops with their original keys in
+  order (D-22).
+- A turn process that exits without a terminal event reconciles (D-14) and
+  may block its conversation (D-13).
+- Daemon rollback: after this release the main store is unchanged (schema 5),
+  so any retained release opens it. Before a rollback, drain or cancel every
+  queued or live `kind='turn'` job (an older daemon would launch a queued turn
+  job in its one-shot mode). `conversations.sqlite3` is ignored by older
+  releases and kept.
 
 ## 12. Desktop client
 
-SwiftUI, ported from the legacy cockpit with provenance comments, split into
-files per `maps/legacy-swift.md` §9. New or replaced parts:
+Built new in SwiftUI (Max, 2026-09-24). Structure:
 
-- `DaemonClient`: one request per connection over `daemon.sock` (per
-  `maps/v2-protocol.md` §7), `v:1`, unique request ids, 15 s default timeout,
-  25 s + margin for `conversation.events`; `capabilities` at launch and after
-  each reconnect.
-- `StatusModel`: the existing `status.json` decoder (kept under
-  `SUBFLEET_MODEL_TEST`), extended with `earliest_reset`,
+- `DaemonClient`: one request per connection over `daemon.sock`, `v:1`,
+  unique request ids, 15 s default timeout, `wait_s + 15 s` for
+  `conversation.events`; `capabilities` at launch and on reconnect.
+- `StatusModel`: the `status.json` decoder the menu panel uses today (kept
+  under `SUBFLEET_MODEL_TEST`), extended with `earliest_reset`,
   `reset_credits_remaining` and Claude windows by scope.
-- `ConversationStore`: conversations, catalog, per-conversation event cursor
-  loop, drafts and outbox journals, approval sheet.
-- Runs view: `list`, `show`, `kill` through the socket.
-- Scenes: `Window("Subfleet", id: "main")` plus `MenuBarExtra`; `LSUIElement`
-  false; an app delegate reopens the main window on Dock click
-  (`applicationShouldHandleReopen`); the menu panel keeps width 430 and gains
-  a footer "Open Subfleet" (⌘O in the app menu). The view probe keeps
-  `visible_windows == 0` under `.prohibited` activation.
-- A daemon that is down, too old (no `capabilities`), or reports a different
-  schema shows an actionable banner; drafts stay editable and the outbox
-  keeps its messages.
+- `ConversationStore`: conversations, catalog, per-conversation event loop,
+  drafts and outbox journals, approvals.
+- Views: sidebar (conversations grouped by recency and workspace, search,
+  provider filter, live-elsewhere badges), conversation (Markdown timeline of
+  history plus live events, activity strip, approval cards, stop, served
+  model/account/Fast chip), composer (Return sends, Shift-Return newline,
+  paste and drop images, model/effort/Fast/permission controls, queued
+  follow-ups), runs (jobs list, detail, kill), fleet (per-account windows),
+  settings.
+- Scenes: `Window("Subfleet", id: "main")` and `MenuBarExtra`; `LSUIElement`
+  false; an app delegate reopens the window on Dock click; the menu panel
+  keeps width 430 and gains an always-present "Open Subfleet" (⌘O).
+- A daemon that is down, too old, or reports another schema shows an
+  actionable banner; drafts stay editable and the outbox keeps its messages.
+- Notifications and badge as D-24; Changes pane as D-25; Compose view for
+  detached jobs as D-26; per-account windows including Fable as D-27.
+- Status strip per turn with stage timestamps from `status` events
+  (admitted, spawned, initialized, resumed, accepted), so time spent waiting
+  for capacity, starting the provider, and the model are told apart.
 
 ## 13. Legacy continuity
 
 The legacy outbox holds 6 messages, all `finished`, in 3 Claude sessions; the
 pending-message journal is `{}`; there are no composer attachments; no broker
-runs (inventory in the private recovery package, 2026-09-24). Import is
-therefore read-only: each of the 3 sessions becomes an `origin:"legacy"`
-conversation bound to its native id (if that session still exists), with the
-6 messages as terminal history references. The importer's current mapping of
+runs (private recovery package, 2026-09-24). Import is read-only: each
+session whose transcript still exists becomes an `origin:"legacy"`
+conversation bound to its native id, with the 6 messages as terminal history
+references, idempotent by legacy `message_id`. The importer's mapping of
 `outbox.sqlite3` onto notices (`importer.py:1530-1545`) and the `cockpit`
-drop row (`importer.py:150`) are corrected to this classification. The import
-is idempotent by legacy `message_id`.
+drop row (`importer.py:150`) are corrected to this classification.
 
 ## 14. Test plan
 
-Every test names its clause (C-20.5). Layers: `unit` (drivers, digest,
-relay framing, redaction), `fake` (daemon with fake provider binaries that
-speak the Claude stream-json and Codex app-server protocols from recorded
-fixtures), `process` (guardian relay across a daemon SIGKILL), `frontend`
-(Swift model probes against fixture JSON produced by the Python service),
-`live` (opt-in; one real Claude and one real Codex conversation).
-
-Contract fixtures: the Codex frames the driver emits validate against the
-pinned 0.153.3 JSON schema (`tests/fixtures/codex/app-server-0.153.3/`);
-Claude frames against the shapes recorded from 2.1.280.
+Every test names its clause (C-20.5). Layers: `unit` (drivers, relay,
+redaction, mapping tables, digest, dispatcher decisions), `fake` (the daemon
+with fake `claude` and `codex` binaries that speak stream-json and app-server
+from scripted scenarios), `process` (guardian relay across a daemon
+SIGKILL), `frontend` (Swift model probes over fixture JSON the Python service
+produces), `live` (opt-in; one real Claude and one real Codex conversation
+with a follow-up, an approval, and attested served models; the Codex
+never-rules firing test of D-9; the SIGTERM/SIGINT resume behaviour of D-13;
+per-turn latency: local acknowledgement p95; submit to `running` and submit
+to first delta, p50 and p95, for a new and a resumed conversation on each
+provider, beside the native app on the same account; a miss of more than
+1.5 s at p95 reopens warm workers before release (review U-F12)).
 
 ## 15. Not in this release
 
-Warm provider workers (D-1); mobile or cloud sync; voice; an embedded
-browser or IDE; replacement sign-in (existing native login remains an account
-setup step); continuing `~/.codex` threads in place (handoff only); approval
-kinds the provider marks experimental.
+Warm provider workers; mobile or cloud sync; voice; an embedded browser or
+IDE; replacement sign-in; continuing `~/.codex` threads in place (handoff
+only); approval kinds the provider marks experimental; writable Codex turns
+until the D-9 live gate passes; in-place continuation of Codex-app threads
+(`~/.codex`) unless the Stage 3 relocation test passes (they continue by
+labelled handoff, whose brief now reads Codex rollouts too:
+`subfleet/conversations/codex_brief.py`).
 
 ## 16. Decisions for Max
 
-- D-14: attended turns ahead of detached jobs in admission order (no reserved
-  capacity).
+- D-6: a Claude conversation that hits a usage limit continues automatically
+  on another account with a labelled "continue" turn (at most two), on by
+  default per conversation.
+- D-7: attended turns go first in their tier but reserve no capacity; a turn
+  waiting on an approval holds one slot for up to an hour.
 - D-16: attended turns may run outside git, and on `main`/`master` only with a
-  per-conversation `allow_main` set by a person.
-- D-5: a Claude conversation may continue under any enrolled Claude account
-  (prompt caching does not carry across accounts, so the first turn on a new
-  account costs more).
+  per-conversation `allow_main` a person sets.
+- D-9: Codex conversations are read-only until the live never-rules test
+  passes.
+- D-19: Claude Fast bills usage credits on the account that serves the turn;
+  the app asks once per conversation.
+- Codex-app threads in `~/.codex` continue by labelled handoff unless the
+  relocation test passes.
