@@ -14,15 +14,19 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import signal
 import stat
+import subprocess
 import threading
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .. import protocol
 from ..adapters.base import AdapterError
+from ..policy import CONVERSATION_DEFAULTS
 from . import attachments as attachment_store
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
@@ -55,6 +59,11 @@ MAX_READMITS = 3
 CONTINUATION_TEXT = ("Continue from where you left off; the previous turn stopped at a usage limit "
                      "on another account.")
 CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
+# A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
+# times that is wedged outside the cap (a directory walk, `ps`) and is stopped.
+CATALOG_KILL_AFTER_S = 60.0
+# Attempt states that have ended; `quarantined` has not (its processes may live).
+ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 
 
 class ConversationService:
@@ -68,6 +77,12 @@ class ConversationService:
         self._lock = threading.RLock()
         self._poll_slots: dict[tuple, threading.Event] = {}
         self.log = daemon.log
+        self.clock = time.monotonic
+        self._catalog_lock = threading.RLock()
+        self._catalog_proc: subprocess.Popen | None = None
+        self._catalog_started = 0.0            # monotonic time of the run this service last started
+        self._catalog_killed = False
+        self._catalog_last: float | None = None   # the last start or request; None: the first tick starts one
 
     def close(self) -> None:
         for runner in list(self.runners.values()):
@@ -191,16 +206,25 @@ class ConversationService:
 
     # --- ops: conversations ----------------------------------------------------
 
+    def config(self) -> dict:
+        """The policy's `conversations` section over its defaults (C-26.9, C-30.1, C-25.4)."""
+        return {**CONVERSATION_DEFAULTS, **(self.daemon.policy.get("conversations") or {})}
+
     def op_conversation_list(self, args, peer) -> dict:
         conversations = [self._view(c) for c in self.store.list_conversations(
             provider=args.get("provider"), limit=int(args.get("limit") or 200))]
         out = {"conversations": conversations}
         if args.get("include_catalog", True):
-            from .catalog import read_catalog
+            from .catalog import read_catalog, refresh_running
             bound = {(c["provider"], c["native_session_id"]) for c in conversations if c["native_session_id"]}
-            out["catalog"] = read_catalog(self.root, query=args.get("query"), exclude=bound,
-                                          limit=int(args.get("limit") or 200), before=args.get("before"),
-                                          include_archived=bool(args.get("include_archived")))
+            # D-23: the catalog is read as it is; a missing or old one is reported,
+            # and the control loop's next run replaces it. Nothing here scans.
+            catalog = read_catalog(self.root, query=args.get("query"), exclude=bound,
+                                   limit=int(args.get("limit") or 200), before=args.get("before"),
+                                   include_archived=bool(args.get("include_archived")),
+                                   stale_after_s=self._catalog_stale_after_s())
+            catalog["refreshing"] = bool(refresh_running(self.root))
+            out["catalog"] = catalog
         return out
 
     def _view(self, conversation: dict) -> dict:
@@ -552,8 +576,11 @@ class ConversationService:
         return attachment_store.add(self.store, args.get("path"), args.get("sha256"))
 
     def op_catalog_refresh(self, args, peer) -> dict:
-        from .catalog import request_refresh
-        return request_refresh(self.root)
+        """D-23: start a run now; the handler never waits for it (C-25.3)."""
+        from .catalog import read_catalog
+        requested = self._start_catalog()
+        generated = read_catalog(self.root, limit=1)["generated_at"]
+        return {"requested": requested["requested"], "running": requested["running"], "generated_at": generated}
 
     # --- policy checks ---------------------------------------------------------
 
@@ -583,13 +610,123 @@ class ConversationService:
     # --- the control loop ------------------------------------------------------
 
     def tick(self) -> None:
-        """Called on the control loop's worker pool, never on a request thread."""
-        try:
-            self._dispatch()
-            self._adopt_runners()
-            self._settle_unstarted()
-        except Exception as exc:
-            self.log.error("conversation tick failed: %s: %s", type(exc).__name__, exc)
+        """Called on the control loop's worker pool, never on a request thread. Each
+        step is independent: one that fails is logged and the others still run."""
+        for step in (self._catalog_tick, self._dispatch, self._adopt_runners, self._settle_unstarted,
+                     self._reap_runners, self._compact):
+            try:
+                step()
+            except Exception as exc:
+                self.log.error("conversation tick step %s failed: %s: %s", step.__name__, type(exc).__name__, exc)
+
+    # --- the catalog timer (C-30.1, design D-23) --------------------------------
+
+    def _catalog_tick(self) -> None:
+        """Start a catalog run every `catalog_interval_s`. Never waits for one: the
+        run is a separate process this tick only starts, reaps, or stops when it
+        outlives `CATALOG_KILL_AFTER_S`."""
+        self._reap_catalog()
+        interval = float(self.config()["catalog_interval_s"])
+        if interval <= 0:
+            return                              # policy: on request only
+        last = self._catalog_last
+        if self._catalog_proc is None and (last is None or self.clock() - last >= interval):
+            self._start_catalog()
+
+    def _catalog_stale_after_s(self) -> float:
+        """Three missed runs; with the timer off, three of the default interval."""
+        interval = float(self.config()["catalog_interval_s"]) or float(CONVERSATION_DEFAULTS["catalog_interval_s"])
+        return 3 * interval
+
+    def _start_catalog(self) -> dict:
+        from .catalog import refresh_running, spawn_refresh
+        with self._catalog_lock:
+            self._reap_catalog()
+            if self._catalog_proc is not None:
+                return {"requested": False, "running": True}
+            self._catalog_last = self.clock()
+            try:
+                process = spawn_refresh(self.root)
+            except OSError as exc:
+                self.log.warning("catalog run not started: %s", exc)
+                return {"requested": False, "running": bool(refresh_running(self.root))}
+            if process is None:                 # another run holds the lock
+                return {"requested": False, "running": bool(refresh_running(self.root))}
+            self._catalog_proc, self._catalog_started, self._catalog_killed = process, self.clock(), False
+            return {"requested": True, "running": True}
+
+    def _reap_catalog(self) -> None:
+        with self._catalog_lock:
+            process = self._catalog_proc
+            if process is None:
+                return
+            if process.poll() is not None:
+                self._catalog_proc = None
+                if process.returncode and not self._catalog_killed:
+                    self.log.warning("catalog run exited %s", process.returncode)
+                return
+            if self._catalog_killed or self.clock() - self._catalog_started < CATALOG_KILL_AFTER_S:
+                return
+            # Still unreaped, so its pid (and the group it leads, start_new_session)
+            # cannot have been reused: the signal reaches only this run. A later
+            # tick reaps it; nothing here waits for it.
+            self.log.warning("catalog run %s outlived %g s; stopping it", process.pid, CATALOG_KILL_AFTER_S)
+            self._catalog_killed = True
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    # --- compaction (C-25.4, review IR-6) ---------------------------------------
+
+    def _compact(self) -> None:
+        """Remove the delta rows of attempts that have ended, whose message settled
+        at least `compact_after_s` ago, and that no live runner still reads."""
+        config = self.config()
+        cutoff = _iso_ago(float(config["compact_after_s"]))
+        live = {aid for aid, runner in list(self.runners.items()) if not runner.finished.is_set()}
+        for row in self.store.compactable(settled_before=cutoff, limit=int(config["compact_per_tick"])):
+            if row["attempt_id"] in live:
+                continue
+            attempt = self.daemon.store.one("SELECT state FROM attempts WHERE attempt_id=?", (row["attempt_id"],))
+            # An attempt row retention already removed belonged to a job that had ended.
+            if attempt is not None and attempt["state"] not in ATTEMPT_ENDED:
+                continue
+            self.store.compact(row["attempt_id"])
+
+    # --- runners and retention (C-26.12, review IR-17) --------------------------
+
+    def _reap_runners(self) -> None:
+        """Forget runners that have finished once the job store has ended their
+        attempt; until then `_adopt_runners` must keep seeing them."""
+        for aid, runner in list(self.runners.items()):
+            if not runner.finished.is_set():
+                continue
+            attempt = self.daemon.store.one("SELECT state FROM attempts WHERE attempt_id=?", (aid,))
+            if attempt is None or attempt["state"] not in ("starting", "running", "finalizing"):
+                self.runners.pop(aid, None)
+
+    def retention_pins(self) -> set[str]:
+        """Turn jobs retention must keep (C-26.12): every turn job of a message that
+        is not terminal, of a blocked conversation, and of a live runner. Read-only
+        and cheap; retention asks again inside each delete transaction."""
+        jobs = self.daemon.store
+        pinned = {aid.rsplit("/", 1)[0] for aid, runner in list(self.runners.items()) if not runner.finished.is_set()}
+        terminal = ",".join("?" * len(TERMINAL_STATES))
+        for row in self.store.query(f"SELECT message_id, job_id FROM messages WHERE state NOT IN ({terminal})",
+                                    TERMINAL_STATES):
+            if row["job_id"]:
+                pinned.add(row["job_id"])
+            # Every turn job the message ever had (`turn:<id>:<n>`), by the unique index.
+            prefix = f"turn:{row['message_id']}:"
+            pinned.update(r["job_id"] for r in jobs.query(
+                "SELECT job_id FROM jobs WHERE request_id>=? AND request_id<?", (prefix, prefix[:-1] + ";")))
+        for row in self.store.query("SELECT conversation_id FROM conversations WHERE blocked_by IS NOT NULL"):
+            pinned.update(r["job_id"] for r in jobs.query("SELECT job_id FROM jobs WHERE kind='turn' AND name=?",
+                                                          (f"turn-{row['conversation_id']}",)))
+        return pinned
+
+    # --- dispatch (design §4) ---------------------------------------------------
 
     def _turn_job(self, message: dict) -> dict | None:
         """The main store decides which job carries a message (IR-1)."""
@@ -712,7 +849,7 @@ class ConversationService:
                                 conversation_id=turn["conversation_id"], attempt_dir=adir,
                                 control_socket=start["control_socket"], on_outcome=self._on_outcome,
                                 on_contain=self._on_contain, log=self.log,
-                                approval_wait_s=float(self.daemon.policy.get("conversations", {}).get("approval_wait_s", 3600)),
+                                approval_wait_s=float(self.config()["approval_wait_s"]),
                                 on_catalog=self._on_catalog)
             self.runners[aid] = runner
             self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
@@ -882,6 +1019,12 @@ def policy_model(policy: dict, provider: str, value: str) -> str:
             return short
     raise ConversationError("unknown-model", f"{value!r} is not a {provider} model this fleet routes",
                             fix="pick a model from models.list")
+
+
+def _iso_ago(seconds: float) -> str:
+    """UTC ISO time `seconds` ago, in the conversation store's format."""
+    stamp = datetime.now(UTC) - timedelta(seconds=seconds)
+    return stamp.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _read_json(path: Path) -> dict | None:

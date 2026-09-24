@@ -369,3 +369,27 @@ def test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice(conv)
     kinds = [e["kind"] for e in conv.events(cid)]
     assert kinds.count("approval.requested") == 1 and kinds.count("turn.completed") == 1
     assert conv.attempt(mid)["outcome_class"] == "ok"
+
+
+def test_the_daemon_keeps_the_catalog_and_the_list_reports_it(conv):
+    """C-30.1, D-23: the control loop runs the catalog out of process; `catalog.refresh`
+    starts a run without waiting; `conversation.list` reports the catalog's state and
+    finds a session written after the daemon started."""
+    e2e = conv.e2e
+    project = Path(e2e.env["CLAUDE_FAKE_PROJECTS_DIR"]) / "-elsewhere"
+    project.mkdir(parents=True, exist_ok=True)
+    session = str(uuid.uuid4())
+    (project / f"{session}.jsonl").write_text(json.dumps(
+        {"type": "user", "cwd": str(e2e.workdir), "sessionId": session,
+         "message": {"role": "user", "content": "an earlier desktop session"}}) + "\n")
+    listed = conv.call("conversation.list")["catalog"]
+    assert listed["state"] in ("absent", "fresh") and "refreshing" in listed
+
+    def indexed():
+        conv.call("catalog.refresh")
+        catalog = conv.call("conversation.list", query="earlier desktop")["catalog"]
+        return catalog if [i["native_session_id"] for i in catalog["items"]] == [session] else None
+
+    catalog = e2e.until(indexed, timeout=60)
+    assert catalog["state"] == "fresh" and catalog["generated_at"] and catalog["stale_after_s"] == 180
+    assert (e2e.root / "catalog.json").is_file()

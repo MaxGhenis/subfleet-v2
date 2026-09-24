@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -276,15 +277,41 @@ def _atomic(path: Path, value: Any) -> None:
 
 
 def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = None, limit: int = 200,
-                 before: str | None = None, include_archived: bool = False) -> dict:
+                 before: str | None = None, include_archived: bool = False, stale_after_s: float | None = None,
+                 now: datetime | None = None) -> dict:
+    """A page of `catalog.json`, and what it is worth (C-30.1, design D-23).
+
+    `state` says whether the file is `absent` (no run has finished yet),
+    `unreadable`, `stale` (older than `stale_after_s`) or `fresh`, with its age;
+    a missing, damaged or old catalog never fails `conversation.list`.
+    """
     try:
         catalog = json.loads((Path(root) / "catalog.json").read_text())
+        state = "fresh"
+    except FileNotFoundError:
+        catalog, state = {}, "absent"
     except (OSError, ValueError):
-        return {"generated_at": None, "complete": False, "items": [], "next": None}
+        catalog, state = {}, "unreadable"
+    if not isinstance(catalog, dict):
+        catalog, state = {}, "unreadable"
+    generated_at = catalog.get("generated_at") if isinstance(catalog.get("generated_at"), str) else None
+    age_s = None
+    if generated_at:
+        try:
+            age_s = max(0.0, ((now or datetime.now(UTC)) - datetime.fromisoformat(
+                generated_at.replace("Z", "+00:00"))).total_seconds())
+        except ValueError:
+            age_s = None
+    if state == "fresh" and (age_s is None or (stale_after_s is not None and age_s > stale_after_s)):
+        state = "stale"
     exclude = exclude or set()
     needle = (query or "").lower().strip()
     out = []
-    for item in catalog.get("items", []):
+    items = catalog.get("items") if isinstance(catalog.get("items"), list) else []
+    for item in items:
+        if not isinstance(item, dict) or item.get("provider") not in ("claude", "codex") \
+                or not item.get("native_session_id"):
+            continue
         if (item["provider"], item["native_session_id"]) in exclude:
             continue
         if item.get("archived") and not include_archived:
@@ -296,28 +323,47 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
         out.append(item)
         if len(out) >= max(1, min(limit, 500)):
             break
-    return {"generated_at": catalog.get("generated_at"), "complete": catalog.get("complete", False), "items": out,
-            "next": out[-1]["mtime"] if len(out) >= limit else None}
+    return {"generated_at": generated_at, "complete": bool(catalog.get("complete", False)), "items": out,
+            "next": out[-1].get("mtime") if out and len(out) >= limit else None, "state": state,
+            "age_s": None if age_s is None else round(age_s, 1), "stale_after_s": stale_after_s}
+
+
+def refresh_running(root: Path) -> bool | None:
+    """Whether a catalog run holds the lock now; None when the lock cannot be read.
+    A non-blocking probe: it never waits for a run."""
+    lock = Path(root) / "catalog.lock"
+    try:
+        fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    except BlockingIOError:
+        return True
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def spawn_refresh(root: Path) -> subprocess.Popen | None:
+    """Start one catalog run unless one is running (the lock decides), and return
+    the process without waiting for it. Its owner reaps it (`Popen.poll`)."""
+    if refresh_running(root) is not False:
+        return None
+    package_root = str(Path(__file__).resolve().parent.parent.parent)
+    env = {**os.environ, "PYTHONPATH": package_root}
+    return subprocess.Popen([sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(root)],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True, env=env, cwd=package_root)
 
 
 def request_refresh(root: Path) -> dict:
     """Start one catalog run unless one is running (a lock file decides)."""
-    lock = Path(root) / "catalog.lock"
-    try:
-        fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
-    except BlockingIOError:
-        return {"requested": False, "running": True}
-    except OSError:
-        return {"requested": False, "running": False}
-    package_root = str(Path(__file__).resolve().parent.parent.parent)
-    env = {**os.environ, "PYTHONPATH": package_root}
-    subprocess.Popen([sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(root)],
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True, env=env, cwd=package_root)
-    return {"requested": True, "running": True}
+    process = spawn_refresh(root)
+    return {"requested": process is not None, "running": process is not None or bool(refresh_running(root))}
 
 
 def native_session(provider: str, session_id: str, *, home: str | None, root: Path, lanes: list[dict]) -> dict | None:

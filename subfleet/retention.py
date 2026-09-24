@@ -1,4 +1,13 @@
-"""Bounded job retention, with filesystem work outside store transactions (C-8.4)."""
+"""Bounded job retention, with filesystem work outside store transactions (C-8.4).
+
+Detached jobs and conversation turn jobs are pruned against separate budgets
+(C-8.4, C-26.12): each pool drops its own oldest unpinned jobs until its own
+count and byte limits hold. A turn job is also kept for `turn_keep_days` after
+it ends, and while the conversation service still needs it (its message is not
+terminal, its conversation is blocked, or a live runner reads its attempt):
+the service answers that through `pins`, which is asked again inside each
+delete transaction, like every other pin.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +19,15 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
 
-from .contracts import RETENTION_MAX_BYTES, RETENTION_MAX_JOBS
+from .contracts import (
+    RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES,
+    TURN_RETENTION_MAX_JOBS,
+)
 from .store import Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
@@ -65,15 +78,30 @@ def _contains(value: Any, job_id: str) -> bool:
     return False
 
 
-def _pins(store: Store, explicit: set[str], landed_salvage: set[int]) -> set[str]:
-    """Read only database evidence; safe to recheck inside the delete transaction."""
+def _pins(store: Store, explicit: set[str], landed_salvage: set[int], *,
+          pins: Callable[[], Iterable[str]] | None = None, turn_keep_s: float = 0) -> set[str]:
+    """Read only database evidence; safe to recheck inside the delete transaction.
+
+    `pins` is the conversation service's evidence (C-26.12); it reads the
+    conversation store and the service's live runners, never this store's
+    transaction state, so it is as safe to ask inside a transaction.
+    """
     protected = set(explicit)
-    for row in store.query("SELECT job_id,kind,state FROM jobs"):
+    if pins is not None:
+        protected.update(pins())
+    kept_since = (datetime.now(UTC) - timedelta(seconds=turn_keep_s)).isoformat(timespec="milliseconds")
+    for row in store.query("SELECT job_id,kind,state,finished_at FROM jobs"):
         if row["state"] not in _TERMINAL or row["kind"] == "gate-review":
             protected.add(row["job_id"])
+        elif row["kind"] == "turn" and turn_keep_s > 0 and not _ended_before(row["finished_at"], kept_since):
+            protected.add(row["job_id"])   # C-26.12: kept for days after it ends
     queries = (
         "SELECT DISTINCT job_id FROM attempts WHERE state='quarantined' OR state IN ('reserved','starting','running','finalizing')",
-        "SELECT DISTINCT job_id FROM notices WHERE state IN ('pending','offered')",
+        # C-8.4, IR-17: an unread notice pins its job only when some session can
+        # still read it; a notice with no session is never delivered, so it would
+        # pin its job for ever.
+        "SELECT DISTINCT job_id FROM notices WHERE state IN ('pending','offered') "
+        "AND session_id IS NOT NULL AND session_id <> ''",
         "SELECT DISTINCT parent_job_id AS job_id FROM jobs WHERE parent_job_id IS NOT NULL",
         "SELECT j.job_id FROM jobs j JOIN leases l ON l.holder=j.job_id",
         "SELECT a.job_id FROM attempts a JOIN leases l ON l.holder=a.attempt_id",
@@ -99,6 +127,19 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int]) -> set[str
             if _contains(evidence, row["job_id"]):
                 protected.add(row["job_id"])
     return protected
+
+
+def _ended_before(finished_at: str | None, cutoff: str) -> bool:
+    """Whether a job ended before `cutoff` (both UTC ISO); an unknown end has not."""
+    if not finished_at:
+        return False
+    try:
+        ended = datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+        if ended.tzinfo is None:
+            ended = ended.replace(tzinfo=UTC)
+        return ended < datetime.fromisoformat(cutoff)
+    except ValueError:
+        return False
 
 
 def _owned_worktree(job: dict[str, Any], state_root: Path) -> Path | None:
@@ -179,22 +220,30 @@ def _remove_worktree(job: dict[str, Any], state_root: Path,
 
 
 def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTION_MAX_JOBS,
-                max_bytes: int = RETENTION_MAX_BYTES, referenced_job_ids: Iterable[str] = (),
+                max_bytes: int = RETENTION_MAX_BYTES, turn_max_jobs: int = TURN_RETENTION_MAX_JOBS,
+                turn_max_bytes: int = TURN_RETENTION_MAX_BYTES,
+                turn_keep_s: float = TURN_RETENTION_KEEP_DAYS * 86400,
+                pins: Callable[[], Iterable[str]] | None = None, referenced_job_ids: Iterable[str] = (),
                 salvage_referenced_elsewhere: Callable[[dict[str, Any]], bool] | None = None,
                 cancel: threading.Event | None = None, deadline: float | None = None) -> dict[str, Any]:
-    """Prune oldest unpinned terminal jobs until both C-8.4 limits hold.
+    """Prune oldest unpinned terminal jobs until each pool's limits hold.
 
-    Salvage is conservatively pinned unless a caller proves its ref is held
-    elsewhere. Explicit evidence ids let later gate implementations add pins
-    without changing this module. A failed filesystem deletion is reported and
-    audited; pruning never performs a subprocess, stat, or removal inside a tx.
-    C-16.4 cancellation is cooperative between filesystem operations. A cancelled
-    selection keeps its rows and any deletion lease for the next maintenance pass.
+    Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
+    `turn_max_jobs`/`turn_max_bytes` (C-26.12); a pool over its budget never
+    prunes the other. Salvage is conservatively pinned unless a caller proves
+    its ref is held elsewhere. Explicit evidence ids let later gate
+    implementations add pins without changing this module, and `pins` is asked
+    again inside every delete transaction. A failed filesystem deletion is
+    reported and audited; pruning never performs a subprocess, stat, or removal
+    inside a tx. C-16.4 cancellation is cooperative between filesystem
+    operations. A cancelled selection keeps its rows and any deletion lease for
+    the next maintenance pass.
     """
     progress = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None}
     try:
-        return _maintenance(store, state_root, max_jobs=max_jobs, max_bytes=max_bytes,
-                            referenced_job_ids=referenced_job_ids,
+        return _maintenance(store, state_root, budgets={"detached": (max_jobs, max_bytes),
+                                                        "turn": (turn_max_jobs, turn_max_bytes)},
+                            turn_keep_s=turn_keep_s, pins=pins, referenced_job_ids=referenced_job_ids,
                             salvage_referenced_elsewhere=salvage_referenced_elsewhere,
                             cancel=cancel, deadline=deadline, progress=progress)
     except _Interrupted as exc:
@@ -205,9 +254,13 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 "bytes_after": None, "jobs_after": len(jobs), "interrupted": str(exc)}
 
 
-def _maintenance(store, state_root, *, max_jobs, max_bytes, referenced_job_ids,
+def _pool(job: dict[str, Any]) -> str:
+    return "turn" if job.get("kind") == "turn" else "detached"
+
+
+def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_job_ids,
                  salvage_referenced_elsewhere, cancel, deadline, progress):
-    if max_jobs < 0 or max_bytes < 0:
+    if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:
         raise ValueError("retention limits must be nonnegative")
     _checkpoint(cancel, deadline)
     state_root = Path(state_root).resolve()
@@ -236,15 +289,29 @@ def _maintenance(store, state_root, *, max_jobs, max_bytes, referenced_job_ids,
             if salvage_referenced_elsewhere(artifact):
                 landed.add(artifact["artifact_id"])
     _checkpoint(cancel, deadline)
-    protected = _pins(store, explicit, landed)
-    count, total = len(jobs), sum(sizes.values())
-    before = total
+
+    def pinned() -> set[str]:
+        return _pins(store, explicit, landed, pins=pins, turn_keep_s=turn_keep_s)
+
+    protected = pinned()
+    counts = {name: 0 for name in budgets}
+    totals = {name: 0 for name in budgets}
+    for job in jobs:
+        counts[_pool(job)] += 1
+        totals[_pool(job)] += sizes.get(job["job_id"], 0)
+    before = sum(totals.values())
     progress["bytes_before"] = before
+    progress["pools"] = {name: {"jobs_before": counts[name], "bytes_before": totals[name],
+                                "max_jobs": budgets[name][0], "max_bytes": budgets[name][1]} for name in budgets}
     pruned = progress["pruned"]
     for job in reversed(jobs):
         _checkpoint(cancel, deadline)
-        if count <= max_jobs and total <= max_bytes:
+        pool = _pool(job)
+        max_jobs, max_bytes = budgets[pool]
+        if all(counts[name] <= budgets[name][0] and totals[name] <= budgets[name][1] for name in budgets):
             break
+        if counts[pool] <= max_jobs and totals[pool] <= max_bytes:
+            continue
         identity = job["job_id"]
         if identity in protected:
             continue
@@ -255,7 +322,7 @@ def _maintenance(store, state_root, *, max_jobs, max_bytes, referenced_job_ids,
         lease_holder = f"retention:{identity}"
         with store.transaction("retention.selected", job_id=identity) as conn:
             _checkpoint(cancel, deadline)
-            if identity in _pins(store, explicit, landed):
+            if identity in pinned():
                 protected.add(identity)
                 continue
             if lease_key is not None:
@@ -298,7 +365,7 @@ def _maintenance(store, state_root, *, max_jobs, max_bytes, referenced_job_ids,
                     remaining += _size(worktree, cancel=cancel, deadline=deadline)
             except OSError:
                 remaining = sizes.get(identity, 0)
-            total += remaining - sizes.get(identity, 0)
+            totals[pool] += remaining - sizes.get(identity, 0)
             sizes[identity] = remaining
             with store.transaction("retention.lease_released", job_id=identity) as conn:
                 _checkpoint(cancel, deadline)
@@ -307,10 +374,11 @@ def _maintenance(store, state_root, *, max_jobs, max_bytes, referenced_job_ids,
             _checkpoint(cancel, deadline)
             store.add_event("retention.remove_error", job_id=identity, data=error)
             continue
-        with store.transaction("retention.pruned", job_id=identity, data={"bytes": sizes.get(identity, 0)}) as conn:
+        with store.transaction("retention.pruned", job_id=identity,
+                               data={"bytes": sizes.get(identity, 0), "pool": pool}) as conn:
             _checkpoint(cancel, deadline)
             conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
-            if identity in _pins(store, explicit, landed):
+            if identity in pinned():
                 protected.add(identity)
                 continue
             for table in ("artifacts", "readings"):
@@ -319,7 +387,10 @@ def _maintenance(store, state_root, *, max_jobs, max_bytes, referenced_job_ids,
                 conn.execute(f"DELETE FROM {table} WHERE job_id=?", (identity,))
             _checkpoint(cancel, deadline)
         pruned.append(identity)
-        count -= 1
-        total -= sizes.get(identity, 0)
+        counts[pool] -= 1
+        totals[pool] -= sizes.get(identity, 0)
+    for name in budgets:
+        progress["pools"][name].update(jobs_after=counts[name], bytes_after=totals[name])
     return {"pruned": pruned, "protected": sorted(protected), "bytes_before": before,
-            "bytes_after": total, "jobs_after": count, "errors": errors}
+            "bytes_after": sum(totals.values()), "jobs_after": sum(counts.values()), "errors": errors,
+            "pools": progress["pools"]}

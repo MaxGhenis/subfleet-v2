@@ -38,7 +38,7 @@ where it is implemented; "open" means not yet built.
 | 3 | Stop order: control interrupt, then SIGINT through a new relay `signal` op the guardian applies to its own unreaped child, then close stdin, then containment; each step bounded | F1 | `relay.py`, `guardian.py`, `runner.py` |
 | 4 | Every daemon-initiated stop of a turn (wall limit, operator kill, approval timeout) escalates as IR-3, with reasons `wall-limit`, `operator-kill`, `approval-timeout` | F4, U-F4 | `runner.py`, `daemon.py` |
 | 5 | The unfinished-turn block fires on delivery (user frame written), not only acknowledgement | F1 | `reconcile.py` |
-| 6 | Compaction only after the attempt is terminal; reset exactly when the cursor is below the floor | F6 | `store.py`, `service.py` |
+| 6 | Compaction only after the attempt is terminal; reset exactly when the cursor is below the floor | F6 | `store.py` (`compact`, `compactable`, `events_after`, `append_events`), `service.py` (`_compact`); `tests/unit/test_conversation_store.py`, `tests/unit/test_conversation_service.py` |
 | 7 | Withdrawing a never-received message leaves a tombstone so a late submit of that id is cancelled | F10 | `service.py` |
 | 8 | Turn wall limit and approval expiry end with named reasons and withdrawn approvals | F4, F-05 | `runner.py` |
 | 9 | Claude classification reads provider-authored text only | F-02 | PR #39 |
@@ -49,7 +49,7 @@ where it is implemented; "open" means not yet built.
 | 14 | `allow_main` applies at submit, admission and launch | F-06 | `daemon.py` |
 | 15 | Sessions under `/tmp` show `continue_blocker:"tmp-workspace"` unless a person sets `allow_tmp` | F-06 | `catalog.py` |
 | 16 | Subfleet's own processes are never "live elsewhere" | F-06 | `catalog.py`, `dispatch.py` |
-| 17 | No notice row for turn jobs; retention budgets split by kind; a notice with no session never pins | F-10, F8 | `daemon.py`, `retention.py` |
+| 17 | No notice row for turn jobs; retention budgets split by kind; a notice with no session never pins | F-10, F8 | `daemon.py` (`_notice`, `_retention`), `retention.py` (`_pins`, per-kind budgets), `service.py` (`retention_pins`); `tests/unit/test_retention_turns.py`, `tests/unit/test_conversation_service.py`, `tests/e2e/test_conversations.py` |
 | 18 | `status.json` rows carry `kind`; `live`/`recent`/`counts` exclude turns; a `conversations` section | U-F14 | `status_json.py` |
 | 19 | `list`/`runs` exclude turns unless asked | U-F14 | `daemon.py`, `cli.py` |
 | 20 | Approval display masks value-shaped secrets only, never a span with `$(`, a backtick, a pipe, a separator, a redirection or a newline; reveal is person-only; no one-tap allow while masked | SEC-5 | `redact.py`, app |

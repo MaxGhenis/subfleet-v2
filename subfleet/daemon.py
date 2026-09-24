@@ -42,7 +42,7 @@ from .contracts import (
 )
 from .credentials import resolve_credential
 from .guardian import atomic_publish
-from .policy import PolicyError, load_policy, policy_hash, resolve_model
+from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
@@ -1813,7 +1813,14 @@ class Daemon:
         return result.get("notice_id") is not None
 
     def _retention(self):
-        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
+        # conversation service pins the turn jobs it still needs (IR-17).
+        budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
+        result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
+                             turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
+                             turn_keep_s=float(budget["turn_keep_days"]) * 86400,
+                             pins=self.conversations.retention_pins,
+                             cancel=self.timers.cancel, deadline=time.monotonic() + 60)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))
