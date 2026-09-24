@@ -28,10 +28,12 @@ For the last two the delivery is reconciled from evidence (D-14):
 2. not delivered, only when the process is verified gone (the exit receipt:
    the guardian writes it after reaping the child, `guardian.py`, or the
    daemon after a containment census it verified empty, `daemon.py
-   _kill_attempt`), the native record was read and does not hold the message,
-   and the relay log, read whole and consistent, holds no record of the
-   message frame (`relay.py`: every frame is logged as an intent, with fsync,
-   before its pipe write, so a frame with no intent was never written);
+   _kill_attempt`), the native record was read and does not hold the message
+   (a native session with no record on disk at all counts: a new Claude
+   session with no transcript, a Codex attempt with no thread id; D-14
+   revision 3), and the relay log, read whole and consistent, holds no record
+   of the message frame (`relay.py`: every frame is logged as an intent, with
+   fsync, before its pipe write, so a frame with no intent was never written);
 3. otherwise unknown: `delivery-unknown`, which blocks the conversation until
    a person's `message.resolve` (C-24.6).
 

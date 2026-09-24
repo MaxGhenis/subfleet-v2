@@ -12,6 +12,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 - Reconciliation (2026-09-24, design D-14, reviews IR-5, IR-7, IR-23): C-24.6 names the evidence, applies it to every turn without a terminal event (the driver's refusals before sending included) and bounds re-admission; C-24.7 adds the withdrawal tombstone; C-24.8 blocks on delivery, not only acknowledgement, and after a Claude message is resolved `delivered`; C-24.1 records a Claude session id only once the session exists.
 - The relay handshake (2026-09-24, review IR-27): C-26.4 adds the advertised frame cap, the `status` request a runner makes before sending or replaying, and bounded retries.
 - The turn clocks become policy (2026-09-24): C-24.7 names `conversations.stop_sigint_after_s`, `stop_close_after_s` and `stop_contain_after_s` and the order the loader enforces; C-26.5 names `conversations.after_result_s`; C-26.9 names `conversations.approval_wait_s`.
+- Design revision 3 (2026-09-24, review of the first implementation): design D-13 orders SIGINT before closing stdin, as C-24.7 already did, and D-14 states the no-session case C-24.6 already named; section 24 cites revision 3.
 
 
 - Section 23 adds 55 clauses (C-23.1 to C-23.55) carried forward from the v1 invariant ledger; provenance per clause in `docs/invariant-gaps.md`.
@@ -286,7 +287,7 @@ Version 2, 2026-09-05. These clauses close the 92 rows of the v1 invariant ledge
 
 ## 24. Conversations and messages
 
-Milestone 9, the desktop workspace. Specification: `docs/desktop/design.md` revision 2 (cited as design §n or D-n). Every clause in sections 24 to 30 names its owner layer and module in the trailer, as section 23 does.
+Milestone 9, the desktop workspace. Specification: `docs/desktop/design.md` revision 3 (cited as design §n or D-n). Every clause in sections 24 to 30 names its owner layer and module in the trailer, as section 23 does.
 
 - **C-24.1** (a conversation is a daemon row) A conversation binds one provider, at most one native session id (unique per provider; recorded only once the provider holds that session: a Codex thread id its server returned, or a Claude session with a terminal event, an acknowledgement or a transcript on disk, so a session id Subfleet minted is never resumed before the provider created it), one workspace directory for its life, settings `{model, effort, fast, permission, auto_continue}`, and an origin (`new`, `native`, `handoff`, `legacy`); a Codex conversation also names the lane whose home holds its thread. Conversation state lives in `conversations.sqlite3`, written only by the daemon; `state.sqlite3` keeps schema 5. [milestone 9; owner unit; module `subfleet/conversations/store.py`; design D-4]
 - **C-24.2** (a message is accepted once, in order) A message carries a client UUID, its client predecessor, and a digest over its conversation, text, attachment SHA-256s and settings. A repeated UUID with the same digest returns the stored receipt with `created: false`; a different digest is exit 2 `message-id-conflict`; a predecessor the daemon has not committed is exit 2 `out-of-order`. Neither refusal changes anything. [milestone 9; owner unit; module `subfleet/conversations/store.py`; design D-22]

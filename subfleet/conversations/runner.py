@@ -36,7 +36,7 @@ FLUSH_BYTES = 64 * 1024
 POLL_S = 0.05
 READ_CHUNK = 1 << 20
 
-# Stop escalation (design D-13, review IR-3), seconds after the stop request:
+# Stop escalation (C-24.7, review IR-3, design D-13 revision 3), seconds after the stop request:
 # the provider's interrupt at once, then SIGINT (ends a Claude turn; SIGTERM
 # would leave it resumable), then closing stdin, then C-5.6 containment. The
 # policy's `conversations` section sets them (C-24.7, `policy.CONVERSATION_DEFAULTS`).

@@ -61,10 +61,10 @@ SESSION_DEFAULTS: dict[str, Any] = {
 
 #: `conversations.*` (C-24.7, C-26.5, C-26.9): the clocks of a live conversation
 #: turn, in seconds, read by `TurnRunner` (`subfleet/conversations/runner.py`).
-#: A stop escalates as design D-13 and review IR-3 order it: the provider's own
-#: interrupt at once, then SIGINT through the guardian's relay, then closing
-#: stdin, then C-5.6 containment, each that many seconds after the stop was
-#: requested. `after_result_s` is how long a process may outlive its terminal
+#: A stop escalates as C-24.7, review IR-3 and design D-13 (revision 3) order
+#: it: the provider's own interrupt at once, then SIGINT through the guardian's
+#: relay, then closing stdin, then C-5.6 containment, each that many seconds
+#: after the stop was requested. `after_result_s` is how long a process may outlive its terminal
 #: event before the same escalation stops it (D-15: the 120 s background ceiling
 #: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's bound
 #: on an unanswered approval.
