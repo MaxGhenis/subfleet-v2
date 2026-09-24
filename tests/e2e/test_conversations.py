@@ -369,3 +369,232 @@ def test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice(conv)
     kinds = [e["kind"] for e in conv.events(cid)]
     assert kinds.count("approval.requested") == 1 and kinds.count("turn.completed") == 1
     assert conv.attempt(mid)["outcome_class"] == "ok"
+
+
+# --- stops, reconciliation, refusals and withdrawals (C-24.6 to C-24.8, IR-3, IR-7, IR-23) ---
+
+
+@pytest.fixture
+def conv_with(e2e):
+    """The daemon started with extra environment for the fakes, and policy clocks."""
+    def start(env: dict | None = None, clocks: dict | None = None) -> Conversations:
+        e2e.env["SUBFLEET_FAKE_TURN_LOG"] = str(e2e.root / "turns.jsonl")
+        if clocks:
+            e2e.policy_update(lambda policy: policy.setdefault("conversations", {}).update(clocks))
+        e2e.start(env=env)
+        return Conversations(e2e)
+    return start
+
+
+def relay_log(conv, mid: str, turn_seq: int = 0) -> list[dict]:
+    from subfleet.relay import read_log
+    job = conv.e2e.rows("SELECT job_id FROM jobs WHERE request_id=?", (f"turn:{mid}:{turn_seq}",))[0]["job_id"]
+    return read_log(conv.e2e.root / "jobs" / job / "a1" / "stdin.jsonl")
+
+
+def reconciled(conv, cid: str, mid: str) -> dict:
+    return next(e["data"] for e in conv.events(cid)
+                if e["kind"] == "status" and e["message_id"] == mid and e["data"].get("phase") == "reconciled")
+
+
+def test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_clock(conv_with):
+    """C-24.7, C-24.8, D-13, IR-3: the provider's interrupt is ignored; SIGINT reaches the
+    provider child through the guardian's relay at `stop_sigint_after_s`, before stdin is
+    closed and with no containment. A provider that answers SIGINT with a `result` (as the
+    real CLI did) ends interrupted and leaves the conversation free; one that dies without a
+    result ends interrupted and blocks it `unfinished-turn`, its delivery proven."""
+    conv = conv_with(clocks={"stop_sigint_after_s": 0.5, "stop_close_after_s": 20, "stop_contain_after_s": 30})
+    cid = conv.create()
+    first = conv.submit(cid, "keep going [fake:stubborn-result]")
+    conv.until_state(first, "running")
+    conv.e2e.until(lambda: any(e["kind"] == "text.delta" for e in conv.events(cid)), timeout=20)
+    conv.call("turn.interrupt", message_id=first)
+    done = conv.until_state(first, "interrupted", "failed", "complete", "delivery-unknown", timeout=20)
+    assert (done["state"], done["state_reason"]) == ("interrupted", "stopped")
+    frames = [(r["tag"], r["op"], r["status"]) for r in relay_log(conv, first)]
+    assert frames[2:4] == [("interrupt", "write", "written"), ("signal:int", "signal", "written")]
+    assert frames[-1] == ("close", "close", "written")          # the driver's, after the result
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None
+    assert conv.attempt(first)["killed_by"] is None                # no containment
+
+    second = conv.submit(cid, "keep going [fake:stubborn]", after_message_id=first)
+    conv.until_state(second, "running")
+    conv.e2e.until(lambda: sum(e["kind"] == "text.delta" and e["message_id"] == second
+                               for e in conv.events(cid)) > 0, timeout=20)
+    conv.call("turn.interrupt", message_id=second)
+    ended = conv.until_state(second, "interrupted", "failed", "complete", "delivery-unknown", timeout=20)
+    assert (ended["state"], ended["state_reason"]) == ("interrupted", "stopped")
+    assert [r["tag"] for r in relay_log(conv, second)][-1] == "signal:int"   # stdin never closed
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] == "unfinished-turn"
+    evidence = reconciled(conv, cid, second)
+    assert evidence["delivery"] == "delivered" and evidence["evidence"]["acknowledged"] is True
+    assert evidence["evidence"]["native"] == "found"
+    assert conv.attempt(second)["killed_by"] is None
+
+
+def test_a_turn_that_ignores_every_stop_is_contained_on_the_policy_clock(conv_with):
+    """C-24.7, D-13 step 4, IR-3: interrupt, SIGINT and closing stdin all fail; containment
+    follows at `stop_contain_after_s`, and the delivered turn blocks its conversation (C-24.8)."""
+    conv = conv_with(clocks={"stop_sigint_after_s": 0.3, "stop_close_after_s": 0.6, "stop_contain_after_s": 1.0})
+    cid = conv.create()
+    mid = conv.submit(cid, "[fake:immovable]")
+    conv.until_state(mid, "running")
+    conv.call("turn.interrupt", message_id=mid)
+    ended = conv.until_state(mid, "interrupted", "failed", "complete", "delivery-unknown", timeout=30)
+    assert (ended["state"], ended["state_reason"]) == ("interrupted", "stopped")
+    assert [r["tag"] for r in relay_log(conv, mid)][-3:] == ["interrupt", "signal:int", "close"]
+    attempt = conv.attempt(mid)
+    assert attempt["killed_by"] == "stopped" and attempt["state"] == "interrupted"
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] == "unfinished-turn"
+
+
+def test_a_claude_turn_on_the_wrong_model_fails_model_mismatch(conv):
+    """C-26.8: the served model differs from the request: the driver stops the turn with the
+    provider's own interrupt; the message fails `model-mismatch`. The provider finished the
+    turn after the stop (a `result`), so nothing is left to resume (C-24.8)."""
+    cid = conv.create()
+    mid = conv.submit(cid, "[fake:wrong-model]")
+    done = conv.until_state(mid, "failed", "complete", "interrupted", "delivery-unknown")
+    assert (done["state"], done["state_reason"]) == ("failed", "model-mismatch")
+    assert [(r.get("request") or {}).get("subtype") for r in conv.stdin_rows()
+            if r.get("type") == "control_request"] == ["initialize", "interrupt"]
+    final = [e for e in conv.events(cid) if e["kind"] == "turn.completed"][-1]["data"]
+    assert final["reason"] == "model-mismatch" and "claude-haiku-4-5-20251001" in final["detail"]
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None
+
+
+def test_a_message_read_but_never_acknowledged_is_delivery_unknown_until_a_person_resolves_it(conv):
+    """C-24.6, D-14: the relay wrote the message, the provider exited without acknowledging
+    it and the transcript does not hold it: neither delivered nor provably not. It blocks
+    its conversation, is never sent again, and a person's `message.resolve` frees it."""
+    cid = conv.create()
+    mid = conv.submit(cid, "[fake:exit-before-ack]")
+    unknown = conv.until_state(mid, "delivery-unknown", "failed", "complete")
+    assert unknown["state"] == "delivery-unknown"
+    assert unknown["state_reason"].startswith("ended-without-result: frame written, native record absent")
+    evidence = reconciled(conv, cid, mid)["evidence"]
+    assert evidence["frame"] == "written" and evidence["process_gone"] and not evidence["acknowledged"]
+    conversation = conv.call("conversation.open", conversation_id=cid)["conversation"]
+    assert conversation["blocked_by"] == "delivery-unknown"
+    assert conversation["native_session_id"] is None               # the session was never created
+
+    nxt = conv.submit(cid, "after that", after_message_id=mid)
+    import time
+    time.sleep(1.0)
+    assert conv.message(nxt)["state"] == "queued"
+    refused = conv.as_agent("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
+    assert not refused["ok"] and "person-only" in refused["error"]["message"]
+    resolved = conv.as_person("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
+    assert resolved["ok"], resolved
+    assert (resolved["result"]["state"], resolved["result"]["state_reason"]) == ("failed", "resolved-not-delivered")
+    assert conv.until_state(nxt, "complete", "failed")["state"] == "complete"
+    assert [r["uuid"] for r in conv.stdin_rows() if r.get("type") == "user"] == [mid, nxt]
+    launches = [row["argv"] for row in conv.turn_log() if "argv" in row]
+    assert "--session-id" in launches[1] and "--resume" not in launches[1]
+
+
+def test_fast_unavailable_is_readmitted_at_most_max_readmits_times_then_fails(conv_with):
+    """IR-23, C-24.6, C-26.8: `initialize` reports Fast off; nothing is sent, so the same
+    message is carried by a new turn job, at most MAX_READMITS times, then fails
+    not-delivered. The session id Subfleet minted is never resumed: the provider never
+    created it."""
+    from subfleet.conversations.reconcile import MAX_READMITS
+    conv = conv_with(env={"SUBFLEET_FAKE_FAST": "off"})
+    cid = conv.create(fast=True)
+    mid = conv.submit(cid, "quickly")
+    done = conv.until_state(mid, "failed", "complete", "delivery-unknown", timeout=60)
+    assert (done["state"], done["state_reason"]) == ("failed", "not-delivered: fast-unavailable")
+    jobs = conv.e2e.rows("SELECT request_id FROM jobs WHERE kind='turn' ORDER BY created_at")
+    assert [j["request_id"] for j in jobs] == [f"turn:{mid}:{n}" for n in range(MAX_READMITS + 1)]
+    assert not [r for r in conv.stdin_rows() if r.get("type") == "user"]
+    launches = [row["argv"] for row in conv.turn_log() if "argv" in row]
+    assert len(launches) == MAX_READMITS + 1
+    assert all("--session-id" in argv and "--resume" not in argv for argv in launches)
+    reasons = [e["data"]["reason"] for e in conv.events(cid) if e["kind"] == "turn.completed"]
+    assert reasons == ["fast-unavailable"] * (MAX_READMITS + 1)
+    conversation = conv.call("conversation.open", conversation_id=cid)["conversation"]
+    assert conversation["blocked_by"] is None and conversation["native_session_id"] is None
+
+
+def test_message_cancel_withdraws_a_queued_message_and_tombstones_an_unknown_one(conv):
+    """C-24.7, IR-2, IR-7: a message queued behind a running turn is withdrawn and never
+    sent. Withdrawing an id the daemon never received leaves a tombstone, so a late
+    submit of that id is answered cancelled and never dispatched."""
+    cid = conv.create()
+    running = conv.submit(cid, "count [fake:slow]")
+    conv.until_state(running, "running")
+    queued = conv.submit(cid, "later", after_message_id=running)
+    assert conv.message(queued)["state"] == "queued"
+    withdrawn = conv.call("message.cancel", message_id=queued)
+    assert (withdrawn["state"], withdrawn["state_reason"]) == ("cancelled", "withdrawn")
+    refused = conv.request("message.cancel", message_id=running)
+    assert not refused["ok"] and "too-late" in refused["error"]["message"]
+
+    ghost = str(uuid.uuid4())
+    unknown = conv.request("message.cancel", message_id=ghost)
+    assert not unknown["ok"] and "unknown-message" in unknown["error"]["message"]
+    tomb = conv.call("message.cancel", message_id=ghost, conversation_id=cid)
+    assert (tomb["state"], tomb["state_reason"], tomb["origin"]) == ("cancelled", "withdrawn-before-receipt",
+                                                                     "tombstone")
+    late = conv.call("message.submit", conversation_id=cid, message_id=ghost, after_message_id=queued,
+                     text="sent before the withdrawal was known")
+    assert (late["state"], late["created"]) == ("cancelled", False)
+
+    conv.call("turn.interrupt", message_id=running)
+    assert conv.until_state(running, "interrupted", "failed", "complete")["state"] == "interrupted"
+    after = conv.submit(cid, "now", after_message_id=queued)
+    assert conv.until_state(after, "complete", "failed")["state"] == "complete"
+    assert [r["uuid"] for r in conv.stdin_rows() if r.get("type") == "user"] == [running, after]
+    turn_jobs = {j["request_id"].split(":")[1] for j in conv.e2e.rows("SELECT request_id FROM jobs WHERE kind='turn'")}
+    assert turn_jobs == {running, after}
+    assert conv.message(ghost)["state"] == "cancelled" and conv.message(queued)["state"] == "cancelled"
+
+
+def test_a_codex_thread_with_an_active_turn_is_an_external_writer(conv_with):
+    """C-26.3, IR-23, C-24.6: `thread/resume` reports an active turn: someone else is
+    writing. The turn ends `external-writer` before `turn/start`, so the message was not
+    delivered; it waits for a new admission (`readmit:external-writer`) at most
+    MAX_READMITS times, then fails not-delivered. The conversation is not blocked."""
+    from subfleet.conversations.reconcile import MAX_READMITS
+    conv = conv_with(env={"SUBFLEET_FAKE_THREAD_ACTIVE": "1"})
+    cid = conv.create(provider="codex", model="gpt-6-astra", permission="read-only")
+    first = conv.submit(cid, "look around")
+    assert conv.until_state(first, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    second = conv.submit(cid, "and more", after_message_id=first)
+    done = conv.until_state(second, "failed", "complete", "delivery-unknown", timeout=60)
+    assert (done["state"], done["state_reason"]) == ("failed", "not-delivered: external-writer")
+    rows = conv.stdin_rows()
+    assert len([r for r in rows if r.get("method") == "thread/resume"]) == MAX_READMITS + 1
+    assert [r["params"]["clientUserMessageId"] for r in rows if r.get("method") == "turn/start"] == [first]
+    reasons = [e["data"]["reason"] for e in conv.events(cid)
+               if e["kind"] == "turn.completed" and e["message_id"] == second]
+    assert reasons == ["external-writer"] * (MAX_READMITS + 1)
+    evidence = reconciled(conv, cid, second)
+    assert evidence["delivery"] == "not-delivered" and evidence["evidence"]["native"] == "absent"
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None
+
+
+def test_a_person_who_resolves_a_claude_message_delivered_then_chooses_how_to_go_on(conv):
+    """C-24.6, C-24.8: resolved `delivered`, the message ended with no `result`, so the
+    conversation moves to `unfinished-turn` and binds the session its turn named; the
+    person's `leave` sends the note first, and the original is never sent again."""
+    cid = conv.create()
+    mid = conv.submit(cid, "[fake:exit-before-ack]")
+    assert conv.until_state(mid, "delivery-unknown", "failed", "complete")["state"] == "delivery-unknown"
+    resolved = conv.as_person("message.resolve", message_id=mid, resolution="delivered", confirm=True)
+    assert resolved["ok"] and resolved["result"]["state_reason"] == "resolved-delivered"
+    conversation = conv.call("conversation.open", conversation_id=cid)["conversation"]
+    assert conversation["blocked_by"] == "unfinished-turn"
+    session = conversation["native_session_id"]
+    first_launch = next(row["argv"] for row in conv.turn_log() if "argv" in row)
+    assert session == first_launch[first_launch.index("--session-id") + 1]
+    again = conv.as_person("message.resolve", message_id=mid, resolution="delivered", confirm=True)
+    assert not again["ok"] and "not-ambiguous" in again["error"]["message"]
+    nxt = conv.submit(cid, "go on", after_message_id=mid)
+    assert conv.as_person("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)["ok"]
+    assert conv.until_state(nxt, "complete", "failed")["state"] == "complete"
+    users = [r for r in conv.stdin_rows() if r.get("type") == "user"]
+    assert [u["uuid"] for u in users][0] == mid and users[-1]["uuid"] == nxt
+    assert users[1]["message"]["content"][0]["text"].startswith("[Subfleet] The previous turn was stopped")
+    launches = [row["argv"] for row in conv.turn_log() if "argv" in row]
+    assert all(argv[argv.index("--resume") + 1] == session for argv in launches[1:])

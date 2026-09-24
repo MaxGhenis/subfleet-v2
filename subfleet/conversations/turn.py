@@ -96,6 +96,11 @@ class Outcome:
     answered: bool = False              # the model produced any output for it
     limited: bool = False               # the provider refused for quota or credits
     served_model: str | None = None
+    # What ended the turn (C-24.6): "provider" (its terminal event: Claude
+    # `result`, Codex `turn/completed` or its answer to `turn/start`), "driver"
+    # (the driver's own check ended it, before or after sending), or "eof"
+    # (stdout ended with neither, so its delivery is for reconciliation).
+    ended_by: str = "driver"
 
 
 @dataclass

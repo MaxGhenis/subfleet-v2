@@ -228,3 +228,22 @@ def test_native_sessions_map_to_one_conversation(store):
     b, created_b = store.create_conversation(provider="claude", workspace="/w", workspace_kind="in-place",
                                              settings=SETTINGS, origin="native", native_session_id="sid")
     assert created and not created_b and a["conversation_id"] == b["conversation_id"]
+
+
+def test_a_withdrawal_tombstone_is_born_cancelled_and_never_dispatchable(store):
+    """C-24.7, IR-7: the tombstone for an id the daemon never received is cancelled in the
+    transaction that creates it, so no dispatch pass can see it queued; the change feed
+    reports it cancelled. Only queued and terminal states may be written at acceptance."""
+    c = conv(store)
+    ghost = mid()
+    message, created = store.submit_message(conversation_id=c["conversation_id"], message_id=ghost,
+                                            after_message_id=None, text="(withdrawn)", attachments=[],
+                                            settings=SETTINGS, origin="tombstone", state="cancelled",
+                                            state_reason="withdrawn-before-receipt")
+    assert created and (message["state"], message["state_reason"]) == ("cancelled", "withdrawn-before-receipt")
+    assert store.next_dispatchable() == []
+    assert [(r["message_id"], r["state"]) for r in store.changes_after(0)["changes"] if r["message_id"]] == [
+        (ghost, "cancelled")]
+    with pytest.raises(ValueError):
+        store.submit_message(conversation_id=c["conversation_id"], message_id=mid(), after_message_id=None,
+                             text="x", attachments=[], settings=SETTINGS, state="running")

@@ -458,13 +458,18 @@ class TurnRunner:
                 "native_session_id": getattr(self.driver, "thread_id", None) or self.spec.native_session_id
                 or self.spec.new_session_id, "relay_failed": self.relay_failed,
                 "user_frame_written": self.sent.get("user-message") == "written",
-                "frame_refused": self.frame_refused, "relay_version": self.relay_version}
+                "frame_refused": self.frame_refused, "relay_version": self.relay_version,
+                "terminal_after_end": bool(getattr(self.driver, "terminal_after_end", False))}
         from ..guardian import atomic_publish
         atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
 
     def _report(self) -> None:
         if not self.outcome_reported:
             self.outcome_reported = True
+            if self.driver.outcome is not None:
+                # What stdout said after the outcome (a terminal event after the
+                # driver's own stop) is final only now (C-24.8, `reconcile.settle`).
+                self._write_outcome()
             self.on_outcome(self)
 
     def _read_attachment(self, path: str) -> bytes:

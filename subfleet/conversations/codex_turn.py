@@ -115,6 +115,7 @@ class CodexTurn:
         self.interrupt_requested = False
         self.served_model: str | None = None
         self.outcome: Outcome | None = None
+        self.terminal_after_end = False                     # `turn/completed` after the driver ended the turn
         self.pending: dict[str, tuple[str, dict]] = {}     # request id -> (method, params)
         self.catalog: list[dict] | None = None              # model/list, for models.json
         self._ready = {"hooks": False, "models": False}
@@ -177,7 +178,7 @@ class CodexTurn:
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,
                                accepted=self.accepted, answered=self.answered, limited=self.limited,
-                               served_model=self.served_model)
+                               served_model=self.served_model, ended_by="eof")
         self.phase = "ended"
         step.outcome = self.outcome
         return step
@@ -194,6 +195,8 @@ class CodexTurn:
             return Step()
         source = _Sources(offset)
         if self.phase == "ended":
+            if msg.get("method") == "turn/completed":
+                self.terminal_after_end = True
             if "method" in msg and "id" not in msg and msg["method"].startswith("item/"):
                 return Step(events=self._notification(msg["method"], msg.get("params") or {}, source).events)
             return Step()
@@ -239,7 +242,7 @@ class CodexTurn:
                 self.limited = self.limited or limited
                 return self._end(FAILED, "limited" if limited else "turn-start-failed",
                                  detail=str(error.get("message") if isinstance(error, dict) else error)[:300],
-                                 source=source.next())
+                                 source=source.next(), ended_by="provider")
             turn = (result or {}).get("turn") or {}
             step = Step()
             if turn.get("id"):
@@ -436,7 +439,7 @@ class CodexTurn:
             state, reason = FAILED, "limited" if limited else (_error_kind(error) or "failed")
         detail = redact.bounded_text(str(error.get("message") or ""))[:1000] if error else None
         return step.extend(self._end(state, reason, detail=detail, source=source.next(),
-                                     extra={"duration_ms": turn.get("durationMs")}))
+                                     extra={"duration_ms": turn.get("durationMs")}, ended_by="provider"))
 
     # --- server requests -------------------------------------------------------
 
@@ -480,11 +483,11 @@ class CodexTurn:
     # --- end -------------------------------------------------------------------
 
     def _end(self, state: str, reason: str | None, *, source: str, detail: str | None = None,
-             extra: dict | None = None) -> Step:
+             extra: dict | None = None, ended_by: str = "driver") -> Step:
         if self.outcome is not None:
             return Step()
         self.outcome = Outcome(state, reason, detail, accepted=self.accepted, answered=self.answered,
-                               limited=self.limited, served_model=self.served_model)
+                               limited=self.limited, served_model=self.served_model, ended_by=ended_by)
         self.phase = "ended"
         withdrawn = sorted(self.pending)
         self.pending.clear()

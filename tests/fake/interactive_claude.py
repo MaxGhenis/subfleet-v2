@@ -17,6 +17,10 @@ its text:
     question          AskUserQuestion; the chosen answers are echoed back
     slow              streams until interrupted; the interrupt ends the turn
     stubborn          acknowledges interrupts and keeps going; SIGINT ends it with no result
+    stubborn-result   acknowledges interrupts and keeps going; SIGINT ends the turn with an
+                      `error_during_execution` result, as Claude Code 2.1.280 did in the
+                      2026-09-24 live probe (docs/desktop/reviews/2026-09-24-live-probes.md)
+    immovable         ignores interrupts, SIGINT and the end of stdin; only containment ends it
     limit             a rejected rate_limit_event, then an error result
     exit-after-ack    replays the message, then exits with no result
     exit-before-ack   reads the message, then exits without replaying it
@@ -318,6 +322,29 @@ class Fake:
         for n in range(1200):
             self.emit({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                           "delta": {"type": "text_delta", "text": f"still {n}\n"}}})
+            time.sleep(0.05)
+        return self.result(True, text=reply)
+
+    def scenario_stubborn_result(self, model: str, reply: str):
+        sigint = threading.Event()
+        signal.signal(signal.SIGINT, lambda *_: sigint.set())
+        mid = f"msg_{uuid.uuid4().hex[:12]}"
+        self.emit({"type": "stream_event", "event": {"type": "message_start", "message": {"id": mid}}})
+        for n in range(1200):
+            if sigint.is_set():
+                return self.result(False, "error_during_execution", text="interrupted by SIGINT")
+            self.emit({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                          "delta": {"type": "text_delta", "text": f"still {n}\n"}}})
+            time.sleep(0.05)
+        return self.result(True, text=reply)
+
+    def scenario_immovable(self, model: str, reply: str):
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        mid = f"msg_{uuid.uuid4().hex[:12]}"
+        self.emit({"type": "stream_event", "event": {"type": "message_start", "message": {"id": mid}}})
+        for n in range(1200):
+            self.emit({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                          "delta": {"type": "text_delta", "text": f"immovable {n}\n"}}})
             time.sleep(0.05)
         return self.result(True, text=reply)
 

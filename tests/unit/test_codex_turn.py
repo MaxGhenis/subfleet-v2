@@ -290,3 +290,27 @@ def test_model_mismatch_on_the_thread_stops_before_the_turn():
 def test_the_schema_check_is_not_vacuous(bad):
     """C-26.8 the pinned schema rejects malformed frames, so the checks above can fail."""
     assert errors(bad, CLIENT_REQUEST, CLIENT_REQUEST)
+
+
+def test_each_outcome_says_what_ended_the_turn():
+    """C-24.6: `turn/completed` and an error answer to `turn/start` are the provider's; a
+    refusal on the thread is the driver's; the end of stdout is `eof`. A `turn/completed`
+    after the driver ended the turn is noted."""
+    done = CodexTurn(spec())
+    to_running(done)
+    end = done.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "completed",
+                                                                  "items": []}), 40)
+    assert end.outcome.ended_by == "provider"
+    refused = CodexTurn(spec())
+    to_thread(refused)
+    refused.feed(resp(ID_THREAD, {"thread": {"id": "thr-1", "status": {"type": "idle"}}, "model": "gpt-6-astra"}), 3)
+    assert refused.feed(resp(ID_TURN, error={"code": -32000, "message": "no"}), 4).outcome.ended_by == "provider"
+    busy = CodexTurn(spec(native_session_id="thr-9"))
+    to_thread(busy)
+    step = busy.feed(resp(ID_THREAD, {"thread": {"id": "thr-9", "status": {"type": "active"}}, "model": "gpt-6-astra"}), 3)
+    assert step.outcome.ended_by == "driver"
+    busy.feed(note("turn/completed", threadId="thr-9", turn={"id": "t", "status": "completed", "items": []}), 4)
+    assert busy.terminal_after_end
+    cut = CodexTurn(spec())
+    to_running(cut)
+    assert cut.eof(50).outcome.ended_by == "eof"

@@ -37,9 +37,9 @@ where it is implemented; "open" means not yet built.
 | 2 | Cancel atomicity lives in the job store: `message.cancel` sets the job's cancel only while no attempt row exists; `_launch` re-reads the cancel flag inside the `attempt.starting` transaction | F3 | `service.py`, `daemon.py` |
 | 3 | Stop order: control interrupt, then SIGINT through a new relay `signal` op the guardian applies to its own unreaped child, then close stdin, then containment; each step bounded | F1 | `relay.py`, `guardian.py`, `runner.py`; the bounds are policy `conversations.stop_*_after_s`, validated in `policy.py` (C-24.7; `tests/unit/test_turn_runner.py`, `tests/unit/test_policy.py`) |
 | 4 | Every daemon-initiated stop of a turn (wall limit, operator kill, approval timeout) escalates as IR-3, with reasons `wall-limit`, `operator-kill`, `approval-timeout` | F4, U-F4 | `runner.py`, `daemon.py` |
-| 5 | The unfinished-turn block fires on delivery (user frame written), not only acknowledgement | F1 | `reconcile.py` |
+| 5 | The unfinished-turn block fires on delivery (user frame written), not only acknowledgement | F1 | `reconcile.py` (`settle`, `decide`): proven delivery (acknowledgement or the uuid in the transcript) blocks `unfinished-turn`; a written frame with unknown delivery blocks `delivery-unknown` (C-24.6, C-24.8; `tests/unit/test_conversation_reconcile.py`, `tests/e2e/test_conversations.py`) |
 | 6 | Compaction only after the attempt is terminal; reset exactly when the cursor is below the floor | F6 | `store.py`, `service.py` |
-| 7 | Withdrawing a never-received message leaves a tombstone so a late submit of that id is cancelled | F10 | `service.py` |
+| 7 | Withdrawing a never-received message leaves a tombstone so a late submit of that id is cancelled | F10 | `service.py` (`_tombstone`, `op_message_submit`), `store.py` (`submit_message` creates it cancelled, so it is never queued); C-24.7 |
 | 8 | Turn wall limit and approval expiry end with named reasons and withdrawn approvals | F4, F-05 | `runner.py`; the expiry is policy `conversations.approval_wait_s` (C-26.9) |
 | 9 | Claude classification reads provider-authored text only | F-02 | PR #39 |
 | 10 | Codex turn classification: `usageLimitExceeded`/`rateLimitExceeded` limited with a closure from the latest `account/rateLimits/updated`; `unauthorized` unknown plus a usage probe, never auth-dead on its own | F-01 | `classify.py` |
@@ -55,7 +55,7 @@ where it is implemented; "open" means not yet built.
 | 20 | Approval display masks value-shaped secrets only, never a span with `$(`, a backtick, a pipe, a separator, a redirection or a newline; reveal is person-only; no one-tap allow while masked | SEC-5 | `redact.py`, app |
 | 21 | `message.submit` may not widen the conversation's permission; `conversation.create` above `ask` is person-only with `confirm_widen` | SEC-1 | `service.py` |
 | 22 | Resolutions and decisions store the daemon-verified peer (pid, start, boot, executable) | SEC-1 | `service.py` |
-| 23 | Claude Fast: fail `fast-unavailable` before sending when `initialize` reports it off or disabled; a turn may then be re-admitted elsewhere; `fast-mode-overage-rejected` is a served warning | U-F9 | `claude_turn.py`, `dispatch.py` |
+| 23 | Claude Fast: fail `fast-unavailable` before sending when `initialize` reports it off or disabled; a turn may then be re-admitted elsewhere; `fast-mode-overage-rejected` is a served warning | U-F9 | `claude_turn.py`; re-admission in `reconcile.py` (`READMIT`, `MAX_READMITS`, only when reconciled not-delivered) and `service.py` (`_readmittable`); C-24.6 |
 | 24 | `EnterPlanMode` and `ExitPlanMode` are disallowed in writable Claude turns; plan approval is listed as unsupported | P5 | `claude_turn.py` |
 | 25 | `<synthetic>` rows that are not API errors (for example "No response requested.") are ignored | P6 | `claude_turn.py` |
 | 26 | Claude fixtures use observed catalog values (`default`, `opus[1m]`, `claude-fable-5-1[1m]`, `sonnet`, `haiku`) | P6 | tests |
