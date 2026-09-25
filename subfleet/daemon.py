@@ -186,6 +186,9 @@ MAX_CONNECTIONS = 512
 #: starts an agent with 256, and `accept` failing with EMFILE stopped the daemon
 #: (eleven times in the log by 2026-09-25).
 OPEN_FILES = 4096
+#: `accept` failing without a break for this long is not a moment's shortage:
+#: the daemon exits, so launchd starts a fresh one.
+ACCEPT_GIVE_UP_S = 300
 #: Errors `accept` returns while the system is short of descriptors or memory, or
 #: a client gave up in the queue: the daemon keeps serving and tries again.
 ACCEPT_TRANSIENT = frozenset({errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM, errno.ECONNABORTED,
@@ -294,7 +297,12 @@ class Daemon:
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
         self.readers = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-socket")
         self._accept_trouble_logged = 0.0
-        self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
+        self._accept_failing_since: float | None = None
+        self._busy_logged = 0.0
+        # A `wait` holds its thread for up to WAIT_POLL_MAX_S on a condition variable, so
+        # there is one for every connection that could send one (review of the
+        # descriptor hotfix: at 16, a 17th wait queued until its client gave up).
+        self.waiters = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-wait")
         # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
         from .conversations.service import ConversationService
         self.conversations = ConversationService(self)
@@ -3691,6 +3699,7 @@ class Daemon:
                     # ones it has and tries again (before, it exited here).
                     self._accept_trouble(exc)
                     continue
+                self._accept_failing_since = None
                 with self._connection_lock:
                     busy = len(self._connections) >= MAX_CONNECTIONS
                     if not busy:
@@ -3703,17 +3712,33 @@ class Daemon:
             self.close()
 
     def _accept_trouble(self, exc: OSError) -> None:
-        """Say so at most once a minute, and pause so a full queue is not spun on."""
+        """Say so at most once a minute, and pause so a full queue is not spun on;
+        failing without a break for `ACCEPT_GIVE_UP_S`, give up, so launchd starts a
+        fresh daemon (a leak outside the connections would otherwise leave this one
+        alive but deaf)."""
         now = time.monotonic()
+        if self._accept_failing_since is None:
+            self._accept_failing_since = now
+        elif now - self._accept_failing_since >= ACCEPT_GIVE_UP_S:
+            self.log.error("accept has failed for %d s (%s); exiting so a fresh daemon starts",
+                           ACCEPT_GIVE_UP_S, exc)
+            raise exc
         if now - self._accept_trouble_logged >= 60:
             self._accept_trouble_logged = now
             with self._connection_lock:
                 open_now = len(self._connections)
             self.log.warning("accept failed (%s) with %d connections open; serving on", exc, open_now)
-        self.stopping.wait(.2)
+        # Not `stopping.wait`: a SIGTERM handler setting the same event while this
+        # thread holds its lock would deadlock (review, F5); the loop checks it next.
+        time.sleep(.2)
 
     def _refuse_busy(self, conn: socket.socket) -> None:
-        """A connection past `MAX_CONNECTIONS` is answered at once, never queued."""
+        """A connection past `MAX_CONNECTIONS` is answered at once, never queued,
+        and said in the log at most once a minute."""
+        now = time.monotonic()
+        if now - self._busy_logged >= 60:
+            self._busy_logged = now
+            self.log.warning("%d connections open: telling new clients the daemon is busy", MAX_CONNECTIONS)
         try:
             conn.settimeout(1)
             conn.sendall(protocol.encode(protocol.fail(
