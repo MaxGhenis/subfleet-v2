@@ -1581,8 +1581,10 @@ def clock_flag(lane: dict[str, Any], readings: list[dict[str, Any]] | None = Non
     if state == "not-started":
         return "clock not started"
     if state == "touched":
-        sent = str((lane.get("clock_touch") or {}).get("requested_at") or "")
-        return "clock touched" + (f" {sent[11:16]}Z" if len(sent) >= 16 else "")
+        request = lane.get("clock_request") or {}
+        sent = str(request.get("at") or (lane.get("clock_touch") or {}).get("requested_at") or "")
+        return ("clock started by a job" if request.get("source") == "attempt" else "clock touched") + (
+            f" {sent[11:16]}Z" if len(sent) >= 16 else "")
     return None
 
 

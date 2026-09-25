@@ -236,8 +236,12 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         name = value["timers"]["touch_model"]
         if not _name(name):
             fail("timers.touch_model", "must name a Codex model in models")
+        if name in retired:
+            # A retired alias can resolve to an expensive model (`sol` is Astra at
+            # ultra effort); the touch names the model it means.
+            fail("timers.touch_model", f"{name!r} is a retired alias; name a models key (luna)")
         try:
-            short = resolve_model({"models": models, "retired": retired}, name, note=False)
+            short = resolve_model({"models": models, "retired": {}}, name, note=False)
         except PolicyError:
             fail("timers.touch_model", f"unknown model {name!r}; expected a models key")
         if models[short]["provider"] != "codex":

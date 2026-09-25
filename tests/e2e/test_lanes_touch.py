@@ -118,3 +118,6 @@ def test_an_api_key_home_is_refused_before_any_touch_reaches_the_provider(e2e):
     assert row["status"] == "refused" and "API-key home refused" in row["detail"]
     assert calls(e2e.root, "fake-1") == [] and not (clocks / "fake-1.started").exists()
     assert e2e.rows("SELECT * FROM jobs") == []
+    probes = e2e.root / "lanes" / "codex-1" / "probes"
+    assert not probes.exists() or list(probes.iterdir()) == []            # a refused turn leaves nothing
+    assert not e2e.rows("SELECT * FROM leases")

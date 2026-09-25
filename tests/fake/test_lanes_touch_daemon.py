@@ -195,3 +195,50 @@ def test_a_name_a_claude_and_a_codex_lane_share_names_the_codex_one(daemon):
                                LaneOwner.V2, False, label="max@example.org"))
     touch = daemon.dispatch("lanes", {"action": "touch", "lane_id": "max@example.org", "dry_run": True})["touch"]
     assert touch["target"] == "codex-7" and [row["lane_id"] for row in touch["plan"]] == ["codex-7"]
+
+
+def test_a_guard_preflight_refusal_stops_the_touch_before_any_launch(daemon, monkeypatch):
+    """C-18.3, C-14.1, C-14.2: the touch runs the real guard preflight; with no reviewed overlay
+    in the state root it refuses (code 7) before any provider process, and leaves no probe
+    directory behind."""
+    from subfleet.adapters.codex import CodexAdapter
+    fake = Path(__file__).resolve().parents[1] / "bin" / "codex"
+    monkeypatch.setattr("subfleet.daemon.get_adapter", lambda provider: CodexAdapter(codex_bin=str(fake)))
+    lane = codex(daemon, 1)
+    measure(daemon, lane)
+    result = daemon.timers.touch(target=lane.lane_id, mode="operator", request_id="req-g")
+    [record] = result["results"]
+    assert record["status"] == "refused" and record["code"] == 7
+    assert "guard preflight refused" in record["detail"].lower()
+    states = [json.loads(row["data_json"]) for row in daemon.store.query(
+        "SELECT data_json FROM events WHERE kind='probe.state' AND lane_id=? ORDER BY event_id", (lane.lane_id,))]
+    states = [state for state in states if state]
+    assert states and not any(state.get("guardian_pid") for state in states)     # no guardian, no provider
+    assert states[-1]["state"] == "completed" and states[-1]["error_type"] == "AdapterError"
+    assert daemon.store.list_leases() == []
+    assert list((daemon.root / "lanes" / lane.lane_id / "probes").iterdir()) == []
+    log = (daemon.root / "daemon.log").read_text()
+    assert "guard preflight" in log and f"lane touch" in log and "status=refused" in log
+
+
+def test_a_recovered_touch_that_found_the_credential_dead_disables_the_lane(daemon):
+    """C-18.3, C-23.44: recovery acts on a touch's verdict as the live path does."""
+    lane = codex(daemon, 1)
+    daemon.timers._record_touch(lane.lane_id, {"lane_id": lane.lane_id, "at": iso(datetime.now(timezone.utc)),
+                                               "mode": "auto", "status": "touching"})
+    directory = daemon.root / "lanes" / lane.lane_id / "probes" / "token"
+    directory.mkdir(parents=True)
+    record = {"holder": "probe:timer:token", "job_id": None, "lane_id": lane.lane_id, "timer_kind": "touch",
+              "model_id": "gpt-5.6-luna", "directory": str(directory), "state": "running"}
+    daemon._finish_probe(record, Outcome(OutcomeClass.AUTH_DEAD, "refresh token was revoked", evidence={"rc": 1}))
+    assert not daemon.store.get_lane(lane.lane_id).enabled
+    assert daemon.timers.touches[lane.lane_id]["status"] == "auth-dead"
+
+
+def test_naming_a_superseded_lane_touches_the_lane_that_replaced_it(daemon):
+    """C-18.3, C-11.2: a re-enrolled lane's old id resolves to its successor on the same credential."""
+    old = codex(daemon, 1, enabled=False)
+    daemon.store.put_lane(Lane("codex-2", "codex", "codex:1", Credential("codex", old.home, "home"), old.home,
+                               LaneOwner.V2, False))
+    touch = daemon.dispatch("lanes", {"action": "touch", "lane_id": "codex-1", "dry_run": True})["touch"]
+    assert touch["target"] == "codex-2" and [row["action"] for row in touch["plan"]] == ["touch"]

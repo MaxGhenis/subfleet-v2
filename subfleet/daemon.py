@@ -1952,11 +1952,19 @@ class Daemon:
                "name": None, "out_path": None}
         try:
             outcome = self._execute_probe(job, lane, model, holder)
-        except Exception:
+        except Exception as exc:
             current = self._probe_record(holder)
             safe = self._contain_probe(current)
             if not safe:
                 return Outcome(OutcomeClass.UNKNOWN, "timer quarantined", evidence={"probe_quarantined": True})
+            # Contained and never to be recovered: settle the record and drop the
+            # directory, or a turn refused hourly (a guard drift, an API-key
+            # home) leaves one behind each time. The preflight verdict is in
+            # daemon.log (`_guard_recorder`).
+            current = self._probe_record(holder)
+            current.update(state="completed", error_type=type(exc).__name__)
+            self._save_probe(current)
+            shutil.rmtree(directory, ignore_errors=True)
             raise
         requested = (self._read_json(directory / "request.json") or {}).get("requested_at")
         if requested:
@@ -2205,8 +2213,17 @@ class Daemon:
                                               ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
             touch = self.timers.touches.get(record["lane_id"])
             if record["timer_kind"] == "touch" and touch and touch.get("status") == "touching":
-                # C-18.3: a touch whose daemon died mid-turn keeps its spacing and
-                # records how the turn ended, so the lane is not shown "touching".
+                # C-18.3: a touch whose daemon died mid-turn keeps its spacing,
+                # records how the turn ended, and acts on it as the live path
+                # does: auth-dead disables the lane (C-23.44), limited closes it
+                # (C-9.4).
+                with self.store.transaction("timer.touched", lane_id=record["lane_id"]):
+                    if outcome.cls == OutcomeClass.AUTH_DEAD:
+                        self.store.update_lane(record["lane_id"], enabled=0)
+                        self.timers.record_auth_dead(record["lane_id"])
+                    elif (outcome.cls == OutcomeClass.LIMITED and outcome.closure
+                          and not self.timers.actions.confirmed_override(record["lane_id"])):
+                        self.store.add_closure(outcome.closure)
                 self.timers._record_touch(record["lane_id"], {
                     **touch, "status": outcome.cls.value, "requested_at": sent, "recovered": True,
                     "detail": str(outcome.detail or "")[:300], "rc": outcome.evidence.get("rc")})
@@ -3469,7 +3486,9 @@ class Daemon:
                         continue
                     # Submission filesystem work and long polls have separate
                     # pools; ordinary read/cancel operations stay responsive.
-                    pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
+                    # C-15.4, C-18.3: long polls wait on their own pool, never the one `status` uses.
+                    polls = req.op == "wait" or req.op == "lanes" and req.args.get("action") == "touch-status"
+                    pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if polls else self.requests
                     pending = [f for f in pending if not f.done()]
                     pending.append(pool.submit(self._respond, conn, write_lock, req))
         except OSError:
