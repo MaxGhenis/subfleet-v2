@@ -279,6 +279,16 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(f"sessions.handoff_caps.{key}", "must be a positive whole number of characters")
     value["sessions"]["handoff_caps"] = caps
 
+    # `network` (d260): whether a writable Codex job's shell reaches the network.
+    network = value.get("network", {})
+    if not isinstance(network, dict):
+        fail("network", "must be an object")
+    for key, item in network.items():
+        if key != "codex_workspace_write":
+            fail(f"network.{key}", "is not a network setting (codex_workspace_write)")
+        if not isinstance(item, bool):
+            fail(f"network.{key}", "must be true or false")
+
     # `conversations` and `retention`: whole counts where the value counts
     # things, and zero only where it means "at once", "never on a timer" or "keep
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's

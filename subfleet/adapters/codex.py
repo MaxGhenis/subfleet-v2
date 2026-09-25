@@ -442,6 +442,12 @@ class CodexAdapter(Adapter):
         if effort:
             argv += ["-c", f"model_reasoning_effort={effort}"]
         argv += ["--sandbox", sandbox.value]
+        if job.network and sandbox == Sandbox.WORKSPACE_WRITE and not job.isolated_review:
+            # d260: gh, curl and git push reach the network, as in a writable
+            # Claude job (verified live 2026-09-25: HTTP 200 with this key, "Could
+            # not resolve host" without). The never-rules guard still judges
+            # every command; its preflight refuses a launch without jq.
+            argv += ["-c", "sandbox_workspace_write.network_access=true"]
         if guard_override and not job.isolated_review:
             argv += ["-c", guard_override if guard_override.startswith("hooks=") else f"hooks={guard_override}"]
         argv += ["--output-last-message", str(attempt_dir / "last.md")]

@@ -643,7 +643,9 @@ def _prepare_submit(args: argparse.Namespace,
     prompt_path, error = _prompt_path(args, request_id, root)
     if error is not None:
         return None, error
-    sandbox = args.s or Sandbox.READ_ONLY.value
+    # No -s: the daemon applies the policy's permissions for the task (d261),
+    # so a build job writes and a review reads without the caller remembering.
+    sandbox = args.s or protocol.POLICY_SANDBOX
     return protocol.SubmitArgs(
         request_id=request_id,
         kind="dispatch",
@@ -2300,7 +2302,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-o", dest="o", metavar="OUT", help="export the deliverable here")
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
-    p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES, help="sandbox")
+    p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES,
+                       help="sandbox (default: the policy's permissions for --task; build writes, the rest read)")
     p_run.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL",
                        help="never pick this account (repeatable)")
     p_run.add_argument("--allow-desktop", action="store_true",

@@ -90,6 +90,9 @@ def test_missing_required_key_names_file_and_key(tmp_path, policy_data, key):
     ("reset_credits.headroom_floor_pct", float("inf"), "reset_credits.headroom_floor_pct"),
     ("reset_credits.min_interval_min", 0, "reset_credits.min_interval_min"),
     ("reset_credits.min_interval_min", False, "reset_credits.min_interval_min"),
+    ("network", [], "network"),
+    ("network.codex_workspace_write", "yes", "network.codex_workspace_write"),
+    ("network.claude", True, "network.claude"),
 ])
 def test_invalid_nested_shape_names_exact_key(tmp_path, policy_data, key, value, error_key):
     """C-11.1, C-6.4, C-11.3: malformed routing fields fail before admission."""
@@ -263,3 +266,7 @@ def test_a_section_that_is_not_an_object_is_refused(tmp_path, policy_data):
         data = {**policy_data, section: [1]}
         with pytest.raises(PolicyError, match=section):
             load_policy(write_policy(tmp_path, data))
+
+
+def test_d260_the_shipped_policy_lets_writable_codex_jobs_reach_the_network():
+    assert load_policy(DEFAULT_POLICY_PATH)["network"] == {"codex_workspace_write": True}

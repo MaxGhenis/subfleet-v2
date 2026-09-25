@@ -569,6 +569,7 @@ class Daemon:
         names = {f.name for f in dataclasses.fields(JobSpec)}
         values = {k: v for k, v in job.items() if k in names}
         values.update(sandbox=Sandbox(job["sandbox"]), exclusions=tuple(json.loads(job["exclusions"])))
+        values.update(network=bool((self.policy.get("network") or {}).get("codex_workspace_write", False)))
         values.update(overrides)
         return JobSpec(**values)
 
@@ -864,6 +865,9 @@ class Daemon:
             # An empty task or tier is none: `evaluate` would reject '' on every
             # pass of a job submit had accepted (C-6.12).
             args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
+            from_policy = args.sandbox == protocol.POLICY_SANDBOX
+            if from_policy:
+                args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
             try:
                 ids.request_id(args.request_id)
                 sandbox = Sandbox(args.sandbox)
@@ -906,6 +910,10 @@ class Daemon:
                 head = git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
                 if sandbox == Sandbox.WORKSPACE_WRITE and head is None and turn is None:
                     # C-26.10: an attended conversation may work outside git.
+                    if from_policy:
+                        # d261: never downgraded silently; the caller chooses.
+                        raise AdapterError(f"{args.task} jobs write by policy, and this directory is not a git repository",
+                                           fix="run it from a repository, or pass -s read-only to run it here without writing")
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write.
@@ -1066,6 +1074,16 @@ class Daemon:
         if not lane:
             raise ValueError(f"unknown lane {args.pinned_lane}")
         return lane
+
+    def _policy_sandbox(self, args: protocol.SubmitArgs) -> str:
+        """d261, C-11.1: the sandbox a submit that named none gets. The policy's
+        `permissions` entry for the task, else its `*` entry, else read-only; an
+        isolated review and a gate round read only, whatever the policy says."""
+        if args.isolated_review or args.kind == "gate-review":
+            return Sandbox.READ_ONLY.value
+        permissions = self.policy.get("permissions") or {}
+        chosen = permissions.get(args.task or "") or permissions.get("*") or Sandbox.READ_ONLY.value
+        return chosen if chosen in {s.value for s in Sandbox} else Sandbox.READ_ONLY.value
 
     def _accepted_request(self, request_id: Any) -> bool:
         """C-6.2: whether a job already holds `request_id`, so this submit is a retry."""

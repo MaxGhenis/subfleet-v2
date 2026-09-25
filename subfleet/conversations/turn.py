@@ -61,6 +61,7 @@ class TurnSpec:
     guard_hash: str | None = None      # Codex: the hook hash `hooks/list` must report
     unified_exec_off: bool = False     # Codex: C-23.6's switch, as exec launches carry it
     held_by: tuple[int, ...] = ()      # Claude: outside pids holding the session at launch (C-26.3)
+    network: bool = False              # Codex: a writable turn's shell reaches the network (d260)
 
 
 @dataclass(frozen=True)

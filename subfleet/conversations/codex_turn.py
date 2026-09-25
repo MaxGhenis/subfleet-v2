@@ -321,6 +321,10 @@ class CodexTurn:
                   "approval_policy": (result or {}).get("approvalPolicy"), "native_session_id": thread_id}
         self.phase = "turn"
         approval, sandbox_policy = POLICY[self.spec.permission]
+        if self.spec.network and sandbox_policy["type"] == "workspaceWrite":
+            # d260: a writable turn's shell reaches the network, as a writable Claude
+            # turn's Bash does; decided when the turn was submitted (its manifest).
+            sandbox_policy = {**sandbox_policy, "networkAccess": True}
         params: dict[str, Any] = {
             "threadId": thread_id, "clientUserMessageId": self.spec.message_id,
             "input": self._input(), "model": self.spec.model_id, "cwd": self.spec.cwd,

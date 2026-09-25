@@ -317,6 +317,10 @@ class JobSpec:
     review_root: str | None = None
     round_lease: str | None = None
     unmeasured_reserve_reason: str | None = None
+    # d260: the shell may reach the network in a writable job. From the policy
+    # (`network.codex_workspace_write`), not the job row; Claude's writable
+    # launch has it already, and read-only and isolated launches never do.
+    network: bool = False
 
 
 @dataclass(frozen=True)

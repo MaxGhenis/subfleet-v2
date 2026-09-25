@@ -46,7 +46,7 @@ def spec_from_manifest(turn: dict[str, Any], *, lane_email: str | None, guard_ha
         effort=settings.get("effort"), fast=bool(settings.get("fast")),
         images=tuple(Image(i["sha256"], i["media_type"], i["path"]) for i in turn.get("images", ())),
         cwd=turn["cwd"], lane_email=lane_email, guard_hash=guard_hash,
-        unified_exec_off=unified_exec_off, model_ref=model_ref,
+        unified_exec_off=unified_exec_off, model_ref=model_ref, network=bool(turn.get("network")),
     )
 
 

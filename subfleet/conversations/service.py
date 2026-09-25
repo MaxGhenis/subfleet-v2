@@ -988,7 +988,8 @@ class ConversationService:
                 "provider": provider, "text": self.store.message_text(message), "settings": settings,
                 "native_session_id": native, "new_session_id": new_session, "images": images,
                 "cwd": conversation["workspace"], "allow_main": conversation["allow_main"],
-                "affinity_lane": affinity, "digest": message["digest"]}
+                "affinity_lane": affinity, "digest": message["digest"],
+                "network": bool((self.daemon.policy.get("network") or {}).get("codex_workspace_write", False))}
         exclusions = []
         if message.get("continues"):
             original = self.store.message(message["continues"])

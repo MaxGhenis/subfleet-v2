@@ -60,6 +60,9 @@
     "build": "workspace-write",
     "*": "read-only"
   },
+  "network": {
+    "codex_workspace_write": true
+  },
   "models": {
     "fable": {
       "provider": "claude",

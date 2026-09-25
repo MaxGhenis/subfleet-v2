@@ -77,6 +77,11 @@ class Response:
 # --- Argument shapes per op (C-16.2). Unknown keys are ignored; missing
 # required keys are Exit.INVALID_INPUT. The daemon validates with these.
 
+#: A submit's `sandbox` when the caller named none: the daemon takes the
+#: policy's `permissions` entry for the task, else its `*` entry (C-11.1).
+POLICY_SANDBOX = "policy"
+
+
 @dataclass
 class SubmitArgs:
     request_id: str

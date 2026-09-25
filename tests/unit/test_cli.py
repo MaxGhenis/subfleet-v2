@@ -370,6 +370,17 @@ def test_run_carries_every_flag_in_the_table(daemon, root, capsys, workdir):
     capsys.readouterr()
 
 
+def test_run_without_s_lets_the_policy_choose_the_sandbox(daemon, root, capsys, workdir):
+    """d261: no -s sends `policy`, so the daemon applies the task's permissions
+    (build writes); -s still names it outright."""
+    server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
+    assert run_cli(["run", "--task", "build", "--tier", "standard", "-C", str(workdir), "hi"]) == 0
+    assert server.args("submit")["sandbox"] == "policy"
+    assert run_cli(["run", "--task", "build", "--tier", "standard", "-s", "read-only", "-C", str(workdir), "hi"]) == 0
+    assert server.args("submit")["sandbox"] == "read-only"
+    capsys.readouterr()
+
+
 def test_pinned_lane_comes_from_a_or_h(daemon, root, capsys, workdir):
     """C-17.2 `-a EMAIL` and `-H CODEX_HOME` pin the lane."""
     server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})

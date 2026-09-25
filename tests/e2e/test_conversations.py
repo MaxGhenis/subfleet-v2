@@ -489,7 +489,8 @@ def test_a_codex_approval_and_limit(conv):
     answer = next(r for r in conv.stdin_rows() if r.get("id") == 900)
     assert answer == {"id": 900, "result": {"decision": "accept"}}
     turn = next(r for r in conv.stdin_rows() if r.get("method") == "turn/start")
-    assert turn["params"]["sandboxPolicy"] == {"type": "workspaceWrite", "networkAccess": False}
+    # d260: the shipped policy lets a writable turn's shell reach the network.
+    assert turn["params"]["sandboxPolicy"] == {"type": "workspaceWrite", "networkAccess": True}
 
     limited = conv.submit(cid, "[fake:limit]", after_message_id=mid)
     assert conv.until_state(limited, "failed", "complete")["state_reason"] == "limited"

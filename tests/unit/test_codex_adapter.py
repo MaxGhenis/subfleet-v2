@@ -161,6 +161,26 @@ def test_only_a_read_only_launch_runs_outside_a_repository(tmp_path):
     assert "--skip-git-repo-check" not in writable.argv
 
 
+@pytest.mark.parametrize("sandbox,network,isolated,expected", [
+    (Sandbox.WORKSPACE_WRITE, True, False, True),
+    (Sandbox.WORKSPACE_WRITE, False, False, False),
+    (Sandbox.READ_ONLY, True, False, False),
+])
+def test_d260_only_a_writable_job_the_policy_allows_reaches_the_network(tmp_path, sandbox, network, isolated,
+                                                                         expected):
+    """d260: `sandbox_workspace_write.network_access=true` on writable launches
+    when the policy says so (live 2026-09-25: HTTP 200 with it, "Could not
+    resolve host" without); never on a read-only one."""
+    import dataclasses
+    (tmp_path / "prompt").write_bytes(b"Caller prompt.\n")
+    job = dataclasses.replace(_job(tmp_path, tmp_path / "prompt", sandbox), network=network, isolated_review=isolated)
+    launch = CodexAdapter().build_launch(job, "job/a1", tmp_path, _lane(tmp_path / "home"),
+                                         {"CODEX_HOME": str(tmp_path / "home")}, MODEL, None, tmp_path / "prompt",
+                                         "hooks={}")
+    overrides = [launch.argv[i + 1] for i, value in enumerate(launch.argv) if value == "-c"]
+    assert ("sandbox_workspace_write.network_access=true" in overrides) is expected
+
+
 def test_workspace_write_requires_guard_override(tmp_path):
     """C-14.3 An executable workspace-write launch requires the guard override."""
     with pytest.raises(AdapterError) as exc:
