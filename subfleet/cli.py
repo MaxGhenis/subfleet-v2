@@ -8,7 +8,7 @@
   subfleet wait <id>...          long-poll until terminal; rc = the job's rc
   subfleet kill <id>             cancel a job (offline: signal the recorded pgid)
   subfleet resume <id> [PROMPT]  continue a job on its own lane (alias: resume-codex)
-  subfleet lanes [list|probe|enroll|hold|release|transfer]
+  subfleet lanes [list|probe|enroll|hold|release|transfer|touch]
   subfleet why <id> | --task T --tier X
   subfleet daemon [start|stop|status|logs|install]
   subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
@@ -34,6 +34,7 @@ import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -68,7 +69,7 @@ TASK_CHOICES = ("lookup", "research", "sweep", "review", "build",
                 "authored-prose", "strategy", "adjudication")
 TIER_CHOICES = ("trivial", "easy", "standard", "hard")
 SANDBOX_CHOICES = tuple(item.value for item in Sandbox)
-LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer")
+LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer", "touch")
 
 AF_UNIX_PATH_MAX = 103          # sun_path is 104 bytes including the NUL
 WAIT_BACKOFF_MAX_S = 5.0        # cap on the pause after an immediate long poll
@@ -308,6 +309,7 @@ def format_status(data: dict[str, Any]) -> str:
         reading["label"] = age_adjusted_label(reading.get("label"),
                                               reading.get("observed_at"))
 
+    unstarted: list[str] = []
     if not lanes:
         lines.append("no lanes enrolled — subfleet lanes enroll <credential>")
     else:
@@ -332,6 +334,11 @@ def format_status(data: dict[str, Any]) -> str:
             # C-10.6: no percentage for this lane, and the reason beside it.
             if lane.get("identity_status") in ("mismatch", "unverified"):
                 flags.append(f"identity-{lane['identity_status']}")
+            clock = clock_flag(lane, by_lane.get(str(lane.get("lane_id"))))     # C-18.3
+            if clock:
+                flags.append(clock)
+                if clock == "clock not started":
+                    unstarted.append(str(lane.get("lane_id")))
             lines.append(
                 f"{str(lane.get('lane_id') or '-'):<12.12} "
                 f"{str(lane.get('provider') or '-'):<8.8} "
@@ -341,6 +348,10 @@ def format_status(data: dict[str, Any]) -> str:
                 f"{' · '.join(marks) or 'no reading'}"
                 + (f"  [{', '.join(flags)}]" if flags else "")
             )
+    if unstarted:
+        # C-18.3: an idle lane's next reset slides a day for every idle day.
+        lines.append(f"codex weekly clocks not started: {len(unstarted)} ({', '.join(unstarted)}) "
+                     f"— {PROG} lanes touch --all")
     if closures:
         lines.append("")
         lines.append("closures")
@@ -1526,7 +1537,11 @@ def _format_lanes(result: dict[str, Any]) -> str:
         return "no lanes enrolled — subfleet lanes enroll <credential>"
     lines = [f"{'lane':<12} {'provider':<8} {'account':<30} {'owner':<6} "
              f"{'desktop':<8} {'enabled':<8} {'identity':<12} plan"]
+    unstarted = []
     for lane in lanes:
+        clock = clock_flag(lane)                                   # C-18.3
+        if lane.get("weekly_clock") == "not-started":
+            unstarted.append(str(lane.get("lane_id")))
         lines.append(
             f"{str(lane.get('lane_id') or '-'):<12.12} "
             f"{str(lane.get('provider') or '-'):<8.8} "
@@ -1535,8 +1550,40 @@ def _format_lanes(result: dict[str, Any]) -> str:
             f"{('yes' if lane.get('desktop') else 'no'):<8} "
             f"{('yes' if lane.get('enabled', True) else 'no'):<8} "
             f"{str(lane.get('identity_status') or '-'):<12.12} "     # C-10.6
-            f"{lane.get('plan') or '-'}")
+            f"{lane.get('plan') or '-'}"
+            + (f"  [{clock}]" if clock else ""))
+    if unstarted:
+        lines.append(f"weekly clocks not started: {len(unstarted)} ({', '.join(unstarted)}) "
+                     f"— {PROG} lanes touch --all")
     return "\n".join(lines)
+
+
+#: C-18.3: a row that carries no `weekly_clock` at all (the offline reader's).
+_UNSET_CLOCK = object()
+
+
+def clock_flag(lane: dict[str, Any], readings: list[dict[str, Any]] | None = None) -> str | None:
+    """C-18.3: how a Codex lane's weekly clock reads, for the tables.
+
+    The daemon derives `weekly_clock` from the lane's readings and its last
+    touch. Offline, only the readings are known, so the same evidence rule is
+    applied to them and a recent touch cannot be seen.
+    """
+    if lane.get("provider") != "codex":
+        return None
+    state = lane.get("weekly_clock", _UNSET_CLOCK)
+    if state is _UNSET_CLOCK:
+        try:
+            state = "not-started" if capacity.clock_unstarted(
+                readings or lane.get("readings") or (), now=datetime.now(timezone.utc)) else None
+        except (KeyError, TypeError, ValueError, AttributeError):
+            state = None
+    if state == "not-started":
+        return "clock not started"
+    if state == "touched":
+        sent = str((lane.get("clock_touch") or {}).get("requested_at") or "")
+        return "clock touched" + (f" {sent[11:16]}Z" if len(sent) >= 16 else "")
+    return None
 
 
 def _format_transfer(result: dict[str, Any]) -> str:
@@ -1560,8 +1607,136 @@ def _format_transfer(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _format_touch_plan(plan: list[dict[str, Any]]) -> str:
+    """C-18.3: what a touch pass would do with each Codex lane, and why."""
+    if not plan:
+        return "no Codex lanes enrolled"
+    labels = {"not-started": "not started", "touched": "touched"}
+    lines = [f"{'lane':<12} {'action':<6} {'reason':<22} {'weekly clock':<12} "
+             f"{'weekly reset':<21} last touch"]
+    for row in rows_of(plan):
+        touch = row.get("last_touch") or {}
+        last = (f"{touch.get('at')} {touch.get('status')}" if touch.get("at") else "-")
+        if row.get("next_touch_at"):
+            last += f" (next {row['next_touch_at']})"
+        lines.append(f"{str(row.get('lane_id') or '-'):<12.12} {str(row.get('action') or '-'):<6.6} "
+                     f"{str(row.get('reason') or '-'):<22.22} "
+                     f"{labels.get(row.get('weekly_clock'), '-'):<12.12} "
+                     f"{str(row.get('resets_at') or '-'):<21.21} {last}")
+    return "\n".join(lines)
+
+
+def _touch_rc(results: list[dict[str, Any]]) -> int:
+    """C-17.3: 0 when every touch reached the provider and succeeded."""
+    statuses = {str(row.get("status")) for row in results}
+    if statuses <= {"ok"}:
+        return int(Exit.OK)
+    if "refused" in statuses:
+        return int(Exit.REFUSED)
+    if "auth-dead" in statuses:
+        return int(Exit.AUTH_DEAD)
+    return int(Exit.OPERATIONAL)
+
+
+def cmd_lanes_touch(args: argparse.Namespace) -> int:
+    """C-18.3: start idle Codex lanes' weekly clocks with one tiny supervised turn each.
+
+    A named lane is touched whatever its readings say (a force). Without one,
+    or with `--all`, every lane whose weekly clock has not started is touched,
+    at most once per spacing window. The daemon runs the touches; this waits
+    for them unless `--no-wait`.
+    """
+    if args.lane and args.all:
+        return fail(Exit.INVALID_INPUT, "lanes touch: name one lane or --all, not both")
+    request_id = str(uuid.uuid4())
+    try:
+        client = _client(args)
+        answer = client.call("lanes", _asdict(protocol.LanesArgs(
+            action="touch", lane_id=args.lane, dry_run=bool(args.dry_run), request_id=request_id)))
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    touch = answer.get("touch")
+    if not isinstance(touch, dict):
+        # C-16.2: a daemon older than this verb answers `lanes` with the roster.
+        return fail(Exit.DAEMON_UNAVAILABLE, "the daemon did not run the touch; it is older than this CLI",
+                    "subfleet daemon stop && subfleet daemon start")
+    plan = rows_of(touch.get("plan"))
+    if touch.get("status") in ("dry-run", "nothing-to-touch"):
+        if args.json:
+            emit(touch)
+        else:
+            out(_format_touch_plan(plan))
+            note(f"{PROG} lanes touch: dry run; nothing was touched" if args.dry_run else
+                 f"{PROG} lanes touch: no lane needs a touch; every weekly clock that can be read is running")
+        return int(Exit.OK)
+    if touch.get("status") != "scheduled":
+        if args.json:
+            emit(touch)
+        return fail(Exit.OPERATIONAL, f"lanes touch: {touch.get('status')}"
+                    + (f": {touch['detail']}" if touch.get("detail") else ""),
+                    touch.get("fix") or "retry when the running touch ends")
+    request_id = touch.get("request_id") or request_id
+    if not args.json:
+        note(f"{PROG} lanes touch: touching {', '.join(touch.get('touching') or [])} with "
+             f"{touch.get('model')} (request {request_id})")
+    if args.no_wait:
+        if args.json:
+            emit(touch)
+        return int(Exit.OK)
+    deadline = time.monotonic() + args.timeout
+    status: dict[str, Any] = {"status": "running"}
+    while status.get("status") == "running" and time.monotonic() < deadline:
+        poll = max(1.0, min(25.0, deadline - time.monotonic()))
+        try:
+            status = _client(args, timeout=poll + 15).call("lanes", _asdict(protocol.LanesArgs(
+                action="touch-status", request_id=request_id, wait_s=poll))).get("touch") or {}
+        except DaemonUnavailable as exc:
+            return _daemon_down(exc)
+        except DaemonError as exc:
+            return _daemon_error(exc)
+        except ProtocolError as exc:
+            return fail(exc.code, str(exc))
+    if status.get("status") == "running":
+        if args.json:
+            emit({**touch, **status})
+        return fail(Exit.WAIT_TIMEOUT, f"lanes touch: still running after {args.timeout:g} s; "
+                    "the daemon finishes it", f"{PROG} lanes list")
+    results = rows_of(status.get("results"))
+    # A lane can change between the plan and the touch (a job took it); a named
+    # lane that was not touched is not a success.
+    rc = (int(Exit.OPERATIONAL) if args.lane and not results or status.get("error_type")
+          else _touch_rc(results))
+    if args.json:
+        emit({**touch, **status})
+        return rc
+    if not results:
+        for row in rows_of(status.get("plan")):
+            if row.get("action") == "skip" and row.get("reason") not in ("started", "unmeasured"):
+                out(f"{row.get('lane_id')}: not touched ({row.get('reason')})")
+        if status.get("error_type"):
+            note(f"{PROG} lanes touch: the touch pass failed: {status['error_type']}; see {PROG} daemon logs")
+    for row in results:
+        state = row.get("status")
+        line = f"{row.get('lane_id')}: " + ("touched" if state == "ok" else str(state))
+        if state == "ok":
+            line += f" · weekly reset now {row.get('resets_at') or 'unknown'}"
+        elif row.get("detail") or row.get("error_type"):
+            line += f" ({row.get('detail') or row.get('error_type')})"
+        out(line)
+    if status.get("status") == "unknown":
+        note(f"{PROG} lanes touch: the daemon no longer holds this request's result "
+             "(it restarted); the lines above are what it recorded")
+    return rc
+
+
 def cmd_lanes(args: argparse.Namespace) -> int:
     action = args.lanes_command or "list"
+    if action == "touch":
+        return cmd_lanes_touch(args)
     if action == "transfer" and args.to not in ("v1", "v2"):
         return fail(Exit.INVALID_INPUT, "lanes transfer: --to must be v1 or v2")
     if action == "hold" and not args.until:
@@ -2307,7 +2482,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p_resume)
     p_resume.set_defaults(handler=cmd_resume)
 
-    p_lanes = sub.add_parser("lanes", help="the lane roster and its health")
+    p_lanes = sub.add_parser("lanes", help="the lane roster and its health; touch starts idle weekly clocks")
     _add_json(p_lanes)
     p_lanes.set_defaults(handler=cmd_lanes, lanes_command=None)
     lanes_sub = p_lanes.add_subparsers(dest="lanes_command")
@@ -2335,6 +2510,23 @@ def build_parser() -> argparse.ArgumentParser:
     l_transfer.add_argument("--dry-run", action="store_true",
                             help="print the roster diff and write nothing")
     _add_json(l_transfer, nested=True)
+    l_touch = lanes_sub.add_parser(
+        "touch", help="start idle Codex lanes' weekly clocks (a window starts on first use)",
+        description="C-18.3: a Codex weekly window starts at its first request, not at the "
+                    "reset, so an idle lane's next reset slides a day per idle day. The daemon "
+                    "touches such lanes itself each probe cycle; this does it now. A named lane is "
+                    "touched whatever its readings say; --all (the default) touches every lane "
+                    "whose clock has not started, at most once per spacing window.")
+    l_touch.add_argument("lane", nargs="?", help="one Codex lane (id, number, or home) to touch")
+    l_touch.add_argument("--all", action="store_true",
+                         help="every lane whose weekly clock has not started (the default)")
+    l_touch.add_argument("--dry-run", action="store_true",
+                         help="print what would be touched and why; touch nothing")
+    l_touch.add_argument("--no-wait", action="store_true",
+                         help="return once the daemon has the request")
+    l_touch.add_argument("--timeout", type=float, default=300.0, metavar="S",
+                         help="how long to wait for the touches (default 300)")
+    _add_json(l_touch, nested=True)
 
     p_why = sub.add_parser("why", help="the routing decision for a job or a shape")
     p_why.add_argument("id", nargs="?")

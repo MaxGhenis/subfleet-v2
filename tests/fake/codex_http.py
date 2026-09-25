@@ -7,9 +7,40 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from subfleet.adapters.codex import WHAM_USAGE_URL
+
+
+def clock_started(account: str) -> datetime | None:
+    """C-18.3: with `SUBFLEET_FAKE_WHAM_CLOCKS` set, an account's weekly window starts
+    at the first request `tests/bin/codex` meters on it, as a real account's does."""
+    try:
+        marker = Path(os.environ["SUBFLEET_FAKE_WHAM_CLOCKS"]) / f"{account}.started"
+        return datetime.fromisoformat(marker.read_text().strip())
+    except (KeyError, OSError, ValueError):
+        return None
+
+
+def windows(account: str, now: datetime) -> dict:
+    if not os.environ.get("SUBFLEET_FAKE_WHAM_CLOCKS"):
+        return {'primary_window': {'window_minutes': 300, 'used_percent': 10,
+                                   'reset_at': int((now + timedelta(hours=5)).timestamp())},
+                'secondary_window': {'window_minutes': 10080, 'used_percent': 20,
+                                     'reset_at': int((now + timedelta(days=7)).timestamp())}}
+    started = clock_started(account)
+    if started is None:
+        # Unstarted: 0%, and a reset that slides with every read.
+        return {'primary_window': {'window_minutes': 300, 'used_percent': 0,
+                                   'reset_at': int((now + timedelta(hours=5)).timestamp())},
+                'secondary_window': {'window_minutes': 10080, 'used_percent': 0,
+                                     'reset_at': int((now + timedelta(days=7)).timestamp())}}
+    return {'primary_window': {'window_minutes': 300, 'used_percent': 1,
+                               'reset_at': int((started + timedelta(hours=5)).timestamp())},
+            'secondary_window': {'window_minutes': 10080, 'used_percent': 1,
+                                 'reset_at': int((started + timedelta(days=7)).timestamp())}}
 
 
 def opener(request, timeout):
@@ -26,11 +57,7 @@ def opener(request, timeout):
     now = datetime.now(timezone.utc)
     return 200, json.dumps({
         'plan_type': 'plus',
-        'rate_limit': {'allowed': True, 'limit_reached': False,
-                       'primary_window': {'window_minutes': 300, 'used_percent': 10,
-                                          'reset_at': int((now + timedelta(hours=5)).timestamp())},
-                       'secondary_window': {'window_minutes': 10080, 'used_percent': 20,
-                                            'reset_at': int((now + timedelta(days=7)).timestamp())}},
+        'rate_limit': {'allowed': True, 'limit_reached': False, **windows(account, now)},
         'rate_limit_reset_credits': {'available_count': 0, 'applicable_available_count': 0},
     }).encode()
 

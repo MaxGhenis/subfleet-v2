@@ -2,6 +2,7 @@
 
 Network calls and guardian turns happen in a fixed worker pool. Transactions
 only reserve lanes or publish facts. Timer requests never create jobs (C-8.4).
+A probe cycle also starts idle Codex weekly clocks (C-18.3).
 """
 from __future__ import annotations
 
@@ -9,15 +10,27 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 from pathlib import Path
 import threading
 import time
 from uuid import uuid4
 
 from . import capacity
+from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
-from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
+from .contracts import (CLOCK_TOUCH_SPACING_S, CLOCK_TOUCH_TIMEOUT_S, CLOCK_UNSTARTED_TOLERANCE_S,
+                        ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel)
 from .credentials import resolve_credential
+from .policy import touch_model
+
+#: C-18.3: the probe statuses under which a lane's credential cannot run a turn.
+LATCHED_STATUSES = ('auth-dead', 'revoked', 'auth-revoked', 'expired-token', 'no-auth')
+#: C-18.3: what a touch that never reached the provider, or never answered, records.
+TOUCH_FAILED = ('refused', 'failed', 'timed-out', 'unknown', 'transient', 'limited',
+                'auth-dead', 'cli-too-old', 'content-filter', 'quarantined', 'interrupted')
+#: C-18.3: operator touch results kept in memory for `lanes touch` to collect.
+TOUCH_RESULTS_KEPT = 32
 
 
 def instant(value=None):
@@ -32,12 +45,14 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None):
+                 deliver=None, now=None, log=None):
         from .actions import ResetCredits
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
         self.now = now or (lambda: datetime.now(timezone.utc))
+        # C-18.3: one daemon.log line per touch. The daemon passes its own log.
+        self.log = log or logging.getLogger('subfleet.timers')
         self.cancel = threading.Event()
         self._lock = threading.RLock()
         self._cycles = ThreadPoolExecutor(max_workers=2, thread_name_prefix='subfleet-timer')
@@ -73,8 +88,13 @@ class Timers:
             self.intervals['mirror'] = mirror_interval
         self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
-                                     'retention', 'mirror')}
+                                     'retention', 'mirror', 'touch')}
         self.metadata = self._latest('timer.verdict')
+        # C-18.3: each Codex lane's latest touch; its `at` starts the spacing.
+        self.touches = self._latest('timer.touch')
+        self._touch_cv = threading.Condition()
+        self._touch_pending = set()
+        self._touch_results = {}
         self.balances = self._latest('reset-credit.balance')
         self._cycle_error = None
         for row in store.query("SELECT data_json FROM events WHERE kind='timer.run' ORDER BY event_id"):
@@ -127,9 +147,9 @@ class Timers:
                 pool = self._mirror if name == 'mirror' else self._cycles
                 pool.submit(self._run, name)
 
-    def request(self, name, *, target=None):
+    def request(self, name, *, target=None, request_id=None):
         """Queue operator maintenance on the same workers and overlap guard."""
-        if name not in ('probe', 'keepalive', 'reset_credits'):
+        if name not in ('probe', 'keepalive', 'reset_credits', 'touch'):
             raise ValueError('unknown maintenance timer')
         with self._lock:
             if self.cancel.is_set():
@@ -142,10 +162,20 @@ class Timers:
                     or name == 'probe' and 'reset_credits' in self._running):
                 return {'status': 'already-running', 'timer': name}
             self._running.add(name)
-            self.store.add_event('timer.requested', data={'timer': name, 'target': target})
-            callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
+            self.store.add_event('timer.requested', data={'timer': name, 'target': target,
+                                                          **({'request_id': request_id} if request_id else {})})
+            callback = None
+            if name == 'reset_credits':
+                callback = lambda: self.reset_credits_cycle(target=target)
+            elif name == 'touch':
+                # C-18.3: an operator's touch runs on the timer workers, never in
+                # the request handler (C-16.4); `touch_status` collects it.
+                with self._touch_cv:
+                    self._touch_pending.add(request_id)
+                callback = lambda: self.touch_request(target=target, request_id=request_id)
             self._cycles.submit(self._run, name, callback)
-        return {'status': 'scheduled', 'timer': name, 'target': target}
+        return {'status': 'scheduled', 'timer': name, 'target': target,
+                **({'request_id': request_id} if request_id else {})}
 
     def _run(self, name, callback=None):
         error = None
@@ -490,7 +520,312 @@ class Timers:
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and
                                        row['in_flight'] < slot_cap and
                                        sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) < caps.get('max_active_attempts', 4))
+            if row['provider'] == 'codex':
+                self._clock_state(row)
         return view
+
+    # --- C-18.3: weekly clocks start on first use -----------------------------
+
+    def _touch_settings(self):
+        settings = self.policy.get('timers') or {}
+        return (bool(settings.get('touch_unstarted', True)),
+                float(settings.get('touch_spacing_s', CLOCK_TOUCH_SPACING_S)),
+                float(settings.get('touch_timeout_s', CLOCK_TOUCH_TIMEOUT_S)))
+
+    def _clock_state(self, row):
+        """C-18.3: derive a Codex lane's weekly clock from its own readings.
+
+        `weekly_clock` is `not-started` when the readings show a window that has
+        not started (`capacity.clock_unstarted`), `touched` when they still do
+        but a touch that reached the provider was sent within the tolerance
+        before they were read (the usage endpoint lags a new window by minutes),
+        and None otherwise. `clock_alert` says why a lane that is not started
+        was not started by this daemon: its last touch failed, a touch that
+        succeeded did not start it, or automatic touching is off.
+        """
+        auto, spacing, timeout = self._touch_settings()
+        now = self.now()
+        evidence = capacity.clock_unstarted(row['readings'], now=now,
+                                            reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
+        touch = self.touches.get(row['lane_id'])
+        state = alert = None
+        if evidence:
+            state = 'not-started'
+            sent = (touch and touch.get('status') == 'ok' and not touch.get('ineffective')
+                    and touch.get('requested_at'))
+            if sent and (instant(evidence['observed_at']) - instant(sent)).total_seconds() <= CLOCK_UNSTARTED_TOLERANCE_S:
+                state = 'touched'
+        if state == 'not-started':
+            age = (now - instant(touch['at'])).total_seconds() if touch and touch.get('at') else None
+            status = touch.get('status') if touch else None
+            if status == 'touching' and age is not None and age > timeout + 300:
+                status = 'interrupted'
+            if age is not None and age <= 2 * spacing and status in TOUCH_FAILED:
+                alert = 'touch-failed'
+            elif age is not None and age <= 2 * spacing and status == 'ok':
+                alert = 'touch-ineffective'
+            elif not auto:
+                alert = 'auto-touch-off'
+        row['weekly_clock'] = state
+        row['clock_evidence'] = evidence
+        row['clock_touch'] = dict(touch) if touch else None
+        row['clock_alert'] = alert
+
+    def touch_block(self, row):
+        """C-18.3: why this lane may not be touched at all, or None.
+
+        Detection and spacing are not here: an operator naming one lane skips
+        both. These are the lanes no touch may use: another owner's, a disabled
+        or superseded binding, the desktop login, a credential that proved to
+        hold another account or cannot run a turn, and a lane closed or limited
+        for the account or the touch model. A lane with a live attempt needs no
+        touch: that attempt is the first request.
+        """
+        if row.get('provider') != 'codex':
+            return 'not-codex'
+        if row.get('owner') != 'v2':
+            return 'owner-v1'
+        if not row.get('enabled', True):
+            return 'disabled'
+        if row.get('superseded_by'):
+            return 'superseded'
+        if row.get('desktop'):
+            return 'desktop'
+        if capacity.identity_blocked(row):
+            return 'identity-mismatch'
+        if row.get('revoked_epoch') is not None or row.get('probe_status') in LATCHED_STATUSES:
+            return 'credential-latched'
+        if row.get('probe_status') == 'limited' or row.get('limit_reached') is True or row.get('allowed') is False:
+            return 'limited'
+        model = touch_model(self.policy)['id']
+        for closure in row.get('closures', ()):
+            if closure.get('scope') in ('account', model):
+                return f"closed:{closure['scope']}:{closure.get('until_at')}"
+        if row.get('in_flight'):
+            return 'busy'
+        return None
+
+    def touch_plan(self, view, *, target=None, only=None, auto=False):
+        """C-18.3: what a touch pass would do with each Codex lane, and why.
+
+        Reads the view only: no probe, turn, event, or lease. `target` names one
+        lane to touch whatever its readings and spacing say (an operator's
+        explicit lane); otherwise a lane is touched when its weekly clock is
+        `not-started`, nothing blocks it, and its last touch began at least
+        `timers.touch_spacing_s` ago. `only` restricts an automatic pass to the
+        lanes this cycle measured. `auto` honours `timers.touch_unstarted`.
+        """
+        enabled, spacing, _ = self._touch_settings()
+        now = self.now()
+        ttl = self.policy.get('caps', {}).get('reading_ttl_s', 120)
+        plan = []
+        for row in view.get('lanes', ()):
+            if row.get('provider') != 'codex' or target and row['lane_id'] != target:
+                continue
+            if row.get('superseded_by') and not target or only is not None and row['lane_id'] not in only:
+                continue
+            if 'weekly_clock' not in row:
+                self._clock_state(row)
+            touch = row.get('clock_touch')
+            weekly = capacity.long_windows(row.get('readings', ()))
+            entry = {'lane_id': row['lane_id'], 'home': row.get('home') or row.get('credential_ref'),
+                     'weekly_clock': row.get('weekly_clock'),
+                     'resets_at': min((r['resets_at'] for r in weekly if r.get('resets_at')), default=None),
+                     'last_touch': {key: touch.get(key) for key in ('at', 'status', 'mode', 'requested_at')} if touch else None,
+                     'next_touch_at': None}
+            block = self.touch_block(row)
+            last = instant(touch['at']) if touch and touch.get('at') else None
+            if last and (now - last).total_seconds() < spacing:
+                entry['next_touch_at'] = iso(last + timedelta(seconds=spacing))
+            if block:
+                entry.update(action='skip', reason=block)
+            elif target:
+                entry.update(action='touch', reason='forced')
+            elif row.get('weekly_clock') == 'touched':
+                entry.update(action='skip', reason='touched')
+            elif row.get('weekly_clock') != 'not-started':
+                measured = any(capacity.fresh_provider(r, now=now, reading_ttl_s=ttl) for r in weekly)
+                entry.update(action='skip', reason='started' if measured else 'unmeasured')
+            elif auto and not enabled:
+                entry.update(action='skip', reason='auto-touch-off')
+            elif entry['next_touch_at']:
+                entry.update(action='skip', reason='spaced')
+            else:
+                entry.update(action='touch', reason='not-started')
+            plan.append(entry)
+        return plan
+
+    def _record_touch(self, lane_id, record):
+        self.store.add_event('timer.touch', lane_id=lane_id, data=record)
+        with self._lock:
+            self.touches[lane_id] = dict(record)
+
+    def _touch_lane(self, lane, entry, *, mode, request_id, wait_s):
+        """C-18.3: one supervised touch: reserve, one tiny turn, re-probe.
+
+        The reservation is the same lane lease a probe takes (`_reserve`), so
+        admission sees the lane as held and counts it toward the fleet cap. The
+        turn is the daemon's guardian path (`turn`): API-key refusal, guard
+        preflight, containment. The attempt is recorded before the turn starts,
+        so a crash mid-turn still spaces the next one. Returns the pieces the
+        caller publishes; the caller releases the holder.
+        """
+        deadline = time.monotonic() + wait_s
+        holder = self._reserve(lane, 'touch')
+        while not holder and time.monotonic() < deadline and not self.cancel.is_set():
+            self.cancel.wait(.25)
+            holder = self._reserve(lane, 'touch')
+        if not holder:
+            return {'lane': lane, 'holder': None, 'quarantined': False, 'probe': None,
+                    'record': {'lane_id': lane.lane_id, 'status': 'skipped-busy', 'mode': mode}}
+        _, spacing, timeout = self._touch_settings()
+        model = touch_model(self.policy)
+        record = {'lane_id': lane.lane_id, 'at': iso(self.now()), 'mode': mode, 'model': model['id'],
+                  'reason': entry.get('reason'), 'status': 'touching',
+                  'before': {'weekly_clock': entry.get('weekly_clock'), 'resets_at': entry.get('resets_at')},
+                  **({'request_id': request_id} if request_id else {})}
+        previous = self.touches.get(lane.lane_id) or {}
+        recent = previous.get('at') and (self.now() - instant(previous['at'])).total_seconds() <= 2 * spacing
+        if entry.get('weekly_clock') == 'not-started' and previous.get('status') == 'ok' and recent:
+            # The last touch, within this idle stretch, reached the provider and
+            # the clock still has not started: count it, so the lane reads
+            # `not-started` (not `touched`) and its warning stays up instead of
+            # clearing for ten minutes an hour. A touch from an earlier week
+            # started that week's clock and says nothing about this one.
+            record['ineffective'] = int(previous.get('ineffective') or 0) + 1
+        self._record_touch(lane.lane_id, record)
+        quarantined, probe = False, None
+        try:
+            outcome = self._turn(lane, 'touch', holder, timeout)
+            quarantined = bool(outcome.evidence.get('probe_quarantined'))
+            status = ('quarantined' if quarantined else 'timed-out' if outcome.evidence.get('timed_out')
+                      else outcome.cls.value)
+            record.update(status=status, detail=str(outcome.detail or '')[:300],
+                          requested_at=outcome.evidence.get('requested_at'), rc=outcome.evidence.get('rc'))
+            with self.store.transaction('timer.touched', lane_id=lane.lane_id):
+                if outcome.cls == OutcomeClass.AUTH_DEAD:
+                    self.store.update_lane(lane.lane_id, enabled=0)
+                    self.record_auth_dead(lane.lane_id)
+                elif (outcome.cls == OutcomeClass.LIMITED and outcome.closure
+                      and not self.actions.confirmed_override(lane.lane_id, now=self.now())):
+                    self.store.add_closure(outcome.closure)       # C-9.4
+            if not quarantined and outcome.cls != OutcomeClass.AUTH_DEAD:
+                adapter = self.adapter_factory('codex')
+                if hasattr(adapter, 'timeout'):
+                    adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
+                try:
+                    probe = self._read_probe(adapter, lane, resolve_credential(lane.credential))
+                except (TimeoutError, OSError) as exc:
+                    probe = {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}
+                probe = {**probe, 'probed_at': iso(self.now())}
+        except AdapterError as exc:
+            # Refused before any provider launch: the guard preflight (C-14.2)
+            # or an API-key home (C-6.5). Nothing reached the provider.
+            record.update(status='refused', detail=str(exc)[:300], code=int(getattr(exc, 'code', 1) or 1),
+                          fix=getattr(exc, 'fix', None))
+        except TimeoutError:
+            record.update(status='timed-out')
+        except Exception as exc:
+            record.update(status='failed', error_type=type(exc).__name__)
+        return {'lane': lane, 'holder': holder, 'quarantined': quarantined, 'probe': probe, 'record': record}
+
+    def touch(self, view=None, *, target=None, only=None, mode='auto', request_id=None):
+        """C-18.3: touch every lane the plan chooses, then publish what happened.
+
+        Turns run on the lane workers, at most `keepalive_workers` at a time.
+        Each touched lane's re-probe is persisted before its lease is released,
+        so the next snapshot shows the clock the touch started. An automatic
+        pass tells the operator how many clocks it started.
+        """
+        view = view if view is not None else self.snapshot()
+        plan = self.touch_plan(view, target=target, only=only, auto=mode == 'auto')
+        lanes = {lane.lane_id: lane for lane in self.store.list_lanes()}
+        chosen = [entry for entry in plan if entry['action'] == 'touch' and entry['lane_id'] in lanes]
+        wait_s = 30 if target else 0
+        futures = [self._lanes.submit(self._touch_lane, lanes[entry['lane_id']], entry,
+                                      mode=mode, request_id=request_id, wait_s=wait_s) for entry in chosen]
+        outcomes = []
+        for entry, future in zip(chosen, futures):
+            try:
+                outcomes.append(future.result())
+            except Exception as exc:
+                # `_touch_lane` settles everything after its reservation, so only a
+                # worker cancelled at shutdown lands here, holding nothing.
+                outcomes.append({'lane': lanes[entry['lane_id']], 'holder': None, 'quarantined': False,
+                                 'probe': None, 'record': {'lane_id': entry['lane_id'], 'mode': mode,
+                                                           'status': 'skipped-' + type(exc).__name__}})
+        results = []
+        for item in outcomes:
+            lane, record, probe = item['lane'], item['record'], item['probe']
+            try:
+                if probe is not None and not self.cancel.is_set():
+                    self._persist(lane, probe)
+                    record['probe_status'] = probe.get('status')
+                    record['resets_at'] = min((r['resets_at'] for r in capacity.long_windows(probe.get('readings', ()))
+                                               if r.get('resets_at')), default=None)
+                if item['holder']:
+                    self._record_touch(lane.lane_id, record)
+                    self.log.info('lane touch %s lane=%s mode=%s model=%s status=%s requested_at=%s '
+                                  'weekly_reset=%s%s', iso(self.now()), lane.lane_id, mode, record.get('model'),
+                                  record['status'], record.get('requested_at') or '-', record.get('resets_at') or '-',
+                                  f" error_type={record['error_type']}" if record.get('error_type') else '')
+            finally:
+                if item['holder']:
+                    self._release(item['holder'], quarantined=item['quarantined'])
+            results.append(record)
+        if any(record.get('at') for record in results):
+            self.mark('touch', error=next((r.get('error_type') for r in results if r.get('error_type')), None))
+        # A repeat touch of a clock the last one did not start is not news: the
+        # `codex-clock` warning (alerts.py) already says so.
+        started = [record for record in results if record.get('status') == 'ok' and not record.get('ineffective')]
+        if mode == 'auto' and started:
+            lines = [f"{record['lane_id']} (weekly reset now {record.get('resets_at') or 'unknown'})"
+                     for record in started]
+            self.alerts.deliver({
+                'key': 'codex-clock-started', 'severity': 'info', 'home': 'fleet:codex',
+                'subject': f'codex: weekly clock started on {len(started)} lane(s)',
+                'body': ('A Codex weekly window starts at its first request, not at the reset, so each '
+                         'idle lane was touched with one tiny ' + (started[0].get('model') or 'Luna') +
+                         ' turn: ' + '; '.join(lines) + '.')})
+        return {'mode': mode, 'request_id': request_id, 'target': target,
+                'plan': plan, 'results': results}
+
+    def touch_request(self, *, target=None, request_id=None):
+        """C-18.3: an operator's `lanes touch`, run on a timer worker."""
+        result = {'mode': 'operator', 'request_id': request_id, 'target': target, 'results': [],
+                  'error_type': 'Interrupted'}
+        try:
+            result = self.touch(target=target, mode='operator', request_id=request_id)
+        except Exception as exc:
+            result = {**result, 'error_type': type(exc).__name__}
+            raise
+        finally:
+            with self._touch_cv:
+                self._touch_pending.discard(request_id)
+                self._touch_results[request_id] = result
+                while len(self._touch_results) > TOUCH_RESULTS_KEPT:
+                    self._touch_results.pop(next(iter(self._touch_results)))
+                self._touch_cv.notify_all()
+        return result
+
+    def touch_status(self, request_id, *, wait_s=0):
+        """C-18.3: an operator touch's result, long-polled for at most 30 s (C-16.4)."""
+        deadline = time.monotonic() + max(0.0, min(float(wait_s or 0), 30.0))
+        with self._touch_cv:
+            while (request_id not in self._touch_results and request_id in self._touch_pending
+                   and not self.cancel.is_set()):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._touch_cv.wait(min(remaining, 1.0))
+            if request_id in self._touch_results:
+                return {'status': 'done', **self._touch_results[request_id]}
+            if request_id in self._touch_pending:
+                return {'status': 'running', 'request_id': request_id}
+        records = [json.loads(row['data_json']) for row in self.store.query(
+            "SELECT data_json FROM events WHERE kind='timer.touch' ORDER BY event_id")]
+        return {'status': 'unknown', 'request_id': request_id,
+                'results': [record for record in records if record.get('request_id') == request_id]}
 
     def probe_cycle(self):
         if self.cancel.is_set():
@@ -516,6 +851,8 @@ class Timers:
         self._cycle_error = next((p['error_type'] for _, p in results if p.get('error_type')), None)
         codex = [p for lane, p in results if lane.provider == 'codex']
         offline = bool(codex) and all(p.get('status') == 'network-error' for p in codex)
+        if not offline:
+            self._auto_touch(results)
         snapshot = self.snapshot()
         if not offline:
             result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
@@ -538,6 +875,26 @@ class Timers:
         self.store.add_event('timer.cycle', data={'offline': offline, 'at': iso(self.now()),
                              'lanes': [lane.lane_id for lane, _ in results]})
         return snapshot
+
+    def _auto_touch(self, results):
+        """C-18.3: touch the lanes this cycle measured with a clock that has not started.
+
+        Only lanes whose fresh probe in this cycle shows the evidence are
+        considered, so an idle fleet costs no extra snapshot. The pass runs
+        before the cycle publishes, so status.json, alerts, and history see the
+        started clocks.
+        """
+        enabled, _, _ = self._touch_settings()
+        if not enabled or self.cancel.is_set():
+            return None
+        ttl = self.policy.get('caps', {}).get('reading_ttl_s', 120)
+        now = self.now()
+        measured = {lane.lane_id for lane, probe in results if lane.provider == 'codex'
+                    and probe.get('status') == 'ok'
+                    and capacity.clock_unstarted(probe.get('readings', ()), now=now, reading_ttl_s=ttl)}
+        if not measured:
+            return None
+        return self.touch(only=measured, mode='auto')
 
     def latest_request(self, lane_id):
         timestamps = []

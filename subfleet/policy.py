@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
+    CLOCK_TOUCH_MODEL, CLOCK_TOUCH_MODEL_ID, CLOCK_TOUCH_SPACING_S, CLOCK_TOUCH_TIMEOUT_S,
     DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S,
     Closure, Decision, Exit, Lane, Reading,
 )
@@ -206,7 +207,13 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             or not math.isfinite(interval) or interval <= 0):
         fail("reset_credits.min_interval_min", "must be a positive number of minutes")
 
-    for section, defaults in (("timers", {"probe_interval_s": 60, "keepalive_interval_s": 18300}),
+    # C-18.3: `touch_unstarted` switches the automatic weekly-clock touch off
+    # without removing `lanes touch`; the spacing and the turn's deadline are
+    # seconds. `touch_model` is checked below: it names a model, not a number.
+    timer_defaults = {"probe_interval_s": 60, "keepalive_interval_s": 18300,
+                      "touch_unstarted": True, "touch_spacing_s": CLOCK_TOUCH_SPACING_S,
+                      "touch_timeout_s": CLOCK_TOUCH_TIMEOUT_S}
+    for section, defaults in (("timers", timer_defaults),
                               ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
@@ -221,6 +228,23 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                   or not math.isfinite(item) or item <= 0):
                 fail(f"{section}.{key}", "must be a positive finite number")
         value[section] = settings
+
+    if "touch_model" in value["timers"]:
+        # C-18.3: only a Codex turn metered on the weekly window starts a Codex
+        # weekly clock. Spark meters on a bucket of its own: a touch with it
+        # would succeed, report the clock started, and start nothing.
+        name = value["timers"]["touch_model"]
+        if not _name(name):
+            fail("timers.touch_model", "must name a Codex model in models")
+        try:
+            short = resolve_model({"models": models, "retired": retired}, name, note=False)
+        except PolicyError:
+            fail("timers.touch_model", f"unknown model {name!r}; expected a models key")
+        if models[short]["provider"] != "codex":
+            fail("timers.touch_model", "must be a Codex model: only a Codex turn starts a Codex weekly clock")
+        if "spark" in f"{short} {models[short]['id']}".lower():
+            fail("timers.touch_model", "Spark meters on its own bucket and does not start the "
+                 "weekly clock; use luna")
 
     # `sessions` is validated on its own because zero is meaningful in it: every
     # cap, window and interval there switches OFF at zero — a mirror interval of
@@ -281,6 +305,26 @@ def resolve_model(policy: Mapping[str, Any], name: str, *, key: str = "pinned_mo
                 return short
     raise PolicyError(policy.get("_policy_path", "policy.json"), key,
                       f"unknown model {name!r}; expected a models or retired key")
+
+
+def touch_model(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """C-18.3: the model a weekly-clock touch runs, with its short name.
+
+    `timers.touch_model` when it names a Codex model other than Spark, else
+    Luna: the policy's `luna` when it has one, else Luna's id. `load_policy`
+    refuses any other value, so the fallback only covers an unvalidated map.
+    """
+    models = policy.get("models") or {}
+    wanted = (policy.get("timers") or {}).get("touch_model") or CLOCK_TOUCH_MODEL
+    for name in (wanted, CLOCK_TOUCH_MODEL):
+        try:
+            short = resolve_model(policy, name, note=False)
+        except (PolicyError, KeyError, TypeError):
+            continue
+        model = models.get(short) or {}
+        if model.get("provider") == "codex" and "spark" not in f"{short} {model.get('id')}".lower():
+            return {**model, "short": short}
+    return {"short": CLOCK_TOUCH_MODEL, "provider": "codex", "id": CLOCK_TOUCH_MODEL_ID}
 
 
 def _row(value: Any) -> dict[str, Any]:

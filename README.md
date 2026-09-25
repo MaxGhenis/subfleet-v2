@@ -126,6 +126,23 @@ lanes limited on a stronger model are preferred for eligible cheaper work;
 `models.<name>.priority` defines strength across separate task chains. Reserved
 Fable capacity, account closures, exclusions, and ownership still control eligibility.
 
+A Codex weekly window starts at its first request after a reset, not at the
+reset, and an idle lane's next reset slides a day for each idle day. Each probe
+cycle therefore touches every v2 Codex lane whose weekly clock has not started:
+one read-only Luna turn through the same guarded launch path as any probe, at
+most once an hour per lane, followed by a re-probe and one service notice
+(C-18.3). `subfleet status` and `subfleet lanes list` mark such lanes `clock not
+started`. To inspect or act now:
+
+```sh
+subfleet lanes touch --dry-run        # what a touch pass would do, and why
+subfleet lanes touch codex-4          # touch one lane now, whatever its readings say
+subfleet lanes touch --all            # every lane whose clock has not started
+```
+
+Set `timers.touch_unstarted` to `false` in `policy.json` to stop automatic
+touches; the daemon then warns about each lane whose clock has not started.
+
 To hand several briefs to lanes in one call, list them in a TOML or JSON manifest.
 Paths are relative to the manifest; an entry overrides `[defaults]`, which
 override the other flags on the command line:

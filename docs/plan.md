@@ -109,3 +109,23 @@ running, and `daemon.log` was silent; every unplaced job now has a stated
 reason, and a fleet that places nothing for a minute says so. C-5.10: a worker
 that raises is retried with backoff rather than on every 50 ms tick. No schema
 change: the new state is in memory, so rollback stays possible.
+
+## Weekly clocks start on first use, 2026-09-25
+
+Max's standing rule (2026-09-14): "If you know the reset starts when using it,
+we should touch it immediately." A Codex weekly window starts at its first
+request after a reset, and C-11.3 ranks a lane whose window has not started
+last, because its reset always reads a week out; so v2 never started one on its
+own. On 2026-09-22 codex-4 redeemed its banked reset at 20:09 ET and sat
+unstarted until a manual touch at 15:52 ET the next day. C-18.3 makes the touch
+the daemon's: detection is derived from the lane's own readings (0% with a
+reset sliding a week ahead of each read, within 600 s), and the touch is a
+timer turn like heal and keepalive rather than a job (C-8.4), so it takes the
+probe reservation, the guard preflight, the API-key refusal, and containment
+without entering the job ledger or any caller's writable hold. Each probe
+cycle touches such lanes at most once an hour each, with Luna (Spark does not
+start the clock), re-probes them, and says so; `subfleet lanes touch` does the
+same on request. Building it showed that `codex exec` (codex-cli 0.153.3)
+exits in an untrusted directory that is not a repository, which every probe
+directory is, unless it is given `--skip-git-repo-check`; C-12.3 now adds the
+flag to probe launches.

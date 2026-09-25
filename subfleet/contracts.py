@@ -226,6 +226,22 @@ RETENTION_MAX_BYTES = 2 * 1024 ** 3
 # Codex window durations in minutes (C-9.7).
 WINDOW_KEYS = {300: "five_hour", 10080: "seven_day"}
 
+# C-18.3: a Codex weekly window starts at its first real request, not at the
+# reset. Until then the usage endpoint reports it at 0% with `reset_at` sliding
+# to (probe time + window length), so a window at least this long whose reset is
+# within the tolerance of that sliding instant has not started.
+CLOCK_WINDOW_MIN_S = 86400
+CLOCK_UNSTARTED_TOLERANCE_S = 600
+#: C-18.3: at most one automatic touch per lane per spacing window. The usage
+#: endpoint can still show a just-touched window as unstarted for a few minutes.
+CLOCK_TOUCH_SPACING_S = 3600
+CLOCK_TOUCH_TIMEOUT_S = 120
+#: C-18.3: the touch model. Luna meters on the weekly window; Spark meters on a
+#: bucket of its own and does not start the clock (and left ChatGPT accounts on
+#: 2026-09-19). A policy without `models.luna` still touches with this id.
+CLOCK_TOUCH_MODEL = "luna"
+CLOCK_TOUCH_MODEL_ID = "gpt-5.6-luna"
+
 
 # --- Data carried between modules -------------------------------------------
 
