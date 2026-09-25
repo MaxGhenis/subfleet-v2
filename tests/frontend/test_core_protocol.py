@@ -88,7 +88,7 @@ def populated(harness: ServiceHarness) -> dict:
     return {"cid": cid, "first": first, "second": second, "third": third, "asking": asking}
 
 
-def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path, harness):
+def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path, harness, monkeypatch):
     """C-25.2: each op's real result survives the Swift model unchanged."""
     fixture = populated(harness)
     cid = fixture["cid"]
@@ -163,6 +163,23 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     # The diff ops' unavailable shapes; tests/frontend/test_core_diff.py has the real diffs.
     results["turn.diff"] = harness.call("turn.diff", message_id=fixture["third"]["message_id"])
     results["conversation.diff"] = harness.call("conversation.diff", conversation_id=cid)
+    # A real handoff (C-30.3): a Claude conversation bound to a fixture transcript,
+    # with one pending message, handed to Codex.
+    from tests import sessions_fixtures as fx
+    claude = fx.claude_home(tmp_path, monkeypatch)
+    session = str(uuid.uuid4())
+    fx.transcript(claude, session, [fx.typed_prompt("Port the importer.", uuid="p0", at=fx.ago(3600)),
+                                    fx.assistant_text("the manifest is done", uuid="a0", at=fx.ago(60))],
+                  cwd=str(harness.workspace))
+    source, _ = harness.store.create_conversation(
+        provider="claude", workspace=str(harness.workspace), workspace_kind="in-place", settings=harness.settings(),
+        origin="native", native_session_id=session, title="handoff source")
+    harness.submit(source["conversation_id"], "still to do")
+    results["conversation.handoff"] = harness.call(
+        "conversation.handoff", request_id="handoff-1", **{"from": {"conversation_id": source["conversation_id"]},
+                                                           "to": {"provider": "codex", "settings": {
+                                                               "model": "gpt-6-astra", "permission": "read-only"}}})
+    assert len(results["conversation.handoff"]["moved"]) == 1 and results["conversation.handoff"]["created"]
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)

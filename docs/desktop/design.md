@@ -373,6 +373,52 @@ first message is a continuity brief (`sessions/handoff.py`, scrubbed,
 bounded), recording `handoff_from` (provider, native id, transcript path,
 brief SHA-256). The app labels it "handoff from …".
 
+The op is `conversation.handoff` (§5). Its source is a conversation or a
+native session (a native session a conversation already holds hands off as
+that conversation). The brief is read from the source's own history: a Claude
+transcript by `sessions/handoff.py` `build_brief`, a Codex rollout by
+`conversations/codex_brief.py`, both under C-23.14's scrub rules and
+C-23.36's caps; the handler runs on the bounded file pool and never runs git,
+so the brief's repository section says the state was not collected (C-25.3).
+The new conversation has origin `handoff`, no native session until its first
+turn opens one, the target's provider and settings, and the source's workspace
+unless the request names another. Its first message (origin `handoff`) is the
+brief; the source's pending messages follow it in their order (review IR-28):
+each person message still `queued` with no job, or `waiting` on a job that has
+no attempt, is withdrawn from the source (`cancelled`, reason
+`handed-off:<new conversation>`) under the guard `message.cancel` uses (§4)
+and re-queued in the new conversation with a new id, the target's settings and
+the same text and attachments. A failover continuation is withdrawn and not
+carried (it would resume the source's work beside the handoff); an unblock
+note stays queued in the source, where it still guards the next turn. A source
+with a live turn (a message `starting`, `running`, `approval-needed` or
+`delivery-unknown`, a waiting message whose job has an attempt, a turn job not
+yet terminal, its `conversation:` lease held, or a quarantined attempt) is
+refused and nothing changes.
+
+The handoff prepares its files first: texts are read and published and
+attachments checked before any cancellation, with no new conversation yet
+visible. If a waiting message has a job to cancel, the source is then fenced
+with `blocked_by='handoff:<request id>'`; the dispatcher skips it, so messages
+behind that waiting message cannot run first. Each job is cancelled in the
+job store only while it has no attempt (review IR-2), with the handoff's
+request id on the audit event. The new conversation, its messages, every
+source withdrawal and the fence lift commit in one conversation-store
+transaction. If the source changed, including a claim the plan did not
+expect, that transaction fails without moving anything.
+
+On failure, prepared files are discarded. Messages whose jobs this handoff
+cancelled return to `queued` in their original positions, with no job bound
+and the next `turn_seq` so dispatch creates a new job. Restoring those
+messages and lifting the fence is one conversation-store transaction. If
+cleanup fails, the control loop retries the lift; its first pass after a
+daemon restart also lifts stale fences before dispatch. A handoff still
+running in this daemon keeps its fence. A retry restores any messages
+cancelled by that request before making its plan, even if the cancellation
+predates fencing, so a crash cannot make the retry omit them. The same
+request id returns the same handoff; another request under that id is exit 2
+`request-id-conflict`. The source keeps its rows and its native session.
+
 **D-19. Model identity.** Claude settings store the `initialize` catalog's
 `value` (for example `opus`, `opus[1m]`, `claude-fable-5-1[1m]`); the expected
 served id is that entry's `resolvedModel` with any `[1m]` suffix removed;
@@ -570,7 +616,7 @@ CREATE TABLE messages (
   conversation_id   TEXT NOT NULL REFERENCES conversations,
   seq               INTEGER NOT NULL,
   after_message_id  TEXT,
-  origin            TEXT NOT NULL,            -- person | failover | unblock-note
+  origin            TEXT NOT NULL,            -- person | failover | unblock-note | tombstone | handoff
   continues         TEXT,                     -- failover: the original message id
   digest            TEXT NOT NULL,
   text_path         TEXT NOT NULL,            -- conversations/<cv>/messages/<id>.md
@@ -647,20 +693,32 @@ whose lowest-seq live message is `queued`, and whose previous turn job is
 terminal with its leases released, it:
 
 1. looks up `jobs.request_id = 'turn:<id>:<turn_seq>'`; if present, binds it;
-2. otherwise publishes `prompt.md` and `manifest.json`, then inserts the job
-   row in one main-store transaction, then binds `messages.job_id` and sets
-   `waiting` in one conversation-store transaction.
+2. otherwise claims the message (`queued` → `waiting`, reason `dispatching`)
+   in one conversation-store transaction, publishes `prompt.md` and
+   `manifest.json`, inserts the job row in one main-store transaction, then
+   binds `messages.job_id` in one conversation-store transaction. A submit
+   refused before any provider saw the message returns a claimed message to
+   `queued` and offers it again after 5 s.
 
-A crash between the two transactions is repaired by step 1 on the next pass.
-`turn_seq` increments only for a failover continuation, which is a new
-message, so no message ever has two live turn jobs.
+A crash between the transactions is repaired on the next pass: a `waiting`
+message with no job bound is bound to its job (step 1) or submitted again.
+The claim is what makes a withdrawal of a `queued` message safe: the
+withdrawal and the claim are transactions on one store, so a withdrawn
+message never gets a job, and a claimed one is withdrawn only through its
+job's guard below. The dispatcher skips a conversation while a handoff of it
+runs.
+`turn_seq` increments for a failover continuation, which is a new message,
+and when a handoff restores a message whose job it cancelled (D-18), so no
+message ever has two live turn jobs.
 
 `message.cancel` withdraws a `queued` message in the conversation store; for
 a `waiting` message it sets the job's `cancel_requested_at` in a main-store
 transaction guarded by "no attempt row exists", and marks the message
-`cancelled` only if that guard held (review F3). `_launch` re-reads the cancel
-flag inside the `attempt.starting` transaction and releases the gate only
-if it is still null.
+`cancelled` only if that guard held (review F3). A message claimed but not yet
+bound to a job is refused with `dispatching` (try again). `_launch` re-reads
+the cancel flag inside the `attempt.starting` transaction and releases the
+gate only if it is still null. `conversation.handoff` withdraws pending
+messages under the same two guards (D-18).
 
 ## 5. Wire protocol additions
 
@@ -698,6 +756,7 @@ ops (D-8) are marked †.
 | `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
 | `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` without `message_id`; `from` is the conversation's first writable turn's start, `to` the working tree now |
+| `conversation.handoff` | `{request_id, from:{conversation_id} or {native:{provider, session_id, home?}}, to:{provider, settings, workspace?, title?, allow_main?†}, confirm_widen?†}` → `{conversation, created, brief: Receipt, moved:[Receipt], withdrawn:[message_id], handoff_from}` (D-18). A target above Ask or on main is person-only, as `conversation.create`. Refusals: `live-turn` and `source-changed` (exit 2, nothing changed; send again), `no-history`, `request-id-conflict` (2), `lane-run` (7). |
 
 Receipt: `{message_id, conversation_id, seq, origin, state, state_reason,
 created, settings, served, stop_requested, updated_at}`.

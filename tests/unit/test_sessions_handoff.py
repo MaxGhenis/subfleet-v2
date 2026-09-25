@@ -146,8 +146,21 @@ def test_a_system_reminder_never_reaches_the_brief(home, repo, policy):
     "printenv | grep TOKEN",
     "cat ~/.codex/auth.json",
     "cat .env.production",
+    "/usr/bin/printenv",
+    "cat .env; true",
+    "cat .env&&echo done",
+    "bash -lc 'printenv'",
+    "sh -c \"env\"",
+    "sudo -E env",
+    "/usr/bin/env",
+    "echo `env`",
+    "xargs env < /dev/null",
+    'const r = await tools.exec_command({cmd: "printenv"}); text(r.output);',
+    'await tools.exec_command({cmd: "env"})',
 ], ids=["agent-secret", "keychain", "keychain-stderr", "keychain-internet",
-        "printenv", "auth-json", "dotenv"])
+        "printenv", "auth-json", "dotenv", "printenv-by-path", "dotenv-then-semicolon",
+        "dotenv-then-and", "bash-lc", "sh-c", "sudo-flags-env", "env-by-path", "backquote",
+        "xargs", "exec-wrapped-printenv", "exec-wrapped-env"])
 def test_handoff_suppresses_credential_reading_tool_results(home, repo, policy, command):
     """C-23.14: the result of a credential-reading tool call is omitted by
     pattern rather than redacted, so a secret never reaches the excerpt even
@@ -201,6 +214,7 @@ def test_a_multi_line_environment_dump_is_suppressed_too(home, repo, policy, com
     "git log --oneline -5", "python -m venv .venv", "grep -r inventory .",
     "echo $ENVIRONMENT", "ls /opt/envoy", "make env-check", "python envelope.py",
     "docker run --env-file f", "cd /repo\ngit status",
+    "uv run --env-file .envrc x", "conda env list", "ls envs/", "cat .venv/pyvenv.cfg",
 ])
 def test_a_word_that_merely_contains_env_is_not_a_credential_read(command):
     """C-23.14's retention half: suppressing everything is not safety."""

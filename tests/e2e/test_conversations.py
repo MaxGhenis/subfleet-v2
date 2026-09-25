@@ -8,6 +8,7 @@ them; nothing here stubs the check.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -947,3 +948,151 @@ def test_turns_that_cannot_show_changes_say_why(conv):
     outside = conv.call("turn.diff", message_id=wrote)
     assert (outside["available"], outside["reason"]) == (False, "no-snapshot")
     assert conv.call("conversation.diff", conversation_id=other)["reason"] == "no-snapshot"
+# --- labelled handoffs (C-30.3, design D-18, review IR-28) -----------------------------
+
+FAKE_SECRET = "sk-ant-FAKEFAKEFAKEFAKEFAKEFAKE1234"        # shaped like a key; not one
+FAKE_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJlLXZhbHVl"
+CODEX_READ_ONLY = {"model": "gpt-6-astra", "permission": "read-only"}
+
+
+def hand_off(conv, source: dict, to: dict, request_id: str | None = None) -> tuple[dict, dict]:
+    args = {"request_id": request_id or str(uuid.uuid4()), "from": source, "to": to}
+    return conv.call("conversation.handoff", **args), args
+
+
+def sent_texts(conv, method_or_type: str) -> dict[str, str]:
+    """What each turn process was given, by message id: Codex `turn/start` input or
+    Claude user message."""
+    out = {}
+    for row in conv.stdin_rows():
+        if row.get("method") == "turn/start" == method_or_type:
+            out[row["params"]["clientUserMessageId"]] = " ".join(
+                i.get("text", "") for i in row["params"]["input"] if i.get("type") == "text")
+        elif row.get("type") == "user" == method_or_type:
+            out[row["uuid"]] = " ".join(b.get("text", "") for b in row["message"]["content"] if b.get("type") == "text")
+    return out
+
+
+def test_a_claude_conversation_hands_off_to_codex_with_its_pending_messages(conv):
+    """C-30.3, D-18, IR-28, C-23.14: a new Codex conversation whose first message is a
+    scrubbed brief of the Claude transcript, recording where it came from; the
+    source's queued messages move behind it in order and run there, never in the
+    source; the source keeps its history; the same request returns the same
+    handoff."""
+    cid = conv.create()
+    first = conv.submit(cid, f"Port the importer [fake:reply] with token {FAKE_SECRET}")
+    assert conv.until_state(first, "complete", "failed")["state"] == "complete"
+    stopped = conv.submit(cid, "[fake:exit-after-ack]", after_message_id=first)
+    assert conv.until_state(stopped, "failed", "complete", "delivery-unknown")["state_reason"] == "ended-without-result"
+    third = conv.submit(cid, "third message", after_message_id=stopped)
+    fourth = conv.submit(cid, "fourth message", after_message_id=third)
+    source = conv.call("conversation.open", conversation_id=cid)["conversation"]
+    assert source["blocked_by"] == "unfinished-turn"          # so the two stay queued (C-24.8)
+    conv.attempt(stopped)                                      # its job has finalized: no live turn
+    session = source["native_session_id"]
+    [transcript] = (conv.e2e.root / "user-home" / ".claude" / "projects").glob(f"*/{session}.jsonl")
+    before = transcript.read_bytes()
+
+    out, args = hand_off(conv, {"conversation_id": cid}, {"provider": "codex", "settings": CODEX_READ_ONLY})
+    new = out["conversation"]
+    assert out["created"] and new["origin"] == "handoff" and new["provider"] == "codex"
+    record = new["handoff_from"]
+    assert (record["provider"], record["native_session_id"], record["transcript"]) == ("claude", session,
+                                                                                        str(transcript))
+    assert [pair["from"] for pair in record["moved"]] == [third, fourth]
+    for mid in (third, fourth):
+        assert conv.message(mid)["state"] == "cancelled"
+        assert conv.message(mid)["state_reason"] == f"handed-off:{new['conversation_id']}"
+    again = conv.call("conversation.handoff", **args)
+    assert not again["created"] and again["conversation"]["conversation_id"] == new["conversation_id"]
+
+    brief, moved = out["brief"]["message_id"], [m["message_id"] for m in out["moved"]]
+    for mid in (brief, *moved):
+        assert conv.until_state(mid, "complete", "failed", "delivery-unknown")["state"] == "complete", mid
+    sent = sent_texts(conv, "turn/start")
+    assert list(sent) == [brief, *moved], "brief first, then the moved messages in order"
+    assert [sent[m] for m in moved] == ["third message", "fourth message"]
+    text = sent[brief]
+    assert hashlib.sha256(text.encode()).hexdigest() == record["brief_sha256"]
+    assert text.startswith("# Cross-agent handoff") and "- Source provider: Claude Code" in text
+    assert f"- Source session: {session}" in text and f"- Source transcript: {transcript}" in text
+    assert FAKE_SECRET not in text and "[REDACTED]" in text and "Port the importer" in text
+    # Never the same native session: the new conversation has its own Codex thread.
+    opened = conv.call("conversation.open", conversation_id=new["conversation_id"])["conversation"]
+    assert opened["native_session_id"] and opened["native_session_id"] != session
+    # The source keeps its history, and its transcript was never written again.
+    kept = {m["message_id"]: m["state"] for m in conv.call("conversation.open", conversation_id=cid)["messages"]}
+    assert kept == {first: "complete", stopped: "failed", third: "cancelled", fourth: "cancelled"}
+    assert transcript.read_bytes() == before
+    assert list(sent_texts(conv, "user")) == [first, stopped], "nothing moved was sent to Claude"
+
+
+def test_a_codex_conversation_waiting_on_its_limited_lane_hands_off_to_claude(conv):
+    """C-30.3, D-5, D-18, IR-2, IR-28: a Codex conversation pinned to a limited lane
+    moves to Claude. Its waiting message is withdrawn by the job store's guard
+    (its job cancelled, no attempt ever made) and moves with the queued one
+    behind it; the brief is read from the Codex rollout and scrubbed."""
+    cid = conv.create(provider="codex", model="gpt-6-astra", permission="read-only")
+    first = conv.submit(cid, f"Look around [fake:reply] using Bearer {FAKE_JWT}")
+    assert conv.until_state(first, "complete", "failed")["state"] == "complete"
+    limited = conv.submit(cid, "[fake:limit]", after_message_id=first)
+    assert conv.until_state(limited, "failed", "complete")["state_reason"] == "limited"
+    waiting = conv.submit(cid, "after the limit", after_message_id=limited)
+    request = f"turn:{waiting}:0"
+    conv.e2e.until(lambda: conv.message(waiting)["state"] == "waiting" and (
+        conv.e2e.rows("SELECT state FROM jobs WHERE request_id=?", (request,)) or [{}])[0].get("state") == "waiting",
+        timeout=30)
+    behind = conv.submit(cid, "one more", after_message_id=waiting)
+    source = conv.call("conversation.open", conversation_id=cid)["conversation"]
+    thread, lane = source["native_session_id"], source["lane_id"]
+    [rollout] = (conv.e2e.root / lane / "sessions").rglob(f"rollout-*{thread}.jsonl")
+    before = rollout.read_bytes()
+
+    out, _args = hand_off(conv, {"conversation_id": cid},
+                          {"provider": "claude", "settings": {"model": "opus[1m]", "permission": "ask"}})
+    record = out["handoff_from"]
+    assert (record["provider"], record["native_session_id"], record["lane_id"]) == ("codex", thread, lane)
+    assert record["transcript"] == str(rollout)
+    assert [pair["from"] for pair in record["moved"]] == [waiting, behind]
+    job = conv.e2e.rows("SELECT job_id, state FROM jobs WHERE request_id=?", (request,))[0]
+    assert job["state"] == "cancelled" and conv.e2e.attempts(job["job_id"]) == []
+
+    brief, moved = out["brief"]["message_id"], [m["message_id"] for m in out["moved"]]
+    for mid in (brief, *moved):
+        assert conv.until_state(mid, "complete", "failed", "delivery-unknown")["state"] == "complete", mid
+    sent = sent_texts(conv, "user")
+    assert list(sent) == [brief, *moved]
+    assert [sent[m] for m in moved] == ["after the limit", "one more"]
+    text = sent[brief]
+    assert hashlib.sha256(text.encode()).hexdigest() == record["brief_sha256"]
+    assert "- Source provider: Codex" in text and f"- Source thread: {thread}" in text
+    assert FAKE_JWT not in text and "[REDACTED]" in text and "Look around" in text
+    replies = [e["data"]["text"] for e in conv.events(out["conversation"]["conversation_id"]) if e["kind"] == "text"]
+    assert replies[0] == f"Fake Claude read {len(text)} characters."
+    kept = {m["message_id"]: (m["state"], m["state_reason"]) for m in
+            conv.call("conversation.open", conversation_id=cid)["messages"]}
+    new = out["conversation"]["conversation_id"]
+    assert kept == {first: ("complete", None), limited: ("failed", "limited"),
+                    waiting: ("cancelled", f"handed-off:{new}"), behind: ("cancelled", f"handed-off:{new}")}
+    assert rollout.read_bytes() == before
+    assert [r["params"]["clientUserMessageId"] for r in conv.stdin_rows() if r.get("method") == "turn/start"] == [
+        first, limited], "the waiting message never reached Codex"
+
+
+def test_a_handoff_is_refused_while_the_source_has_a_live_turn(conv):
+    """IR-28, C-24.7: while a turn runs, nothing is withdrawn and no conversation is
+    created; the queued message stays where it was."""
+    cid = conv.create()
+    running = conv.submit(cid, "count [fake:slow]")
+    conv.until_state(running, "running")
+    queued = conv.submit(cid, "next", after_message_id=running)
+    args = {"request_id": str(uuid.uuid4()), "from": {"conversation_id": cid},
+            "to": {"provider": "codex", "settings": CODEX_READ_ONLY}}
+    refused = conv.request("conversation.handoff", **args)
+    assert not refused["ok"] and refused["error"]["code"] == 2
+    assert refused["error"]["message"].startswith("live-turn")
+    assert conv.message(queued)["state"] == "queued"
+    listed = conv.call("conversation.list", include_catalog=False)["conversations"]
+    assert [c["origin"] for c in listed] == ["new"]
+    conv.call("turn.interrupt", message_id=running)
+    assert conv.until_state(running, "interrupted", "failed", "complete", timeout=20)["state"] == "interrupted"

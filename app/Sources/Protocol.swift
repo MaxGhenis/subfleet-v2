@@ -112,6 +112,10 @@ enum Ops {
     static let turnDiff = DaemonOperation<TurnDiffArgs, DiffResult>(name: "turn.diff", minimumTimeout: 120)
     static let conversationDiff = DaemonOperation<ConversationDiffArgs, DiffResult>(name: "conversation.diff",
                                                                                     minimumTimeout: 120)
+    /// Reads the source's native history and writes the brief on the daemon's
+    /// file pool, so it gets the diff ops' longer floor.
+    static let conversationHandoff = DaemonOperation<ConversationHandoffArgs, ConversationHandoffResult>(
+        name: "conversation.handoff", minimumTimeout: 120)
 
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
@@ -120,6 +124,7 @@ enum Ops {
         conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, turnInterrupt.name,
         messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
+        conversationHandoff.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
@@ -499,6 +504,35 @@ let diffCapability = "diff.v1"
 struct TurnDiffArgs: Codable, Equatable {
     var message_id: String
     var path: String?
+}
+
+/// `conversation.handoff` (C-30.3, design D-18): a new conversation with the
+/// other provider whose first message is a brief of this one; the source's
+/// pending messages move behind it. Idempotent by `request_id`.
+struct ConversationHandoffArgs: Codable, Equatable {
+    struct Source: Codable, Equatable {
+        var conversation_id: String
+    }
+    struct Target: Codable, Equatable {
+        var provider: String
+        var settings: ConversationSettings
+        var workspace: String?
+        var title: String?
+        var allow_main: Bool?
+    }
+    var request_id: String
+    var from: Source
+    var to: Target
+    var confirm_widen: Bool?
+}
+
+struct ConversationHandoffResult: Codable, Equatable {
+    var conversation: Conversation
+    var created: Bool
+    var brief: Receipt
+    var moved: [Receipt]
+    var withdrawn: [String]
+    var handoff_from: JSONValue?
 }
 
 struct ConversationDiffArgs: Codable, Equatable {

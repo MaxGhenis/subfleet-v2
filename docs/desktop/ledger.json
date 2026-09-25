@@ -69,7 +69,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design §15, §16)."
+      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design §15, §16). Daemon side: a `~/.codex` thread hands off with `from.native` (C-30.3)."
     },
     {
       "id": "M-5",
@@ -286,7 +286,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": ""
+      "notes": "Daemon side: `conversation.handoff` (C-30.3, design D-18) makes a new labelled conversation from a Claude transcript or a Codex rollout and moves pending messages (tests/e2e/test_conversations.py, tests/unit/test_conversation_handoff.py). The app's \"handoff from\" label is open."
     },
     {
       "id": "P-8",
