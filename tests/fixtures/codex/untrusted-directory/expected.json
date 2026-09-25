@@ -1,0 +1,23 @@
+{
+  "class": "unknown",
+  "scope": null,
+  "clock_source": null,
+  "closure": false,
+  "native_session_id": null,
+  "synthetic": false,
+  "provenance": {
+    "source": "v2",
+    "job": "20260924-082850-axiom-rulespec",
+    "attempt": "a1",
+    "observed_at": "2026-09-24T14:16:13Z",
+    "cli": "codex-cli 0.153.3",
+    "files": [
+      "stdout",
+      "stderr",
+      "exit.json",
+      "launch.json",
+      "finalization.json"
+    ],
+    "normalization": "stdout and stderr are the attempt's bytes, unchanged; its stream.jsonl was empty too. rc is exit.json's rc (1, after 5.0 s). The launch was a fresh read-only codex exec without --skip-git-repo-check whose cwd was an organisation folder that is not a Git repository; launch.json's model, guard override, and paths are not part of the replay. finalization.json recorded class unknown, 'Codex exited without a verified deliverable', unattested."
+  }
+}

@@ -7,6 +7,7 @@ credential sanitation required at the process boundary, without importing it.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -28,7 +29,7 @@ API_KEYS = ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 SCENARIOS = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection", "auth-401",
     "refresh-token-revoked", "cli-too-old", "content-filter", "stream-disconnect",
-    "model-at-capacity", "spawn-fail", "model-scoped-limit",
+    "model-at-capacity", "spawn-fail", "model-scoped-limit", "untrusted-directory",
 )
 
 
@@ -38,6 +39,11 @@ def _launch(tmp_path, sandbox=Sandbox.READ_ONLY):
     home = tmp_path / "codex-home"
     for directory in (workdir, attempt, home):
         directory.mkdir(parents=True)
+    if sandbox == Sandbox.WORKSPACE_WRITE:
+        # C-12.3: a writable launch keeps Codex's own repository check, and the
+        # fake applies it as the real CLI does. Submit never admits a writable
+        # job outside a committed repository, so the writable workdir is one.
+        subprocess.run(["git", "init", "-q", str(workdir)], check=True)
     prompt = tmp_path / "prompt.md"
     prompt.write_text("Return the fixture's final message.\n")
     job = JobSpec(
@@ -109,6 +115,39 @@ def test_fake_replays_exact_fixture_streams_and_exit_code(tmp_path, scenario):
     assert (Path(launch.stderr_path).parent / "last.md").exists() is (scenario == "success")
 
 
+@pytest.mark.parametrize("scenario", ["success", "limit-with-clock"])
+def test_fake_refuses_exec_outside_a_repository_without_the_flag(tmp_path, scenario):
+    """C-12.3 C-12.8 Like codex-cli 0.153.3, the fake refuses a non-repository cwd without --skip-git-repo-check, byte for byte, whatever the scenario."""
+    launch = _launch(tmp_path)
+    launch = replace(launch, argv=tuple(arg for arg in launch.argv if arg != "--skip-git-repo-check"))
+    completed = _spawn_fake(launch, scenario)
+    fixture = FIXTURES / "untrusted-directory"
+    assert completed.returncode == int((fixture / "rc").read_text()) == 1
+    assert Path(launch.raw_stream_path).read_bytes() == (fixture / "stdout").read_bytes() == b""
+    assert Path(launch.stderr_path).read_bytes() == (fixture / "stderr").read_bytes()
+    assert not (Path(launch.stderr_path).parent / "last.md").exists()
+
+
+def test_fake_runs_exec_below_a_worktree_without_the_flag(tmp_path):
+    """C-6.6 C-12.3 C-12.8 A `.git` file (a linked worktree) in a parent of the cwd satisfies the fake's check."""
+    launch = _launch(tmp_path)
+    (Path(launch.cwd) / ".git").write_text("gitdir: /repository/.git/worktrees/job\n")
+    nested = Path(launch.cwd) / "package"
+    nested.mkdir()
+    launch = replace(launch, cwd=str(nested),
+                     argv=tuple(arg for arg in launch.argv if arg != "--skip-git-repo-check"))
+    completed = _spawn_fake(launch, "success")
+    assert completed.returncode == 0, Path(launch.stderr_path).read_text()
+    assert Path(launch.raw_stream_path).read_bytes() == (FIXTURES / "success" / "stdout").read_bytes()
+
+
+def test_fake_metadata_calls_ignore_the_repository_check(tmp_path):
+    """C-12.8 C-14.2 `--version` answers from any directory; only exec launches are checked."""
+    completed = subprocess.run([str(FAKE_CODEX), "--version"], cwd=tmp_path, capture_output=True,
+                               text=True, timeout=5, check=False)
+    assert (completed.returncode, completed.stdout, completed.stderr) == (0, "codex-cli 0.153.3\n", "")
+
+
 def test_fake_honors_delay_and_output_last_message(tmp_path):
     """C-12.8 The fake honors its bounded delay and writes the final agent message to the requested file."""
     launch = _launch(tmp_path)
@@ -134,6 +173,11 @@ def test_fixture_provenance_and_redaction(scenario):
     if expected["synthetic"]:
         assert provenance["source"] == "synthetic"
         assert provenance["reason"]
+    elif provenance["source"] == "v2":
+        # Observed by the v2 daemon itself: the attempt's own bytes and receipts.
+        assert provenance["job"] and provenance["attempt"] and provenance["observed_at"]
+        assert {"stdout", "stderr", "exit.json"} <= set(provenance["files"])
+        assert provenance["normalization"]
     else:
         assert provenance["source"] == "v1"
         assert provenance["run"]

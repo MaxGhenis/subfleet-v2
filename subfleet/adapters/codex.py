@@ -49,6 +49,11 @@ LIMIT_RE = re.compile(
     r"(?:model|account).{0,60}(?:quota|usage limit)|quota exceeded|" + CREDITS_RE.pattern, re.I,
 )
 CONTENT_RE = re.compile(r"content[ _-]filter|trusted access|can('|’)t (help|assist) with", re.I)
+# The line codex-cli 0.153.3 prints when it refuses a workdir outside a Git
+# repository (fixture `untrusted-directory`, C-12.3, C-12.7).
+UNTRUSTED_DIRECTORY_RE = re.compile(
+    r"not inside a trusted directory and --skip-git-repo-check was not specified", re.I,
+)
 OLD_CLI_RE = re.compile(
     r"cli.{0,45}(?:too old|outdated)|"
     r"(?:upgrade|update)\s+(?:(?:your|the)\s+)?(?:codex|cli)\b|"
@@ -423,11 +428,28 @@ class CodexAdapter(Adapter):
         if not home or (credential_env.get("CODEX_HOME") and Path(credential_env["CODEX_HOME"]).expanduser().resolve() != Path(home).expanduser().resolve()):
             raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.")
         argv = [self.codex_bin, "exec", "--json"]
+        if sandbox == Sandbox.READ_ONLY:
+            # C-12.3: Codex refuses a workdir outside a Git repository unless this
+            # flag is given. The read-only sandbox already forbids the edits that
+            # check protects unversioned files from, so every read-only launch
+            # passes it exactly once: fresh or resumed, an isolated review (whose
+            # neutral cwd is not a repository), and a requested-model probe
+            # (C-11.4) or heal turn (C-23.47), which runs read-only in a private
+            # directory under the state root. A writable job always runs in a
+            # committed repository (submit refuses one without a head, and a job
+            # not run in place runs in the worktree the daemon cuts, C-6.6), so a
+            # writable launch keeps Codex's own check as a second guard
+            # (incident: 2026-09-24, read-only research jobs rooted in
+            # organisation folders exited 1 within seconds with "Not inside a
+            # trusted directory and --skip-git-repo-check was not specified.";
+            # no requested-model probe on a Codex lane had passed since
+            # 2026-09-19, each exiting 1 with no deliverable from its probe
+            # directory, which is not a repository).
+            argv += ["--skip-git-repo-check"]
         if job.isolated_review:
             from .isolation import codex_args, validate_isolated_review
             env = {**os.environ, **credential_env}
             validate_isolated_review(sandbox, job.review_root, env)
-            argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
                                inspector=getattr(self, "isolation_inspector", None))
         if model_id:
@@ -521,6 +543,15 @@ class CodexAdapter(Adapter):
                 if regex.search(text):
                     evidence["admission"] = event or text
                     return result(cls, detail)
+        # A refused workdir is an admission answer, not a lane's: the same launch
+        # fails the same way on every lane, and a retry cannot help, so it is
+        # `unknown` with no closure (C-4.5, C-9.2). Read-only launches pass the
+        # flag (C-12.3); this names the refusal if a launch ever omits it again.
+        for event, text in signals:
+            if UNTRUSTED_DIRECTORY_RE.search(text):
+                evidence["admission"] = event or text
+                return result(OutcomeClass.UNKNOWN,
+                              "Codex refused a workdir outside a Git repository (--skip-git-repo-check)")
         for event, text in signals:
             if not LIMIT_RE.search(text):
                 continue

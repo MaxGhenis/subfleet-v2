@@ -50,6 +50,35 @@ def last_message(fixture: Path, stdout: bytes) -> bytes | None:
     return last
 
 
+#: What codex-cli 0.153.3 printed, byte for byte, when it refused a read-only
+#: job's workdir (incident: 2026-09-24, job 20260924-082850-axiom-rulespec;
+#: the observed fixture `untrusted-directory` keeps the same bytes).
+UNTRUSTED_DIRECTORY = (
+    b"Reading prompt from stdin...\n"
+    b"Not inside a trusted directory and --skip-git-repo-check was not specified.\n"
+)
+
+
+def refuse_outside_git(argv: list[str]) -> int | None:
+    """The real `codex exec` refuses a workdir outside a Git repository (C-12.3).
+
+    Without `--skip-git-repo-check`, a cwd with no `.git` file or directory in
+    itself or any parent gets the two observed stderr lines and exit 1, whatever
+    the scenario, so a launch that omits the flag outside a repository fails
+    here as it failed in production. Metadata calls (`--version`, `app-server`)
+    never reach this check. Returns the exit code when it refuses, else None.
+    """
+    if argv[:1] != ["exec"] or "--skip-git-repo-check" in argv:
+        return None
+    cwd = Path(os.getcwd())
+    if any((directory / ".git").exists() for directory in (cwd, *cwd.parents)):
+        return None
+    sys.stdin.buffer.read()   # The real CLI reads the prompt before it checks.
+    sys.stderr.buffer.write(UNTRUSTED_DIRECTORY)
+    sys.stderr.buffer.flush()
+    return 1
+
+
 def nested_grandchild() -> int:
     # The intermediate process makes the detached sleeper a grandchild of
     # the fake provider. It inherits SUBFLEET_ATTEMPT for containment scans.
@@ -88,6 +117,9 @@ def main() -> int:
                     }],
                 }]}}), flush=True)
         return 0
+    refused = refuse_outside_git(sys.argv[1:])
+    if refused is not None:
+        return refused
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "success")
     if os.environ.get("SUBFLEET_PROBE"):
         # C-11.4: a probe is a tiny read-only turn; the fake answers it at once

@@ -26,6 +26,7 @@ quotations were not treated as observed provider failures.
 | `stream-disconnect` | Synthetic interrupted provider stream. |
 | `model-at-capacity` | Synthetic temporary model-capacity rejection. |
 | `spawn-fail` | Synthetic rc 127 spawn failure. |
+| `untrusted-directory` | Real v2 output observed 2026-09-24 (job `20260924-082850-axiom-rulespec`, attempt `a1`, codex-cli 0.153.3): a read-only `codex exec` without `--skip-git-repo-check` in a folder that is not a Git repository. stdout and stderr are the attempt's bytes unchanged; rc is its receipt's. |
 
 The real success source has `meta.json`, human-formatted `err.log`, `out.md`,
 and the rollout named in `expected.json`. Its actual thread id and final
@@ -47,6 +48,9 @@ reason for limited outcomes.
 
 `tests/bin/codex` replays fixture stdout and stderr exactly, consumes stdin,
 honors `--output-last-message`/`-o`, and supports `SUBFLEET_FAKE_DELAY_S`.
+Like the real CLI, an `exec` launch without `--skip-git-repo-check` whose cwd
+has no `.git` in itself or a parent gets the `untrusted-directory` stderr and
+rc 1 whatever the scenario (C-12.3).
 `SUBFLEET_FAKE_DIAGNOSTICS_PATH` optionally captures argv, cwd, stdin, and the
 credential/attempt environment fields for the process isolation tests. The
 `nested-setsid` scenario starts a grandchild in a new session, records its pid

@@ -24,7 +24,9 @@ REQUIRED_CASES = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection",
     "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter",
     "stream-disconnect", "model-at-capacity", "spawn-fail", "model-scoped-limit",
+    "untrusted-directory",
 )
+UNTRUSTED_LINE = "Not inside a trusted directory and --skip-git-repo-check was not specified."
 NOW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
 THREAD = "01991c18-2680-7000-8000-000000000001"
 MODEL = "gpt-6-astra"
@@ -109,7 +111,8 @@ def test_build_launch_preserves_contract_and_captures_sent_prompt(tmp_path, sand
         _job(workdir, prompt, sandbox), "job/a1", attempt, _lane(home), credential_env,
         MODEL, effort, prompt, GUARD_OVERRIDE,
     )
-    assert launch.argv[:5] == ("/test/bin/codex", "exec", "--json", "-m", MODEL)
+    skip = ("--skip-git-repo-check",) if sandbox == Sandbox.READ_ONLY else ()
+    assert launch.argv[:5 + len(skip)] == ("/test/bin/codex", "exec", "--json", *skip, "-m", MODEL)
     assert launch.argv[launch.argv.index("--sandbox") + 1] == sandbox.value
     overrides = [launch.argv[index + 1] for index, value in enumerate(launch.argv) if value == "-c"]
     assert GUARD_OVERRIDE in overrides
@@ -192,6 +195,74 @@ def test_resume_keeps_native_model_instead_of_forwarding_policy_alias(tmp_path):
     assert "-m" not in launch.argv
     assert "astra" not in launch.argv
     assert launch.argv[-3:] == ("resume", THREAD, "-")
+
+
+@pytest.mark.parametrize("sandbox", list(Sandbox))
+@pytest.mark.parametrize("resume", [False, True], ids=["fresh", "resume"])
+def test_read_only_launch_skips_git_repo_check_exactly_once(tmp_path, sandbox, resume):
+    """C-12.3 A read-only launch, fresh or resumed, passes --skip-git-repo-check once; a writable one never does."""
+    home, workdir, prompt = tmp_path / "home", tmp_path / "not-a-repository", tmp_path / "prompt.md"
+    prompt.write_bytes(b"Research the folder.\n")
+    job, lane, env = _job(workdir, prompt, sandbox), _lane(home), {"CODEX_HOME": str(home)}
+    if resume:
+        launch = CodexAdapter().resume_launch(job, "job/a2", tmp_path / "a2", lane, env,
+                                              THREAD, prompt, GUARD_OVERRIDE)
+    else:
+        launch = CodexAdapter().build_launch(job, "job/a1", tmp_path / "a1", lane, env,
+                                             MODEL, "high", prompt, GUARD_OVERRIDE)
+    expected = 1 if sandbox == Sandbox.READ_ONLY else 0
+    assert launch.argv.count("--skip-git-repo-check") == expected
+    if expected:
+        # An exec option: it precedes the `resume` subcommand like --sandbox.
+        assert launch.argv.index("--skip-git-repo-check") < launch.argv.index("--sandbox")
+    if resume:
+        assert launch.argv[-3:] == ("resume", THREAD, "-")
+
+
+def test_isolated_review_skips_git_repo_check_exactly_once(tmp_path):
+    """C-12.3 C-23.2 An isolated review is read-only, so its neutral cwd gets the flag once, not twice."""
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Review this input.")
+    job = replace(_job(tmp_path / "neutral", prompt), kind="gate-review", isolated_review=True,
+                  review_root=str(tmp_path / "source"))
+    adapter = CodexAdapter()
+    adapter.isolation_inspector = lambda binary, **kwargs: (
+        {"requirements": None}, {"layers": [{"name": {"type": "user"}, "config": {}}]}, [])
+    launch = adapter.build_launch(job, "job/a1", tmp_path / "a1", _lane(tmp_path / "home"),
+                                  {}, MODEL, "high", prompt, None)
+    assert "--ephemeral" in launch.argv
+    assert launch.argv.count("--skip-git-repo-check") == 1
+
+
+def test_untrusted_directory_refusal_is_named_unknown_without_closure(tmp_path):
+    """C-4.5 C-9.2 C-12.3 Codex refusing a workdir outside a repository is an admission answer: unknown, no closure, never retried as transient."""
+    launch = _events(tmp_path, stderr="Reading prompt from stdin...\n" + UNTRUSTED_LINE + "\n")
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.UNKNOWN
+    assert outcome.detail == "Codex refused a workdir outside a Git repository (--skip-git-repo-check)"
+    assert outcome.evidence["admission"] == UNTRUSTED_LINE
+    assert outcome.evidence["quota"] is None
+    assert outcome.closure is None
+
+
+def test_untrusted_directory_refusal_keeps_authentication_first(tmp_path):
+    """C-9.2 Authentication evidence still answers before the workdir refusal."""
+    launch = _events(tmp_path, {"type": "error", "message": "Your refresh token was revoked."},
+                     stderr=UNTRUSTED_LINE + "\n")
+    assert CodexAdapter().classify(tmp_path, launch, _exit(1)).cls == OutcomeClass.AUTH_DEAD
+
+
+@pytest.mark.parametrize("rc,expected", [(0, OutcomeClass.OK), (1, OutcomeClass.UNKNOWN)])
+def test_assistant_text_quoting_the_refusal_is_not_evidence(tmp_path, rc, expected):
+    """C-9.2 C-12.6 Only stderr lines and failure events can name the refusal, never assistant text."""
+    launch = _events(tmp_path, {"type": "thread.started", "thread_id": THREAD},
+                     {"type": "item.completed", "item": {"type": "agent_message",
+                      "text": f"Codex printed: {UNTRUSTED_LINE}"}},
+                     {"type": "turn.completed"})
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(rc))
+    assert outcome.cls == expected
+    assert outcome.detail != "Codex refused a workdir outside a Git repository (--skip-git-repo-check)"
+    assert UNTRUSTED_LINE not in str(outcome.evidence)
 
 
 def test_authentication_precedes_admission_and_quota(tmp_path):
