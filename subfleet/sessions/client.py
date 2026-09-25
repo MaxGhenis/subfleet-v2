@@ -14,9 +14,9 @@ against a recording double instead of a live daemon.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
+from typing import Any, Callable
 
-from ..client import Client, DaemonError, DaemonUnavailable
+from ..client import Client, DaemonError, DaemonUnavailable, OutcomeUnknown, ResponseLost
 from ..protocol import PingArgs, ProtocolError, SessionsArgs, SubmitArgs
 
 #: What a daemon older than this verb answers. `protocol.decode_request` raises
@@ -38,8 +38,10 @@ def _asdict(value: Any) -> dict[str, Any]:
 class Sessions:
     """`subfleet sessions`' view of the daemon."""
 
-    def __init__(self, client: Client):
+    def __init__(self, client: Client, *,
+                 on_lost: Callable[[ResponseLost], None] | None = None):
         self.client = client
+        self.on_lost = on_lost          # C-16.3: told before a lost submit is re-sent
 
     # --- durable facts (C-23.33, C-23.35, C-23.55) ---------------------------
 
@@ -91,7 +93,17 @@ class Sessions:
         return self.client.call("ping", _asdict(PingArgs(text=text, session_id=session_id)))
 
     def submit(self, args: SubmitArgs) -> dict[str, Any]:
-        return self.client.call("submit", _asdict(args), request_id=args.request_id)
+        """One job through the ordinary path, settled if its answer is lost (C-16.3).
+
+        A lost answer is re-sent once under the same request id; answered
+        neither time, `OutcomeUnknown` reaches the verb, which says so rather
+        than "not submitted". The request id is treated as the caller's
+        (`minted=False`): a re-send refused while a job holds the id stays a
+        refusal naming that job, because this layer cannot tell a revive's
+        freshly minted id from a `handoff --request-id` the operator reused.
+        """
+        return self.client.call_settled("submit", _asdict(args), request_id=args.request_id,
+                                        on_lost=self.on_lost)
 
     # --- internals -----------------------------------------------------------
 
@@ -115,4 +127,5 @@ class Sessions:
             raise
 
 
-__all__ = ["Sessions", "SessionsUnsupported", "DaemonError", "DaemonUnavailable"]
+__all__ = ["Sessions", "SessionsUnsupported", "DaemonError", "DaemonUnavailable",
+           "OutcomeUnknown"]

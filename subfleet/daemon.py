@@ -936,7 +936,10 @@ class Daemon:
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
             if existing:
                 if existing["payload_digest"] != digest:
-                    raise protocol.ProtocolError("request id already used with a different payload")
+                    # Named, so a caller settling a lost answer (C-16.3) learns
+                    # which job holds the id without another round trip.
+                    raise protocol.ProtocolError("request id already used with a different "
+                                                 f"payload by job {existing['job_id']}")
                 return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False}
             job_id = ids.job_id(args.name or args.task or model,
                                 existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
@@ -1372,6 +1375,8 @@ class Daemon:
                 sql += " AND caller_session=?"; params.append(a.mine)
             if a.running:
                 sql += " AND state NOT IN ('succeeded','failed','cancelled','lost')"
+            if a.request_id is not None:
+                sql += " AND request_id=?"; params.append(a.request_id)   # C-16.3
             sql += " ORDER BY created_at DESC, rowid DESC"
             if a.last is not None:
                 if not isinstance(a.last, int) or a.last < 0:
