@@ -1285,7 +1285,8 @@ def test_sessions_list_reports_the_gap_even_when_nothing_is_listed(world, monkey
 
     class Daemon:
         def state(self, _session):
-            return {}
+            # Nothing registered; the conversation fence (C-26.13) answered.
+            return {"sessions": {}, "lane_sessions": [], "conversation_sessions": []}
 
     monkeypatch.setattr(sessions_cli, "_sessions", lambda args: Daemon())
     for argv, quiet in ((["sessions", "list"], False), (["sessions", "list", "--json"], True)):
