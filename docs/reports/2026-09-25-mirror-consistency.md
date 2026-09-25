@@ -87,7 +87,10 @@ the machine from starving the daemon.
   the installed mirror ran as a separate `subfleet sessions mirror --once`
   process, which the daemon's crashes could not cancel. It finished at
   19:59:25Z. At 20:41Z all 120 copies of each of the 84 restored sessions read
-  unarchived, and the merge base held `isArchived: false` for all 84.
+  unarchived, and the merge base held `isArchived: false` for all 84. After
+  the 20:54Z crash a second stopgap pass ran from 20:59:01Z to 21:01:00Z,
+  after the memory pressure was relieved. It took two minutes and added 476
+  copies. The 84 were unchanged.
 
 ## Invariants
 
