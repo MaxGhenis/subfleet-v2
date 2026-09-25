@@ -12,6 +12,7 @@ import pytest
 from subfleet import cli
 from subfleet.contracts import Decision
 from subfleet.gate.service import GateService, dispatch
+from subfleet.policy import DEFAULT_POLICY_PATH
 from tests.fake.test_gate_end_to_end import arguments, finish, wire
 from tests.unit.test_gate_admission import core, lane
 from tests.unit.test_gate_merge import BASE, HEAD, LANDING, OTHER, FakeGh
@@ -257,6 +258,35 @@ def test_opus_peer_may_review_a_same_family_main(core, tmp_path):
     state = core._gate_service._load(result["gate_id"])
     assert (state["peer"], state["main_family"]) == ("opus", "claude")
     assert state["rounds"][-1]["requested_model"] == core.policy["models"]["opus"]["id"]
+
+
+POLICY_MODELS = tuple(json.loads(Path(DEFAULT_POLICY_PATH).read_text())["models"])
+
+
+@pytest.mark.parametrize("main_model", [None, *POLICY_MODELS, "gpt-9"])
+@pytest.mark.parametrize("peer", ["fable", "opus", "astra", "sol"])
+def test_every_peer_and_main_pair_is_admitted_or_refused_by_policy_alone(core, tmp_path, peer, main_model):
+    """C-17.1 C-23.2 C-23.10 Over every peer and every main the policy names (and one it
+    does not): no pair is refused for sharing a family; the round is an isolated read-only
+    review pinned to the peer's policy model (`sol` is Astra); the main's family is its
+    policy provider when named and unknown otherwise; an unnamed model is refused unsubmitted."""
+    plan = tmp_path / "plan.md"
+    plan.write_text(f"Pair {peer} with {main_model}\n")
+    flags = ("--main-model", main_model) if main_model else ()
+    result = dispatch(core, "gate.start", wire(arguments(plan, *flags, peer=peer)))
+    named = core.policy["models"].get(main_model) if main_model else None
+    if main_model and named is None:
+        assert result["code"] == 2 and "unknown --main-model" in result["message"]
+        assert core.store.list_jobs() == []
+        return
+    assert result["code"] is None and result["job_id"]
+    expected_peer = "astra" if peer == "sol" else peer
+    job = core.store.get_job(result["job_id"])
+    assert (job["kind"], job["pinned_model"], job["sandbox"], job["isolated_review"]) == (
+        "gate-review", expected_peer, "read-only", 1)
+    state = core._gate_service._load(result["gate_id"])
+    assert (state["peer"], state["main_family"]) == (expected_peer, named["provider"] if named else None)
+    assert state["rounds"][-1]["requested_model"] == core.policy["models"][expected_peer]["id"]
 
 
 def test_gate_does_not_infer_main_family_from_the_peer(core, tmp_path):
