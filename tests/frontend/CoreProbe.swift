@@ -80,7 +80,7 @@ let codecs: [String: OpCodec] = {
         codec(Ops.conversationEvents), codec(Ops.conversationWatch), codec(Ops.messageSubmit), codec(Ops.messageStatus),
         codec(Ops.messageCancel), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
         codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
-        codec(Ops.modelsList), codec(Ops.conversationRuns),
+        codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
     ]
     return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 }()
@@ -242,6 +242,13 @@ struct CoreProbe {
             // request <op> <args.json> [id]
             let line = try opCodec(arguments[2]).requestLine(readFile(arguments[3]), arguments.count > 4 ? arguments[4] : "probe-1")
             FileHandle.standardOutput.write(line)
+        case "diff-parse":
+            // diff-parse <diff.txt>: the Changes pane's sections and rows
+            let text = String(decoding: try readFile(arguments[2]), as: UTF8.self)
+            emit(UnifiedDiff.parse(text).map { section -> [String: Any] in
+                ["path": section.path, "header": section.header, "binary": section.binary,
+                 "lines": section.lines.map { [$0.kind.rawValue, $0.text, $0.old as Any? ?? NSNull(), $0.new as Any? ?? NSNull()] }]
+            })
         case "roundtrip":
             // roundtrip <op> <result.json>: decode the result as the op's model, encode it again
             FileHandle.standardOutput.write(try opCodec(arguments[2]).roundTrip(readFile(arguments[3])))

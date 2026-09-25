@@ -160,6 +160,9 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     results["approval.respond"] = harness.call("approval.respond", approval_id=approval["approval_id"], decision="allow",
                                                nonce=detail["nonce"], request_sha256=detail["request_sha256"])
     results["turn.interrupt"] = harness.call("turn.interrupt", message_id=fixture["second"]["message_id"])
+    # The diff ops' unavailable shapes; tests/frontend/test_core_diff.py has the real diffs.
+    results["turn.diff"] = harness.call("turn.diff", message_id=fixture["third"]["message_id"])
+    results["conversation.diff"] = harness.call("conversation.diff", conversation_id=cid)
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)

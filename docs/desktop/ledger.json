@@ -257,11 +257,12 @@
       "source": "transition plan capability map",
       "clauses": [
         "C-29.10",
-        "C-26.10"
+        "C-26.10",
+        "C-26.14"
       ],
       "status": "open",
       "evidence": [],
-      "notes": ""
+      "notes": "Daemon side built: turn.diff and conversation.diff over start and end working-tree snapshots (C-26.14; tests/e2e/test_conversations.py, tests/fake/test_turn_trees.py, tests/fake/test_conversation_pools.py, tests/unit/test_conversation_diff.py). The app's Changes pane, Reveal in Finder, Open in editor, Open PR and Remove worktree are not built."
     },
     {
       "id": "P-6",

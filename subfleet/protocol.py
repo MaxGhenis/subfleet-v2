@@ -22,6 +22,7 @@ CONVERSATION_OPS = (
     "message.submit", "message.status", "message.cancel", "turn.interrupt", "message.resolve",
     "approval.list", "approval.get", "approval.respond", "attachment.add", "catalog.refresh", "models.list",
     "conversation.runs",
+    "turn.diff", "conversation.diff",
 )
 
 #: What `decode_request` answers for an op this daemon does not serve. A client

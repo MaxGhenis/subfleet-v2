@@ -10,7 +10,7 @@ import uuid
 import pytest
 
 from subfleet.conversations.store import (
-    ConversationError, ConversationStore, message_digest, validate_settings, widens,
+    SCHEMA_VERSION, ConversationError, ConversationStore, message_digest, validate_settings, widens,
 )
 
 SETTINGS = {"model": "opus", "effort": "high", "fast": False, "permission": "ask"}
@@ -241,8 +241,8 @@ def test_a_worktree_is_recorded_through_update_conversation(store):
 
 
 def test_an_earlier_conversation_store_gains_the_worktree_column(tmp_path):
-    """C-24.1: a store written before `worktree_json` existed opens, keeps schema 1, and
-    reads its conversations with no worktree."""
+    """C-24.1: a store written before `worktree_json` existed opens, keeps its schema (an
+    added column needs no numbered step), and reads its conversations with no worktree."""
     import sqlite3
     root = tmp_path / "state"
     first = ConversationStore(root)
@@ -255,7 +255,7 @@ def test_an_earlier_conversation_store_gains_the_worktree_column(tmp_path):
     again = ConversationStore(root)
     try:
         assert again.conversation(c["conversation_id"])["worktree"] is None
-        assert again.one("SELECT MAX(version) v FROM schema_version")["v"] == 1
+        assert again.one("SELECT MAX(version) v FROM schema_version")["v"] == SCHEMA_VERSION
     finally:
         again.close()
 
@@ -357,3 +357,107 @@ def test_a_withdrawal_tombstone_is_born_cancelled_and_never_dispatchable(store):
     with pytest.raises(ValueError):
         store.submit_message(conversation_id=c["conversation_id"], message_id=mid(), after_message_id=None,
                              text="x", attachments=[], settings=SETTINGS, state="running")
+
+
+def test_a_schema_1_store_is_migrated_to_2_in_place(tmp_path):
+    """C-26.14, C-3.1: a store written by schema 1 gains `turn_trees` on open, records
+    the step, keeps its rows, and opening it again changes nothing."""
+    import sqlite3
+    from subfleet.conversations import store as store_module
+    root = tmp_path / "state"
+    s = ConversationStore(root)
+    c = conv(s)
+    s.close()
+    db = sqlite3.connect(root / "conversations.sqlite3")
+    # What schema 1 wrote: no `turn_trees`, and one version row.
+    db.executescript("DROP TABLE turn_trees; DELETE FROM schema_version; "
+                     "INSERT INTO schema_version VALUES (1, '2026-09-24T00:00:00Z');")
+    db.close()
+    s = ConversationStore(root)
+    assert [r["version"] for r in s.query("SELECT version FROM schema_version ORDER BY version")] == [1, 2]
+    assert s.conversation(c["conversation_id"])["workspace"] == "/w"
+    assert {r["name"] for r in s.query("PRAGMA table_info(turn_trees)")} >= {"start_tree", "end_tree", "head_after"}
+    s.close()
+    s = ConversationStore(root)
+    assert [r["version"] for r in s.query("SELECT version FROM schema_version ORDER BY version")] == [1, 2]
+    s.close()
+    assert store_module.SCHEMA_VERSION == 2
+
+
+def test_a_newer_store_is_refused(tmp_path):
+    """C-26.14: a build never opens a store written by a newer schema."""
+    import sqlite3
+    root = tmp_path / "state"
+    ConversationStore(root).close()
+    db = sqlite3.connect(root / "conversations.sqlite3")
+    db.execute("INSERT INTO schema_version VALUES (3, 'later')")
+    db.commit()
+    db.close()
+    with pytest.raises(ConversationError) as err:
+        ConversationStore(root)
+    assert err.value.reason == "schema"
+
+
+def test_turn_trees_are_recorded_once_per_attempt_and_the_latest_attempt_is_the_turn(store):
+    """C-26.14: the start is written once and the end fills in; a replay changes
+    nothing; the end is one change-feed row; a re-admitted message's latest attempt is
+    its turn; the conversation's base is its first writable turn's start."""
+    c = conv(store)
+    m = mid()
+    store.submit_message(conversation_id=c["conversation_id"], message_id=m, after_message_id=None, text="x",
+                         attachments=[], settings=SETTINGS)
+    base = dict(message_id=m, conversation_id=c["conversation_id"], workspace="/w", writable=True)
+    store.record_trees(attempt_id="j1/a1", started_at="2026-09-24T10:00:00Z", head_before="h0", start_tree="t0",
+                       **base)
+    store.record_trees(attempt_id="j1/a1", started_at="2026-09-24T10:00:00Z", head_before="other",
+                       start_tree="other", **base)
+    assert store.turn_trees(m)["start_tree"] == "t0" and store.turn_trees(m)["ended_at"] is None
+    feed = store.changes_after(0)["next"]
+    for _ in range(2):
+        store.record_trees(attempt_id="j1/a1", started_at="2026-09-24T10:00:00Z", head_before="h0",
+                           start_tree="t0", head_after="h1", end_tree="t1", ended=True, **base)
+    row = store.turn_trees(m)
+    assert (row["head_before"], row["start_tree"], row["head_after"], row["end_tree"]) == ("h0", "t0", "h1", "t1")
+    assert row["writable"] is True and row["ended_at"]
+    assert [(ch["message_id"], ch["state"]) for ch in store.changes_after(feed)["changes"]] == [(m, None)]
+    # A later attempt of the same message (a re-admission) is the turn.
+    store.record_trees(attempt_id="j2/a1", started_at="2026-09-24T10:00:05Z", head_before="h1", start_tree="t2",
+                       **base)
+    assert store.turn_trees(m)["attempt_id"] == "j2/a1"
+    assert store.first_trees(c["conversation_id"])["attempt_id"] == "j1/a1"
+    read_only = conv(store, workspace="/r")
+    r = mid()
+    store.submit_message(conversation_id=read_only["conversation_id"], message_id=r, after_message_id=None,
+                         text="x", attachments=[], settings=SETTINGS)
+    store.record_trees(attempt_id="j3/a1", message_id=r, conversation_id=read_only["conversation_id"],
+                       workspace="/r", writable=False, started_at="2026-09-24T10:00:00Z", head_before="h")
+    assert store.turn_trees(r)["writable"] is False
+    assert store.first_trees(read_only["conversation_id"]) is None
+
+
+def test_a_message_s_latest_attempt_is_the_one_recorded_last(store):
+    """C-26.14, C-24.5: attempts are ordered as they were recorded, not by `started_at`
+    (whole seconds) or the attempt id: a re-admitted message's second job reserved in
+    the same second has the id `<stamp>-<slug>-1`, which sorts below the first's once
+    `/a1` follows, and a clock stepped back gives the later attempt the earlier time."""
+    c = conv(store)
+    m = mid()
+    store.submit_message(conversation_id=c["conversation_id"], message_id=m, after_message_id=None, text="x",
+                         attachments=[], settings=SETTINGS)
+    base = dict(message_id=m, conversation_id=c["conversation_id"], workspace="/w", writable=True)
+    first, second = "20260924-100000-turn-10fa90399504/a1", "20260924-100000-turn-10fa90399504-1/a1"
+    assert sorted([first, second])[-1] == first           # the tie-break the ids would give is the wrong one
+    store.record_trees(attempt_id=first, started_at="2026-09-24T10:00:00Z", start_tree="t1", **base)
+    store.record_trees(attempt_id=first, started_at="2026-09-24T10:00:00Z", start_tree="t1", end_tree="e1",
+                       ended=True, **base)
+    store.record_trees(attempt_id=second, started_at="2026-09-24T10:00:00Z", start_tree="t2", **base)
+    assert store.turn_trees(m)["attempt_id"] == second
+    assert store.first_trees(c["conversation_id"])["attempt_id"] == first
+    # The end of the earlier attempt filling in again (a replayed finalization) moves nothing.
+    store.record_trees(attempt_id=first, started_at="2026-09-24T10:00:00Z", start_tree="t1", end_tree="e1",
+                       ended=True, **base)
+    assert store.turn_trees(m)["attempt_id"] == second
+    third = "20260924-095959-turn-10fa90399504/a1"
+    store.record_trees(attempt_id=third, started_at="2026-09-24T09:59:59Z", start_tree="t3", **base)
+    assert store.turn_trees(m)["attempt_id"] == third
+    assert store.first_trees(c["conversation_id"])["attempt_id"] == first

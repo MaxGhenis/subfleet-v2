@@ -72,6 +72,10 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-26.14: tries at a turn's end snapshot while git fails transiently (C-6.8's
+#: kinds), before finalization records the failure and goes on without it, so a
+#: turn's finalization waits on its diff for at most a few capped git calls.
+TURN_TREE_TRIES = 3
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -204,6 +208,8 @@ class Daemon:
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
+        # C-26.14: attempt id -> transient failures of its end snapshot so far.
+        self._tree_failures: dict[str, int] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
         # C-10.3: who asks the desktop app's own credential who it is. `None`
@@ -3387,8 +3393,15 @@ class Daemon:
                 tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
             return
         artifacts = []
-        if census.verified_empty:
-            artifacts, _ = self._salvage(self._job(a["job_id"]), a)
+        job = self._job(a["job_id"])
+        if job["kind"] == "turn":
+            # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
+            # when nothing can still be writing (C-26.14). An operator's one-shot
+            # request is never retried, so a git failure is recorded, not raised.
+            self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
+                             "released from quarantine with writers still live; no end snapshot")
+        elif census.verified_empty:
+            artifacts, _ = self._salvage(job, a)
         with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release}) as tx:
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
@@ -3452,6 +3465,53 @@ class Daemon:
         ref = result.get("ref") or result.get("ref_name")
         commit = result.get("commit") or result.get("commit_sha")
         return [{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}], receipt["checkpoint"]
+
+    def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
+        """C-26.10, C-26.14 (design D-25): a turn's end, taken while its leases are held.
+
+        HEAD after, and for a writable turn whose admission took a start snapshot
+        (the attempt's `baseline_tree`, C-6.8), the end snapshot through the same
+        temporary index: a tree object, no ref, the real index and files untouched.
+        The receipt `trees.json` makes a replayed finalization take nothing twice.
+        A transient git failure raises, so the worker tries again with its
+        backoff, until `TURN_TREE_TRIES` tries in all have failed (the first and
+        two retries; the count is in memory, so a restart starts it again); that
+        failure, or any other, is recorded and the turn ends without an end
+        snapshot. A quarantine's
+        release passes `retry=False` (an operator's one-shot request is never
+        offered again, so it records at once), and `error` when writers may still
+        be live: then no snapshot is taken and the error is what is recorded.
+        """
+        from .conversations import diff as turn_diff
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        path = adir / "trees.json"
+        receipt = self._read_json(path)
+        if receipt is None:
+            writable = job["sandbox"] == "workspace-write"
+            evidence = json.loads(a["evidence_json"] or "{}")
+            receipt = {"workspace": job.get("worktree") or job["workdir"], "writable": writable,
+                       "head_before": evidence.get("baseline_commit"),
+                       "start_tree": a.get("baseline_tree") if writable else None,
+                       "head_after": None, "end_tree": None, "error": error}
+            if error is None:
+                try:
+                    receipt.update(turn_diff.end_snapshot(
+                        receipt["workspace"], head_before=receipt["head_before"], start_tree=receipt["start_tree"],
+                        timeout_s=self.policy["caps"]["workspace_git_timeout_s"]))
+                except (SalvageError, OSError) as exc:
+                    failures = self._tree_failures[a["attempt_id"]] = self._tree_failures.get(a["attempt_id"], 0) + 1
+                    transient = getattr(exc, "transient", False) or transient_os_error(exc)
+                    if retry and transient and failures < TURN_TREE_TRIES:
+                        raise
+                    receipt["error"] = f"end snapshot failed: {exc}"[:500]
+            self._tree_failures.pop(a["attempt_id"], None)
+            receipt["at"] = utcnow()
+            self._publish("trees", path, json_bytes(receipt))
+            self._boundary("trees", job["job_id"], a["attempt_id"])
+        turn = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn")
+        if turn:
+            self.conversations.record_trees(turn, a, receipt)
+        return receipt
 
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
@@ -3547,8 +3607,14 @@ class Daemon:
                      self._artifact(adir / "lane.log", "lane-log"),
                      self._artifact(Path(launch.raw_stream_path), "raw-stream") if launch.raw_stream_path else None,
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
-        # C-26.10: a turn works in its conversation's workspace and writes no salvage ref.
-        salvage_artifacts, checkpoint = ([], None) if job["kind"] == "turn" else self._salvage(job, a)
+        # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
+        # its receipt records HEAD after and its end snapshot (C-26.14).
+        trees = None
+        if job["kind"] == "turn":
+            salvage_artifacts, checkpoint = [], None
+            trees = self._turn_trees(job, a)
+        else:
+            salvage_artifacts, checkpoint = self._salvage(job, a)
         artifacts.extend(salvage_artifacts)
         with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             job = self._job(a["job_id"])
@@ -3573,6 +3639,9 @@ class Daemon:
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
             evidence = json.loads(a["evidence_json"] or "{}")
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint)
+            if trees is not None:
+                evidence["turn_trees"] = {k: trees.get(k) for k in ("head_before", "head_after", "start_tree",
+                                                                     "end_tree", "error")}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
                         outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))

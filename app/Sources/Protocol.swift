@@ -72,11 +72,14 @@ struct DaemonError: Error, Codable, Equatable {
 struct DaemonOperation<Args: Encodable, Result: Decodable> {
     let name: String
     var longPoll = false
+    /// An op that runs git on the daemon's file pool waits at least this long:
+    /// each git call there has its own cap (`caps.workspace_git_timeout_s`).
+    var minimumTimeout: TimeInterval = 0
 
-    /// 15 s, or `wait_s + 15` for a long poll (design §12).
+    /// 15 s, or `wait_s + 15` for a long poll (design §12); never below `minimumTimeout`.
     func timeout(for args: Args, base: TimeInterval = 15) -> TimeInterval {
-        if longPoll, let poll = args as? LongPollArgs { return max(0, poll.wait_s ?? 0) + base }
-        return base
+        if longPoll, let poll = args as? LongPollArgs { return max(minimumTimeout, max(0, poll.wait_s ?? 0) + base) }
+        return max(minimumTimeout, base)
     }
 }
 
@@ -106,6 +109,9 @@ enum Ops {
     static let catalogRefresh = DaemonOperation<NoArgs, CatalogRefreshResult>(name: "catalog.refresh")
     static let modelsList = DaemonOperation<ModelsListArgs, ModelsListResult>(name: "models.list")
     static let conversationRuns = DaemonOperation<ConversationRunsArgs, ConversationRunsResult>(name: "conversation.runs")
+    static let turnDiff = DaemonOperation<TurnDiffArgs, DiffResult>(name: "turn.diff", minimumTimeout: 120)
+    static let conversationDiff = DaemonOperation<ConversationDiffArgs, DiffResult>(name: "conversation.diff",
+                                                                                    minimumTimeout: 120)
 
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
@@ -113,7 +119,7 @@ enum Ops {
         conversationSettings.name, conversationUnblock.name, conversationHistory.name, conversationEvents.name,
         conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, turnInterrupt.name,
         messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
-        catalogRefresh.name, modelsList.name, conversationRuns.name,
+        catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
@@ -321,6 +327,9 @@ struct CapabilityLimits: Codable, Equatable {
     var events_page_bytes: Int?
     var events_wait_s: Double?
     var relay_frame_bytes: Int?
+    /// `diff.v1`: a diff's text and file-list bounds (C-26.14).
+    var diff_bytes: Int?
+    var diff_files: Int?
 }
 
 struct ModelsListArgs: Codable, Equatable {
@@ -480,6 +489,76 @@ struct ConversationUnblockArgs: Codable, Equatable {
         try c.encode(choice, forKey: .choice)
         try c.encode(true, forKey: .confirm)
     }
+}
+
+// MARK: - turn.diff, conversation.diff (C-26.14, design D-25)
+
+/// The daemon advertises the two diff ops with this capability (C-25.2).
+let diffCapability = "diff.v1"
+
+struct TurnDiffArgs: Codable, Equatable {
+    var message_id: String
+    var path: String?
+}
+
+struct ConversationDiffArgs: Codable, Equatable {
+    var conversation_id: String
+    var path: String?
+}
+
+/// What a turn, or a whole conversation, changed in its checkout: the files and
+/// a unified diff between two working-tree snapshots, bounded and scrubbed.
+/// With `available: false`, `reason` and `detail` say why, and the lists are empty.
+struct DiffResult: Codable, Equatable {
+    var message_id: String?
+    var conversation_id: String
+    var available: Bool
+    var reason: String?
+    var detail: String?
+    var root: String?
+    var path: String?
+    var from: DiffEnd?
+    var to: DiffEnd?
+    var files: [DiffFile]
+    var files_truncated: Bool
+    var stats: DiffStats
+    var diff: String
+    var truncated: Bool
+    var scrubbed: Int
+
+    /// Compared with the working tree now, not a turn's end snapshot.
+    var isLive: Bool { to?.live == true }
+}
+
+/// One side of a comparison: a snapshot's tree and HEAD, and when it was taken.
+struct DiffEnd: Codable, Equatable {
+    var tree: String?
+    var head: String?
+    var message_id: String?
+    var live: Bool?
+    var at: String?
+}
+
+/// `status` is `added`, `deleted`, `modified`, `renamed` (with `from`),
+/// `type-changed` or `copied`; the counts are null for a binary file.
+struct DiffFile: Codable, Equatable, Identifiable {
+    var path: String
+    var status: String
+    var additions: Int?
+    var deletions: Int?
+    var binary: Bool
+    var from: String?
+
+    var id: String { path }
+}
+
+/// Every changed file is counted, listed or not; `complete: false` when git's
+/// listing passed its bound and only the listed files are counted.
+struct DiffStats: Codable, Equatable {
+    var files: Int
+    var additions: Int
+    var deletions: Int
+    var complete: Bool
 }
 
 // MARK: - conversation.history

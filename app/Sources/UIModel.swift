@@ -22,11 +22,20 @@ final class UIModel: ObservableObject {
     /// Each conversation's dispatched runs (its sub-agents), newest first.
     @Published var runs: [String: [RunSummary]] = [:]
     @Published var busy = false
+    /// The Changes pane's subject while it is open (C-26.14).
+    @Published var changesScope: ChangesScope?
+    /// Each subject's last answer.
+    @Published var changes: [ChangesScope: ChangesLoad] = [:]
+    /// A finished turn's changed-file counts, for its status line.
+    @Published var turnChanges: [String: DiffStats] = [:]
+    private var turnChangesAsked: Set<String> = []
 
     let paths: AppPaths
     let drafts: DraftStore
     private(set) var engine: ConversationEngine?
     private let outboxQueue = DispatchQueue(label: "org.maxghenis.subfleet.outbox")
+    /// Reads that run git on the daemon (the diffs) wait here, never behind a send.
+    private let readQueue = DispatchQueue(label: "org.maxghenis.subfleet.reads", attributes: .concurrent)
     private var started = false
     private var eventsGeneration = 0
     private var pumpTimer: Timer?
@@ -280,6 +289,61 @@ final class UIModel: ObservableObject {
         }
     }
 
+    // MARK: Changes
+
+    /// Whether the daemon serves `turn.diff` and `conversation.diff` (C-25.1).
+    var canShowChanges: Bool { state.availability.capabilities?.has(diffCapability) == true }
+
+    /// Opens the Changes pane on a subject, or closes it when it already shows it.
+    func showChanges(_ scope: ChangesScope) {
+        if changesScope == scope {
+            changesScope = nil
+            return
+        }
+        changesScope = scope
+        Task { await loadChanges(scope) }
+    }
+
+    func loadChanges(_ scope: ChangesScope) async {
+        guard let engine else { return }
+        if case .loaded = changes[scope] {} else { changes[scope] = .loading }
+        do {
+            let loaded = try await onReads { () throws -> ChangesLoad in
+                let result: DiffResult
+                switch scope {
+                case .conversation(let id): result = try engine.conversationDiff(conversationID: id)
+                case .turn(_, let messageID): result = try engine.turnDiff(messageID: messageID)
+                }
+                return .loaded(result, UnifiedDiff.parse(result.diff))
+            }
+            changes[scope] = loaded
+            if case .turn(_, let messageID) = scope, case .loaded(let result, _) = loaded { noteTurn(messageID, result) }
+        } catch {
+            changes[scope] = .failed(describe(error))
+        }
+    }
+
+    /// A finished turn's counts, asked once per turn. The end snapshot is
+    /// recorded at finalization, a moment after the turn shows finished, so an
+    /// answer still comparing with the working tree is asked again shortly.
+    func loadTurnChanges(_ messageID: String) async {
+        guard let engine, canShowChanges, turnChanges[messageID] == nil,
+              turnChangesAsked.insert(messageID).inserted else { return }
+        for attempt in 1...6 {
+            guard let result = try? await onReads({ try engine.turnDiff(messageID: messageID) }) else { break }
+            if !result.isLive {
+                noteTurn(messageID, result)
+                return
+            }
+            try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
+        }
+        turnChangesAsked.remove(messageID)
+    }
+
+    private func noteTurn(_ messageID: String, _ result: DiffResult) {
+        if result.available && !result.isLive && turnChanges[messageID] != result.stats { turnChanges[messageID] = result.stats }
+    }
+
     func loadHistory(_ conversationID: String) async {
         guard let engine, let timeline = state.timelines[conversationID], !timeline.historyComplete else { return }
         do {
@@ -456,6 +520,14 @@ final class UIModel: ObservableObject {
     private func onOutbox<T>(_ work: @escaping () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             outboxQueue.async {
+                do { continuation.resume(returning: try work()) } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    private func onReads<T>(_ work: @escaping () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            readQueue.async {
                 do { continuation.resume(returning: try work()) } catch { continuation.resume(throwing: error) }
             }
         }

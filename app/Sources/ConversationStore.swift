@@ -652,6 +652,17 @@ final class ConversationEngine {
         try client.call(Ops.conversationRuns, ConversationRunsArgs(conversation_id: conversationID, limit: limit)).runs
     }
 
+    /// What one turn changed (C-26.14): its start and end snapshots, or its start
+    /// and the working tree now while it runs.
+    func turnDiff(messageID: String, path: String? = nil) throws -> DiffResult {
+        try client.call(Ops.turnDiff, TurnDiffArgs(message_id: messageID, path: path))
+    }
+
+    /// What the conversation changed since its first writable turn started.
+    func conversationDiff(conversationID: String, path: String? = nil) throws -> DiffResult {
+        try client.call(Ops.conversationDiff, ConversationDiffArgs(conversation_id: conversationID, path: path))
+    }
+
     func history(conversationID: String, before: Int?, limit: Int = 50) throws -> HistoryPage {
         try client.call(Ops.conversationHistory, ConversationHistoryArgs(conversation_id: conversationID, before: before,
                                                                           limit: limit))

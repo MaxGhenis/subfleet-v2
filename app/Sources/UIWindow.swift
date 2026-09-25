@@ -311,6 +311,19 @@ struct ConversationView: View {
                 ApprovalSheet(model: model, card: approval.card, approvalID: approval.id) { self.approval = nil }
             }
         }
+        .inspector(isPresented: Binding(get: { model.changesScope?.conversationID == conversation.conversation_id },
+                                        set: { if !$0 { model.changesScope = nil } })) {
+            if let scope = model.changesScope {
+                ChangesPane(model: model, scope: scope, conversation: conversation)
+                    .inspectorColumnWidth(min: 360, ideal: 560, max: 1100)
+            }
+        }
+        .onChange(of: timeline?.liveMessageID) { _, _ in
+            // A turn started or ended: an open pane compares again.
+            if let scope = model.changesScope, scope.conversationID == conversation.conversation_id {
+                Task { await model.loadChanges(scope) }
+            }
+        }
     }
 
     private var header: some View {
@@ -321,6 +334,13 @@ struct ConversationView: View {
                 Text(abbreviatedPath(conversation.workspace)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            if model.canShowChanges {
+                Button { model.showChanges(.conversation(conversation.conversation_id)) } label: {
+                    Label("Changes", systemImage: "plus.forwardslash.minus")
+                }
+                .buttonStyle(.borderless)
+                .help("What this conversation changed in its checkout since its first writable turn")
+            }
             Text(PermissionPolicy(rawValue: conversation.settings.permission)?.label ?? conversation.settings.permission)
                 .font(.caption).padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Capsule().fill(Color.secondary.opacity(0.15)))
@@ -417,6 +437,242 @@ struct TurnStatusLine: View {
                     model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
                 }.buttonStyle(.link).font(.caption)
             }
+            if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
+                Button {
+                    model.showChanges(.turn(conversationID: conversation.conversation_id, messageID: turn.messageID))
+                } label: {
+                    Label(diffStatsWords(stats), systemImage: "plus.forwardslash.minus")
+                }
+                .buttonStyle(.link).font(.caption)
+                .help("What this turn changed")
+            }
+        }
+        .task(id: askChanges ? turn.messageID : nil) {
+            if askChanges { await model.loadTurnChanges(turn.messageID) }
+        }
+    }
+
+    /// A finished turn of a conversation that may write: its counts are worth asking for.
+    private var askChanges: Bool {
+        guard model.canShowChanges, conversation.settings.permission != PermissionPolicy.readOnly.rawValue,
+              let state = turn.messageState else { return false }
+        return MessageState.terminal.contains(state)
+    }
+}
+
+// MARK: - Changes
+
+/// What a conversation, or one of its turns, changed in its checkout
+/// (`conversation.diff`, `turn.diff`; C-26.14): the files, then the diff.
+struct ChangesPane: View {
+    @ObservedObject var model: UIModel
+    let scope: ChangesScope
+    let conversation: Conversation
+    @State private var selected: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline).lineLimit(1)
+                    if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                }
+                Spacer()
+                if case .turn = scope {
+                    Button("Whole conversation") { model.showChanges(.conversation(conversation.conversation_id)) }
+                        .buttonStyle(.link).font(.caption)
+                }
+                Button { Task { await model.loadChanges(scope) } } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless).help("Compare again")
+                Button { model.changesScope = nil } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless).help("Close")
+            }
+            .padding(10)
+            Divider()
+            content
+        }
+        .onChange(of: scope) { _, _ in selected = nil }
+    }
+
+    private var title: String {
+        switch scope {
+        case .conversation: return "Changes in this conversation"
+        case .turn: return "Changes in this turn"
+        }
+    }
+
+    private var subtitle: String? {
+        guard case .loaded(let result, _)? = model.changes[scope], result.available else { return nil }
+        let when: String
+        switch scope {
+        case .conversation: when = "Since its first writable turn began, to the working tree now"
+        case .turn: when = result.isLive ? "Since the turn began, to the working tree now (still running)"
+                                         : "From the turn's start to its end"
+        }
+        return diffStatsWords(result.stats) + " · " + when
+    }
+
+    @ViewBuilder private var content: some View {
+        switch model.changes[scope] {
+        case nil, .loading?:
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failed(let message)?:
+            PaneNote(text: message, symbol: "exclamationmark.triangle")
+        case .loaded(let result, let sections)?:
+            if !result.available {
+                PaneNote(text: diffUnavailableWords(result), symbol: "info.circle")
+            } else if result.files.isEmpty {
+                PaneNote(text: "No changes.", symbol: "checkmark.circle")
+            } else {
+                ForEach(diffNotes(result), id: \.self) { note in
+                    Label(note, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, 10).padding(.top, 6)
+                }
+                List(selection: $selected) {
+                    ForEach(result.files) { file in DiffFileRow(file: file).tag(file.path) }
+                }
+                .listStyle(.plain)
+                .frame(minHeight: 80, idealHeight: min(CGFloat(result.files.count) * 24 + 8, 220), maxHeight: 220)
+                .fixedSize(horizontal: false, vertical: true)
+                if selected != nil {
+                    Button("Show every file") { selected = nil }.buttonStyle(.link).font(.caption)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                }
+                Divider()
+                DiffLinesView(sections: selected.map { path in sections.filter { $0.path == path } } ?? sections)
+            }
+        }
+    }
+}
+
+/// What the daemon cut or hid, so a short diff is not taken for the whole one.
+func diffNotes(_ result: DiffResult) -> [String] {
+    var notes: [String] = []
+    if result.files_truncated { notes.append("Only the first \(result.files.count) files are listed.") }
+    if !result.stats.complete { notes.append("Git's listing was cut; the counts cover the listed files only.") }
+    if result.truncated { notes.append("The diff is cut at its size limit; the rest is not shown.") }
+    if result.scrubbed > 0 {
+        notes.append("\(result.scrubbed) value\(result.scrubbed == 1 ? "" : "s") that looked like credentials are replaced.")
+    }
+    return notes
+}
+
+struct PaneNote: View {
+    let text: String
+    let symbol: String
+
+    var body: some View {
+        VStack {
+            Label(text, systemImage: symbol).foregroundStyle(.secondary).padding(14)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct DiffFileRow: View {
+    let file: DiffFile
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(diffStatusLetter(file.status)).bold().foregroundStyle(diffStatusColor(file.status)).frame(width: 14)
+                .help(file.status)
+            Text(file.from.map { "\($0) → \(file.path)" } ?? file.path).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            if file.binary {
+                Text("binary").foregroundStyle(.secondary)
+            } else {
+                if let added = file.additions, added > 0 { Text("+\(added)").foregroundStyle(.green) }
+                if let removed = file.deletions, removed > 0 { Text("−\(removed)").foregroundStyle(.red) }
+            }
+        }
+        .font(.system(.caption, design: .monospaced))
+    }
+}
+
+func diffStatusLetter(_ status: String) -> String {
+    switch status {
+    case "added": return "A"
+    case "deleted": return "D"
+    case "modified": return "M"
+    case "renamed": return "R"
+    case "copied": return "C"
+    case "type-changed": return "T"
+    default: return "?"
+    }
+}
+
+func diffStatusColor(_ status: String) -> Color {
+    switch status {
+    case "added": return .green
+    case "deleted": return .red
+    case "renamed", "copied": return .blue
+    default: return .orange
+    }
+}
+
+/// The unified diff, one row per line with both line numbers, one section per file.
+struct DiffLinesView: View {
+    let sections: [DiffSection]
+
+    var body: some View {
+        ScrollView([.vertical, .horizontal]) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(sections) { section in
+                    Text(section.path).font(.system(.caption, design: .monospaced).bold())
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .frame(minWidth: 520, alignment: .leading)
+                        .background(Color.secondary.opacity(0.12))
+                    if section.lines.isEmpty {
+                        Text(section.binary ? "Binary file: no text to show." : "No line changes (a mode or a rename).")
+                            .font(.caption).foregroundStyle(.secondary).padding(8)
+                    }
+                    ForEach(section.lines) { line in DiffLineRow(line: line) }
+                }
+            }
+            .textSelection(.enabled)
+        }
+    }
+}
+
+struct DiffLineRow: View {
+    let line: DiffLine
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(line.old.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundStyle(.tertiary)
+            Text(line.new.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundStyle(.tertiary)
+            Text(marker).frame(width: 18).foregroundStyle(markerColor)
+            Text(shown).fixedSize().foregroundStyle(line.kind == .hunk || line.kind == .meta ? Color.secondary : Color.primary)
+        }
+        .font(.system(size: 11, design: .monospaced))
+        .padding(.trailing, 12)
+        .frame(minWidth: 520, alignment: .leading)
+        .background(background)
+    }
+
+    /// Tabs as four spaces, and an empty line kept a line high.
+    private var shown: String {
+        let text = line.text.replacingOccurrences(of: "\t", with: "    ")
+        return text.isEmpty ? " " : text
+    }
+
+    private var marker: String {
+        switch line.kind {
+        case .added: return "+"
+        case .removed: return "−"
+        default: return ""
+        }
+    }
+
+    private var markerColor: Color { line.kind == .added ? .green : line.kind == .removed ? .red : .secondary }
+
+    private var background: Color {
+        switch line.kind {
+        case .added: return Color.green.opacity(0.12)
+        case .removed: return Color.red.opacity(0.12)
+        case .hunk: return Color.blue.opacity(0.07)
+        default: return .clear
         }
     }
 }
