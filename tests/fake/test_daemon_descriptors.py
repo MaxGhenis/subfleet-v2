@@ -35,9 +35,20 @@ def ping(path: Path, timeout: float = 5.0) -> dict:
         client.connect(str(path))
         try:
             client.sendall(b'{"v":1,"id":"p","op":"ping","args":{}}\n')
-        except BrokenPipeError:
-            pass            # a busy daemon answers and closes before reading
+        except OSError as exc:  # a busy daemon answers and closes before reading
+            if exc.errno not in (errno.EPIPE, errno.ECONNRESET, errno.ENOTCONN):
+                raise
         return json.loads(client.makefile().readline())
+
+
+def quiet(root: Path) -> Path:
+    """The default policy with the catalog timer off: these daemons run under the
+    real HOME, and a timed catalog run would index the host's own sessions into
+    the test's state root (as tests/fake/conftest.py's Harness does)."""
+    policy = json.loads((Path(__file__).resolve().parents[2] / "subfleet/default_policy.json").read_text())
+    policy.setdefault("conversations", {})["catalog_interval_s"] = 0
+    (root / "policy.json").write_text(json.dumps(policy))
+    return root
 
 
 def listening(path: Path) -> bool:
@@ -65,7 +76,7 @@ def serve(monkeypatch):
             pytest.skip("sandbox denies Unix socket binding")
 
         def start():
-            daemon = Daemon(root, tick_s=.05)
+            daemon = Daemon(quiet(root), tick_s=.05)
             thread = threading.Thread(target=daemon.serve_forever, daemon=True)
             thread.start()
             started.append((daemon, thread))
@@ -113,7 +124,7 @@ def test_a_shortage_that_never_clears_ends_the_daemon_without_spinning(monkeypat
 
     monkeypatch.setattr(socket.socket, "accept", accept)
     with tempfile.TemporaryDirectory(prefix="sfd-", dir="/tmp") as temporary:
-        daemon = Daemon(Path(temporary), tick_s=.05)
+        daemon = Daemon(quiet(Path(temporary)), tick_s=.05)
         started = time.monotonic()
         with pytest.raises(OSError) as raised:
             daemon.serve_forever()
@@ -153,7 +164,7 @@ def test_accept_raises_what_is_not_a_shortage(monkeypatch):
 
     monkeypatch.setattr(socket.socket, "accept", accept)
     with tempfile.TemporaryDirectory(prefix="sfd-", dir="/tmp") as temporary:
-        daemon = Daemon(Path(temporary), tick_s=.05)
+        daemon = Daemon(quiet(Path(temporary)), tick_s=.05)
         with pytest.raises(OSError) as raised:
             daemon.serve_forever()
     assert raised.value.errno == errno.EBADF

@@ -18,6 +18,7 @@ so the CLI does not import the daemon-side `procs` module.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -298,11 +299,13 @@ class Client:
             try:
                 try:
                     conn.sendall(encode(request))
-                except (BrokenPipeError, ConnectionResetError):
+                except OSError as exc:
                     # The daemon may answer and close before reading the request:
                     # a connection past its cap is told it is busy (C-16.1). That
-                    # answer is still there to read.
-                    pass
+                    # answer is still there to read. (macOS says EPIPE, ECONNRESET
+                    # or, under load, ENOTCONN.)
+                    if exc.errno not in (errno.EPIPE, errno.ECONNRESET, errno.ENOTCONN):
+                        raise
                 line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
                 raise ProtocolError(
