@@ -71,6 +71,9 @@ DEFER_S = 5.0
 # unblock note in the source, where it still guards the source's next turn (IR-28).
 HANDOFF_MOVES = ("person",)
 HANDOFF_KEEPS = ("unblock-note",)
+# The source's `blocked_by` from just before a handoff cancels a waiting message's
+# job until its commit: `handoff:<request id>` (C-30.3, D-18).
+HANDOFF_FENCE = "handoff:"
 
 
 class ConversationService:
@@ -477,9 +480,9 @@ class ConversationService:
     def _cancel_job_without_attempt(self, job_id: str, *, by: dict | None = None) -> bool:
         """The job store decides: cancelled only while no attempt row exists (IR-2).
 
-        `by` is written on the cancel's own audit event, in the same transaction;
-        a caller that finds the job already cancelled by that same marker (a
-        handoff sent again after a crash) is told the guard held (IR-28)."""
+        `by` is written on the cancel's own audit event, in the same transaction,
+        so a handoff that never committed can find the jobs it cancelled and put
+        their messages back (C-30.3, D-18)."""
         daemon = self.daemon
         with daemon.store.transaction("job.cancel_requested", job_id=job_id, data=by) as tx:
             if tx.execute("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)).fetchone():
@@ -489,7 +492,7 @@ class ConversationService:
                                  "WHERE job_id=? AND state IN ('queued','waiting')", (utcnow(), utcnow(), job_id)).rowcount
             tx.execute("DELETE FROM leases WHERE holder=?", (job_id,))
         daemon._notify()
-        return bool(changed) or (by is not None and self._cancelled_by(job_id, by))
+        return bool(changed)
 
     def op_turn_interrupt(self, args, peer) -> dict:
         message_id = canonical_uuid(args["message_id"])
@@ -616,26 +619,22 @@ class ConversationService:
                     raise ConversationError("handoff-running", "another handoff of this conversation is running",
                                             fix="send the same request again when it ends")
                 self._handing_off.add(cid)          # the dispatcher leaves its messages alone meanwhile
+        fence = None
         try:
-            marker = {"by": "conversation.handoff", "request_id": request_id}
+            if conversation is not None:
+                # A handoff of this source that a failure or a restart cut short
+                # left its fence: put back what it withdrew before anything else.
+                conversation = self._lift_stale_fence(conversation)
+            marker = _handoff_marker(request_id)
             # A live turn is the reason to refuse whatever else is true of the source.
-            plan = self._handoff_plan(conversation, marker) if conversation else []
+            plan = self._handoff_plan(conversation) if conversation else []
             if not session_id:
                 raise ConversationError("no-history", "the source conversation has no native session yet",
                                         fix="cancel its messages and start a new conversation instead")
             source = self._handoff_history(conversation, source_provider, session_id, home)
-            workspace = os.path.realpath(os.path.expanduser(str(target.get("workspace") or source["cwd"] or "")))
-            if not os.path.isdir(workspace):
-                raise ConversationError("bad-workspace", "the handoff's workspace must be an existing directory",
-                                        fix="pass to.workspace")
+            workspace = self._handoff_workspace(target.get("workspace"), source["cwd"])
             self._check_workspace(provider, workspace, settings)
             brief = self._handoff_brief(source, workspace)
-            # IR-2's guard for a message whose turn job exists: its job is cancelled
-            # only while it has no attempt. C-24.5 allows at most one such message.
-            for step in plan:
-                if step["job_id"] and not self._cancel_job_without_attempt(step["job_id"], by=marker):
-                    raise ConversationError("live-turn", "the source's waiting message started its turn",
-                                            fix="stop it with turn.interrupt, or wait for it to end")
             ids = {"brief": _handoff_id(request_id, "brief")}
             moves = [{"message_id": _handoff_id(request_id, step["message"]["message_id"]),
                       "text": self.store.message_text(step["message"]),
@@ -648,12 +647,43 @@ class ConversationService:
                       "moved": [{"from": m["from"], "to": m["message_id"]} for m in moves],
                       "withdrawn": [step["message"]["message_id"] for step in plan],
                       "redactions": brief.redactions, "request_digest": digest, "at": utcnow()}
-            created_conversation, created = self.store.create_handoff(
+            # Everything that can fail before the commit is done by now: the texts
+            # are read and published and the attachments checked (D-18).
+            prepared = self.store.prepare_handoff(
                 request_id=request_id, provider=provider, workspace=workspace, settings=settings,
                 title=title or (conversation or {}).get("title"), allow_main=allow_main, handoff_from=record,
-                brief={"message_id": ids["brief"], "text": brief.text}, moves=moves,
-                withdrawals=[{"message_id": step["message"]["message_id"], "expect": step["expect"]}
-                             for step in plan])
+                brief={"message_id": ids["brief"], "text": brief.text}, moves=moves)
+            if prepared.get("existing"):
+                created_conversation, created = prepared["existing"], False
+            else:
+                try:
+                    jobs = [step["job_id"] for step in plan if step["job_id"]]
+                    if jobs:
+                        # The job store's cancel below cannot be undone by the
+                        # conversation store's commit, so the source is fenced
+                        # durably first: the dispatcher skips a blocked
+                        # conversation, and so nothing behind the waiting message
+                        # can run there before it (C-30.3, IR-28).
+                        fence = f"{HANDOFF_FENCE}{request_id}"
+                        if not self.store.fence(cid, fence):
+                            fence = None
+                            raise ConversationError("source-changed", "the source was blocked during the handoff",
+                                                    fix="send the same handoff request again")
+                    # IR-2's guard for a message whose turn job exists: its job is
+                    # cancelled only while it has no attempt. C-24.5 allows at most
+                    # one such message.
+                    for job_id in jobs:
+                        if not self._cancel_job_without_attempt(job_id, by=marker):
+                            raise self._not_withdrawn(job_id)
+                    created_conversation, created = self.store.commit_handoff(
+                        prepared, withdrawals=[{"message_id": step["message"]["message_id"], "expect": step["expect"]}
+                                               for step in plan],
+                        fence=(cid, fence) if fence else None)
+                except BaseException:
+                    self.store.discard_handoff(prepared)
+                    if fence:
+                        self._lift_fence_quietly(cid, fence)
+                    raise
         finally:
             if cid:
                 with self._lock:
@@ -671,6 +701,74 @@ class ConversationService:
                 "brief": self._receipt(self.store.message(record["brief_message_id"])),
                 "moved": [self._receipt(self.store.message(m["to"])) for m in record.get("moved", [])],
                 "withdrawn": record.get("withdrawn", []), "handoff_from": record}
+
+    def _not_withdrawn(self, job_id: str) -> ConversationError:
+        """Why the job store's guard refused a handoff's cancel (IR-2)."""
+        job = self.daemon.store.get_job(job_id) or {}
+        if job.get("state") in ("succeeded", "failed", "cancelled", "lost"):
+            return ConversationError("source-changed", "the source's waiting message was settled during the handoff",
+                                     fix="send the same handoff request again")
+        return ConversationError("live-turn", "the source's waiting message started its turn",
+                                 fix="stop it with turn.interrupt, or wait for it to end")
+
+    @staticmethod
+    def _handoff_workspace(requested: Any, source_cwd: str | None) -> str:
+        """D-18: the source's workspace unless the request names another."""
+        workspace = os.path.realpath(os.path.expanduser(str(requested or source_cwd or "")))
+        if not os.path.isdir(workspace):
+            raise ConversationError("bad-workspace", "the handoff's workspace must be an existing directory",
+                                    fix="pass to.workspace")
+        return workspace
+
+    def _lift_fence(self, cid: str, fence: str) -> list[str]:
+        """Undo a handoff of `cid` that never committed (C-30.3, D-18): each source
+        message whose turn job that handoff cancelled (its audit event carries the
+        handoff's marker) is queued again in its place, and the fence is lifted,
+        in one conversation-store transaction. The caller holds `_handing_off`."""
+        marker = _handoff_marker(fence[len(HANDOFF_FENCE):])
+        restores = [{"message_id": m["message_id"], "job_id": m["job_id"]} for m in self.store.query(
+            "SELECT message_id, job_id, state_reason FROM messages WHERE conversation_id=? AND job_id IS NOT NULL "
+            "AND state IN (?,?) ORDER BY seq", (cid, WAITING, CANCELLED))
+            if not str(m["state_reason"] or "").startswith("handed-off:") and self._cancelled_by(m["job_id"], marker)]
+        restored = self.store.restore_after_handoff(cid, fence, restores)
+        if restored:
+            self.log.warning("handoff %s did not complete; put back %d message(s) in %s",
+                             fence[len(HANDOFF_FENCE):], len(restored), cid)
+            self.daemon._notify()
+        return restored
+
+    def _lift_fence_quietly(self, cid: str, fence: str) -> None:
+        """On a handoff's failure path: a lift that fails is left to the tick."""
+        try:
+            self._lift_fence(cid, fence)
+        except Exception as exc:
+            self.log.error("lifting handoff fence %s of %s failed: %s: %s", fence, cid, type(exc).__name__, exc)
+
+    def _lift_stale_fence(self, conversation: dict) -> dict:
+        """A fence nobody holds is one a failed or interrupted handoff left: lift
+        it. The caller holds `_handing_off` for this conversation."""
+        blocked = conversation.get("blocked_by") or ""
+        if not blocked.startswith(HANDOFF_FENCE):
+            return conversation
+        self._lift_fence(conversation["conversation_id"], blocked)
+        return self.store.conversation(conversation["conversation_id"])
+
+    def _lift_stale_fences(self) -> None:
+        """Tick: after a restart, or when a failure path could not, lift the fences
+        of handoffs that are not running, so their sources are never left blocked."""
+        rows = self.store.query("SELECT conversation_id, blocked_by FROM conversations WHERE blocked_by LIKE ?",
+                                (f"{HANDOFF_FENCE}%",))
+        for row in rows:
+            cid = row["conversation_id"]
+            with self._lock:
+                if cid in self._handing_off:
+                    continue                        # its handoff is running; it lifts its own fence
+                self._handing_off.add(cid)
+            try:
+                self._lift_fence(cid, row["blocked_by"])
+            finally:
+                with self._lock:
+                    self._handing_off.discard(cid)
 
     def _handoff_origin(self, source: dict) -> tuple[dict | None, str, str | None, str | None]:
         """(conversation, provider, native id, Codex home) the handoff comes from. A
@@ -748,7 +846,7 @@ class ConversationService:
                 "transcript": path, "source_cwd": cwd, "cwd": cwd,
                 "lane_id": (conversation or {}).get("lane_id") or lane_id}
 
-    def _handoff_plan(self, conversation: dict, marker: dict) -> list[dict]:
+    def _handoff_plan(self, conversation: dict) -> list[dict]:
         """IR-28: what leaves the source, or a refusal while the source has a live turn.
 
         A message still `queued` with no job leaves under the conversation store's
@@ -756,8 +854,8 @@ class ConversationService:
         dispatcher claims a message before it creates its job). A `waiting`
         message whose job has no attempt leaves under the job store's guard, as
         `message.cancel` withdraws it. Anything a provider may already have is a
-        live turn. A message this same request withdrew before (its job's cancel
-        carries the request's marker) is picked up again on a retry.
+        live turn. A handoff that never committed has been undone before this
+        runs (`_lift_stale_fence`), so every cancelled job here was a person's.
         """
         cid = conversation["conversation_id"]
         plan: list[dict] = []
@@ -769,9 +867,6 @@ class ConversationService:
             if message["origin"] in HANDOFF_KEEPS and state == QUEUED and self._turn_job(message) is None:
                 continue
             if state == CANCELLED:
-                if (message.get("job_id") and not str(message.get("state_reason") or "").startswith("handed-off")
-                        and self._cancelled_by(message["job_id"], marker)):
-                    plan.append({"message": message, "expect": (CANCELLED,), "job_id": None})
                 continue
             if state not in (QUEUED, WAITING):
                 raise ConversationError("live-turn", f"the source has a live turn (a message is {state})",
@@ -787,7 +882,7 @@ class ConversationService:
             if self.daemon.store.one("SELECT 1 FROM attempts WHERE job_id=?", (job["job_id"],)):
                 raise ConversationError("live-turn", "the source's waiting message has started its turn",
                                         fix="stop it with turn.interrupt, or wait for it to end")
-            if job["state"] == "cancelled" and not self._cancelled_by(job["job_id"], marker):
+            if job["state"] == "cancelled":
                 continue                            # already withdrawn by message.cancel; not pending
             withdrawable.add(job["job_id"])
             # The tick may settle the message `cancelled` once its job is; that is still ours to move.
@@ -862,6 +957,7 @@ class ConversationService:
     def tick(self) -> None:
         """Called on the control loop's worker pool, never on a request thread."""
         try:
+            self._lift_stale_fences()
             self._dispatch()
             self._adopt_runners()
             self._settle_unstarted()
@@ -1179,6 +1275,11 @@ def policy_model(policy: dict, provider: str, value: str) -> str:
             return short
     raise ConversationError("unknown-model", f"{value!r} is not a {provider} model this fleet routes",
                             fix="pick a model from models.list")
+
+
+def _handoff_marker(request_id: str) -> dict:
+    """What a handoff writes on the audit event of each job cancel it makes (D-18)."""
+    return {"by": "conversation.handoff", "request_id": request_id}
 
 
 def _handoff_id(request_id: str, part: str) -> str:

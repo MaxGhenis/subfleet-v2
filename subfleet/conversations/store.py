@@ -310,45 +310,96 @@ class ConversationStore:
     def create_handoff(self, *, request_id: str, provider: str, workspace: str, settings: dict,
                        title: str | None, allow_main: bool, handoff_from: dict, brief: dict,
                        moves: list[dict], withdrawals: list[dict]) -> tuple[dict, bool]:
-        """C-30.3, IR-28: a labelled handoff, committed in one transaction.
+        """C-30.3, IR-28: a labelled handoff with nothing to fence, prepared and
+        committed in one call (`prepare_handoff`, then `commit_handoff`)."""
+        prepared = self.prepare_handoff(request_id=request_id, provider=provider, workspace=workspace,
+                                        settings=settings, title=title, allow_main=allow_main,
+                                        handoff_from=handoff_from, brief=brief, moves=moves)
+        if prepared.get("existing"):
+            return prepared["existing"], False
+        return self.commit_handoff(prepared, withdrawals=withdrawals)
 
-        The new conversation (origin `handoff`), its first message (the brief,
-        origin `handoff`), the source's moved messages re-queued behind it in
-        their order, and each source message's withdrawal (`cancelled`,
-        `handed-off:<new conversation>`). `brief` is `{message_id, text}`;
-        `moves` are `{message_id, text, attachments}` in order; `withdrawals` are
-        `{message_id, expect}`, where `expect` is the states the message may
-        still be in. A withdrawal that no longer matches (the dispatcher claimed
-        the message meanwhile) rolls everything back: exit 2 `source-changed`,
-        and the same request may be sent again. Texts are published first
-        (C-24.3); a request id already used returns that conversation.
+    def prepare_handoff(self, *, request_id: str, provider: str, workspace: str, settings: dict,
+                        title: str | None, allow_main: bool, handoff_from: dict, brief: dict,
+                        moves: list[dict]) -> dict:
+        """C-30.3, IR-28: everything about a handoff that can fail before its commit.
+
+        Checks each text and each moved attachment and publishes the texts
+        (C-24.3), so a handoff that must cancel a waiting message's job does so
+        only once nothing but the commit is left (design D-18). `brief` is
+        `{message_id, text}`; `moves` are `{message_id, text, attachments}` in
+        order. A request id already used returns `{"existing": conversation}`.
+        The result goes to `commit_handoff`, or to `discard_handoff` when the
+        handoff stops before its commit.
         """
         if provider not in PROVIDERS:
             raise ConversationError("bad-provider", "provider must be claude or codex")
         settings = validate_settings(provider, settings)
         existing = self.by_request(request_id)
         if existing:
-            return existing, False
+            return {"existing": existing}
+        for item in moves:
+            for sha in item["attachments"]:
+                if self.attachment(sha) is None:
+                    raise ConversationError("unknown-attachment", f"no attachment {sha}")
         cid = new_id("cv")
         now = utcnow()
-        rows, published = [], []
+        prepared = {"request_id": request_id, "cid": cid, "provider": provider, "workspace": workspace,
+                    "settings": settings, "title": title, "allow_main": allow_main, "handoff_from": handoff_from,
+                    "moves": moves, "rows": [], "published": [], "now": now}
         after: str | None = None
-        for index, item in enumerate([{**brief, "origin": "handoff", "attachments": []},
-                                      *({**m, "origin": "person"} for m in moves)]):
-            message_id = canonical_uuid(item["message_id"])
-            text = item["text"]
-            if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
-                raise ConversationError("bad-text", "a handed-off message must be text of at most 1 MiB")
-            digest = message_digest(cid, text, list(item["attachments"]), settings)
-            path = self.dir / cid / "messages" / f"{message_id}.{digest[:16]}.md"
-            _publish(path, text.encode("utf-8"))          # C-24.3: text before the row
-            published.append(path)
-            rows.append((message_id, cid, index + 1, after if item["origin"] == "person" else None,
-                         item["origin"], digest, str(path), json.dumps(list(item["attachments"])),
-                         json.dumps(settings), QUEUED, now, now))
-            if item["origin"] == "person":
-                after = message_id
+        try:
+            for index, item in enumerate([{**brief, "origin": "handoff", "attachments": []},
+                                          *({**m, "origin": "person"} for m in moves)]):
+                message_id = canonical_uuid(item["message_id"])
+                text = item["text"]
+                if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
+                    raise ConversationError("bad-text", "a handed-off message must be text of at most 1 MiB")
+                digest = message_digest(cid, text, list(item["attachments"]), settings)
+                path = self.dir / cid / "messages" / f"{message_id}.{digest[:16]}.md"
+                _publish(path, text.encode("utf-8"))          # C-24.3: text before the row
+                prepared["published"].append(path)
+                prepared["rows"].append((message_id, cid, index + 1, after if item["origin"] == "person" else None,
+                                         item["origin"], digest, str(path), json.dumps(list(item["attachments"])),
+                                         json.dumps(settings), QUEUED, now, now))
+                if item["origin"] == "person":
+                    after = message_id
+        except BaseException:
+            self.discard_handoff(prepared)
+            raise
+        return prepared
+
+    def discard_handoff(self, prepared: dict) -> None:
+        """Remove the texts a handoff published and never committed: nothing refers to them."""
+        for path in prepared.get("published", []):
+            with contextlib.suppress(OSError):
+                path.unlink()
+        if prepared.get("cid"):
+            for directory in (self.dir / prepared["cid"] / "messages", self.dir / prepared["cid"]):
+                with contextlib.suppress(OSError):
+                    directory.rmdir()
+
+    def commit_handoff(self, prepared: dict, *, withdrawals: list[dict],
+                       fence: tuple[str, str] | None = None) -> tuple[dict, bool]:
+        """C-30.3, IR-28: a prepared handoff, committed in one transaction.
+
+        The new conversation (origin `handoff`), its first message (the brief,
+        origin `handoff`), the source's moved messages re-queued behind it in
+        their order, each source message's withdrawal (`cancelled`,
+        `handed-off:<new conversation>`), and, with `fence` (`(source id,
+        blocked_by value)`), the lifting of the source's handoff fence.
+        `withdrawals` are `{message_id, expect}`, where `expect` is the states
+        the message may still be in. A withdrawal that no longer matches (the
+        dispatcher claimed the message, or a person withdrew it, meanwhile), or a
+        fence no longer in place, rolls this transaction back: exit 2
+        `source-changed`. A job the handoff already cancelled is not this
+        transaction's to roll back; the caller puts its message back
+        (`restore_after_handoff`). A request id already used returns that
+        conversation. The published texts are removed unless the commit lands.
+        """
+        cid, now, request_id = prepared["cid"], prepared["now"], prepared["request_id"]
         created = False
+        existing = None
         try:
             with self.transaction() as tx:
                 again = tx.execute("SELECT * FROM conversations WHERE request_id=?", (request_id,)).fetchone()
@@ -369,13 +420,21 @@ class ConversationStore:
                         source = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?",
                                             (withdrawal["message_id"],)).fetchone()
                         self._change(tx, source["conversation_id"], withdrawal["message_id"], "cancelled")
+                    if fence is not None:
+                        lifted = tx.execute("UPDATE conversations SET blocked_by=NULL, updated_at=? "
+                                            "WHERE conversation_id=? AND blocked_by=?", (now, *fence)).rowcount
+                        if not lifted:
+                            raise ConversationError("source-changed", "the source's handoff fence was lifted meanwhile",
+                                                    fix="send the same handoff request again")
+                        self._change(tx, fence[0], None, None)
                     tx.execute(
                         "INSERT INTO conversations(conversation_id,provider,native_session_id,title,workspace,"
                         "workspace_kind,allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,"
                         "created_at,updated_at) VALUES (?,?,NULL,?,?,'in-place',?,NULL,?,'handoff',?,?,?,?)",
-                        (cid, provider, title, workspace, int(allow_main), json.dumps(settings),
-                         json.dumps(handoff_from), request_id, now, now))
-                    for item in moves:
+                        (cid, prepared["provider"], prepared["title"], prepared["workspace"],
+                         int(prepared["allow_main"]), json.dumps(prepared["settings"]),
+                         json.dumps(prepared["handoff_from"]), request_id, now, now))
+                    for item in prepared["moves"]:
                         for sha in item["attachments"]:
                             if not tx.execute("SELECT 1 FROM attachments WHERE sha256=?", (sha,)).fetchone():
                                 raise ConversationError("unknown-attachment", f"no attachment {sha}")
@@ -383,22 +442,54 @@ class ConversationStore:
                     tx.executemany(
                         "INSERT INTO messages(message_id,conversation_id,seq,after_message_id,origin,digest,text_path,"
                         "attachments_json,settings_json,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                        rows)
+                        prepared["rows"])
                     self._change(tx, cid, None, None)
-                    for row in rows:
+                    for row in prepared["rows"]:
                         self._change(tx, cid, row[0], QUEUED)
                     created = True
         finally:
             if not created:
-                for path in published:                     # nothing refers to them
-                    with contextlib.suppress(OSError):
-                        path.unlink()
-                for directory in (self.dir / cid / "messages", self.dir / cid):
-                    with contextlib.suppress(OSError):
-                        directory.rmdir()
+                self.discard_handoff(prepared)
         if not created:
             return existing, False
         return self.conversation(cid), True
+
+    def fence(self, conversation_id: str, value: str) -> bool:
+        """Block an unblocked conversation with `value` (a handoff's `handoff:<request
+        id>`), durably: the dispatcher skips a blocked conversation (C-24.5). False
+        when it is already blocked, and then nothing changed."""
+        with self.transaction() as tx:
+            done = tx.execute("UPDATE conversations SET blocked_by=?, updated_at=? WHERE conversation_id=? "
+                              "AND blocked_by IS NULL", (value, utcnow(), conversation_id)).rowcount
+            if done:
+                self._change(tx, conversation_id, None, None)
+        return bool(done)
+
+    def restore_after_handoff(self, conversation_id: str, fence: str, restores: list[dict]) -> list[str]:
+        """Undo what a handoff that never committed did to its source (C-30.3, D-18).
+
+        Each `{message_id, job_id}` in `restores` names a message whose turn job
+        the handoff cancelled: it goes back to `queued` in its place, under the
+        next turn sequence (so its next turn job is a new one) and bound to no
+        job, unless a handoff did move it. Then the fence is lifted. One
+        transaction; returns the ids put back.
+        """
+        now = utcnow()
+        restored: list[str] = []
+        with self.transaction() as tx:
+            for item in restores:
+                done = tx.execute(
+                    "UPDATE messages SET state='queued', state_reason='handoff-rolled-back', turn_seq=turn_seq+1, "
+                    "job_id=NULL, updated_at=? WHERE message_id=? AND conversation_id=? AND job_id=? "
+                    "AND state IN ('waiting','cancelled') AND COALESCE(state_reason,'') NOT LIKE 'handed-off:%'",
+                    (now, item["message_id"], conversation_id, item["job_id"])).rowcount
+                if done:
+                    restored.append(item["message_id"])
+                    self._change(tx, conversation_id, item["message_id"], QUEUED)
+            if tx.execute("UPDATE conversations SET blocked_by=NULL, updated_at=? WHERE conversation_id=? "
+                          "AND blocked_by=?", (now, conversation_id, fence)).rowcount:
+                self._change(tx, conversation_id, None, None)
+        return restored
 
     def update_conversation(self, conversation_id: str, **fields: Any) -> dict:
         allowed = {"native_session_id", "title", "lane_id", "settings", "blocked_by", "allow_main", "archived_at"}
