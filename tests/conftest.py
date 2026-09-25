@@ -165,6 +165,15 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_boot_identity(monkeypatch):
+    """`procs.boot_id` keeps the boot-session UUID for the life of the process,
+    which is right for a daemon and wrong across tests: a test that fakes `ps`
+    and `sysctl` must not be answered by the real UUID an earlier test read."""
+    from subfleet import procs
+    monkeypatch.setattr(procs, "_BOOT_ID", [])
+
+
+@pytest.fixture(autouse=True)
 def no_desktop_login(monkeypatch):
     """`~/.claude.json` belongs to whoever runs the tests, and the desktop app's
     keychain item holds their real credential. No test reads either by accident
