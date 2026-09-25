@@ -598,6 +598,11 @@ def test_c16_3_kill_lost_twice_is_unknown_not_failed(daemon, capsys):
     assert cli.main(["kill", JOB, "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["job_id"] == JOB and payload["outcome"] == "unknown"
+    kill.calls.clear()
+    # C-16.3: a typed id with a shell metacharacter is quoted in both hints.
+    assert cli.main(["kill", "JOB$1"]) == 1
+    err = capsys.readouterr().err
+    assert "subfleet kill 'JOB$1' again is safe" in err and "subfleet runs show 'JOB$1'" in err
 
 
 def test_c17_5_kill_whose_daemon_went_away_falls_back_offline(daemon, capsys, root):
@@ -768,7 +773,10 @@ def test_c16_3_the_sessions_verbs_pass_whose_request_id_it_is(monkeypatch, root,
         cli.main(argv)
     kwargs = caught.value.args[0]
     assert kwargs["minted"] is minted
-    assert kwargs["request_id"] == ("operator-rid" if not minted else kwargs["request_id"])
+    if minted:
+        assert kwargs["request_id"] and kwargs["request_id"] != "operator-rid"   # minted here
+    else:
+        assert kwargs["request_id"] == "operator-rid"
 
 
 def test_c16_3_every_sessions_call_into_revive_or_handoff_says_whose_id_it_is():
