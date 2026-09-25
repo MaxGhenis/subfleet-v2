@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -19,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
+from .lockwatch import WatchedLock
 
 SCHEMA_VERSION = 5
 Row = dict[str, Any]
@@ -56,7 +56,9 @@ class Store:
     def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None):
         self.path = Path(path)
         self.read_only = read_only if readonly is None else readonly
-        self._lock = threading.RLock()
+        # C-3.6: an RLock that remembers its holder, so the daemon can say who
+        # held it, for how long, and what they were doing.
+        self._lock = WatchedLock("store")
         self._depth = 0
         # Bumped by every committed top-level transaction that changed a row.
         # A reader compares it without taking `_lock` (an int read is atomic)

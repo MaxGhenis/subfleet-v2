@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..lockwatch import WatchedLock
 from .turn import LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
 SCHEMA_VERSION = 2
@@ -241,7 +242,7 @@ class ConversationStore:
         self.root = Path(root)
         self.path = self.root / "conversations.sqlite3"
         self.dir = self.root / "conversations"
-        self._lock = threading.RLock()
+        self._lock = WatchedLock("conversations")      # C-3.6
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         fresh = not self.path.exists()
         self._db = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None, timeout=5)

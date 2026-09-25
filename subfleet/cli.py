@@ -1917,6 +1917,59 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
     return int(Exit.OPERATIONAL)
 
 
+def cmd_daemon_stacks(args: argparse.Namespace) -> int:
+    """`daemon stacks`: every daemon thread's Python stack, from daemon.log (C-3.6).
+
+    Sends SIGUSR1, which the daemon's `faulthandler` answers from its signal
+    handler, so this works when the daemon answers nothing on its socket.
+    """
+    import signal as _signal
+    root = _root(args)
+    client = Client(root)
+    info = client.lock_info()
+    if info is None:
+        return fail(Exit.DAEMON_UNAVAILABLE, f"daemon stacks: not running (no {client.lock_path})")
+    try:
+        pid = int(info.get("pid"))
+    except (TypeError, ValueError):
+        return fail(Exit.OPERATIONAL, f"daemon stacks: {client.lock_path} records no usable pid")
+    # As `daemon stop`: signal only the identity the lock records (C-5.3, C-5.4).
+    alive = same_process(pid, info.get("boot_id"), info.get("proc_start"))
+    if alive is not True:
+        return fail(Exit.DAEMON_UNAVAILABLE if alive is False else Exit.OPERATIONAL,
+                    f"daemon stacks: pid {pid} is "
+                    + ("not running" if alive is False else "not verifiably the recorded daemon")
+                    + "; refusing to signal it")
+    path = root / LOG_NAME
+    try:
+        start = path.stat().st_size
+    except OSError:
+        start = 0
+    try:
+        os.kill(pid, _signal.SIGUSR1)
+    except OSError as exc:
+        return fail(Exit.OPERATIONAL, f"daemon stacks: SIGUSR1 to {pid} failed: {exc}")
+    # The handler writes at once; wait until the log stops growing.
+    size, quiet_since, deadline = start, time.monotonic(), time.monotonic() + args.wait
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+        try:
+            now_size = path.stat().st_size
+        except OSError:
+            continue
+        if now_size != size:
+            size, quiet_since = now_size, time.monotonic()
+        elif size > start and time.monotonic() - quiet_since >= 0.3:
+            break
+    if size <= start:
+        return fail(Exit.OPERATIONAL, f"daemon stacks: nothing was written to {path} "
+                                      f"within {args.wait:g} s of SIGUSR1 to {pid}")
+    with open(path, "rb") as stream:
+        stream.seek(start)
+        out(stream.read(size - start).decode(errors="replace").rstrip("\n"))
+    return int(Exit.OK)
+
+
 def cmd_daemon_status(args: argparse.Namespace) -> int:
     root = _root(args)
     client = Client(root)
@@ -2079,7 +2132,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     return {
         "start": cmd_daemon_start, "stop": cmd_daemon_stop,
         "status": cmd_daemon_status, "logs": cmd_daemon_logs,
-        "install": cmd_daemon_install,
+        "stacks": cmd_daemon_stacks, "install": cmd_daemon_install,
     }[args.daemon_command or "status"](args)
 
 
@@ -2453,6 +2506,10 @@ def build_parser() -> argparse.ArgumentParser:
     d_logs = daemon_sub.add_parser("logs")
     d_logs.add_argument("-n", "--lines", type=int, default=40)
     d_logs.add_argument("-f", "--follow", action="store_true")
+    d_stacks = daemon_sub.add_parser(
+        "stacks", help="write every daemon thread's Python stack to daemon.log and print it")
+    d_stacks.add_argument("--wait", type=float, default=5.0,
+                          help="seconds to wait for the dump (default 5)")
     d_install = daemon_sub.add_parser("install")
     d_install.add_argument("--dry-run", action="store_true",
                            help="print instead of writing (the plist, or with "

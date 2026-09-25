@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import dataclasses
 import errno
+import faulthandler
 import fcntl
 import hashlib
 import json
@@ -43,6 +44,7 @@ from .contracts import (
 )
 from .credentials import resolve_credential
 from .guardian import atomic_publish
+from .lockwatch import LockWatch
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
@@ -354,6 +356,7 @@ class Daemon:
         self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
         self.log.addHandler(self._log_handler)
         self.log.setLevel(logging.INFO)
+        self._enable_stack_dumps()
         for directory in ("jobs", "lanes", "worktrees"):
             (self.root / directory).mkdir(mode=0o700, exist_ok=True)
         policy_path = self.root / "policy.json"
@@ -376,6 +379,12 @@ class Daemon:
         # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
         from .conversations.service import ConversationService
         self.conversations = ConversationService(self)
+        # C-3.6: a long hold of either store's lock, or a long wait for one, is
+        # written to daemon.log with the holder's stack. Waiters report on their
+        # own; the thread that samples long holds starts with serve_forever.
+        self.lock_watch = LockWatch(lambda text: self.log.warning("%s", text))
+        self.lock_watch.add(self.store._lock)
+        self.lock_watch.add(self.conversations.store._lock)
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
@@ -4053,6 +4062,7 @@ class Daemon:
         self._socket.settimeout(.2)
         self._control_thread = threading.Thread(target=self._control, name="subfleet-control", daemon=True)
         self._control_thread.start()
+        self.lock_watch.start()
         try:
             while not self.stopping.is_set():
                 try:
@@ -4079,6 +4089,28 @@ class Daemon:
                 self.readers.submit(self._connection, conn)
         finally:
             self.close()
+
+    def _enable_stack_dumps(self) -> None:
+        """C-3.6: SIGUSR1 writes every thread's Python stack to daemon.log.
+
+        `faulthandler` writes from the signal handler itself, so the dump
+        arrives even when every Python thread is stuck behind a lock, the GIL
+        or a pool (`subfleet daemon stacks` sends the signal). Registered as
+        soon as the log is open: SIGUSR1's default action is to end the process.
+        """
+        global _STACK_DUMPS
+        stream = self._log_handler.stream
+        stream.flush()
+        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
+        _STACK_DUMPS = weakref.ref(self)
+
+    def _disable_stack_dumps(self) -> None:
+        """Unregister before the log closes, so no dump is written to a closed or
+        reused descriptor; a later daemon in the same process keeps its own."""
+        global _STACK_DUMPS
+        if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
+            faulthandler.unregister(signal.SIGUSR1)
+            _STACK_DUMPS = None
 
     def _accept_trouble(self, exc: OSError) -> None:
         """Say so at most once a minute, and pause so a full queue is not spun on;
@@ -4139,12 +4171,19 @@ class Daemon:
         self.conversations.close()
         for pool in (self.readers, self.requests, self.waiters, self.workers):
             pool.shutdown(wait=True, cancel_futures=True)
+        self.lock_watch.stop()
         self.store.close()
         (self.root / "daemon.sock").unlink(missing_ok=True)
         fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
         self._lock_finalizer()
+        self._disable_stack_dumps()
         self.log.removeHandler(self._log_handler)
         self._log_handler.stream.close()
+
+
+#: C-3.6: the daemon whose log SIGUSR1 dumps into (one per process in service;
+#: a test process may build many).
+_STACK_DUMPS: weakref.ref | None = None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -4159,6 +4198,8 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 69
     daemon.log.info("open files: soft limit %s, hard limit %s", *limits)
+    daemon.log.info("stack dumps: `kill -USR1 %d` (or `subfleet daemon stacks`) writes every "
+                    "thread's Python stack to this log", os.getpid())
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: daemon.stopping.set())
     daemon.serve_forever()
