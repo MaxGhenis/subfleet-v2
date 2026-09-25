@@ -1440,4 +1440,39 @@ def test_the_mirror_syncs_what_it_writes_before_the_rename(world, monkeypatch):
     monkeypatch.setattr(mirror.os, "fsync", lambda fd: synced.append(fd) or fsync(fd))
     result = engine(world).run_once()
     assert result.added == 1 and result.flag_synced == 0
-    assert len(synced) >= 3, "the copy, and the ultracode rewrites of both copies"
+    assert len(synced) == 3, "the copy, and the ultracode rewrites of both copies; " \
+        "the mirror's own state files are not synced"
+
+
+def test_a_batch_split_by_a_racing_save_is_rolled_back(world, monkeypatch):
+    """C-23.28: an app save landing between the last check and the rename of
+    one copy fails that copy's write; the copies already written in the batch
+    are put back, so the held merge base matches every file and a user's
+    later reversal is not outvoted by the mirror's half-written batch."""
+    home, store, _root, _log = world
+    folders = ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B), ("acct-cccc", "org-cccc"))
+    for account, org in folders:
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    c_copy = store / "acct-cccc" / "org-cccc" / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})   # the user stars
+    install = mirror._install
+    raced = {"once": True}
+
+    def the_app_saves_c_first(temporary, destination, **kwargs):
+        if raced["once"] and destination == c_copy and kwargs.get("expect") is not None:
+            raced["once"] = False
+            temporary.unlink()
+            return False
+        return install(temporary, destination, **kwargs)
+
+    monkeypatch.setattr(mirror, "_install", the_app_saves_c_first)
+    running.run_once()
+    assert json.loads(b_copy.read_text())["isStarred"] is False, "rolled back"
+    assert json.loads(c_copy.read_text())["isStarred"] is False
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": False})  # and un-stars
+    running.run_once()
+    assert not any(row["isStarred"] for row in copies(store, ONE).values())

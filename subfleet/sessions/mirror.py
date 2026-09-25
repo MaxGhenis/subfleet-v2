@@ -341,7 +341,7 @@ def _install(temporary: Path, destination: Path, *, expect: tuple[int, ...] | No
 
 def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
                 mtime: float | None = None, expect: tuple[int, ...] | None = None,
-                exclusive: bool = False) -> int | None:
+                exclusive: bool = False, sync: bool = False) -> int | None:
     """Atomic write, owner-only like the app's own files.
 
     Returns the new file's inode, or None when `expect` or `exclusive` found
@@ -366,8 +366,9 @@ def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             stream.write(json.dumps(value, separators=(",", ":"), ensure_ascii=False))
-            stream.flush()
-            os.fsync(stream.fileno())          # as the app does before its rename
+            if sync:                           # a record the app loads: as it does
+                stream.flush()
+                os.fsync(stream.fileno())
         if stamp is not None:
             os.utime(temporary, (stamp, stamp))
         inode = os.stat(temporary).st_ino
@@ -1073,7 +1074,8 @@ class Mirror:
                             stamp: float | None = source.stat().st_mtime
                         except OSError:
                             stamp = None
-                        inode = _write_json(destination, body, mtime=stamp, exclusive=True)
+                        inode = _write_json(destination, body, mtime=stamp, exclusive=True,
+                                            sync=True)
                     except (OSError, ValueError):
                         current.skipped += 1
                         continue
@@ -1325,7 +1327,7 @@ class Mirror:
                 batches.setdefault(owners.get((path, name), ""), []).append((path, name))
             for identity, batch in batches.items():
                 # Check every copy first: a session is written whole or not at all.
-                ready: list[tuple[Path, dict, dict, tuple[int, ...]]] = []
+                ready: list[tuple[Path, dict, dict, dict, tuple[int, ...]]] = []
                 for path, name in batch:
                     resolved = folder_files[path].get(name)
                     original = originals.get((path, name))
@@ -1341,21 +1343,44 @@ class Mirror:
                             break                   # moved under us; decide next pass
                     except (OSError, ValueError):
                         break
+                    before = dict(body)
                     for key in FLAG_WRITES:
                         if key in resolved:
                             body[key] = resolved[key]
-                    ready.append((target, body, resolved, expect))
+                    ready.append((target, body, before, resolved, expect))
                 else:
-                    for target, body, resolved, expect in ready:
+                    written: list[tuple[Path, dict, int, tuple[int, ...]]] = []
+                    for target, body, before, resolved, expect in ready:
                         try:
                             self._forget(target)
-                            inode = _write_json(target, body, keep_mtime=True, expect=expect)
+                            inode = _write_json(target, body, keep_mtime=True, expect=expect,
+                                                sync=True)
                         except (OSError, ValueError):
                             inode = None
                         if inode is None:
-                            held.add(identity)      # the app saved it just now
-                            continue
-                        self._journal_write(target, inode, identity, resolved, "updated")
+                            # The app saved this copy in the instant after the
+                            # check. Put back the copies already written, so the
+                            # held merge base matches every file again (a copy
+                            # changed since the mirror's write is left alone).
+                            for done, old, done_inode, done_expect in reversed(written):
+                                try:
+                                    self._forget(done)
+                                    _write_json(done, old, keep_mtime=True, expect=done_expect,
+                                                sync=True)
+                                except (OSError, ValueError):
+                                    pass
+                            held.add(identity)
+                            break
+                        try:
+                            now_signature = _signature_of(target)
+                        except OSError:
+                            now_signature = None
+                        if now_signature is not None and now_signature[1] == inode:
+                            written.append((target, before, inode, now_signature))
+                    else:
+                        for target, _before, inode, _signature in written:
+                            self._journal_write(target, inode, identity,
+                                                folder_files[target.parent][target.name], "updated")
                     continue
                 held.add(identity)
             for identity in held:
