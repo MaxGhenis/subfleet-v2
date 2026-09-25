@@ -86,7 +86,7 @@ class Client:
     def ping(self, session_id, text):
         return self.service.dispatch("ping", {"session_id": session_id, "text": text})
 
-    def submit(self, args):
+    def submit(self, args, *, minted=False):     # `Sessions.submit`'s shape (C-16.3)
         import dataclasses
         return self.service.dispatch("submit", dataclasses.asdict(args))
 
