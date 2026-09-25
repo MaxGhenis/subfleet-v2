@@ -115,7 +115,7 @@ Commit on `fix/mirror-load-time-gap`; clause C-23.28, second half.
     the same second it is logged. What matters is that everything written up to
     ~2 s before any switch is already in every folder.
 - **Incremental full passes.**
-  - The cache holds only the twelve fields a pass reads, keyed by a hash of the
+  - The cache holds only the thirteen fields a pass reads, keyed by a hash of the
     file's bytes: one payload per distinct content, 9,619 payloads in 16.4 MB
     on the live store.
   - A folder with an unchanged directory is not re-listed, and a changed one is
@@ -128,6 +128,9 @@ Commit on `fix/mirror-load-time-gap`; clause C-23.28, second half.
 - **The load-gap report.** Every copy and rewrite the mirror makes is journaled
   in `<state root>/sessions/mirror-writes.json` with the file's ctime.
   `sessions/desktop.py` tails the app's `main.log` for the loads it records.
+  The log's wall-clock times carry no zone; each file is read in the zone the
+  app wrote it in, from its newest line against the file's mtime, so a reader
+  in another zone after a trip still places every load correctly.
   - A copy into the loaded folder counts as waiting for a relaunch when all of
     these hold:
     - it postdates that load, meaning the "Initialization succeeded" second or
@@ -156,10 +159,19 @@ Commit on `fix/mirror-load-time-gap`; clause C-23.28, second half.
   - An app's stale re-save no longer undoes a user's archive, star or rename.
     The app saves from memory, so a session still running from an earlier
     account (or a loaded folder the mirror wrote into) writes back the value it
-    held. A copy whose synced fields returned to exactly what the mirror
-    overwrote, in a folder the app has not freshly loaded since, has no say in
-    the merge and is written back. Before this, flag sync took such a re-save
-    for a user's change and spread it to every account.
+    held. Before this, flag sync took such a re-save for a user's change and
+    spread it to every account. Now, while the app's log is readable:
+    - for each field the mirror wrote into a copy since that folder's last
+      fresh load, the app is taken to hold the value the earliest such write
+      replaced, until an app save shows it holding something else;
+    - a rewritten copy whose field equals that held value has no say in the
+      merge and is written back;
+    - a copy that is still exactly the mirror's own write has no vote at all,
+      so a merge base held after a lost write race cannot let the mirror's
+      writes outvote the user.
+  - The stale-empty repair skips a record the app emptied itself: /clear
+    records the old id in `priorCliSessionIds` first, and a cwd or worktree
+    move changes `cwd`. Repairing those would undo the /clear at the next load.
   - A folder that cannot be listed is skipped for that pass rather than taken
     as empty, and the write journal merges rows another process (a manual
     `sessions mirror`) saved, so the report counts every late copy.
@@ -191,6 +203,13 @@ different measure (RSS), so it is given only for scale.
   app's next save of that record overwrites it there (the mirror then writes it
   back, and the other folders keep the right value). The report counts these
   as `stale`. Preventing that needs the app to reload, which only it can do.
+- **A set-and-reverse inside one full pass.** If the mirror wrote a value into
+  the loaded folder after its load, and the user sets that same value and
+  reverts it within one full-pass interval, the reversal looks like a stale
+  re-save and is written back. After the interval, an app save showing the
+  value is recorded, and a later reversal counts as the user's.
+- **A zone change within one log file.** A trip, or a DST change within the
+  file's one or two days, shifts that file's earlier lines by the difference.
 - **Dependence on the app's log.** The report relies on the app's log lines.
   The log is a diagnostic, not an interface. If the lines change, the report
   says `unknown` rather than guessing, and copying is unaffected.

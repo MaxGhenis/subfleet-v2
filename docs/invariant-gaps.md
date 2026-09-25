@@ -573,8 +573,9 @@ P-23.40 under provenance/attestation.
 > save of that record. The mirror therefore puts each new session whose transcript exists into every
 > folder within about `mirror_hot_interval_s` (2 s, a `policy.json` cap under C-6.4) of the write
 > while no full pass holds its worker (title, flag and setting changes spread with the full pass);
-> it does not count an app's re-save of a value it never saw as a user's change; and it reports,
-> from a journal of its own writes and the app's log, how many of its copies into the loaded folder
+> while the app's log is readable it does not count an app's re-save of a value it never saw as a
+> user's change, for `STALE_WINDOW_S` (12 h) after the mirror's write; and it reports, from a
+> journal of its own writes and the app's log, how many of its copies into the loaded folder
 > postdate that load and still wait for a relaunch (`sessions mirror --status`, `sessions list`,
 > `doctor`).
 

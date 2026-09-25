@@ -23,13 +23,13 @@ app has loaded, and when. The app logs both to `~/Library/Logs/Claude/main.log`:
 
 The "Initialization succeeded" line is written before the app clears its list
 and reads the folder, so a file older than it was listed. The "Loaded" line
-names the exact folder read. Mid-switch the app briefly initializes the old
-account with the new org: it loads that folder when it exists and logs the
-missing-folder line when it does not (and in both cases creates the folder,
-writing `scheduled-tasks.json` there), then initializes and loads the real
-pair a second or so later. So the latest load line is the sidebar's folder once
-the switch has settled; for those one to four seconds it names the transient
-pair. `existingSessions` is the size of the in-memory list before that load: 0
+names the exact folder read. A switch can pass through transient account and
+org pairs before it settles: on 2026-09-24 the app initialized the old account
+with the new org at 16:38:05 (missing, so it created the folder, writing
+`scheduled-tasks.json` there), loaded the new account with that org a second
+later, and loaded the pair it settled on at 16:38:11. The latest load line is
+the sidebar's folder once the switch has settled; for those few seconds it
+names a transient pair. `existingSessions` is the size of the in-memory list before that load: 0
 at launch. A load that keeps a non-empty list (a re-login to the same account
 and org) adds new ids but does not re-read records it already holds, so only a
 load that starts from an empty list is "fresh" for a record the app holds.
@@ -37,7 +37,12 @@ load that starts from an empty list is "fresh" for a record the app holds.
 The log is a diagnostic, not an interface: this module reads it read-only,
 never depends on it for copying, and reports `None` rather than guessing when
 the lines it knows are absent. Timestamps are the app's local wall clock,
-whole seconds.
+whole seconds, with no zone. They are read in the zone the app wrote them in,
+not the reader's: each file's UTC offset is its newest line's wall time
+against the file's own mtime (the app appends constantly), so a reader in
+another zone after a trip still places every load correctly. A zone change in
+the middle of one file (a trip, or a DST change within the file's one or two
+days) shifts that file's earlier lines by the difference.
 """
 
 from __future__ import annotations
@@ -135,6 +140,8 @@ class DesktopLog:
         self._pending_init: tuple[str, str, datetime, int] | None = None
         self._fresh_loads: dict[str, datetime] = {}
         self._covers_since: datetime | None = None
+        #: The file being read's UTC offset in seconds (wall clock minus UTC).
+        self._utc_offset: float | None = None
         self.state = AppState()
 
     # --- time and paths ------------------------------------------------------
@@ -146,8 +153,32 @@ class DesktopLog:
             return None
         if self.tz is not None:
             return naive.replace(tzinfo=self.tz).astimezone(timezone.utc)
-        # The app logs local wall-clock time; mktime applies that date's DST.
+        if self._utc_offset is not None:
+            return datetime.fromtimestamp(
+                naive.replace(tzinfo=timezone.utc).timestamp() - self._utc_offset, timezone.utc)
+        # No calibration yet: the reader's zone; mktime applies that date's DST.
         return datetime.fromtimestamp(time.mktime(naive.timetuple()), timezone.utc)
+
+    def _calibrate(self, data: bytes, mtime: float) -> None:
+        """Set the file's UTC offset from its newest line and its mtime.
+
+        Only called when the read reached the end of the file, so the newest
+        line is the file's last, written when its mtime was set. Offsets are
+        whole quarter hours, which absorbs the second or so between the two.
+        """
+        if self.tz is not None:
+            return
+        for raw in reversed(data[-65536:].split(b"\n")):
+            match = _LINE.match(raw.decode("utf-8", "replace"))
+            if not match:
+                continue
+            try:
+                naive = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                continue
+            offset = naive.replace(tzinfo=timezone.utc).timestamp() - mtime
+            self._utc_offset = round(offset / 900) * 900
+            return
 
     def _store_dir(self) -> Path:
         if self._store is not None:
@@ -232,7 +263,11 @@ class DesktopLog:
         with path.open("rb") as stream:
             stream.seek(start)
             data = stream.read(READ_LIMIT)
-            return data, start + len(data)
+            info = os.fstat(stream.fileno())
+        end = start + len(data)
+        if data and end >= info.st_size:
+            self._calibrate(data, info.st_mtime)
+        return data, end
 
     # --- the one entry point -------------------------------------------------
 

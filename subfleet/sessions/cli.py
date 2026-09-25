@@ -158,6 +158,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     if not rows:
         out("no live Claude Code sessions are registered")
+        _sidebar_note(args)
         return int(Exit.OK)
     out(f"{'session':<10}{'pid':>8}  {'inbox':<6}{'state':<12}{'name'}")
     for row in rows:
