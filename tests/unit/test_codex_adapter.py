@@ -171,6 +171,40 @@ def test_resume_launch_skips_the_git_repository_check_before_resume(tmp_path, sa
         assert "--skip-git-repo-check" not in launch.argv
 
 
+@pytest.mark.parametrize("resume", [False, True])
+@pytest.mark.parametrize("isolated", [False, True])
+@pytest.mark.parametrize("sandbox", list(Sandbox))
+def test_every_launch_shape_passes_the_repository_flag_once_when_read_only(
+        tmp_path, monkeypatch, sandbox, isolated, resume):
+    """C-12.3 C-23.2 Over every sandbox, isolation and resume shape, a launch carries
+    `--skip-git-repo-check` exactly once when read-only, before `resume`, and never when
+    writable. codex-cli 0.153.3 refuses the flag given twice ("cannot be used multiple times")."""
+    from subfleet.adapters.isolation import MANAGED_ENV
+    for name in MANAGED_ENV:
+        monkeypatch.delenv(name, raising=False)
+    prompt = tmp_path / "prompt"
+    prompt.write_bytes(b"Caller prompt.\n")
+    home = tmp_path / "home"
+    job = replace(_job(tmp_path, prompt, sandbox), isolated_review=isolated,
+                  review_root=str(tmp_path / "source") if isolated else None)
+    adapter = CodexAdapter()
+    adapter.isolation_inspector = lambda binary, **_: (
+        {"requirements": None}, {"layers": [{"name": {"type": "user"}, "config": {}}]}, [])
+    common = (job, "job/a1", tmp_path / "a1", _lane(home), {"CODEX_HOME": str(home)})
+    def build():
+        if resume:
+            return adapter.resume_launch(*common, THREAD, prompt, GUARD_OVERRIDE)
+        return adapter.build_launch(*common, MODEL, None, prompt, GUARD_OVERRIDE)
+    if isolated and (resume or sandbox != Sandbox.READ_ONLY):
+        with pytest.raises(AdapterError):  # C-6.5: an isolated review is read-only and fresh.
+            build()
+        return
+    argv = build().argv
+    assert argv.count("--skip-git-repo-check") == (1 if sandbox == Sandbox.READ_ONLY else 0)
+    if resume and sandbox == Sandbox.READ_ONLY:
+        assert argv.index("--skip-git-repo-check") < argv.index("resume")
+
+
 def test_workspace_write_requires_guard_override(tmp_path):
     """C-14.3 An executable workspace-write launch requires the guard override."""
     with pytest.raises(AdapterError) as exc:

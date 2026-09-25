@@ -148,7 +148,7 @@ def test_codex_prepares_fresh_lane_isolation_for_each_attempt(tmp_path):
                                      lane(home), {}, "gpt-6-astra", "high",
                                      Path(spec.prompt_path), "hooks=ignored")
         assert {"--ephemeral", "--ignore-user-config", "--ignore-rules"} <= set(launch.argv)
-        assert "--skip-git-repo-check" in launch.argv
+        assert launch.argv.count("--skip-git-repo-check") == 1  # codex refuses it twice
         assert all(f"features.{feature}=false" in launch.argv for feature in CODEX_DISABLED_FEATURES)
         assert f"mcp_servers.home{index}.enabled=false" in launch.argv
         assert "hooks=ignored" not in launch.argv
