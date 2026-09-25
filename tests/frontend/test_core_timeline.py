@@ -361,8 +361,15 @@ def test_c29_8_history_shows_only_what_came_before_subfleet(core_probe, tmp_path
          "message": {"role": "user", "content": "native question"}},
         {"type": "assistant", "uuid": str(uuid.uuid4()), "timestamp": "2026-09-01T10:00:05.000Z", "cwd": "/w",
          "message": {"role": "assistant", "model": "claude-opus-5-5", "content": [
+             {"type": "thinking", "thinking": "look at a first", "signature": "s"},
              {"type": "text", "text": "native answer"},
-             {"type": "tool_use", "id": "toolu_x", "name": "Read", "input": {"file_path": "/w/a"}}]}},
+             {"type": "tool_use", "id": "toolu_x", "name": "Read", "input": {"file_path": "/w/a"}},
+             {"type": "tool_use", "id": "toolu_y", "name": "Bash", "input": {"command": "false"}},
+             {"type": "tool_use", "id": "toolu_z", "name": "Bash", "input": {"command": "sleep 99"}}]}},
+        {"type": "user", "uuid": str(uuid.uuid4()), "timestamp": "2026-09-01T10:00:06.000Z", "cwd": "/w",
+         "message": {"role": "user", "content": [
+             {"type": "tool_result", "tool_use_id": "toolu_x", "content": "contents of a"},
+             {"type": "tool_result", "tool_use_id": "toolu_y", "content": "exit 1", "is_error": True}]}},
         {"type": "user", "uuid": mid, "timestamp": first_ts, "cwd": "/w",
          "message": {"role": "user", "content": "and now this"}},
         {"type": "assistant", "uuid": str(uuid.uuid4()), "timestamp": first_ts, "cwd": "/w",
@@ -377,11 +384,16 @@ def test_c29_8_history_shows_only_what_came_before_subfleet(core_probe, tmp_path
         {"receipts": harness.call("message.status", message_ids=[mid])["messages"]},
         {"page": events}, {"history": history},
     ])
-    shown = [(i["type"], i.get("role"), i["text"]) for i in result["items"]]
-    assert shown == [("history", "user", "native question"), ("history", "assistant", "native answer"),
-                     ("history", "assistant", "file_path: /w/a"), ("person", None, "and now this"),
-                     ("text", None, "Doing it.")]
-    assert result["items"][2]["tool"] == "Read" and result["history_complete"] is True
+    shown = [(i["type"], i.get("role"), i.get("text") or i.get("summary"), i.get("state"), i.get("preview"))
+             for i in result["items"]]
+    assert shown == [("history", "user", "native question", None, None),
+                     ("thinking", None, "look at a first", None, None),
+                     ("history", "assistant", "native answer", None, None),
+                     ("tool", None, "file_path: /w/a", "succeeded", "contents of a"),
+                     ("tool", None, "false", "failed", "exit 1"),
+                     ("tool", None, "sleep 99", "unfinished", None),          # no result: interrupted
+                     ("person", None, "and now this", "complete", None), ("text", None, "Doing it.", None, None)]
+    assert result["items"][3]["name"] == "Read" and result["history_complete"] is True
 
 
 def test_design_12_messages_order_by_sequence_with_labels(core_probe, tmp_path):

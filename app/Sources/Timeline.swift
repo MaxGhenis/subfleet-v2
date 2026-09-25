@@ -638,12 +638,24 @@ struct Timeline: Equatable {
             perCursor[cursor] = index + 1
             let itemID = "history:\(cursor):\(index)"
             guard !history.contains(where: { $0.id == itemID }) else { continue }
-            older.append(TimelineItem(id: itemID, messageID: nil,
-                                      content: .history(role: item.role, text: item.text,
-                                                        tool: item.kind == "tool" ? (item.tool ?? "tool") : nil),
-                                      ts: item.ts))
+            older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item), ts: item.ts))
         }
         history = older.reversed() + history
+    }
+
+    /// A history row drawn as the live row of its kind: a tool call with its
+    /// result and outcome, a thought, an answer; the person's words as a bubble.
+    static func content(of item: HistoryItem) -> TimelineContent {
+        switch item.kind {
+        case "tool":
+            let state: ToolActivity.State = item.is_error == true ? .failed : item.preview != nil ? .succeeded : .unfinished
+            return .tool(ToolActivity(toolID: item.tool_id, name: item.tool ?? "tool", summary: item.text,
+                                      hidden: item.hidden ?? false, state: state, preview: item.preview))
+        case "thinking":
+            return .thinking(item.text, final: true)
+        default:
+            return .history(role: item.role, text: item.text, tool: nil)
+        }
     }
 
     private func afterBoundary(_ ts: String?) -> Bool {

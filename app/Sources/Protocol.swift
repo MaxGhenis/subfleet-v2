@@ -504,6 +504,12 @@ struct HistoryItem: Codable, Equatable {
     var id: String?
     var cursor: Int?
     var tool: String?
+    /// A tool call's id, whether it was hidden, its result preview and whether it
+    /// failed: the fields a live `tool.started`/`tool.completed` pair carries.
+    var tool_id: String?
+    var hidden: Bool?
+    var preview: String?
+    var is_error: Bool?
 }
 
 // MARK: - conversation.events, conversation.watch
