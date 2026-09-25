@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import subprocess
 import sys
 import threading
@@ -317,6 +318,91 @@ def test_a_run_started_while_close_waits_for_the_lock_is_stopped_too(svc, runs, 
     assert not closer.is_alive() and not starter.is_alive()
     assert len(runs) == 1 and runs[0].signals == [service_module.signal.SIGTERM]
     assert runs[0].returncode == -15 and svc._catalog_proc is None
+
+
+CATALOG_STEPS = ("tick", "refresh", "advance", "exit", "stubborn", "close")
+
+
+def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, monkeypatch):
+    """C-30.1, checked after every step of 150 seeded random sequences of timer
+    ticks, `catalog.refresh`, clock jumps, run exits, runs that ignore signals and
+    close(), with close() at a random point or not at all:
+
+    - before close(), at most one started run is alive, and it is the one the
+      service tracks (the lock admits one; nothing alive goes untracked);
+    - close() leaves no tracked run and no fence; the run it found alive got
+      SIGTERM, then SIGKILL only when SIGTERM did not end it; no other run got a
+      signal from it;
+    - after close(), nothing starts and nothing is signalled, whatever follows
+      (close() again included)."""
+    state = {"runs": []}
+
+    def spawn(root, *, fence_fd=None):
+        runs = state["runs"]
+        if runs and runs[-1].returncode is None:
+            return None
+        runs.append(FakeRun(5_000_000 + len(runs)))
+        return runs[-1]
+
+    def killpg(pid, sig):
+        run = next((r for r in state["runs"] if r.pid == pid), None)
+        if run is None or run.returncode is not None:
+            raise ProcessLookupError(pid)
+        run.signals.append(sig)
+        if not run.stubborn:
+            run.end(-sig)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    monkeypatch.setattr(catalog_module, "refresh_running",
+                        lambda root: bool(state["runs"]) and state["runs"][-1].returncode is None)
+    monkeypatch.setattr(service_module.os, "killpg", killpg)
+    monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.0)
+    TERM, KILL = service_module.signal.SIGTERM, service_module.signal.SIGKILL
+    for seed in range(150):
+        rng = random.Random(seed)
+        steps = [rng.choice(CATALOG_STEPS) for _ in range(rng.randint(1, 14))]
+        root = tmp_path / f"s{seed}"
+        root.mkdir()
+        daemon = FakeDaemon(root)
+        svc = ConversationService(daemon)
+        svc.clock = Clock()
+        state["runs"] = runs = []
+        closed_with = None                  # (runs started, signals per run) when close() first ran
+        try:
+            for n, step in enumerate(steps):
+                where = f"seed {seed}, steps {steps[:n + 1]}"
+                live = [r for r in runs if r.returncode is None]
+                if step == "tick":
+                    svc._catalog_tick()
+                elif step == "refresh":
+                    svc.handle("catalog.refresh", {}, None)
+                elif step == "advance":
+                    svc.clock.now += rng.choice((1, 30, 61, 200))
+                elif step == "exit" and live and not live[0].stubborn:
+                    live[0].end(rng.choice((0, 1)))
+                elif step == "stubborn" and live:
+                    live[0].stubborn = True
+                elif step == "close":
+                    if closed_with is None:
+                        closed_with = (len(runs), [list(r.signals) for r in runs], live)
+                    svc.close()
+                    assert svc._catalog_proc is None and svc._catalog_fence is None, where
+                live = [r for r in runs if r.returncode is None]
+                if closed_with is None:
+                    assert len(live) <= 1, where
+                    assert not live or svc._catalog_proc is live[0] is runs[-1], where
+                    continue
+                count, signals, found = closed_with
+                assert len(runs) == count, f"a run started after close(): {where}"
+                for run, before in zip(runs, signals):
+                    added = run.signals[len(before):]
+                    if run in found:
+                        assert added == ([TERM, KILL] if run.stubborn else [TERM]), where
+                    else:
+                        assert added == [], where
+        finally:
+            svc.close()
+            daemon.store.close()
 
 
 def write_catalog(root: Path, generated_at: str, items=None):
