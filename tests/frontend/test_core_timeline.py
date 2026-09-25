@@ -94,9 +94,9 @@ def test_design_12_real_block_framing_shows_each_block_once_and_says_where_the_t
     assert [(t["text"], t["final"]) for t in items_of(done, mid, "text")] == [
         ("Found it.\nFixing now.", True), ("Done.", True)]
     assert [(t["text"], t["final"]) for t in items_of(done, mid, "thinking")] == [("All green.", True)]
-    assert done["turns"][mid]["phases"] == ["starting-provider", "sent", "accepted", "compacting", "compacted",
-                                            "requesting", "thinking", "writing", "preparing-tool", "thinking",
-                                            "writing"]
+    assert done["turns"][mid]["phases"] == ["starting-provider", "sent", "accepted", "compacting", "requesting",
+                                            "compacted", "requesting", "thinking", "writing", "preparing-tool",
+                                            "thinking", "writing"]
     assert done["turns"][mid]["outcome"]["state"] == "complete"
 
 

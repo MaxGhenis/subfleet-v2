@@ -419,16 +419,18 @@ struct ConversationStoreState: Equatable {
                     // A message first appears as `queued`, so a queued change names the newest one.
                     let previous = conversations[index].last_message
                     if previous == nil || previous?.message_id == mid || state == MessageState.queued.rawValue {
-                        conversations[index].last_message = LastMessage(message_id: mid, state: state, state_reason: nil,
+                        conversations[index].last_message = LastMessage(message_id: mid, state: state,
+                                                                        state_reason: change.state_reason,
                                                                         updated_at: change.ts)
                     }
                     conversations[index].active = !(liveMessages[cid] ?? []).isEmpty
                 }
             }
             if let mid = change.message_id, let state = change.state, var timeline = timelines[cid],
-               let turn = timeline.turn(mid), turn.state != state {
-                // The feed carries no reason; a changed state drops the old one.
-                timeline.apply(receipt: Receipt(message_id: mid, conversation_id: cid, state: state, state_reason: nil))
+               let turn = timeline.turn(mid), turn.state != state || turn.stateReason != change.state_reason {
+                // A reason can change while the state stays (a deferral, then a hold).
+                timeline.apply(receipt: Receipt(message_id: mid, conversation_id: cid, state: state,
+                                                state_reason: change.state_reason))
                 timelines[cid] = timeline
             }
             if watchBaselined && cid != focusedConversationID {

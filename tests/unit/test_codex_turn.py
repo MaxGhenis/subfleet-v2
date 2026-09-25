@@ -218,21 +218,34 @@ def test_item_starts_announce_where_the_model_is_once_per_change():
     assert phases(started(17, {"type": "reasoning", "id": "r4", "summary": [], "content": []})) == []
 
 
-def test_codex_compaction_and_other_work_items_have_phases_and_a_stop_holds():
-    """A context compaction is `compacting`; an item type the driver does not
-    show (a sub-agent, a sleep) is still work (`tool`); after a stop nothing
-    replaces `stopping`."""
-    turn = CodexTurn(spec())
-    to_running(turn)
+def test_codex_compaction_and_other_work_items_have_phases_and_replays_match():
+    """A context compaction is `compacting`, then `requesting` once it completes;
+    an item type the driver does not show (a sub-agent, a sleep) is still work
+    (`tool`). Phases never depend on a stop, and a tool.started keeps its
+    ordinal whether or not a phase came first on its line (C-26.6)."""
+    items = [("item/started", {"type": "contextCompaction", "id": "k1"}),
+             ("item/completed", {"type": "contextCompaction", "id": "k1"}),
+             ("item/started", {"type": "collabAgentToolCall", "id": "x1"}),
+             ("item/started", {"type": "reasoning", "id": "r1", "summary": [], "content": []}),
+             ("item/started", {"type": "commandExecution", "id": "c1", "command": "ls", "status": "inProgress"}),
+             ("item/started", {"type": "agentMessage", "id": "m1", "text": ""})]
 
-    def phases(offset, item):
-        step = turn.feed(note("item/started", threadId="thr-1", turnId="turn-1", startedAtMs=offset, item=item), offset)
-        return [e.data["phase"] for e in step.events if e.kind == "status"]
-    assert phases(10, {"type": "contextCompaction", "id": "k1"}) == ["compacting"]
-    assert phases(11, {"type": "collabAgentToolCall", "id": "x1"}) == ["tool"]
-    assert phases(12, {"type": "reasoning", "id": "r1", "summary": [], "content": []}) == ["thinking"]
-    assert [e.data for e in turn.interrupt().events if e.kind == "status"] == [{"phase": "stopping"}]
-    assert phases(13, {"type": "agentMessage", "id": "m1", "text": ""}) == []
+    def run(stop_after):
+        turn = CodexTurn(spec())
+        to_running(turn)
+        out = []
+        for i, (method, item) in enumerate(items):
+            step = turn.feed(note(method, threadId="thr-1", turnId="turn-1", startedAtMs=i, item=item), 10 + i)
+            out += [(e.source, e.kind, e.data) for e in step.events]
+            if stop_after == i:
+                turn.interrupt()
+        return out
+    stopped, replayed = run(stop_after=2), run(stop_after=None)
+    assert stopped == replayed
+    assert [data["phase"] for src, kind, data in stopped if kind == "status"] == [
+        "compacting", "requesting", "tool", "thinking", "tool", "writing"]
+    assert [(src, kind) for src, kind, data in stopped if src.startswith("14:")] == [
+        ("14:phase", "status"), ("14:1", "tool.started")]
 
 
 def test_notifications_for_another_thread_are_ignored():

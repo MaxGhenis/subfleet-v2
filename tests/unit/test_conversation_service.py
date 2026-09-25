@@ -301,31 +301,52 @@ def test_live_elsewhere_follows_every_view_and_an_old_catalog_says_nothing(svc, 
     assert svc.handle("conversation.list", {}, None)["conversations"][0]["live_elsewhere"] is False
 
 
-def test_a_registry_pid_holds_a_session_only_while_it_is_an_outside_claude_process(monkeypatch):
-    """C-26.3: a registry file can outlive its process and its pid be reused, and
-    a Subfleet attempt's own Claude carries markers; neither holds a session."""
+def test_a_registry_pid_holds_a_session_only_while_it_is_the_outside_process_that_wrote_it(monkeypatch):
+    """C-26.3: a registry file can outlive its process and its pid be reused (the
+    row's procStart then differs from the process's start); a Subfleet attempt's
+    own Claude carries markers; neither holds a session. A row with no procStart
+    needs a Claude executable. When ps cannot answer, the row holds."""
+    import subprocess
     from subfleet.sessions import registry
 
     class Done:
-        def __init__(self, out):
-            self.stdout = out
-    procs = {10: ("/Applications/Claude.app/Contents/MacOS/claude", "claude --resume s-1 HOME=/Users/x"),
-             11: ("/usr/sbin/cupsd", "cupsd"),
-             12: ("/Users/x/.local/bin/claude", "claude -p SUBFLEET_ATTEMPT=a1 SUBFLEET_JOB=j1")}
+        def __init__(self, out, rc=0):
+            self.stdout, self.returncode = out, rc
+    start = "Thu Sep 24 23:18:30 2026"
+    procs = {10: (start, "/Applications/Claude.app/Contents/MacOS/claude", ""),
+             11: ("Fri Sep 25 01:02:03 2026", "/Applications/Claude.app/Contents/MacOS/claude", ""),
+             12: (start, "/Users/x/.local/bin/claude", "SUBFLEET_ATTEMPT=a1 SUBFLEET_JOB=j1"),
+             13: (start, "/usr/sbin/cupsd", ""),
+             14: (start, "/Users/x/.local/bin/claude", "")}
 
     def run(argv, **kw):
-        pid = int(argv[2] if argv[1] == "-p" else argv[2])
-        comm, command = procs.get(pid, ("", ""))
-        return Done(comm + "\n" if "comm=" in argv else command + "\n")
+        pid = int(argv[2])
+        if pid == 15:
+            raise subprocess.TimeoutExpired(argv, 5)
+        if pid not in procs:
+            return Done("", 1)
+        started, comm, env = procs[pid]
+        if "lstart=,comm=" in argv:
+            assert kw["env"]["TZ"] == "UTC"
+            return Done(f"{started} {comm}\n")
+        return Done(f"{comm} {env}\n")
     monkeypatch.setattr(catalog_module.subprocess, "run", run)
-    rows = [registry.SessionRow(session_id=sid, pid=pid, socket=None, name=None, cwd=None, started_at=None,
-                                alive=alive, socket_present=False, registry_path=f"/x/{pid}.json")
-            for sid, pid, alive in [("s-1", 10, True), ("s-1", 11, True), ("s-2", 12, True), ("s-3", 10, False)]]
+
+    def row(sid, pid, proc_start=start, alive=True):
+        return registry.SessionRow(session_id=sid, pid=pid, socket=None, name=None, cwd=None, started_at=None,
+                                   alive=alive, socket_present=False, registry_path=f"/x/{pid}.json",
+                                   proc_start=proc_start)
+    rows = [row("s-1", 10), row("s-1", 11), row("s-2", 12), row("s-3", 10, alive=False),
+            row("s-4", 13, proc_start=None), row("s-5", 14, proc_start=None), row("s-6", 15), row("s-7", 16)]
     monkeypatch.setattr(registry, "rows", lambda: rows)
-    assert catalog_module.external_writers("s-1") == [10]          # 11 is a reused pid
+    assert catalog_module.external_writers("s-1") == [10]          # 11's start differs: a reused pid
     assert catalog_module.external_writers("s-2") == []            # Subfleet's own turn
     assert catalog_module.external_writers("s-3") == []            # its process is gone
-    assert catalog_module._live_claude_sessions() == {"s-1"}
+    assert catalog_module.external_writers("s-4") == []            # no procStart, and not Claude
+    assert catalog_module.external_writers("s-5") == [14]          # no procStart, a Claude executable
+    assert catalog_module.external_writers("s-6") == [15]          # ps timed out: it holds
+    assert catalog_module.external_writers("s-7") == []            # ps says no such process
+    assert catalog_module._live_claude_sessions() == {"s-1", "s-5", "s-6"}
 
 
 def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, tmp_path):
@@ -602,6 +623,8 @@ def test_a_claude_turn_waits_while_another_process_holds_its_session(svc, monkey
     message = svc.store.message(mid)
     assert (message["state"], message["state_reason"], message["job_id"]) == ("waiting", "external-writer: pid 4242", None)
     assert svc.daemon.submits == [] and svc.store.message(follow)["state"] == "queued"
+    change = svc.handle("conversation.watch", {"after": 0}, None)["changes"][-1]
+    assert (change["message_id"], change["state"], change["state_reason"]) == (mid, "waiting", "external-writer: pid 4242")
     svc.clock.now += 3
     svc._dispatch()
     assert calls == ["s-held"]                        # not looked at again before the recheck interval
@@ -803,6 +826,36 @@ class EndedRunner(FakeRunner):
         self.adir, self.message_id, self.conversation_id = adir, message_id, conversation_id
         self.attempt_id = "turn-job-0/a1"
         self.attempt = {"attempt_id": self.attempt_id, "lane_id": "claude-1"}
+
+
+def test_another_writer_at_launch_is_decided_once_and_never_uses_up_readmissions(svc, tmp_path, monkeypatch):
+    """C-26.3: the launch looks again (a job can wait in admission while the
+    Claude app takes the session), records its answer for a replay, and an
+    `external-writer` end waits again however many times it happens; a Codex
+    one is spaced out, since only a provider start can see it."""
+    looked = []
+    monkeypatch.setattr(catalog_module, "external_writers", lambda sid: looked.append(sid) or [4242])
+    adir = tmp_path / "a1"
+    adir.mkdir()
+    turn = {"provider": "claude", "native_session_id": "s-1"}
+    assert svc._writer_check(turn, adir) == [4242] and svc._writer_check(turn, adir) == [4242]
+    assert looked == ["s-1"]                                        # recorded, not asked again
+    fresh = tmp_path / "a2"
+    fresh.mkdir()
+    (fresh / "stdin.jsonl").write_text("")
+    assert svc._writer_check(turn, fresh) == []                     # already writing: a replay, left alone
+    assert svc._writer_check({"provider": "codex", "native_session_id": "t"}, tmp_path) == []
+    cid = conversation(svc, origin="native", native_session_id="s-1")
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "running", turn_seq=service_module.MAX_READMITS + 2)
+    end = tmp_path / "a3"
+    end.mkdir()
+    (end / "turn.json").write_text(json.dumps({"state": "failed", "reason": "external-writer", "served": {},
+                                               "user_frame_written": False, "accepted": False}))
+    svc._on_outcome(EndedRunner(end, mid, cid))
+    message = svc.store.message(mid)
+    assert (message["state"], message["state_reason"]) == ("waiting", "readmit:external-writer")
+    assert message["turn_seq"] == service_module.MAX_READMITS + 3
 
 
 def test_a_limited_turns_continuation_exists_before_the_failure_is_visible(svc, tmp_path, monkeypatch):

@@ -46,7 +46,8 @@ def test_design_12_sidebar_groups_searches_and_filters(core_probe, tmp_path, har
     codex = harness.create(provider="codex", settings={"model": "gpt-6-astra", "permission": "read-only"})
     other = tmp_path / "elsewhere"
     other.mkdir()
-    (harness.root / "catalog.json").write_text(json.dumps({"generated_at": "x", "complete": True, "items": [
+    fresh = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")   # a stale one flags nothing
+    (harness.root / "catalog.json").write_text(json.dumps({"generated_at": fresh, "complete": True, "items": [
         catalog_item("claude", "fix the build on main", str(other), now - 2 * 86400, live_elsewhere=True),
         catalog_item("codex", "explore the data", str(other), now - 40 * 86400, continuable=False,
                      continue_blocker="codex-app thread: continue by handoff"),
@@ -264,3 +265,20 @@ def test_design_9_staged_images_and_drafts_are_private(core_probe, tmp_path):
     assert drafts["round_trip"] is True and drafts["deleted"] is True
     odd = run_probe(core_probe, "drafts", tmp_path / "support" / "drafts", "../../etc/passwd")
     assert "/drafts/" in odd["path"] and ".." not in Path(odd["path"]).name
+
+
+def test_c26_3_a_hold_reaches_the_live_strip_through_the_change_feed(core_probe, tmp_path, harness, monkeypatch):
+    """C-26.3, design §12: a message held for another writer says so on a live
+    timeline, from the watch feed alone (no second conversation.open)."""
+    from subfleet.conversations import catalog as catalog_module
+    cid = harness.create()["conversation_id"]
+    harness.store.update_conversation(cid, native_session_id="s-held")
+    mid = harness.submit(cid, "go on")["message_id"]
+    opened = harness.call("conversation.open", conversation_id=cid)
+    baseline = harness.call("conversation.watch", after=0)
+    monkeypatch.setattr(catalog_module, "external_writers", lambda sid: [4242] if sid == "s-held" else [])
+    harness.service._dispatch()
+    held = harness.call("conversation.watch", after=baseline["next"])
+    assert [(c["state"], c["state_reason"]) for c in held["changes"]] == [("waiting", "external-writer: pid 4242")]
+    out = store(core_probe, tmp_path, [{"open": opened}, {"watch": baseline}, {"watch": held}])
+    assert out["statuses"][mid] == "Waiting: open in the Claude app or a terminal; close it there to continue here"

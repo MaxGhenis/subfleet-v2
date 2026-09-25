@@ -430,6 +430,13 @@ class CodexAdapter(Adapter):
             argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
                                inspector=getattr(self, "isolation_inspector", None))
+        elif sandbox == Sandbox.READ_ONLY:
+            # A read-only job may read a directory that is not a repository (a
+            # folder of repositories, a review folder). Without this, `codex exec`
+            # exits at once (12 jobs on 2026-09-24: "Not inside a trusted
+            # directory"). The sandbox is unchanged; writable jobs keep C-13.2's
+            # repository requirement.
+            argv += ["--skip-git-repo-check"]
         if model_id:
             argv += ["-m", model_id]
         if effort:

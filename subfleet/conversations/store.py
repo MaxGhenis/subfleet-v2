@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS floors (conversation_id TEXT PRIMARY KEY, compacted_t
 CREATE TABLE IF NOT EXISTS changes (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   conversation_id TEXT NOT NULL, message_id TEXT, state TEXT, pending_approvals INTEGER NOT NULL,
-  ts TEXT NOT NULL
+  ts TEXT NOT NULL, state_reason TEXT
 );
 """
 
@@ -236,6 +236,10 @@ class ConversationStore:
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
             if "worktree_json" not in columns:
                 self._db.execute("ALTER TABLE conversations ADD COLUMN worktree_json TEXT")
+            # A waiting message's reason (another writer, a deferral) reaches the
+            # app with its state (design §12).
+            if "state_reason" not in {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}:
+                self._db.execute("ALTER TABLE changes ADD COLUMN state_reason TEXT")
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
         self.changed = threading.Condition()
@@ -462,7 +466,7 @@ class ConversationStore:
             cur = tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE {where}", (*params, *wparams))
             if cur.rowcount:
                 row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
-                self._change(tx, row["conversation_id"], message_id, state)
+                self._change(tx, row["conversation_id"], message_id, state, reason=reason)
             return bool(cur.rowcount)
 
     def update_message(self, message_id: str, **fields: Any) -> None:
@@ -663,12 +667,12 @@ class ConversationStore:
     # --- the change feed (C-29.9) ----------------------------------------------
 
     def _change(self, tx: sqlite3.Connection, conversation_id: str, message_id: str | None, state: str | None,
-                *, pending: int | None = None) -> None:
+                *, pending: int | None = None, reason: str | None = None) -> None:
         if pending is None:
             pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE conversation_id=? AND state='pending'",
                                  (conversation_id,)).fetchone()[0]
-        tx.execute("INSERT INTO changes(conversation_id,message_id,state,pending_approvals,ts) VALUES (?,?,?,?,?)",
-                   (conversation_id, message_id, state, pending, utcnow()))
+        tx.execute("INSERT INTO changes(conversation_id,message_id,state,pending_approvals,ts,state_reason) "
+                   "VALUES (?,?,?,?,?,?)", (conversation_id, message_id, state, pending, utcnow(), reason))
 
     def changes_after(self, after: int, *, limit: int = 500) -> dict:
         rows = self.query("SELECT * FROM changes WHERE seq>? ORDER BY seq LIMIT ?", (after, max(1, min(limit, 1000))))

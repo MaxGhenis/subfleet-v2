@@ -173,6 +173,11 @@ class ClaudeTurn:
     # --- lifecycle -------------------------------------------------------------
 
     def start(self) -> Step:
+        if self.spec.held_by:
+            # C-26.3: another Claude process took the session after dispatch looked.
+            # Nothing is sent; the message waits for it again (`readmit:external-writer`).
+            return self._end(FAILED, "external-writer", source="cmd:start",
+                             detail="pid " + ", ".join(str(pid) for pid in self.spec.held_by))
         self.phase = "initializing"
         request = {"type": "control_request", "request_id": INIT_REQUEST_ID,
                    "request": {"subtype": "initialize"}}
@@ -381,17 +386,17 @@ class ClaudeTurn:
 
     def _system(self, row: dict, source: "_Sources") -> Step:
         if row.get("subtype") == "status":
+            if row.get("status") is None and row.get("compact_result"):
+                # A compaction ended (either way); the request it held up goes next.
+                return self._announce("requesting", source)
             return self._announce(STATUS_PHASES.get(str(row.get("status"))), source)
         if row.get("subtype") == "compact_boundary":
             # The model now works from a summary of the earlier conversation.
             meta = row.get("compact_metadata") or {}
-            if self.interrupt_requested:
-                self._phase = "compacted"
-                return Step()
             self._phase = "compacted"
             return Step(events=[Event("status", {"phase": "compacted", "trigger": meta.get("trigger"),
                                                  "pre_tokens": meta.get("pre_tokens"),
-                                                 "post_tokens": meta.get("post_tokens")}, source.next())])
+                                                 "post_tokens": meta.get("post_tokens")}, source.phase())])
         if row.get("subtype") == "notification" and row.get("key") == "fast-mode-overage-rejected":
             # IR-23: matched on the structured key; the turn continues at standard speed.
             return Step(events=[Event("served", {"fast_mode_state": "off", "fast_warning": "usage credits exhausted"},
@@ -428,12 +433,14 @@ class ClaudeTurn:
         return Step()
 
     def _announce(self, phase: str | None, source: "_Sources") -> Step:
-        """A `status` event for where the model is, when that changed (design §12)."""
-        # After a stop, `stopping` stays the word until the turn ends.
-        if phase is None or phase == self._phase or self.interrupt_requested:
+        """A `status` event for where the model is, when that changed (design §12).
+        It depends on stdout alone, so a replay after a restart makes the same
+        events; after a stop the app keeps saying Stopping. Its source is the
+        line's own `phase` slot, so it never moves another event's ordinal."""
+        if phase is None or phase == self._phase:
             return Step()
         self._phase = phase
-        return Step(events=[Event("status", {"phase": phase}, source.next())])
+        return Step(events=[Event("status", {"phase": phase}, source.phase())])
 
     def _delta(self, kind: str, block: str, text: str, source: "_Sources") -> Step:
         self.answered = True
@@ -585,6 +592,10 @@ class _Sources:
     def next(self) -> str:
         self.n += 1
         return f"{self.offset}:{self.n}"
+
+    def phase(self) -> str:
+        """The line's one status phase, outside the ordinal sequence."""
+        return f"{self.offset}:phase"
 
 
 def _entry_efforts(entry: dict) -> list[str]:

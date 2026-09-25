@@ -352,7 +352,8 @@ def test_status_rows_announce_requests_and_an_automatic_compaction():
     assert system(10, subtype="status", status="requesting") == [("status", {"phase": "requesting"})]
     assert system(11, subtype="status", status="compacting") == [("status", {"phase": "compacting"})]
     assert system(12, subtype="status", status="compacting") == []                  # unchanged
-    assert system(13, subtype="status", status=None, compact_result="success") == []
+    # The compaction ended; the request it held up goes next.
+    assert system(13, subtype="status", status=None, compact_result="success") == [("status", {"phase": "requesting"})]
     assert system(14, subtype="compact_boundary", compact_metadata={
         "trigger": "auto", "pre_tokens": 972214, "post_tokens": 17683, "duration_ms": 106761}) == [
         ("status", {"phase": "compacted", "trigger": "auto", "pre_tokens": 972214, "post_tokens": 17683})]
@@ -360,20 +361,35 @@ def test_status_rows_announce_requests_and_an_automatic_compaction():
     assert system(16, subtype="status", status="something-new") == []
 
 
-def test_after_a_stop_no_phase_replaces_stopping():
-    """Design §12: once a person stops the turn, a block start, a request or a
-    compaction still in the pipe does not bring back Thinking or Writing."""
-    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
-    started(turn)
-    turn.feed(line(type="stream_event", event={"type": "message_start", "message": {"id": "msg_1"}}), 10)
-    turn.feed(line(type="stream_event", event={"type": "content_block_start", "index": 0,
-                                               "content_block": {"type": "thinking"}}), 11)
-    assert [e.data for e in turn.interrupt().events] == [{"phase": "stopping"}]
-    late = [turn.feed(line(type="stream_event", event={"type": "content_block_start", "index": 1,
-                                                       "content_block": {"type": "text"}}), 12),
-            turn.feed(line(type="system", subtype="status", status="requesting"), 13),
-            turn.feed(line(type="system", subtype="compact_boundary", compact_metadata={"trigger": "auto"}), 14)]
-    assert [e for step in late for e in step.events if e.kind == "status"] == []
+def test_phases_come_from_stdout_alone_so_a_replay_after_a_stop_matches():
+    """C-26.6: a replay after a restart rebuilds the driver without the person's
+    stop, and must store no event the first run did not. Phases therefore never
+    depend on the stop (the app keeps saying Stopping), and each takes its line's
+    own `phase` source, so no other event's ordinal moves."""
+    rows = [line(type="stream_event", event={"type": "message_start", "message": {"id": "msg_1"}}),
+            line(type="stream_event", event={"type": "content_block_start", "index": 0,
+                                             "content_block": {"type": "thinking"}}),
+            line(type="system", subtype="status", status="requesting"),
+            line(type="system", subtype="compact_boundary", compact_metadata={"trigger": "auto"}),
+            line(type="stream_event", event={"type": "content_block_start", "index": 1,
+                                             "content_block": {"type": "text"}}),
+            line(type="assistant", message={"id": "msg_1", "model": "claude-opus-5-5", "content": [
+                {"type": "text", "text": "done"}]})]
+
+    def run(stop_after: int | None):
+        turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+        started(turn)
+        out = []
+        for i, row in enumerate(rows):
+            out += [(e.source, e.kind, e.data) for e in turn.feed(row, 100 + i).events]
+            if stop_after == i:
+                turn.interrupt()
+        return out
+    stopped, replayed = run(stop_after=1), run(stop_after=None)
+    assert stopped == replayed
+    assert [(src, data) for src, kind, data in stopped if kind == "status"][:2] == [
+        ("101:phase", {"phase": "thinking"}), ("102:phase", {"phase": "requesting"})]
+    assert ("105:1", "text", {"block": "msg_1:0", "text": "done"}) in stopped
 
 
 def test_a_row_that_ends_the_turn_still_takes_its_stream_positions():
@@ -398,6 +414,16 @@ def test_a_row_that_ends_the_turn_still_takes_its_stream_positions():
         {"type": "text", "text": "Hello\nworld"}]}), 16).events
     events += stream({"type": "content_block_stop", "index": 1}, 17)
     assert [(e.kind, e.data["block"]) for e in events] == [("text.delta", "m1:1"), ("text", "m1:1")]
+
+
+def test_a_session_held_at_launch_sends_nothing_and_waits_again():
+    """C-26.3: another Claude process took the session after dispatch looked.
+    The driver ends before initialize, with a reason that re-admits the message."""
+    turn = ClaudeTurn(spec(held_by=(4242,)), read_bytes=lambda p: b"")
+    first = turn.start()
+    assert [f.tag for f in first.frames] == ["close"]
+    assert (first.outcome.state, first.outcome.reason, first.outcome.detail) == ("failed", "external-writer", "pid 4242")
+    assert not first.outcome.accepted and turn.phase == "ended"
 
 
 def test_output_after_result_is_kept_without_changing_the_outcome():

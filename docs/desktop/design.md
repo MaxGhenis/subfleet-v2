@@ -329,8 +329,15 @@ external writer (a live pid in `~/.claude/sessions/*.json` naming the session
 that carries no Subfleet markers and is not a recorded owned identity) is an
 admission wait `external-writer` shown in the app ("open in the Claude app;
 close it there to continue here"), not a refusal. Claude's is checked when a
-message is dispatched (`ConversationService._hold_for_writer`); a process that
-takes the session between that check and the provider's start is not caught.
+message is dispatched (`ConversationService._hold_for_writer`) and again when
+its attempt starts, since a job can wait in admission while the Claude app
+takes the session: `_writer_check` records the answer in the attempt's
+`held_by.json` before anything is written (a replay reads it back), and a held
+attempt ends before `initialize` as `external-writer`, which re-admits the
+message. That re-admission never counts toward the three a failing provider
+gets; a Codex one (seen only by starting a provider) waits 30 s between tries.
+A registry row holds its session only while its pid's start time equals the
+row's `procStart` (a reused pid holds nothing), and when `ps` cannot answer.
 
 **D-18. Handoffs are labelled.** Moving a conversation to the other provider,
 or out of a Codex home it cannot run in, creates a new conversation whose
@@ -589,7 +596,7 @@ marked †.
 | `approval.respond` † | `{approval_id, nonce, request_sha256, decision, answers?, message?}` → `{approval, receipt}` |
 | `attachment.add` | `{path, sha256?}` → `{sha256, media_type, bytes}` |
 | `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
-| `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, pending_approvals}], next}` (D-24) |
+| `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, state_reason, pending_approvals}], next}` (D-24; `state_reason` says why a message waits, so a hold shows without a second open) |
 | `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
 | `turn.diff` | `{message_id, path?}` → `{files:[{path, status, additions, deletions}], diff, truncated}` (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` |
@@ -807,7 +814,11 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   (`catalog.external_writers`: a live pid naming the session whose executable
   is Claude's and whose environment has no Subfleet markers), holds the
   message `waiting` with reason `external-writer: pid <n>`, and looks again
-  every 5 s without backoff; a stop withdraws it.
+  every 5 s without backoff; a stop withdraws it. `status` phases come from
+  provider output alone, each in its line's own `<offset>:phase` source, so a
+  replay after a restart stores exactly what the first run stored; after a stop
+  the app keeps saying Stopping, and once the provider has answered it says
+  Finishing with no clock.
 - The live turn's status strip is pinned above the composer, with the
   elapsed time; the strip under each person bubble keeps the words only.
 - A listed session that cannot continue here (a Codex-app thread) opens as a

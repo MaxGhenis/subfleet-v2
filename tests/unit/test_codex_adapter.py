@@ -109,7 +109,8 @@ def test_build_launch_preserves_contract_and_captures_sent_prompt(tmp_path, sand
         _job(workdir, prompt, sandbox), "job/a1", attempt, _lane(home), credential_env,
         MODEL, effort, prompt, GUARD_OVERRIDE,
     )
-    assert launch.argv[:5] == ("/test/bin/codex", "exec", "--json", "-m", MODEL)
+    outside_repo = ("--skip-git-repo-check",) if sandbox == Sandbox.READ_ONLY else ()
+    assert launch.argv[:5 + len(outside_repo)] == ("/test/bin/codex", "exec", "--json", *outside_repo, "-m", MODEL)
     assert launch.argv[launch.argv.index("--sandbox") + 1] == sandbox.value
     overrides = [launch.argv[index + 1] for index, value in enumerate(launch.argv) if value == "-c"]
     assert GUARD_OVERRIDE in overrides
@@ -140,6 +141,24 @@ def test_read_only_launch_can_omit_guard(tmp_path):
         {"CODEX_HOME": str(tmp_path / "home")}, MODEL, None, tmp_path / "prompt", None,
     )
     assert not any(value.startswith("hooks=") for value in launch.argv)
+
+
+def test_only_a_read_only_launch_runs_outside_a_repository(tmp_path):
+    """A read-only job may read a folder that is not a repository: `codex exec`
+    gets --skip-git-repo-check (it otherwise exits at once, "Not inside a trusted
+    directory"; 12 jobs on 2026-09-24). A writable launch never does."""
+    (tmp_path / "prompt").write_bytes(b"Caller prompt.\n")
+    read_only = CodexAdapter().build_launch(
+        _job(tmp_path, tmp_path / "prompt"), "job/a1", tmp_path, _lane(tmp_path / "home"),
+        {"CODEX_HOME": str(tmp_path / "home")}, MODEL, None, tmp_path / "prompt", None,
+    )
+    assert read_only.argv.count("--skip-git-repo-check") == 1
+    assert read_only.argv[read_only.argv.index("--sandbox") + 1] == "read-only"
+    writable = CodexAdapter().build_launch(
+        _job(tmp_path, tmp_path / "prompt", Sandbox.WORKSPACE_WRITE), "job/a2", tmp_path, _lane(tmp_path / "home"),
+        {"CODEX_HOME": str(tmp_path / "home")}, MODEL, None, tmp_path / "prompt", "hooks={}",
+    )
+    assert "--skip-git-repo-check" not in writable.argv
 
 
 def test_workspace_write_requires_guard_override(tmp_path):

@@ -226,7 +226,7 @@ def _codex_names(home: Path) -> dict[str, str]:
 def _live_claude_sessions() -> set[str]:
     """Session ids a live Claude process outside Subfleet holds (IR-16)."""
     from ..sessions import registry
-    return {row.session_id for row in registry.rows() if row.alive and _outside_claude(row.pid)}
+    return {row.session_id for row in registry.rows() if row.alive and _outside_claude(row)}
 
 
 def external_writers(session_id: str) -> list[int]:
@@ -234,26 +234,37 @@ def external_writers(session_id: str) -> list[int]:
     turns wait for them (C-26.3, design D-17). Read now, not from the catalog."""
     from ..sessions import registry
     return sorted(row.pid for row in registry.rows()
-                  if row.session_id == session_id and row.alive and row.pid and _outside_claude(row.pid))
+                  if row.session_id == session_id and row.alive and row.pid and _outside_claude(row))
 
 
-def _outside_claude(pid: int | None) -> bool:
-    """A registry row's pid is a running Claude executable that no Subfleet attempt
-    started. A registry file can outlive its process and the pid be reused by an
-    unrelated one, which must not hold a session."""
-    if not pid:
+def _outside_claude(row) -> bool:
+    """A registry row's process is the one that wrote the row, and no Subfleet
+    attempt started it (C-26.3). A row can outlive its process and the pid be
+    reused: the row's `procStart` must equal the process's start (2.1.280 writes
+    it as `TZ=UTC ps -o lstart=` prints it); a row without one needs a Claude
+    executable. When `ps` cannot answer, the row holds its session: a second
+    writer is worse than a wait."""
+    if not row.pid:
         return False
     try:
-        comm = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="], capture_output=True, text=True,
-                              timeout=5).stdout.strip()
+        out = subprocess.run(["/bin/ps", "-p", str(row.pid), "-o", "lstart=,comm="], capture_output=True, text=True,
+                             timeout=5, env={**os.environ, "TZ": "UTC"})
     except (OSError, subprocess.SubprocessError):
+        return True
+    line = out.stdout.strip()
+    if not line:
+        return out.returncode not in (0, 1)         # 1: no such process; else ps failed to answer
+    started, comm = line[:24], line[24:].strip()
+    if row.proc_start:
+        if started != row.proc_start:
+            return False                                                       # a reused pid
+    elif "claude" not in os.path.basename(comm).lower():
         return False
-    if "claude" not in os.path.basename(comm).lower():
-        return False
-    return not _subfleet_owned(pid)
+    return not _subfleet_owned(row.pid)
 
 
 def _subfleet_owned(pid: int | None) -> bool:
+    """The process carries a Subfleet attempt's markers. Unknown (ps failed) is not owned."""
     if not pid:
         return False
     try:
@@ -347,7 +358,8 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
             continue
         if needle and not any(needle in str(item.get(k) or "").lower() for k in ("title", "cwd", "first_prompt")):
             continue
-        out.append(item)
+        # An old run says nothing about which processes hold a session now.
+        out.append(item if state == "fresh" else {**item, "live_elsewhere": False})
         if len(out) >= max(1, min(limit, 500)):
             break
     return {"generated_at": generated_at, "complete": bool(catalog.get("complete", False)), "items": out,

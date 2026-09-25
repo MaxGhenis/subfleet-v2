@@ -248,6 +248,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
     var banners: [String: Any] = [:]
     var chips: [String: Any] = [:]
     var stops: [String: Any] = [:]
+    var statuses: [String: Any] = [:]
     for conversation in state.conversations {
         let id = conversation.conversation_id
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
@@ -260,6 +261,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
                                         "warnings": chip.warnings]
                 }
                 stops[messageID] = project(stopAction(for: messageID, state: timeline.turn(messageID)?.state, outboxEntry: nil))
+                statuses[messageID] = timeline.turn(messageID)?.statusText ?? NSNull()
             }
         }
     }
@@ -267,6 +269,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
     out["banners"] = banners
     out["chips"] = chips
     out["stops"] = stops
+    out["statuses"] = statuses
     return out
 }
 

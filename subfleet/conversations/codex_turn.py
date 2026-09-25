@@ -464,16 +464,19 @@ class CodexTurn:
         return step
 
     def _announce(self, phase: str | None, source: "_Sources") -> Step:
-        # After a stop, `stopping` stays the word until the turn ends.
-        if phase is None or phase == self._phase or self.outcome is not None or self.interrupt_requested:
+        # From stdout alone (a replay makes the same events), in the line's own
+        # `phase` slot so a tool.started on the same line keeps its ordinal.
+        if phase is None or phase == self._phase or self.outcome is not None:
             return Step()
         self._phase = phase
-        return Step(events=[Event("status", {"phase": phase}, source.next())])
+        return Step(events=[Event("status", {"phase": phase}, source.phase())])
 
     def _item_completed(self, item: dict, source: "_Sources") -> Step:
         itype, item_id = item.get("type"), str(item.get("id"))
         if itype == "userMessage":
             return Step()
+        if itype == "contextCompaction":
+            return self._announce("requesting", source)       # the model goes on after it
         if itype == "agentMessage":
             self.answered = True
             self._buffers.pop(f"text.delta|{item_id}", None)
@@ -575,6 +578,9 @@ class _Sources:
     def next(self) -> str:
         self.n += 1
         return f"{self.offset}:{self.n}"
+
+    def phase(self) -> str:
+        return f"{self.offset}:phase"
 
 
 def _rpc_id(request_id: str) -> Any:

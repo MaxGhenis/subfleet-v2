@@ -176,10 +176,15 @@ final class UIModel: ObservableObject {
 
     // MARK: Conversations
 
+    /// Moves on with every navigation that opens or leaves something, so an open
+    /// that answers after the person went elsewhere changes nothing.
+    private var navigation = 0
+
     func select(_ entry: SidebarEntry?) {
         guard let entry else { return }
         if !entry.continuable {
             // Opening one only fails (not-continuable): say what it is instead.
+            navigation += 1
             showLocked(entry)
             return
         }
@@ -187,7 +192,9 @@ final class UIModel: ObservableObject {
         switch entry.target {
         case .conversation(let id): focus(id)
         case .native:
-            Task { await open(entry.target) }
+            navigation += 1
+            let token = navigation
+            Task { await open(entry.target, token: token) }
         }
     }
 
@@ -203,20 +210,27 @@ final class UIModel: ObservableObject {
         lockedEntry = nil
         guard state.focusedConversationID != conversationID else { return }
         state.focus(conversationID)
-        Task { await open(.conversation(conversationID)) }
+        navigation += 1
+        let token = navigation
+        Task { await open(.conversation(conversationID), token: token) }
     }
 
-    func open(_ target: SidebarEntry.Target) async {
+    func open(_ target: SidebarEntry.Target, token: Int? = nil) async {
         guard let engine else { return }
         busy = true
         defer { busy = false }
         do {
             let result = try await onOutbox { try engine.open(target) }
+            // The daemon's state is kept either way; the screen moves only if the
+            // person has not gone elsewhere since asking.
             state.apply(open: result)
+            if let token, token != navigation { return }
+            lockedEntry = nil
             state.focus(result.conversation.conversation_id)
             startEventsLoop(result.conversation.conversation_id)
             await loadHistory(result.conversation.conversation_id)
         } catch {
+            if let token, token != navigation { return }
             // The catalog said continuable and the daemon, looking now, refuses
             // (its directory is gone, it became a lane run): the same page.
             if case .native = target, let refusal = (error as? DaemonClientError)?.daemonError,

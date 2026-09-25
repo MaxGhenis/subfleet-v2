@@ -11,6 +11,7 @@ from its turn's outcome. `daemon.py` calls it through a handful of seams:
 from __future__ import annotations
 
 import concurrent.futures
+import dataclasses
 import hashlib
 import json
 import os
@@ -73,6 +74,8 @@ CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
 DEFER_BASE_S = 2.0
 #: How often a turn held by another Claude process looks again (C-26.3, D-17).
 EXTERNAL_WRITER_RECHECK_S = 5.0
+#: A Codex thread's other writer is seen only by starting a provider: every 30 s.
+CODEX_WRITER_RECHECK_S = 30.0
 DEFER_MAX_S = 300.0
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
 # times that is wedged outside the cap (a directory walk, `ps`) and is stopped.
@@ -1022,6 +1025,9 @@ class ConversationService:
             lane = self.daemon.store.get_lane(attempt["lane_id"])
             spec = spec_from_manifest(turn, lane_email=lane_email(lane) if lane else None,
                                       guard_hash=notes.get("guard_hash"), model_ref=notes.get("model_id"))
+            held = self._writer_check(turn, adir)
+            if held:
+                spec = dataclasses.replace(spec, held_by=tuple(held))
             runner = TurnRunner(store=self.store, attempt=dict(attempt), spec=spec,
                                 conversation_id=turn["conversation_id"], attempt_dir=adir,
                                 control_socket=start["control_socket"], on_outcome=self._on_outcome,
@@ -1031,6 +1037,22 @@ class ConversationService:
             self.runners[aid] = runner
             self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
             runner.start()
+
+    def _writer_check(self, turn: dict, adir: Path) -> list[int]:
+        """C-26.3 at launch: dispatch looked before the job waited for admission,
+        and a Claude process may have taken the session since. Decided once per
+        attempt, before anything is written, and kept, so a replay after a
+        restart makes the same choice."""
+        path = adir / "held_by.json"
+        recorded = _read_json(path)
+        if isinstance(recorded, dict):
+            return [int(pid) for pid in recorded.get("pids") or []]
+        if turn.get("provider") != "claude" or not turn.get("native_session_id") or (adir / "stdin.jsonl").exists():
+            return []
+        from . import catalog
+        pids = catalog.external_writers(turn["native_session_id"])
+        path.write_text(json.dumps({"pids": pids, "at": utcnow()}) + "\n")
+        return pids
 
     def _settle_unstarted(self) -> None:
         """A waiting message whose job ended with no provider start was never delivered."""
@@ -1104,9 +1126,15 @@ class ConversationService:
                                  expect=live, served=served)
         elif reason in NOT_DELIVERED and not turn.get("user_frame_written"):
             readmits = message["turn_seq"]
-            if reason in READMIT and readmits < MAX_READMITS:
+            # Another writer is a wait, however long it lasts (C-26.3): it never
+            # uses up the re-admissions a failing provider gets.
+            if reason in READMIT and (readmits < MAX_READMITS or reason == "external-writer"):
                 self.store.set_state(message["message_id"], WAITING, reason=f"readmit:{reason}", expect=live,
                                      turn_seq=readmits + 1, job_id=None)
+                if reason == "external-writer" and conversation["provider"] == "codex":
+                    # Only a provider start can see a Codex thread's active turn: space them.
+                    with self._lock:
+                        self._deferred[message["message_id"]] = (0, self.clock() + CODEX_WRITER_RECHECK_S)
             else:
                 self.store.set_state(message["message_id"], FAILED, reason=f"not-delivered: {reason}",
                                      expect=live, served=served)

@@ -551,6 +551,8 @@ struct ConversationChange: Codable, Equatable {
     var state: String?
     var pending_approvals: Int
     var ts: String?
+    /// Why a message is in its state (a waiting message's hold, a failure).
+    var state_reason: String?
 }
 
 // MARK: - messages

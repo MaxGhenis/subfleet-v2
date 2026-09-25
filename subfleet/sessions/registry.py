@@ -121,6 +121,7 @@ class SessionRow:
     alive: bool
     socket_present: bool
     registry_path: str
+    proc_start: str | None = None   # the process's start, as `TZ=UTC ps -o lstart=` prints it
 
     @property
     def rank(self) -> tuple[bool, bool, float]:
@@ -158,6 +159,7 @@ def _row(path: Path) -> SessionRow | None:
         alive=_pid_alive(pid),
         socket_present=_is_socket(sock),
         registry_path=str(path),
+        proc_start=data.get("procStart") if isinstance(data.get("procStart"), str) else None,
     )
 
 

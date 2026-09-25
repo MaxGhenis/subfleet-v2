@@ -102,6 +102,8 @@ struct TurnTimeline: Equatable {
     var settings: ConversationSettings?
     var stopRequested = false
     var phases: [PhaseStamp] = []
+    /// When the person last answered an approval: a tool waiting on it starts then.
+    var answeredTS: String?
     var accepted = false
     var eventServed = Served()
     var receiptServed: Served?
@@ -135,13 +137,24 @@ struct TurnTimeline: Equatable {
 
     /// When the status strip's current words started: the newest phase stamp,
     /// or the running tool's row. A live strip counts up from here.
-    /// It follows the same order as `statusText`'s words.
+    /// A stop was asked for: every later phase is the provider winding down.
+    var stopping: Bool { stopRequested || phases.contains { $0.phase == "stopping" } }
+
+    /// It follows the same order as `statusText`'s words; nil where no clock
+    /// fits (the provider has answered, or the turn is not live).
     var statusSince: Date? {
-        if stopRequested || phases.last?.phase == "stopping" {
+        if state == MessageState.approvalNeeded.rawValue {
+            return items.last(where: { if case .approval(let card) = $0.content { return card.isPending } else { return false } })?
+                .ts.flatMap(parseTimestamp)
+        }
+        if stopping {
             return phases.last(where: { $0.phase == "stopping" })?.ts.flatMap(parseTimestamp)
         }
+        if outcome != nil { return nil }
         if let item = items.last(where: { if case .tool(let t) = $0.content { return t.state == .running } else { return false } }) {
-            return item.ts.flatMap(parseTimestamp)
+            let started = item.ts.flatMap(parseTimestamp)
+            let answered = answeredTS.flatMap(parseTimestamp)
+            return [started, answered].compactMap { $0 }.max()
         }
         return phases.last?.ts.flatMap(parseTimestamp)
     }
@@ -151,7 +164,7 @@ struct TurnTimeline: Equatable {
         switch messageState {
         case .queued: return "Queued behind the current turn"
         case .waiting:
-            if let reason = stateReason, reason.hasPrefix("external-writer") {
+            if let reason = stateReason, reason.contains("external-writer") {
                 // C-26.3, D-17: another Claude process holds the session.
                 return "Waiting: open in the Claude app or a terminal; close it there to continue here"
             }
@@ -159,7 +172,9 @@ struct TurnTimeline: Equatable {
             return "Waiting for capacity"
         case .starting, .running, .approvalNeeded:
             if state == MessageState.approvalNeeded.rawValue { return "Needs your approval" }
-            if stopRequested || phases.last?.phase == "stopping" { return "Stopping" }
+            if stopping { return "Stopping" }
+            // The provider has answered; its process is still winding down.
+            if outcome != nil { return "Finishing" }
             // A tool the provider is running outranks the block that asked for it.
             if let tool = runningTool { return tool.hidden ? "Running a tool" : "Running \(tool.name)" }
             switch phases.last?.phase {
@@ -167,7 +182,7 @@ struct TurnTimeline: Equatable {
             case "opening-thread": return "Opening the thread"
             case "sent": return "Sent; waiting for the provider"
             case "accepted": return "Running"
-            case "requesting": return "Waiting for the model"
+            case "requesting", "compacted": return "Waiting for the model"
             case "compacting": return "Compacting the conversation"
             case "thinking": return "Thinking"
             case "writing": return "Writing"
@@ -255,6 +270,7 @@ struct Timeline: Equatable {
         for id in order {
             guard var turn = turns[id] else { continue }
             turn.phases = []
+            turn.answeredTS = nil
             turn.accepted = false
             turn.eventServed = Served()
             turn.outcome = nil
@@ -305,7 +321,8 @@ struct Timeline: Equatable {
         let data = event.data
         switch event.kind {
         case "status":
-            if let phase = data["phase"]?.string, turn.phases.last?.phase != phase {
+            // A new attempt starts its own clock, even after one that never got further.
+            if let phase = data["phase"]?.string, turn.phases.last?.phase != phase || phase == "starting-provider" {
                 turn.phases.append(PhaseStamp(phase: phase, ts: event.ts))
             }
             if data["phase"]?.string == "compacted" {
@@ -395,6 +412,7 @@ struct Timeline: Equatable {
                 card.state = decision == "withdrawn" ? .withdrawn : .answered(decision)
                 turn.items[index].content = .approval(card)
             }
+            turn.answeredTS = event.ts ?? turn.answeredTS
             if turn.pendingApprovals.isEmpty && turn.state == MessageState.approvalNeeded.rawValue {
                 turn.state = MessageState.running.rawValue
             }
@@ -690,7 +708,7 @@ struct Timeline: Equatable {
 
 /// "950", "18k", "972k", "1.2M".
 func tokenWords(_ count: Double) -> String {
-    if count >= 1_000_000 { return String(format: "%.1fM", count / 1_000_000) }
+    if count >= 999_500 { return String(format: "%.1fM", count / 1_000_000) }
     if count >= 1_000 { return "\(Int((count / 1_000).rounded()))k" }
     return "\(Int(count))"
 }

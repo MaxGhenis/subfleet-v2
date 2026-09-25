@@ -95,7 +95,7 @@ struct LockedSessionView: View {
 }
 
 func lockedWords(_ entry: SidebarEntry) -> String {
-    if entry.provider == "codex" {
+    if entry.provider == "codex" && entry.continueBlocker == "codex-app thread: continue by handoff" {
         return "This thread lives in the Codex app's own home, not in a Subfleet lane. Keep using it there; "
             + "continuing it here takes a handoff, which this build does not offer yet."
     }
@@ -262,8 +262,14 @@ struct ConversationView: View {
                     .frame(maxWidth: 900, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
-                .onChange(of: timeline?.items.count ?? 0) { _, _ in
-                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: timeline?.items.last?.id) { _, _ in
+                    // A new last row: followed while the end is on screen, and always
+                    // for the person's own message. Rows 'Load earlier' adds go first
+                    // and change no last row.
+                    let own = timeline?.items.last.map { if case .person = $0.content { return true } else { return false } } ?? false
+                    if atBottom || own {
+                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    }
                 }
                 .onChange(of: timeline?.items.last.map(streamedLength) ?? 0) { _, _ in
                     // A text or thinking block growing in place adds no row.
@@ -272,7 +278,7 @@ struct ConversationView: View {
                 .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             Divider()
-            if let timeline, let live = timeline.liveMessageID, let turn = timeline.turn(live) {
+            if let timeline, let live = timeline.liveMessageID, let turn = timeline.turn(live), turn.outcome == nil {
                 // The live turn's strip stays in view however far the timeline scrolls.
                 LiveTurnStrip(model: model, conversation: conversation, turn: turn)
                     .padding(.horizontal, 14).padding(.top, 6)

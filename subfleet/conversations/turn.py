@@ -60,6 +60,7 @@ class TurnSpec:
     model_ref: str | None = None       # the policy model id admission routed the turn to (D-19)
     guard_hash: str | None = None      # Codex: the hook hash `hooks/list` must report
     unified_exec_off: bool = False     # Codex: C-23.6's switch, as exec launches carry it
+    held_by: tuple[int, ...] = ()      # Claude: outside pids holding the session at launch (C-26.3)
 
 
 @dataclass(frozen=True)
