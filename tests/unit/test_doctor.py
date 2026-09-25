@@ -16,7 +16,7 @@ import pytest
 from subfleet import cli, doctor
 from subfleet.contracts import Exit
 
-STATUSES = {doctor.PASS, doctor.FAIL, doctor.UNKNOWN}
+STATUSES = {doctor.PASS, doctor.FAIL, doctor.UNKNOWN, doctor.WARN}
 
 
 @pytest.fixture
