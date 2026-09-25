@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import sqlite3
 import stat
 import uuid
 from pathlib import Path
@@ -235,6 +236,325 @@ def test_a_retry_after_a_crash_still_moves_the_message_whose_job_it_cancelled(wo
     assert not world.service._cancel_job_without_attempt(job_id)
 
 
+@pytest.mark.parametrize("failure", [
+    "cancel-refused", "cancel-error", "cancelled-then-error", "commit-error",
+    "commit-interrupted", "commit-sql-error", "commit-deferred-error", "discard-error",
+])
+def test_every_failure_after_fencing_restores_the_source(world, monkeypatch, failure):
+    """C-30.3, D-18: no failure after fencing strands the source. A cancelled
+    turn gets a new admission in its original position; an uncancelled turn
+    stays waiting. The SQL case fails after withdrawals and fence removal,
+    proving that transaction rollback and the job-store repair work together.
+    """
+    cid, ids = source(world, "waiting first", "queued second", "queued third")
+    waiting = ids[0]
+    job_id = turn_job(world, waiting, cid, state="waiting")
+    world.store.set_state(waiting, "waiting", job_id=job_id)
+    before = [world.store.message(mid) for mid in ids]
+    cancel = world.service._cancel_job_without_attempt
+    discard = world.store.discard_handoff
+
+    def cancel_job(job_id, *, by):
+        assert world.store.conversation(cid)["blocked_by"] == "handoff:h-1"
+        if failure == "cancel-refused":
+            attempt(world, job_id, state="reserved")
+        if failure == "cancel-error":
+            raise OSError("cancel failed")
+        result = cancel(job_id, by=by)
+        if failure == "cancelled-then-error":
+            assert result
+            raise OSError("cancel response failed")
+        return result
+
+    def fail_commit(*args, **kwargs):
+        assert world.store.conversation(cid)["blocked_by"] == "handoff:h-1"
+        assert world.daemon.store.get_job(job_id)["state"] == "cancelled"
+        if failure == "commit-interrupted":
+            raise KeyboardInterrupt("commit interrupted")
+        raise OSError("commit failed")
+
+    def fail_discard(prepared):
+        discard(prepared)
+        raise OSError("discard failed")
+
+    monkeypatch.setattr(world.service, "_cancel_job_without_attempt", cancel_job)
+    if failure in ("commit-error", "commit-interrupted", "discard-error"):
+        monkeypatch.setattr(world.store, "commit_handoff", fail_commit)
+    if failure == "discard-error":
+        monkeypatch.setattr(world.store, "discard_handoff", fail_discard)
+    if failure == "commit-sql-error":
+        with world.store.transaction() as tx:
+            tx.execute("CREATE TRIGGER fail_handoff_insert BEFORE INSERT ON conversations "
+                       "WHEN NEW.origin='handoff' BEGIN SELECT RAISE(ABORT, 'handoff insert failed'); END")
+    if failure == "commit-deferred-error":
+        with world.store.transaction() as tx:
+            tx.execute("CREATE TABLE handoff_commit_failure (source TEXT REFERENCES conversations(conversation_id) "
+                       "DEFERRABLE INITIALLY DEFERRED)")
+            tx.execute("CREATE TRIGGER fail_handoff_commit AFTER INSERT ON conversations WHEN NEW.origin='handoff' "
+                       "BEGIN INSERT INTO handoff_commit_failure VALUES ('missing-source'); END")
+
+    expected_error = (ConversationError if failure == "cancel-refused" else
+                      KeyboardInterrupt if failure == "commit-interrupted" else
+                      sqlite3.IntegrityError if failure in ("commit-sql-error", "commit-deferred-error") else OSError)
+    with pytest.raises(expected_error) as err:
+        handoff(world, cid)
+    if failure == "cancel-refused":
+        assert err.value.reason == "live-turn"
+    assert world.store.conversation(cid)["blocked_by"] is None
+    assert cid not in world.service._handing_off
+    assert world.store.by_request("h-1") is None
+    assert world.store.one("SELECT COUNT(*) n FROM conversations")["n"] == 1
+    assert sorted(p.name for p in world.store.dir.iterdir()) == [cid]
+    rows = world.store.query("SELECT message_id FROM messages WHERE conversation_id=? ORDER BY seq", (cid,))
+    assert [row["message_id"] for row in rows] == ids
+    after = [world.store.message(mid) for mid in ids]
+    for original, restored in zip(before, after):
+        for field in ("seq", "after_message_id", "origin", "digest", "text_path", "settings", "attachments"):
+            assert restored[field] == original[field]
+    assert [message["state"] for message in after[1:]] == ["queued", "queued"]
+    if failure in ("cancel-refused", "cancel-error"):
+        assert after[0] == before[0]
+        assert world.daemon.store.get_job(job_id)["state"] == "waiting"
+    else:
+        assert after[0]["state"] == "queued" and after[0]["state_reason"] == "handoff-rolled-back"
+        assert after[0]["turn_seq"] == before[0]["turn_seq"] + 1
+        assert after[0]["job_id"] is None and world.service._turn_job(after[0]) is None
+        assert world.daemon.store.get_job(job_id)["state"] == "cancelled"
+        assert [m["message_id"] for m in world.store.next_dispatchable()] == [waiting]
+
+
+@pytest.mark.parametrize("claimed", [False, True])
+def test_a_failed_handoff_restores_a_message_whose_job_was_not_bound(world, monkeypatch, claimed):
+    """D-18, IR-1: a crash before binding a newly created turn job does not
+    hide that job from recovery; its request id still identifies the message.
+    """
+    cid, ids = source(world, "first", "second")
+    mid = ids[0]
+    if claimed:
+        world.store.set_state(mid, "waiting", reason=CLAIMED)
+    job_id = turn_job(world, mid, cid)
+    before = world.store.message(mid)
+    assert before["job_id"] is None
+
+    def fail_commit(*args, **kwargs):
+        assert world.daemon.store.get_job(job_id)["state"] == "cancelled"
+        raise OSError("commit failed before binding the old job")
+
+    monkeypatch.setattr(world.store, "commit_handoff", fail_commit)
+    with pytest.raises(OSError):
+        handoff(world, cid)
+    restored = world.store.message(mid)
+    assert restored["state"] == "queued" and restored["job_id"] is None
+    assert restored["turn_seq"] == before["turn_seq"] + 1
+    assert restored["seq"] == before["seq"]
+    assert world.service._turn_job(restored) is None
+    assert world.store.conversation(cid)["blocked_by"] is None
+    assert [m["message_id"] for m in world.store.next_dispatchable()] == [mid]
+    assert world.store.message(ids[1])["state"] == "queued"
+
+
+def test_a_failure_reading_the_committed_handoff_keeps_its_messages_and_texts(world, monkeypatch):
+    """D-18: an exception after the transaction commits cannot discard the
+    now-referenced texts or restore messages that already moved. A retry
+    returns the committed result with its brief and moved texts intact.
+    """
+    cid, ids = source(world, "waiting first", "queued second")
+    job_id = turn_job(world, ids[0], cid, state="waiting")
+    world.store.set_state(ids[0], "waiting", job_id=job_id)
+    conversation = world.store.conversation
+
+    def fail_read(conversation_id):
+        result = conversation(conversation_id)
+        if result["origin"] == "handoff":
+            raise OSError("committed response could not be read")
+        return result
+
+    monkeypatch.setattr(world.store, "conversation", fail_read)
+    with pytest.raises(OSError, match="committed response"):
+        handoff(world, cid)
+    monkeypatch.setattr(world.store, "conversation", conversation)
+    assert world.store.conversation(cid)["blocked_by"] is None
+    assert world.store.by_request("h-1") is not None
+    out = handoff(world, cid)
+    assert out["created"] is False
+    assert [pair["from"] for pair in out["handoff_from"]["moved"]] == ids
+    assert world.store.message_text(world.store.message(out["brief"]["message_id"]))
+    assert [world.store.message_text(world.store.message(m["message_id"])) for m in out["moved"]] == [
+        "waiting first", "queued second"]
+    assert all(world.store.message(mid)["state_reason"].startswith("handed-off:") for mid in ids)
+
+
+@pytest.mark.parametrize("crash_at", ["before-cancel", "after-cancel", "after-settlement"])
+def test_a_restart_lifts_a_stale_handoff_fence_before_dispatch(world, monkeypatch, crash_at):
+    """C-30.3: close and reopen both on-disk stores and run the new service's
+    first control-loop tick, without a handoff request. Recovery precedes
+    dispatch, restores the cancelled message ahead of its followers, and
+    runs once even when the old process's in-memory handoff guard was set.
+    """
+    cid, ids = source(world, "waiting first", "queued second", "queued third")
+    waiting = ids[0]
+    job_id = turn_job(world, waiting, cid, state="waiting")
+    world.store.set_state(waiting, "waiting", job_id=job_id)
+    turn_seq = world.store.message(waiting)["turn_seq"]
+    assert world.store.fence(cid, "handoff:h-1")
+    world.service._handing_off.add(cid)
+    if crash_at != "before-cancel":
+        assert world.service._cancel_job_without_attempt(
+            job_id, by={"by": "conversation.handoff", "request_id": "h-1"})
+    if crash_at == "after-settlement":
+        world.service._settle_unstarted()
+        assert world.store.message(waiting)["state"] == "cancelled"
+    world.service.close()
+    world.daemon.store.close()
+
+    restarted_daemon = Daemon(world.daemon.root)
+    restarted = ConversationService(restarted_daemon)
+    try:
+        assert restarted.store.conversation(cid)["blocked_by"] == "handoff:h-1"
+        dispatched = []
+
+        def submit(conversation, message):
+            assert conversation["blocked_by"] is None
+            dispatched.append(message["message_id"])
+            raise AdapterError("hold the restored message for inspection")
+
+        monkeypatch.setattr(restarted, "_submit_turn", submit)
+        restarted.tick()
+        assert restarted.store.conversation(cid)["blocked_by"] is None
+        assert restarted.store.by_request("h-1") is None
+        rows = restarted.store.query("SELECT message_id FROM messages WHERE conversation_id=? ORDER BY seq", (cid,))
+        assert [row["message_id"] for row in rows] == ids
+        restored = restarted.store.message(waiting)
+        if crash_at == "before-cancel":
+            assert dispatched == [] and restored["state"] == "waiting"
+            assert restored["job_id"] == job_id and restored["turn_seq"] == turn_seq
+        else:
+            assert dispatched == [waiting] and restored["state"] == "queued"
+            assert restored["job_id"] is None and restored["turn_seq"] == turn_seq + 1
+            assert restarted._turn_job(restored) is None
+        assert [restarted.store.message(mid)["state"] for mid in ids[1:]] == ["queued", "queued"]
+        restarted.tick()
+        assert restarted.store.message(waiting)["turn_seq"] == restored["turn_seq"]
+    finally:
+        restarted.close()
+        restarted_daemon.store.close()
+
+
+def test_a_retry_after_a_fenced_crash_moves_the_restored_message_in_order(world):
+    """D-18: retrying the interrupted request first undoes its durable fence,
+    then includes the formerly waiting message ahead of every queued follower.
+    """
+    cid, ids = source(world, "waiting first", "queued second", "queued third")
+    job_id = turn_job(world, ids[0], cid, state="waiting")
+    world.store.set_state(ids[0], "waiting", job_id=job_id)
+    assert world.store.fence(cid, "handoff:h-1")
+    assert world.service._cancel_job_without_attempt(job_id, by={"by": "conversation.handoff", "request_id": "h-1"})
+    world.service._settle_unstarted()
+    out = handoff(world, cid)
+    assert [pair["from"] for pair in out["handoff_from"]["moved"]] == ids
+    assert [world.store.message_text(world.store.message(m["message_id"])) for m in out["moved"]] == [
+        "waiting first", "queued second", "queued third"]
+    assert world.store.conversation(cid)["blocked_by"] is None
+    assert all(world.store.message(mid)["state_reason"].startswith("handed-off:") for mid in ids)
+
+
+def test_a_tick_during_handoff_keeps_its_fence_until_commit(world, monkeypatch):
+    """D-18: stale-fence recovery leaves an active handoff alone. The tick may
+    settle its cancelled job, but cannot dispatch a queued follower while the
+    handoff is between cancellation and commit.
+    """
+    cid, ids = source(world, "waiting first", "queued second")
+    job_id = turn_job(world, ids[0], cid, state="waiting")
+    world.store.set_state(ids[0], "waiting", job_id=job_id)
+    cancel = world.service._cancel_job_without_attempt
+
+    def cancel_and_tick(job_id, *, by):
+        assert cancel(job_id, by=by)
+        world.service.tick()
+        assert world.store.conversation(cid)["blocked_by"] == "handoff:h-1"
+        assert world.store.message(ids[0])["state"] == "cancelled"
+        assert world.store.message(ids[1])["state"] == "queued"
+        return True
+
+    monkeypatch.setattr(world.service, "_cancel_job_without_attempt", cancel_and_tick)
+    monkeypatch.setattr(world.service, "_submit_turn", lambda *a: pytest.fail("submitted during a handoff"))
+    out = handoff(world, cid)
+    assert [pair["from"] for pair in out["handoff_from"]["moved"]] == ids
+    assert world.store.conversation(cid)["blocked_by"] is None
+
+
+@pytest.mark.parametrize("cancel_kind", [
+    "person-cancel", "other-handoff", "cancel-request-only", "cancelled-with-attempt",
+])
+def test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs(world, cancel_kind):
+    """IR-2, D-18: a cancellation request alone is not proof of a completed
+    no-attempt cancellation, and another actor's withdrawal remains withdrawn.
+    """
+    cid, (mid,) = source(world, "waiting")
+    job_id = turn_job(world, mid, cid, state="waiting")
+    world.store.set_state(mid, "waiting", job_id=job_id)
+    marker = {"by": "conversation.handoff", "request_id": "h-1"}
+    if cancel_kind == "cancel-request-only":
+        with world.daemon.store.transaction("job.cancel_requested", job_id=job_id, data=marker) as tx:
+            tx.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=?", ("2026-09-25T00:00:00Z", job_id))
+    else:
+        by = (None if cancel_kind == "person-cancel" else
+              {**marker, "request_id": "h-2"} if cancel_kind == "other-handoff" else marker)
+        assert world.service._cancel_job_without_attempt(job_id, by=by)
+        if cancel_kind == "cancelled-with-attempt":
+            attempt(world, job_id, state="reserved")
+        world.service._settle_unstarted()
+    before = world.store.message(mid)
+    assert world.store.fence(cid, "handoff:h-1")
+    world.service._lift_stale_fences()
+    assert world.store.conversation(cid)["blocked_by"] is None
+    assert world.store.message(mid) == before
+
+
+def test_a_failed_fence_lift_is_retried_by_the_next_control_loop_tick(world, monkeypatch):
+    """D-18: a temporary recovery-store failure leaves the durable fence for
+    the next tick, which repairs it before admitting the first message again.
+    """
+    cid, ids = source(world, "waiting first", "queued second")
+    job_id = turn_job(world, ids[0], cid, state="waiting")
+    world.store.set_state(ids[0], "waiting", job_id=job_id)
+    turn_seq = world.store.message(ids[0])["turn_seq"]
+    restore = world.store.restore_after_handoff
+    calls = []
+
+    def fail_commit(*args, **kwargs):
+        raise OSError("handoff commit failed")
+
+    def temporarily_fail_restore(*args, **kwargs):
+        if world.store.conversation(cid)["blocked_by"] is None:
+            return restore(*args, **kwargs)
+        calls.append(args[0])
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return restore(*args, **kwargs)
+
+    dispatched = []
+
+    def submit(conversation, message):
+        assert conversation["blocked_by"] is None
+        dispatched.append(message["message_id"])
+        raise AdapterError("hold the restored message for inspection")
+
+    monkeypatch.setattr(world.store, "commit_handoff", fail_commit)
+    monkeypatch.setattr(world.store, "restore_after_handoff", temporarily_fail_restore)
+    monkeypatch.setattr(world.service, "_submit_turn", submit)
+    with pytest.raises(OSError, match="handoff commit failed"):
+        handoff(world, cid)
+    assert world.store.conversation(cid)["blocked_by"] == "handoff:h-1"
+    assert cid not in world.service._handing_off
+    world.service.tick()
+    assert calls == [cid, cid] and dispatched == [ids[0]]
+    assert world.store.conversation(cid)["blocked_by"] is None
+    assert world.store.message(ids[0])["turn_seq"] == turn_seq + 1
+    assert world.store.message(ids[0])["job_id"] is None
+    assert [world.store.message(mid)["state"] for mid in ids] == ["queued", "queued"]
+
+
 def test_subfleets_repair_messages_are_not_carried(world):
     """IR-28: a failover continuation would resume the source's work beside the
     handoff, so it is withdrawn and not moved; an unblock note still guards the
@@ -343,12 +663,33 @@ def test_the_dispatcher_waits_while_a_handoff_takes_the_conversation(world, monk
     assert world.store.message(mid)["state"] == "queued"
 
 
+@pytest.mark.parametrize(("reason", "job_exists"), [
+    (None, False), (CLAIMED, False), (CLAIMED, True), ("readmit:lane-failed", False), ("readmit:lane-failed", True),
+])
+def test_the_dispatcher_never_submits_or_binds_a_fenced_message(world, monkeypatch, reason, job_exists):
+    """D-18: a durable fence also guards readmission and interrupted claims,
+    including jobs not yet bound to their messages after a crash.
+    """
+    cid, (mid,) = source(world, "hello")
+    if reason:
+        world.store.set_state(mid, "waiting", reason=reason)
+    if job_exists:
+        turn_job(world, mid, cid)
+    assert world.store.fence(cid, "handoff:h-1")
+    before = world.store.message(mid)
+    assert cid not in world.service._handing_off, "only the persisted fence guards this dispatch"
+    monkeypatch.setattr(world.service, "_submit_turn", lambda *a: pytest.fail("submitted a fenced message"))
+    world.service._dispatch()
+    assert world.store.message(mid) == before
+    assert world.store.conversation(cid)["blocked_by"] == "handoff:h-1"
+
+
 def test_a_claim_the_handoff_did_not_expect_rolls_the_handoff_back(world):
     """IR-28, C-30.3: the handoff's commit re-checks that each queued message is
     still queued; a message claimed meanwhile rolls back the whole handoff and
     leaves no files."""
     cid, (mid,) = source(world, "hello")
-    plan = world.service._handoff_plan(world.store.conversation(cid), {"by": "x", "request_id": "h-1"})
+    plan = world.service._handoff_plan(world.store.conversation(cid))
     world.store.set_state(mid, "waiting", reason=CLAIMED, expect=("queued",))       # the dispatcher's claim
     with pytest.raises(ConversationError) as err:
         world.store.create_handoff(

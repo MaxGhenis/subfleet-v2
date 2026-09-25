@@ -243,10 +243,11 @@ class ConversationStore:
             self._db.execute("BEGIN IMMEDIATE")
             try:
                 yield self._db
+                self._db.execute("COMMIT")
             except BaseException:
-                self._db.execute("ROLLBACK")
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
                 raise
-            self._db.execute("COMMIT")
         self.notify()
 
     def notify(self) -> None:
@@ -371,6 +372,12 @@ class ConversationStore:
 
     def discard_handoff(self, prepared: dict) -> None:
         """Remove the texts a handoff published and never committed: nothing refers to them."""
+        if prepared.get("committed"):
+            return
+        # COMMIT may have succeeded before a notification or result read failed.
+        # The durable row wins even if the caller never recorded its success.
+        if prepared.get("cid") and self.one("SELECT 1 FROM conversations WHERE conversation_id=?", (prepared["cid"],)):
+            return
         for path in prepared.get("published", []):
             with contextlib.suppress(OSError):
                 path.unlink()
@@ -447,9 +454,9 @@ class ConversationStore:
                     for row in prepared["rows"]:
                         self._change(tx, cid, row[0], QUEUED)
                     created = True
+            prepared["committed"] = created
         finally:
-            if not created:
-                self.discard_handoff(prepared)
+            self.discard_handoff(prepared)
         if not created:
             return existing, False
         return self.conversation(cid), True
@@ -468,7 +475,7 @@ class ConversationStore:
     def restore_after_handoff(self, conversation_id: str, fence: str, restores: list[dict]) -> list[str]:
         """Undo what a handoff that never committed did to its source (C-30.3, D-18).
 
-        Each `{message_id, job_id}` in `restores` names a message whose turn job
+        Each `{message_id, job_id, turn_seq}` in `restores` names a message whose turn job
         the handoff cancelled: it goes back to `queued` in its place, under the
         next turn sequence (so its next turn job is a new one) and bound to no
         job, unless a handoff did move it. Then the fence is lifted. One
@@ -477,12 +484,17 @@ class ConversationStore:
         now = utcnow()
         restored: list[str] = []
         with self.transaction() as tx:
+            source = tx.execute("SELECT blocked_by FROM conversations WHERE conversation_id=?",
+                                (conversation_id,)).fetchone()
+            if source is None or source["blocked_by"] not in (None, fence):
+                return restored
             for item in restores:
                 done = tx.execute(
                     "UPDATE messages SET state='queued', state_reason='handoff-rolled-back', turn_seq=turn_seq+1, "
-                    "job_id=NULL, updated_at=? WHERE message_id=? AND conversation_id=? AND job_id=? "
-                    "AND state IN ('waiting','cancelled') AND COALESCE(state_reason,'') NOT LIKE 'handed-off:%'",
-                    (now, item["message_id"], conversation_id, item["job_id"])).rowcount
+                    "job_id=NULL, updated_at=? WHERE message_id=? AND conversation_id=? AND turn_seq=? "
+                    "AND (job_id IS NULL OR job_id=?) AND state IN ('queued','waiting','cancelled') "
+                    "AND COALESCE(state_reason,'') NOT LIKE 'handed-off:%'",
+                    (now, item["message_id"], conversation_id, item["turn_seq"], item["job_id"])).rowcount
                 if done:
                     restored.append(item["message_id"])
                     self._change(tx, conversation_id, item["message_id"], QUEUED)
@@ -595,8 +607,10 @@ class ConversationStore:
         return Path(message["text_path"]).read_text(encoding="utf-8")
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,
-                  expect: tuple[str, ...] | None = None, **fields: Any) -> bool:
-        """Move a message; with `expect`, only from those states. Returns whether it moved."""
+                  expect: tuple[str, ...] | None = None, expect_turn_seq: int | None = None,
+                  **fields: Any) -> bool:
+        """Move a message, optionally guarded by its state and turn sequence.
+        Returns whether it moved."""
         if state not in MESSAGE_STATES:
             raise ValueError(f"unknown state {state}")
         allowed = {"job_id", "turn_seq", "turn_ref", "served", "stop_requested_at", "resolution"}
@@ -611,6 +625,9 @@ class ConversationStore:
         if expect:
             where += f" AND state IN ({','.join('?' * len(expect))})"
             wparams += list(expect)
+        if expect_turn_seq is not None:
+            where += " AND turn_seq=?"
+            wparams.append(expect_turn_seq)
         with self.transaction() as tx:
             cur = tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE {where}", (*params, *wparams))
             if cur.rowcount:
@@ -630,19 +647,21 @@ class ConversationStore:
         with self.transaction() as tx:
             tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE message_id=?", (*params, message_id))
 
-    def next_dispatchable(self) -> list[dict]:
+    def next_dispatchable(self, conversation_id: str | None = None) -> list[dict]:
         """For each unblocked conversation with no live message, its next queued one
         (C-24.5): a repair message first (an unblock note, a failover continuation;
         C-24.8, C-26.7), since the person's queued messages were written expecting
         it; otherwise the lowest sequence."""
         repair = ",".join(f"'{origin}'" for origin in REPAIR_ORIGINS)
+        source = "AND m.conversation_id=? " if conversation_id is not None else ""
         rows = self.query(
             "SELECT m.* FROM messages m JOIN conversations c USING(conversation_id) "
             "WHERE m.state='queued' AND c.blocked_by IS NULL AND c.archived_at IS NULL "
+            f"{source}"
             "AND m.message_id = (SELECT q.message_id FROM messages q WHERE q.conversation_id=m.conversation_id "
             f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, q.seq LIMIT 1) "
             f"AND NOT EXISTS (SELECT 1 FROM messages l WHERE l.conversation_id=m.conversation_id AND l.state IN ({','.join('?' * len(LIVE_STATES))})) "
-            "ORDER BY m.created_at", LIVE_STATES)
+            "ORDER BY m.created_at", ((conversation_id,) if conversation_id is not None else ()) + LIVE_STATES)
         return [_decode_message(r) for r in rows]
 
     def live_messages(self) -> list[dict]:

@@ -490,6 +490,8 @@ class ConversationService:
             changed = tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?), state='cancelled', "
                                  "rc=130, finished_at=?, wait_reason=NULL, next_check_at=NULL "
                                  "WHERE job_id=? AND state IN ('queued','waiting')", (utcnow(), utcnow(), job_id)).rowcount
+            if not changed:
+                return False
             tx.execute("DELETE FROM leases WHERE holder=?", (job_id,))
         daemon._notify()
         return bool(changed)
@@ -625,6 +627,9 @@ class ConversationService:
                 # A handoff of this source that a failure or a restart cut short
                 # left its fence: put back what it withdrew before anything else.
                 conversation = self._lift_stale_fence(conversation)
+                # Older handoffs could die after their audited cancel but before
+                # leaving a fence. A retry still owns those pending messages.
+                self._lift_fence(cid, f"{HANDOFF_FENCE}{request_id}")
             marker = _handoff_marker(request_id)
             # A live turn is the reason to refuse whatever else is true of the source.
             plan = self._handoff_plan(conversation) if conversation else []
@@ -681,13 +686,17 @@ class ConversationService:
                         fence=(cid, fence) if fence else None)
                 except BaseException:
                     self.store.discard_handoff(prepared)
-                    if fence:
-                        self._lift_fence_quietly(cid, fence)
                     raise
         finally:
             if cid:
-                with self._lock:
-                    self._handing_off.discard(cid)
+                # Even discarding prepared files or returning an existing request
+                # can fail. Recovery must run before releasing the source.
+                try:
+                    if fence:
+                        self._lift_fence_quietly(cid, fence)
+                finally:
+                    with self._lock:
+                        self._handing_off.discard(cid)
         if created:
             self.daemon._notify()
         return self._handoff_result(created_conversation, digest=digest, created=created)
@@ -726,10 +735,20 @@ class ConversationService:
         handoff's marker) is queued again in its place, and the fence is lifted,
         in one conversation-store transaction. The caller holds `_handing_off`."""
         marker = _handoff_marker(fence[len(HANDOFF_FENCE):])
-        restores = [{"message_id": m["message_id"], "job_id": m["job_id"]} for m in self.store.query(
-            "SELECT message_id, job_id, state_reason FROM messages WHERE conversation_id=? AND job_id IS NOT NULL "
-            "AND state IN (?,?) ORDER BY seq", (cid, WAITING, CANCELLED))
-            if not str(m["state_reason"] or "").startswith("handed-off:") and self._cancelled_by(m["job_id"], marker)]
+        restores = []
+        for message in self.store.query(
+                "SELECT * FROM messages WHERE conversation_id=? AND state IN (?,?,?) ORDER BY seq",
+                (cid, QUEUED, WAITING, CANCELLED)):
+            if str(message["state_reason"] or "").startswith("handed-off:"):
+                continue
+            # A crash may precede the dispatcher's job binding. Request ids, not
+            # the optional binding, identify the job that carried this turn.
+            job = self._turn_job(message)
+            if job and self._cancelled_by(job["job_id"], marker):
+                restores.append({"message_id": message["message_id"], "job_id": job["job_id"],
+                                 "turn_seq": message["turn_seq"]})
+        if not restores and self.store.conversation(cid)["blocked_by"] != fence:
+            return []
         restored = self.store.restore_after_handoff(cid, fence, restores)
         if restored:
             self.log.warning("handoff %s did not complete; put back %d message(s) in %s",
@@ -914,7 +933,9 @@ class ConversationService:
     def _cancelled_by(self, job_id: str, marker: dict) -> bool:
         """Did the cancel recorded for this job carry `marker` (a handoff's own)?"""
         return bool(self.daemon.store.one(
-            "SELECT 1 FROM events WHERE kind='job.cancel_requested' AND job_id=? "
+            "SELECT 1 FROM events e JOIN jobs j USING(job_id) "
+            "WHERE e.kind='job.cancel_requested' AND j.job_id=? AND j.state='cancelled' "
+            "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=j.job_id) "
             "AND json_extract(data_json,'$.by')=? AND json_extract(data_json,'$.request_id')=?",
             (job_id, marker["by"], marker["request_id"])))
 
@@ -975,15 +996,32 @@ class ConversationService:
         self._deferred = {mid: at for mid, at in self._deferred.items() if at > now}
         for message in self.store.next_dispatchable() + self._readmittable():
             mid = message["message_id"]
-            if message["conversation_id"] in self._handing_off or self._deferred.get(mid, 0) > now:
-                continue            # IR-28: a handoff is taking this conversation's pending messages
-            conversation = self.store.conversation(message["conversation_id"])
-            job = self._turn_job(message)
-            if job is None and not self._previous_released(conversation, message):
-                continue
-            if job is None:
-                claimed = False
+            # Share the handoff's ownership lock only through the durable claim,
+            # never through file work in submit. Either the handoff owns the
+            # source first, or its plan sees our claim and refuses (C-24.7).
+            with self._lock:
+                cid = message["conversation_id"]
+                if cid in self._handing_off or self._deferred.get(mid, 0) > now:
+                    continue
+                conversation = self.store.conversation(cid)
+                if conversation["blocked_by"] or conversation["archived_at"]:
+                    continue                        # readmissions obey the durable fence too
+                message = self.store.message(mid)
                 if message["state"] == QUEUED:
+                    # A rollback since the initial scan may have restored an
+                    # earlier message or given this one a new turn sequence.
+                    eligible = self.store.next_dispatchable(cid)
+                    if not eligible or eligible[0]["message_id"] != mid:
+                        continue
+                elif not (message["state"] == WAITING and message["job_id"] is None and
+                          (message["state_reason"] == CLAIMED or
+                           str(message["state_reason"] or "").startswith("readmit:"))):
+                    continue
+                job = self._turn_job(message)
+                if job is None and not self._previous_released(conversation, message):
+                    continue
+                claimed = False
+                if job is None and message["state"] == QUEUED:
                     # C-24.7, IR-2, IR-28: claim the message in the conversation store
                     # before its job exists. A withdrawal of a queued message
                     # (message.cancel, conversation.handoff) and this claim are one
@@ -993,16 +1031,18 @@ class ConversationService:
                     if not self.store.set_state(mid, WAITING, reason=CLAIMED, expect=(QUEUED,)):
                         continue
                     claimed = True
+            if job is None:
                 try:
                     job = self._submit_turn(conversation, message)
                 except ConversationError as exc:
-                    self.store.set_state(mid, FAILED, reason=exc.reason, expect=(QUEUED, WAITING))
+                    self.store.set_state(mid, FAILED, reason=exc.reason, expect=(QUEUED, WAITING),
+                                         expect_turn_seq=message["turn_seq"])
                     continue
                 except (protocol.ProtocolError, AdapterError, OSError, ValueError) as exc:
                     # Refused before any provider saw it: the message waits, it is not failed.
                     # A claimed one goes back to `queued`, so it can still be withdrawn.
                     if claimed and self._turn_job(message) is None:
-                        self.store.set_state(mid, QUEUED, expect=(WAITING,))
+                        self.store.set_state(mid, QUEUED, expect=(WAITING,), expect_turn_seq=message["turn_seq"])
                     else:
                         self.store.update_message(mid)
                     self._deferred[mid] = time.monotonic() + DEFER_S
@@ -1012,7 +1052,7 @@ class ConversationService:
             if job and message["state"] in (QUEUED, WAITING):
                 reason = message.get("state_reason")
                 self.store.set_state(mid, WAITING, reason=None if reason == CLAIMED else reason,
-                                     expect=(QUEUED, WAITING), job_id=job["job_id"])
+                                     expect=(QUEUED, WAITING), expect_turn_seq=message["turn_seq"], job_id=job["job_id"])
 
     def _readmittable(self) -> list[dict]:
         """Waiting messages with no job bound: a re-admission, or a claim a crash
@@ -1129,7 +1169,7 @@ class ConversationService:
             state = CANCELLED if job["state"] == "cancelled" else FAILED
             detail = attempts[-1]["outcome_detail"] if attempts else job.get("rc")
             self.store.set_state(message["message_id"], state, reason=f"{reason}: {detail}"[:200],
-                                 expect=(WAITING, STARTING))
+                                 expect=(WAITING, STARTING), expect_turn_seq=message["turn_seq"])
 
     # --- outcomes --------------------------------------------------------------
 

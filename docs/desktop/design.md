@@ -350,13 +350,30 @@ note stays queued in the source, where it still guards the next turn. A source
 with a live turn (a message `starting`, `running`, `approval-needed` or
 `delivery-unknown`, a waiting message whose job has an attempt, a turn job not
 yet terminal, its `conversation:` lease held, or a quarantined attempt) is
-refused and nothing changes. The new conversation, its messages and every
-withdrawal commit in one conversation-store transaction; a waiting message's
-job is cancelled just before it, in one job-store transaction whose audit
-event names the handoff's request id, so the same request sent again after a
-crash still moves that message. The same request id returns the same handoff;
-another request under that id is exit 2 `request-id-conflict`. The source
-keeps its rows and its native session.
+refused and nothing changes.
+
+The handoff prepares its files first: texts are read and published and
+attachments checked before any cancellation, with no new conversation yet
+visible. If a waiting message has a job to cancel, the source is then fenced
+with `blocked_by='handoff:<request id>'`; the dispatcher skips it, so messages
+behind that waiting message cannot run first. Each job is cancelled in the
+job store only while it has no attempt (review IR-2), with the handoff's
+request id on the audit event. The new conversation, its messages, every
+source withdrawal and the fence lift commit in one conversation-store
+transaction. If the source changed, including a claim the plan did not
+expect, that transaction fails without moving anything.
+
+On failure, prepared files are discarded. Messages whose jobs this handoff
+cancelled return to `queued` in their original positions, with no job bound
+and the next `turn_seq` so dispatch creates a new job. Restoring those
+messages and lifting the fence is one conversation-store transaction. If
+cleanup fails, the control loop retries the lift; its first pass after a
+daemon restart also lifts stale fences before dispatch. A handoff still
+running in this daemon keeps its fence. A retry restores any messages
+cancelled by that request before making its plan, even if the cancellation
+predates fencing, so a crash cannot make the retry omit them. The same
+request id returns the same handoff; another request under that id is exit 2
+`request-id-conflict`. The source keeps its rows and its native session.
 
 **D-19. Model identity.** Claude settings store the `initialize` catalog's
 `value` (for example `opus`, `opus[1m]`, `claude-fable-5-1[1m]`); the expected
@@ -576,8 +593,9 @@ withdrawal and the claim are transactions on one store, so a withdrawn
 message never gets a job, and a claimed one is withdrawn only through its
 job's guard below. The dispatcher skips a conversation while a handoff of it
 runs.
-`turn_seq` increments only for a failover continuation, which is a new
-message, so no message ever has two live turn jobs.
+`turn_seq` increments for a failover continuation, which is a new message,
+and when a handoff restores a message whose job it cancelled (D-18), so no
+message ever has two live turn jobs.
 
 `message.cancel` withdraws a `queued` message in the conversation store; for
 a `waiting` message it sets the job's `cancel_requested_at` in a main-store
