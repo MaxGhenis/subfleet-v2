@@ -33,7 +33,10 @@ def ping(path: Path, timeout: float = 5.0) -> dict:
     with socket.socket(socket.AF_UNIX) as client:
         client.settimeout(timeout)
         client.connect(str(path))
-        client.sendall(b'{"v":1,"id":"p","op":"ping","args":{}}\n')
+        try:
+            client.sendall(b'{"v":1,"id":"p","op":"ping","args":{}}\n')
+        except BrokenPipeError:
+            pass            # a busy daemon answers and closes before reading
         return json.loads(client.makefile().readline())
 
 
@@ -95,6 +98,51 @@ def test_accept_out_of_descriptors_keeps_the_daemon_serving(serve, monkeypatch):
     assert "accept failed" in (daemon.root / "daemon.log").read_text()
 
 
+def test_a_shortage_that_never_clears_ends_the_daemon_without_spinning(monkeypatch):
+    """`accept` failing without a break for `ACCEPT_GIVE_UP_S` is a leak, not a
+    moment: the daemon exits so launchd starts a fresh one, and meanwhile it tries
+    at most about five times a second."""
+    monkeypatch.setattr(module.procs, "boot_id", lambda: "descriptor-boot")
+    monkeypatch.setattr(module.procs, "proc_start", lambda pid: "descriptor-start")
+    monkeypatch.setattr(module, "ACCEPT_GIVE_UP_S", 1.0)
+    calls = []
+
+    def accept(self):
+        calls.append(time.monotonic())
+        raise OSError(errno.EMFILE, "Too many open files")
+
+    monkeypatch.setattr(socket.socket, "accept", accept)
+    with tempfile.TemporaryDirectory(prefix="sfd-", dir="/tmp") as temporary:
+        daemon = Daemon(Path(temporary), tick_s=.05)
+        started = time.monotonic()
+        with pytest.raises(OSError) as raised:
+            daemon.serve_forever()
+        took = time.monotonic() - started
+        log = (Path(temporary) / "daemon.log").read_text()
+    assert raised.value.errno == errno.EMFILE and 1.0 <= took < 5
+    assert len(calls) <= took / .2 + 2, (len(calls), took)
+    assert "exiting so a fresh daemon starts" in log
+
+
+def test_idle_connections_past_the_old_pool_never_starve_a_request(serve):
+    """The core of the fix: 40 connections held open (more than the 32 readers the
+    daemon had) and a ping is still answered at once; every pool a connection's
+    request may wait in is as large as the connection cap."""
+    daemon, path, _ = serve()
+    assert daemon.readers._max_workers >= module.MAX_CONNECTIONS
+    assert daemon.waiters._max_workers >= module.MAX_CONNECTIONS
+    idle = [socket.socket(socket.AF_UNIX) for _ in range(40)]
+    try:
+        for client in idle:
+            client.connect(str(path))
+        until(lambda: len(daemon._connections) == 40)
+        started = time.monotonic()
+        assert ping(path, timeout=3)["ok"] and time.monotonic() - started < 1
+    finally:
+        for client in idle:
+            client.close()
+
+
 def test_accept_raises_what_is_not_a_shortage(monkeypatch):
     """Any other error still ends the loop, as before: it is not retried blindly."""
     monkeypatch.setattr(module.procs, "boot_id", lambda: "descriptor-boot")
@@ -127,6 +175,26 @@ def test_a_connection_past_the_cap_is_told_the_daemon_is_busy_at_once(serve, mon
         assert time.monotonic() - started < 2
         assert refused["ok"] is False and refused["error"]["code"] == 69
         assert "serving 2 connections" in refused["error"]["message"]
+        assert "telling new clients the daemon is busy" in (daemon.root / "daemon.log").read_text()
+        # The CLI's client reads the answer even when its write lost the race with
+        # the daemon's close (review F1: it reported exit 1, "Broken pipe").
+        from subfleet.client import Client, DaemonError
+        client = Client(daemon.root, timeout=3)
+        client._checked = True           # the lock records the fixture's fake boot id
+        for _ in range(30):
+            with pytest.raises(DaemonError) as busy:
+                client.call("ping")
+            assert busy.value.code == 69
+        # A client descheduled between connect and send (as under load) always
+        # loses that race; it still reads the busy answer.
+        import subfleet.client as client_module
+        real_encode = client_module.encode
+        monkeypatch.setattr(client_module, "encode", lambda request: (time.sleep(.1), real_encode(request))[1])
+        for _ in range(3):
+            with pytest.raises(DaemonError) as busy:
+                client.call("ping")
+            assert busy.value.code == 69
+        monkeypatch.setattr(client_module, "encode", real_encode)
         idle.pop().close()
         until(lambda: len(daemon._connections) == 1)
         assert ping(path)["ok"]
@@ -135,11 +203,11 @@ def test_a_connection_past_the_cap_is_told_the_daemon_is_busy_at_once(serve, mon
             client.close()
 
 
-def run_limit(code: str) -> list[int]:
-    """Run `code` in a fresh interpreter whose soft limit starts at 256, as under
-    launchd; it prints numbers."""
-    prelude = ("import resource; soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE); "
-               "resource.setrlimit(resource.RLIMIT_NOFILE, (256, hard)); "
+def run_limit(code: str, soft: int = 256, hard: int | None = None) -> list[int]:
+    """Run `code` in a fresh interpreter whose limits start at (soft, hard), by
+    default launchd's 256 and the current hard limit; it prints numbers."""
+    prelude = ("import resource; _, h = resource.getrlimit(resource.RLIMIT_NOFILE); "
+               f"resource.setrlimit(resource.RLIMIT_NOFILE, ({soft}, {hard if hard is not None else 'h'})); "
                "from subfleet.daemon import raise_open_file_limit; ")
     out = subprocess.run([sys.executable, "-c", prelude + code], capture_output=True, text=True, check=True,
                          cwd=Path(__file__).resolve().parents[2])
@@ -150,16 +218,17 @@ def test_the_descriptor_soft_limit_is_raised_but_never_past_the_hard_limit():
     import resource
     hard = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
     want = 4096 if hard == resource.RLIM_INFINITY else min(4096, hard)
-    soft, now = run_limit("print(raise_open_file_limit(4096)[0], resource.getrlimit(resource.RLIMIT_NOFILE)[0])")
+    report = "print(raise_open_file_limit(4096)[0], resource.getrlimit(resource.RLIMIT_NOFILE)[0])"
+    soft, now = run_limit(report)
     assert soft == now == max(256, want)
-    # A request the kernel refuses (past its own per-process cap) leaves the limit as it was.
-    soft, now = run_limit("print(raise_open_file_limit(10**12)[0], resource.getrlimit(resource.RLIMIT_NOFILE)[0])")
-    assert soft == now and soft >= 256
+    assert run_limit(report, 256, 1024) == [1024, 1024]          # never past a finite hard limit
+    assert run_limit(report, 256, 300) == [300, 300]
+    assert run_limit(report, 5000) == [5000, 5000]               # a higher soft limit is never lowered
 
 
 def test_main_raises_the_limit_before_it_starts_the_daemon(monkeypatch):
     calls = []
-    monkeypatch.setattr(module, "raise_open_file_limit", lambda: calls.append("limit") or (4096, 4096))
+    monkeypatch.setattr(module, "raise_open_file_limit", lambda want=module.OPEN_FILES: calls.append(want) or (want, want))
 
     class Refused:
         def __init__(self, root):
@@ -168,4 +237,4 @@ def test_main_raises_the_limit_before_it_starts_the_daemon(monkeypatch):
 
     monkeypatch.setattr(module, "Daemon", Refused)
     assert module.main(["--state-root", "/nonexistent"]) == 69
-    assert calls == ["limit", "daemon"]
+    assert calls == [module.OPEN_FILES, "daemon"] and module.OPEN_FILES == 4096
