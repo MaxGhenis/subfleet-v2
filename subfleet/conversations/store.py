@@ -482,6 +482,67 @@ class ConversationStore:
             self._change(tx, conversation_id, message_id, state)
         return self.message(message_id), True
 
+    def insert_legacy_history(self, *, conversation_id: str, message_id: str, text: str, state: str,
+                              state_reason: str | None, settings: dict, created_at: str, updated_at: str,
+                              turn_ref: str | None = None) -> tuple[dict, bool]:
+        """One legacy cockpit message as read-only history (C-30.4, design §13).
+
+        The row keeps the legacy message id, has origin `legacy`, a terminal state,
+        no job, no predecessor and turn sequence 0. A state that is not terminal is
+        refused, so a history row is never `queued`: the dispatcher, the
+        re-admission pass and the settle pass select only queued, waiting or
+        starting rows, and every `set_state` that moves a message names the live
+        states it expects. History goes ahead of every other message: a
+        conversation holding any message of another origin refuses it, so a
+        history row never becomes a conversation's latest message after a turn
+        Subfleet ran. Idempotent by id: the same id, conversation and content
+        returns the stored row with `created: false`; anything else is
+        `message-id-conflict`. The text is published before the row, as
+        `submit_message` publishes it (C-24.3).
+        """
+        message_id = canonical_uuid(message_id)
+        if state not in TERMINAL_STATES:
+            raise ConversationError("not-terminal", f"legacy history is terminal; {state!r} is not")
+        if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
+            raise ConversationError("bad-text", "text must be a string of at most 1 MiB")
+        if not isinstance(settings, dict):
+            raise ConversationError("bad-settings", "settings must be an object")
+        self.conversation(conversation_id)
+        digest = message_digest(conversation_id, text, [], settings)
+
+        def same(row) -> dict:
+            if row["origin"] != "legacy" or row["conversation_id"] != conversation_id or row["digest"] != digest:
+                raise ConversationError("message-id-conflict",
+                                        "message id already used with different content or conversation")
+            return _decode_message(dict(row))
+
+        existing = self.one("SELECT * FROM messages WHERE message_id=?", (message_id,))
+        if existing:
+            return same(existing), False
+        if self.one("SELECT 1 FROM messages WHERE conversation_id=? AND origin<>'legacy' LIMIT 1", (conversation_id,)):
+            raise ConversationError("history-after-messages",
+                                    "the conversation already has messages of its own; history goes first")
+        text_path = self.dir / conversation_id / "messages" / f"{message_id}.{digest[:16]}.md"
+        _publish(text_path, text.encode("utf-8"))           # C-24.3: text before the row
+        with self.transaction() as tx:
+            again = tx.execute("SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone()
+            if again:
+                return same(again), False
+            if tx.execute("SELECT 1 FROM messages WHERE conversation_id=? AND origin<>'legacy' LIMIT 1",
+                          (conversation_id,)).fetchone():
+                raise ConversationError("history-after-messages",
+                                        "the conversation already has messages of its own; history goes first")
+            seq = (tx.execute("SELECT COALESCE(MAX(seq),0) FROM messages WHERE conversation_id=?",
+                              (conversation_id,)).fetchone()[0]) + 1
+            tx.execute(
+                "INSERT INTO messages(message_id,conversation_id,seq,after_message_id,origin,continues,digest,text_path,"
+                "attachments_json,settings_json,state,state_reason,turn_seq,job_id,turn_ref,created_at,updated_at) "
+                "VALUES (?,?,?,NULL,'legacy',NULL,?,?,'[]',?,?,?,0,NULL,?,?,?)",
+                (message_id, conversation_id, seq, digest, str(text_path), json.dumps(settings), state, state_reason,
+                 turn_ref, created_at, updated_at))
+            self._change(tx, conversation_id, message_id, state)
+        return self.message(message_id), True
+
     def message(self, message_id: str) -> dict:
         row = self.one("SELECT * FROM messages WHERE message_id=?", (message_id,))
         if row is None:

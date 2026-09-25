@@ -91,15 +91,17 @@ def _iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def transcript_path(session_id: str) -> Path | None:
+def transcript_path(session_id: str, projects: Path | None = None) -> Path | None:
     """`~/.claude/projects/<encoded cwd>/<session id>.jsonl`, newest if several.
 
     A session that moved worktrees leaves a transcript under each project
     directory; the most recently written one is the live conversation.
+    `projects` names another projects directory (the legacy import's
+    `--claude-dir`); by default it is `projects_dir()`.
     """
     if not session_id:
         return None
-    projects = projects_dir()
+    projects = Path(projects) if projects is not None else projects_dir()
     candidates: list[Path] = []
     direct = projects / f"{session_id}.jsonl"
     if direct.is_file():

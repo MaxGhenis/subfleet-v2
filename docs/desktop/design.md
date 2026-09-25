@@ -1025,6 +1025,22 @@ references, idempotent by legacy `message_id`. The importer's mapping of
 `outbox.sqlite3` onto notices (`importer.py:1530-1545`) and the `cockpit`
 drop row (`importer.py:150`) are corrected to this classification.
 
+Implemented (C-30.4): `subfleet/conversations/legacy.py` classifies each row by
+the cockpit's own status set (`finished`, `error`, `cancelled` terminal) and
+records the cockpit code it read; `ConversationStore.insert_legacy_history`
+writes a history row (text file, digest, next `seq`) that is terminal, has
+origin `legacy`, no job and no predecessor, and goes ahead of every other
+message; the conversation is created from `catalog.claude_session`, the facts
+`conversation.open` uses, so a legacy conversation continues like a native
+one. A session with a non-terminal message or a journal entry (whatever the
+outbox says of that entry's id) stays with the legacy writer as a whole, so
+Subfleet never becomes a second writer in it (D-17); a journal that cannot be
+read holds every session. `fence_bound_sessions` then blocks `legacy-owner` a
+conversation an earlier pass bound whose session is held again, and the first
+pass that finds the session settled lifts that block; it never replaces or
+lifts another block. `python -m subfleet.importer --legacy-cockpit [--dry-run]` runs the
+import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").
+
 ## 14. Test plan
 
 Every test names its clause (C-20.5). Layers: `unit` (drivers, relay,

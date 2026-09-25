@@ -38,6 +38,18 @@ gated by `SUBFLEET_LIVE=1` (C-20.1). From a shell:
 A real import refuses to start while a daemon holds `daemon.lock` (plan
 amendment 3): the daemon is the store's writer, and two writers is the one thing
 the migration must never do.
+
+## The legacy cockpit
+
+`outbox.sqlite3` and `cockpit-client/` are the legacy desktop cockpit's message
+outbox and client journal (C-30.4, design §13; the manifest rows `outbox` and
+`cockpit`, milestone 9). Terminal outbox messages become read-only history in
+`conversations.sqlite3`; everything else keeps its legacy owner and is reported
+item by item. They run in a milestone-9 pass, or alone:
+
+    python -m subfleet.importer --legacy-cockpit --v1-state <dir> [--dry-run] [--json]
+
+which opens no `state.sqlite3` and holds `daemon.lock` exactly as above.
 """
 
 from __future__ import annotations
@@ -60,6 +72,8 @@ from typing import Any
 
 from . import procs
 from .actions import reset_credit_op_keys
+from .conversations import legacy
+from .conversations.store import ConversationError, ConversationStore
 from .contracts import READING_TTL_S, WINDOW_KEYS
 from .policy import DEFAULT_POLICY_PATH
 from .store import Store, utc_now
@@ -85,10 +99,10 @@ RUN_ID_PREFIX_LEN = len("YYYYMMDD-HHMMSS")
 #: -15/137 are the same two signals in the other two encodings v1's runner uses.
 KILLED_RCS = frozenset({-9, -15, 137, 143})
 
-#: The v1 outbox statuses that mean the socket push reached the session. All six
-#: rows in the 2026-09-05 outbox are `finished` with a non-empty receipt; any
-#: other status is reported by name and imported as `offered`.
-OUTBOX_DELIVERED = frozenset({"delivered", "finished"})
+#: C-30.4: the milestone of the legacy cockpit rows (`outbox`, `cockpit`). The
+#: outbox is the cockpit's message outbox, not a notice outbox; its terminal
+#: messages become conversation history (`subfleet/conversations/legacy.py`).
+LEGACY_MILESTONE = 9
 
 #: v1 capacity window names to their duration in minutes, keyed by C-9.7.
 V1_WINDOW_MINUTES = {"five_hour": 300, "weekly": 10080, "seven_day": 10080}
@@ -116,8 +130,10 @@ MANIFEST: tuple[ManifestRow, ...] = (
     ManifestRow("runs", "import", 4, "jobs, attempts, artifacts at the v1 paths", ("runs",)),
     ManifestRow("runs-out", "retain", 0, "read-only side files of named runs", ("runs-out",)),
     ManifestRow("notices", "import", 4, "notices rows, pending or surfaced", ("notices",)),
-    ManifestRow("outbox", "import", 4, "notices rows, offered or acknowledged",
-                ("outbox.sqlite3", "outbox.sqlite3-wal", "outbox.sqlite3-shm")),
+    ManifestRow("outbox", "import", LEGACY_MILESTONE,
+                "the cockpit's message outbox: terminal messages become legacy history in "
+                "conversations.sqlite3, the rest keep their legacy owner (C-30.4)",
+                ("outbox.sqlite3", "outbox.sqlite3-wal", "outbox.sqlite3-shm", "outbox-attachments")),
     ManifestRow("gates", "retain", 7, "gates finish in v1; import verifies at milestone 7", ("gates",)),
     ManifestRow("sessions-kit", "retain", 6, "tickle dedup and native workers as events",
                 ("tickles", "revive", "revive-lane.json", "session-locks",
@@ -147,7 +163,9 @@ MANIFEST: tuple[ManifestRow, ...] = (
     ManifestRow("integration-events", "retain", 0,
                 "kept and written to; the daemon emits to the same spool from milestone 5",
                 ("integration-events",)),
-    ManifestRow("cockpit", "drop", 0, "the cockpit branch is not carried", ("cockpit-client",)),
+    ManifestRow("cockpit", "retain", LEGACY_MILESTONE,
+                "the cockpit client's journal: every entry keeps its legacy owner and is reported, "
+                "never sent (C-30.4)", ("cockpit-client",)),
     ManifestRow("job-specific", "drop", 0, "regenerated or belonging to one finished campaign",
                 ("composer-attachments", "iariw-drain.json", "iariw-drain.log",
                  "autopick.log", "brief.md")),
@@ -177,6 +195,9 @@ class StoreReport:
     reasons: dict[str, int] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     cursor: dict[str, Any] | None = None
+    #: Per-item dispositions, for the rows that owe one per item (C-30.4: every
+    #: legacy message and journal entry). Ids and statuses only, never content.
+    items: list[dict[str, Any]] = field(default_factory=list)
 
     def skip(self, reason: str, count: int = 1) -> None:
         self.skipped += count
@@ -246,6 +267,7 @@ class ImportReport:
                     "reasons": dict(sorted(report.reasons.items())),
                     "notes": report.notes,
                     "cursor": report.cursor,
+                    "items": report.items,
                 }
                 for key, report in sorted(self.stores.items())
             },
@@ -444,12 +466,6 @@ class _Writer:
 
     def exists(self, sql: str, params: tuple[Any, ...] = ()) -> bool:
         return self.one(sql, params) is not None
-
-    def nullable(self, table: str, column: str) -> bool:
-        for row in self.query(f'PRAGMA table_info("{table}")'):
-            if row["name"] == column:
-                return not row["notnull"]
-        return False
 
     @contextmanager
     def transaction(self, kind: str, **keys: Any) -> Iterator[None]:
@@ -1454,8 +1470,7 @@ def import_notices(writer: _Writer, report: StoreReport, *, v1_state: Path,
 
     A notice references a job (`notices.job_id`), so an entry whose run is older
     than the retained ledger is reported and left. v1's socket-push bookkeeping
-    is not carried: the manifest assigns a transport to the outbox row, not this
-    one.
+    is not carried.
     """
     directory = v1_state / "notices"
     if not directory.is_dir():
@@ -1525,32 +1540,52 @@ def import_notices(writer: _Writer, report: StoreReport, *, v1_state: Path,
     return {"files": files}
 
 
-# --- S/outbox.sqlite3 ---------------------------------------------------------
+# --- S/outbox.sqlite3 and S/cockpit-client/ (C-30.4) --------------------------
 
-def import_outbox(writer: _Writer, report: StoreReport, *, v1_state: Path,
-                  cursor: dict[str, Any]) -> dict[str, Any]:
-    """Manifest row `S/outbox.sqlite3`: the notice outbox for socket pushes.
+class _Conversations:
+    """`conversations.sqlite3` for this pass, opened on first use (C-30.4).
 
-    "rows with a non-delivered status become `notices` with `state: offered`,
-    transport `v1-socket`; delivered rows are `acknowledged` only if `receipt` is
-    present, else `offered`" (C-15.3).
-
-    The live outbox holds session continuations, which name a session and no run,
-    so this lane relaxed `notices.job_id` to nullable; a row whose payload names
-    a run still points at it. Against a store built before that change the rows
-    are reported and kept in the cursor's `retry` list, never burned.
-
-    v1's outbox is a WAL database, and opening one read-only still writes its
-    `-shm` file, so the copy in `_copy_sqlite` is what makes the "read-only
-    towards v1" guarantee at the top of this module true.
+    A real pass opens the store under the state root, which only this process
+    can be writing: it holds `daemon.lock`, and the daemon is that store's only
+    other writer (design D-4). A dry run opens a copy in its scratch directory
+    (the live store and its WAL sidecars are copied, never opened in place), so
+    the message text it publishes lands there and is deleted with it. A pass
+    that never reaches a legacy row creates no conversation store at all.
     """
+
+    def __init__(self, state_root: Path, scratch_dir: str | None):
+        self.state_root = state_root
+        self.scratch_dir = scratch_dir
+        self.store = None
+
+    def get(self) -> ConversationStore:
+        if self.store is None:
+            if self.scratch_dir is not None:
+                root = Path(self.scratch_dir)
+                source = self.state_root / "conversations.sqlite3"
+                if source.is_file():
+                    _copy_sqlite(source, root / "conversations.sqlite3")
+                self.store = ConversationStore(root)
+            else:
+                self.store = ConversationStore(self.state_root)
+        return self.store
+
+    def close(self) -> None:
+        if self.store is not None:
+            self.store.close()
+            self.store = None
+
+
+def _read_legacy_outbox(report: StoreReport | None, v1_state: Path) -> list | None:
+    """The cockpit outbox's rows, read from a copy (never v1's WAL in place)."""
+    def skip(reason: str) -> None:
+        if report is not None:
+            report.skip(reason)
+
     path = v1_state / "outbox.sqlite3"
     if not path.is_file():
-        report.skip("absent")
-        return cursor
-    last_sequence = int(cursor.get("last_sequence") or 0)
-    retry = sorted({int(item) for item in (cursor.get("retry") or [])})
-    nullable = writer.nullable("notices", "job_id")
+        skip("absent")
+        return None
     scratch = tempfile.mkdtemp(prefix="subfleet-import-outbox-")
     try:
         copy = Path(scratch) / "outbox.sqlite3"
@@ -1558,66 +1593,104 @@ def import_outbox(writer: _Writer, report: StoreReport, *, v1_state: Path,
             _copy_sqlite(path, copy)                 # never open v1's WAL in place
             connection = sqlite3.connect(str(copy))
         except (OSError, sqlite3.Error):
-            report.skip("unreadable-database")
-            return cursor
-        connection.row_factory = sqlite3.Row
-        high_water = last_sequence
-        still_open: list[int] = []
+            skip("unreadable-database")
+            return None
         try:
-            marks = ",".join("?" for _ in retry)
-            rows = connection.execute(
-                "SELECT * FROM messages WHERE sequence>?"
-                + (f" OR sequence IN ({marks})" if retry else "")
-                + " ORDER BY sequence", (last_sequence, *retry)).fetchall()
+            return legacy.read_outbox(connection)
         except sqlite3.Error:
-            report.skip("no-messages-table")
+            skip("no-messages-table")
+            return None
+        finally:
             connection.close()
-            return cursor
-        for row in rows:
-            report.seen += 1
-            sequence = int(row["sequence"])
-            high_water = max(high_water, sequence)
-            status = str(row["status"] or "")
-            receipt = str(row["receipt"] or "").strip()
-            delivered = status in OUTBOX_DELIVERED
-            state = "acknowledged" if delivered and receipt else "offered"
-            if status not in OUTBOX_DELIVERED:
-                report.count(f"status-{status or 'empty'}")
-            payload = {}
-            try:
-                payload = json.loads(row["payload"]) if row["payload"] else {}
-            except ValueError:
-                payload = {}
-            job_id = payload.get("run_id") if isinstance(payload, dict) else None
-            if job_id and not writer.exists("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)):
-                job_id = None
-            if job_id is None and not nullable:
-                # An older store still has notices.job_id NOT NULL; keep the row
-                # for the pass that runs after the schema is migrated.
-                report.skip("notices.job_id-is-not-null-and-the-message-names-no-run")
-                still_open.append(sequence)
-                continue
-            session_id = str(row["session_id"] or "") or None
-            text = payload.get("prompt") if isinstance(payload, dict) else None
-            if writer.exists("SELECT 1 FROM notices WHERE session_id=? AND text=? AND created_at=?",
-                             (session_id, str(text or row["message_id"]),
-                              _utc(row["created_at"]) or utc_now())):
-                report.skip("already-imported")
-                continue
-            writer.insert("notices", {
-                "job_id": job_id, "session_id": session_id,
-                "text": str(text or row["message_id"]), "state": state,
-                "transport": "v1-socket",
-                "created_at": _utc(row["created_at"]) or utc_now(),
-                "offered_at": _utc(row["updated_at"]),
-                "acknowledged_at": _utc(row["updated_at"]) if state == "acknowledged" else None,
-            }, kind="notice.imported")
-            report.imported += 1
-            report.count(f"state-{state}")
-        connection.close()
-        return {"last_sequence": high_water, "retry": sorted(set(still_open))}
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_state: Path,
+                  projects: Path | None = None, writer: _Writer | None = None) -> dict[str, Any] | None:
+    """Manifest row `S/outbox.sqlite3`: the legacy cockpit's message outbox (C-30.4).
+
+    It is not a notice outbox. Each message is classified by itself
+    (`subfleet/conversations/legacy.py`): a terminal message of a Claude session
+    whose transcript is found becomes read-only history of that session's
+    `legacy` conversation; every other message keeps its legacy owner, and is
+    reported with its disposition in `items`, as is every terminal message this
+    pass could not place. Nothing is sent, queued or dispatched.
+
+    Every pass reads every row: the outbox is small, and idempotence comes from
+    the legacy message id in `conversations.sqlite3`, not from a cursor, so a
+    message held back last time lands once it can. The cursor this row writes
+    is a record of what was read. Notices an earlier version of this row made
+    from the same outbox (transport `v1-socket`) are left as they are.
+    """
+    messages = _read_legacy_outbox(report, v1_state)
+    if messages is None:
+        return None
+    # C-30.4: a journal that cannot be read holds every session; it is never read as empty.
+    entries, problem = legacy.read_journal(v1_state / legacy.JOURNAL)
+    result = legacy.import_outbox(conversations.get(), messages, projects=projects, journal=entries,
+                                  journal_problem=problem)
+    report.seen += len(messages)
+    report.imported += result.imported
+    for item in result.items:
+        if item["source"] == "conversation":
+            report.count(item["disposition"])       # a conversation, not one of the `seen` messages
+        elif item["disposition"] == "history":
+            report.count(f"history-{item['state']}")
+        else:
+            report.skip(item["disposition"])
+    report.items.extend(result.items)
+    if result.conversations_created:
+        report.count("legacy-conversations-created", result.conversations_created)
+    owned = sum(1 for item in result.items if item["disposition"] == "legacy-owned")
+    if owned:
+        report.note(f"{owned} messages are not terminal: they keep their legacy owner, and "
+                    "their sessions with them; this import never sends one (C-30.4)")
+    if result.journal_problem:
+        report.note(f"cockpit-client/pending-messages.json is {result.journal_problem}: every session is "
+                    "held, as any of them may have an unacknowledged send, until a pass can read it (C-30.4)")
+    held = sum(1 for item in result.items if item["disposition"] == "bound-session-held")
+    if held:
+        report.note(f"{held} conversations an earlier pass bound are blocked while the legacy writer may be "
+                    f"using their sessions (blocked_by {legacy.LEGACY_HOLD!r}); the first pass that finds a "
+                    "session settled lifts its block (C-30.4)")
+    if any(item["disposition"] == "transcript-not-found" for item in result.items):
+        report.note("terminal messages whose Claude transcript was not found are listed in items; "
+                    "a later pass imports them if the transcript appears")
+    if writer is not None:
+        earlier = writer.one("SELECT COUNT(*) AS n FROM notices WHERE transport='v1-socket'")
+        if earlier and earlier["n"]:
+            report.note(f"{earlier['n']} notices an earlier import made from this outbox are left as they are")
+    return {"mapping": "legacy-history", "rows": len(messages),
+            "max_sequence": max((message.sequence for message in messages), default=0)}
+
+
+def import_cockpit_client(report: StoreReport, *, v1_state: Path) -> None:
+    """Manifest row `S/cockpit-client/`: the cockpit app's pending-send journal.
+
+    Every entry is an unacknowledged send the cockpit app would retry itself, so
+    it keeps its legacy owner and is reported with the outbox's status for its
+    id, if the broker took it; nothing is sent (C-30.4). The image snapshot
+    folders beside the journal stay where they are.
+    """
+    directory = v1_state / "cockpit-client"
+    if not directory.is_dir():
+        report.skip("absent")
+        return None
+    entries, problem = legacy.read_journal(v1_state / legacy.JOURNAL)
+    if problem:
+        report.skip("unreadable-journal")
+        report.note(f"pending-messages.json is {problem}; it is left as it is")
+    statuses = {message.message_id: message.status for message in _read_legacy_outbox(None, v1_state) or ()}
+    items = legacy.journal_items(entries, statuses)
+    report.seen += len(items)
+    for item in items:
+        report.skip(item["disposition"])
+    report.items.extend(items)
+    snapshots = [path for path in directory.glob("images-*") if path.is_dir()]
+    if snapshots:
+        report.note(f"{len(snapshots)} image snapshot folders are left in place")
+    return None
 
 
 # --- S/integration-events.salt ------------------------------------------------
@@ -1831,12 +1904,15 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
               roster_dir: str | Path = V1_ROSTER_DIR, home: str | Path | None = None,
               dry_run: bool = False, milestone: int = DEFAULT_MILESTONE,
               write_report: bool = True, runs_limit: int | None = None,
-              now: str | None = None) -> ImportReport:
+              now: str | None = None, claude_projects: str | Path | None = None) -> ImportReport:
     """Import v1's state per `docs/migration.md`, idempotently and incrementally.
 
     Returns the `ImportReport` and, unless `write_report=False`, saves it to
     `<state root>/import-report-<utc>.json`. `dry_run=True` writes no row and no
     file under the state root except that report (see the module docstring).
+    From `LEGACY_MILESTONE` the pass also imports the legacy cockpit rows
+    (C-30.4), which read Claude transcripts under `claude_projects` (default
+    `~/.claude/projects`, or `$SUBFLEET_CLAUDE_DIR/projects`).
     """
     state_root = Path(state_root).expanduser()
     v1_state = Path(v1_state).expanduser()
@@ -1875,6 +1951,8 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
             raise
     writer = _Writer(store, dry_run)
     models = _load_policy_models(state_root)
+    conversations = _Conversations(state_root, scratch_dir)
+    projects = Path(claude_projects).expanduser() if claude_projects is not None else None
     try:
         cursors = read_cursors(writer)
 
@@ -1922,7 +2000,8 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
         row("notices", lambda entry: import_notices(
             writer, entry, v1_state=v1_state, cursor=cursors.get("notices", {})))
         row("outbox", lambda entry: import_outbox(
-            writer, entry, v1_state=v1_state, cursor=cursors.get("outbox", {})))
+            conversations, entry, v1_state=v1_state, projects=projects, writer=writer))
+        row("cockpit", lambda entry: import_cockpit_client(entry, v1_state=v1_state))
         row("salt", lambda entry: import_salt(
             writer, entry, v1_state=v1_state, state_root=state_root))
         row("alerts", lambda entry: import_alerts(
@@ -1935,6 +2014,47 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
         report.unmanifested = scan_unmanifested(v1_state, delegate_state)
     finally:
         store.close()
+        conversations.close()
+        if scratch_dir is not None:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
+        _release_daemon_lock(lock)
+    report.finished_at = utc_now()
+    if write_report:
+        report.write(state_root)
+    return report
+
+
+def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
+                          claude_projects: str | Path | None = None, dry_run: bool = False,
+                          write_report: bool = True, now: str | None = None) -> ImportReport:
+    """The legacy cockpit rows alone (C-30.4): `outbox` and `cockpit`, whatever the
+    milestone, and nothing else. `state.sqlite3` is not opened.
+
+    A real pass takes `daemon.lock` for its whole length, as `import_v1` does, and
+    is refused while a daemon holds it: the daemon is `conversations.sqlite3`'s
+    writer (design D-4). A dry run never takes the lock; it imports into a copy of
+    the conversation store in a scratch directory and deletes it, so nothing under
+    the state root changes but the report. Nothing under the v1 state changes
+    either way.
+    """
+    state_root = Path(state_root).expanduser()
+    v1_state = Path(v1_state).expanduser()
+    projects = Path(claude_projects).expanduser() if claude_projects is not None else None
+    now = now or utc_now()
+    report = ImportReport(str(state_root), str(v1_state), "", "", dry_run, LEGACY_MILESTONE, now)
+    scratch_dir: str | None = None
+    lock: int | None = None
+    if dry_run:
+        scratch_dir = tempfile.mkdtemp(prefix="subfleet-import-dry-")
+    else:
+        state_root.mkdir(parents=True, mode=0o700, exist_ok=True)   # C-2.2
+        lock = _hold_daemon_lock(state_root)
+    conversations = _Conversations(state_root, scratch_dir)
+    try:
+        import_outbox(conversations, report.store_report("outbox"), v1_state=v1_state, projects=projects)
+        import_cockpit_client(report.store_report("cockpit"), v1_state=v1_state)
+    finally:
+        conversations.close()
         if scratch_dir is not None:
             shutil.rmtree(scratch_dir, ignore_errors=True)
         _release_daemon_lock(lock)
@@ -1947,7 +2067,7 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
 # --- module entry point -------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
-    """`python -m subfleet.importer [--dry-run]`; the CLI keeps its own verbs."""
+    """`python -m subfleet.importer [--dry-run] [--legacy-cockpit]`; the CLI keeps its own verbs."""
     parser = argparse.ArgumentParser(prog="subfleet.importer",
                                      description="import v1 state per docs/migration.md")
     parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME") or "~/.subfleet")
@@ -1961,15 +2081,29 @@ def main(argv: list[str] | None = None) -> int:
                         help="import at most this many run directories this pass")
     parser.add_argument("--dry-run", action="store_true",
                         help="write no row and no state-root file but the report")
+    parser.add_argument("--legacy-cockpit", action="store_true",
+                        help="import only the legacy cockpit outbox and client journal into "
+                             "conversations.sqlite3 (C-30.4), whatever the milestone")
+    parser.add_argument("--claude-dir", default=None,
+                        help="the ~/.claude whose projects/ holds the Claude transcripts "
+                             "(default: $SUBFLEET_CLAUDE_DIR or ~/.claude)")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     args = parser.parse_args(argv)
+    projects = Path(args.claude_dir).expanduser() / "projects" if args.claude_dir else None
     try:
-        report = import_v1(args.state_root, v1_state=args.v1_state,
-                           delegate_state=args.delegate_state, roster_dir=args.roster_dir,
-                           home=args.home, dry_run=args.dry_run, milestone=args.milestone,
-                           runs_limit=args.runs_limit)
+        if args.legacy_cockpit:
+            report = import_legacy_cockpit(args.state_root, v1_state=args.v1_state,
+                                           claude_projects=projects, dry_run=args.dry_run)
+        else:
+            report = import_v1(args.state_root, v1_state=args.v1_state,
+                               delegate_state=args.delegate_state, roster_dir=args.roster_dir,
+                               home=args.home, dry_run=args.dry_run, milestone=args.milestone,
+                               runs_limit=args.runs_limit, claude_projects=projects)
     except ImportRefused as refusal:
         print(f"subfleet import: {refusal}", file=sys.stderr)
+        return int(refusal.code)
+    except ConversationError as refusal:           # e.g. a conversation store newer than this build
+        print(f"subfleet import: {refusal.reason}: {refusal}", file=sys.stderr)
         return int(refusal.code)
     if args.json:
         print(json.dumps(report.as_dict(), sort_keys=True))
@@ -1978,6 +2112,19 @@ def main(argv: list[str] | None = None) -> int:
         for key, entry in sorted(report.stores.items()):
             print(f"{key:<22} {entry.disposition:<22} {entry.seen:>7} "
                   f"{entry.imported:>9} {entry.skipped:>8}")
+        for key, entry in sorted(report.stores.items()):
+            for item in entry.items:
+                # Ids, statuses and dispositions only: never a prompt (C-25.5).
+                if item.get("source") == "conversation":
+                    print(f"  {key}: conversation {item['conversation_id']} {item['session_id']} "
+                          f"-> {item['disposition']}"
+                          + (f" (blocked_by {item['blocked_by']})" if item.get("blocked_by") else "")
+                          + (f" {item['detail']}" if item.get("detail") else ""))
+                    continue
+                where = item.get("conversation_id") or item.get("detail") or ""
+                print(f"  {key}: {item.get('message_id')} {item.get('session_id')} "
+                      f"{item.get('status') or '-'} -> {item['disposition']}"
+                      + (f" ({item['state']})" if item.get("state") else "") + (f" {where}" if where else ""))
         if report.unmanifested:
             print("not in the manifest, left alone: " + ", ".join(report.unmanifested))
         print(f"report: {report.path}")
