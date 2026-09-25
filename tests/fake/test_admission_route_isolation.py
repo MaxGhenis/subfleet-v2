@@ -262,7 +262,7 @@ def test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_commit
     service._admit()
     assert admitted(service, job_id)
     assert True not in inside                                     # no evaluation held the store lock
-    assert service._route_evaluations == {"reused": 1, "again": 0}
+    assert service._route_evaluations == {"reused": 1, "again": 0, "moved": 0, "old": 0, "failed": 0}
 
 
 def test_c6_3_a_commit_after_the_early_evaluation_means_evaluating_again(fleet, monkeypatch):
@@ -282,7 +282,7 @@ def test_c6_3_a_commit_after_the_early_evaluation_means_evaluating_again(fleet, 
         return decision
     monkeypatch.setattr(service, "_pick", pick)
     service._admit()
-    assert service._route_evaluations == {"reused": 0, "again": 1}
+    assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 1, "old": 0, "failed": 0}
     assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == chosen
 
 
@@ -292,7 +292,7 @@ def test_c6_3_an_early_evaluation_older_than_the_bound_is_evaluated_again(fleet,
     job_id = submit(service, harness, pinned_model="astra")
     service._admit()
     assert admitted(service, job_id)
-    assert service._route_evaluations == {"reused": 0, "again": 1}
+    assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 0, "old": 1, "failed": 0}
 
 
 def test_c6_12_why_names_a_route_error_it_meets_itself(incident):

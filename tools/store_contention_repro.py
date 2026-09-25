@@ -455,6 +455,8 @@ class Rig:
             time.sleep(a.duration)
             self.measuring.clear()
             measured_s, cpu_to = time.monotonic() - measured_from, self.cpu_seconds()
+            final = self.timed("daemon.status", {}, label="final-status", timeout=600) or {}
+            self.admission = ((final.get("result") or {}).get("admission") or {})
             self.daemon_cpu = (None if cpu_from is None or cpu_to is None
                                else round((cpu_to - cpu_from) / measured_s, 3))
         finally:
@@ -509,6 +511,7 @@ class Rig:
                     holders[f"{path}:{line} {func}"] += 1
         return {"code": str(self.code), "root": str(self.root), "diagnostics": diagnostics,
                 "daemon_cpu_cores": getattr(self, "daemon_cpu", None),
+                "route_evaluations": getattr(self, "admission", {}).get("route_evaluations"),
                 "args": vars(self.args), "store": sizes, "measured_s": round(measured_s, 1),
                 "ops": ops, "wake_after_terminal_s": stats(wakes), "wakes_unmatched":
                     len(self.returned_at) - len(wakes), "client_errors": dict(self.errors),
@@ -558,6 +561,7 @@ def main() -> int:
         Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
     print(f"code {report['code']}  root {report['root']}  measured {report['measured_s']} s")
     print(f"store {report['store']}  daemon CPU {report['daemon_cpu_cores']} cores")
+    print(f"route evaluations (C-6.3): {report['route_evaluations']}")
     for op, entry in report["ops"].items():
         print(f"  {op:28s} n={entry.get('n', 0):5d} {entry.get('rate_per_s', 0):6.1f}/s  "
               f"p50={entry.get('p50', 0):8.3f}  p90={entry.get('p90', 0):8.3f}  "

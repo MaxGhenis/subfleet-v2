@@ -440,7 +440,7 @@ class Daemon:
         self._holds: dict[str, dict] = {}
         # C-6.3, C-3.7: reserving transactions that took the decision evaluated
         # before them, and those that evaluated again inside.
-        self._route_evaluations = {"reused": 0, "again": 0}
+        self._route_evaluations = {"reused": 0, "again": 0, "moved": 0, "old": 0, "failed": 0}
         self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
                                            "idle_since_at": None, "checked_at": None, "logged_at": None,
                                            "reasons": {}}
@@ -1871,7 +1871,11 @@ class Daemon:
         idle = None if since is None else round(time.monotonic() - since)
         return {"pending": state["pending"], "placed_at": state["placed_at"], "idle_for_s": idle,
                 "idle_since": state["idle_since_at"], "reasons": dict(state["reasons"]),
-                "open_lanes": capacity.open_lanes(view, self.policy["caps"])}
+                "open_lanes": capacity.open_lanes(view, self.policy["caps"]),
+                # C-6.3: reservations that took the evaluation made before them, and
+                # those that evaluated again inside, since the daemon started, by why:
+                # a commit since (`moved`), too old (`old`), or it failed (`failed`).
+                "route_evaluations": dict(self._route_evaluations)}
 
     # --- the sessions kit's store seam (C-23.33, C-23.35, C-23.55) ------------
 
@@ -3060,13 +3064,15 @@ class Daemon:
                 if extra_exclusions:
                     job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
-                if (early is not None and self.store.generation == seen
-                        and time.monotonic() - evaluated_at <= ROUTE_REUSE_S):
+                why = ("failed" if early is None else "moved" if self.store.generation != seen else
+                       "old" if time.monotonic() - evaluated_at > ROUTE_REUSE_S else None)
+                if why is None:
                     decision = early
                     self._route_evaluations["reused"] += 1
                 else:
                     decision = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
                     self._route_evaluations["again"] += 1
+                    self._route_evaluations[why] += 1
                 needs_probe = self._needs_probe(decision, job)
                 live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
                                   "WHERE a.state IN ('reserved','starting','running','finalizing') "
