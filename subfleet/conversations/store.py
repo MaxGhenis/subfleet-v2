@@ -339,10 +339,15 @@ class ConversationStore:
         existing = self.by_request(request_id)
         if existing:
             return {"existing": existing}
+        from .attachments import check as check_attachment
         for item in moves:
             for sha in item["attachments"]:
                 if self.attachment(sha) is None:
                     raise ConversationError("unknown-attachment", f"no attachment {sha}")
+                # The stored copy must be there and hash right now, before the
+                # source's job is cancelled: a damaged one would fail the target's
+                # turn after the source had been withdrawn (review of 6290a51).
+                check_attachment(self, sha)
         cid = new_id("cv")
         now = utcnow()
         prepared = {"request_id": request_id, "cid": cid, "provider": provider, "workspace": workspace,

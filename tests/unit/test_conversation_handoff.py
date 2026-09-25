@@ -777,3 +777,36 @@ def test_a_codex_app_thread_continues_by_labelled_handoff(world):
         handoff(world, request_id="h-3", native={"provider": "codex", "session_id": run},
                 to={"provider": "claude", "settings": ASK})
     assert err.value.reason == "lane-run" and err.value.code == 7
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+def test_a_damaged_attachment_fails_the_handoff_before_the_source_is_touched(world, damage):
+    """C-30.3, D-18: a moved message's attachment is checked (there, and hashing
+    right) while preparing, so a damaged one refuses the handoff before any job is
+    cancelled; before, the handoff committed and the target's turn failed
+    `attachment-missing` after the source was withdrawn (review of 6290a51)."""
+    import uuid as uuid_module
+    from pathlib import Path as FilePath
+    from subfleet.conversations import attachments
+    cid, _ = source(world)
+    original = world.workspace / "example.png"
+    original.write_bytes(b"\x89PNG\r\n\x1a\n" + b"image payload")
+    sha = attachments.add(world.store, str(original))["sha256"]
+    stored = FilePath(world.store.attachment(sha)["path"])
+    mid = str(uuid_module.uuid4())
+    world.store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None,
+                               text="review this image", attachments=[sha], settings=ASK)
+    job_id = turn_job(world, mid, cid, state="waiting")
+    world.store.set_state(mid, "waiting", job_id=job_id)
+    if damage == "missing":
+        stored.unlink()
+    else:
+        stored.write_bytes(b"changed bytes")
+    conversations_before = len(world.store.query("SELECT conversation_id FROM conversations"))
+    with pytest.raises(ConversationError) as refused:
+        handoff(world, cid)
+    assert refused.value.reason == "attachment-missing"
+    assert world.daemon.store.get_job(job_id)["state"] == "waiting"
+    assert world.store.message(mid)["state"] == "waiting"
+    assert world.store.conversation(cid)["blocked_by"] is None
+    assert len(world.store.query("SELECT conversation_id FROM conversations")) == conversations_before
