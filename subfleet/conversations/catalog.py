@@ -10,7 +10,8 @@ subagent threads) come before any limit. Nothing here writes a native store.
 
 The daemon starts the process on a timer and on request and never scans these
 trees on a request or control thread; `native_session` reads one session's
-files for `conversation.open`.
+files for `conversation.open`. A run writes only for the service that started
+it and only into the root it locked (`Owner`); it never creates a state root.
 """
 
 from __future__ import annotations
@@ -19,12 +20,13 @@ import argparse
 import fcntl
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from ..sessions import transcripts
 from .redact import scrub
@@ -118,8 +120,9 @@ def _codex_record(path: Path) -> dict:
 
 
 def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None, codex_app_home: Path | None = None,
-          wall_s: float = WALL_S, clock=time.monotonic) -> dict:
-    """One capped indexing run; returns the catalog it wrote."""
+          wall_s: float = WALL_S, clock=time.monotonic, may_write: Callable[[], bool] | None = None) -> dict:
+    """One capped indexing run; returns the catalog it built. `may_write` is asked
+    before each file is published, and once it says no nothing more is (`Owner`)."""
     root = Path(root)
     cache_path = root / "catalog-cache.json"
     try:
@@ -186,8 +189,10 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     # Every live session, listed or not: a conversation born in Subfleet and
     # resumed in a terminal is no catalog item but is still held (C-26.3).
     catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live)}
-    _atomic(root / "catalog.json", catalog)
-    _atomic(cache_path, fresh if complete else {**cache, **fresh})
+    for path, value in ((root / "catalog.json", catalog), (cache_path, fresh if complete else {**cache, **fresh})):
+        if may_write is not None and not may_write():
+            break
+        _atomic(path, value)
     return catalog
 
 
@@ -298,9 +303,45 @@ def _utc() -> str:
 
 
 def _atomic(path: Path, value: Any) -> None:
+    """Publish into the state root as it stands. Never create it: a run that outlived
+    its owner recreated a root the owner had just removed (2026-09-25); now the
+    temporary file cannot be made and the run fails instead."""
     from ..guardian import atomic_publish
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     atomic_publish(path, (json.dumps(value, separators=(",", ":")) + "\n").encode())
+
+
+class Owner:
+    """Whether one run may still write (C-30.1). The lock it holds must still be
+    `<root>/catalog.lock`, so the root was neither removed nor replaced since the
+    run took it. The service that started the run must still be open: it holds the
+    only write end of a pipe whose read end the run inherits as `fence_fd`, and
+    closes it in `close()`; the kernel closes it if the daemon dies. End-of-file
+    there means the owner is gone. A run started by hand has no fence."""
+
+    def __init__(self, root: Path, lock_fd: int, fence_fd: int | None = None):
+        self.lock_path, self.lock_fd, self.fence_fd = Path(root) / "catalog.lock", lock_fd, fence_fd
+
+    def __call__(self) -> bool:
+        try:
+            here, held = os.stat(self.lock_path), os.fstat(self.lock_fd)
+        except OSError:
+            return False
+        return (here.st_dev, here.st_ino) == (held.st_dev, held.st_ino) and fence_open(self.fence_fd)
+
+
+def fence_open(fd: int | None) -> bool:
+    """Whether the write end of the fence pipe `fd` reads from is still open. A
+    non-blocking read: nobody ever writes, so it blocks while the end is open and
+    returns end-of-file once it is closed. No fence: nothing to wait on."""
+    if fd is None:
+        return True
+    try:
+        os.set_blocking(fd, False)
+        return os.read(fd, 1) != b""
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
 
 
 # --- readers the daemon uses ----------------------------------------------------
@@ -411,22 +452,21 @@ def refresh_running(root: Path) -> bool | None:
         os.close(fd)
 
 
-def spawn_refresh(root: Path) -> subprocess.Popen | None:
+def spawn_refresh(root: Path, *, fence_fd: int | None = None) -> subprocess.Popen | None:
     """Start one catalog run unless one is running (the lock decides), and return
-    the process without waiting for it. Its owner reaps it (`Popen.poll`)."""
+    the process without waiting for it. Its owner reaps it (`Popen.poll`) and stops
+    it on close. `fence_fd` is the read end of the owner's fence pipe, the one
+    descriptor the run inherits (`Owner`)."""
     if refresh_running(root) is not False:
         return None
     package_root = str(Path(__file__).resolve().parent.parent.parent)
     env = {**os.environ, "PYTHONPATH": package_root}
-    return subprocess.Popen([sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(root)],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            start_new_session=True, env=env, cwd=package_root)
-
-
-def request_refresh(root: Path) -> dict:
-    """Start one catalog run unless one is running (a lock file decides)."""
-    process = spawn_refresh(root)
-    return {"requested": process is not None, "running": process is not None or bool(refresh_running(root))}
+    argv = [sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(root)]
+    if fence_fd is not None:
+        argv += ["--fence-fd", str(fence_fd)]
+    return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True, env=env, cwd=package_root,
+                            pass_fds=() if fence_fd is None else (fence_fd,))
 
 
 def native_session(provider: str, session_id: str, *, home: str | None, root: Path, lanes: list[dict]) -> dict | None:
@@ -469,9 +509,15 @@ def _claude_value(model_id: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="subfleet-catalog")
     parser.add_argument("--state-root", type=Path, required=True)
+    parser.add_argument("--fence-fd", type=int, help="the read end of the starting service's fence pipe (Owner)")
     args = parser.parse_args(argv)
+    if not fence_open(args.fence_fd):
+        return 0                            # the service closed before the run began: touch nothing
     lock = args.state_root / "catalog.lock"
-    fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
+    except FileNotFoundError:
+        return 0                            # no state root, and a run never makes one
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -485,9 +531,16 @@ def main(argv: list[str] | None = None) -> int:
         db.close()
     except Exception:
         pass
-    build(args.state_root, lanes=lanes)
+    build(args.state_root, lanes=lanes, may_write=Owner(args.state_root, fd, args.fence_fd))
     return 0
 
 
+def _terminated(signum, frame):
+    """A stop unwinds, so `atomic_publish` removes its temporary file on the way out
+    rather than leaving it in the state root."""
+    raise SystemExit(128 + signum)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _terminated)
     raise SystemExit(main())
