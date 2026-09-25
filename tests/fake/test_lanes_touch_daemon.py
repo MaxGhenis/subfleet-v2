@@ -242,3 +242,15 @@ def test_naming_a_superseded_lane_touches_the_lane_that_replaced_it(daemon):
                                LaneOwner.V2, False))
     touch = daemon.dispatch("lanes", {"action": "touch", "lane_id": "codex-1", "dry_run": True})["touch"]
     assert touch["target"] == "codex-2" and [row["action"] for row in touch["plan"]] == ["touch"]
+
+
+def test_recovery_releases_the_lease_of_a_turn_that_settled_before_the_stop(daemon):
+    """C-18.3, C-5.7: a timer turn refused before launch is `completed`; only its lease outlived it."""
+    lane = codex(daemon, 1)
+    daemon.store.acquire_lease(f"lane:{lane.lane_id}:slot:0", "probe:timer:done")
+    daemon._save_probe({"holder": "probe:timer:done", "job_id": None, "lane_id": lane.lane_id,
+                        "timer_kind": "touch", "model_id": "gpt-5.6-luna", "state": "completed",
+                        "directory": str(daemon.root / "lanes" / lane.lane_id / "probes" / "done"),
+                        "deadline_at": iso(datetime.now(timezone.utc) + timedelta(minutes=2))})
+    daemon._recover_probes()
+    assert daemon.store.list_leases() == []

@@ -31,6 +31,8 @@ TOUCH_FAILED = ('refused', 'failed', 'timed-out', 'unknown', 'transient', 'limit
                 'auth-dead', 'cli-too-old', 'content-filter', 'quarantined')
 #: C-18.3: a touch the daemon's stop cut short, or a crash interrupted: no verdict.
 TOUCH_UNSETTLED = ('cancelled', 'interrupted')
+#: C-18.3: a touch with no verdict yet or ever; the lane's standing is its last settled touch.
+TOUCH_PENDING = ('touching',) + TOUCH_UNSETTLED
 #: C-18.3: operator touch results kept in memory for `lanes touch` to collect.
 TOUCH_RESULTS_KEPT = 32
 
@@ -564,6 +566,17 @@ class Timers:
                 return 'interrupted'
         return status
 
+    def _settled(self, touch):
+        """C-18.3: the lane's last touch that reached a verdict.
+
+        A touch still running, cut short, or interrupted says nothing about the
+        clock, so the lane keeps standing on the one before it, which each
+        record carries as `previous`.
+        """
+        if not touch:
+            return None
+        return touch.get('previous') if self._touch_status(touch) in TOUCH_PENDING else touch
+
     def _spaced_until(self, touch):
         """C-18.3: when the spacing a lane's last touch imposes ends, or None.
 
@@ -596,21 +609,26 @@ class Timers:
                                             reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
         touch = self.touches.get(row['lane_id'])
         status = self._touch_status(touch)
+        # A touch in flight (an operator's, while a cycle reads the lane) must
+        # not clear a standing warning for a cycle and re-raise it the next.
+        settled = self._settled(touch)
+        verdict = settled.get('status') if settled else None
         state = alert = request = None
-        if touch and status == 'ok' and not touch.get('ineffective') and touch.get('requested_at'):
-            request = {'at': touch['requested_at'], 'source': 'touch'}
+        if verdict == 'ok' and not settled.get('ineffective') and settled.get('requested_at'):
+            request = {'at': settled['requested_at'], 'source': 'touch'}
         if last_work and (request is None or instant(last_work) > instant(request['at'])):
             request = {'at': last_work, 'source': 'attempt'}
         if evidence:
             state = 'not-started'
             if request and (instant(evidence['observed_at']) - instant(request['at'])).total_seconds() <= CLOCK_UNSTARTED_TOLERANCE_S:
                 state = 'touched'
+        block = None
         if state == 'not-started':
-            recent = touch and touch.get('at') and (now - instant(touch['at'])).total_seconds() <= 2 * spacing
+            recent = settled and settled.get('at') and (now - instant(settled['at'])).total_seconds() <= 2 * spacing
             block = self.touch_block(row)
-            if recent and status in TOUCH_FAILED:
+            if recent and verdict in TOUCH_FAILED:
                 alert = 'touch-failed'
-            elif recent and status == 'ok':
+            elif recent and verdict == 'ok':
                 alert = 'touch-ineffective'
             elif block and block.startswith(f"closed:{touch_model(self.policy)['id']}:"):
                 alert = 'touch-blocked'
@@ -620,6 +638,9 @@ class Timers:
         row['clock_evidence'] = evidence
         row['clock_request'] = request if state == 'touched' else None
         row['clock_touch'] = {**touch, 'status': status} if touch else None
+        # The warning names the touch it is about: the last one with a verdict.
+        row['clock_alert_touch'] = dict(settled) if alert in ('touch-failed', 'touch-ineffective') else None
+        row['clock_block'] = block if alert == 'touch-blocked' else None
         row['clock_alert'] = alert
 
     def touch_block(self, row):
@@ -753,14 +774,21 @@ class Timers:
                       'reason': entry.get('reason'), 'status': 'touching',
                       'before': {'weekly_clock': entry.get('weekly_clock'), 'resets_at': entry.get('resets_at')},
                       **({'request_id': request_id} if request_id else {})}
-            recent = previous.get('at') and (self.now() - instant(previous['at'])).total_seconds() <= 2 * spacing
-            if entry.get('weekly_clock') == 'not-started' and previous.get('status') == 'ok' and recent:
-                # The last touch, within this idle stretch, reached the provider and
-                # the clock still has not started: count it, so the lane reads
-                # `not-started` (not `touched`) and its warning stays up instead of
-                # clearing for ten minutes an hour. A touch from an earlier week
-                # started that week's clock and says nothing about this one.
-                record['ineffective'] = int(previous.get('ineffective') or 0) + 1
+            base = self._settled(previous) or {}
+            if base:
+                record['previous'] = {key: base.get(key) for key in
+                                      ('at', 'status', 'requested_at', 'ineffective', 'detail') if base.get(key) is not None}
+            recent = base.get('at') and (self.now() - instant(base['at'])).total_seconds() <= 2 * spacing
+            if entry.get('weekly_clock') == 'not-started' and recent:
+                # Count the touches in this idle stretch that reached the provider
+                # and left the clock unstarted, across any failed ones between, so
+                # the lane reads `not-started` (not `touched`), no "started" notice
+                # goes out, and its warning stays up instead of clearing for ten
+                # minutes an hour. A touch from an earlier week started that
+                # week's clock and says nothing about this one.
+                count = int(base.get('ineffective') or 0) + (1 if base.get('status') == 'ok' else 0)
+                if count:
+                    record['ineffective'] = count
             item['record'] = record
             self._record_touch(lane.lane_id, record)
             outcome = self._turn(lane, 'touch', holder, timeout)
@@ -911,10 +939,14 @@ class Timers:
                 return {'status': 'done', **self._touch_results[request_id]}
             if request_id in self._touch_pending:
                 return {'status': 'running', 'request_id': request_id}
-        records = [json.loads(row['data_json']) for row in self.store.query(
-            "SELECT data_json FROM events WHERE kind='timer.touch' ORDER BY event_id")]
-        return {'status': 'unknown', 'request_id': request_id,
-                'results': [record for record in records if record.get('request_id') == request_id]}
+        # The daemon restarted (or the result aged out of memory): answer from the
+        # events, one record per lane, the last one written.
+        records = {}
+        for row in self.store.query("SELECT data_json FROM events WHERE kind='timer.touch' ORDER BY event_id"):
+            record = json.loads(row['data_json'])
+            if record.get('request_id') == request_id:
+                records[record.get('lane_id')] = record
+        return {'status': 'unknown', 'request_id': request_id, 'results': list(records.values())}
 
     def probe_cycle(self):
         if self.cancel.is_set():

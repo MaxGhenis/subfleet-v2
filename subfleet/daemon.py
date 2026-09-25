@@ -2263,6 +2263,11 @@ class Daemon:
             record = self._probe_record(lease["holder"])
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
+            if record.get("state") == "completed":
+                # Settled before the daemon stopped (a timer turn refused before
+                # launch, C-18.3); only its lease outlived it.
+                self.store.release_leases(lease["holder"])
+                continue
             safe, receipt = self._await_probe(record)
             if not safe:
                 continue

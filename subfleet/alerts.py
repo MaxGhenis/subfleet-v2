@@ -71,16 +71,20 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
         if (provider == "codex" and lane.get("enabled", True) and lane.get("weekly_clock") == "not-started"
                 and lane.get("clock_alert")):
             # C-18.3: the daemon touches such a lane itself; this says it could not.
-            touch = lane.get("clock_touch") or {}
+            touch = lane.get("clock_alert_touch") or lane.get("clock_touch") or {}
+            _, _, until = str(lane.get("clock_block") or "").partition(":")[2].partition(":")
             why = {"touch-failed": f"the touch at {touch.get('at')} ended {touch.get('status')}"
                                    + (f" ({touch['detail']})" if touch.get("detail") else ""),
                    "touch-ineffective": f"the touch at {touch.get('at')} succeeded, but the usage endpoint still "
                                         "reads 0% with a reset sliding a week ahead",
+                   "touch-blocked": f"the touch model is closed on it until {until or 'unknown'}",
                    "auto-touch-off": "automatic touching is off (policy timers.touch_unstarted)",
                    }.get(lane["clock_alert"], lane["clock_alert"])
+            act = ("Inspect: subfleet status" if lane["clock_alert"] == "touch-blocked"
+                   else f"Run: subfleet lanes touch {lane['lane_id']}")
             add(f"codex-clock:{home}", "warn", f"codex: {home}'s weekly clock has not started",
                 f"{home} ({email}): a weekly window starts at its first request, so every idle day moves "
-                f"its next reset a day later; {why}. Run: subfleet lanes touch {lane['lane_id']}", home=home)
+                f"its next reset a day later; {why}. {act}", home=home)
         for closure in lane.get("closures", ()):
             if closure.get("reason") == "auth-dead":
                 continue
