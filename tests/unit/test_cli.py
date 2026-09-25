@@ -370,6 +370,16 @@ def test_run_carries_every_flag_in_the_table(daemon, root, capsys, workdir):
     capsys.readouterr()
 
 
+def test_run_says_where_a_writable_job_writes(daemon, root, capsys, workdir):
+    """Review of d261: the caller hears the job writes in its own worktree."""
+    def submitted(request):
+        return {**submit_ok(request), "sandbox": "workspace-write", "worktree": f"/state/worktrees/{JOB}"}
+    daemon({"submit": submitted, "wait": lambda request: terminal("succeeded", rc=0)})
+    assert run_cli(["run", "--task", "build", "--tier", "standard", "-C", str(workdir), "hi"]) == 0
+    err = capsys.readouterr().err
+    assert f"writes in /state/worktrees/{JOB}" in err and "--in-place writes here" in err
+
+
 def test_run_without_s_lets_the_policy_choose_the_sandbox(daemon, root, capsys, workdir):
     """d261: no -s sends `policy`, so the daemon applies the task's permissions
     (build writes); -s still names it outright."""
@@ -1335,3 +1345,12 @@ def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
     captured = capsys.readouterr().err
     assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in captured
     assert "LC_ALL=C and TZ=UTC" in captured
+
+
+def test_run_against_a_daemon_older_than_policy_sandboxes_says_restart(daemon, root, capsys, workdir):
+    """Review of d261: a daemon that cannot read `policy` is a version signal."""
+    daemon({"submit": lambda request: protocol.fail(request.id, Exit.INVALID_INPUT,
+                                                    "'policy' is not a valid Sandbox")})
+    assert run_cli(["run", "--task", "build", "--tier", "standard", "-C", str(workdir), "hi"]) == 69
+    err = capsys.readouterr().err
+    assert "daemon restart" in err and "-s read-only" in err

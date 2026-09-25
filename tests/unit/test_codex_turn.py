@@ -123,12 +123,14 @@ def test_a_new_conversation_starts_a_thread_and_a_turn_with_the_settings():
 
 @pytest.mark.parametrize("permission,network,expected", [
     ("bypass", True, {"type": "workspaceWrite", "networkAccess": True}),
-    ("ask", True, {"type": "workspaceWrite", "networkAccess": True}),
+    ("ask", True, {"type": "workspaceWrite", "networkAccess": False}),          # asks the person instead
+    ("accept-edits", True, {"type": "workspaceWrite", "networkAccess": False}),
     ("bypass", False, {"type": "workspaceWrite", "networkAccess": False}),
     ("read-only", True, {"type": "readOnly", "networkAccess": False}),
 ])
 def test_d260_a_writable_turn_reaches_the_network_when_its_manifest_says_so(permission, network, expected):
-    """d260: parity with a writable Claude turn; a read-only turn never does."""
+    """d260: a bypass turn's shell reaches the network; ask and accept-edits keep
+    asking the person for it, as a Claude turn's Bash does; read-only never."""
     turn = CodexTurn(spec(permission=permission, network=network))
     assert to_running(turn)["params"]["sandboxPolicy"] == expected
 

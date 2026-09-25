@@ -403,6 +403,11 @@ def _daemon_down(exc: Exception) -> int:
 
 
 def _daemon_error(exc: DaemonError) -> int:
+    if f"'{protocol.POLICY_SANDBOX}' is not a valid Sandbox" in str(exc):
+        # A daemon older than this CLI (d261): it reads no `policy` sandbox.
+        note(f"{PROG}: the daemon predates task-chosen sandboxes; it is older than this CLI")
+        note(f"  fix: restart the daemon ({PROG} daemon restart), or pass -s read-only or -s workspace-write")
+        return int(Exit.DAEMON_UNAVAILABLE)
     note(f"{PROG}: {exc}")
     if exc.fix:
         note(f"  fix: {exc.fix}")
@@ -718,6 +723,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             "lane": result.get("lane") or result.get("lane_id"),
             "detached": mode == "detached", "wait_inline": wait_inline,
             "reason": reason, "out": deliverable, "log": log,
+            "sandbox": result.get("sandbox"), "worktree": result.get("worktree"),
         })
     else:
         out(job_id)
@@ -726,6 +732,12 @@ def cmd_run(args: argparse.Namespace) -> int:
              + f" ({mode} — {reason})")
         note(f"  out: {deliverable}")
         note(f"  log: {log}")
+        if result.get("worktree"):
+            # d261: a build job writes by policy, in its own worktree, not here.
+            note(f"  writes in {result['worktree']} (a copy of this repository's HEAD, without "
+                 f"uncommitted files); --in-place writes here, -s read-only writes nowhere")
+        elif result.get("sandbox"):
+            note(f"  sandbox: {result['sandbox']}")
         if wait_inline:
             note(f"  waiting inline; if this session restarts: {PROG} wait {job_id}")
         else:

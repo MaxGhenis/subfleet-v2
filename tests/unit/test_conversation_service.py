@@ -925,6 +925,7 @@ def test_a_conversation_lists_the_runs_its_turns_dispatched(svc):
     job("j-old", "s-conv", "2026-09-25T01:00:00Z", state="succeeded", task="review", tier="standard")
     job("j-new", "s-conv", "2026-09-25T02:00:00Z", task="build", tier="hard")
     job("j-turn", "s-conv", "2026-09-25T03:00:00Z", kind="turn")
+    job("j-revive", "s-conv", "2026-09-25T03:30:00Z", kind="revive")
     job("j-other", "s-else", "2026-09-25T04:00:00Z")
     store.put_lane(Lane("codex-2", "codex", "codex:two", Credential("codex", "/h", "home"), "/h", LaneOwner.V2, False))
     store.add_attempt(attempt_id="j-new/a1", job_id="j-new", seq=1, lane_id="claude-1", model_requested="claude-opus-5-5",

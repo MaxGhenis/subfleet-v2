@@ -142,6 +142,18 @@ WRITE_PREAMBLE = (
     "Commit each coherent step on the assigned branch; never rewrite history "
     "or push to main or master. Leave a concise report of changes and tests.\n\n"
 )
+#: What a writable job that is not in place is told about where it works
+#: (C-6.6, C-13.1). Without it a brief's absolute paths lead a writer back into
+#: the caller's checkout, which the job must never touch (review of d261).
+WORKSPACE_NOTE = (
+    "Your workspace is {launch_dir}: a detached checkout of {top} at commit {head}, made "
+    "for this job. It holds only what is committed there, none of the caller's uncommitted, "
+    "untracked or ignored files (dependencies such as .venv or node_modules may need "
+    "installing). The checkout at {top} is the caller's: where the task names a path in it, "
+    "use the same relative path in your workspace, and never write under {top}. When the job "
+    "ends, Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in "
+    "that repository.\n\n"
+)
 HEADLESS_PREAMBLE = (
     HEADLESS_MARKER + "\nThis is a delegated, headless job. Complete the task "
     "autonomously, preserve the caller's work, and return a final deliverable.\n\n"
@@ -912,8 +924,12 @@ class Daemon:
                     # C-26.10: an attended conversation may work outside git.
                     if from_policy:
                         # d261: never downgraded silently; the caller chooses.
-                        raise AdapterError(f"{args.task} jobs write by policy, and this directory is not a git repository",
-                                           fix="run it from a repository, or pass -s read-only to run it here without writing")
+                        where = ("this repository has no commit yet"
+                                 if git_toplevel(str(workdir), timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                                 else "this directory is not a git repository")
+                        raise AdapterError(f"{args.task or 'these'} jobs write by policy, and {where}",
+                                           fix="commit a baseline or run it from a repository, or pass -s read-only "
+                                               "to run it here without writing")
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write.
@@ -977,7 +993,8 @@ class Daemon:
             if existing:
                 if existing["payload_digest"] != digest:
                     raise protocol.ProtocolError("request id already used with a different payload")
-                return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False}
+                return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False,
+                        **self._where_it_writes(existing["job_id"], existing["sandbox"])}
             if fence and accepted:
                 # The accepted job is gone (retention pruned it since the check
                 # above), so this request makes a new job after all.
@@ -1002,8 +1019,15 @@ class Daemon:
             instance = (self._caller_instance(args.caller_pid)
                         if sandbox == Sandbox.WORKSPACE_WRITE and args.caller_session else None)
             if turn is None:
-                cleared = self._writable_precheck(values, instance, write_target)
-                self._validate_conflicts(values, cleared, write_target)
+                try:
+                    cleared = self._writable_precheck(values, instance, write_target)
+                    self._validate_conflicts(values, cleared, write_target)
+                except AdapterError as exc:
+                    if not from_policy or sandbox != Sandbox.WORKSPACE_WRITE:
+                        raise
+                    # d261: the caller did not ask to write; say who did, and the way out.
+                    raise AdapterError(f"{exc} ({args.task} jobs write by policy)", code=exc.code,
+                                       fix=(exc.fix + "; or " if exc.fix else "") + "pass -s read-only") from exc
             else:
                 # C-26.1, IR-12: a turn waits for its workspace at admission (the
                 # `worktree:` lease), it is never refused here.
@@ -1017,9 +1041,20 @@ class Daemon:
                 manifest["resume"] = resume
             if turn is not None:
                 manifest["turn"] = turn
+            note = b""
+            if sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None and head is not None:
+                # C-6.6: the worktree is cut at admission; where it will be and where
+                # in it the job starts (the caller's place in the repository) are
+                # known now.
+                top = git_toplevel(str(workdir), timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
+                prefix = os.path.relpath(os.path.realpath(workdir), os.path.realpath(top))
+                worktree = self.root / "worktrees" / job_id
+                launch_dir = worktree if prefix == "." else worktree / prefix
+                manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
+                note = WORKSPACE_NOTE.format(launch_dir=launch_dir, top=top, head=head[:12]).encode()
             if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
                 prepared_path = jobdir / "prompt.prepared.md"
-                self._publish("prompt-prepared", prepared_path, WRITE_PREAMBLE.encode() + prompt)
+                self._publish("prompt-prepared", prepared_path, WRITE_PREAMBLE.encode() + note + prompt)
                 manifest["prepared_prompt_path"] = str(prepared_path)
             self._publish("manifest", jobdir / "manifest.json", json_bytes(manifest))
             authorization = ({"unmeasured_reserve_authorization": {
@@ -1039,7 +1074,8 @@ class Daemon:
                 columns = ",".join(values)
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
             self._notify()
-            return {"job_id": job_id, "request_id": args.request_id, "created": True}
+            return {"job_id": job_id, "request_id": args.request_id, "created": True,
+                    **self._where_it_writes(job_id, sandbox.value)}
 
     def _resolve_pin(self, args: protocol.SubmitArgs, model: str | None, reason: str | None) -> Lane:
         """C-11.2: the lane a submitted pin names, resolved once, as admission would.
@@ -2116,6 +2152,25 @@ class Daemon:
             baseline = git_tree(workdir, head, timeout_s=cap)
         return workdir, head, baseline
 
+    def _where_it_writes(self, job_id: str, sandbox: str) -> dict:
+        """For the caller (review of d261): the sandbox the job got, and for a
+        writable job that is not in place, the worktree it will write in."""
+        workspace = (self._read_json(self.root / "jobs" / job_id / "manifest.json") or {}).get("workspace") or {}
+        return {"sandbox": sandbox, "worktree": workspace.get("worktree")}
+
+    def _launch_dir(self, job: dict) -> str:
+        """Where the provider starts: the caller's directory, or in a worktree the
+        same place relative to the repository (a job run from `repo/pkg` starts in
+        `<worktree>/pkg`), recorded at submit."""
+        worktree = job.get("worktree")
+        if not worktree:
+            return job["workdir"]
+        prefix = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("workspace")
+                  or {}).get("prefix")
+        if prefix and prefix != "." and not prefix.startswith("..") and (Path(worktree) / prefix).is_dir():
+            return str(Path(worktree) / prefix)
+        return worktree
+
     @staticmethod
     def _discard_worktree(repository: str, workdir: str, cap: float) -> None:
         """Best effort: a failure here is reported by the add that follows it."""
@@ -3024,7 +3079,7 @@ class Daemon:
                 validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
-            spec = self._spec(job, workdir=job.get("worktree") or job["workdir"], prompt_path=str(prompt_path))
+            spec = self._spec(job, workdir=self._launch_dir(job), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root)
             resume = None

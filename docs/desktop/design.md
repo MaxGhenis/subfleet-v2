@@ -211,12 +211,16 @@ with `confirm_widen: true`.
   `config.toml`; with `sandbox:"read-only"` plus a `workspaceWrite` turn
   policy it adds nothing (review SEC-4). Stage 3 confirms a live turn writes
   under the turn policy.
-- A writable Codex turn's `workspaceWrite` policy carries `networkAccess:
+- A `bypass` Codex turn's `workspaceWrite` policy carries `networkAccess:
   true` when the policy's `network.codex_workspace_write` is true (d260,
   2026-09-24: parity with a writable Claude turn, whose Bash has the network;
-  the table above shows the value with the switch off). The value is fixed in
-  the turn's manifest at submit, so a replay sends what the first launch sent.
-  A read-only turn never has the network. This chooses the turn's own
+  the table above shows the value with the switch off). Under `ask` and
+  `accept-edits` it stays false, so a network command reaches the person as an
+  approval, as a Claude turn's Bash does. Such a turn's server also starts with
+  `-c features.unified_exec=false` (C-23.6: `write_stdin` bypasses the
+  never-rules guard). The value is fixed in the turn's manifest at submit, so
+  a replay sends what the first launch sent. A read-only turn never has the
+  network. This chooses the turn's own
   sandbox; C-27.2 still forbids granting a network amendment a request asks
   for.
 - Codex never receives `dangerFullAccess`, `externalSandbox`, granular or

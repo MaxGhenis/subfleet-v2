@@ -179,6 +179,21 @@ def test_d260_only_a_writable_job_the_policy_allows_reaches_the_network(tmp_path
                                          "hooks={}")
     overrides = [launch.argv[i + 1] for i, value in enumerate(launch.argv) if value == "-c"]
     assert ("sandbox_workspace_write.network_access=true" in overrides) is expected
+    # C-23.6: with the network open, write_stdin (unseen by the guard) is closed.
+    assert ("features.unified_exec=false" in overrides) is expected
+
+
+def test_c23_6_the_unified_exec_switch_reaches_exec_launches(tmp_path, monkeypatch):
+    (tmp_path / "prompt").write_bytes(b"Caller prompt.\n")
+    def overrides():
+        launch = CodexAdapter().build_launch(_job(tmp_path, tmp_path / "prompt"), "job/a1", tmp_path,
+                                             _lane(tmp_path / "home"), {"CODEX_HOME": str(tmp_path / "home")},
+                                             MODEL, None, tmp_path / "prompt", None)
+        return [launch.argv[i + 1] for i, value in enumerate(launch.argv) if value == "-c"]
+    monkeypatch.delenv("SUBFLEET_CODEX_UNIFIED_EXEC", raising=False)
+    assert "features.unified_exec=false" not in overrides()
+    monkeypatch.setenv("SUBFLEET_CODEX_UNIFIED_EXEC", "off")
+    assert "features.unified_exec=false" in overrides()
 
 
 def test_workspace_write_requires_guard_override(tmp_path):

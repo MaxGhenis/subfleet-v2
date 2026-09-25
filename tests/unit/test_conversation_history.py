@@ -84,7 +84,9 @@ def test_codex_calls_outputs_and_reasoning_as_the_rollout_writes_them(tmp_path):
         item({"type": "function_call_output", "call_id": "c2", "output": ""}, 6),
         item({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "All read."}]}, 7),
     ])
-    items = list(reversed(history._codex_items(path, None, 50)))
+    found, nxt = history._codex_items(path, None, 50)
+    items = list(reversed(found))
+    assert nxt is None
     shown = [(i["kind"], i.get("tool"), i["text"][:40], i.get("preview")) for i in items]
     assert shown == [
         ("text", None, "check the notes", None),
@@ -93,3 +95,68 @@ def test_codex_calls_outputs_and_reasoning_as_the_rollout_writes_them(tmp_path):
         ("tool", "collaboration/send_message", "description: to /root", ""),
         ("text", None, "All read.", None),
     ]
+
+
+
+def codex_row(payload, second):
+    return {"type": "response_item", "timestamp": f"2026-09-24T21:59:{second:02d}.000Z", "payload": payload}
+
+
+def test_codex_credential_reads_hide_the_call_wherever_the_script_names_them(tmp_path):
+    """Review: judged on the whole code-mode script, not only its cmd:"…" literals."""
+    script = ('await tools.exec_command({cmd:"ls"}); '
+              "await tools.exec_command({cmd:'security find-generic-password -s x -w'})")
+    path = write(tmp_path / "r.jsonl", [
+        codex_row({"type": "custom_tool_call", "call_id": "c1", "name": "exec", "input": script}, 1),
+        codex_row({"type": "custom_tool_call_output", "call_id": "c1", "output": "hunter2"}, 2)])
+    [item], _ = history._codex_items(path, None, 50)
+    assert item["hidden"] is True and item["preview"] == "" and "hunter2" not in json.dumps(item)
+
+
+def test_a_codex_row_that_cannot_be_read_is_skipped_and_escapes_are_kept(tmp_path):
+    path = write(tmp_path / "r.jsonl", [
+        codex_row({"type": "custom_tool_call", "call_id": "c1", "name": "exec",
+                   "input": 'await tools.exec_command({cmd:"printf \\x41"})'}, 1),
+        codex_row({"type": "message", "role": "assistant", "content": "not a list of parts"}, 2),
+        codex_row({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "ok"}]}, 3)])
+    found, _ = history._codex_items(path, None, 50)
+    assert [i["text"] for i in reversed(found)] == ["printf \\x41", "ok"]
+
+
+def test_codex_history_pages_and_its_cursor_survives_new_turns(tmp_path):
+    """Review: Codex history pages like Claude's, and a cursor is a byte offset,
+    so rows appended after a page was read do not shift the next page."""
+    rows = [codex_row({"type": "message", "role": "user", "content": [{"type": "input_text", "text": f"m{i}"}]}, i)
+            for i in range(6)]
+    path = write(tmp_path / "r.jsonl", rows)
+    first, cursor = history._codex_items(path, None, 2)
+    assert [i["text"] for i in first] == ["m5", "m4"] and cursor is not None
+    with path.open("a") as f:
+        for i in range(6, 9):
+            f.write(json.dumps(codex_row({"type": "message", "role": "user",
+                                          "content": [{"type": "input_text", "text": f"m{i}"}]}, i)) + "\n")
+    second, cursor = history._codex_items(path, cursor, 2)
+    assert [i["text"] for i in second] == ["m3", "m2"]
+    last, cursor = history._codex_items(path, cursor, 5)
+    assert [i["text"] for i in last] == ["m1", "m0"] and cursor is None
+
+
+def test_claude_cursor_survives_new_turns(tmp_path):
+    path = write(tmp_path / "s.jsonl", [assistant(f"a-{i:02d}", {"type": "text", "text": f"t{i}"}) for i in range(5)])
+    first, cursor = history._claude_items(path, None, 2)
+    with path.open("a") as f:
+        f.write(json.dumps(assistant("a-09", {"type": "text", "text": "new"})) + "\n")
+    second, _ = history._claude_items(path, cursor, 2)
+    assert [i["text"] for i in first] == ["t4", "t3"] and [i["text"] for i in second] == ["t2", "t1"]
+
+
+def test_codex_outputs_that_report_failure_are_failures(tmp_path):
+    path = write(tmp_path / "r.jsonl", [
+        codex_row({"type": "custom_tool_call", "call_id": "c1", "name": "exec",
+                   "input": 'await tools.exec_command({cmd:"false"})'}, 1),
+        codex_row({"type": "custom_tool_call_output", "call_id": "c1",
+                   "output": [{"type": "input_text", "text": "Script failed\nError: exit 1"}]}, 2),
+        codex_row({"type": "function_call", "call_id": "c2", "name": "shell", "arguments": json.dumps({"command": ["true"]})}, 3),
+        codex_row({"type": "function_call_output", "call_id": "c2", "output": "Exit code: 0\nok"}, 4)])
+    found, _ = history._codex_items(path, None, 50)
+    assert [(i["text"], i["is_error"]) for i in reversed(found)] == [("false", True), ("true", False)]

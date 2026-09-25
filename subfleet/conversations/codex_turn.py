@@ -51,6 +51,14 @@ POLICY = {
     "read-only": ("never", {"type": "readOnly", "networkAccess": False}),
 }
 WRITABLE = ("ask", "accept-edits", "bypass")
+
+
+def network_granted(permission: str, network: bool) -> bool:
+    """d260: a turn's shell reaches the network only under `bypass`, which asks
+    about nothing; under `ask` and `accept-edits` a network command still goes to
+    the person as an approval, as a Claude turn's Bash does."""
+    return network and permission == "bypass"
+
 #: The status phase an item of each type starts. Any other item but the
 #: person's own message is work the model is doing, `tool` (0.153.3 also has
 #: collabAgentToolCall, sleep, imageGeneration, subAgentActivity, ...).
@@ -324,7 +332,7 @@ class CodexTurn:
                   "approval_policy": (result or {}).get("approvalPolicy"), "native_session_id": thread_id}
         self.phase = "turn"
         approval, sandbox_policy = POLICY[self.spec.permission]
-        if self.spec.network and sandbox_policy["type"] == "workspaceWrite":
+        if network_granted(self.spec.permission, self.spec.network) and sandbox_policy["type"] == "workspaceWrite":
             # d260: a writable turn's shell reaches the network, as a writable Claude
             # turn's Bash does; decided when the turn was submitted (its manifest).
             sandbox_policy = {**sandbox_policy, "networkAccess": True}

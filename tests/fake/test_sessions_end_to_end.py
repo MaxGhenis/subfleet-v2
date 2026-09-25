@@ -714,8 +714,8 @@ def test_a_retry_of_an_accepted_continuation_finds_its_job_after_the_binding(wor
     bind(service, ALICE, base)
 
     again = client.submit(args)
-    assert again == {"job_id": accepted["job_id"], "request_id": args.request_id,
-                     "created": False}
+    assert {k: again[k] for k in ("job_id", "request_id", "created")} == {
+        "job_id": accepted["job_id"], "request_id": args.request_id, "created": False}
     other = replace(args, prompt_path=str(stage(root)("something else entirely")))
     with pytest.raises(daemon_module.protocol.ProtocolError) as raised:
         client.submit(other)

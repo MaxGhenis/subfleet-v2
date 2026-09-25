@@ -33,7 +33,7 @@ from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULTS
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from . import attachments as attachment_store
-from . import reconcile
+from . import codex_turn, reconcile
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
@@ -187,7 +187,10 @@ class ConversationService:
             f"{latest.format(col='model_requested')} AS model_requested, "
             f"{latest.format(col='state')} AS attempt_state, "
             "(SELECT COUNT(*) FROM attempts a WHERE a.job_id=j.job_id) AS attempts "
-            "FROM jobs j WHERE j.caller_session=? AND j.kind<>'turn' ORDER BY j.created_at DESC, j.rowid DESC LIMIT ?",
+            # A turn is the conversation itself and a revive continues its session:
+            # neither is a sub-agent it dispatched.
+            "FROM jobs j WHERE j.caller_session=? AND j.kind NOT IN ('turn','revive') "
+            "ORDER BY j.created_at DESC, j.rowid DESC LIMIT ?",
             (sid, limit))
         return {"runs": rows}
 
@@ -1223,7 +1226,9 @@ class ConversationService:
         launch = codex_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,
                               credential_env=credential_env, model_id=model_id,
                               executable=guard_result.executable or "codex", override=guard_result.override,
-                              unified_exec_off=os.environ.get("SUBFLEET_CODEX_UNIFIED_EXEC") == "off")
+                              # C-23.6: forced off where a turn's shell reaches the network (d260).
+                              unified_exec_off=os.environ.get("SUBFLEET_CODEX_UNIFIED_EXEC") == "off"
+                              or codex_turn.network_granted(turn["settings"]["permission"], bool(turn.get("network"))))
         launch.notes["guard_hash"] = guard_result.hooks_hash
         return launch
 

@@ -145,6 +145,36 @@ def lines_reversed(path: Path, *, chunk: int = _TAIL_BYTES,
         return
 
 
+def lines_reversed_with_offsets(path: Path, *, chunk: int = _TAIL_BYTES,
+                                max_bytes: int = _SCAN_MAX) -> Iterator[tuple[int, str]]:
+    """`lines_reversed`, each line with its byte offset from the start of the
+    file: a position that stays put as the file grows, so a page cursor made
+    from it names the same line after later turns are appended."""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as stream:
+            end, carry, carry_at, scanned = size, b"", size, 0
+            while end > 0 and scanned < max_bytes:
+                start = max(0, end - chunk)
+                stream.seek(start)
+                block = stream.read(end - start) + carry
+                scanned += end - start
+                parts = block.split(b"\n")
+                offsets, position = [], start
+                for part in parts:
+                    offsets.append(position)
+                    position += len(part) + 1
+                carry, carry_at = (parts[0], start) if start > 0 else (b"", 0)
+                for index in reversed(range(1, len(parts)) if start > 0 else range(len(parts))):
+                    if parts[index].strip():
+                        yield offsets[index], parts[index].decode("utf-8", "replace")
+                end = start
+            if carry.strip() and scanned < max_bytes:
+                yield carry_at, carry.decode("utf-8", "replace")
+    except OSError:
+        return
+
+
 def blocks(message: Any) -> list[dict[str, Any]]:
     content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, str):

@@ -19,7 +19,9 @@ def test_c6_2_request_id_is_idempotent_and_digest_conflicts_are_code_2(daemon):
     first = daemon.call("submit", **args)
     again = daemon.call("submit", **args)
     assert first["created"] is True
-    assert again == {"job_id": first["job_id"], "request_id": args["request_id"], "created": False}
+    assert {k: again[k] for k in ("job_id", "request_id", "created")} == {
+        "job_id": first["job_id"], "request_id": args["request_id"], "created": False}
+    assert again["sandbox"] == first["sandbox"]              # where it writes, as the first answer said
     Path(args["prompt_path"]).write_text("a different prompt")
     conflict = daemon.request("submit", **args)
     assert conflict["ok"] is False
