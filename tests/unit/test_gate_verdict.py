@@ -63,15 +63,29 @@ def test_malformed_verdicts_fail_closed(text, message):
     assert error.value.code == 4
 
 
+@pytest.mark.parametrize("model", ["claude-fable-5-1", "claude-opus-5-5"])
 @pytest.mark.parametrize("status", ["mismatch", "unattested", None])
 @pytest.mark.parametrize("verdict,findings", [("approve", []), ("changes_requested", [FINDING])])
-def test_fable_unattested_round_is_not_a_verdict(status, verdict, findings):
-    """C-23.43: unattested Fable output is neither approval nor changes requested."""
+def test_claude_unattested_round_is_not_a_verdict(status, verdict, findings, model):
+    """C-23.43: unattested Fable or Opus output is neither approval nor changes requested."""
     value = envelope(payload(verdict=verdict, findings=findings))
     with pytest.raises(GateError, match="not a verdict") as error:
-        validate_attestation(status, "claude-fable-5-1", served_model="claude-fable-5-1")
+        validate_attestation(status, model, served_model=model)
         parse_verdict(value, REVISION)
     assert error.value.code == 4
+
+
+@pytest.mark.parametrize("served,counts", [
+    ("claude-opus-5-5", True), ("claude-opus-5-5-20260922", True),
+    ("claude-opus-5-5x", False), ("claude-opus-4-8", False), ("claude-fable-5-1", False), (None, False),
+])
+def test_opus_round_counts_only_for_the_requested_opus_model(served, counts):
+    """C-23.43: an attested Opus round counts for claude-opus-5-5 or a dated build of it, and nothing else."""
+    if counts:
+        validate_attestation("attested", "claude-opus-5-5", served_model=served)
+    else:
+        with pytest.raises(GateError, match="served-model"):
+            validate_attestation("attested", "claude-opus-5-5", served_model=served)
 
 
 @pytest.mark.parametrize("downgrade", [{}, "", {"served_model": "claude-opus-4-8"}, True])

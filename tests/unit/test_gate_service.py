@@ -12,6 +12,7 @@ import pytest
 from subfleet import cli
 from subfleet.contracts import Decision
 from subfleet.gate.service import GateService, dispatch
+from subfleet.policy import DEFAULT_POLICY_PATH
 from tests.fake.test_gate_end_to_end import arguments, finish, wire
 from tests.unit.test_gate_admission import core, lane
 from tests.unit.test_gate_merge import BASE, HEAD, LANDING, OTHER, FakeGh
@@ -126,22 +127,43 @@ def test_continue_cannot_consume_finished_peer_with_wrong_explicit_fingerprint(c
 
 
 @pytest.mark.parametrize("attestation", ["mismatch", "unattested"])
-def test_fable_peer_requires_positive_attestation_at_the_service_boundary(core, tmp_path, attestation):
-    """C-23.43: a pinned Fable job's mismatch/unattested output never counts as a verdict."""
+@pytest.mark.parametrize("peer", ["fable", "opus"])
+def test_claude_peer_requires_positive_attestation_at_the_service_boundary(core, tmp_path, attestation, peer):
+    """C-23.43: a pinned Claude (Fable or Opus) job's mismatch/unattested output never counts as a verdict."""
     core.store.put_lane(lane(core.root / "claude-home", "claude"))
-    decision = Decision(("fable",), (), "claude-1", "fable", "test", "test")
+    decision = Decision((peer,), (), "claude-1", peer, "test", "test")
     core._pick = lambda *args, **kwargs: decision
     plan = tmp_path / "plan.md"
-    plan.write_text("A Fable peer must actually be attested\n")
+    plan.write_text(f"A {peer} peer must actually be attested\n")
     args = arguments(plan, "--max-rounds", "1")
-    args.peer = "fable"
+    args.peer = peer
     started = dispatch(core, "gate.start", wire(args))
     finish(core, started, attestation=attestation)
     result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
     assert result["code"] == 4 and attestation in result["message"]
     state = core._gate_service._load(started["gate_id"])
     assert state["rounds"][-1]["verdict"] is None
-    assert state["rounds"][-1]["requested_model"].startswith("claude-fable-")
+    assert state["rounds"][-1]["requested_model"] == core.policy["models"][peer]["id"]
+
+
+@pytest.mark.parametrize("peer", ["fable", "opus"])
+def test_claude_peer_routing_reaches_the_round_and_an_attested_round_agrees(core, tmp_path, peer):
+    """C-23.10 C-23.43: `--peer-account` pins the round to that lane and `--exclude-account`
+    reaches its exclusions, for either Claude peer; an attested round issues the certificate."""
+    core.store.put_lane(lane(core.root / "claude-home", "claude"))
+    core._pick = lambda *args, **kwargs: Decision((peer,), (), "claude-1", peer, "test", "test")
+    plan = tmp_path / "plan.md"
+    plan.write_text(f"Route the {peer} round\n")
+    started = dispatch(core, "gate.start", wire(arguments(
+        plan, "--peer-account", "claude-1", "--exclude-account", "other@example.org", peer=peer)))
+    assert started["code"] is None
+    job = core.store.get_job(started["job_id"])
+    assert (job["pinned_model"], job["pinned_lane"]) == (peer, "claude-1")
+    assert "other@example.org" in json.loads(job["exclusions"])
+    finish(core, started)
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 0
+    assert (core.root / "gates" / started["gate_id"] / "certificate.json").is_file()
+    assert core._gate_service._load(started["gate_id"])["rounds"][-1]["peer_attestation"] == "attested"
 
 
 def test_acceptance_artifact_tampering_blocks_without_reusing_export(core, tmp_path):
@@ -245,13 +267,124 @@ def test_gate_protocol_dry_run_does_not_admit_or_write(core, tmp_path):
     assert not (core.root / "gates").exists()
 
 
-def test_explicit_main_model_cannot_use_same_family_peer(core, tmp_path):
-    """C-17.1, C-23.8: complementary peer selection must match explicit main identity."""
+@pytest.mark.parametrize("change,message", [
+    ({"peer": "sonnet"}, "--peer must be"),
+    ({"main_model": "gpt-9"}, "unknown --main-model"),
+])
+def test_dry_run_refuses_what_start_refuses(core, tmp_path, change, message):
+    """C-19.1, C-17.1: a socket dry-run refuses a peer or main model that start refuses, and writes nothing."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview a bad request\n")
+    result = dispatch(core, "gate.start", {**wire(arguments(plan, "--dry-run")), **change})
+    assert result["code"] == 2 and message in result["message"]
+    assert core.store.list_jobs() == [] and not (core.root / "gates").exists()
+
+
+@pytest.mark.parametrize("live_policy", [None, "{not json", '{"models": {}}'])
+def test_cli_dry_run_checks_the_main_model_against_a_valid_policy(tmp_path, capsys, live_policy):
+    """C-19.1, C-11.1: with the live policy.json missing, malformed or invalid, the CLI dry run
+    checks against the shipped policy: an unknown main model exits 2 with the one-line error,
+    and a retired alias resolves."""
+    from subfleet.gate import cli as gate_cli
+    root = tmp_path / "state"
+    root.mkdir()
+    if live_policy is not None:
+        (root / "policy.json").write_text(live_policy)
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview through the CLI\n")
+    def preview_with(main_model):
+        return gate_cli.run(cli.build_parser().parse_args(
+            ["gate", "plan", str(plan), "--peer", "opus", "--dry-run", "--main-model", main_model]), root=root)
+    assert preview_with("gpt-9") == 2
+    assert capsys.readouterr().err.strip() == "subfleet gate: unknown --main-model"
+    assert preview_with("sol") == 0
+    assert not (root / "gates").exists()
+
+
+def test_dry_run_resolves_a_retired_main_model(core, tmp_path):
+    """C-19.1, C-17.1: `--main-model sol` resolves as `-m sol` does, in a preview too."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview a retired main\n")
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--dry-run", "--main-model", "sol")))
+    assert result["code"] == 0 and result["dry_run"]
+
+
+def test_opus_peer_may_review_a_same_family_main(core, tmp_path):
+    """C-23.2, C-23.10: independence is the isolated round, so Opus may review an Opus main."""
     plan = tmp_path / "plan.md"
     plan.write_text("Independent opinion\n")
-    result = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "astra")))
-    assert result["code"] == 2 and "different model families" in result["message"]
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "opus", peer="opus")))
+    assert result["code"] is None and result["job_id"]
+    job = core.store.get_job(result["job_id"])
+    assert (job["kind"], job["pinned_model"], job["sandbox"], job["isolated_review"]) == (
+        "gate-review", "opus", "read-only", 1)
+    state = core._gate_service._load(result["gate_id"])
+    assert (state["peer"], state["main_family"]) == ("opus", "claude")
+    assert state["rounds"][-1]["requested_model"] == core.policy["models"]["opus"]["id"]
+
+
+DEFAULT_POLICY = json.loads(Path(DEFAULT_POLICY_PATH).read_text())
+POLICY_MODELS = tuple(DEFAULT_POLICY["models"])
+#: What `-m` accepts besides a short name: a retired alias, or an exact model id.
+MAIN_ALIASES = {**DEFAULT_POLICY["retired"],
+                **{model["id"]: short for short, model in DEFAULT_POLICY["models"].items()}}
+
+
+@pytest.mark.parametrize("main_model", [None, *POLICY_MODELS, *MAIN_ALIASES, "gpt-9"])
+@pytest.mark.parametrize("peer", ["fable", "opus", "astra", "sol"])
+def test_every_peer_and_main_pair_is_admitted_or_refused_by_policy_alone(core, tmp_path, peer, main_model):
+    """C-17.1 C-23.2 C-23.10 Over every peer and every main the policy names (and one it
+    does not): no pair is refused for sharing a family; the round is an isolated read-only
+    review pinned to the peer's policy model (`sol` is Astra); the main's family is its
+    policy provider when named and unknown otherwise; an unnamed model is refused unsubmitted."""
+    plan = tmp_path / "plan.md"
+    plan.write_text(f"Pair {peer} with {main_model}\n")
+    flags = ("--main-model", main_model) if main_model else ()
+    result = dispatch(core, "gate.start", wire(arguments(plan, *flags, peer=peer)))
+    short = MAIN_ALIASES.get(main_model, main_model)
+    named = core.policy["models"].get(short) if main_model else None
+    if main_model and named is None:
+        assert result["code"] == 2 and "unknown --main-model" in result["message"]
+        assert core.store.list_jobs() == []
+        return
+    assert result["code"] is None and result["job_id"]
+    expected_peer = "astra" if peer == "sol" else peer
+    job = core.store.get_job(result["job_id"])
+    assert (job["kind"], job["pinned_model"], job["sandbox"], job["isolated_review"]) == (
+        "gate-review", expected_peer, "read-only", 1)
+    state = core._gate_service._load(result["gate_id"])
+    assert (state["peer"], state["main_family"]) == (expected_peer, named["provider"] if named else None)
+    assert state["rounds"][-1]["requested_model"] == core.policy["models"][expected_peer]["id"]
+
+
+def test_gate_does_not_infer_main_family_from_the_peer(core, tmp_path):
+    """C-23.8: without --main-model the main's family is unknown, never the peer's complement."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Unnamed main\n")
+    result = dispatch(core, "gate.start", wire(arguments(plan)))
+    assert result["code"] is None
+    assert core._gate_service._load(result["gate_id"])["main_family"] is None
+
+
+def test_unknown_main_model_is_refused(core, tmp_path):
+    """C-17.1: an explicit main model must be one the policy names."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Who is the main?\n")
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "gpt-9")))
+    assert result["code"] == 2 and "unknown --main-model" in result["message"]
     assert core.store.list_jobs() == []
+
+
+@pytest.mark.parametrize("peer", ["fable", "opus"])
+def test_claude_peers_accept_account_routing(peer):
+    """C-23.10: account routing applies to any Claude peer and to no Codex peer."""
+    from subfleet.gate.service import GateError, routing
+    args = cli.build_parser().parse_args(
+        ["gate", "plan", "plan.md", "--peer", peer, "--peer-account", "a@example.org",
+         "--exclude-account", "b@example.org"])
+    assert routing(args, peer) == ("a@example.org", ("b@example.org",))
+    with pytest.raises(GateError, match="Claude peer"):
+        routing(args, "astra")
 
 
 def test_offline_reader_understands_gate_schema(core):

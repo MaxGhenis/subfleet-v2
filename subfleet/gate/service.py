@@ -15,6 +15,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from ..policy import PolicyError, resolve_model
 from ..store import utc_now
 from ..protocol import SubmitArgs, GateStartArgs, GateContinueArgs, coerce_args, ProtocolError
 from .certificate import certificate, load_state, private_dir, write_bytes, write_json
@@ -41,11 +42,38 @@ def read_context(path: str | None, label: str) -> str:
         raise GateError(f"cannot read {label}: {exc}") from exc
 
 
+#: Peers a gate may select. A Claude peer (Fable or Opus) supports account routing.
+PEERS = ("fable", "opus", "astra")
+CLAUDE_PEERS = frozenset({"fable", "opus"})
+
+
+def peer_model(value: str) -> str:
+    """C-17.1: `sol` is retired to Astra; any other peer must be one a gate selects."""
+    peer = "astra" if value == "sol" else value
+    if peer not in PEERS:
+        raise GateError("--peer must be fable, opus, astra, or sol")
+    return peer
+
+
+def main_family(policy: dict, main_model: str | None) -> str | None:
+    """C-17.1: a named main resolves as a `-m` pin does (a retired alias or an exact id
+    included) and its provider is recorded. An unnamed main's family stays unknown and is
+    never inferred from the peer: independence comes from the isolated read-only round
+    (C-23.2), not the family, so an Opus peer may review an Opus or Fable main (Max, 2026-09-22)."""
+    if not main_model:
+        return None
+    try:
+        short = resolve_model(policy, main_model, key="main_model", note=False)
+    except PolicyError:
+        raise GateError("unknown --main-model") from None
+    return policy["models"][short]["provider"]
+
+
 def routing(args, peer: str) -> tuple[str | None, tuple[str, ...]]:
     account = getattr(args, "peer_account", None)
     exclusions = tuple(dict.fromkeys(getattr(args, "exclude_account", None) or []))
-    if (account is not None or exclusions) and peer != "fable":
-        raise GateError("--peer-account and --exclude-account require a Claude peer (fable)")
+    if (account is not None or exclusions) and peer not in CLAUDE_PEERS:
+        raise GateError("--peer-account and --exclude-account require a Claude peer (fable or opus)")
     if any(not isinstance(x, str) or not x.strip() for x in (*exclusions, *([account] if account is not None else []))):
         raise GateError("peer account routing requires nonempty account names")
     if account is not None and account.casefold() in {x.casefold() for x in exclusions}:
@@ -90,7 +118,9 @@ def preview(args, root: Path, *, runner=subprocess.run, policy: dict | None = No
         subject, _ = capture(state, runner=runner)
         peer = state["peer"]
     else:
-        peer = "astra" if args.peer == "sol" else args.peer
+        peer = peer_model(args.peer)
+        if (policy or {}).get("models"):
+            main_family(policy, getattr(args, "main_model", None))
         cwd = Path(args.workdir or Path.cwd()).expanduser().resolve()
         if args.gate_command == "plan":
             source = Path(args.target).expanduser()
@@ -173,9 +203,7 @@ class GateService:
 
     def start(self, args):
         from .merge import capture_pr, verify_pr_workspace
-        peer = "astra" if args.peer == "sol" else args.peer
-        if peer not in {"fable", "astra"}:
-            raise GateError("--peer must be fable, astra, or sol")
+        peer = peer_model(args.peer)
         account, exclusions = routing(args, peer)
         limit = round_limit(args.max_rounds, self.daemon.policy)
         if not args.main_approve:
@@ -199,22 +227,11 @@ class GateService:
             raise GateError("choose gate pr or plan")
         expected = expected_revision(args, subject)
         assert_expected(revision(subject), expected)
-        main_model = getattr(args, "main_model", None)
-        peer_family = self.daemon.policy["models"][peer]["provider"]
-        if main_model:
-            model = self.daemon.policy["models"].get(main_model)
-            if not model:
-                raise GateError("unknown --main-model")
-            main_family = model["provider"]
-            if main_family == peer_family:
-                raise GateError("main and peer must be different model families")
-        else:
-            # As in v1, peer selection is the caller's complementary-family attestation.
-            main_family = "claude" if peer_family == "codex" else "codex"
+        family = main_family(self.daemon.policy, getattr(args, "main_model", None))
         state = {"schema_version": 1, "id": utc_now().replace("-", "").replace(":", "").replace("T", "-").rstrip("Z") + f"-{args.gate_command}-{uuid.uuid4().hex[:8]}",
                  "created_at": utc_now(), "updated_at": utc_now(), "status": "ready",
                  "kind": args.gate_command, "locator": locator, "subject": subject,
-                 "workdir": str(cwd), "peer": peer, "main_family": main_family,
+                 "workdir": str(cwd), "peer": peer, "main_family": family,
                  "on_agreement": args.on_agreement, "merge_method": args.merge_method,
                  "max_rounds": limit, "brief": read_context(args.brief, "brief"),
                  "rounds": [], "action": None}
