@@ -30,7 +30,8 @@ The cancellations had one cause: the daemon was crashing, not the mirror.
   daemon.lock".
 - **The crash loop.** After a restart at 19:26Z, each new daemon hit the same
   EMFILE within minutes, so every pass inside the daemon was cancelled before
-  it could finish. The installed mirror needed about 15 minutes per pass.
+  it could finish. The installed mirror needed about 17 minutes for a pass
+  (the stopgap below ran from 19:41:58Z to 19:59:25Z).
 - **The fixes are elsewhere.** The EMFILE crash is fixed in PR #43, which
   raises the soft limit to 65536, caps connections and waits out a failed
   accept. The shutdown wedge is PR #40's area. Neither has merged: GitHub
@@ -38,6 +39,25 @@ The cancellations had one cause: the daemon was crashing, not the mirror.
 
 The mirror holds no descriptors in the session store (0 of the wedged
 process's 109), so it did not contribute to the exhaustion.
+
+A second stall followed.
+
+- **The stopgap.** It finished its pass at 19:59:25Z.
+- **The stall.** The next daemon's pass, running the installed code, started
+  at 20:00:16Z and was still at "finding transcripts" at 20:41Z. The daemon
+  had not crashed this time.
+- **The machine.** It was thrashing, with 17.2 GB of 18 GB swap in use and a
+  load average of 66. Three PolicyEngine Python processes held about 10 GB
+  resident each.
+- **The mirror thread.** A 3 s `sample` put it in the garbage collector on
+  every sample. Over 5 s `top` measured about 2,000 page faults a second and
+  2% CPU, and the process had used 34 s of CPU in 57 minutes. The collector
+  was walking a heap that had been paged out, so the thread waited on memory,
+  not on the processor.
+- **The alert.** `mirror-watch` raised it at 20:32Z.
+
+A shorter pass loses less to a stall like this, but no mirror change can stop
+the machine from starving the daemon.
 
 ## Liveness
 
@@ -59,7 +79,9 @@ process's 109), so it did not contribute to the exhaustion.
   the stalled stage and the daemon lock's holder, and it logs the recovery.
 - **The stopgap on 2026-09-25.** With the daemon in a crash loop, one pass of
   the installed mirror ran as a separate `subfleet sessions mirror --once`
-  process, which the daemon's crashes could not cancel.
+  process, which the daemon's crashes could not cancel. It finished at
+  19:59:25Z. At 20:41Z all 120 copies of each of the 84 restored sessions read
+  unarchived, and the merge base held `isArchived: false` for all 84.
 
 ## Invariants
 
