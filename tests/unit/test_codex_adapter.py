@@ -109,7 +109,9 @@ def test_build_launch_preserves_contract_and_captures_sent_prompt(tmp_path, sand
         _job(workdir, prompt, sandbox), "job/a1", attempt, _lane(home), credential_env,
         MODEL, effort, prompt, GUARD_OVERRIDE,
     )
-    assert launch.argv[:5] == ("/test/bin/codex", "exec", "--json", "-m", MODEL)
+    repository_check = ("--skip-git-repo-check",) if sandbox == Sandbox.READ_ONLY else ()
+    prefix = ("/test/bin/codex", "exec", "--json", *repository_check, "-m", MODEL)
+    assert launch.argv[:len(prefix)] == prefix
     assert launch.argv[launch.argv.index("--sandbox") + 1] == sandbox.value
     overrides = [launch.argv[index + 1] for index, value in enumerate(launch.argv) if value == "-c"]
     assert GUARD_OVERRIDE in overrides
@@ -171,21 +173,23 @@ def test_resume_launch_skips_the_git_repository_check_before_resume(tmp_path, sa
         assert "--skip-git-repo-check" not in launch.argv
 
 
+@pytest.mark.parametrize("kind", ["dispatch", "probe"])
 @pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize("isolated", [False, True])
 @pytest.mark.parametrize("sandbox", list(Sandbox))
 def test_every_launch_shape_passes_the_repository_flag_once_when_read_only(
-        tmp_path, monkeypatch, sandbox, isolated, resume):
-    """C-12.3 C-23.2 Over every sandbox, isolation and resume shape, a launch carries
-    `--skip-git-repo-check` exactly once when read-only, before `resume`, and never when
-    writable. codex-cli 0.153.3 refuses the flag given twice ("cannot be used multiple times")."""
+        tmp_path, monkeypatch, sandbox, isolated, resume, kind):
+    """C-12.3 C-23.2 Over every sandbox, isolation, resume and job kind (a probe or timer turn
+    is a read-only `probe` job), a launch carries `--skip-git-repo-check` exactly once when
+    read-only, before `resume`, and never when writable. codex-cli 0.153.3 refuses the flag
+    given twice ("cannot be used multiple times")."""
     from subfleet.adapters.isolation import MANAGED_ENV
     for name in MANAGED_ENV:
         monkeypatch.delenv(name, raising=False)
     prompt = tmp_path / "prompt"
     prompt.write_bytes(b"Caller prompt.\n")
     home = tmp_path / "home"
-    job = replace(_job(tmp_path, prompt, sandbox), isolated_review=isolated,
+    job = replace(_job(tmp_path, prompt, sandbox), kind=kind, isolated_review=isolated,
                   review_root=str(tmp_path / "source") if isolated else None)
     adapter = CodexAdapter()
     adapter.isolation_inspector = lambda binary, **_: (

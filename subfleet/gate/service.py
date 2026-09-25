@@ -15,6 +15,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from ..policy import PolicyError, resolve_model
 from ..store import utc_now
 from ..protocol import SubmitArgs, GateStartArgs, GateContinueArgs, coerce_args, ProtocolError
 from .certificate import certificate, load_state, private_dir, write_bytes, write_json
@@ -44,6 +45,28 @@ def read_context(path: str | None, label: str) -> str:
 #: Peers a gate may select. A Claude peer (Fable or Opus) supports account routing.
 PEERS = ("fable", "opus", "astra")
 CLAUDE_PEERS = frozenset({"fable", "opus"})
+
+
+def peer_model(value: str) -> str:
+    """C-17.1: `sol` is retired to Astra; any other peer must be one a gate selects."""
+    peer = "astra" if value == "sol" else value
+    if peer not in PEERS:
+        raise GateError("--peer must be fable, opus, astra, or sol")
+    return peer
+
+
+def main_family(policy: dict, main_model: str | None) -> str | None:
+    """C-17.1: a named main resolves as a `-m` pin does (a retired alias or an exact id
+    included) and its provider is recorded. An unnamed main's family stays unknown and is
+    never inferred from the peer: independence comes from the isolated read-only round
+    (C-23.2), not the family, so an Opus peer may review an Opus or Fable main (Max, 2026-09-22)."""
+    if not main_model:
+        return None
+    try:
+        short = resolve_model(policy, main_model, key="main_model", note=False)
+    except PolicyError:
+        raise GateError("unknown --main-model") from None
+    return policy["models"][short]["provider"]
 
 
 def routing(args, peer: str) -> tuple[str | None, tuple[str, ...]]:
@@ -95,7 +118,9 @@ def preview(args, root: Path, *, runner=subprocess.run, policy: dict | None = No
         subject, _ = capture(state, runner=runner)
         peer = state["peer"]
     else:
-        peer = "astra" if args.peer == "sol" else args.peer
+        peer = peer_model(args.peer)
+        if (policy or {}).get("models"):
+            main_family(policy, getattr(args, "main_model", None))
         cwd = Path(args.workdir or Path.cwd()).expanduser().resolve()
         if args.gate_command == "plan":
             source = Path(args.target).expanduser()
@@ -178,9 +203,7 @@ class GateService:
 
     def start(self, args):
         from .merge import capture_pr, verify_pr_workspace
-        peer = "astra" if args.peer == "sol" else args.peer
-        if peer not in PEERS:
-            raise GateError("--peer must be fable, opus, astra, or sol")
+        peer = peer_model(args.peer)
         account, exclusions = routing(args, peer)
         limit = round_limit(args.max_rounds, self.daemon.policy)
         if not args.main_approve:
@@ -204,20 +227,11 @@ class GateService:
             raise GateError("choose gate pr or plan")
         expected = expected_revision(args, subject)
         assert_expected(revision(subject), expected)
-        main_model = getattr(args, "main_model", None)
-        # Independence comes from the isolated read-only round (C-23.2), not the model
-        # family: an Opus peer may review an Opus or Fable main (Max, 2026-09-22). The main's
-        # family is recorded when named and never inferred from the peer.
-        main_family = None
-        if main_model:
-            model = self.daemon.policy["models"].get(main_model)
-            if not model:
-                raise GateError("unknown --main-model")
-            main_family = model["provider"]
+        family = main_family(self.daemon.policy, getattr(args, "main_model", None))
         state = {"schema_version": 1, "id": utc_now().replace("-", "").replace(":", "").replace("T", "-").rstrip("Z") + f"-{args.gate_command}-{uuid.uuid4().hex[:8]}",
                  "created_at": utc_now(), "updated_at": utc_now(), "status": "ready",
                  "kind": args.gate_command, "locator": locator, "subject": subject,
-                 "workdir": str(cwd), "peer": peer, "main_family": main_family,
+                 "workdir": str(cwd), "peer": peer, "main_family": family,
                  "on_agreement": args.on_agreement, "merge_method": args.merge_method,
                  "max_rounds": limit, "brief": read_context(args.brief, "brief"),
                  "rounds": [], "action": None}

@@ -427,18 +427,19 @@ class CodexAdapter(Adapter):
             from .isolation import codex_args, validate_isolated_review
             env = {**os.environ, **credential_env}
             validate_isolated_review(sandbox, job.review_root, env)
-            argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
                                inspector=getattr(self, "isolation_inspector", None))
+        if sandbox == Sandbox.READ_ONLY or job.isolated_review:
+            # C-12.3: codex exits outside a git repository unless told otherwise. A read-only
+            # job (a probe or timer turn included) cannot change the directory that check
+            # protects, and an isolated review's neutral cwd is never a repository. Decided
+            # here only: codex refuses the flag given twice.
+            argv += ["--skip-git-repo-check"]
         if model_id:
             argv += ["-m", model_id]
         if effort:
             argv += ["-c", f"model_reasoning_effort={effort}"]
         argv += ["--sandbox", sandbox.value]
-        if sandbox == Sandbox.READ_ONLY and not job.isolated_review:
-            # Codex refuses a workdir outside a git repository unless told otherwise; a
-            # read-only job cannot change such a directory, so the check only blocks it.
-            argv += ["--skip-git-repo-check"]
         if guard_override and not job.isolated_review:
             argv += ["-c", guard_override if guard_override.startswith("hooks=") else f"hooks={guard_override}"]
         argv += ["--output-last-message", str(attempt_dir / "last.md")]

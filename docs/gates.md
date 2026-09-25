@@ -1,6 +1,6 @@
 # Agreement gates
 
-`subfleet gate plan|pr|continue` and `subfleet-gate plan|pr|continue` use the same native implementation. Main approval always names the exact reviewed plan SHA-256 or the full PR head and base OIDs. The peer is `fable`, `opus`, or `astra`. Its independence comes from the isolated read-only round, not from the model family, so an Opus peer may review an Opus or Fable main (Max, 2026-09-22); v1's complementary-family rule is gone. Optional `--main-model` records the main's family in the gate state; without it the family is left unknown rather than inferred from the peer.
+`subfleet gate plan|pr|continue` and `subfleet-gate plan|pr|continue` use the same native implementation. Main approval always names the exact reviewed plan SHA-256 or the full PR head and base OIDs. The peer is `fable`, `opus`, or `astra`. Its independence comes from the isolated read-only round, not from the model family, so an Opus peer may review an Opus or Fable main (Max, 2026-09-22); v1's complementary-family rule is gone. Optional `--main-model` records the main's family in the gate state, resolving the name as `-m` does (a retired alias such as `sol`, or an exact model id, is accepted; an unknown name exits 2, in `--dry-run` too when a policy is readable); without it the family is left unknown rather than inferred from the peer.
 
 ```sh
 subfleet gate plan plan.md --peer astra --dry-run
@@ -29,7 +29,7 @@ A peer round is an ordinary `gate-review` job, pinned to the selected model with
 
 Schema 3 adds `isolated_review`, `review_root`, and `round_lease` to jobs. The ordinary attempt admission transaction reserves `gate:<id>:round:<n>` with holder `gate-round:<job-id>`. The distinct holder survives normal terminal export. Gate consumption checks the accepted attempt's model attestation and artifact hash, re-captures the artifact revision, then checks and releases the round lease in the same transaction that records the verdict. A missing or replaced lease discards the output. A client disconnect does not cancel its durable peer job.
 
-Unattested or mismatched rounds, and any downgrade record, are discarded and re-run. These physical rounds consume the policy budget. `caps.gate_max_rounds` defaults to 4; a CLI `--max-rounds` can reduce that limit, and the v1 spelling `0` uses the policy limit. A stopped gate names the last verdict or explains why output was not a verdict.
+A mismatched round, any downgrade record, and an unattested Claude (Fable or Opus) round are discarded and re-run; an unattested Codex round counts (C-23.43, below). These physical rounds consume the policy budget. `caps.gate_max_rounds` defaults to 4; a CLI `--max-rounds` can reduce that limit, and the v1 spelling `0` uses the policy limit. A stopped gate names the last verdict or explains why output was not a verdict.
 
 ## Merge actions
 

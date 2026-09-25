@@ -127,22 +127,43 @@ def test_continue_cannot_consume_finished_peer_with_wrong_explicit_fingerprint(c
 
 
 @pytest.mark.parametrize("attestation", ["mismatch", "unattested"])
-def test_fable_peer_requires_positive_attestation_at_the_service_boundary(core, tmp_path, attestation):
-    """C-23.43: a pinned Fable job's mismatch/unattested output never counts as a verdict."""
+@pytest.mark.parametrize("peer", ["fable", "opus"])
+def test_claude_peer_requires_positive_attestation_at_the_service_boundary(core, tmp_path, attestation, peer):
+    """C-23.43: a pinned Claude (Fable or Opus) job's mismatch/unattested output never counts as a verdict."""
     core.store.put_lane(lane(core.root / "claude-home", "claude"))
-    decision = Decision(("fable",), (), "claude-1", "fable", "test", "test")
+    decision = Decision((peer,), (), "claude-1", peer, "test", "test")
     core._pick = lambda *args, **kwargs: decision
     plan = tmp_path / "plan.md"
-    plan.write_text("A Fable peer must actually be attested\n")
+    plan.write_text(f"A {peer} peer must actually be attested\n")
     args = arguments(plan, "--max-rounds", "1")
-    args.peer = "fable"
+    args.peer = peer
     started = dispatch(core, "gate.start", wire(args))
     finish(core, started, attestation=attestation)
     result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
     assert result["code"] == 4 and attestation in result["message"]
     state = core._gate_service._load(started["gate_id"])
     assert state["rounds"][-1]["verdict"] is None
-    assert state["rounds"][-1]["requested_model"].startswith("claude-fable-")
+    assert state["rounds"][-1]["requested_model"] == core.policy["models"][peer]["id"]
+
+
+@pytest.mark.parametrize("peer", ["fable", "opus"])
+def test_claude_peer_routing_reaches_the_round_and_an_attested_round_agrees(core, tmp_path, peer):
+    """C-23.10 C-23.43: `--peer-account` pins the round to that lane and `--exclude-account`
+    reaches its exclusions, for either Claude peer; an attested round issues the certificate."""
+    core.store.put_lane(lane(core.root / "claude-home", "claude"))
+    core._pick = lambda *args, **kwargs: Decision((peer,), (), "claude-1", peer, "test", "test")
+    plan = tmp_path / "plan.md"
+    plan.write_text(f"Route the {peer} round\n")
+    started = dispatch(core, "gate.start", wire(arguments(
+        plan, "--peer-account", "claude-1", "--exclude-account", "other@example.org", peer=peer)))
+    assert started["code"] is None
+    job = core.store.get_job(started["job_id"])
+    assert (job["pinned_model"], job["pinned_lane"]) == (peer, "claude-1")
+    assert "other@example.org" in json.loads(job["exclusions"])
+    finish(core, started)
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 0
+    assert (core.root / "gates" / started["gate_id"] / "certificate.json").is_file()
+    assert core._gate_service._load(started["gate_id"])["rounds"][-1]["peer_attestation"] == "attested"
 
 
 def test_acceptance_artifact_tampering_blocks_without_reusing_export(core, tmp_path):
@@ -246,6 +267,27 @@ def test_gate_protocol_dry_run_does_not_admit_or_write(core, tmp_path):
     assert not (core.root / "gates").exists()
 
 
+@pytest.mark.parametrize("change,message", [
+    ({"peer": "sonnet"}, "--peer must be"),
+    ({"main_model": "gpt-9"}, "unknown --main-model"),
+])
+def test_dry_run_refuses_what_start_refuses(core, tmp_path, change, message):
+    """C-19.1, C-17.1: a socket dry-run refuses a peer or main model that start refuses, and writes nothing."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview a bad request\n")
+    result = dispatch(core, "gate.start", {**wire(arguments(plan, "--dry-run")), **change})
+    assert result["code"] == 2 and message in result["message"]
+    assert core.store.list_jobs() == [] and not (core.root / "gates").exists()
+
+
+def test_dry_run_resolves_a_retired_main_model(core, tmp_path):
+    """C-19.1, C-17.1: `--main-model sol` resolves as `-m sol` does, in a preview too."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview a retired main\n")
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--dry-run", "--main-model", "sol")))
+    assert result["code"] == 0 and result["dry_run"]
+
+
 def test_opus_peer_may_review_a_same_family_main(core, tmp_path):
     """C-23.2, C-23.10: independence is the isolated round, so Opus may review an Opus main."""
     plan = tmp_path / "plan.md"
@@ -260,10 +302,14 @@ def test_opus_peer_may_review_a_same_family_main(core, tmp_path):
     assert state["rounds"][-1]["requested_model"] == core.policy["models"]["opus"]["id"]
 
 
-POLICY_MODELS = tuple(json.loads(Path(DEFAULT_POLICY_PATH).read_text())["models"])
+DEFAULT_POLICY = json.loads(Path(DEFAULT_POLICY_PATH).read_text())
+POLICY_MODELS = tuple(DEFAULT_POLICY["models"])
+#: What `-m` accepts besides a short name: a retired alias, or an exact model id.
+MAIN_ALIASES = {**DEFAULT_POLICY["retired"],
+                **{model["id"]: short for short, model in DEFAULT_POLICY["models"].items()}}
 
 
-@pytest.mark.parametrize("main_model", [None, *POLICY_MODELS, "gpt-9"])
+@pytest.mark.parametrize("main_model", [None, *POLICY_MODELS, *MAIN_ALIASES, "gpt-9"])
 @pytest.mark.parametrize("peer", ["fable", "opus", "astra", "sol"])
 def test_every_peer_and_main_pair_is_admitted_or_refused_by_policy_alone(core, tmp_path, peer, main_model):
     """C-17.1 C-23.2 C-23.10 Over every peer and every main the policy names (and one it
@@ -274,7 +320,8 @@ def test_every_peer_and_main_pair_is_admitted_or_refused_by_policy_alone(core, t
     plan.write_text(f"Pair {peer} with {main_model}\n")
     flags = ("--main-model", main_model) if main_model else ()
     result = dispatch(core, "gate.start", wire(arguments(plan, *flags, peer=peer)))
-    named = core.policy["models"].get(main_model) if main_model else None
+    short = MAIN_ALIASES.get(main_model, main_model)
+    named = core.policy["models"].get(short) if main_model else None
     if main_model and named is None:
         assert result["code"] == 2 and "unknown --main-model" in result["message"]
         assert core.store.list_jobs() == []
