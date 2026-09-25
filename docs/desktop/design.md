@@ -407,11 +407,14 @@ control thread.
 **D-24. One feed, one focused poll, and notifications.** The app long-polls
 one global `conversation.watch` (a compact change feed: conversation, message,
 state, pending approvals) and `conversation.events` only for the conversation
-on screen. Both run on a dedicated bounded pool (8 threads) with at most one
-of each per client; the `requests` pool that `message.submit` and the session
-hooks use is never held by a poll (review U-F3). A turn that completes, fails,
-needs approval, or becomes `delivery-unknown` while its conversation is not
-focused posts a local notification; the Dock badge counts pending approvals.
+on screen. A row whose `state` is null says something else about its message
+changed (an approval asked or answered, or its turn's end snapshot recorded,
+D-25) and carries no kind: the app fetches that message again. Both polls run
+on a dedicated bounded pool (8 threads) with at most one of each per client;
+the `requests` pool that `message.submit` and the session hooks use is never
+held by a poll (review U-F3). A turn that completes, fails, needs approval, or
+becomes `delivery-unknown` while its conversation is not focused posts a local
+notification; the Dock badge counts pending approvals.
 
 **D-25. Changes are shown per turn and per conversation.** At the start and
 end of each writable turn (any permission but `read-only`) in a workspace that
@@ -425,28 +428,50 @@ writer's work lands between the turn and it (`daemon._turn_trees`, receipt
 `<attempt>/trees.json`, also copied into the attempt's evidence as
 `turn_trees` with HEAD before and after). A quarantined turn gets its end
 snapshot when it is confirmed dead; a forced release with writers still live
-records that it has none. A transient git failure at the end is retried up to
-three times by the finalization worker; then the failure is recorded and
-finalization goes on without an end snapshot. The conversation store keeps
-both per attempt (`turn_trees`, §3), so a diff outlives the turn job's
-retention.
+records that it has none. While git fails transiently, the end is tried at
+most three times in one daemon run (the first try and two by the finalization
+worker, whose count a restart starts again), and once when a quarantine is
+released, since nothing offers an operator's request again; then the failure
+is recorded and finalization goes on without an end snapshot. The
+conversation store keeps both per attempt (`turn_trees`, §3), so a diff
+outlives the turn job's retention, and recording the end writes one
+`conversation.watch` row for the message with `state` null (D-24).
 
-`turn.diff` compares a message's latest turn attempt's start and end
-snapshots; before the end snapshot exists it compares the start with the
-working tree now and says so (`to.live: true`). `conversation.diff` compares
-the start snapshot of the conversation's first writable turn with the working
-tree now, so it also shows what the person changed between turns, which a
-finished turn's `turn.diff` leaves out. Both run on the file pool `conversation.history` uses
-(C-25.3), read git's plumbing (`diff-tree` with no external diff driver or
-textconv filter), and return at most 1,000 files and 512 KiB of unified diff,
-cut at a line with `truncated: true`; the stats count every file (they say
-`complete: false` only when git's file listing itself passes 4 MiB); the diff
-text passes the handoff scrubber (C-25.5). A result with nothing to compare has
-the same shape with `available: false` and a reason: `no-turn`,
-`read-only-turn`, `no-snapshot` (not a git checkout with a commit),
-`snapshot-failed`, or `snapshot-pruned` (the snapshots are unreferenced
-objects, which git prunes after `gc.pruneExpire`, two weeks by default).
-Implemented in `subfleet/conversations/diff.py`.
+`turn.diff` compares a message's latest turn attempt's start and end snapshots
+(the attempt recorded last, which C-24.5's one turn at a time makes the one
+that ran last; `started_at` has whole seconds, and a re-admitted message's two
+attempts can share one); before the end snapshot exists it compares the start
+with the working tree now and says so (`to.live: true`). `conversation.diff`
+compares the start snapshot of the conversation's first writable turn with the
+working tree now, so it also shows what the person changed between turns,
+which a finished turn's `turn.diff` leaves out. Both run on the file pool
+`conversation.history` uses (C-25.3), read git's plumbing (`diff-tree` with no
+external diff driver or textconv filter), and return at most 1,000 files and
+512 KiB of unified diff, cut at a line with `truncated: true`; the bound is on
+the text returned, measured again after decoding (a byte that is not UTF-8
+becomes U+FFFD, three bytes) and scrubbing; the stats count every file (only
+when git's file listing itself passes 4 MiB do they count what it listed, with
+`complete: false` and `files_truncated: true`). `path` names a file or a
+directory. The diff text passes the handoff scrubber (C-25.5), after a pass of
+its own: the scrubber redacts a private key only between its BEGIN and END
+lines, and a diff can show part of a key without one of them (a hunk whose
+context reaches into the key, the 512 KiB cut, or a hunk header, where git
+repeats the nearest line above the hunk that starts with a letter). That pass
+replaces the key's lines, and runs of lines shaped like a key's body, in
+place, so each hunk keeps its line counts. The handoff scrubber then runs on
+each line by itself, a hunk's line without its `+`, `-` or space prefix: its
+header rule starts at a line's beginning and its token, JWT and base64 rules
+look behind a value for a character a value may hold, so a prefix would hide
+an `Authorization:` value or a removed token, or be taken into an added line's
+base64 run. A result with
+nothing to compare has the same shape with `available: false` and a reason:
+`no-turn`, `read-only-turn`, `no-snapshot` (not a git checkout with a commit),
+`snapshot-failed`, `snapshot-pruned` (the snapshots are unreferenced objects,
+which git prunes after `gc.pruneExpire`, two weeks by default), or
+`workspace-gone` (git can no longer open the workspace as a checkout: it was
+moved or removed, a removed linked worktree for example, although the
+repository may still hold the snapshots). Implemented in
+`subfleet/conversations/diff.py`.
 
 The app shows a Changes pane with Reveal in Finder and Open in editor, and
 never commits, pushes or merges. A worktree conversation offers explicit
@@ -594,10 +619,11 @@ if it is still null.
 All new ops are protocol `v: 1`; `PROTOCOL_VERSION` does not change. Errors
 use `Exit` codes and `ok:false`. Handlers validate, write at most one
 transaction per store, wake the control loop and return; none waits on a
-provider, a probe, `ps`, git, or a catalog scan, except the two diff ops, which
-run git on the file pool with `conversation.history` and `attachment.add`,
-never on the pool the other ops use (C-25.3, D-25). Person-only ops (D-8) are
-marked †.
+provider, a probe, `ps`, git, or a catalog scan, except the two diff ops
+(D-25) and `conversation.create`, which cuts a worktree conversation's worktree
+with git (D-16); those three run on the file pool with `conversation.history`
+and `attachment.add`, never on the pool the other ops use (C-25.3). Person-only
+ops (D-8) are marked †.
 
 | Op | Arguments → result |
 |---|---|
@@ -619,9 +645,9 @@ marked †.
 | `approval.respond` † | `{approval_id, nonce, request_sha256, decision, answers?, message?}` → `{approval, receipt}` |
 | `attachment.add` | `{path, sha256?}` → `{sha256, media_type, bytes}` |
 | `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
-| `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, pending_approvals}], next}` (D-24) |
+| `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, pending_approvals}], next}`; `state` is null on a row that reports no state change (an approval asked or answered, or a turn's end snapshot recorded), after which the client fetches that message again (D-24) |
 | `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
-| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names one file relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
+| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` without `message_id`; `from` is the conversation's first writable turn's start, `to` the working tree now |
 
 Receipt: `{message_id, conversation_id, seq, origin, state, state_reason,

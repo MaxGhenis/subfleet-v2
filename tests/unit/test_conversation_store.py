@@ -231,7 +231,7 @@ def test_native_sessions_map_to_one_conversation(store):
 
 
 def test_a_schema_1_store_is_migrated_to_2_in_place(tmp_path):
-    """C-26.13, C-3.1: a store written by schema 1 gains `turn_trees` on open, records
+    """C-26.14, C-3.1: a store written by schema 1 gains `turn_trees` on open, records
     the step, keeps its rows, and opening it again changes nothing."""
     import sqlite3
     from subfleet.conversations import store as store_module
@@ -256,7 +256,7 @@ def test_a_schema_1_store_is_migrated_to_2_in_place(tmp_path):
 
 
 def test_a_newer_store_is_refused(tmp_path):
-    """C-26.13: a build never opens a store written by a newer schema."""
+    """C-26.14: a build never opens a store written by a newer schema."""
     import sqlite3
     root = tmp_path / "state"
     ConversationStore(root).close()
@@ -270,7 +270,7 @@ def test_a_newer_store_is_refused(tmp_path):
 
 
 def test_turn_trees_are_recorded_once_per_attempt_and_the_latest_attempt_is_the_turn(store):
-    """C-26.13: the start is written once and the end fills in; a replay changes
+    """C-26.14: the start is written once and the end fills in; a replay changes
     nothing; the end is one change-feed row; a re-admitted message's latest attempt is
     its turn; the conversation's base is its first writable turn's start."""
     c = conv(store)
@@ -304,3 +304,31 @@ def test_turn_trees_are_recorded_once_per_attempt_and_the_latest_attempt_is_the_
                        workspace="/r", writable=False, started_at="2026-09-24T10:00:00Z", head_before="h")
     assert store.turn_trees(r)["writable"] is False
     assert store.first_trees(read_only["conversation_id"]) is None
+
+
+def test_a_message_s_latest_attempt_is_the_one_recorded_last(store):
+    """C-26.14, C-24.5: attempts are ordered as they were recorded, not by `started_at`
+    (whole seconds) or the attempt id: a re-admitted message's second job reserved in
+    the same second has the id `<stamp>-<slug>-1`, which sorts below the first's once
+    `/a1` follows, and a clock stepped back gives the later attempt the earlier time."""
+    c = conv(store)
+    m = mid()
+    store.submit_message(conversation_id=c["conversation_id"], message_id=m, after_message_id=None, text="x",
+                         attachments=[], settings=SETTINGS)
+    base = dict(message_id=m, conversation_id=c["conversation_id"], workspace="/w", writable=True)
+    first, second = "20260924-100000-turn-10fa90399504/a1", "20260924-100000-turn-10fa90399504-1/a1"
+    assert sorted([first, second])[-1] == first           # the tie-break the ids would give is the wrong one
+    store.record_trees(attempt_id=first, started_at="2026-09-24T10:00:00Z", start_tree="t1", **base)
+    store.record_trees(attempt_id=first, started_at="2026-09-24T10:00:00Z", start_tree="t1", end_tree="e1",
+                       ended=True, **base)
+    store.record_trees(attempt_id=second, started_at="2026-09-24T10:00:00Z", start_tree="t2", **base)
+    assert store.turn_trees(m)["attempt_id"] == second
+    assert store.first_trees(c["conversation_id"])["attempt_id"] == first
+    # The end of the earlier attempt filling in again (a replayed finalization) moves nothing.
+    store.record_trees(attempt_id=first, started_at="2026-09-24T10:00:00Z", start_tree="t1", end_tree="e1",
+                       ended=True, **base)
+    assert store.turn_trees(m)["attempt_id"] == second
+    third = "20260924-095959-turn-10fa90399504/a1"
+    store.record_trees(attempt_id=third, started_at="2026-09-24T09:59:59Z", start_tree="t3", **base)
+    assert store.turn_trees(m)["attempt_id"] == third
+    assert store.first_trees(c["conversation_id"])["attempt_id"] == first

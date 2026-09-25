@@ -71,7 +71,7 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
-#: C-26.13: tries at a turn's end snapshot while git fails transiently (C-6.8's
+#: C-26.14: tries at a turn's end snapshot while git fails transiently (C-6.8's
 #: kinds), before finalization records the failure and goes on without it, so a
 #: turn's finalization waits on its diff for at most a few capped git calls.
 TURN_TREE_TRIES = 3
@@ -195,7 +195,7 @@ class Daemon:
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
-        # C-26.13: attempt id -> transient failures of its end snapshot so far.
+        # C-26.14: attempt id -> transient failures of its end snapshot so far.
         self._tree_failures: dict[str, int] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
@@ -3196,7 +3196,7 @@ class Daemon:
         job = self._job(a["job_id"])
         if job["kind"] == "turn":
             # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
-            # when nothing can still be writing (C-26.13). An operator's one-shot
+            # when nothing can still be writing (C-26.14). An operator's one-shot
             # request is never retried, so a git failure is recorded, not raised.
             self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
                              "released from quarantine with writers still live; no end snapshot")
@@ -3267,15 +3267,17 @@ class Daemon:
         return [{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}], receipt["checkpoint"]
 
     def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
-        """C-26.10, C-26.13 (design D-25): a turn's end, taken while its leases are held.
+        """C-26.10, C-26.14 (design D-25): a turn's end, taken while its leases are held.
 
         HEAD after, and for a writable turn whose admission took a start snapshot
         (the attempt's `baseline_tree`, C-6.8), the end snapshot through the same
         temporary index: a tree object, no ref, the real index and files untouched.
         The receipt `trees.json` makes a replayed finalization take nothing twice.
-        A transient git failure is retried with the worker's backoff up to
-        `TURN_TREE_TRIES` times; after that, or on any other failure, the failure
-        is recorded and the turn ends without an end snapshot. A quarantine's
+        A transient git failure raises, so the worker tries again with its
+        backoff, until `TURN_TREE_TRIES` tries in all have failed (the first and
+        two retries; the count is in memory, so a restart starts it again); that
+        failure, or any other, is recorded and the turn ends without an end
+        snapshot. A quarantine's
         release passes `retry=False` (an operator's one-shot request is never
         offered again, so it records at once), and `error` when writers may still
         be live: then no snapshot is taken and the error is what is recorded.
@@ -3406,7 +3408,7 @@ class Daemon:
                      self._artifact(Path(launch.raw_stream_path), "raw-stream") if launch.raw_stream_path else None,
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
         # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
-        # its receipt records HEAD after and its end snapshot (C-26.13).
+        # its receipt records HEAD after and its end snapshot (C-26.14).
         trees = None
         if job["kind"] == "turn":
             salvage_artifacts, checkpoint = [], None

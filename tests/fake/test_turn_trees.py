@@ -1,4 +1,4 @@
-"""C-26.10, C-26.13 (design D-25): a turn's end snapshot, taken by the daemon's own
+"""C-26.10, C-26.14 (design D-25): a turn's end snapshot, taken by the daemon's own
 finalization and quarantine code over a real checkout, with no provider process.
 
 The attempt is reserved by the ordinary admission path and then given what
@@ -60,7 +60,7 @@ def writable_turn(daemon, harness):
 
 
 def test_c26_13_finalization_takes_the_end_snapshot_while_the_turn_holds_its_leases(state_daemon, monkeypatch):
-    """C-26.10, C-26.13: finalization of a turn writes no salvage ref, records HEAD after
+    """C-26.10, C-26.14: finalization of a turn writes no salvage ref, records HEAD after
     and the end snapshot in the receipt and in the conversation store, before the leases
     are released; a replayed finalization takes nothing twice."""
     daemon, harness = state_daemon
@@ -94,7 +94,7 @@ def test_c26_13_finalization_takes_the_end_snapshot_while_the_turn_holds_its_lea
 
 
 def test_c26_13_transient_snapshot_failures_retry_then_the_failure_is_recorded(state_daemon, monkeypatch):
-    """C-6.8, C-26.13: a transient git failure is retried by the worker (the call raises)
+    """C-6.8, C-26.14: a transient git failure is retried by the worker (the call raises)
     up to TURN_TREE_TRIES tries, then recorded; any other failure is recorded at once;
     either way finalization goes on without an end snapshot."""
     from subfleet.daemon import TURN_TREE_TRIES
@@ -145,7 +145,7 @@ def writable_turn_again(daemon, harness):
 
 
 def test_c26_10_a_quarantined_turn_is_released_without_a_salvage_ref(state_daemon, monkeypatch):
-    """C-26.10, C-26.13, C-5.7: confirming a quarantined turn dead takes its end snapshot
+    """C-26.10, C-26.14, C-5.7: confirming a quarantined turn dead takes its end snapshot
     and writes no salvage ref; a forced release with writers still live records that no
     end snapshot was taken, never one taken while something may still be writing."""
     daemon, harness = state_daemon
@@ -170,3 +170,61 @@ def test_c26_10_a_quarantined_turn_is_released_without_a_salvage_ref(state_daemo
     forced = json.loads((adir2 / "trees.json").read_text())
     assert forced["end_tree"] is None and "writers still live" in forced["error"]
     assert git(harness.workdir, "for-each-ref", "refs/subfleet-salvage") == ""
+
+
+def test_c26_13_a_quarantine_release_tries_the_end_snapshot_once(state_daemon, monkeypatch):
+    """C-26.14, C-26.10, C-5.10: nothing offers an operator's `kill --confirm-dead`
+    again, so a transient git failure at its end snapshot is recorded at once and the
+    release still completes: the leases go, the attempt leaves quarantine, and the
+    receipt and the conversation store record the failure."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    assert daemon.store.acquire_lease(f"worktree:{harness.workdir}", job_id)
+    daemon._quarantine(attempt, Containment(), "fixture")
+    assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"
+    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    calls: list[int] = []
+
+    def late(*args, **kwargs):
+        calls.append(1)
+        raise SalvageError("git add timed out after 60 s", transient=True)
+
+    monkeypatch.setattr(turn_diff, "end_snapshot", late)
+    daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
+                               protocol.KillArgs(job_id, confirm_dead=True))
+    assert len(calls) == 1
+    receipt = json.loads((adir / "trees.json").read_text())
+    assert receipt["end_tree"] is None and receipt["error"].startswith("end snapshot failed: git add timed out")
+    assert daemon.store.get_attempt(attempt["attempt_id"])["state"] in ("lost", "interrupted")
+    assert not daemon.store.query("SELECT 1 FROM leases WHERE holder IN (?,?)", (job_id, attempt["attempt_id"]))
+    row = daemon.conversations.store.turn_trees(mid)
+    assert row["error"] == receipt["error"] and row["ended_at"]
+    result = daemon.conversations.op_turn_diff({"message_id": mid}, None)
+    assert (result["available"], result["reason"]) == (False, "snapshot-failed")
+    assert git(harness.workdir, "for-each-ref", "refs/subfleet-salvage") == ""
+
+
+def test_c26_13_a_workspace_git_cannot_open_is_gone_for_both_diffs(state_daemon):
+    """C-26.14: once the workspace is moved away, a finished turn's `turn.diff` (two
+    stored snapshots) and the live `conversation.diff` both answer `workspace-gone`,
+    never `snapshot-pruned`; back in place, both answer again."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    (harness.workdir / "made-by-the-turn.txt").write_text("one\n")
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    service = daemon.conversations
+    cid = service.store.message(mid)["conversation_id"]
+    assert service.op_turn_diff({"message_id": mid}, None)["available"]
+    assert service.op_conversation_diff({"conversation_id": cid}, None)["available"]
+    away = harness.workdir.with_name(harness.workdir.name + "-moved")
+    harness.workdir.rename(away)
+    try:
+        for result in (service.op_turn_diff({"message_id": mid}, None),
+                       service.op_conversation_diff({"conversation_id": cid}, None)):
+            assert (result["available"], result["reason"]) == (False, "workspace-gone"), result
+            assert result["files"] == [] and result["diff"] == ""
+    finally:
+        away.rename(harness.workdir)
+    back = service.op_turn_diff({"message_id": mid}, None)
+    assert back["available"] and back["root"] == str(harness.workdir.resolve())
+    assert service.op_conversation_diff({"conversation_id": cid}, None)["available"]

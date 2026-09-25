@@ -38,6 +38,10 @@ from .turn import (
     STARTING, TERMINAL_STATES, WAITING,
 )
 
+#: C-25.1, C-25.2: the version of the conversation ops' argument and result shapes
+#: (design §5). It is not the conversation store's schema (`store.SCHEMA_VERSION`,
+#: C-26.14), and an added op is a capability, not a new version.
+CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 "diff.v1")
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
@@ -45,8 +49,10 @@ LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "att
           "diff_bytes": turn_diff.DIFF_BYTES, "diff_files": turn_diff.DIFF_FILES}
 OPS = frozenset(protocol.CONVERSATION_OPS)
 POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
-# C-25.3: file copies, transcript reads and git (the diffs) run here, never on a request thread.
-FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff"})
+# C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
+# worktree conversation's create cuts) run here, never on a request thread.
+FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
+                      "conversation.create"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
 MAX_WAIT_S = 50.0
 
@@ -139,7 +145,7 @@ class ConversationService:
     def op_capabilities(self, args, peer) -> dict:
         from .. import __version__
         return {"protocol": protocol.PROTOCOL_VERSION, "daemon_version": __version__,
-                "conversation_schema": 1, "capabilities": list(CAPABILITIES), "limits": LIMITS,
+                "conversation_schema": CONVERSATION_SCHEMA, "capabilities": list(CAPABILITIES), "limits": LIMITS,
                 "codex_writable": self._codex_writable()}
 
     def op_models_list(self, args, peer) -> dict:
@@ -551,7 +557,7 @@ class ConversationService:
         runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
         return {"approval": self._approval_view(self.store.approval(approval["approval_id"]))}
 
-    # --- ops: changes (C-26.13, design D-25) ------------------------------------
+    # --- ops: changes (C-26.14, design D-25) ------------------------------------
 
     def _git_cap(self) -> float:
         return float(self.daemon.policy["caps"]["workspace_git_timeout_s"])
@@ -603,19 +609,19 @@ class ConversationService:
             if end is None:
                 now = turn_diff.snapshot(workspace, timeout_s=cap)
                 if now is None:
-                    return _unavailable("no-snapshot", "the workspace is no longer a git checkout with a commit")
+                    turn_diff.checkout(workspace, timeout_s=cap)     # raises `workspace-gone`
+                    return _unavailable("no-snapshot", "the workspace's checkout has no commit to snapshot")
                 end = {"tree": now[1], "head": now[0], "live": True, "at": utcnow()}
             result = turn_diff.build(workspace, start["tree"], end["tree"], path=path, timeout_s=cap)
-            root = turn_diff.toplevel(workspace, timeout_s=cap)
         except turn_diff.Unavailable as exc:
             return _unavailable(exc.reason, str(exc))
         except SalvageError as exc:
             raise ConversationError("diff-failed", str(exc), code=1,
                                     fix="try again" if exc.transient else "check the workspace's repository")
-        return {"available": True, "root": root, "path": path, "from": start, "to": end, **result}
+        return {"available": True, "path": path, "from": start, "to": end, **result}
 
     def record_trees(self, turn: dict, attempt: dict, receipt: dict) -> None:
-        """The daemon's finalization seam: a turn attempt's end (C-26.10, C-26.13)."""
+        """The daemon's finalization seam: a turn attempt's end (C-26.10, C-26.14)."""
         self.store.record_trees(
             attempt_id=attempt["attempt_id"], message_id=turn["message_id"], conversation_id=turn["conversation_id"],
             workspace=receipt.get("workspace") or turn["cwd"], writable=bool(receipt.get("writable")),
@@ -807,7 +813,7 @@ class ConversationService:
             self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
             runner.start()
             try:
-                self._record_start(turn, dict(attempt))   # C-26.13: the turn's diff has a base
+                self._record_start(turn, dict(attempt))   # C-26.14: the turn's diff has a base
             except Exception as exc:                      # finalization records it again; a turn never waits on it
                 self.log.warning("turn %s start snapshot not recorded: %s: %s", aid, type(exc).__name__, exc)
 
@@ -985,7 +991,7 @@ def _read_json(path: Path) -> dict | None:
 
 
 def _unavailable(reason: str, detail: str) -> dict:
-    """A diff with nothing to compare: the same shape, empty, and why (C-26.13)."""
+    """A diff with nothing to compare: the same shape, empty, and why (C-26.14)."""
     return {"available": False, "reason": reason, "detail": detail, "files": [], "files_truncated": False,
             "stats": {"files": 0, "additions": 0, "deletions": 0, "complete": True}, "diff": "",
             "truncated": False, "scrubbed": 0}

@@ -276,7 +276,7 @@ def test_a_turn_that_ends_without_a_result_blocks_the_conversation_until_a_perso
     import time
     time.sleep(1.0)
     assert conv.message(nxt)["state"] == "queued"
-    # C-26.13: a queued message has no turn yet; the unfinished turn still has its changes (none).
+    # C-26.14: a queued message has no turn yet; the unfinished turn still has its changes (none).
     assert conv.call("turn.diff", message_id=nxt)["reason"] == "no-turn"
     unfinished = conv.call("turn.diff", message_id=mid)
     assert unfinished["available"] and unfinished["files"] == []
@@ -385,10 +385,12 @@ def changed(result: dict) -> dict:
 
 
 def test_each_turn_and_the_whole_conversation_show_their_changes(conv):
-    """C-26.13, C-26.10, C-25.3, design D-25: a writable turn is bracketed by two
+    """C-26.14, C-26.10, C-25.1, design D-25: a writable turn is bracketed by two
     working-tree snapshots; `turn.diff` shows that turn's changes and nothing the person
     did between turns; `conversation.diff` shows everything since the first turn began;
-    HEAD, the real index and the refs are untouched, and no salvage ref is written."""
+    HEAD, the real index and the refs are untouched, and no salvage ref is written; the
+    daemon advertises the diff ops as a capability, with `conversation_schema` still 1.
+    (Which pool runs them, C-25.3, is tests/fake/test_conversation_pools.py.)"""
     e2e = conv.e2e
     head = workspace_git(e2e, "rev-parse", "HEAD").strip()
     index = (e2e.workdir / ".git" / "index").read_bytes()
@@ -430,12 +432,12 @@ def test_each_turn_and_the_whole_conversation_show_their_changes(conv):
     assert (e2e.workdir / ".git" / "index").read_bytes() == index
     assert workspace_git(e2e, "for-each-ref") == refs
     capabilities = conv.call("capabilities")
-    assert "diff.v1" in capabilities["capabilities"]
+    assert "diff.v1" in capabilities["capabilities"] and capabilities["conversation_schema"] == 1
     assert capabilities["limits"]["diff_bytes"] == 512 * 1024 and capabilities["limits"]["diff_files"] == 1000
 
 
 def test_a_running_turns_changes_are_live_until_it_ends(conv):
-    """C-26.13: before a turn's end snapshot, `turn.diff` compares its start with the
+    """C-26.14: before a turn's end snapshot, `turn.diff` compares its start with the
     working tree now and says so; a stopped turn still gets its end snapshot."""
     cid = conv.create()
     mid = conv.submit(cid, "write, then keep going [fake:write] [fake:slow]")
@@ -458,7 +460,7 @@ def test_a_running_turns_changes_are_live_until_it_ends(conv):
 
 
 def test_turns_that_cannot_show_changes_say_why(conv):
-    """C-26.13: a read-only turn, a workspace outside git, and a message that has not
+    """C-26.14: a read-only turn, a workspace outside git, and a message that has not
     started a turn each answer `available: false` with the reason, in the same shape."""
     cid = conv.create(permission="read-only")
     mid = conv.submit(cid, "look around")

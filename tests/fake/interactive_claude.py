@@ -15,7 +15,7 @@ its text; `[fake:write]` combines with any other:
     (none)            streamed text, then a success result
     write             first writes `fake-<first 8 of the message uuid>.txt` (three
                       lines) and appends `edited by <those 8>` to `tracked.txt` in its
-                      working directory, as a turn that edits files does (C-26.13)
+                      working directory, as a turn that edits files does (C-26.14)
     approval          asks to run a Bash command; allow runs it, deny says so
     question          AskUserQuestion; the chosen answers are echoed back
     slow              streams until interrupted; the interrupt ends the turn

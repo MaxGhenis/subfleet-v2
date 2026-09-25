@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS changes (
 );
 """
 
-# Schema 2 (C-26.13, design D-25): a turn's working-tree snapshots, one row per
+# Schema 2 (C-26.14, design D-25): a turn's working-tree snapshots, one row per
 # attempt, keyed by the job store's attempt id as `attempt_marks` is. The start
 # is the attempt's `baseline_tree` from the job store; the end is written at
 # finalization.
@@ -649,7 +649,7 @@ class ConversationStore:
             tx.execute("UPDATE attempt_marks SET compacted=1 WHERE attempt_id=?", (attempt_id,))
             return deleted
 
-    # --- a turn's snapshots (C-26.13, design D-25) ------------------------------
+    # --- a turn's snapshots (C-26.14, design D-25) ------------------------------
 
     def record_trees(self, *, attempt_id: str, message_id: str, conversation_id: str, workspace: str,
                      writable: bool, started_at: str, head_before: str | None = None, start_tree: str | None = None,
@@ -672,20 +672,33 @@ class ConversationStore:
                 (attempt_id, message_id, conversation_id, workspace, int(bool(writable)), head_before, start_tree,
                  head_after, end_tree, error, started_at, utcnow() if ended else None))
             if ended and not (before and before["ended_at"]):
-                # The change feed says this message's changes are final (C-29.9).
+                # One change-feed row with `state` null, as an approval writes: it
+                # carries no kind, and tells a watcher to fetch this message again,
+                # its `turn.diff` included (C-26.14, design D-24, §5).
                 self._change(tx, conversation_id, message_id, None)
+
+    # Attempts are ordered by `rowid`, the order their rows were first written: a
+    # row is written when its turn's runner starts (`service._record_start`) or, at
+    # the latest, by `daemon._turn_trees` when it finalizes or its quarantine is
+    # released, and a conversation's next turn job is submitted only once the
+    # previous one is terminal, holds no lease, and no turn of the conversation is
+    # quarantined (C-24.5, `service._previous_released`), so that is the order the
+    # attempts ran. `started_at` (`reserved_at`, whole seconds) and the
+    # attempt id cannot say it: two attempts of one message can be reserved in the
+    # same second, and the later job's id (`<stamp>-<slug>-1`) sorts below the
+    # earlier one's (`<stamp>-<slug>`) once `/a1` follows. Rows are never deleted,
+    # and the store never runs VACUUM, which may renumber an implicit rowid.
 
     def turn_trees(self, message_id: str) -> dict | None:
         """The message's latest turn attempt's snapshots: a re-admitted message's
         earlier attempts never delivered it (C-26.7), so the latest is the turn."""
-        row = self.one("SELECT * FROM turn_trees WHERE message_id=? ORDER BY started_at DESC, attempt_id DESC LIMIT 1",
-                       (message_id,))
+        row = self.one("SELECT * FROM turn_trees WHERE message_id=? ORDER BY rowid DESC LIMIT 1", (message_id,))
         return _decode_trees(row) if row else None
 
     def first_trees(self, conversation_id: str) -> dict | None:
         """The conversation's base: the start snapshot of its first writable turn."""
         row = self.one("SELECT * FROM turn_trees WHERE conversation_id=? AND start_tree IS NOT NULL "
-                       "ORDER BY started_at, attempt_id LIMIT 1", (conversation_id,))
+                       "ORDER BY rowid LIMIT 1", (conversation_id,))
         return _decode_trees(row) if row else None
 
     # --- the change feed (C-29.9) ----------------------------------------------
