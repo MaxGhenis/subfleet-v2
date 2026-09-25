@@ -5,20 +5,21 @@
 state and every action from every state, for three account folders, and check
 the invariants the 2026-09-25 consistency brief asks for:
 
-* convergence: one uninterrupted pass leaves every copy and the base equal;
+* convergence: one pass with nothing written in between leaves every copy and
+  the base equal to the value decided;
 * change wins, both ways: a change from the base (archive or unarchive) is decided;
 * idempotence: a converged state with its base decides itself, and writes nothing;
 * cancellation safety: a cancelled pass changes no copy and no base;
-* no lost update: the mirror writes only copies still as it read them;
-* all or nothing: a held batch writes nothing and keeps the base;
+* no lost update: the mirror writes only a copy nobody rewrote since it last
+  checked or wrote it;
+* all or nothing: a held session writes nothing, and a failed write puts back
+  every copy the publish wrote (except one rewritten since), keeping the base;
 * base agreement: after a publish that went through, the base is the value decided;
 * never undo a settled value (the brief's "no resurrection", both directions).
 
 With an app whose saves never change the flag, all of them hold in every
 state. With an app that can re-save a stale value (the known limit in the
-2026-09-24 report), "never undo a settled value" fails, and the checker's
-shortest counterexample is the incident shape: the mirror spreads the stale
-re-save to every account.
+2026-09-24 report), only "never undo a settled value" fails.
 """
 
 from __future__ import annotations
@@ -36,14 +37,43 @@ def test_every_invariant_holds_in_every_state_for_an_app_that_saves_what_it_show
 
 
 def test_a_stale_resave_is_the_one_way_to_undo_a_settled_value():
-    """C-23.28, the known limit, found and shown by the checker: only the app
-    re-saving a value it held from before the mirror's write breaks an
-    invariant, and the invariant it breaks is "never undo a settled value"."""
+    """C-23.28, the known limit, found by the checker: only the app re-saving
+    a value it held from before the mirror's write breaks an invariant, and
+    the invariant it breaks is "never undo a settled value"."""
     _states, broken = model.explore(3, stale=True)
     assert set(broken) == {"never-undo-settled"}
     trace = broken["never-undo-settled"]
-    assert any(step.startswith("app_save") for step in trace)
-    assert trace[-1] == "pass_publish"
+    # From the unsynced start the shortest case is the bootstrap rule: with no
+    # base, archived-anywhere overrides the user's unarchive, and the app's
+    # memory of that unarchive then comes back and spreads.
+    assert trace[0] == "user_set(False)" and "app_save(0)" in trace
+    assert trace[-1] == "pass_write"
+
+
+def test_from_a_settled_state_a_parked_accounts_stale_save_undoes_the_users_change():
+    """C-23.28: the known limit's own shape. The user archives in the loaded
+    account and the mirror settles it everywhere; a folder the app still
+    holds from before (a parked session) saves its old value, and the next
+    pass spreads that to every account."""
+    roots = [model.State(copy=(v,) * 3, base=v, loaded=0, mem=(v, None, None), settled=v)
+             for v in (False, True)]
+    _states, broken = model.explore(3, stale=True, roots=roots)
+    assert set(broken) == {"never-undo-settled"}
+    trace = broken["never-undo-settled"]
+    acted = [step for step in trace if step.startswith("user_set")]
+    saved = [step for step in trace if step.startswith("app_save")]
+    assert len(acted) == 1 and len(saved) == 1
+    assert trace.index(acted[0]) < trace.index(saved[0])
+    assert saved[0] == "app_save(0)" and trace[0] == "load(1)", \
+        "the user acts in account 1; account 0's memory predates the mirror's write"
+
+
+def test_honest_exploration_from_settled_states_finds_nothing():
+    """C-23.28: the same roots with an honest app break nothing."""
+    roots = [model.State(copy=(v,) * 3, base=v, loaded=0, mem=(v, None, None), settled=v)
+             for v in (False, True)]
+    _states, broken = model.explore(3, stale=False, roots=roots)
+    assert broken == {}
 
 
 @pytest.mark.parametrize("base", [False, True])
@@ -77,3 +107,32 @@ def test_a_change_after_the_snapshot_holds_the_batch():
     assert after.base is False
     final = model.pass_publish(model.pass_decide(after))
     assert final.copy == (True,) * 3 and final.base is True
+
+
+def test_a_write_that_finds_its_copy_rewritten_puts_back_the_copies_before_it():
+    """C-23.28: all or nothing across the publish. The pass writes B, then
+    finds C rewritten since its check: B is put back and the base is kept."""
+    state = model.State(copy=(False, False, False), base=False, loaded=0,
+                        mem=(False, None, None), settled=False)
+    state = model.user_set(state, True)                 # A archives
+    state = model.pass_check(model.pass_decide(state))   # publish B and C
+    assert state.phase == model.PUBLISHING and state.pending == (1, 2)
+    state = model.pass_write(state)                       # B written
+    assert state.copy == (True, True, False)
+    state = model.focus(state, 2)                         # the app saves C
+    after = model.pass_write(state)
+    assert after.copy == (True, False, False) and after.base is False
+    final = model.pass_publish(model.pass_decide(after))
+    assert final.copy == (True,) * 3 and final.base is True
+
+
+def test_a_rollback_skips_a_copy_rewritten_after_the_mirrors_write():
+    """C-23.28: no lost update in the rollback either."""
+    state = model.State(copy=(False, False, False), base=False, loaded=0,
+                        mem=(False, None, None), settled=False)
+    state = model.user_set(state, True)
+    state = model.pass_write(model.pass_check(model.pass_decide(state)))
+    state = model.focus(model.focus(state, 1), 2)         # the app saves B, then C
+    after = model.pass_write(state)
+    assert after.copy == (True, True, False), "B keeps what the app saved over it"
+    assert after.base is False

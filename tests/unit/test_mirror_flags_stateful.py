@@ -6,11 +6,13 @@ account folders holding one session, and the model in
 and unarchive in the loaded account, account switches, the app's focus
 rewrites (a save that keeps the flag), the app's stale re-saves (a save that
 puts back a value it held), full passes, passes with app writes landing
-between the read and the publish, and passes cancelled before they publish.
-After every step every file's flag and the merge base must equal the
-model's. `test_mirror_flags_model.py` proves the model's invariants over every
-reachable state, so this ties the implementation to them; the same model is
-`docs/formal/MirrorFlags.tla` (not yet run under TLC).
+between the read and the pre-check, passes with app writes landing between
+two of the publish's writes (so a write fails and the rollback runs), and
+passes cancelled before they publish. After every step every file's flag and
+the merge base must equal the model's. `test_mirror_flags_model.py` checks
+the model's invariants over every reachable state, so this ties the
+implementation to them; the same model is `docs/formal/MirrorFlags.tla`, which
+TLC has not been run on.
 """
 
 from __future__ import annotations
@@ -91,7 +93,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         elif kind == "focus":
             path = self.path(int(arg))
             rewrite(path, {**json.loads(path.read_text()), "lastFocusedAt": next(self.focus)})
-            nxt = state
+            nxt = model.focus(state, int(arg))
         else:                                               # stale
             account = int(arg)
             nxt = model.app_save(state, account, stale=True)
@@ -113,6 +115,15 @@ class MirrorAgainstModel(RuleBasedStateMachine):
     def environment(self, action):
         self.apply(action)
 
+    def flip(self) -> None:
+        """The user changes the flag in the loaded account, so the copies disagree."""
+        here = self.state.loaded
+        self.apply("user_set_false" if self.state.copy[here] else "user_set_true")
+
+    @rule()
+    def user_flip(self):
+        self.flip()
+
     @rule()
     def full_pass(self):
         assert self.running.run_once().state == "ok"
@@ -133,6 +144,42 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             patch.setattr(mirror.Mirror, "sync_flags", interleave)
             assert self.running.run_once().state == "ok"
         self.state = model.pass_publish(self.state)
+
+    @rule(flip=st.booleans(), k=st.integers(min_value=0, max_value=2),
+          actions=st.lists(st.sampled_from(ENVIRONMENT), min_size=1, max_size=3))
+    def pass_with_writes_during_publish(self, flip, k, actions):
+        """App and user writes land just before the publish's k-th write (after
+        a user's flip, so that there is something to publish)."""
+        if flip:
+            self.flip()
+        state = model.pass_check(model.pass_decide(self.state))
+        for _ in range(k):
+            if state.phase != model.PUBLISHING:
+                break
+            state = model.pass_write(state)
+        reached = state.phase == model.PUBLISHING
+        at_k = state
+        install = mirror._install
+        calls = itertools.count()
+        applied = []
+
+        def racing(temporary, destination, **kwargs):
+            if kwargs.get("expect") is not None and next(calls) == k:
+                applied.append(destination)
+                self.state = at_k
+                for action in actions:
+                    self.apply(action)
+            return install(temporary, destination, **kwargs)
+
+        with self.monkeypatch.context() as patch:
+            patch.setattr(mirror, "_install", racing)
+            assert self.running.run_once().state == "ok"
+        assert bool(applied) == reached, "the code and the model reach the same write"
+        if reached:
+            state = self.state
+            while state.phase == model.PUBLISHING:
+                state = model.pass_write(state)
+        self.state = state
 
     @rule()
     def pass_cancelled_before_publish(self):
@@ -174,7 +221,7 @@ def test_the_mirror_follows_its_flag_protocol_on_random_interleavings(
     exhaustively checked invariants hold for the mirror on every trace tried."""
     run_state_machine_as_test(
         lambda: MirrorAgainstModel(tmp_path_factory.mktemp("trace"), monkeypatch),
-        settings=settings(max_examples=60, stateful_step_count=25, deadline=None,
+        settings=settings(max_examples=100, stateful_step_count=30, deadline=None,
                           derandomize=True, database=None,
                           suppress_health_check=[HealthCheck.too_slow,
                                                  HealthCheck.function_scoped_fixture]))

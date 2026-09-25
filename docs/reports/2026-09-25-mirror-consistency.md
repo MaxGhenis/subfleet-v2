@@ -80,9 +80,13 @@ the machine from starving the daemon.
   47 s.
 - **An alert that does not depend on the daemon.**
   `~/chief-of-staff/bin/mirror-watch` (launchd `com.maxghenis.cos.mirror-watch`,
-  every 5 min) reads only the sidecar. When no pass has finished for 10
-  minutes it sends one `say --class alert --key subfleet-mirror-stale`, naming
-  the stalled stage and the daemon lock's holder, and it logs the recovery.
+  every 5 min) reads the sidecar, `policy.json` and `daemon.lock`. When no
+  pass has finished for 10 minutes it sends one `say --class alert --key
+  subfleet-mirror-stale`, naming the stalled stage and, if it is alive, the
+  daemon lock's holder. It logs the recovery. This is stricter than C-23.28,
+  which calls a pass in flight healthy for 30 minutes. That is deliberate: with
+  PR #41 a pass takes seconds, so a pass still running after 10 minutes is
+  itself the fault.
 - **The stopgap on 2026-09-25.** With the daemon in a crash loop, one pass of
   the installed mirror ran as a separate `subfleet sessions mirror --once`
   process, which the daemon's crashes could not cancel. It finished at
@@ -94,55 +98,92 @@ the machine from starving the daemon.
 
 ## Invariants
 
-The flag protocol covers one session and one boolean flag (`isArchived`;
-`isStarred` takes the same code path). Each account folder holds a copy, and
-the merge base in `mirror-flags.json` holds the last synced value.
+The flag protocol covers one session and one boolean flag. The flag is
+`isArchived`; `isStarred` runs through the same loop with its own no-base
+value, starred-anywhere, which `test_starred_anywhere_wins_with_no_base` pins.
+Each account folder holds a copy, and the merge base in `mirror-flags.json`
+holds the last synced value.
 
-- **Decide.** A pass reads every copy, then decides: agreement wins; otherwise
-  the change from the base wins. With no base yet, archived-anywhere wins (v1's
-  rule for the historical backlog).
-- **Publish.** It writes the copies that read differently, all or nothing, and
-  only if each is still what it read. A batch split by a racing save is rolled
-  back. Then it advances the base.
+- **Decide.** A pass reads every copy, then decides. Agreement wins; otherwise
+  the change from the base wins. With no base yet, archived-anywhere wins
+  (v1's rule for the historical backlog).
+- **Check.** It re-reads every copy it will write. If any no longer holds the
+  value it read, nothing is written and the base is kept.
+- **Write.** It writes the copies one at a time, in path order. A write that
+  finds its copy rewritten since the check fails, and the copies already
+  written are put back, except any rewritten since then. The base is kept.
+- **Advance.** After the last write, the base takes the decided value.
 
 | Invariant | Statement |
 |---|---|
-| Convergence | One uninterrupted pass leaves every copy and the base equal. |
+| Convergence | A pass with nothing written in between leaves every copy and the base equal to the value decided. |
 | Change wins, both ways | When every copy that differs from the base holds the same value, that value is decided (archive or unarchive). |
 | Idempotence | A converged state with its base decides itself and writes nothing. |
 | Cancellation safety | A cancelled pass changes no copy and no base. |
-| No lost update | The mirror writes only copies still as it read them. |
-| All or nothing | A held batch writes nothing and keeps the base. |
-| Base agreement | After a publish that went through, the base is the value decided and every copy the pass read differently holds it. |
-| Never undo a settled value | Once a clean publish converged every copy and no user acted since, no pass writes any other value. This is the brief's "no resurrection", in both directions. |
+| No lost update | The mirror writes only a copy that nobody has rewritten since it last checked or wrote it. |
+| All or nothing | A held session writes nothing and keeps its base. A write that fails puts back every copy the publish wrote, except one rewritten since, and keeps the base. |
+| Base agreement | After a publish that went through, the base is the decided value. Every copy the pass read differently holds that value, unless the app or the user rewrote it since. |
+| Never undo a settled value | Once a clean publish converged every copy and no user has acted since, no pass writes any other value. This is the brief's "no resurrection", in both directions. |
+
+"No lost update" has one gap, which no check can close. The app can rename its
+save into place in the instant between the mirror's last signature check and
+the mirror's own rename, because rename(2) cannot compare first. That save is
+then overwritten. The model leaves this window of one syscall out. The code
+re-checks right before the rename to keep it that narrow.
 
 ### How they are established
 
 | Method | Where | Result |
 |---|---|---|
-| Specification | `docs/formal/MirrorFlags.tla`; configs `MirrorFlags.cfg` (honest app) and `MirrorFlagsStale.cfg` (stale saves) | Written, not run under TLC: no Java runtime is installed, and the exhaustive twin below covers the same state space. TLC can be added to CI later. |
-| Exhaustive model check | `tests/mirror_flags_model.py`, the executable twin of the spec, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 1,538 states, every invariant holds. Stale saves allowed: only "never undo a settled value" fails. |
-| Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | Every file's flag and the merge base equal the model's after every step. The steps are user archive and unarchive, switches, focus rewrites, stale re-saves, full passes, passes with writes between read and publish, and cancelled passes. |
-| Mutation | Six hand-written mutants of `sync_flags`, each run against the mirror's three test files | All six killed; see the table below. |
+| Specification | `docs/formal/MirrorFlags.tla`, with configs `MirrorFlags.cfg` (honest app) and `MirrorFlagsStale.cfg` (stale saves) | Written, not run under TLC. On 2026-09-25 Max ruled to skip TLC for now. Running it needs `tla2tools.jar`, which is not installed; a Homebrew OpenJDK is, off `PATH`. The twin below checks the same properties. TLC can join CI later. |
+| Exhaustive model check | `tests/mirror_flags_model.py`, the spec's executable twin, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 15,164 states, and every property holds. Stale saves allowed: 20,640 states, and only "never undo a settled value" fails. |
+| Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | After every step, every file's flag and the merge base equal the model's. See below for the steps and coverage. |
+| Examples | `tests/unit/test_sessions_mirror_load_gap.py` | The rollback leaves an app save made after the mirror's write. A rolled-back copy still counts in the load-gap report. A rollback that cannot write journals the write it left. The no-base star rule holds. |
+| Mutation | Eleven hand-written mutants of `sync_flags` and its writes, each run against the mirror's three test files | All eleven killed; see the table below. |
+
+The differential test's steps are:
+- user archive, unarchive and flips;
+- switches;
+- focus rewrites;
+- stale re-saves;
+- full passes;
+- passes with writes between the read and the check;
+- passes with writes between two of the publish's writes;
+- cancelled passes.
+
+One run of 100 examples reaches 535 publishes, 39 of them rolled back.
 
 | Mutant | What it breaks | Killed by |
 |---|---|---|
 | no pre-check | writes over a copy that changed since the read | the stateful differential test |
-| held advances base | a held batch still moves the base | the stateful differential test |
+| write ignores its check | a write replaces a copy rewritten since the check | the stateful differential test |
+| no rollback | a failed write leaves the copies before it written | the stateful differential test |
+| rollback ignores its check | the rollback overwrites a save made after the mirror's write | the stateful differential test |
+| held advances base | a held session still moves the base | the stateful differential test |
 | bootstrap flipped | with no base, unarchived-anywhere wins | the stateful differential test |
 | change loses | the base value wins over a change | the stateful differential test |
-| no rollback | a batch split by a racing save stays split | `test_a_batch_split_by_a_racing_save_is_rolled_back` |
 | no cancellation point | a pass cancelled at publish still publishes | the stateful differential test |
+| star bootstrap flipped | with no base, unstarred-anywhere wins | `test_starred_anywhere_wins_with_no_base` |
+| base not synced | the merge base can be lost to a crash | `test_the_mirror_syncs_what_it_writes_before_the_rename` |
+| rollback not journaled | the load-gap report reads a rollback as the app's rewrite | `test_a_rolled_back_copy_still_waits_for_the_load` |
 
 "Honest app" means an app save never changes the flag in the file, as when the
 app's memory is current. The real app serializes each record from memory, so
-it is honest only while its memory is current. The checker's shortest
-counterexample with stale saves allowed is the known limit, step by step:
+it is honest only while its memory is current. With stale saves allowed, the
+checker finds two shapes of counterexample.
 
-1. The user acts, and a clean pass settles a value.
-2. An app whose memory predates the mirror's write saves the old value.
-3. The next pass reads that save as a change from the base and spreads it to
-   every account.
+- **From the unsynced start**, the shortest is the bootstrap rule:
+  1. With no base, the user unarchives in the loaded account.
+  2. Archived-anywhere overrides the unarchive.
+  3. The app's memory of the unarchive then comes back and spreads.
+- **From a settled state with a base**, the shortest is the known limit itself
+  (`test_from_a_settled_state_a_parked_accounts_stale_save_undoes_the_users_change`):
+  1. The user switches accounts and archives, and a clean pass settles it
+     everywhere.
+  2. The app still holds the first account's record from before the mirror's
+     write (a parked session), and saves the old value there.
+  3. The next pass reads that save as a change from the base and spreads it to
+     every account.
 
 ## Design question: an authoritative intent ledger
 
@@ -153,27 +194,34 @@ it. Logpile would read it and not own it.
 
 - **Today's incident.** No protocol could have prevented it: the mirror was
   not running. Liveness and the alert are the fix.
-- **The one known inconsistency.** A last-writer-wins register ranks writes by
-  recency. A stale re-save is always later than the user's change it undoes,
-  whether ranked by observation time or by file time, so the register would let
-  it win every time. The present merge base at least ignores copies that agree
-  with it. The fact that separates a user's change from a stale re-save is
-  which folder the app had loaded, and since when, at each write. A user can
-  act only in the loaded folder. A stale save comes from memory that predates
-  the mirror's write. That is an attribution problem, and the ledger's shape
-  does not solve it. A guard built on the app's load times was attempted in PR
-  #41 and removed after three adversarial review rounds found ways it undid a
+- **The one known inconsistency.** Stale re-saves win under both designs.
+  - A stale re-save never agrees with the base, so the merge base reads it as
+    a change and lets it win.
+  - A register ranked by file time lets it win too, because the re-save is
+    always later than the user's change it undoes.
+  - A register ranked by when the mirror observed a change is the merge base
+    under another name.
+
+  The fact that separates a user's change from a stale re-save is which
+  folder the app had loaded, and since when, at each write. A user can act
+  only in the loaded folder. A stale save comes from memory that predates the
+  mirror's write. That is an attribution problem, and the ledger's shape does
+  not solve it. A guard built on the app's load times was attempted in PR #41.
+  It was removed after three adversarial review rounds found ways it undid a
   user's real change.
+- **Where the merge base is better.** File time would rank an honest app save
+  that keeps the old value, such as a focus update in another account, above
+  the user's change. The merge base ignores any copy that agrees with it.
 - **What a ledger would add.** Provenance: which account a value was first
   seen in, and when. That helps diagnosis and fits in the existing
   `mirror-flags.json` records. It does not need a new store: the mirror also
   runs outside the daemon (`sessions mirror --once`), and a JSON file under the
   mirror lock serves both.
 
-**Recommendation.** Keep the merge base: it is the account-agnostic register,
-and it is now specified, model-checked and property-tested. Do not replace it
-with a last-writer-wins ledger, which would make the known limit worse.
-Attribute intent by load intervals as its own design, specified first. The
-design target is this spec with `StaleSaves = TRUE`: keep every invariant
-while an app may re-save a value it never saw change. It is recorded as a
-follow-up.
+**Recommendation.** Keep the merge base. It is the account-agnostic register,
+and it is now specified, model-checked and property-tested. A last-writer-wins
+ledger by file time would fix nothing on the known limit and would lose to
+honest saves elsewhere. Attribute intent by load intervals as its own design,
+specified first. The design target is this spec with `StaleSaves = TRUE`:
+keep every invariant while an app may re-save a value it never saw change. It
+is recorded as a follow-up.

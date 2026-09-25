@@ -1440,8 +1440,8 @@ def test_the_mirror_syncs_what_it_writes_before_the_rename(world, monkeypatch):
     monkeypatch.setattr(mirror.os, "fsync", lambda fd: synced.append(fd) or fsync(fd))
     result = engine(world).run_once()
     assert result.added == 1 and result.flag_synced == 0
-    assert len(synced) == 3, "the copy, and the ultracode rewrites of both copies; " \
-        "the mirror's own state files are not synced"
+    assert len(synced) == 4, "the copy, the ultracode rewrites of both copies, and the " \
+        "merge base; the journal and the sidecar only feed reports and are not synced"
 
 
 def test_a_batch_split_by_a_racing_save_is_rolled_back(world, monkeypatch):
@@ -1476,3 +1476,134 @@ def test_a_batch_split_by_a_racing_save_is_rolled_back(world, monkeypatch):
     rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": False})  # and un-stars
     running.run_once()
     assert not any(row["isStarred"] for row in copies(store, ONE).values())
+
+
+ACCOUNT_C, ORG_C = "acct-cccc", "org-cccc"
+
+
+def the_app_saves_first(monkeypatch, victim: Path, before=None) -> None:
+    """Fail the next flag write into `victim`, as an app save landing between
+    the pass's last check and its rename would; `before` runs first."""
+    install = mirror._install
+    raced = {"once": True}
+
+    def racing(temporary, destination, **kwargs):
+        if raced["once"] and destination == victim and kwargs.get("expect") is not None:
+            raced["once"] = False
+            if before is not None:
+                before()
+            temporary.unlink()
+            return False
+        return install(temporary, destination, **kwargs)
+
+    monkeypatch.setattr(mirror, "_install", racing)
+
+
+@pytest.mark.parametrize("race", [False, True])
+def test_a_rolled_back_copy_still_waits_for_the_load(world, monkeypatch, race):
+    """C-23.28: rolling back a split batch rewrites the copies it put back. The
+    report must still read each one as the mirror's copy the running app has
+    not listed, not as the app rewriting it (review round 4)."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    say(log, *loads(store, ACCOUNT_B, ORG_B, BEFORE))
+    running = engine(world)
+    assert running.run_once().added == 1
+    assert running.load_gap()["pending"] == 1
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    if race:
+        the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
+    running.run_once()
+    assert json.loads(b_copy.read_text())["isStarred"] is (not race)
+    assert running.load_gap()["pending"] == 1
+
+
+@pytest.mark.parametrize("race", [False, True])
+def test_a_rolled_back_flag_write_still_counts_as_stale(world, monkeypatch, race):
+    """C-23.28: the same for a flag write the running app has not seen: the
+    rollback of a later batch restores it and keeps it counted."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    running = engine(world)
+    running.now = lambda: fx.NOW - timedelta(hours=1)
+    running.run_once()
+    say(log, *loads(store, ACCOUNT_B, ORG_B, BEFORE))
+    running.now = lambda: fx.NOW
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isArchived": True})
+    running.run_once()
+    assert running.load_gap()["stale"] == 1
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    if race:
+        the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
+    running.run_once()
+    assert running.load_gap()["stale"] >= 1
+
+
+def test_a_rollback_leaves_an_app_save_made_after_the_mirror_wrote(world, monkeypatch):
+    """C-23.28: the rollback puts back only a copy still as the mirror wrote
+    it. A copy the app saved after the mirror's write keeps that save."""
+    home, store, _root, _log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+
+    def the_app_saves_b():
+        rewrite(b_copy, {**json.loads(b_copy.read_text()), "lastFocusedAt": 42})
+
+    the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json",
+                        before=the_app_saves_b)
+    running.run_once()
+    b = json.loads(b_copy.read_text())
+    assert b["lastFocusedAt"] == 42 and b["isStarred"] is True, "the app's save stands"
+
+
+def test_a_rollback_that_cannot_write_journals_the_write_it_left(world, monkeypatch):
+    """C-23.28: if putting a copy back fails, the mirror's write stands, and
+    the journal says so, so the report can count it."""
+    home, store, _root, _log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
+    write = mirror._write_json
+    written = []
+
+    def refuse_the_rollback(path, value, **kwargs):
+        if path == b_copy and written.count(path):
+            raise OSError("disk full")
+        written.append(path)
+        return write(path, value, **kwargs)
+
+    monkeypatch.setattr(mirror, "_write_json", refuse_the_rollback)
+    running.run_once()
+    assert json.loads(b_copy.read_text())["isStarred"] is True
+    rows = [row for row in running.journal.rows()
+            if row.name == b_copy.name and row.folder == f"{ACCOUNT_B}/{ORG_B}"]
+    assert rows[-1].kind == "updated" and rows[-1].ctime_ns == os.stat(b_copy).st_ctime_ns
+
+
+def test_starred_anywhere_wins_with_no_base(world):
+    """C-23.28: the bootstrap rule is set per flag. With no merge base, a star
+    in one copy wins, as an archive does, and the base records it."""
+    home, store, root, _log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    running = engine(world)
+    running.run_once()
+    assert all(row["isStarred"] for row in copies(store, ONE).values())
+    assert mirror._load(running.flags_path)[ONE]["isStarred"] is True

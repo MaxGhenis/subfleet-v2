@@ -4,26 +4,42 @@ This is the executable twin of `docs/formal/MirrorFlags.tla`: the same
 variables, the same actions, the same properties. `test_mirror_flags_model.py`
 explores every reachable state of it exhaustively, and
 `test_mirror_flags_stateful.py` drives the real `Mirror` on real files in
-lockstep with it, so the implementation, this model and the TLA+ spec are held
-to one meaning.
+lockstep with it, so the implementation and this model are held to one
+meaning. The TLA+ module states the same thing for TLC, which has not been run
+on it (Max, 2026-09-25: skip TLC for now).
 
-One session, one boolean flag (`isArchived`; `isStarred` is the same code
-path), a copy of its record in each account folder, and the merge base in
-`mirror-flags.json`. A full pass is two steps, because the app can write
-between them: `decide` snapshots every copy and decides by the merge base;
-`publish` writes the copies that disagree, all or nothing, only if each is
-still what the pass read, and then advances the base. A pass can be cancelled
-between the two (nothing is written: the code has no checkpoint inside
-publish).
+One session, one boolean flag (`isArchived`; `isStarred` runs through the same
+loop with its own bootstrap value), a copy of its record in each account
+folder, and the merge base in `mirror-flags.json`. A pass is a sequence of
+steps, because the app can write between any two:
 
-The app is modeled as `mirror.py`'s docstring and `desktop.py` describe it:
-it holds in memory the record of the folder it loaded (as it was on disk at
-that load) and of folders where a session still runs from an earlier account;
-a user's action changes the loaded folder's copy and the app's memory; any
-app save writes memory. With `stale=False` the app never saves a value that
-differs from the file (every save is a no-op for the flag, as when its memory
-is current). With `stale=True` it may: that is the re-save of a value the
-mirror changed after the app's load, the known limit in the 2026-09-24 report.
+* `pass_decide` snapshots every copy and decides by the merge base;
+* `pass_check` is `sync_flags`' pre-check: if any copy the pass would write no
+  longer holds the value it read, the session is held (nothing written, base
+  kept); otherwise the publish starts;
+* `pass_write` writes one copy, in path order. The write fails if the app or
+  the user rewrote that copy since the pre-check (the code's signature check
+  before the rename); the copies already written, and not rewritten since,
+  are then put back, and the base is kept. After the last write the base
+  advances.
+
+A pass can be cancelled only between the decision and the pre-check: the
+code's last cancellation point is before the publish.
+
+The app is modeled as `mirror.py`'s docstring and `desktop.py` describe it: it
+holds in memory the record of the folder it loaded (as it was on disk at that
+load) and of folders where a session still runs from an earlier account; a
+user's action changes the loaded folder's copy and the app's memory; any app
+save writes memory. `focus` is an app save that keeps the flag (an activity or
+focus update): it changes the file, so it matters only to a publish in
+progress. With `stale=False` the app never saves a flag that differs from the
+file (as when its memory is current). With `stale=True` it may: that is the
+re-save of a value the mirror changed after the app's load, the known limit
+in the 2026-09-24 report.
+
+What the model does not cover: an app rename landing between the code's last
+signature check and its own `os.replace` (a window of one syscall), which the
+code can narrow but not close with rename(2).
 """
 
 from __future__ import annotations
@@ -32,7 +48,7 @@ from collections import deque
 from dataclasses import dataclass, replace
 from typing import Iterator
 
-IDLE, DECIDED = "idle", "decided"
+IDLE, DECIDED, PUBLISHING = "idle", "decided", "publishing"
 
 
 @dataclass(frozen=True)
@@ -44,6 +60,12 @@ class State:
     phase: str = IDLE
     snap: tuple[bool, ...] | None = None
     decided: bool | None = None
+    #: While publishing: the copies still to write, in path order.
+    pending: tuple[int, ...] = ()
+    #: While publishing: the copies this publish has written.
+    written: tuple[int, ...] = ()
+    #: While publishing: the copies the app or the user rewrote since the pre-check.
+    touched: frozenset[int] = frozenset()
     #: Ghost: the value a clean publish converged every copy to, cleared by
     #: any user action. While set, no pass may write anything else.
     settled: bool | None = None
@@ -65,6 +87,21 @@ def initial(accounts: int, value: bool = False) -> State:
                  mem=(value,) + (None,) * (accounts - 1))
 
 
+def _touch(state: State, account: int) -> frozenset[int]:
+    return state.touched | {account} if state.phase == PUBLISHING else state.touched
+
+
+def _idle(state: State) -> State:
+    return replace(state, phase=IDLE, snap=None, decided=None, pending=(), written=(),
+                   touched=frozenset())
+
+
+def _finish(state: State, copy: tuple[bool, ...]) -> State:
+    converged = all(value == state.decided for value in copy)
+    return replace(_idle(state), copy=copy, base=state.decided,
+                   settled=state.decided if converged else None)
+
+
 # --- actions (each returns the next state, or None when not enabled) --------------
 
 def load(state: State, account: int) -> State | None:
@@ -81,7 +118,8 @@ def user_set(state: State, value: bool) -> State | None:
         return None
     copy, mem = list(state.copy), list(state.mem)
     copy[here] = mem[here] = value
-    return replace(state, copy=tuple(copy), mem=tuple(mem), settled=None)
+    return replace(state, copy=tuple(copy), mem=tuple(mem), settled=None,
+                   touched=_touch(state, here))
 
 
 def app_save(state: State, account: int, *, stale: bool) -> State | None:
@@ -91,7 +129,13 @@ def app_save(state: State, account: int, *, stale: bool) -> State | None:
         return None
     copy = list(state.copy)
     copy[account] = held
-    return replace(state, copy=tuple(copy))
+    return replace(state, copy=tuple(copy), touched=_touch(state, account))
+
+
+def focus(state: State, account: int) -> State:
+    """An app save that keeps the flag. It changes nothing the protocol reads,
+    except that a publish in progress must not write over it."""
+    return replace(state, touched=_touch(state, account))
 
 
 def pass_decide(state: State) -> State | None:
@@ -101,26 +145,61 @@ def pass_decide(state: State) -> State | None:
                    decided=decide(state.copy, state.base))
 
 
-def pass_publish(state: State) -> State | None:
+def dirty(state: State) -> tuple[int, ...]:
+    assert state.snap is not None
+    return tuple(a for a, seen in enumerate(state.snap) if seen != state.decided)
+
+
+def held(state: State) -> bool:
+    assert state.snap is not None
+    return any(state.copy[a] != state.snap[a] for a in dirty(state))
+
+
+def pass_check(state: State) -> State | None:
     if state.phase != DECIDED:
         return None
+    if held(state):
+        return _idle(state)                 # nothing written, base kept
+    if not dirty(state):
+        return _finish(state, state.copy)
+    return replace(state, phase=PUBLISHING, pending=dirty(state), written=(),
+                   touched=frozenset())
+
+
+def rolls_back(state: State) -> bool:
+    return state.phase == PUBLISHING and state.pending[0] in state.touched
+
+
+def pass_write(state: State) -> State | None:
+    if state.phase != PUBLISHING:
+        return None
     assert state.snap is not None and state.decided is not None
-    dirty = [a for a, seen in enumerate(state.snap) if seen != state.decided]
-    done = replace(state, phase=IDLE, snap=None, decided=None)
-    if any(state.copy[a] != state.snap[a] for a in dirty):
-        return done                         # held: nothing written, base kept
+    target = state.pending[0]
     copy = list(state.copy)
-    for a in dirty:
-        copy[a] = state.decided
-    converged = all(value == state.decided for value in copy)
-    return replace(done, copy=tuple(copy), base=state.decided,
-                   settled=state.decided if converged else None)
+    if target in state.touched:
+        for a in state.written:
+            if a not in state.touched:
+                copy[a] = state.snap[a]
+        return replace(_idle(state), copy=tuple(copy))
+    copy[target] = state.decided
+    if len(state.pending) == 1:
+        return _finish(state, tuple(copy))
+    return replace(state, copy=tuple(copy), pending=state.pending[1:],
+                   written=state.written + (target,))
+
+
+def pass_publish(state: State) -> State:
+    """The pre-check and every write, with nothing in between."""
+    state = pass_check(state)
+    while state.phase == PUBLISHING:
+        state = pass_write(state)
+    return state
 
 
 def cancel(state: State) -> State | None:
     if state.phase != DECIDED:
         return None
-    return replace(state, phase=IDLE, snap=None, decided=None)
+    return _idle(state)
 
 
 def successors(state: State, *, stale: bool) -> Iterator[tuple[str, State]]:
@@ -132,12 +211,14 @@ def successors(state: State, *, stale: bool) -> Iterator[tuple[str, State]]:
         nxt = app_save(state, a, stale=stale)
         if nxt is not None:
             yield f"app_save({a})", nxt
+        if state.phase == PUBLISHING and a not in state.touched:
+            yield f"focus({a})", focus(state, a)
     for value in (False, True):
         nxt = user_set(state, value)
         if nxt is not None:
             yield f"user_set({value})", nxt
-    for name, step in (("pass_decide", pass_decide), ("pass_publish", pass_publish),
-                       ("cancel", cancel)):
+    for name, step in (("pass_decide", pass_decide), ("pass_check", pass_check),
+                       ("pass_write", pass_write), ("cancel", cancel)):
         nxt = step(state)
         if nxt is not None:
             yield name, nxt
@@ -148,6 +229,7 @@ def successors(state: State, *, stale: bool) -> Iterator[tuple[str, State]]:
 def check_step(before: State, label: str, after: State) -> list[str]:
     """The step properties; each names what it proves. Empty means all hold."""
     broken = []
+    wrote = {a for a in range(len(before.copy)) if after.copy[a] != before.copy[a]}
     if label == "pass_decide":
         values = set(before.copy)
         # Idempotence: a converged state with its base decides itself.
@@ -159,21 +241,38 @@ def check_step(before: State, label: str, after: State) -> list[str]:
             moved = {v for v in before.copy if v != before.base}
             if len(moved) == 1 and after.decided not in moved:
                 broken.append("change-wins")
-    if label == "pass_publish" and before.snap is not None:
-        wrote = {a for a in range(len(before.copy)) if after.copy[a] != before.copy[a]}
-        dirty = [a for a, seen in enumerate(before.snap) if seen != before.decided]
-        held = any(before.copy[a] != before.snap[a] for a in dirty)
-        # No lost update: the mirror writes only copies still as it read them.
-        if any(before.copy[a] != before.snap[a] for a in wrote):
-            broken.append("no-lost-update")
-        # A held batch writes nothing and keeps the base (all or nothing).
-        if held and (wrote or after.base != before.base):
+    if label == "pass_check":
+        # The pre-check writes nothing. A held session keeps its base (all or
+        # nothing); one with nothing to write advances it (base agreement).
+        if wrote:
             broken.append("hold-writes-nothing")
-        # Base agreement: after a publish that went through, the base is the
-        # value decided and every copy the pass read differently now holds it.
-        if not held and (after.base != before.decided
-                         or any(after.copy[a] != before.decided for a in dirty)):
+        if held(before) and after.base != before.base:
+            broken.append("hold-writes-nothing")
+        if not held(before) and not dirty(before) and after.base != before.decided:
             broken.append("base-agreement")
+    if label == "pass_write":
+        # No lost update: the mirror writes only a copy nobody rewrote since it
+        # last checked it (a pending copy) or wrote it (a written one).
+        if any(a in before.touched
+               or not (before.copy[a] == before.snap[a] or a in before.written)
+               for a in wrote):
+            broken.append("no-lost-update")
+        if rolls_back(before):
+            # All or nothing: a failed write puts back every copy the publish
+            # wrote, except one rewritten since, and keeps the base.
+            if (after.base != before.base
+                    or any(after.copy[a] != before.snap[a]
+                           for a in before.written if a not in before.touched)
+                    or any(a not in before.written for a in wrote)):
+                broken.append("all-or-nothing")
+        elif after.phase == IDLE:
+            # Base agreement: after a publish that went through, the base is
+            # the value decided and every copy the pass read differently holds
+            # it, unless the app or the user rewrote it since.
+            if (after.base != before.decided
+                    or any(after.copy[a] != before.decided
+                           for a in dirty(before) if a not in before.touched)):
+                broken.append("base-agreement")
         # Never undo a settled value: once a clean publish converged every copy
         # and no user acted since, no pass writes anything else. This is the
         # brief's "no resurrection", in both directions.
@@ -185,21 +284,21 @@ def check_step(before: State, label: str, after: State) -> list[str]:
 
 
 def converges_in_one_clean_pass(state: State) -> bool:
-    """From an idle state, one uninterrupted pass leaves every copy and the base equal."""
+    """From an idle state, one pass with nothing written in between leaves
+    every copy and the base equal to the value decided."""
     if state.phase != IDLE:
         return True
-    after = pass_publish(pass_decide(state))
-    return len(set(after.copy)) == 1 and after.base == after.copy[0]
+    decided = pass_decide(state)
+    after = pass_publish(decided)
+    return all(value == decided.decided for value in after.copy) and after.base == decided.decided
 
 
 def explore(accounts: int = 3, *, stale: bool,
-            start: tuple[bool, ...] | None = None) -> tuple[int, dict[str, tuple]]:
+            roots: list[State] | None = None) -> tuple[int, dict[str, tuple]]:
     """Breadth-first over every reachable state; returns (states, first
     counterexample trace per broken property)."""
-    roots = [initial(accounts, value) for value in (False, True)]
-    if start is not None:
-        roots = [State(copy=start, base=None, loaded=0,
-                       mem=(start[0],) + (None,) * (accounts - 1))]
+    if roots is None:
+        roots = [initial(accounts, value) for value in (False, True)]
     seen: dict[State, tuple] = {root: () for root in roots}
     queue: deque[State] = deque(roots)
     broken: dict[str, tuple] = {}

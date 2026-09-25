@@ -164,7 +164,9 @@ Commit on `fix/mirror-load-time-gap`; clause C-23.28, second half.
     worktree move changes `cwd` on a record newer than the copy. Repairing those
     would undo the /clear at the next load. A frozen or torn copy is still
     repaired, as v1 did.
-  - Written files are fsynced before the rename, as the app does.
+  - Records written into the app's store, and the merge base, are fsynced
+    before the rename, as the app does. The journal and the sidecar only
+    feed reports and are not.
   - A folder that cannot be listed is skipped for that pass rather than taken
     as empty, and the write journal merges rows another process (a manual
     `sessions mirror`) saved, so the report counts every late copy.

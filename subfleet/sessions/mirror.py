@@ -982,6 +982,29 @@ class Mirror:
                                 str(data.get("title") or ""), kind,
                                 self.now().timestamp(), info.st_ctime_ns))
 
+    def _journal_restamp(self, destination: Path, was: tuple[int, ...], inode: int) -> None:
+        """The mirror put back the file it had found as `was`: carry its journal row over.
+
+        A rollback gives the file a new ctime. If the file it restored was the
+        mirror's own last write (its journal row's ctime is `was`'s), the report
+        must still read it as that write, not as the app rewriting it.
+        """
+        folder = f"{destination.parent.parent.name}/{destination.parent.name}"
+        rows = sorted((row for row in self.journal.rows()
+                       if row.folder == folder and row.name == destination.name),
+                      key=lambda row: row.at)
+        if not rows or rows[-1].ctime_ns != was[4]:
+            return                            # it restored the app's own save
+        try:
+            info = os.stat(destination)
+        except OSError:
+            return
+        if info.st_ino != inode:
+            return
+        last = rows[-1]
+        self.journal.add(_Write(last.folder, last.name, last.identity, last.title, last.kind,
+                                last.at, info.st_ctime_ns))
+
     def _place(self, source: Path, destination: Path, identity: str, data: dict,
                kind: str, current: Pass, *, expect: tuple[int, ...] | None = None,
                exclusive: bool = False) -> bool:
@@ -1181,9 +1204,14 @@ class Mirror:
         the rest of the record is the app's newest. Each session's writes are
         all or nothing: if any copy's synced fields moved since this pass read
         it, none is written and the session's merge base is not advanced, so the
-        next pass decides again on what is there. (A save that lands in the
-        instant between the last check and a rename can still split a batch;
-        the base is then held, and the next pass settles it.)
+        next pass decides again on what is there. A save that lands after
+        that check fails the write of its copy; the copies already written
+        are then put back (any rewritten since are left alone), and the base
+        is held. What no check can catch is an app rename in the instant
+        between the last signature check and the mirror's own rename, which
+        rename(2) cannot compare first: that save is overwritten. The protocol
+        is specified in docs/formal/MirrorFlags.tla, with an executable twin
+        in tests/mirror_flags_model.py.
 
         Known limit: the app saves a record from memory, so a folder it holds
         (the loaded one, or one where an earlier account's session still runs)
@@ -1349,7 +1377,7 @@ class Mirror:
                             body[key] = resolved[key]
                     ready.append((target, body, before, resolved, expect))
                 else:
-                    written: list[tuple[Path, dict, int, tuple[int, ...]]] = []
+                    written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]] = []
                     for target, body, before, resolved, expect in ready:
                         try:
                             self._forget(target)
@@ -1362,13 +1390,19 @@ class Mirror:
                             # check. Put back the copies already written, so the
                             # held merge base matches every file again (a copy
                             # changed since the mirror's write is left alone).
-                            for done, old, done_inode, done_expect in reversed(written):
+                            for done, old, done_inode, done_expect, was in reversed(written):
                                 try:
                                     self._forget(done)
-                                    _write_json(done, old, keep_mtime=True, expect=done_expect,
-                                                sync=True)
+                                    back = _write_json(done, old, keep_mtime=True,
+                                                       expect=done_expect, sync=True)
                                 except (OSError, ValueError):
-                                    pass
+                                    # The mirror's write stands: journal it.
+                                    self._journal_write(done, done_inode, identity,
+                                                        folder_files[done.parent][done.name],
+                                                        "updated")
+                                    continue
+                                if back is not None:
+                                    self._journal_restamp(done, was, back)
                             held.add(identity)
                             break
                         try:
@@ -1376,9 +1410,9 @@ class Mirror:
                         except OSError:
                             now_signature = None
                         if now_signature is not None and now_signature[1] == inode:
-                            written.append((target, before, inode, now_signature))
+                            written.append((target, before, inode, now_signature, expect))
                     else:
-                        for target, _before, inode, _signature in written:
+                        for target, _before, inode, _signature, _was in written:
                             self._journal_write(target, inode, identity,
                                                 folder_files[target.parent][target.name], "updated")
                     continue
@@ -1390,7 +1424,9 @@ class Mirror:
                     fresh.pop(identity, None)
             self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
             try:
-                _write_json(self.flags_path, fresh)
+                # Synced like the records it describes: a base lost to a crash
+                # would hand every divergent session to the bootstrap rule.
+                _write_json(self.flags_path, fresh, sync=True)
             except OSError:
                 pass
         return dirty
