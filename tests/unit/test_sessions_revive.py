@@ -383,12 +383,17 @@ def test_old_claude_cli_reported_as_host_fault_not_no_lane(world, policy, tmp_pa
     assert "no lane serves" not in every_reason
 
 
-@pytest.mark.parametrize("request_id,minted", [(None, True), ("operator-rid", False)])
+@pytest.mark.parametrize("request_id,given,minted", [
+    (None, None, True), ("operator-rid", None, False),
+    ("cli-minted", True, True),            # what every sessions CLI path passes
+    ("cli-minted", False, False)])
 def test_c16_3_revive_says_whether_it_minted_the_request_id(world, policy, tmp_path,
-                                                             request_id, minted):
+                                                             request_id, given, minted):
     """C-16.3: a revive's own fresh id makes a job found after a refused re-send its own;
-    an operator's id keeps the refusal. The kit is told which."""
+    an operator's id keeps the refusal. The kit is told which, and an explicit `minted`
+    (the CLI mints the id before calling) reaches it unchanged."""
     cold_session(world)
     daemon = fx.FakeSessions()
-    attempt(daemon, policy, COLD, tmp_path, opt_in=True, request_id=request_id)
+    extra = {} if given is None else {"minted": given}
+    attempt(daemon, policy, COLD, tmp_path, opt_in=True, request_id=request_id, **extra)
     assert daemon.minted == [minted]

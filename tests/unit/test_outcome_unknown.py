@@ -490,6 +490,8 @@ def test_c17_7_the_table_says_unknown_and_not_sent(daemon, capsys, manifest):
     assert "[2] fv2-s2 outcome unknown" in captured.err
     assert "[3] fv2-s3 not sent" in captured.err
     assert "NOT submitted" not in captured.err
+    # C-16.3: the unknown entry names the lookup that finds it by request id.
+    assert "look: subfleet runs --request-id " in captured.err
 
 
 def test_c17_7_re_running_with_the_batch_id_creates_nothing_twice(daemon, capsys, manifest):
@@ -730,11 +732,12 @@ def test_c16_3_an_unknown_resolution_says_to_repeat_the_resolution(daemon, capsy
     """C-16.3, C-5.7: a quarantine resolution sent twice unanswered is retried with its own
     flag and note; plain `kill` would only answer "already finished"."""
     daemon({"kill": lambda request: b""})
-    assert cli.main(["kill", "JOB-1", flag, "--note", "checked by hand"]) == 1
+    assert cli.main(["kill", "JOB$1", flag, "--note", "checked by hand"]) == 1
     err = capsys.readouterr().err
     assert f"the {flag} resolution may have been requested" in err
-    assert f"subfleet kill JOB-1 {flag} --note 'checked by hand' again is safe" in err
-    assert "cancel_requested_at" not in err
+    assert f"subfleet kill 'JOB$1' {flag} --note 'checked by hand' again is safe" in err
+    assert "subfleet runs show 'JOB$1' shows whether the attempt is still quarantined" in err
+    assert "cancel_requested_at" not in err and "leases" not in err
 
 
 class _Captured(Exception):
@@ -782,3 +785,7 @@ def test_c16_3_every_sessions_call_into_revive_or_handoff_says_whose_id_it_is():
                                                           ("handoff_module", "handoff")}]
     assert len(calls) == 4                     # continue (revive, handoff), revive, handoff
     assert all(any(k.arg == "minted" for k in call.keywords) for call in calls)
+    constant = [next(k.value.value for k in call.keywords if k.arg == "minted")
+                for call in calls
+                if isinstance(next(k.value for k in call.keywords if k.arg == "minted"), ast.Constant)]
+    assert constant == [True, True, True]      # the paths that mint the id just above
