@@ -1319,9 +1319,8 @@ class ConversationService:
         launch = codex_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,
                               credential_env=credential_env, model_id=model_id,
                               executable=guard_result.executable or "codex", override=guard_result.override,
-                              # C-23.6: forced off where a turn's shell reaches the network (d260).
-                              unified_exec_off=os.environ.get("SUBFLEET_CODEX_UNIFIED_EXEC") == "off"
-                              or codex_turn.network_granted(turn["settings"]["permission"], bool(turn.get("network"))))
+                              unified_exec_off=codex_turn.unified_exec_off(turn["settings"]["permission"],
+                                                                           bool(turn.get("network"))))
         launch.notes["guard_hash"] = guard_result.hooks_hash
         return launch
 

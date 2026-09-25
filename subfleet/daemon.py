@@ -150,14 +150,20 @@ WRITE_PREAMBLE = (
 #: (C-6.6, C-13.1). Without it a brief's absolute paths lead a writer back into
 #: the caller's checkout, which the job must never touch (review of d261).
 WORKSPACE_NOTE = (
-    "Your workspace is {launch_dir}: a detached checkout of {top} at commit {head}, made "
+    "Your workspace is {worktree}: a detached checkout of {top} at commit {head}, made "
     "for this job. It holds only what is committed there, none of the caller's uncommitted, "
     "untracked or ignored files (dependencies such as .venv or node_modules may need "
     "installing). The checkout at {top} is the caller's: where the task names a path in it, "
-    "use the same relative path in your workspace, and never write under {top}. When the job "
-    "ends, Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in "
+    "use the same relative path in your workspace, and never write under {top}.{place} When the "
+    "job ends, Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in "
     "that repository.\n\n"
 )
+#: The caller ran the job from a directory below the repository's top (review B-4).
+WORKSPACE_PLACE = (" The caller ran this job from {top}/{prefix}: a path the task gives relative to "
+                   "that directory is relative to {worktree}/{prefix} here, so work from there.")
+WORKSPACE_PLACE_UNCOMMITTED = (" The caller ran this job from {top}/{prefix}, which commit {head} does not "
+                               "hold, so your workspace has no {prefix}: create what the task needs there, "
+                               "under {worktree}.")
 HEADLESS_PREAMBLE = (
     HEADLESS_MARKER + "\nThis is a delegated, headless job. Complete the task "
     "autonomously, preserve the caller's work, and return a final deliverable.\n\n"
@@ -190,6 +196,20 @@ def json_bytes(value: Any) -> bytes:
 
 class DaemonUnavailable(RuntimeError):
     code = 69
+
+
+def _commit_holds_dir(top: str, commit: str, prefix: str, cap: float) -> bool | None:
+    """Whether `commit` holds the directory `prefix` (relative to `top`), so a
+    worktree cut at it will: None when git cannot say."""
+    try:
+        found = subprocess.run(["git", "--literal-pathspecs", "-C", top, "ls-tree", "-d", "-z", commit, "--", prefix],
+                               capture_output=True, timeout=cap)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if found.returncode:
+        return None
+    entries = [entry.split(b"\t", 1) for entry in found.stdout.split(b"\0") if b"\t" in entry]
+    return any(meta.split()[1:2] == [b"tree"] and path == os.fsencode(prefix) for meta, path in entries)
 
 
 class Daemon:
@@ -1027,13 +1047,15 @@ class Daemon:
             if turn is None:
                 try:
                     cleared = self._writable_precheck(values, instance, write_target)
-                    self._validate_conflicts(values, cleared, write_target)
                 except AdapterError as exc:
                     if not from_policy or sandbox != Sandbox.WORKSPACE_WRITE:
                         raise
-                    # d261: the caller did not ask to write; say who did, and the way out.
-                    raise AdapterError(f"{exc} ({args.task} jobs write by policy)", code=exc.code,
+                    # d261: the caller did not ask to write; say who did, and the way
+                    # out. Only the writers' refusals: a read-only job would meet the
+                    # others (a cancelled parent, a held output path) all the same.
+                    raise AdapterError(f"{exc} ({args.task or 'these'} jobs write by policy)", code=exc.code,
                                        fix=(exc.fix + "; or " if exc.fix else "") + "pass -s read-only") from exc
+                self._validate_conflicts(values, cleared, write_target)
             else:
                 # C-26.1, IR-12: a turn waits for its workspace at admission (the
                 # `worktree:` lease), it is never refused here.
@@ -1048,19 +1070,36 @@ class Daemon:
             if turn is not None:
                 manifest["turn"] = turn
             note = b""
+            if resume and resume.get("workspace"):
+                # Review B-2: a resume starts where its source started (`_launch_dir`).
+                manifest["workspace"] = resume.pop("workspace")
             if sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None and head is not None:
                 # C-6.6: the worktree is cut at admission; where it will be and where
                 # in it the job starts (the caller's place in the repository) are
                 # known now.
-                top = git_toplevel(str(workdir), timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
+                cap = self.policy["caps"]["workspace_git_timeout_s"]
+                top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
                 prefix = os.path.relpath(os.path.realpath(workdir), os.path.realpath(top))
                 worktree = self.root / "worktrees" / job_id
-                launch_dir = worktree if prefix == "." else worktree / prefix
+                place = ""
+                if prefix != ".":
+                    held = _commit_holds_dir(top, head, prefix, cap)
+                    place = (WORKSPACE_PLACE_UNCOMMITTED if held is False else WORKSPACE_PLACE).format(
+                        top=top, prefix=prefix, worktree=worktree, head=head[:12])
+                    if held is False:
+                        # Review B-4: the worktree will not hold it; start at the top.
+                        prefix = "."
                 manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
-                note = WORKSPACE_NOTE.format(launch_dir=launch_dir, top=top, head=head[:12]).encode()
-            if sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble:
+                note = WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12], place=place).encode()
+            preamble = sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble
+            if sandbox == Sandbox.WORKSPACE_WRITE:
+                manifest["preamble"] = preamble
+            if preamble or note:
+                # Review B-3: `--no-preamble` drops the template, never the note on
+                # where the job may write.
                 prepared_path = jobdir / "prompt.prepared.md"
-                self._publish("prompt-prepared", prepared_path, WRITE_PREAMBLE.encode() + note + prompt)
+                self._publish("prompt-prepared", prepared_path,
+                              (WRITE_PREAMBLE.encode() if preamble else b"") + note + prompt)
                 manifest["prepared_prompt_path"] = str(prepared_path)
             self._publish("manifest", jobdir / "manifest.json", json_bytes(manifest))
             authorization = ({"unmeasured_reserve_authorization": {
@@ -1172,16 +1211,26 @@ class Daemon:
         # that was an allocated worktree containing uncommitted provider work.
         # Independent allows continuing a cancelled source without reviving its
         # parent's old cancellation request (C-7.3).
+        source_manifest = self._read_json(self.root / "jobs" / source["job_id"] / "manifest.json") or {}
+        preamble = source_manifest.get("preamble")
+        if preamble is None:
+            # A source submitted before the manifest said: its prepared prompt did.
+            preamble = (self.root / "jobs" / source["job_id"] / "prompt.prepared.md").is_file()
         args = dataclasses.replace(args, workdir=source["worktree"] or source["workdir"],
             sandbox=source["sandbox"], in_place=source["sandbox"] == "workspace-write",
             pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
             exclusions=json.loads(source["exclusions"] or "[]"),
-            independent=True, allow_tmp=True,
-            no_preamble=not (self.root / "jobs" / source["job_id"] / "prompt.prepared.md").is_file())
-        return args, {"source_job_id": source["job_id"], "source_attempt_id": attempt["attempt_id"],
-                      "native_session_id": native, "lane_id": attempt["lane_id"],
-                      "model_id": attempt["model_requested"]}
+            independent=True, allow_tmp=True, no_preamble=not preamble)
+        resume = {"source_job_id": source["job_id"], "source_attempt_id": attempt["attempt_id"],
+                  "native_session_id": native, "lane_id": attempt["lane_id"],
+                  "model_id": attempt["model_requested"]}
+        workspace = source_manifest.get("workspace") or {}
+        if source["worktree"] and workspace.get("prefix") not in (None, "."):
+            # Review B-2: the session was made in the source's place in its
+            # worktree; Claude finds it, and its transcript, from that directory.
+            resume["workspace"] = {"worktree": source["worktree"], "prefix": workspace["prefix"]}
+        return args, resume
 
     def _legacy_resume_identity(self, attempt: dict) -> str | None:
         """C-23.32: recover old Codex identity in memory, never rewriting imported evidence."""
@@ -2164,18 +2213,25 @@ class Daemon:
         workspace = (self._read_json(self.root / "jobs" / job_id / "manifest.json") or {}).get("workspace") or {}
         return {"sandbox": sandbox, "worktree": workspace.get("worktree")}
 
-    def _launch_dir(self, job: dict) -> str:
+    def _launch_dir(self, job: dict, provider: str | None = None) -> str:
         """Where the provider starts: the caller's directory, or in a worktree the
-        same place relative to the repository (a job run from `repo/pkg` starts in
-        `<worktree>/pkg`), recorded at submit."""
-        worktree = job.get("worktree")
-        if not worktree:
-            return job["workdir"]
-        prefix = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("workspace")
-                  or {}).get("prefix")
-        if prefix and prefix != "." and not prefix.startswith("..") and (Path(worktree) / prefix).is_dir():
-            return str(Path(worktree) / prefix)
-        return worktree
+        same place relative to the repository, recorded at submit (a Claude job run
+        from `repo/pkg` starts in `<worktree>/pkg`, and so does a resume of it).
+
+        A Codex job starts at the worktree's top: Codex's workspace-write sandbox
+        lets it write only under its working directory, so started in `pkg/` it
+        could not touch the rest of its worktree (review B-1; `codex sandbox -P
+        :workspace` from a subdirectory refused a write to its parent, 2026-09-25).
+        Its note names the caller's place instead."""
+        root = job.get("worktree") or job["workdir"]
+        workspace = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("workspace") or {}
+        prefix = workspace.get("prefix")
+        if provider == "codex" or not prefix or prefix == "." or prefix.startswith("..") or os.path.isabs(prefix):
+            return root
+        if workspace.get("worktree") and os.path.realpath(workspace["worktree"]) != os.path.realpath(root):
+            return root
+        target = Path(root) / prefix
+        return str(target) if target.is_dir() else root
 
     @staticmethod
     def _discard_worktree(repository: str, workdir: str, cap: float) -> None:
@@ -3085,7 +3141,7 @@ class Daemon:
                 validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
-            spec = self._spec(job, workdir=self._launch_dir(job), prompt_path=str(prompt_path))
+            spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root)
             resume = None

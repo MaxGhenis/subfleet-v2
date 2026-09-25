@@ -160,3 +160,185 @@ def test_codex_outputs_that_report_failure_are_failures(tmp_path):
         codex_row({"type": "function_call_output", "call_id": "c2", "output": "Exit code: 0\nok"}, 4)])
     found, _ = history._codex_items(path, None, 50)
     assert [(i["text"], i["is_error"]) for i in reversed(found)] == [("false", True), ("true", False)]
+
+
+# --- paging (review of 14f818c, 2026-09-25) ------------------------------------
+
+
+def every_page(read, path, limit):
+    """Every page from the newest to the file's start: the items, and each page's size."""
+    items, sizes, cursor = [], [], None
+    for _ in range(10_000):
+        page, cursor = read(path, cursor, limit)
+        items += page
+        sizes.append(len(page))
+        if cursor is None:
+            return items, sizes
+    raise AssertionError("paging never reached the file's start")
+
+
+def test_a_page_never_splits_a_rows_blocks(tmp_path):
+    """A row's blocks all land on one page: the page may pass its limit by the rest
+    of the row, and the next page starts below it (before, a row cut at the limit
+    lost its remaining blocks for good)."""
+    path = write(tmp_path / "s.jsonl", [
+        assistant("a-01", {"type": "text", "text": "old"}),
+        assistant("a-02", {"type": "thinking", "thinking": "think2", "signature": "s"},
+                  {"type": "text", "text": "text2"},
+                  {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "ls"}}),
+        assistant("a-03", {"type": "text", "text": "new"})])
+    first, cursor = history._claude_items(path, None, 2)
+    assert [i["text"] for i in first] == ["new", "ls", "text2", "think2"]
+    rest, cursor = history._claude_items(path, cursor, 2)
+    assert [i["text"] for i in rest] == ["old"] and cursor is None
+
+
+def test_a_read_cap_hands_on_a_cursor_instead_of_ending_the_history(tmp_path, monkeypatch):
+    """More than the cap of rows with nothing to show (a huge tool result) below the
+    cursor: the page may be empty, but its cursor goes on, and the rows below it
+    are reached."""
+    monkeypatch.setattr(history, "READ_CAP", 2_000)
+    path = write(tmp_path / "s.jsonl", [
+        assistant("a-01", {"type": "text", "text": "before the big result"}),
+        results("u-02", ("t0", "x" * 5_000, False)),
+        results("u-03", ("t9", "y" * 5_000, False)),
+        assistant("a-04", {"type": "text", "text": "after"})])
+    first, cursor = history._claude_items(path, None, 5)
+    assert [i["text"] for i in first] == ["after"] and cursor is not None
+    items, _ = every_page(history._claude_items, path, 5)
+    assert [i["text"] for i in items] == ["after", "before the big result"]
+
+
+def test_a_row_too_large_for_the_reader_is_stepped_over(tmp_path, monkeypatch):
+    """A row larger than the reader's whole budget is never yielded; the history
+    steps past it to the rows below instead of calling itself complete."""
+    monkeypatch.setattr(history, "READ_BUDGET", 1_000)
+    monkeypatch.setattr(history, "READ_CHUNK", 100)
+    path = write(tmp_path / "s.jsonl", [
+        assistant("a-01", {"type": "text", "text": "oldest"}),
+        assistant("a-02", {"type": "text", "text": "z" * 20_000}),
+        assistant("a-03", {"type": "text", "text": "newest"})])
+    items, _ = every_page(history._claude_items, path, 1)
+    assert [i["text"] for i in items] == ["newest", "oldest"]
+
+
+def test_a_cursor_far_from_the_end_reads_from_the_cursor(tmp_path, monkeypatch):
+    """The reader starts near the cursor, not at the file's end, so the whole history
+    stays reachable whatever the reader's budget (before, rows more than 64 MiB from
+    the end could not be paged to)."""
+    monkeypatch.setattr(history, "READ_BUDGET", 3_000)
+    monkeypatch.setattr(history, "READ_CHUNK", 500)
+    rows = [assistant(f"a-{i % 100:02d}", {"type": "text", "text": f"row {i}"}) for i in range(300)]
+    path = write(tmp_path / "s.jsonl", rows)
+    items, _ = every_page(history._claude_items, path, 7)
+    assert [i["text"] for i in items] == [f"row {i}" for i in reversed(range(300))]
+
+
+def test_paging_through_random_transcripts_shows_every_item_once_in_order(tmp_path, monkeypatch):
+    """Model check: for random transcripts (rows of one to four blocks, results on
+    later rows, blank lines, huge rows), random limits and small caps and budgets,
+    the pages joined are exactly the items one unbounded read gives, and every call
+    keeps its result."""
+    import random
+    rng = random.Random(20260925)
+    for trial in range(150):
+        rows, pending, n = [], [], 0
+        for _ in range(rng.randint(0, 40)):
+            if pending and rng.random() < 0.3:
+                rows.append(results(f"u-{n % 100:02d}", *[(t, f"out {t}", rng.random() < 0.2) for t in pending]))
+                pending = []
+            blocks = []
+            for _ in range(rng.randint(1, 4)):
+                kind = rng.choice(["text", "thinking", "tool"])
+                n += 1
+                if kind == "text":
+                    blocks.append({"type": "text", "text": f"text {n}" + "·" * rng.choice([0, 0, 300, 3_000])})
+                elif kind == "thinking":
+                    blocks.append({"type": "thinking", "thinking": f"thought {n}", "signature": "s"})
+                else:
+                    pending.append(f"t{n}")
+                    blocks.append({"type": "tool_use", "id": f"t{n}", "name": "Bash", "input": {"command": f"cmd {n}"}})
+            rows.append(assistant(f"a-{n % 100:02d}", *blocks))
+        path = tmp_path / f"s{trial}.jsonl"
+        path.write_text("".join(json.dumps(r) + "\n" + ("\n" if rng.random() < 0.1 else "") for r in rows))
+        with monkeypatch.context() as patch:
+            patch.setattr(history, "READ_CAP", 10**9)
+            patch.setattr(history, "READ_BUDGET", 10**9)
+            expected, cursor = history._claude_items(path, None, 10**6)
+        assert cursor is None
+        budget = rng.choice([2_000, 20_000])
+        limit = rng.randint(1, 6)
+        for window in (10**9, 0):
+            with monkeypatch.context() as patch:
+                patch.setattr(history, "READ_CAP", rng.choice([500, 2_000, 8_000]))
+                patch.setattr(history, "READ_BUDGET", budget)
+                patch.setattr(history, "READ_CHUNK", rng.choice([64, 700, 5_000]))
+                patch.setattr(history, "RESULT_WINDOW", window)
+                paged, _ = every_page(history._claude_items, path, limit)
+            # A row larger than the reader's budget is stepped over: it may be
+            # missing, but everything else is there, once, in order.
+            # (To be read, a row and the newline before it must fit in the budget.)
+            big = {json.dumps(r) for r in rows if len(json.dumps(r)) + 2 >= budget}
+            dropped = {i["text"] for r in big for i in history._claude_items(write(tmp_path / "one.jsonl",
+                                                                                   [json.loads(r)]), None, 99)[0]}
+            want = [i for i in expected if i["text"] not in dropped]
+            got = [i for i in paged if i["text"] not in dropped]
+            if window:     # every result is within reach: every call keeps its own
+                key = lambda i: (i["kind"], i["text"], i.get("preview"), i.get("is_error"))
+            else:          # no result past the cursor is looked for: the items still are
+                key = lambda i: (i["kind"], i["text"])
+            assert [key(i) for i in got] == [key(i) for i in want], (trial, window)
+
+
+def test_codex_failures_are_judged_on_the_status_line_and_the_exit_code():
+    """Review B-5: only an output's first line says the command failed, so a log it
+    printed may say anything; a nonzero `metadata.exit_code` is a failure."""
+    outcome = history._codex_outcome
+    assert outcome([{"type": "input_text", "text": "Script completed\nExit code: 1\n"}])[1] is False
+    assert outcome("Exit code: 0\nProcess exited with code 2 (in the log)")[1] is False
+    assert outcome("Exit code: 1\nboom")[1] is True
+    assert outcome("  Script failed\n")[1] is True
+    assert outcome({"output": "boom", "metadata": {"exit_code": 2}}) == ("boom", True)
+    assert outcome({"output": "fine", "metadata": {"exit_code": 0}}) == ("fine", False)
+    assert outcome({"output": "x", "success": False})[1] is True
+
+
+def test_paging_through_random_rollouts_shows_every_item_once_in_order(tmp_path, monkeypatch):
+    """The model check for Codex rollouts: calls, outputs, reasoning and messages."""
+    import random
+    rng = random.Random(925)
+    for trial in range(100):
+        rows, pending = [], []
+        for n in range(rng.randint(0, 40)):
+            kind = rng.choice(["call", "output", "reasoning", "message", "other"])
+            if kind == "call":
+                pending.append(f"c{n}")
+                payload = {"type": "function_call", "call_id": f"c{n}", "name": "shell",
+                           "arguments": json.dumps({"command": [f"cmd{n}"]})}
+            elif kind == "output" and pending:
+                payload = {"type": "function_call_output", "call_id": pending.pop(0),
+                           "output": rng.choice(["Exit code: 0\nok", "Exit code: 1\nno"])}
+            elif kind == "reasoning":
+                payload = {"type": "reasoning", "summary": [{"type": "summary_text", "text": f"why {n}"}]}
+            elif kind == "message":
+                payload = {"type": "message", "role": rng.choice(["user", "assistant"]),
+                           "content": [{"type": "output_text", "text": f"say {n}" + "-" * rng.choice([0, 400, 4_000])}]}
+            else:
+                rows.append({"type": "event_msg", "payload": {"type": "token_count"}})
+                continue
+            rows.append(codex_row(payload, n % 60))
+        path = write(tmp_path / f"r{trial}.jsonl", rows)
+        with monkeypatch.context() as patch:
+            patch.setattr(history, "READ_CAP", 10**9)
+            patch.setattr(history, "READ_BUDGET", 10**9)
+            expected, cursor = history._codex_items(path, None, 10**6)
+        assert cursor is None
+        budget = rng.choice([3_000, 50_000])
+        with monkeypatch.context() as patch:
+            patch.setattr(history, "READ_CAP", rng.choice([300, 3_000]))
+            patch.setattr(history, "READ_BUDGET", budget)
+            patch.setattr(history, "READ_CHUNK", rng.choice([64, 1_000]))
+            paged, _ = every_page(history._codex_items, path, rng.randint(1, 5))
+        big = {i["text"] for i in expected if len(i["text"]) > budget - 300}
+        key = lambda i: (i["kind"], i["text"], i.get("preview"), i.get("is_error"))
+        assert [key(i) for i in paged if i["text"] not in big] == [key(i) for i in expected if i["text"] not in big], trial

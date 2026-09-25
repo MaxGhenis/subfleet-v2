@@ -168,8 +168,18 @@ def scrub_secrets(text: str) -> tuple[str, int]:
                         + REDACTED + match.group("quote"))),
         (_PLAIN_ASSIGN_RE, lambda match: match.group("prefix") + REDACTED),
     ):
-        text, count = pattern.subn(replacement, text)
-        total += count
+        changed = 0
+
+        def replace(match, replacement=replacement):
+            nonlocal changed
+            out = replacement(match) if callable(replacement) else match.expand(replacement)
+            # A value an earlier rule already replaced (`token = '[REDACTED]'`
+            # after the token rule) is not a second credential.
+            changed += out != match.group(0)
+            return out
+
+        text = pattern.sub(replace, text)
+        total += changed
     return text, total
 
 

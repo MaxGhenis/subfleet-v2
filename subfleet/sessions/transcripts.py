@@ -145,15 +145,20 @@ def lines_reversed(path: Path, *, chunk: int = _TAIL_BYTES,
         return
 
 
-def lines_reversed_with_offsets(path: Path, *, chunk: int = _TAIL_BYTES,
-                                max_bytes: int = _SCAN_MAX) -> Iterator[tuple[int, str]]:
+def lines_reversed_with_offsets(path: Path, *, chunk: int = _TAIL_BYTES, max_bytes: int = _SCAN_MAX,
+                                end: int | None = None) -> Iterator[tuple[int, str]]:
     """`lines_reversed`, each line with its byte offset from the start of the
     file: a position that stays put as the file grows, so a page cursor made
-    from it names the same line after later turns are appended."""
+    from it names the same line after later turns are appended.
+
+    With `end`, reading starts there instead of at the file's end, so a cursor
+    far from the end costs no more than one near it. The line `end` falls
+    inside, if any, comes first and cut short."""
     try:
         size = path.stat().st_size
         with path.open("rb") as stream:
-            end, carry, carry_at, scanned = size, b"", size, 0
+            end = size if end is None else max(0, min(int(end), size))
+            carry, carry_at, scanned = b"", end, 0
             while end > 0 and scanned < max_bytes:
                 start = max(0, end - chunk)
                 stream.seek(start)
@@ -173,6 +178,42 @@ def lines_reversed_with_offsets(path: Path, *, chunk: int = _TAIL_BYTES,
                 yield carry_at, carry.decode("utf-8", "replace")
     except OSError:
         return
+
+
+def lines_forward_with_offsets(path: Path, start: int, max_bytes: int) -> Iterator[tuple[int, str]]:
+    """The non-blank lines that start at or after `start` (a line's start) and
+    before `start + max_bytes`, oldest first, each with its byte offset."""
+    try:
+        with path.open("rb") as stream:
+            stream.seek(max(0, start))
+            offset = max(0, start)
+            for raw in stream:
+                if offset >= start + max_bytes:
+                    return
+                if raw.strip():
+                    yield offset, raw.rstrip(b"\r\n").decode("utf-8", "replace")
+                offset += len(raw)
+    except OSError:
+        return
+
+
+def line_start(path: Path, offset: int, *, chunk: int = _TAIL_BYTES) -> int:
+    """The byte offset where the line holding byte `offset` starts (0 for the first
+    line), found by scanning back for the newline before it."""
+    try:
+        with path.open("rb") as stream:
+            end = max(0, offset)
+            while end > 0:
+                start = max(0, end - chunk)
+                stream.seek(start)
+                block = stream.read(end - start)
+                at = block.rfind(b"\n")
+                if at >= 0:
+                    return start + at + 1
+                end = start
+    except OSError:
+        pass
+    return 0
 
 
 def blocks(message: Any) -> list[dict[str, Any]]:

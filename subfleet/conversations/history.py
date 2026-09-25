@@ -44,24 +44,82 @@ def _tool_item(name: str, value: Any, tool_id: str | None, result: dict | None, 
     return item
 
 
+#: How far past a page's cursor its calls' results are looked for: a result is
+#: written right after its call, so this is generous.
+RESULT_WINDOW = 8 * 1024 * 1024
+#: The reader's own bound, beyond the cap: room for one large row.
+READ_BUDGET = READ_CAP + 64 * 1024 * 1024
+READ_CHUNK = 512 * 1024
+
+
+def _after_cursor(path: Path, before: int | None, marker: str):
+    """The raw rows just past the cursor that may hold a result for a call below
+    it, read forward, whole however long."""
+    if before is None:
+        return
+    for _, raw in transcripts.lines_forward_with_offsets(path, before, RESULT_WINDOW):
+        if marker in raw:
+            yield raw
+
+
+def _below_cursor(path: Path, top: int):
+    """The rows below the cursor, newest first. The cursor is a row's start, so no
+    row is cut; the reader stops after `READ_BUDGET` bytes."""
+    return transcripts.lines_reversed_with_offsets(path, end=top, max_bytes=READ_BUDGET, chunk=READ_CHUNK)
+
+
+def _next_cursor(path: Path, top: int, last: int | None) -> int | None:
+    """Where the next page starts once the rows ran out: None at the file's start;
+    past a row too large for the reader when nothing below the cursor was read."""
+    if last is None:
+        start = transcripts.line_start(path, top - 1) if top > 0 else 0
+        return start or None
+    return last or None
+
+
+def _note_blocks(blocks: list[dict], results: dict[str, dict]) -> None:
+    for block in blocks:
+        if block.get("type") == "tool_result" and block.get("tool_use_id"):
+            results[str(block["tool_use_id"])] = {"text": _result_text(block.get("content")),
+                                                  "is_error": bool(block.get("is_error"))}
+
+
+def _note_results(raw: str, results: dict[str, dict]) -> None:
+    try:
+        row = json.loads(raw)
+    except ValueError:
+        return
+    content = (row.get("message") or {}).get("content") if isinstance(row, dict) else None
+    if transcripts.is_main(row) and isinstance(content, list):
+        _note_blocks([b for b in content if isinstance(b, dict)], results)
+
+
 def _claude_items(path: Path, before: int | None, limit: int) -> tuple[list[dict], int | None]:
     """A page of rows older than `before`, newest first. The cursor is a row's
     byte offset from the start of the file, which later turns never move, so
-    "Load earlier" after a turn returns the next older rows (review, 2026-09-25)."""
+    "Load earlier" after a turn returns the next older rows (review, 2026-09-25).
+
+    A page ends after a whole row, so a row's blocks are never split across two
+    pages; it holds at least `limit` items unless the file's start or the read cap
+    comes first. The next cursor is the last row read, and is None only at the
+    file's start: a cap reached before any item still hands on a cursor, and a
+    row too large to read is stepped over rather than ending the history."""
     items: list[dict] = []
     try:
         size = path.stat().st_size
     except OSError:
         return [], None
+    top = size if before is None else min(before, size)
     # Newest first: a call's result is read before the call. Rows a previous page
     # returned are still read for results, so a call at a page's edge keeps its own.
     results: dict[str, dict] = {}
-    for index, raw in transcripts.lines_reversed_with_offsets(path):
-        if size - index > READ_CAP + (size - before if before is not None else 0):
-            break
-        skipped = before is not None and index >= before
-        if skipped and '"tool_result"' not in raw:
-            continue
+    for raw in _after_cursor(path, before, '"tool_result"'):
+        _note_results(raw, results)
+    last: int | None = None
+    for index, raw in _below_cursor(path, top):
+        if last is not None and top - index > READ_CAP:
+            return items, last
+        last = index
         try:
             row = json.loads(raw)
         except ValueError:
@@ -74,12 +132,7 @@ def _claude_items(path: Path, before: int | None, limit: int) -> tuple[list[dict
         if isinstance(content, str):
             content = [{"type": "text", "text": content}]
         blocks = [b for b in content or [] if isinstance(b, dict)]
-        for block in blocks:
-            if block.get("type") == "tool_result" and block.get("tool_use_id"):
-                results[str(block["tool_use_id"])] = {"text": _result_text(block.get("content")),
-                                                      "is_error": bool(block.get("is_error"))}
-        if skipped:
-            continue
+        _note_blocks(blocks, results)
         for block in reversed(blocks):
             btype = block.get("type")
             if btype == "text" and block.get("text"):
@@ -94,8 +147,8 @@ def _claude_items(path: Path, before: int | None, limit: int) -> tuple[list[dict
                 items.append(_tool_item(str(block.get("name")), block.get("input"), tool_id,
                                         results.get(tool_id or ""), ts=row.get("timestamp"), cursor=index))
         if len(items) >= limit:
-            break
-    return items[:limit], (items[limit - 1]["cursor"] if len(items) >= limit else None)
+            return items, index
+    return items, _next_cursor(path, top, last)
 
 
 def page(conversation: dict, *, root: Path, before=None, limit: int = 50, lanes: list[dict]) -> dict:
@@ -167,28 +220,53 @@ def _codex_call(payload: dict) -> tuple[str, Any]:
     return name, payload.get("action")
 
 
-#: A code-mode or shell output that says the command failed.
-_FAILED_OUTPUT = re.compile(r"^(Script failed|Process exited with code [1-9]|Exit code: [1-9])", re.M)
+#: The status line a code-mode or shell output starts with when the command
+#: failed. Only the first line is judged: a successful command's own output
+#: (a log it printed) may hold any of these words further down.
+_FAILED_OUTPUT = re.compile(r"\A\s*(Script failed|Process exited with code [1-9]|Exit code: [1-9])")
 
 
 def _codex_outcome(output: Any) -> tuple[str, bool]:
-    """An output's text and whether it reports a failure."""
+    """An output's text and whether it reports a failure: `success: false`, a
+    nonzero `metadata.exit_code`, or a failing status line at its start."""
     if isinstance(output, dict):
         text = str(output.get("content") or output.get("output") or "")
-        return text, output.get("success") is False or bool(_FAILED_OUTPUT.search(text))
+        code = (output.get("metadata") or {}).get("exit_code") if isinstance(output.get("metadata"), dict) else None
+        failed = output.get("success") is False or (isinstance(code, int) and code != 0)
+        return text, failed or bool(_FAILED_OUTPUT.search(text))
     text = _result_text(output)
     return text, bool(_FAILED_OUTPUT.search(text))
 
 
+def _note_output(raw: str, outputs: dict[str, dict], row: dict | None = None) -> None:
+    try:
+        row = json.loads(raw) if row is None else row
+        payload = row.get("payload") or {}
+        if row.get("type") == "response_item" and payload.get("type") in CODEX_OUTPUTS and payload.get("call_id"):
+            text, failed = _codex_outcome(payload.get("output"))
+            outputs[str(payload["call_id"])] = {"text": text, "is_error": failed}
+    except (ValueError, TypeError, AttributeError):
+        return
+
+
 def _codex_items(path: Path, before: int | None, limit: int) -> tuple[list[dict], int | None]:
     """As `_claude_items`: newest first, byte-offset cursors, outputs found across
-    a page's edge; a row that cannot be read is skipped, never the page."""
+    a page's edge, the same read cap; a row that cannot be read is skipped, never
+    the page."""
     items: list[dict] = []
     outputs: dict[str, dict] = {}
-    for index, raw in transcripts.lines_reversed_with_offsets(path):
-        skipped = before is not None and index >= before
-        if skipped and "_output" not in raw:
-            continue
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return [], None
+    top = size if before is None else min(before, size)
+    for raw in _after_cursor(path, before, "_output"):
+        _note_output(raw, outputs)
+    last: int | None = None
+    for index, raw in _below_cursor(path, top):
+        if last is not None and top - index > READ_CAP:
+            return items, last
+        last = index
         try:
             row = json.loads(raw)
             if row.get("type") != "response_item":
@@ -196,10 +274,7 @@ def _codex_items(path: Path, before: int | None, limit: int) -> tuple[list[dict]
             payload = row.get("payload") or {}
             ptype = payload.get("type")
             if ptype in CODEX_OUTPUTS and payload.get("call_id"):
-                text, failed = _codex_outcome(payload.get("output"))
-                outputs[str(payload["call_id"])] = {"text": text, "is_error": failed}
-                continue
-            if skipped:
+                _note_output(raw, outputs, row)
                 continue
             if ptype in CODEX_CALLS:
                 call_id = str(payload.get("call_id")) if payload.get("call_id") else None
@@ -220,5 +295,5 @@ def _codex_items(path: Path, before: int | None, limit: int) -> tuple[list[dict]
         except (ValueError, TypeError, AttributeError):
             continue
         if len(items) >= limit:
-            break
-    return items[:limit], (items[limit - 1]["cursor"] if len(items) >= limit else None)
+            return items, index
+    return items, _next_cursor(path, top, last)

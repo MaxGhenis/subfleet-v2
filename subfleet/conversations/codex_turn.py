@@ -28,6 +28,7 @@ replayed driver recognises the responses to the frames it already sent.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from ..guard.preflight import HOOK_KEY
@@ -64,6 +65,14 @@ def network_granted(permission: str, network: bool) -> bool:
 #: collabAgentToolCall, sleep, imageGeneration, subAgentActivity, ...).
 ITEM_PHASES = {"reasoning": "thinking", "agentMessage": "writing", "contextCompaction": "compacting",
                "userMessage": None}
+
+
+def unified_exec_off(permission: str, network: bool, environ=None) -> bool:
+    """C-23.6: a turn's unified exec is off when the operator switched it off, and
+    always when its shell reaches the network (d260): `write_stdin` runs input
+    the never-rules guard never sees."""
+    environ = os.environ if environ is None else environ
+    return environ.get("SUBFLEET_CODEX_UNIFIED_EXEC") == "off" or network_granted(permission, network)
 
 
 def argv(executable: str, override: str, *, unified_exec_off: bool = False) -> list[str]:

@@ -437,3 +437,16 @@ def test_each_outcome_says_what_ended_the_turn():
     cut = CodexTurn(spec())
     to_running(cut)
     assert cut.eof(50).outcome.ended_by == "eof"
+
+
+def test_c23_6_a_turn_whose_shell_reaches_the_network_has_unified_exec_off():
+    """d260, review of 14f818c: `write_stdin` runs input the never-rules guard never
+    sees, so a turn granted the network always has unified exec off; so does any
+    turn when the operator switched it off; otherwise it stays on."""
+    from subfleet.conversations import codex_turn
+    assert codex_turn.unified_exec_off("bypass", True, environ={}) is True
+    assert codex_turn.unified_exec_off("ask", True, environ={}) is False           # no network under ask
+    assert codex_turn.unified_exec_off("accept-edits", True, environ={}) is False
+    assert codex_turn.unified_exec_off("bypass", False, environ={}) is False
+    assert codex_turn.unified_exec_off("ask", False, environ={"SUBFLEET_CODEX_UNIFIED_EXEC": "off"}) is True
+    assert codex_turn.argv("codex", "hooks={x}", unified_exec_off=True)[-2:] == ["-c", "features.unified_exec=false"]

@@ -302,3 +302,40 @@ def test_a_recorded_lane_id_excludes_a_transcript_the_shape_test_would_miss(home
     rows = transcripts.cold_sessions(live_ids=set(), lane_ids={"lane-two"},
                                      max_age_s=7200, now=fx.NOW)
     assert rows == []
+
+
+def test_the_offset_readers_agree_with_a_plain_split_of_the_bytes(tmp_path):
+    """Property check of `lines_reversed_with_offsets` (with and without `end`, any
+    chunk, a byte budget), `lines_forward_with_offsets` and `line_start` against
+    the bytes split on newlines: CRLF, UTF-8 across chunk edges, blank lines, no
+    trailing newline."""
+    import random
+    from subfleet.sessions import transcripts
+    rng = random.Random(14)
+    alphabet = ["a", "b", "é", "中", " ", "\r", "\n", "\n", "{", "}"]
+    for trial in range(400):
+        data = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 120))).encode()
+        path = tmp_path / f"t{trial}.txt"
+        path.write_bytes(data)
+        starts, position = [], 0
+        for part in data.split(b"\n"):
+            starts.append((position, part))
+            position += len(part) + 1
+        end = rng.choice([None, rng.randint(0, len(data))])
+        top = len(data) if end is None else end
+        # Every line that starts before `end`, cut at `end`, non-blank, newest first.
+        want = [(at, part[:max(0, top - at)].decode("utf-8", "replace")) for at, part in reversed(starts)
+                if at < top and part[:max(0, top - at)].strip()]
+        chunk = rng.randint(1, 9)
+        got = list(transcripts.lines_reversed_with_offsets(path, chunk=chunk, end=end))
+        assert got == want, (trial, data, end, chunk)
+        budget = rng.randint(1, 60)
+        bounded = list(transcripts.lines_reversed_with_offsets(path, chunk=chunk, end=end, max_bytes=budget))
+        assert bounded == want[:len(bounded)], (trial, "a budget yields a prefix of whole lines")
+        start = rng.choice([at for at, _ in starts])
+        window = rng.randint(0, 80)
+        forward = list(transcripts.lines_forward_with_offsets(path, start, window))
+        assert forward == [(at, part.rstrip(b"\r").decode("utf-8", "replace")) for at, part in starts
+                           if start <= at < start + window and part.strip()], trial
+        offset = rng.randint(0, max(0, len(data) - 1))
+        assert transcripts.line_start(path, offset, chunk=chunk) == data.rfind(b"\n", 0, offset) + 1, trial

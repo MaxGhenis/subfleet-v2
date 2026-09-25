@@ -526,3 +526,12 @@ def test_the_diff_never_passes_its_bound_after_decoding(repository):
     assert len(result["diff"].encode()) <= limit and result["diff"].endswith("\n")
     assert whole["diff"].startswith(result["diff"])
     assert result["files"][0]["additions"] == 400 and result["stats"]["complete"] is True
+
+
+def test_a_credential_two_rules_match_is_counted_once():
+    """The token rule replaces the key and the quoted-assignment rule then matches
+    `token = '[REDACTED]'`; the count says one value was replaced, not two (the app
+    shows it as "1 value that looked like a credential")."""
+    from subfleet.conversations.diff import scrub_diff
+    text, count = scrub_diff("@@ -1 +1 @@\n+    token = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789'\n")
+    assert "[REDACTED]" in text and "sk-ant" not in text and count == 1

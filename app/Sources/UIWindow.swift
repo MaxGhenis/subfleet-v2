@@ -616,27 +616,32 @@ struct DiffLinesView: View {
     let sections: [DiffSection]
 
     var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(sections) { section in
-                    Text(section.path).font(.system(.caption, design: .monospaced).bold())
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .frame(minWidth: 520, alignment: .leading)
-                        .background(Color.secondary.opacity(0.12))
-                    if section.lines.isEmpty {
-                        Text(section.binary ? "Binary file: no text to show." : "No line changes (a mode or a rename).")
-                            .font(.caption).foregroundStyle(.secondary).padding(8)
+        // Rows are at least as wide as the pane, so a line's colour runs to its
+        // edge; a longer line scrolls sideways.
+        GeometryReader { geometry in
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(sections) { section in
+                        Text(section.path).font(.system(.caption, design: .monospaced).bold())
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .frame(minWidth: geometry.size.width, alignment: .leading)
+                            .background(Color.secondary.opacity(0.12))
+                        if section.lines.isEmpty {
+                            Text(section.binary ? "Binary file: no text to show." : "No line changes (a mode or a rename).")
+                                .font(.caption).foregroundStyle(.secondary).padding(8)
+                        }
+                        ForEach(section.lines) { line in DiffLineRow(line: line, minWidth: geometry.size.width) }
                     }
-                    ForEach(section.lines) { line in DiffLineRow(line: line) }
                 }
+                .textSelection(.enabled)
             }
-            .textSelection(.enabled)
         }
     }
 }
 
 struct DiffLineRow: View {
     let line: DiffLine
+    var minWidth: CGFloat = 520
 
     var body: some View {
         HStack(spacing: 0) {
@@ -647,7 +652,7 @@ struct DiffLineRow: View {
         }
         .font(.system(size: 11, design: .monospaced))
         .padding(.trailing, 12)
-        .frame(minWidth: 520, alignment: .leading)
+        .frame(minWidth: minWidth, alignment: .leading)
         .background(background)
     }
 
