@@ -107,37 +107,37 @@ def test_c16_5_any_other_accept_error_still_ends_serve_forever(serving):
     assert [getattr(exc, "errno", None) for exc in thread.raised] == [errno.EBADF]
 
 
-def test_c16_5_the_soft_open_file_limit_is_raised_within_the_hard_limit(monkeypatch):
-    """C-16.5 the daemon asks for 8192 descriptors, never more than the hard limit allows."""
-    calls = []
-    limits = {"soft": 256, "hard": resource.RLIM_INFINITY}
-    monkeypatch.setattr(daemon_module.resource, "getrlimit", lambda which: (limits["soft"], limits["hard"]))
-    monkeypatch.setattr(daemon_module.resource, "setrlimit", lambda which, value: calls.append(value))
-    assert daemon_module.raise_open_file_limit() == (256, 8192)
-    assert calls == [(8192, resource.RLIM_INFINITY)]
-    calls.clear()
-    limits.update(soft=256, hard=1000)
-    assert daemon_module.raise_open_file_limit() == (256, 1000) and calls == [(1000, 1000)]
-    calls.clear()
-    limits.update(soft=10240, hard=resource.RLIM_INFINITY)
-    assert daemon_module.raise_open_file_limit() == (10240, 10240) and calls == []     # already enough
+def test_c16_5_main_raises_the_limit_before_the_daemon_sizes_its_connection_cap(monkeypatch):
+    """C-16.5 `main` lifts the open-file limit first, so C-16.6's cap comes from the raised value."""
+    order = []
+    monkeypatch.setattr(daemon_module.descriptors, "raise_open_file_limit",
+                        lambda: order.append("raise") or (256, 65536, resource.RLIM_INFINITY))
+
+    class Stop(Exception):
+        pass
+
+    def construct(root):
+        order.append("daemon")
+        raise Stop
+    monkeypatch.setattr(daemon_module, "Daemon", construct)
+    with pytest.raises(Stop):
+        daemon_module.main(["--state-root", "/nonexistent-root"])
+    assert order == ["raise", "daemon"]
 
 
-def test_c16_5_a_limit_above_the_kernel_ceiling_falls_back_rather_than_failing(monkeypatch):
-    """C-16.5 macOS refuses a soft limit above kern.maxfilesperproc; the next lower one is taken."""
-    attempts = []
+def test_c16_5_the_start_log_says_what_the_raise_achieved():
+    """C-16.5 raised: an info line with both values; stuck below the target: a warning naming the hard limit."""
+    import logging
+    records = []
 
-    def refuse_high(which, value):
-        attempts.append(value[0])
-        if value[0] > 4096:
-            raise ValueError("not allowed to raise maximum limit")
-    monkeypatch.setattr(daemon_module.resource, "getrlimit", lambda which: (256, resource.RLIM_INFINITY))
-    monkeypatch.setattr(daemon_module.resource, "setrlimit", refuse_high)
-    assert daemon_module.raise_open_file_limit() == (256, 4096)
-    assert attempts == [8192, 4096]
-
-
-def test_c16_5_the_real_limit_can_be_raised_in_this_process():
-    """C-16.5 on this machine the call succeeds and leaves at least what it found."""
-    before, after = daemon_module.raise_open_file_limit()
-    assert after >= before and resource.getrlimit(resource.RLIMIT_NOFILE)[0] >= min(after, 8192)
+    class Keep(logging.Handler):
+        def emit(self, record):
+            records.append((record.levelname, record.getMessage()))
+    log = logging.getLogger("test-c16-5")
+    log.addHandler(Keep())
+    log.setLevel(logging.INFO)
+    daemon_module.log_open_file_limit(log, 256, 65536, resource.RLIM_INFINITY)
+    daemon_module.log_open_file_limit(log, 1024, 1024, 1024)
+    daemon_module.log_open_file_limit(log, 1048576, 1048576, resource.RLIM_INFINITY)
+    assert records == [("INFO", "open-file limit raised from 256 to 65536 at start"),
+                       ("WARNING", "open-file limit left at 1024: the hard limit (1024) or the kernel allows no more")]

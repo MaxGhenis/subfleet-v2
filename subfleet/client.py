@@ -296,7 +296,12 @@ class Client:
             except OSError as exc:
                 raise DaemonUnavailable(f"cannot reach {self.socket_path}: {exc}") from exc
             try:
-                conn.sendall(encode(request))
+                try:
+                    conn.sendall(encode(request))
+                except (BrokenPipeError, ConnectionResetError):
+                    # C-16.6: a daemon at its connection cap answers at once and
+                    # closes before reading the request. Its answer says why.
+                    pass
                 line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
                 raise ProtocolError(
