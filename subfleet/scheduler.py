@@ -168,8 +168,9 @@ def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any]) -> list[dict[st
 def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
     """The models a job could run on, exactly as `evaluate` builds its chain (C-11.2).
 
-    A pin is that one model; a task is its chain from the job's tier upward. None
-    means "cannot tell" (a lane pin with no model), which admission treats as
+    A pin is that one model; a task is its chain from the job's tier upward, and
+    a lane-pinned task job evaluates only the first model of it. None means
+    "cannot tell" (a lane pin with no model), which admission treats as
     competing with everything.
     """
     job = _row(job)
@@ -180,7 +181,8 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             default = "standard" if "standard" in tiers else tiers[0]
-            return frozenset(policy["chains"][task][tiers.index(job.get("tier") or default):])
+            chain = policy["chains"][task][tiers.index(job.get("tier") or default):]
+            return frozenset(chain[:1] if job.get("pinned_lane") else chain)
     except (PolicyError, ValueError, KeyError):
         pass
     return None
@@ -191,8 +193,9 @@ def demand_lanes(lanes: Iterable[Any], job: Any,
     """The lanes a job could run on: its pin, resolved to one lane id (C-11.2).
 
     Resolved as `evaluate` resolves it when `policy` is given (the job's
-    provider narrows the name). None means any lane, or a pin that cannot be
-    resolved here, which admission treats as competing with everything.
+    provider narrows the name). None means no pin, so any lane, or a pin that
+    names several lanes, which `evaluate` refuses (C-6.12). A pin that names
+    no lane is the empty set: `evaluate` gives such a job no lane at all.
     """
     pin = _row(job).get("pinned_lane")
     if not pin:
@@ -202,15 +205,19 @@ def demand_lanes(lanes: Iterable[Any], job: Any,
                              follow=not _row(job).get("unmeasured_reserve_reason"))
     except ValueError:
         return None
-    return frozenset({found["lane_id"]}) if found else None
+    return frozenset({found["lane_id"]}) if found else frozenset()
 
 
 def competes(models: frozenset[str] | None, other: frozenset[str] | None,
              lanes: frozenset[str] | None = None, other_lanes: frozenset[str] | None = None) -> bool:
     """C-6.9: two jobs compete when some model could serve both AND some lane could
     serve both; either side unknown counts as overlap. Two jobs pinned to
-    different lanes never compete: neither can take a slot the other waits for."""
+    different lanes never compete: neither can take a slot the other waits for.
+    A job pinned to a name no lane answers to (the empty set) can use no lane,
+    so it competes with nothing."""
     if models is not None and other is not None and not models & other:
+        return False
+    if frozenset() in (lanes, other_lanes):
         return False
     return lanes is None or other_lanes is None or bool(lanes & other_lanes)
 
@@ -221,30 +228,50 @@ def tier_hold(models: frozenset[str] | None, lanes: frozenset[str] | None,
     """C-6.9: what the older waiting jobs of a tier keep from a later job.
 
     `waiters` are (job id, models, lanes), oldest first; `models` and `lanes`
-    are the later job's demand, and `pinned` says it has a lane pin, which
-    `demand_lanes` reports as None when it cannot be resolved. Returns the
-    older job that holds it back, or None, and the lanes it may not take on
-    this pass, each with the older job that keeps it.
+    are the later job's demand (`demand_models`, `demand_lanes`), and `pinned`
+    says it has a lane pin. Returns the older job that holds it back, or None,
+    and the lanes it may not take on this pass, each with the oldest competing
+    waiter pinned there.
 
     An older job that could use any lane holds back every later job that
-    competes with it. One pinned to lanes L keeps L and nothing more: a later
+    competes with it. One pinned to lanes L keeps L and no other lane: a later
     job confined to L waits behind it, and one that could run elsewhere is
-    evaluated without L, so the older job keeps its place for L's capacity
-    and the rest of the fleet keeps placing. A later job whose pin cannot be
-    resolved could be confined anywhere, so it waits behind any older job it
-    competes with.
+    evaluated with L rejected as `kept:<older job id>`, so the older job keeps
+    its place for L's capacity and the rest of the fleet keeps placing. The
+    last fleet slot is kept separately, for any older waiter (`slot-kept`, in
+    `Daemon._admit_pass`), not here. A later job whose pin names several lanes
+    (`pinned`, lanes None) can never run, so nothing holds it: admission
+    reaches it and refuses it (C-6.12).
     """
+    if pinned and lanes is None:
+        return None, {}
     kept: dict[str, str] = {}
     for older, theirs, their_lanes in waiters:
         if not competes(models, theirs, lanes, their_lanes):
             continue
-        if their_lanes is None or (lanes is None and pinned):
+        if their_lanes is None:
             return older, kept
         for lane in sorted(their_lanes):
             kept.setdefault(lane, older)            # the oldest waiter pinned there keeps it
         if lanes is not None and lanes <= kept.keys():
             return older, kept
     return None, kept
+
+
+def kept_only(decision: Decision | Mapping[str, Any] | None) -> dict[str, str]:
+    """C-6.9, C-6.11: the lanes a decision rejected only as kept, each with the older job it is kept for.
+
+    Each would be open to the job once that older job no longer waits for it,
+    room permitting; a lane that also refuses the job for a reason of its own
+    is not one of them.
+    """
+    found: dict[str, str] = {}
+    for evaluation in _row(decision).get("evaluations", ()) if decision is not None else ():
+        for row in evaluation.get("rejections", ()):
+            standing = [str(reason) for reason in (row.get("reasons") or [row.get("reason")]) if reason != "no-slot"]
+            if len(standing) == 1 and standing[0].startswith("kept:"):
+                found.setdefault(str(row.get("lane_id")), standing[0].removeprefix("kept:"))
+    return found
 
 
 def _parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:
@@ -679,10 +706,11 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
     for a parent's, else `no-slot`. When every lane has a standing reason the
     label is the commonest of those, and the cap is beside the point: a probe's
     reservation counts toward the fleet cap, so a job that no lane admits anyway
-    would otherwise read `fleet-full` for the second each probe runs. Likewise a
-    lane rejected only because an older waiting job is pinned to it (C-6.9)
-    would take the job once that job is placed, so that job is the cause, and
-    the label is that lane's `kept:<job id>`.
+    would otherwise read `fleet-full` for the second each probe runs. The one
+    exception is a lane rejected only because an older waiting job is pinned to
+    it (C-6.9): it would be open to the job once that job no longer waits for
+    it, room permitting, so that job is the cause, and the label is the first
+    such lane's `kept:<job id>` however common the other reasons are.
     """
     if decision is None:
         return "not-evaluated"

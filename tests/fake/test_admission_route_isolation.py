@@ -400,9 +400,60 @@ def test_c11_2_evaluate_and_demand_lanes_narrow_the_same_way():
     assert [row["lane_id"] for row in decision.evaluations[0]["rejections"]
             + [{"lane_id": lane} for lane in decision.evaluations[0]["candidates"]]] == ["claude-a"]
     assert scheduler.demand_lanes(ROSTER, job, policy()) == frozenset({"claude-a"})
-    assert scheduler.demand_lanes(ROSTER, {"pinned_lane": EMAIL}, policy()) is None    # unresolvable: any lane
+    assert scheduler.demand_lanes(ROSTER, {"pinned_lane": EMAIL}, policy()) is None    # several lanes: refused (C-6.12)
     with pytest.raises(scheduler.RouteError):
         scheduler.evaluate(policy(), view, {"pinned_lane": EMAIL})
+
+
+# --- C-6.9 and C-6.12: a pin that names several lanes, or none, holds nothing back --------------
+
+def test_c6_12_a_later_pin_that_names_several_lanes_is_refused_not_held(incident):
+    """C-6.9, C-6.12 such a job can never run; admission refuses it while an older job still waits."""
+    service, harness = incident
+    older = submit(service, harness, pinned_model="fable", pinned_lane="claude-a")
+    service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(3600))
+    later = legacy(service, harness, "max@example.invalid", pinned_model=None)     # no model, no task
+    service._admit()
+    job = service.store.get_job(later)
+    assert (job["state"], job["rc"]) == ("failed", 2), service._holds.get(later)
+    assert "names 2 lanes" in service.dispatch("why", {"job_id": later})["text"]
+
+
+def test_c6_9_an_older_pin_that_names_no_lane_keeps_nothing(fleet):
+    """C-6.9 an older job pinned to a name no lane answers to can use no lane, so it holds nothing back."""
+    service, harness = fleet
+    older = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
+    service.store.update_job(older, pinned_lane="nobody@example.invalid")
+    later = submit(service, harness, pinned_model="astra")
+    for _ in range(3):
+        service.store.update_job(older, next_check_at=utcnow())
+        service._admit()
+        if service.store.list_attempts(later):
+            break
+    assert service.store.get_job(older)["state"] == "waiting" and service._holds[older]["reason"] == "no-lanes"
+    assert [row["lane_id"] for row in service.store.list_attempts(later)] == ["codex-1"], service._holds.get(later)
+
+
+def test_c6_9_an_older_job_in_a_route_wait_keeps_no_lane(fleet, monkeypatch):
+    """C-6.9, C-6.12 a route wait holds back no other job: the lane it was pinned to is free that pass."""
+    service, harness = fleet
+    older = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
+    service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(3600))
+    later = submit(service, harness, pinned_model="astra")
+    service._admit()
+    assert service._holds[later]["reason"] == "behind-older-job" and service._holds[later]["kept"] == {"codex-1": older}
+    service.store.update_job(later, next_check_at=after(3600))
+    service.store.update_job(older, next_check_at=utcnow())
+    real = service._pick
+
+    def pick(job, **options):
+        if job["job_id"] == older:
+            raise KeyError("fixture")
+        return real(job, **options)
+    monkeypatch.setattr(service, "_pick", pick)
+    service._admit()
+    assert service.store.get_job(older)["wait_reason"] == "route"
+    assert [row["lane_id"] for row in service.store.list_attempts(later)] == ["codex-1"]
 
 
 # --- C-11.2: the queue a restart finds --------------------------------------------------------

@@ -122,10 +122,12 @@ def test_c6_9_a_full_fleet_stops_the_pass(fleet):
     ({"task": "review", "tier": "trivial"}, {"haiku", "sonnet", "opus", "astra"}),
     ({"task": "authored-prose", "tier": "hard"}, {"fable"}),
     ({"pinned_lane": "claude-3"}, None),
+    ({"task": "review", "tier": "standard", "pinned_lane": "claude-3"}, {"opus"}),  # a lane pin walks the first model
+    ({"task": "review", "tier": "hard", "pinned_lane": "codex-1"}, {"astra"}),
     ({"task": "not-a-task", "tier": "standard"}, None),
 ])
 def test_c6_9_demand_models_follow_the_chain_evaluate_walks(job, expected):
-    """C-11.2 a pin is one model; a task is its chain from its tier upward."""
+    """C-11.2 a pin is one model; a task is its chain from its tier upward, and only its first with a lane pin."""
     import json
     from pathlib import Path
     policy = json.loads((Path(scheduler.__file__).with_name("default_policy.json")).read_text())
@@ -168,20 +170,19 @@ def test_c6_9_a_waiter_pinned_to_one_lane_does_not_hold_a_job_pinned_to_another(
     assert admitted(service, other) and not service.store.list_attempts(older)
 
 
-@pytest.mark.parametrize("case", ["same-lane", "older-unpinned", "newer-unknown-pin"])
+@pytest.mark.parametrize("case", ["same-lane", "older-unpinned"])
 def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case):
-    """C-6.9 a shared pin, an older free choice, or a newer unresolvable pin competes.
+    """C-6.9 a shared pin, or an older free choice, competes.
 
-    A newer job with no pin behind an older pinned one is evaluated without the
-    older job's lane instead: see the C-6.9 section on pinned waiters below.
+    A newer job with no pin behind an older pinned one is evaluated with the
+    older job's lane kept instead: see the C-6.9 section on pinned waiters
+    below. A pin that names no lane can use none and competes with nothing,
+    and one that names several is refused at admission (C-6.12).
     """
     service, harness = pinned_fleet
-    older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "older-unpinned": (None, "claude-b"),
-                            "newer-unknown-pin": ("claude-a", None)}[case]
+    older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "older-unpinned": (None, "claude-b")}[case]
     older = submit(service, harness, pinned_model="fable", pinned_lane=older_pin)
     newer = submit(service, harness, pinned_model="fable", pinned_lane=newer_pin)
-    if case == "newer-unknown-pin":
-        service.store.update_job(newer, pinned_lane="nobody@example.invalid")   # a pin the roster cannot resolve
     wait_on_capacity(service, older)
     service._admit()
     assert not service.store.list_attempts(newer)
@@ -189,13 +190,13 @@ def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case
 
 
 def test_c6_9_demand_lanes_resolves_a_pin_to_its_lane_id():
-    """C-11.2 an account label or a lane id names one lane; nothing, or an unknown label, is any lane."""
+    """C-11.2 an account label or a lane id names one lane; no pin is any lane; an unknown label is no lane."""
     roster = [{"lane_id": "claude-a", "account_key": "claude:a@example.invalid", "email": "a@example.invalid"},
               {"lane_id": "claude-b", "account_key": "claude:b@example.invalid", "email": "b@example.invalid"}]
     assert scheduler.demand_lanes(roster, {"pinned_lane": "claude-b"}) == frozenset({"claude-b"})
     assert scheduler.demand_lanes(roster, {"pinned_lane": "a@example.invalid"}) == frozenset({"claude-a"})
     assert scheduler.demand_lanes(roster, {"pinned_lane": None}) is None
-    assert scheduler.demand_lanes(roster, {"pinned_lane": "nobody@example.invalid"}) is None
+    assert scheduler.demand_lanes(roster, {"pinned_lane": "nobody@example.invalid"}) == frozenset()
 
 
 def test_c6_9_competes_needs_a_shared_model_and_a_shared_lane():
@@ -205,6 +206,9 @@ def test_c6_9_competes_needs_a_shared_model_and_a_shared_lane():
     assert scheduler.competes(f, f, a, a) and scheduler.competes(f, f, a, None) and scheduler.competes(f, f, None, b)
     assert not scheduler.competes(f, frozenset({"opus"}), a, a)
     assert scheduler.competes(None, f, a, b) is False                                  # lanes disjoint wins even with unknown models
+    none = frozenset()                                                                 # a pin that names no lane
+    assert not scheduler.competes(f, f, none, None) and not scheduler.competes(f, f, None, none)
+    assert not scheduler.competes(None, None, none, a)
 
 
 # --- C-6.9: an older job pinned to a lane keeps that lane, not the fleet ------------------------
@@ -342,7 +346,10 @@ A, B = frozenset({"claude-a"}), frozenset({"claude-b"})
     ((F, None), False, [("w1", F, None)], ("w1", {})),                                 # unpinned FIFO, unchanged
     ((F, None), False, [("w1", F, A), ("w2", F, None)], ("w2", {"claude-a": "w1"})),   # an unpinned waiter still holds
     ((F, None), False, [("w1", O, A)], (None, {})),                                    # no shared model: nothing kept
-    ((F, None), True, [("w1", F, A)], ("w1", {})),                                     # an unresolvable pin: held
+    ((F, None), True, [("w1", F, A)], (None, {})),                                     # a pin naming several lanes: refused, not held
+    ((F, None), True, [("w1", F, None)], (None, {})),
+    ((F, frozenset()), True, [("w1", F, A), ("w2", F, None)], (None, {})),             # a pin naming no lane competes with nothing
+    ((F, None), False, [("w1", F, frozenset())], (None, {})),                          # an older pin naming no lane keeps nothing
     ((None, None), False, [("w1", F, A)], (None, {"claude-a": "w1"})),                 # models unknown: lanes still kept
     ((F, None), False, [("w1", F, A), ("w2", F, A)], (None, {"claude-a": "w1"})),      # the oldest keeps it
     ((F, None), False, [("w1", F, A), ("w2", F, B)], (None, {"claude-a": "w1", "claude-b": "w2"})),

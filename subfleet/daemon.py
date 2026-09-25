@@ -2411,9 +2411,10 @@ class Daemon:
         # older job that cannot be placed holds back the later jobs that could run
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
         # admissible lane kept three Fable-pinned jobs queued for hours beside
-        # eleven free Fable lanes. One pinned to a lane keeps that lane, not the
-        # fleet: on 2026-09-22 a build pinned to a lane that refused its model held
-        # every later unpinned Opus job beside an open lane.
+        # eleven free Fable lanes. One pinned to a lane keeps that lane rather than
+        # every lane (the last fleet slot is kept separately, below): on 2026-09-22
+        # a build pinned to a lane that refused its model held every later unpinned
+        # Opus job beside an open lane.
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
         roster = self._pin_roster()              # C-6.9: lane pins are compared by lane id (C-11.2)
         saturated = False
@@ -2454,11 +2455,14 @@ class Daemon:
                 # eight of them end the job.
                 self._capacity_waits.pop(job["job_id"], None)
                 known = None
-            # C-6.9: a job that waits only for a lane an older job was pinned to is
-            # looked at on the first pass that older job no longer waits, as it was
-            # when it was held without a clock.
-            kept_gone = bool(known and known["hold"].get("reason") == "behind-older-job" and not any(
-                older == known["hold"].get("behind") for older, _, _ in waiters.get(tier, ())))
+            # C-6.9: a job held behind an older job after a look (the only lanes
+            # that would take it are kept for older jobs pinned there, or its
+            # retry, pinned or let go, is behind one) is looked at on the first
+            # pass on which any of those jobs is no longer a capacity waiter of
+            # the tier, as it was when it was held without a clock.
+            waiting_now = {older for older, _, _ in waiters.get(tier, ())}
+            kept_gone = bool(known and known["hold"].get("reason") == "behind-older-job" and not {
+                known["hold"].get("behind"), *known["hold"].get("kept", {}).values()} <= waiting_now)
             hurried = bool((freed or kept_gone) and known and known["expedite"])
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 if job["wait_reason"] == "capacity":
@@ -2592,8 +2596,14 @@ class Daemon:
                             **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                 "max_active_attempts": cap} if label == "slot-kept" else {})}
                     if label.startswith("kept:"):
-                        # C-6.9: a lane would take it, but an older waiting job is pinned there.
-                        hold = {"reason": "behind-older-job", "behind": label.removeprefix("kept:"), "tier": tier}
+                        # C-6.9: a lane would take it, but an older waiting job is
+                        # pinned there. `behind` is the oldest of them; `kept` names
+                        # every such lane and the job it is kept for.
+                        kept = scheduler.kept_only(decision)
+                        order = [older for older, _, _ in waiters[tier]]
+                        hold = {"reason": "behind-older-job", "tier": tier, "kept": kept,
+                                "behind": min(kept.values(), key=lambda older: order.index(older)
+                                              if older in order else len(order))}
                     rechecks = self._capacity_wait(
                         job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", hold)
                     waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)

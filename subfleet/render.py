@@ -186,7 +186,12 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
     if hold:
         reason = hold.get("reason", "unknown")
         template = _HOLD_TEXT.get(reason)
-        if template:
+        if reason == "behind-older-job" and hold.get("kept"):
+            # C-6.9: not the whole fleet; the lanes that would take it are kept.
+            kept = ", ".join(f"{lane} for {older}" for lane, older in sorted(hold["kept"].items()))
+            lines.append(f"Held: held behind {hold.get('behind', '?')}: the only lanes that would take it are kept "
+                         f"for older {hold.get('tier', '?')} jobs pinned there ({kept}) (C-6.9)")
+        elif template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-"}
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error"), "?"), **fields}))
