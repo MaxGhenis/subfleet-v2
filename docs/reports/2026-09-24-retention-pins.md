@@ -18,8 +18,9 @@ transactions).
 The measurements below come from a consistent copy of the live store, taken
 with the SQLite backup API from a read-only connection at about 17:27Z on
 2026-09-24. The worktree sizes come from a read-only walk of
-`~/.subfleet/worktrees`. The scripts live in this session's scratch directory
-and are not part of the repository.
+`~/.subfleet/worktrees`. The scripts are kept outside the repository, in
+`~/reviews/formal-verification-2026-09-24/work/retention-measure/`
+(`time_pins.py`, `time_size.py`, `breakdown.py`, `budget.py`, `bytes_by_rule.py`).
 
 | Measure | Value |
 | --- | --- |
