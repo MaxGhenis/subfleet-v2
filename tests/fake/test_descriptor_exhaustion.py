@@ -149,7 +149,10 @@ def test_c16_6_more_clients_than_descriptors_get_answers_and_the_daemon_stays_up
     assert not unanswered, tally
     assert tally.get("ping:busy", 0) + tally.get("wait:busy", 0) + tally.get("idle:busy", 0) > 0, tally
     assert tally.get("wait:answered", 0) > 0 and tally.get("ping:answered", 0) > 0, tally
-    assert max(peak, default=0) <= 128, peak
+    # Within its own budget, not merely under the kernel's limit (which cannot be passed):
+    # the connections it held plus the reserve for its own work (C-16.6).
+    budget = descriptors.max_connections(128) + descriptors.DESCRIPTOR_RESERVE
+    assert max(peak, default=0) <= budget, (peak, budget)
     # The job ran to success beside the storm: the reserve kept descriptors for the daemon's own work.
     assert h.finished(job)["state"] == "succeeded"
     counts = h.call("daemon.status")["descriptors"]

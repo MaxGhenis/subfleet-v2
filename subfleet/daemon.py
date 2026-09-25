@@ -313,18 +313,26 @@ class Daemon:
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
 
     def _release_partial_init(self) -> None:
-        """Undo a construction that raised part way (see `_released_on_failure`)."""
-        handler = self.__dict__.get("_log_handler")
-        if handler is not None:
-            self.log.removeHandler(handler)
-            handler.stream.close()
-        for pool in ("workers", "requests", "readers", "waiters"):
-            if (executor := self.__dict__.get(pool)) is not None:
-                executor.shutdown(wait=False)
+        """Undo a construction that raised part way (see `_released_on_failure`).
+
+        Each step runs on its own: one that fails must neither stop the rest nor
+        replace the error that made construction fail.
+        """
+        def closing_log():
+            if (handler := self.__dict__.get("_log_handler")) is not None:
+                self.log.removeHandler(handler)
+                handler.stream.close()
+        steps = [closing_log]
+        steps += [functools.partial(executor.shutdown, wait=False)
+                  for executor in (self.__dict__.get(name) for name in ("workers", "requests", "readers", "waiters"))
+                  if executor is not None]
         if (store := self.__dict__.get("store")) is not None:
-            store.close()
+            steps.append(store.close)
         if (finalizer := self.__dict__.get("_lock_finalizer")) is not None:
-            finalizer()                                # closing the fd releases the flock
+            steps.append(finalizer)                    # closing the fd releases the flock
+        for step in steps:
+            with contextlib.suppress(Exception):
+                step()
 
     def _reset_admission_state(self) -> None:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
@@ -3457,7 +3465,11 @@ class Daemon:
             with write_lock:
                 conn.sendall(protocol.encode(response))
         except OSError:
-            pass  # A client disconnect cannot cancel its durable job.
+            # A client disconnect cannot cancel its durable job. A reply that
+            # failed part way (the client stopped reading, C-16.6) leaves a
+            # broken line, so nothing more may follow it on this connection.
+            with contextlib.suppress(OSError):
+                conn.shutdown(socket.SHUT_RDWR)
 
     def _decode(self, conn: socket.socket, write_lock: threading.Lock,
                 line: bytes | descriptors.Oversized) -> protocol.Request | None:
@@ -3475,6 +3487,10 @@ class Daemon:
         write_lock = threading.Lock()
         pending = []
         framer = descriptors.LineFramer()
+        replied = [0.0]                         # when a reply last finished (monotonic)
+
+        def note_reply(_future) -> None:
+            replied[0] = time.monotonic()
         try:
             # C-16.6: reads time out instead of blocking, so a client that says
             # nothing cannot hold this reader and its descriptor for ever. The
@@ -3485,8 +3501,8 @@ class Daemon:
                     chunk = conn.recv(65536)
                 except TimeoutError:
                     pending = [f for f in pending if not f.done()]
-                    if pending:
-                        continue           # a reply is still being worked on
+                    if pending or time.monotonic() - replied[0] < self.connection_idle_s:
+                        continue           # a reply is being worked on, or went out recently
                     self._count_connection("idle_closed")
                     break
                 for line in framer.feed(chunk) if chunk else framer.finish():
@@ -3498,6 +3514,7 @@ class Daemon:
                     pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
                     pending = [f for f in pending if not f.done()]
                     pending.append(pool.submit(self._respond, conn, write_lock, req))
+                    pending[-1].add_done_callback(note_reply)
                 if not chunk:
                     break
         except OSError:
@@ -3590,8 +3607,9 @@ class Daemon:
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.bind(str(sock_path))
         os.chmod(sock_path, 0o600)
-        # C-16.6: the kernel's most (128 on macOS). A burst past a full backlog is
-        # refused at connect, which the CLI reports as no daemon at all.
+        # C-16.6: socket.SOMAXCONN, 128, which is also macOS's default
+        # kern.ipc.somaxconn cap. A burst past a full backlog is refused at
+        # connect, which the CLI reports as no daemon at all.
         self._socket.listen(max(64, socket.SOMAXCONN))
         self._socket.settimeout(.2)
         self._control_thread = threading.Thread(target=self._control, name="subfleet-control", daemon=True)

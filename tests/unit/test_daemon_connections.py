@@ -12,6 +12,7 @@ background control loop stubbed out.
 
 import json
 import socket
+from contextlib import suppress
 import tempfile
 import threading
 import time
@@ -90,7 +91,10 @@ def connect(service) -> socket.socket:
 
 
 def send(sock, op, **args):
-    sock.sendall((json.dumps({"v": 1, "id": op, "op": op, "args": args}) + "\n").encode())
+    # A connection over the cap may be answered and closed before the request is
+    # sent (C-16.6); the answer is still there to read.
+    with suppress(BrokenPipeError, ConnectionResetError):
+        sock.sendall((json.dumps({"v": 1, "id": op, "op": op, "args": args}) + "\n").encode())
 
 
 def reply(sock) -> dict:
@@ -303,3 +307,45 @@ def test_c16_6_shutdown_leaves_no_client_connection_open(serve):
     for sock in held:
         assert sock.recv(1) == b""                       # closed by the daemon, not left open
         sock.close()
+
+
+def test_c16_6_idle_is_counted_from_the_last_reply_not_the_last_read(serve):
+    """C-16.6 a request that ran almost the whole idle period, followed by another
+    shortly after its reply, is served: silence is measured from the reply."""
+    service = serve(connection_idle_s=1.0)
+    real = service.dispatch
+    service.dispatch = lambda op, args, **kw: (time.sleep(.8), {"slow": True})[1] if op == "readings" \
+        else real(op, args, **kw)
+    with connect(service) as sock:
+        send(sock, "readings")
+        assert reply(sock)["result"] == {"slow": True}    # at ~0.8 s; the read timed out at 1.0 s
+        time.sleep(.4)                                     # 1.2 s since the last read, 0.4 s since the reply
+        send(sock, "ping")
+        assert reply(sock)["result"]["pong"] is True
+
+
+def test_c16_6_nothing_follows_a_reply_that_failed_part_way(serve):
+    """C-16.6 once a reply's send times out part way, the connection carries nothing
+    more: a later reply would be appended to a broken line."""
+    service = serve(connection_idle_s=.5)
+    real = service.dispatch
+    asked = threading.Event()
+
+    def dispatch(op, args, **kw):
+        if op != "readings":
+            return real(op, args, **kw)
+        asked.set()
+        return {"rows": ["x" * 1024] * 2048}             # 2 MiB: its send times out
+    service.dispatch = dispatch
+    stuck = connect(service)
+    stuck.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    send(stuck, "readings")
+    assert asked.wait(5)
+    time.sleep(.8)                                         # past the 0.5 s send timeout
+    send(stuck, "ping")
+    data = b""
+    stuck.settimeout(5)
+    while chunk := stuck.recv(65536):
+        data += chunk
+    assert b'"pong"' not in data and not data.endswith(b"}\n")
+    stuck.close()
