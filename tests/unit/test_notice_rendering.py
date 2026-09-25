@@ -79,9 +79,22 @@ def test_c15_1_an_accepted_attempt_on_a_job_that_did_not_succeed_names_no_file()
 def test_c15_1_the_hook_fallback_header_is_the_notice_header(job, tmp_path):
     """C-15.1, C-15.2 the hook's line for a job with no notice row is the daemon's header
     over the same row, then the pointer to `runs show`."""
+    if job.get("accepted_attempt_id"):
+        published = tmp_path / "jobs" / JOB / "a1" / "deliverable.md"
+        published.parent.mkdir(parents=True)
+        published.write_text("result\n")
     header, pointer = hooks.job_summary(job, tmp_path).splitlines()
     assert header == render.notice_header(job, tmp_path.resolve())
     assert pointer == f"no notice row for this job — subfleet runs show {JOB}"
+
+
+def test_c15_1_the_hook_fallback_offers_no_deliverable_path_that_is_not_there(tmp_path):
+    """C-15.1: a job the importer brought from v1 keeps its deliverable in the v1 run
+    directory, so the fallback does not name a v2 attempt path that does not exist."""
+    job = row("succeeded", 0, accepted_attempt_id=f"{JOB}/a1")
+    header = hooks.job_summary(job, tmp_path).splitlines()[0]
+    assert "; deliverable=-; " in header
+    assert render.notice_header(job, tmp_path.resolve()) != header     # the daemon's rule differs
 
 
 def test_c15_1_the_hook_fallback_never_offers_a_cancelled_jobs_o_path(daemon, root):

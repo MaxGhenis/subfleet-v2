@@ -381,3 +381,14 @@ def test_old_claude_cli_reported_as_host_fault_not_no_lane(world, policy, tmp_pa
     result = attempt(daemon, policy, COLD, tmp_path, opt_in=True)
     every_reason = " ".join(filter(None, (result.reason, result.fix)))
     assert "no lane serves" not in every_reason
+
+
+@pytest.mark.parametrize("request_id,minted", [(None, True), ("operator-rid", False)])
+def test_c16_3_revive_says_whether_it_minted_the_request_id(world, policy, tmp_path,
+                                                             request_id, minted):
+    """C-16.3: a revive's own fresh id makes a job found after a refused re-send its own;
+    an operator's id keeps the refusal. The kit is told which."""
+    cold_session(world)
+    daemon = fx.FakeSessions()
+    attempt(daemon, policy, COLD, tmp_path, opt_in=True, request_id=request_id)
+    assert daemon.minted == [minted]

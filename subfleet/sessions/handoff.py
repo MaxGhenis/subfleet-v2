@@ -733,7 +733,7 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
         caller_session=caller_session,
         caller_pid=caller_pid,
     )
-    result = sessions.submit(args)
+    result = sessions.submit(args, minted=not request_id)      # C-16.3
     return Dispatched(brief=brief, job_id=result.get("job_id"), request_id=identity,
                       model=model, task=task, tier=tier, sandbox=chosen,
                       caller_session=caller_session, prompt_path=prompt_path)

@@ -138,8 +138,8 @@ def _guard(handler):
             note(f"subfleet {_verb(args)}: outcome unknown: the daemon may have created "
                  f"the job, and no answer says whether it did ({'; then '.join(exc.reasons)})")
             note(f"  request id: {exc.request_id}")
-            note(f"  look before running it again: {cli._look_command()}   (each row "
-                 f"carries its request_id)")
+            note(f"  look before running it again: {cli._look_command(exc.request_id)}   "
+                 f"(a revive's job belongs to the session it continues)")
             return int(Exit.OPERATIONAL)
         except DaemonUnavailable as exc:
             return cli._daemon_down(exc)

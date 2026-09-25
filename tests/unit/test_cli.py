@@ -1323,3 +1323,19 @@ def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
     captured = capsys.readouterr().err
     assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in captured
     assert "LC_ALL=C and TZ=UTC" in captured
+
+
+def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):
+    """C-16.3, C-17.5: `runs --request-id` answers from the store when no daemon is up,
+    whatever `--last` would have cut off."""
+    import sqlite3
+    from test_offline import build_store
+    build_store(root)
+    with sqlite3.connect(root / "state.sqlite3") as db:
+        job_id, request_id = db.execute(
+            "SELECT job_id, request_id FROM jobs ORDER BY created_at LIMIT 1").fetchone()
+    assert run_cli(["runs", "--request-id", request_id, "--last", "1", "--json"]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [row["job_id"] for row in rows] == [job_id]
+    assert run_cli(["runs", "--request-id", "no-such-request", "--json"]) == 0
+    assert capsys.readouterr().out == ""

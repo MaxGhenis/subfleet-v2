@@ -281,6 +281,9 @@ def test_post_tool_use_exits_zero_and_silent_on_timeout(daemon, root):
 def test_post_tool_use_reports_a_job_with_no_notice_row_from_the_job_itself(
         daemon, root):
     """C-15.1 nothing is invented: every field of the fallback line is copied."""
+    published = root / "jobs" / JOB / "a1" / "deliverable.md"
+    published.parent.mkdir(parents=True)
+    published.write_text("result\n")
     daemon({"list": lambda request: {"jobs": [running_job()]},
             "wait": lambda request: {"jobs": [finished_job()]},
             "notice.pending": lambda request: {"notices": []}})

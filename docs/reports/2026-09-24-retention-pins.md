@@ -79,14 +79,25 @@ returns everything as protected, and the next pass starts over, walk included.
 Whether the walk alone exceeded the 60 s deadline under the load of 2026-09-24
 is unverified: `daemon.log` lines carry no timestamps.
 
-**The rmtree window is real but rare.** Only three things can pin a terminal job
-between the two re-checks. A `resume` names the job as its parent. A gate action
-cites it, but gate-review jobs are pinned by kind anyway. A lease is taken on its
-worktree, but in-place admission is fenced by the `retention:<job>` lease.
-Notices only move toward acknowledged. In the resume case, the new job can be
-admitted into a worktree that `_remove_worktree` removes a moment later. The
-final re-check then keeps the row, because it is now a parent, but not the
-files. No incident is known.
+**The rmtree window is real but rare.** A pin can appear between the two
+re-checks in three ways:
+
+- **A child names the job as its parent.** Ordinary `--parent` children and
+  read-only resumes can do this. A writable resume cannot: it is submitted in
+  place (`_resume_submission` sets `in_place` for a `workspace-write` source).
+  Its worktree lease then meets the `retention:<job>` lease that retention took
+  in `retention.selected`, and submit refuses it.
+- **A notice moves from `surfaced` back to `offered`.** `notice.mark` accepts
+  any state change except out of `acknowledged`. A PostToolUse hook that read
+  the notice while it was pending can mark it `offered` after another hook
+  marked it `surfaced`, and after retention selected the job.
+- **A gate action cites the job.** Gate-review jobs are pinned by kind anyway.
+
+In the first two cases the final re-check keeps the row but not the job
+directory, which `shutil.rmtree` has already removed. A read-only resume's
+source directory then holds nothing, not even the prompt or deliverable of the
+job it continues. No incident is known. (The first draft of this report named a
+writable resume as the example; review on 2026-09-25 showed that one is fenced.)
 
 ## Proposal
 
@@ -113,14 +124,17 @@ files. No incident is known.
    and walk only jobs that are not terminal or whose mtime changed. Keep the
    computed pin set and sizes across an interrupted pass rather than starting
    over. Compute `_pins` once per pass, plus a targeted per-candidate re-check
-   of the few rows that can change: parent, lease, gate action.
+   of the rows that can change: parent, lease, gate action, and notice state.
+   Or make notice states monotonic, so that `surfaced` never becomes `offered`
+   again.
 5. **Close the rmtree window by deleting rows first.** In the `retention.selected`
    transaction, re-check the candidate's pins and delete its rows. Record the
    directory, worktree and salvage refs to remove in the event, which retention
    keeps. Remove files after commit. A sweep removes `jobs/<id>` directories that
    no row names and a pruning event does, and counts their bytes until then. A
-   resume that races now gets "no such job" at submit instead of a job pointed
-   at a removed worktree. The alternative, a `prune:<job>` fence that submit and
+   child or read-only resume that races now gets "no such job" at submit,
+   instead of a job whose source directory is gone. A notice marked again
+   after selection finds no row. The alternative, a `prune:<job>` fence that submit and
    gate code must check, fails open whenever a new pin source forgets it.
 
 ## Test plan

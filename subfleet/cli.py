@@ -700,8 +700,13 @@ def _submitted(result: dict[str, Any], *, minted: bool) -> tuple[bool, str]:
     return False, " (acknowledged on re-query: an existing job for this request id)"
 
 
-def _look_command() -> str:
-    return f"{PROG} runs{' --mine' if session_id() else ''} --json"
+def _look_command(request_id: str) -> str:
+    """C-16.3: the lookup that finds a job by its request id, whoever its caller is.
+
+    Not `runs --mine`: a revive or handoff records the session it continues as
+    the caller, not the session that ran the command.
+    """
+    return f"{PROG} runs --request-id {shlex.quote(request_id)} --json"
 
 
 def _submit_unknown(verb: str, exc: OutcomeUnknown, request_id: str, *,
@@ -719,9 +724,9 @@ def _submit_unknown(verb: str, exc: OutcomeUnknown, request_id: str, *,
         note("  settle it: re-run this command; its --request-id never creates a second "
              "job (C-6.2)")
     else:
-        note(f"  settle it: re-run this command with --request-id {request_id}; one "
+        note(f"  settle it: re-run this command with --request-id {shlex.quote(request_id)}; one "
              f"request id never creates a second job (C-6.2)")
-    note(f"  or look: {_look_command()}   (each row carries its request_id)")
+    note(f"  or look: {_look_command(request_id)}")
     return int(Exit.OPERATIONAL)
 
 
@@ -950,7 +955,7 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
     # C-17.7: the same manifest under the same batch id sends every entry again,
     # and an entry the daemon already holds comes back as its job (C-6.2).
     rerun = (f"{PROG} run --batch {shlex.quote(str(Path(args.batch).expanduser().resolve()))} "
-             f"--request-id {batch_id}")
+             f"--request-id {shlex.quote(batch_id)}")
     rows: list[dict[str, Any]] = []
     notes: dict[int, str] = {}           # how each entry's answer was learned (C-16.3)
     worst = int(Exit.OK)
@@ -1249,15 +1254,21 @@ def cmd_runs(args: argparse.Namespace) -> int:
     offline = False
     try:
         client = _client(args)
+        wanted = getattr(args, "request_id", None)
         result = client.call("list", _asdict(protocol.ListArgs(
-            mine=mine, running=bool(args.running), last=args.last or None)))
+            mine=mine, running=bool(args.running),
+            last=None if wanted else args.last or None, request_id=wanted)))
         rows = rows_of(result.get("jobs") or result.get("rows"))
+        if wanted:
+            # A daemon older than the filter lists every job (C-16.2, C-16.3).
+            rows = [row for row in rows if row.get("request_id") == wanted]
     except DaemonUnavailable:
         offline = True
         store = _offline(args)
         try:
             rows = store.list_jobs(session=mine, running=bool(args.running),
-                                   last=args.last)
+                                   last=0 if getattr(args, "request_id", None) else args.last,
+                                   request_id=getattr(args, "request_id", None))
         except OfflineUnavailable as exc:
             return _daemon_down(exc)
         _note_schema(store)
@@ -1583,10 +1594,23 @@ def cmd_kill(args: argparse.Namespace) -> int:
             worst = max(worst, int(Exit.OPERATIONAL))
             if args.json:
                 emit({"job_id": job_id, "outcome": "unknown", "error": str(exc)})
-            note(f"{PROG} kill: {job_id}: outcome unknown: the cancel may have been recorded, "
-                 f"and no answer says whether it was ({'; then '.join(exc.reasons)})")
-            note(f"  {PROG} runs show {job_id} shows cancel_requested_at; running "
-                 f"{PROG} kill {job_id} again is safe (C-7.1)")
+            resolution = ("--confirm-dead" if args.confirm_dead else
+                          "--force-release" if args.force_release else None)
+            if resolution:
+                # A quarantine resolution, not a cancel: plain `kill` would only
+                # answer "already finished" and resolve nothing (C-5.7).
+                again = f"{PROG} kill {job_id} {resolution}" + (
+                    f" --note {shlex.quote(args.note)}" if args.note else "")
+                note(f"{PROG} kill: {job_id}: outcome unknown: the {resolution} resolution may "
+                     f"have been requested, and no answer says whether it was "
+                     f"({'; then '.join(exc.reasons)})")
+                note(f"  {PROG} runs show {job_id} shows the attempt's state and the leases it "
+                     f"holds; running {again} again is safe (C-16.3)")
+            else:
+                note(f"{PROG} kill: {job_id}: outcome unknown: the cancel may have been recorded, "
+                     f"and no answer says whether it was ({'; then '.join(exc.reasons)})")
+                note(f"  {PROG} runs show {job_id} shows cancel_requested_at; running "
+                     f"{PROG} kill {job_id} again is safe (C-7.1)")
         except DaemonUnavailable as exc:
             if args.confirm_dead or args.force_release:
                 # Both resolutions release leases and record an event, and only
@@ -2483,6 +2507,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs.add_argument("--mine", action="store_true",
                         help="only this session's jobs (CLAUDE_CODE_SESSION_ID)")
     p_runs.add_argument("--running", action="store_true", help="only unfinished jobs")
+    p_runs.add_argument("--request-id", dest="request_id", default=None,
+                        help="only the job carrying this request id, whoever submitted it (C-16.3)")
     _add_json(p_runs)
     p_runs.set_defaults(handler=cmd_runs, runs_command=None)
     runs_sub = p_runs.add_subparsers(dest="runs_command")

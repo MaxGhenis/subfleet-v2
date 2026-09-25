@@ -92,18 +92,18 @@ class Sessions:
         """One notice row for `session_id`; the delivery ladder does the rest."""
         return self.client.call("ping", _asdict(PingArgs(text=text, session_id=session_id)))
 
-    def submit(self, args: SubmitArgs) -> dict[str, Any]:
+    def submit(self, args: SubmitArgs, *, minted: bool = False) -> dict[str, Any]:
         """One job through the ordinary path, settled if its answer is lost (C-16.3).
 
         A lost answer is re-sent once under the same request id; answered
         neither time, `OutcomeUnknown` reaches the verb, which says so rather
-        than "not submitted". The request id is treated as the caller's
-        (`minted=False`): a re-send refused while a job holds the id stays a
-        refusal naming that job, because this layer cannot tell a revive's
-        freshly minted id from a `handoff --request-id` the operator reused.
+        than "not submitted". `minted` says the verb made the request id up
+        for this call (no `--request-id`), so a job found carrying it after a
+        refused re-send is this call's own and is the answer; an id the
+        operator supplied keeps the refusal, naming the job (C-16.3).
         """
         return self.client.call_settled("submit", _asdict(args), request_id=args.request_id,
-                                        on_lost=self.on_lost)
+                                        minted=minted, on_lost=self.on_lost)
 
     # --- internals -----------------------------------------------------------
 

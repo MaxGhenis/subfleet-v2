@@ -55,7 +55,8 @@ def closure_text(value: Any) -> str:
     return result + ")"
 
 
-def notice_header(job: Mapping[str, Any], state_root: str | Path) -> str:
+def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
+                  require_file: bool = False) -> str:
     """C-15.1: the first line of a job's notice, from the job row alone.
 
     `<job id>: <state>; rc=<rc>; deliverable=<path>; out=<-o path>`. State and
@@ -75,7 +76,12 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path) -> str:
     this, so one terminal state cannot be rendered two ways. `state_root` is
     the resolved state root the daemon writes attempt directories under
     (C-2.3); the deliverable of an accepted job is that attempt's
-    `deliverable.md` (C-8.2).
+    `deliverable.md` (C-8.2). `require_file` names that path only when the
+    file is there: the hook's fallback may be rendering a job the importer
+    brought from v1, whose deliverable stayed in its v1 run directory, and a
+    path that does not exist is not one to offer. The daemon's notice never
+    needs it: the transaction that accepts an attempt follows its published
+    deliverable.
     """
     job_id = str(job.get("job_id"))
     rc = job.get("rc")
@@ -84,7 +90,9 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path) -> str:
     if accepted:
         seq = str(accepted).rpartition("/a")[2]
         if seq.isdigit():
-            deliverable = str(attempt_dir(Path(state_root), job_id, int(seq)) / "deliverable.md")
+            path = attempt_dir(Path(state_root), job_id, int(seq)) / "deliverable.md"
+            if not require_file or path.is_file():
+                deliverable = str(path)
         out = job.get("out_path") or "-"
     return (f"{job_id}: {job.get('state')}; rc={'-' if rc is None else rc}; "
             f"deliverable={deliverable}; out={out}")

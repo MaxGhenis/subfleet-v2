@@ -205,8 +205,11 @@ class Offline:
     """
 
     def list_jobs(self, *, session: str | None = None, running: bool = False,
-                  last: int = 20) -> list[dict[str, Any]]:
+                  last: int = 20, request_id: str | None = None) -> list[dict[str, Any]]:
         where, params = [], []
+        if request_id is not None:                      # C-16.3's lookup
+            where.append("j.request_id = ?")
+            params.append(request_id)
         if session:
             where.append("j.caller_session = ?")
             params.append(session)

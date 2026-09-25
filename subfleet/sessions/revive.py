@@ -340,7 +340,7 @@ def revive(sessions, policy: dict[str, Any], session_id: str, *,
                        request_id=request_id or str(uuid.uuid4()),
                        prompt_path=str(prompt_path), workdir=workdir,
                        task=task, tier=tier)
-    result = sessions.submit(args)
+    result = sessions.submit(args, minted=request_id is None)   # C-16.3
     job_id = result.get("job_id")
     # Record only accepted submissions; refused requests did not change models.
     sessions.record_revive(

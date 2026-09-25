@@ -652,3 +652,84 @@ def test_c16_3_sessions_verbs_report_an_unknown_outcome(monkeypatch, capsys, roo
     assert json.loads(captured.out) == {"job_id": None, "request_id": "rid-7",
                                         "outcome": "unknown", "error": str(unknown)}
     assert "settle it: re-run this command with --request-id rid-7" in captured.err
+
+
+# --- review round 1 (2026-09-25): provenance, lookups, resolutions, quoting ------
+
+def _lost_then_moved(request_id: str):
+    """A daemon that commits the first submit and loses its answer, then refuses the
+    re-send as a different payload (HEAD moved), naming the job (C-6.2, C-16.3)."""
+    sent = []
+
+    def submit(request):
+        sent.append(request)
+        if len(sent) == 1:
+            return b""                                   # committed, answer lost
+        return protocol.fail(request.id, 2, "request id already used with a different "
+                             "payload by job 20260925-120000-revive")
+
+    def listing(request):
+        wanted = request.args.get("request_id")
+        return {"jobs": [{"job_id": "20260925-120000-revive", "request_id": request_id,
+                          "state": "queued"}] if wanted == request_id else []}
+    return {"submit": submit, "list": listing}, sent
+
+
+@pytest.mark.parametrize("minted", [True, False])
+def test_c16_3_the_sessions_kit_keeps_whose_request_id_it_is(daemon, root, workdir, minted):
+    """C-16.3: a revive or handoff that minted its id finds its own job after a refused
+    re-send; an operator-supplied id keeps the refusal, naming the job."""
+    from subfleet.sessions.client import Sessions
+    handlers, sent = _lost_then_moved("revive-9")
+    daemon(handlers)
+    args = protocol.SubmitArgs(request_id="revive-9", kind="revive", workdir=str(workdir),
+                               prompt_path=str(workdir / "p.md"), sandbox="read-only",
+                               pinned_model="opus")
+    if minted:
+        result = Sessions(Client(root)).submit(args, minted=True)
+        assert result["job_id"] == "20260925-120000-revive" and result["requeried"] is True
+    else:
+        with pytest.raises(DaemonError, match="20260925-120000-revive"):
+            Sessions(Client(root)).submit(args)
+    assert len(sent) == 2
+
+
+def test_c16_3_runs_finds_a_job_by_request_id_whoever_submitted_it(daemon, capsys, monkeypatch):
+    """C-16.3, C-17.1: `runs --request-id` sends the filter, ignores --last, and filters the
+    rows itself for a daemon that ignores the field (C-16.2)."""
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-a")
+    rows = [{"job_id": "j-1", "request_id": "other", "state": "succeeded"},
+            {"job_id": "j-2", "request_id": "rid-x", "state": "queued"}]
+    server = daemon({"list": lambda request: {"jobs": rows}})      # an older daemon
+    assert cli.main(["runs", "--request-id", "rid-x", "--json"]) == 0
+    assert server.args("list")["request_id"] == "rid-x" and server.args("list")["last"] is None
+    assert server.args("list")["mine"] is None
+    assert [json.loads(line)["job_id"] for line in capsys.readouterr().out.splitlines()] == ["j-2"]
+
+
+def test_c16_3_the_unknown_outcome_lookup_is_by_request_id_and_quoted():
+    """C-16.3: the lookup hint finds the job whoever its caller is, and a request id with
+    shell metacharacters is quoted, so pasting it cannot change the id."""
+    assert cli._look_command("rid-1") == "subfleet runs --request-id rid-1 --json"
+    assert cli._look_command("batch$USER") == "subfleet runs --request-id 'batch$USER' --json"
+    assert "--mine" not in cli._look_command("rid-1")
+
+
+def test_c17_7_the_rerun_command_quotes_the_batch_id(daemon, capsys, manifest):
+    """C-17.7, C-16.3: a batch id with `$` in it survives being pasted into a shell."""
+    daemon({"submit": lambda request: b""})
+    assert cli.main(["run", "--batch", str(manifest), "--request-id", "batch$USER"]) == 1
+    err = capsys.readouterr().err
+    assert "--request-id 'batch$USER'" in err and "--request-id batch$USER" not in err
+
+
+@pytest.mark.parametrize("flag", ["--confirm-dead", "--force-release"])
+def test_c16_3_an_unknown_resolution_says_to_repeat_the_resolution(daemon, capsys, flag):
+    """C-16.3, C-5.7: a quarantine resolution sent twice unanswered is retried with its own
+    flag and note; plain `kill` would only answer "already finished"."""
+    daemon({"kill": lambda request: b""})
+    assert cli.main(["kill", "JOB-1", flag, "--note", "checked by hand"]) == 1
+    err = capsys.readouterr().err
+    assert f"the {flag} resolution may have been requested" in err
+    assert f"subfleet kill JOB-1 {flag} --note 'checked by hand' again is safe" in err
+    assert "cancel_requested_at" not in err

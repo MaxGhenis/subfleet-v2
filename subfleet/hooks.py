@@ -289,9 +289,11 @@ def job_summary(job: dict[str, Any], root: Path) -> str:
     and the notice cannot name one terminal state two ways (incident:
     2026-09-24, a cancelled job's notice said `ok; rc=0` and this line said
     `cancelled; rc=130`). `root` is resolved as the daemon resolves its own, so
-    an accepted job's deliverable path is the one the notice would have named.
+    an accepted job's deliverable path is the one the notice would have named,
+    and it is named only when the file is there (a job imported from v1 keeps
+    its deliverable in the v1 run directory).
     """
-    return (render.notice_header(job, Path(root).resolve()) + "\n"
+    return (render.notice_header(job, Path(root).resolve(), require_file=True) + "\n"
             f"no notice row for this job — subfleet runs show {job.get('job_id')}")
 
 
