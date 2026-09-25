@@ -788,9 +788,13 @@ writes a history row (text file, digest, next `seq`) that is terminal, has
 origin `legacy`, no job and no predecessor, and goes ahead of every other
 message; the conversation is created from `catalog.claude_session`, the facts
 `conversation.open` uses, so a legacy conversation continues like a native
-one. A session with a non-terminal message or a journal entry stays with the
-legacy writer as a whole, so Subfleet never becomes a second writer in it
-(D-17). `python -m subfleet.importer --legacy-cockpit [--dry-run]` runs the
+one. A session with a non-terminal message or a journal entry (whatever the
+outbox says of that entry's id) stays with the legacy writer as a whole, so
+Subfleet never becomes a second writer in it (D-17); a journal that cannot be
+read holds every session. `fence_bound_sessions` then blocks `legacy-owner` a
+conversation an earlier pass bound whose session is held again, and the first
+pass that finds the session settled lifts that block; it never replaces or
+lifts another block. `python -m subfleet.importer --legacy-cockpit [--dry-run]` runs the
 import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").
 
 ## 14. Test plan

@@ -34,13 +34,18 @@ exactly the shapes that code writes:
 
 What the import does with them: a terminal message of a Claude session whose
 transcript is found becomes a read-only history row
-(`ConversationStore.insert_legacy_history`) of that session's one `legacy`
-conversation, which is created from the transcript exactly as `conversation.open`
-creates a native one (`catalog.claude_session`). Every other message, and every
-journal entry, keeps its legacy owner and is reported with its disposition, and
-so does its whole session (`held_sessions`); nothing here ever queues,
-dispatches or sends a message. Nothing here writes under the v1 state
-directory; the caller reads the outbox from a copy.
+(`ConversationStore.insert_legacy_history`) of that session's one conversation
+(C-24.1). When the session has none, the import creates it with origin `legacy`
+from the transcript, exactly as `conversation.open` creates a native one
+(`catalog.claude_session`); a conversation the session already has keeps its
+own origin. Every other message, and every journal entry whatever the outbox
+says about its id, keeps its legacy owner and is reported with its disposition,
+and so does its whole session (`held_sessions`); a journal that cannot be read
+holds every session. A conversation an earlier pass bound whose session is held
+again is blocked `legacy-owner` until a pass finds the session settled
+(`fence_bound_sessions`). Nothing here ever queues, dispatches or sends a
+message. Nothing here writes under the v1 state directory; the caller reads the
+outbox from a copy.
 """
 
 from __future__ import annotations
@@ -48,7 +53,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -66,6 +71,11 @@ NON_TERMINAL = frozenset({"queued", "starting", "dispatched", "failover-dispatch
                           "delivery-unknown"})
 
 JOURNAL = Path("cockpit-client") / "pending-messages.json"
+
+#: The block a pass puts on a conversation it bound earlier while the legacy
+#: writer may be using that session again (C-30.4, design D-17). A blocked
+#: conversation gets no turn (C-24.5, `ConversationStore.next_dispatchable`).
+LEGACY_HOLD = "legacy-owner"
 
 
 @dataclass(frozen=True)
@@ -167,6 +177,8 @@ class Result:
     items: list[dict[str, Any]] = field(default_factory=list)
     imported: int = 0
     conversations_created: int = 0
+    #: The reason every session is held, when the client journal could not be read.
+    journal_problem: str | None = None
 
     def add(self, **item: Any) -> None:
         self.items.append(item)
@@ -180,27 +192,38 @@ def _item(message: LegacyMessage, disposition: str, **extra: Any) -> dict[str, A
 def held_sessions(messages: Iterable[LegacyMessage], journal: Iterable[Mapping[str, Any]] = ()) -> dict[str, str]:
     """Sessions the legacy writer may still be using, each with the reason.
 
-    A session with a message that is not terminal, or with a journal entry the
-    outbox does not show as terminal, stays with its legacy owner as a whole: a
-    `legacy` conversation is continuable (C-30.2), and binding one to a session
-    whose legacy turn may still be running or undelivered would make Subfleet a
-    second writer there (C-26.3, design D-17).
+    A session with a message that is not terminal, or with any journal entry,
+    stays with its legacy owner as a whole: a legacy-history conversation is
+    continuable (C-30.2), and binding one to a session whose legacy turn may
+    still be running or undelivered would make Subfleet a second writer there
+    (C-26.3, design D-17). A journal entry holds its session whatever the outbox
+    says about its id: the entry is a send the cockpit app has not seen
+    acknowledged, and nothing read here shows what the app does with it next.
     """
     messages = list(messages)
-    status = {message.message_id: message.status for message in messages}
     held: dict[str, str] = {}
     for message in messages:
         if message.status not in TERMINAL:
             held.setdefault(message.session_id, f"message {message.message_id} is {message.status or 'blank'}")
     for entry in journal:
-        if status.get(str(entry.get("message_id"))) not in TERMINAL:
-            held.setdefault(entry["session_id"], f"the cockpit journal holds an unacknowledged send "
-                                                 f"{entry.get('message_id')}")
+        held.setdefault(entry["session_id"], f"the cockpit journal holds an unacknowledged send "
+                                             f"{entry.get('message_id')}")
     return held
 
 
+def journal_hold(problem: str | None) -> str | None:
+    """Why every session is held when the client journal could not be read (C-30.4).
+
+    The journal names the sessions with an unacknowledged send; unread, it could
+    name any of them, so none is bound and every bound one is fenced.
+    """
+    return f"the cockpit journal could not be read ({problem}), so any session may have an unacknowledged send" \
+        if problem else None
+
+
 def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *,
-                  projects: Path | None = None, journal: Iterable[Mapping[str, Any]] = ()) -> Result:
+                  projects: Path | None = None, journal: Iterable[Mapping[str, Any]] = (),
+                  journal_problem: str | None = None) -> Result:
     """Classify every message by itself and write terminal Claude ones as history.
 
     Idempotent: a message already in the store is reported `already-imported`
@@ -209,10 +232,14 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
     cannot continue here, a conversation that already has messages of its own)
     is reported with that disposition and written by a later pass once that
     changes. A session's history is written in legacy sequence order.
+    `journal_problem` is `read_journal`'s reason the journal could not be read:
+    then every session is held (`journal_hold`). Last, `fence_bound_sessions`
+    blocks or releases the conversations earlier passes bound.
     """
     messages = sorted(messages, key=lambda message: message.sequence)
     held = held_sessions(messages, journal)
-    result = Result()
+    everyone = journal_hold(journal_problem)
+    result = Result(journal_problem=journal_problem)
     sessions: dict[str, dict[str, Any]] = {}
     for message in messages:
         if message.status not in TERMINAL:
@@ -243,9 +270,9 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
             result.add(**_item(message, "not-a-claude-session",
                                detail="this release places legacy history only in Claude sessions"))
             continue
-        if message.session_id in held:
-            result.add(**_item(message, "session-held-by-legacy-owner", state=state[0],
-                               detail=held[message.session_id]))
+        reason = held.get(message.session_id) or everyone
+        if reason:
+            result.add(**_item(message, "session-held-by-legacy-owner", state=state[0], detail=reason))
             continue
         if message.native_id not in sessions:
             sessions[message.native_id] = _place(store, message.native_id, projects, result)
@@ -270,11 +297,61 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
         result.add(**_item(message, "history" if created else "already-imported", state=row["state"],
                            conversation_id=row["conversation_id"], seq=row["seq"],
                            **({"images_left_in_v1": images} if images else {})))
+    fence_bound_sessions(store, lambda session_id: held.get(session_id) or everyone, result)
     return result
 
 
+def fence_bound_sessions(store: ConversationStore, hold: Callable[[str], str | None], result: Result) -> None:
+    """Block each conversation the import bound whose session is held; release it once not (C-30.4).
+
+    A conversation the import bound is one that holds legacy history, or that the
+    import created (origin `legacy`); a later pass can find its session held again
+    (a new cockpit message there that is not terminal, a journal entry naming
+    it, a journal that cannot be read). Holding it means `blocked_by:
+    "legacy-owner"`, which keeps every turn off it (C-24.5), and a
+    `bound-session-held` item. The first pass whose `hold` names no reason lifts
+    that block and reports `bound-session-released`. A pass never replaces
+    another block (`unfinished-turn`, `delivery-unknown`, `quarantined-turn`
+    each wait for their own resolution) and never lifts one it did not set; a
+    conversation blocked for another reason is reported with that block. A
+    conversation of a held session that holds no legacy history was never bound
+    by the import and is not fenced here.
+    """
+    bound = store.query(
+        "SELECT * FROM conversations c WHERE provider='claude' AND native_session_id IS NOT NULL "
+        "AND (origin='legacy' OR blocked_by=? OR EXISTS "
+        "(SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id AND m.origin='legacy')) "
+        "ORDER BY created_at, conversation_id", (LEGACY_HOLD,))
+    for row in bound:
+        session_id = f"claude:{row['native_session_id']}"
+        reason = hold(session_id)
+        blocked_by = row["blocked_by"]
+        if reason:
+            if blocked_by is None:
+                store.update_conversation(row["conversation_id"], blocked_by=LEGACY_HOLD)
+                blocked_by = LEGACY_HOLD
+            elif blocked_by != LEGACY_HOLD:
+                reason += f"; it stays blocked {blocked_by!r}, which the legacy hold does not replace"
+            result.add(**_conversation_item(row, session_id, "bound-session-held", blocked_by, reason))
+        elif blocked_by == LEGACY_HOLD:
+            store.update_conversation(row["conversation_id"], blocked_by=None)
+            result.add(**_conversation_item(row, session_id, "bound-session-released", None,
+                                            "no message of this session is unsettled and no journal entry names it"))
+
+
+def _conversation_item(row: Mapping[str, Any], session_id: str, disposition: str, blocked_by: str | None,
+                       detail: str) -> dict[str, Any]:
+    return {"source": "conversation", "conversation_id": row["conversation_id"], "session_id": session_id,
+            "disposition": disposition, "blocked_by": blocked_by, "detail": detail}
+
+
 def _place(store: ConversationStore, native_id: str, projects: Path | None, result: Result) -> dict[str, Any]:
-    """The conversation a session's history goes into, or why there is none yet."""
+    """The conversation a session's history goes into, or why there is none yet.
+
+    That is the session's one conversation (C-24.1: one per native session),
+    whatever its origin, when it has no message of its own yet; otherwise a new
+    conversation with origin `legacy`, created from the transcript.
+    """
     existing = store.by_native("claude", native_id)
     if existing is not None:
         if store.one("SELECT 1 FROM messages WHERE conversation_id=? AND origin<>'legacy' LIMIT 1",
@@ -319,8 +396,9 @@ def read_journal(path: Path) -> tuple[list[dict[str, Any]], str | None]:
 
 
 def journal_items(entries: Iterable[Mapping[str, Any]], outbox: Mapping[str, str]) -> list[dict[str, Any]]:
-    """Every journal entry keeps its legacy owner (C-30.4); the outbox status, if
-    the broker took the message, is reported beside it."""
+    """Every journal entry keeps its legacy owner, and holds its session, whatever
+    the outbox status (C-30.4); that status, if the broker took the message, is
+    reported beside it."""
     return [{"source": "client-journal", "message_id": entry.get("message_id"), "session_id": entry["session_id"],
              "status": outbox.get(str(entry.get("message_id"))), "disposition": "legacy-owned",
              "detail": "an unacknowledged cockpit send; the import never sends it"}

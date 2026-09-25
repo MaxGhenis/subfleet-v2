@@ -467,12 +467,6 @@ class _Writer:
     def exists(self, sql: str, params: tuple[Any, ...] = ()) -> bool:
         return self.one(sql, params) is not None
 
-    def nullable(self, table: str, column: str) -> bool:
-        for row in self.query(f'PRAGMA table_info("{table}")'):
-            if row["name"] == column:
-                return not row["notnull"]
-        return False
-
     @contextmanager
     def transaction(self, kind: str, **keys: Any) -> Iterator[None]:
         """Record one item's rows together, with its audit event (C-3.2).
@@ -1632,12 +1626,16 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     messages = _read_legacy_outbox(report, v1_state)
     if messages is None:
         return None
-    entries, _problem = legacy.read_journal(v1_state / legacy.JOURNAL)
-    result = legacy.import_outbox(conversations.get(), messages, projects=projects, journal=entries)
+    # C-30.4: a journal that cannot be read holds every session; it is never read as empty.
+    entries, problem = legacy.read_journal(v1_state / legacy.JOURNAL)
+    result = legacy.import_outbox(conversations.get(), messages, projects=projects, journal=entries,
+                                  journal_problem=problem)
     report.seen += len(messages)
     report.imported += result.imported
     for item in result.items:
-        if item["disposition"] == "history":
+        if item["source"] == "conversation":
+            report.count(item["disposition"])       # a conversation, not one of the `seen` messages
+        elif item["disposition"] == "history":
             report.count(f"history-{item['state']}")
         else:
             report.skip(item["disposition"])
@@ -1648,6 +1646,14 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     if owned:
         report.note(f"{owned} messages are not terminal: they keep their legacy owner, and "
                     "their sessions with them; this import never sends one (C-30.4)")
+    if result.journal_problem:
+        report.note(f"cockpit-client/pending-messages.json is {result.journal_problem}: every session is "
+                    "held, as any of them may have an unacknowledged send, until a pass can read it (C-30.4)")
+    held = sum(1 for item in result.items if item["disposition"] == "bound-session-held")
+    if held:
+        report.note(f"{held} conversations an earlier pass bound are blocked while the legacy writer may be "
+                    f"using their sessions (blocked_by {legacy.LEGACY_HOLD!r}); the first pass that finds a "
+                    "session settled lifts its block (C-30.4)")
     if any(item["disposition"] == "transcript-not-found" for item in result.items):
         report.note("terminal messages whose Claude transcript was not found are listed in items; "
                     "a later pass imports them if the transcript appears")
@@ -2109,6 +2115,12 @@ def main(argv: list[str] | None = None) -> int:
         for key, entry in sorted(report.stores.items()):
             for item in entry.items:
                 # Ids, statuses and dispositions only: never a prompt (C-25.5).
+                if item.get("source") == "conversation":
+                    print(f"  {key}: conversation {item['conversation_id']} {item['session_id']} "
+                          f"-> {item['disposition']}"
+                          + (f" (blocked_by {item['blocked_by']})" if item.get("blocked_by") else "")
+                          + (f" {item['detail']}" if item.get("detail") else ""))
+                    continue
                 where = item.get("conversation_id") or item.get("detail") or ""
                 print(f"  {key}: {item.get('message_id')} {item.get('session_id')} "
                       f"{item.get('status') or '-'} -> {item['disposition']}"
