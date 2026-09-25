@@ -161,8 +161,8 @@ CancellationSafety ==
 
 \* Never undo a settled value (the brief's "no resurrection", both ways): once
 \* a clean publish converged every copy and no user has acted since, no pass
-\* writes any other value. Holds with StaleSaves = FALSE; TLC shows the
-\* counterexample with TRUE.
+\* writes any other value. Expected to hold with StaleSaves = FALSE and to fail
+\* with TRUE; tests/mirror_flags_model.py checks both exhaustively (TLC not run).
 NeverUndoSettled ==
     [][PassPublish /\ settled # None
        => \A a \in Accounts : copy'[a] # copy[a] => copy'[a] = settled]_vars

@@ -10,7 +10,7 @@ between the read and the publish, and passes cancelled before they publish.
 After every step every file's flag and the merge base must equal the
 model's. `test_mirror_flags_model.py` proves the model's invariants over every
 reachable state, so this ties the implementation to them; the same model is
-`docs/formal/MirrorFlags.tla`, which TLC checks.
+`docs/formal/MirrorFlags.tla` (not yet run under TLC).
 """
 
 from __future__ import annotations

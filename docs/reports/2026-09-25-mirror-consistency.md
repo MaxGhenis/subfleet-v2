@@ -55,6 +55,12 @@ A second stall followed.
   was walking a heap that had been paged out, so the thread waited on memory,
   not on the processor.
 - **The alert.** `mirror-watch` raised it at 20:32Z.
+- **The end.** At 20:54:33Z the same daemon crashed on EMFILE at
+  `socket.accept()` and cancelled the pass at "reading entries". So the first
+  failure recurred, and #43 still has to land.
+- **The relief.** With Max's approval, another session stopped the three
+  processes. It reported that swap in use fell from 25.7 GB to 9.2 GB, and at
+  20:58Z it was 8.9 GB.
 
 A shorter pass loses less to a stall like this, but no mirror change can stop
 the machine from starving the daemon.
@@ -111,7 +117,7 @@ the merge base in `mirror-flags.json` holds the last synced value.
 
 | Method | Where | Result |
 |---|---|---|
-| Specification | `docs/formal/MirrorFlags.tla`; configs `MirrorFlags.cfg` (honest app) and `MirrorFlagsStale.cfg` (stale saves) | Written. TLC needs `tla2tools.jar`, which is not installed; running it waits on permission to download it. |
+| Specification | `docs/formal/MirrorFlags.tla`; configs `MirrorFlags.cfg` (honest app) and `MirrorFlagsStale.cfg` (stale saves) | Written, not run under TLC: no Java runtime is installed, and the exhaustive twin below covers the same state space. TLC can be added to CI later. |
 | Exhaustive model check | `tests/mirror_flags_model.py`, the executable twin of the spec, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 1,538 states, every invariant holds. Stale saves allowed: only "never undo a settled value" fails. |
 | Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | Every file's flag and the merge base equal the model's after every step. The steps are user archive and unarchive, switches, focus rewrites, stale re-saves, full passes, passes with writes between read and publish, and cancelled passes. |
 | Mutation | Six hand-written mutants of `sync_flags`, each run against the mirror's three test files | All six killed; see the table below. |
