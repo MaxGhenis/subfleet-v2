@@ -1103,8 +1103,13 @@ def _wait_summary(job: dict[str, Any]) -> str:
     label = state if state != "FAILED" or not isinstance(rc, int) else f"FAILED rc={rc}"
     seconds = as_number(row["duration_s"])
     duration = "-" if seconds is None else f"{seconds:.0f}s"
-    target = (job.get("out_path") or _artifact_path(job, "deliverable")
-              or job.get("deliverable_path") or "-")
+    # C-15.1, C-8.3: only an accepted job has a result to point at. Any other
+    # job's `-o` path was never written, and its attempt's deliverable is kept
+    # evidence, not output (incident: 2026-09-24, cancelled jobs were pointed
+    # at an `-o` file nothing had exported).
+    target = ((job.get("out_path") or _artifact_path(job, "deliverable")
+               or job.get("deliverable_path") or "-")
+              if row["state"] == JobState.SUCCEEDED.value else "-")
     attempt = job.get("attempt") or {}
     detail = job.get("outcome_detail") or attempt.get("outcome_detail")
     return (f"{PROG} wait: {row['id']} {label} · {row['model'] or '-'} · "
@@ -1290,6 +1295,19 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
     return job.get(f"{role}_path")
 
 
+def _shown_deliverable(job: dict[str, Any]) -> str | None:
+    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-15.1).
+
+    The recorded artifact, the accepted attempt's first; failing that, the `-o`
+    export, but only of an accepted job. Nothing exported to the `-o` path of
+    a job that was not accepted, so a file there is someone else's or an
+    earlier run's, never this job's output.
+    """
+    merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
+    return _artifact_path(job, "deliverable") or (
+        merged.get("out_path") if merged.get("state") == JobState.SUCCEEDED.value else None)
+
+
 def _cat(label: str, path: str | None, *, header: bool) -> int:
     """Copy one artifact to stdout; a missing one is an operational error."""
     if not path:
@@ -1416,7 +1434,7 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         if args.out:
             worst = max(worst, _cat(
                 "deliverable",
-                _artifact_path(job, "deliverable") or job.get("out_path"),
+                _shown_deliverable(job),
                 header=both))
         if args.err:
             worst = max(worst, _cat("stderr", _artifact_path(job, "stderr"),
@@ -1428,7 +1446,7 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
     # are v2's single-artifact forms.
     emit(job)
     out("\n--- out.md ---")
-    path = _artifact_path(job, "deliverable") or job.get("out_path")
+    path = _shown_deliverable(job)
     if path and Path(path).is_file():
         # v1 printed whatever out.md held, or nothing, and still exited 0; the
         # explicit `--out` form is the one that fails on a missing artifact.

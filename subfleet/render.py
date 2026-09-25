@@ -1,4 +1,4 @@
-"""Human-readable, side-effect-free status and decisions (C-9.1, C-11.5)."""
+"""Human-readable, side-effect-free status, decisions and notice headers (C-9.1, C-11.5, C-15.1)."""
 
 from __future__ import annotations
 
@@ -6,10 +6,11 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
-from .contracts import READING_TTL_S
+from .contracts import READING_TTL_S, attempt_dir
 
 
 def _row(value: Any) -> dict[str, Any]:
@@ -52,6 +53,41 @@ def closure_text(value: Any) -> str:
     if closure.get("source_event"):
         result += f"; event={closure['source_event']}"
     return result + ")"
+
+
+def notice_header(job: Mapping[str, Any], state_root: str | Path) -> str:
+    """C-15.1: the first line of a job's notice, from the job row alone.
+
+    `<job id>: <state>; rc=<rc>; deliverable=<path>; out=<-o path>`. State and
+    rc are the job's, as the transaction that made it terminal wrote them: the
+    same pair `wait`, `runs` and `runs show` report, never the final attempt's
+    outcome class and return code, which the summary line carries. The two
+    paths name files only for an accepted job, the one job whose deliverable
+    is its result and whose `-o` file the daemon writes (C-4.3, C-8.3); any
+    other job prints `-` for both, whatever its attempt left on disk
+    (incident: 2026-09-24, three Codex jobs cancelled while running were
+    announced `ok; rc=0; deliverable=...; out=...` from the attempt, with an
+    interim progress message as the deliverable, while the job was `cancelled`
+    with rc 130 and nothing was exported; the hook fallback then announced the
+    same jobs `cancelled; rc=130` from the job row).
+
+    The daemon's notice and the PostToolUse hook's fallback line both call
+    this, so one terminal state cannot be rendered two ways. `state_root` is
+    the resolved state root the daemon writes attempt directories under
+    (C-2.3); the deliverable of an accepted job is that attempt's
+    `deliverable.md` (C-8.2).
+    """
+    job_id = str(job.get("job_id"))
+    rc = job.get("rc")
+    accepted = job.get("accepted_attempt_id") if job.get("state") == "succeeded" else None
+    deliverable = out = "-"
+    if accepted:
+        seq = str(accepted).rpartition("/a")[2]
+        if seq.isdigit():
+            deliverable = str(attempt_dir(Path(state_root), job_id, int(seq)) / "deliverable.md")
+        out = job.get("out_path") or "-"
+    return (f"{job_id}: {job.get('state')}; rc={'-' if rc is None else rc}; "
+            f"deliverable={deliverable}; out={out}")
 
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:

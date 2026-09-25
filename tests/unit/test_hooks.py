@@ -234,8 +234,9 @@ def running_job(job_id: str = JOB, request_id: str = "req-1") -> dict:
 
 
 def finished_job(job_id: str = JOB) -> dict:
+    # The row `wait` returns: a succeeded job carries the attempt it accepted (C-4.3).
     return {"job_id": job_id, "state": "succeeded", "rc": 0,
-            "out_path": "/repo/out.md"}
+            "out_path": "/repo/out.md", "accepted_attempt_id": f"{job_id}/a1"}
 
 
 def test_post_tool_use_delivers_a_finished_job_with_exit_two(daemon, root):
@@ -292,6 +293,8 @@ def test_post_tool_use_reports_a_job_with_no_notice_row_from_the_job_itself(
     text = stderr.getvalue()
     assert JOB in text and "succeeded" in text and "rc=0" in text
     assert "/repo/out.md" in text and "subfleet runs show" in text
+    # C-15.1: the accepted attempt's deliverable, as the daemon's notice names it.
+    assert f"deliverable={root.resolve() / 'jobs' / JOB / 'a1' / 'deliverable.md'};" in text
 
 
 def test_the_lease_stops_a_second_hook_waiting_on_one_job(daemon, root):
