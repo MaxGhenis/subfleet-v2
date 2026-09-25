@@ -826,6 +826,7 @@ class EndedRunner(FakeRunner):
         self.adir, self.message_id, self.conversation_id = adir, message_id, conversation_id
         self.attempt_id = "turn-job-0/a1"
         self.attempt = {"attempt_id": self.attempt_id, "lane_id": "claude-1"}
+        self.offset, self.next_seq = 0, 1          # what settling reads to stamp its reconcile event
 
 
 def test_another_writer_at_launch_is_decided_once_and_never_uses_up_readmissions(svc, tmp_path, monkeypatch):
@@ -851,7 +852,12 @@ def test_another_writer_at_launch_is_decided_once_and_never_uses_up_readmissions
     end = tmp_path / "a3"
     end.mkdir()
     (end / "turn.json").write_text(json.dumps({"state": "failed", "reason": "external-writer", "served": {},
-                                               "user_frame_written": False, "accepted": False}))
+                                               "user_frame_written": False, "accepted": False,
+                                               "ended_by": "driver"}))
+    # What reconciliation finds after a launch that sent nothing: the process has
+    # exited, no message frame was logged, and the session's transcript lacks it.
+    monkeypatch.setattr(service_module.reconcile, "gather", lambda *a, **k: service_module.reconcile.Evidence(
+        acknowledged=False, frame="absent", process_gone=True, native="absent", session_exists=True))
     svc._on_outcome(EndedRunner(end, mid, cid))
     message = svc.store.message(mid)
     assert (message["state"], message["state_reason"]) == ("waiting", "readmit:external-writer")

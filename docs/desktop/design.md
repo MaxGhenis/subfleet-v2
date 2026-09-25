@@ -1,8 +1,8 @@
 # Desktop workspace: design
 
-Revision 2, 2026-09-24. Binding clauses are C-24 to C-30 in
-`docs/acceptance-contract.md`; this document is the specification those
-clauses cite. Transition plan: `~/subfleet-desktop-transition-20260924.md`.
+Revision 3, 2026-09-24 (revision 2 earlier that day). Binding clauses are
+C-24 to C-30 in `docs/acceptance-contract.md`; this document is the
+specification those clauses cite. Transition plan: `~/subfleet-desktop-transition-20260924.md`.
 Code maps of the base revision (`3f155e5`) are in `docs/desktop/maps/`;
 citations of the form `file.py:N` refer to that revision.
 
@@ -12,6 +12,11 @@ recorded in `docs/desktop/reviews/2026-09-24-contract-review.md` with each
 finding's disposition. Probes cited as "verified" were run this session
 against the installed Claude Code 2.1.280 and codex-cli 0.153.3 without model
 calls (scratch homes with no credentials, or `shouldQuery:false` messages).
+
+Revision 3 follows the review of the first implementation
+(`feat/dw-turnctl`): D-13 orders SIGINT before closing stdin, as C-24.7,
+review IR-3 and the runner do, and D-14 states the case of a native session
+with no record on disk.
 
 ## 1. Outcome
 
@@ -271,8 +276,13 @@ acknowledgement and turn completion are separate:
 Claude documents that SIGTERM leaves the turn unfinished and that the next
 `--resume` continues it (headless docs, "Stop a run with SIGTERM"), so every
 stop path escalates, each step ending at the first `result`: (1) control
-`interrupt`; (2) close stdin through the relay; (3) SIGINT to the recorded
-child pid after a C-5.3 identity check; (4) only then C-5.6 containment.
+`interrupt`; (2) SIGINT to the provider child through the relay's `signal`
+op, which the guardian applies to its own unreaped child, so the pid cannot
+have been reused (review IR-3); (3) close stdin through the relay; (4) only
+then C-5.6 containment. SIGINT comes before closing stdin because it ends the
+turn with a `result` (live probe, `reviews/2026-09-24-live-probes.md`), while
+a closed stdin only ends the process once the turn has finished (D-15). The
+steps are taken at policy clocks (C-24.7).
 `turn.interrupt` records `stop_requested_at` on the message; the job's
 cancel request is set only at step 4 (reviews F1, F4, P4). A Codex turn stops
 with `turn/interrupt`, then containment.
@@ -294,7 +304,13 @@ the message id, verified to be persisted in the rollout); (3) otherwise
 `delivery-unknown`, blocking only its conversation until the person resolves
 it (`message.resolve`, strict `confirm:true`, recorded). Absence is
 `not-delivered` only when the process is verified gone, the transcript was
-readable, and the relay log shows the user-message frame was not written.
+readable, and the relay log shows the user-message frame was not written. A
+native session with no record on disk at all (a new Claude session whose
+transcript was never created, a Codex attempt with no thread id) counts as
+read without the message. That is safe because the relay proof carries it:
+the relay logs each frame's intent with fsync before its pipe write (C-26.4),
+so a log read whole and consistent with no user-message record proves the
+message never reached the pipe.
 
 **D-15. Background work ends with the turn.** Claude keeps `-p` alive after
 input closes while a background subagent, workflow or monitor runs, up to

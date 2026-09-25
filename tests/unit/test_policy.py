@@ -270,3 +270,46 @@ def test_a_section_that_is_not_an_object_is_refused(tmp_path, policy_data):
 
 def test_d260_the_shipped_policy_lets_writable_codex_jobs_reach_the_network():
     assert load_policy(DEFAULT_POLICY_PATH)["network"] == {"codex_workspace_write": True}
+
+
+def test_conversation_clocks_default_and_follow_the_policy_file(tmp_path, policy_data):
+    """C-24.7, C-26.5, C-26.9: a policy without `conversations` gets the runner's
+    defaults (10, 20, 30 and 135 s, approvals 3600 s); a supplied section is kept
+    and reaches the turn runner's clocks."""
+    from subfleet.conversations.runner import Clocks
+
+    del policy_data["conversations"]
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    clocks = ("approval_wait_s", "stop_sigint_after_s", "stop_close_after_s", "stop_contain_after_s", "after_result_s")
+    assert {k: loaded["conversations"][k] for k in clocks} == {
+        "approval_wait_s": 3600, "stop_sigint_after_s": 10, "stop_close_after_s": 20,
+        "stop_contain_after_s": 30, "after_result_s": 135}
+    assert Clocks.from_policy(loaded) == Clocks()
+    policy_data["conversations"] = {"stop_sigint_after_s": 0.5, "stop_close_after_s": 1.5,
+                                    "stop_contain_after_s": 2.5, "after_result_s": 4}
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert Clocks.from_policy(loaded) == Clocks(sigint_after_s=0.5, close_after_s=1.5, contain_after_s=2.5,
+                                                after_result_s=4.0, approval_wait_s=3600.0)
+
+
+@pytest.mark.parametrize("section,error_key", [
+    ([], "conversations"),
+    ({"stop_sigint_after_s": 0}, "conversations.stop_sigint_after_s"),
+    ({"stop_close_after_s": -1}, "conversations.stop_close_after_s"),
+    ({"stop_contain_after_s": True}, "conversations.stop_contain_after_s"),
+    ({"after_result_s": "135"}, "conversations.after_result_s"),
+    ({"approval_wait_s": float("inf")}, "conversations.approval_wait_s"),
+    # C-24.7: the escalation keeps its order.
+    ({"stop_sigint_after_s": 20, "stop_close_after_s": 10}, "conversations.stop_close_after_s"),
+    ({"stop_close_after_s": 30, "stop_contain_after_s": 30}, "conversations.stop_close_after_s"),
+])
+def test_invalid_conversation_clocks_name_the_key(tmp_path, policy_data, section, error_key):
+    """C-24.7, C-26.5, C-26.9, C-11.1: the loader refuses a clock that is not a positive
+    finite number of seconds, and an escalation out of order, naming the key."""
+    policy_data["conversations"] = section
+    path = tmp_path / "custom-policy.json"
+    # json.dumps writes Infinity for inf, which Python's json reads back.
+    path.write_text(json.dumps(policy_data), encoding="utf-8")
+    with pytest.raises(PolicyError) as caught:
+        load_policy(path)
+    assert caught.value.key == error_key

@@ -527,3 +527,22 @@ def test_the_lane_claims_its_email_label_not_its_uuid_identity():
     assert lane_email(SimpleNamespace(label="max@example.org", identity="acct-1:org-1")) == "max@example.org"
     assert lane_email(SimpleNamespace(label="Work account", identity="acct-1:org-1")) is None
     assert lane_email(SimpleNamespace(label=None, identity=None)) is None
+
+
+def test_each_outcome_says_what_ended_the_turn():
+    """C-24.6, C-24.8: the provider's `result`, the driver's own check, or the end of
+    stdout; after the driver's own stop, a later `result` is noted (the provider finished)."""
+    done = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(done)
+    assert done.feed(line(type="result", subtype="success", is_error=False), 9).outcome.ended_by == "provider"
+    refused = ClaudeTurn(spec(lane_email="other@example.org"), read_bytes=lambda p: b"")
+    assert started(refused).outcome.ended_by == "driver"
+    cut = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(cut)
+    assert cut.eof(3).outcome.ended_by == "eof"
+    mismatch = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(mismatch)
+    assert mismatch.feed(line(type="system", subtype="init", model="claude-haiku-4-5"), 5).outcome.ended_by == "driver"
+    assert not mismatch.terminal_after_end
+    mismatch.feed(line(type="result", subtype="error_during_execution", is_error=True), 9)
+    assert mismatch.terminal_after_end and mismatch.outcome.reason == "model-mismatch"

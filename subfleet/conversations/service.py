@@ -31,16 +31,19 @@ from .. import protocol
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULTS
+from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from . import attachments as attachment_store
+from . import reconcile
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
-from .runner import TurnRunner
+from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
+from .runner import Clocks, TurnRunner
 from .store import (
     ConversationError, ConversationStore, canonical_uuid, validate_settings, widens, utcnow,
 )
 from .turn import (
-    APPROVAL_NEEDED, CANCELLED, COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, QUEUED, RUNNING,
+    APPROVAL_NEEDED, CANCELLED, COMPLETE, DELIVERY_UNKNOWN, FAILED, QUEUED, RUNNING,
     STARTING, TERMINAL_STATES, WAITING,
 )
 
@@ -48,8 +51,9 @@ from .turn import (
 # default; `status.json` rows carry `kind` (C-18.2, C-26.12, C-29.6).
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY)
+# `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
-          "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": 64 * 1024 * 1024}
+          "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX}
 OPS = frozenset(protocol.CONVERSATION_OPS)
 POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and a worktree's checkout (the one git
@@ -59,13 +63,7 @@ PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", 
 MAX_WAIT_S = 50.0
 RECEIPT_TEXT_CHARS = 20_000
 
-# A failure that provably never delivered the message: the next turn job may
-# carry the same message again (review IR-1, IR-23). Everything else settles it.
-NOT_DELIVERED = frozenset({"stopped-before-send", "identity", "guard-refused", "settings-unsupported",
-                           "effort-unsupported", "provider-init-failed", "thread-failed", "thread-mismatch",
-                           "external-writer", "fast-unavailable", "model-mismatch-before-send"})
-READMIT = frozenset({"external-writer", "fast-unavailable", "provider-init-failed", "guard-refused"})
-MAX_READMITS = 3
+# How a message settles, and when it may be carried again, is `reconcile.py`'s.
 CONTINUATION_TEXT = ("Continue from where you left off; the previous turn stopped at a usage limit "
                      "on another account.")
 CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
@@ -580,12 +578,13 @@ class ConversationService:
         conversation = self.store.conversation(conversation_id)
         last = self.store.one("SELECT message_id FROM messages WHERE conversation_id=? AND origin='person' "
                               "ORDER BY seq DESC LIMIT 1", (conversation_id,))
+        # Born cancelled, in one transaction: the dispatcher never sees it queued.
         message, _ = self.store.submit_message(conversation_id=conversation_id, message_id=message_id,
                                                after_message_id=last["message_id"] if last else None,
                                                text="(withdrawn before it was received)", attachments=[],
-                                               settings=conversation["settings"], origin="tombstone")
-        self.store.set_state(message_id, CANCELLED, reason="withdrawn-before-receipt", expect=(QUEUED,))
-        return self._receipt(self.store.message(message_id))
+                                               settings=conversation["settings"], origin="tombstone",
+                                               state=CANCELLED, state_reason="withdrawn-before-receipt")
+        return self._receipt(message)
 
     def _cancel_job_without_attempt(self, job_id: str) -> bool:
         """The job store decides: cancelled only while no attempt row exists (IR-2)."""
@@ -629,11 +628,23 @@ class ConversationService:
             raise ConversationError("not-ambiguous", f"the message is {message['state']}")
         record = {"resolution": args["resolution"], "by": {"pid": verdict.pid, "as": verdict.reason},
                   "at": utcnow()}
-        self.store.set_state(message_id, FAILED, reason=f"resolved-{args['resolution']}",
-                             expect=(DELIVERY_UNKNOWN,), resolution=record)
+        if not self.store.set_state(message_id, FAILED, reason=f"resolved-{args['resolution']}",
+                                    expect=(DELIVERY_UNKNOWN,), resolution=record):
+            raise ConversationError("not-ambiguous", "the message was resolved meanwhile")
         conversation = self.store.conversation(message["conversation_id"])
         if conversation["blocked_by"] == "delivery-unknown":
-            self.store.update_conversation(conversation["conversation_id"], blocked_by=None)
+            fields: dict[str, Any] = {"blocked_by": None}
+            if args["resolution"] == "delivered" and conversation["provider"] == "claude":
+                # C-24.8: the person says Claude has the message and its turn ended
+                # with no `result`, so the next resume could continue it: the person
+                # chooses next (`conversation.unblock`). The session it named exists.
+                fields["blocked_by"] = "unfinished-turn"
+                attempt = self.daemon.store.one("SELECT job_id, seq FROM attempts WHERE job_id=? ORDER BY seq DESC "
+                                                "LIMIT 1", (message.get("job_id"),)) if message.get("job_id") else None
+                turn = (read_turn(self.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}") if attempt else None) or {}
+                if turn.get("native_session_id") and not conversation["native_session_id"]:
+                    fields["native_session_id"] = turn["native_session_id"]
+            self.store.update_conversation(conversation["conversation_id"], **fields)
         return self._receipt(self.store.message(message_id))
 
     def _receipt(self, message: dict, *, created: bool | None = None, text: bool = False) -> dict:
@@ -1054,7 +1065,7 @@ class ConversationService:
                                 conversation_id=turn["conversation_id"], attempt_dir=adir,
                                 control_socket=start["control_socket"], on_outcome=self._on_outcome,
                                 on_contain=self._on_contain, log=self.log,
-                                approval_wait_s=float(self.config()["approval_wait_s"]),
+                                clocks=Clocks.from_policy(self.daemon.policy),   # C-24.7, C-26.5, C-26.9
                                 on_catalog=self._on_catalog)
             self.runners[aid] = runner
             self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
@@ -1126,62 +1137,56 @@ class ConversationService:
         return True
 
     def _on_outcome(self, runner: TurnRunner) -> None:
-        """Settle a message from its turn (D-12, D-14, C-24.8, C-26.7)."""
+        """Settle a message from its turn (D-12, D-14, C-24.6, C-24.8, C-26.7).
+        The decision is `reconcile.settle`'s; this applies it."""
         turn = read_turn(runner.adir) or {}
         message = self.store.message(runner.message_id)
         conversation = self.store.conversation(runner.conversation_id)
-        state, reason = turn.get("state"), turn.get("reason")
+        provider = conversation["provider"]
+        settlement = reconcile.settle(
+            turn, provider=provider, turn_seq=message["turn_seq"],
+            gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn))
         served = {**(message.get("served") or {}), **(turn.get("served") or {}),
                   "lane_id": runner.attempt.get("lane_id"), "model": turn.get("served_model")}
         native = turn.get("native_session_id")
-        if native and not conversation["native_session_id"]:
+        # C-24.1: a Codex thread id comes only from the server's answer. A Claude
+        # session id is minted here, so it is kept only once the provider holds
+        # the session; until then the next turn starts it with `--session-id`
+        # rather than resuming a session the provider may never have created.
+        if native and not conversation["native_session_id"] and (provider == "codex" or settlement.session_known):
             self.store.update_conversation(conversation["conversation_id"], native_session_id=native,
                                            **({"lane_id": runner.attempt.get("lane_id")}
-                                              if conversation["provider"] == "codex" else {}))
+                                              if provider == "codex" else {}))
         live = (STARTING, RUNNING, APPROVAL_NEEDED, WAITING)
         self.store.withdraw_approvals(attempt_id=runner.attempt_id)
-        if state == COMPLETE:
-            self.store.set_state(message["message_id"], COMPLETE, reason="stop-too-late" if turn.get("stop_too_late") else None,
-                                 expect=live, served=served, turn_ref=turn.get("turn_id") or message.get("turn_ref"))
-        elif state == INTERRUPTED and turn.get("accepted"):
-            self.store.set_state(message["message_id"], INTERRUPTED, reason=turn.get("stop_reason") or reason,
-                                 expect=live, served=served)
-        elif reason in NOT_DELIVERED and not turn.get("user_frame_written"):
-            readmits = message["turn_seq"]
-            # Another writer is a wait, however long it lasts (C-26.3): it never
-            # uses up the re-admissions a failing provider gets.
-            if reason in READMIT and (readmits < MAX_READMITS or reason == "external-writer"):
-                self.store.set_state(message["message_id"], WAITING, reason=f"readmit:{reason}", expect=live,
-                                     turn_seq=readmits + 1, job_id=None)
-                if reason == "external-writer" and conversation["provider"] == "codex":
-                    # Only a provider start can see a Codex thread's active turn: space them.
-                    with self._lock:
-                        self._deferred[message["message_id"]] = (0, self.clock() + CODEX_WRITER_RECHECK_S)
-            else:
-                self.store.set_state(message["message_id"], FAILED, reason=f"not-delivered: {reason}",
-                                     expect=live, served=served)
-        elif reason == "limited":
-            # C-26.7: the continuation is written first, so no reader sees the limited
-            # message failed without it; it cannot dispatch while the original is live.
-            if message["state"] in live:
-                self._continue_elsewhere(conversation, message)
-            self.store.set_state(message["message_id"], FAILED, reason="limited", expect=live, served=served)
-        elif turn.get("user_frame_written") or turn.get("accepted"):
-            # Delivered, and no terminal event: reconcile, and block a Claude
-            # conversation until the person decides (C-24.8, IR-5).
-            if state == INTERRUPTED or turn.get("stop_reason"):
-                self.store.set_state(message["message_id"], INTERRUPTED, reason=turn.get("stop_reason") or "stopped",
-                                     expect=live, served=served)
-            else:
-                self.store.set_state(message["message_id"], FAILED, reason=reason or "ended-without-result",
-                                     expect=live, served=served)
-            if conversation["provider"] == "claude" and not turn.get("state") == COMPLETE and reason in (
-                    "ended-without-result", "stopped", None):
-                self.store.update_conversation(conversation["conversation_id"], blocked_by="unfinished-turn")
+        if settlement.delivery is not None:
+            # Why the message settled as it did, for the person (D-24).
+            self.store.append_events(
+                conversation_id=runner.conversation_id, message_id=runner.message_id, attempt_id=runner.attempt_id,
+                events=[("command", "cmd:reconcile", 0, "status",
+                         {"phase": "reconciled", "delivery": settlement.delivery,
+                          "evidence": settlement.evidence.as_dict() if settlement.evidence else None})],
+                stdout_offset=runner.offset, stdin_seq=runner.next_seq - 1)
+        if settlement.continue_elsewhere and message["state"] in live:
+            # C-26.7: the continuation is written first, so no reader sees the
+            # limited message failed without it; it cannot dispatch while the
+            # original is live.
+            self._continue_elsewhere(conversation, message)
+        if settlement.readmit:
+            self.store.set_state(message["message_id"], WAITING, reason=settlement.reason, expect=live,
+                                 turn_seq=message["turn_seq"] + 1, job_id=None)
+            if settlement.reason == "readmit:external-writer" and provider == "codex":
+                # Only a provider start can see a Codex thread's active turn: space them.
+                with self._lock:
+                    self._deferred[message["message_id"]] = (0, self.clock() + CODEX_WRITER_RECHECK_S)
         else:
-            self.store.set_state(message["message_id"], DELIVERY_UNKNOWN, reason=reason or "no-evidence",
-                                 expect=live, served=served)
-            self.store.update_conversation(conversation["conversation_id"], blocked_by="delivery-unknown")
+            fields: dict[str, Any] = {"served": served}
+            if settlement.state == COMPLETE:
+                fields["turn_ref"] = turn.get("turn_id") or message.get("turn_ref")
+            self.store.set_state(message["message_id"], settlement.state, reason=settlement.reason, expect=live,
+                                 **fields)
+        if settlement.block:
+            self.store.update_conversation(conversation["conversation_id"], blocked_by=settlement.block)
         self.daemon._notify()
 
     def _continue_elsewhere(self, conversation: dict, message: dict) -> None:

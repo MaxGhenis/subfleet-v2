@@ -376,9 +376,14 @@ class ConversationStore:
 
     def submit_message(self, *, conversation_id: str, message_id: str, after_message_id: str | None,
                        text: str, attachments: list[str], settings: dict, origin: str = "person",
-                       continues: str | None = None) -> tuple[dict, bool]:
+                       continues: str | None = None, state: str = QUEUED,
+                       state_reason: str | None = None) -> tuple[dict, bool]:
         """Durably accept a message (C-24.2, C-24.3). Idempotent by id and digest;
-        in order by the client's predecessor."""
+        in order by the client's predecessor. A row Subfleet writes already
+        settled (a withdrawal tombstone, IR-7) is born in its final `state`, so
+        the dispatcher never sees it queued."""
+        if state not in (QUEUED, *TERMINAL_STATES):
+            raise ValueError(f"a message is accepted queued or terminal, not {state}")
         message_id = canonical_uuid(message_id)
         if after_message_id is not None:
             after_message_id = canonical_uuid(after_message_id)
@@ -420,12 +425,13 @@ class ConversationStore:
                               (conversation_id,)).fetchone()[0]) + 1
             tx.execute(
                 "INSERT INTO messages(message_id,conversation_id,seq,after_message_id,origin,continues,digest,text_path,"
-                "attachments_json,settings_json,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "attachments_json,settings_json,state,state_reason,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (message_id, conversation_id, seq, after_message_id, origin, continues, digest, str(text_path),
-                 json.dumps(list(attachments)), json.dumps(settings), QUEUED, now, now))
+                 json.dumps(list(attachments)), json.dumps(settings), state, state_reason, now, now))
             tx.execute("UPDATE conversations SET updated_at=?, settings_json=? WHERE conversation_id=?",
                        (now, json.dumps(settings), conversation_id))
-            self._change(tx, conversation_id, message_id, QUEUED)
+            self._change(tx, conversation_id, message_id, state)
         return self.message(message_id), True
 
     def message(self, message_id: str) -> dict:

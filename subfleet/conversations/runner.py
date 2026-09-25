@@ -10,7 +10,7 @@ stdout from the start; the store ignores events it already has.
 
 The runner never decides a message's fate beyond reporting the driver's
 outcome to its owner (`on_outcome`); reconciliation, failover and blocking
-belong to the service.
+are `reconcile.py`'s decisions, which the service applies.
 """
 
 from __future__ import annotations
@@ -19,11 +19,12 @@ import json
 import queue
 import threading
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ..relay import RelayClient, RelayError, read_log
+from ..policy import CONVERSATION_DEFAULTS
+from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
 from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
@@ -35,17 +36,44 @@ FLUSH_BYTES = 64 * 1024
 POLL_S = 0.05
 READ_CHUNK = 1 << 20
 
-# Stop escalation (design D-13, review IR-3), seconds after the stop request:
+# Stop escalation (C-24.7, review IR-3, design D-13 revision 3), seconds after the stop request:
 # the provider's interrupt at once, then SIGINT (ends a Claude turn; SIGTERM
-# would leave it resumable), then closing stdin, then C-5.6 containment.
-SIGINT_AFTER_S = 10.0
-CLOSE_AFTER_S = 20.0
-CONTAIN_AFTER_S = 30.0
+# would leave it resumable), then closing stdin, then C-5.6 containment. The
+# policy's `conversations` section sets them (C-24.7, `policy.CONVERSATION_DEFAULTS`).
+SIGINT_AFTER_S = float(CONVERSATION_DEFAULTS["stop_sigint_after_s"])
+CLOSE_AFTER_S = float(CONVERSATION_DEFAULTS["stop_close_after_s"])
+CONTAIN_AFTER_S = float(CONVERSATION_DEFAULTS["stop_contain_after_s"])
 # Background work after the terminal event (D-15): the CLI's own ceiling plus a margin.
-AFTER_RESULT_S = 120.0 + 15.0
+AFTER_RESULT_S = float(CONVERSATION_DEFAULTS["after_result_s"])
+# Review IR-27: an unacknowledged frame is resent at most this many times, with
+# a doubling pause from RESEND_BASE_S, before the relay counts as failed.
 # Codex: how long `turn/completed` may lag the thread going idle before the
 # idle ends the turn (codex_turn module docstring; observed lag 0.01 s).
 IDLE_GRACE_S = 2.0
+RESEND_MAX = 5
+RESEND_BASE_S = 0.2
+
+
+@dataclass(frozen=True)
+class Clocks:
+    """A turn's clocks, from policy `conversations` (C-24.7, C-26.5, C-26.9)."""
+
+    sigint_after_s: float = SIGINT_AFTER_S
+    close_after_s: float = CLOSE_AFTER_S
+    contain_after_s: float = CONTAIN_AFTER_S
+    after_result_s: float = AFTER_RESULT_S
+    approval_wait_s: float = float(CONVERSATION_DEFAULTS["approval_wait_s"])
+
+    @classmethod
+    def from_policy(cls, policy: dict) -> "Clocks":
+        """The loader (`policy.load_policy`) has validated and filled the section;
+        a policy map that did not pass through it gets the same defaults."""
+        section = {**CONVERSATION_DEFAULTS, **(policy.get("conversations") or {})}
+        return cls(sigint_after_s=float(section["stop_sigint_after_s"]),
+                   close_after_s=float(section["stop_close_after_s"]),
+                   contain_after_s=float(section["stop_contain_after_s"]),
+                   after_result_s=float(section["after_result_s"]),
+                   approval_wait_s=float(section["approval_wait_s"]))
 
 
 def make_driver(spec: TurnSpec, read_bytes: Callable[[str], bytes]):
@@ -57,7 +85,7 @@ class TurnRunner:
                  attempt_dir: Path, control_socket: str,
                  on_outcome: Callable[["TurnRunner"], None],
                  on_contain: Callable[[str], None],
-                 approval_wait_s: float = 3600.0, clock: Callable[[], float] = time.monotonic,
+                 clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None):
         self.store = store
         self.attempt = attempt
@@ -71,18 +99,22 @@ class TurnRunner:
         self.on_contain = on_contain
         self.on_catalog = on_catalog
         self.catalog_reported = False
-        self.approval_wait_s = approval_wait_s
+        self.clocks = clocks
         self.clock = clock
         self.log = log
         self.commands: "queue.Queue[tuple]" = queue.Queue()
         self.driver = make_driver(spec, self._read_attachment)
         self.relay = RelayClient(control_socket, timeout_s=30)
-        logged = read_log(self.adir / "stdin.jsonl")
-        self.sent: dict[str, str] = {r["tag"]: r["status"] for r in logged if r.get("tag")}
-        self.next_seq = len(logged) + 1
-        # A signal that found no child is not a relay failure; a stdin frame that
-        # was not fully written is (C-26.4).
-        self.relay_failed = any(r["status"] != "written" and r.get("op") != "signal" for r in logged)
+        # What the relay applied, from its log; confirmed by the status handshake
+        # before anything is sent (`_handshake`, review IR-27). Until then a
+        # `pending` record may be a write still in flight, not a failure.
+        self._load_log()
+        self.relay_failed = False
+        self.handshaken = False
+        self.relay_version: int | None = None
+        self.resends = 0                       # consecutive unacknowledged sends of the head frame
+        self.resend_at = 0.0
+        self.frame_refused: str | None = None  # the tag of a frame over the relay's cap (never sent)
         self.outbox: list = []                 # frames the relay has not acknowledged yet
         self.offset = 0                        # bytes of stdout consumed
         self.partial = b""
@@ -262,22 +294,82 @@ class TurnRunner:
                     self.log.warning("model catalog from %s not recorded: %s", self.attempt_id, exc)
         self._send_outbox()
 
+    def _load_log(self) -> bool:
+        """Read `stdin.jsonl`; True when it shows a stdin frame that was not fully
+        written (a signal that found no child is not a relay failure; C-26.4)."""
+        logged = read_log(self.adir / "stdin.jsonl")
+        self.logged = len(logged)
+        self.sent: dict[str, str] = {r["tag"]: r["status"] for r in logged if r.get("tag")}
+        self.next_seq = len(logged) + 1
+        return any(r["status"] != "written" and r.get("op") != "signal" for r in logged)
+
+    def _handshake(self) -> bool:
+        """Review IR-27: before this runner sends or replays anything, ask the relay
+        what it applied. The answer comes after any frame the previous daemon left
+        in flight has been written and logged, so the log read afterwards is final
+        and a frame shown `pending` a moment earlier is not mistaken for a failure.
+        It also carries the relay's frame cap. A relay older than version 2 has
+        no status; its log is read as before."""
+        if self.handshaken:
+            return True
+        try:
+            status = self.relay.status()
+        except RelayError as exc:
+            self._unacknowledged(f"relay status: {exc}")
+            return False                    # asked again later; nothing is sent meanwhile
+        self.resends = 0
+        unwritten = self._load_log()
+        self.handshaken = True
+        if status is not None:
+            self.relay_version = status.get("version")
+            if status["applied"] != self.logged:
+                # The log and the relay disagree: nothing is sent on a guess.
+                self._relay_lost(f"the relay applied {status['applied']} frames, its log shows {self.logged}")
+                return True
+        if unwritten:
+            # A frame the log shows unwritten ended relaying for good (C-26.4); a
+            # runner rebuilt after a restart stops the turn as its predecessor did.
+            self._relay_lost("the relay log shows a frame that was not written")
+        return True
+
+    def _unacknowledged(self, why: str) -> None:
+        """IR-27: the relay did not answer. The same number is sent again (a
+        duplicate is recognised by its hash) after a doubling pause, at most
+        RESEND_MAX times; then the relay counts as failed."""
+        self.resends += 1
+        if self.resends > RESEND_MAX:
+            self._relay_lost(f"{why}; no answer after {RESEND_MAX} retries")
+        else:
+            self.resend_at = self.clock() + RESEND_BASE_S * 2 ** (self.resends - 1)
+
     def _send_outbox(self) -> None:
         while self.outbox:
-            frame = self.outbox[0]
-            if self.sent.get(frame.tag) == "written":
-                self.outbox.pop(0)            # replayed: already delivered to the provider
-                continue
             if self.relay_failed:
                 self.outbox.clear()
                 return
+            if self.resends and self.clock() < self.resend_at:
+                return                          # IR-27: the next try waits its turn
+            if not self._handshake():
+                return
+            frame = self.outbox[0] if self.outbox else None
+            if frame is None or self.relay_failed:
+                self.outbox.clear()
+                return
+            if self.sent.get(frame.tag) == "written":
+                self.outbox.pop(0)            # replayed: already delivered to the provider
+                continue
             try:
                 if frame.op == "signal":
                     ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
                 else:
                     ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
-            except RelayError:
-                return                          # retried with the same number next pass
+            except FrameTooLarge as exc:
+                self._refuse_frame(frame, exc)
+                continue
+            except RelayError as exc:
+                self._unacknowledged(f"frame {frame.tag}: {exc}")
+                return
+            self.resends = 0
             if ack.ok:
                 self.sent[frame.tag] = "written"
                 self.next_seq += 1
@@ -290,11 +382,29 @@ class TurnRunner:
                 self.outbox.pop(0)
                 continue
             # conflict, failed, closed, gap, peer-refused: nothing more is written.
-            self.relay_failed = True
-            if self.log:
-                self.log.warning("turn %s relay refused frame %s: %s", self.attempt_id, frame.tag, ack.error)
-            self.outbox.clear()
+            self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}")
             return
+
+    def _refuse_frame(self, frame: Frame, exc: FrameTooLarge) -> None:
+        """A frame over the relay's cap is never sent (IR-27). Nothing after it can
+        be sent in order either, so stdin is closed: the provider ends at EOF and
+        the turn is reconciled from what the relay log shows (C-24.6)."""
+        if self.log:
+            self.log.warning("turn %s frame %s not sent: %s", self.attempt_id, frame.tag, exc)
+        self.frame_refused = self.frame_refused or frame.tag
+        self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close")]
+
+    def _relay_lost(self, why: str) -> None:
+        """Nothing more can be written (C-26.4). A turn with no terminal event is
+        then stopped as a stop request would stop it; the steps that need the
+        relay are skipped, so containment ends it (D-13, design §6)."""
+        self.relay_failed = True
+        self.outbox.clear()
+        if self.log:
+            self.log.warning("turn %s relay failed: %s", self.attempt_id, why)
+        if self.driver.outcome is None and self.stop_at is None:
+            self.stop_reason = self.stop_reason or "relay-failed"
+            self.stop_at = self.clock()
 
     # --- time ------------------------------------------------------------------
 
@@ -307,28 +417,30 @@ class TurnRunner:
                 self._apply(self.driver.settle_idle())
         else:
             self.idle_since = None
+        clocks = self.clocks
         if self.stop_at is not None and self.driver.outcome is None:
             waited = now - self.stop_at
-            if waited >= SIGINT_AFTER_S and "sigint" not in self.escalated:
+            if waited >= clocks.sigint_after_s and "sigint" not in self.escalated:
                 self.escalated.add("sigint")
                 self.outbox.append(Frame("signal:int", "signal", "INT"))
-            if waited >= CLOSE_AFTER_S and "close" not in self.escalated:
+            if waited >= clocks.close_after_s and "close" not in self.escalated:
                 self.escalated.add("close")
                 self.outbox.append(Frame("close", "close"))
-            if waited >= CONTAIN_AFTER_S and "contain" not in self.escalated:
+            if waited >= clocks.contain_after_s and "contain" not in self.escalated:
                 self.escalated.add("contain")
                 self.on_contain(self.attempt_id)
-        if self.ended_at is not None and now - self.ended_at >= AFTER_RESULT_S and "late" not in self.escalated:
+        if self.ended_at is not None and now - self.ended_at >= clocks.after_result_s and "late" not in self.escalated:
             # D-15: background work outlived the ceiling; stop it the same way.
             self.escalated.add("late")
             self.outbox.append(Frame("signal:int:late", "signal", "INT"))
             self.late_stop_at = now
         late = self.late_stop_at
-        if late is not None and now - late >= CONTAIN_AFTER_S - SIGINT_AFTER_S and "late-contain" not in self.escalated:
+        if (late is not None and now - late >= clocks.contain_after_s - clocks.sigint_after_s
+                and "late-contain" not in self.escalated):
             self.escalated.add("late-contain")
             self.on_contain(self.attempt_id)
         for request_id, since in list(self.approval_seen.items()):
-            if now - since >= self.approval_wait_s and self.driver.outcome is None:
+            if now - since >= clocks.approval_wait_s and self.driver.outcome is None:
                 # IR-8: the person did not answer in time. Subfleet does not answer
                 # the approval (C-27.2); it stops the turn.
                 self.approval_seen.pop(request_id, None)
@@ -356,13 +468,19 @@ class TurnRunner:
                 "stop_reason": self.stop_reason, "final_text": self.final_text,
                 "native_session_id": getattr(self.driver, "thread_id", None) or self.spec.native_session_id
                 or self.spec.new_session_id, "relay_failed": self.relay_failed,
-                "user_frame_written": self.sent.get("user-message") == "written"}
+                "user_frame_written": self.sent.get("user-message") == "written",
+                "frame_refused": self.frame_refused, "relay_version": self.relay_version,
+                "terminal_after_end": bool(getattr(self.driver, "terminal_after_end", False))}
         from ..guardian import atomic_publish
         atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
 
     def _report(self) -> None:
         if not self.outcome_reported:
             self.outcome_reported = True
+            if self.driver.outcome is not None:
+                # What stdout said after the outcome (a terminal event after the
+                # driver's own stop) is final only now (C-24.8, `reconcile.settle`).
+                self._write_outcome()
             self.on_outcome(self)
 
     def _read_attachment(self, path: str) -> bytes:

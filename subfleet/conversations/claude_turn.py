@@ -157,6 +157,7 @@ class ClaudeTurn:
         self.expected_model: str | None = None            # from the initialize catalog (D-19)
         self.catalog: list[dict] | None = None            # the initialize catalog, for models.json
         self.outcome: Outcome | None = None
+        self.terminal_after_end = False                   # a `result` arrived after the driver ended the turn
         self.pending: dict[str, dict[str, Any]] = {}     # request id → original can_use_tool request
         self._tools: dict[str, bool] = {}                 # tool_use id → hidden
         self._message_id: str | None = None               # current streamed assistant message
@@ -235,7 +236,7 @@ class ClaudeTurn:
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,
                                accepted=self.accepted, answered=self.answered,
-                               limited=self.limited, served_model=self.served_model)
+                               limited=self.limited, served_model=self.served_model, ended_by="eof")
         self.phase = "ended"
         step.outcome = self.outcome
         return step
@@ -254,7 +255,11 @@ class ClaudeTurn:
         kind = row.get("type")
         if self.phase == "ended":
             # After the terminal event: background output belongs to the same
-            # message and never changes its outcome (C-26.5).
+            # message and never changes its outcome (C-26.5). A `result` after the
+            # driver itself ended the turn (a model mismatch) says the provider
+            # finished it (C-24.8).
+            if kind == "result":
+                self.terminal_after_end = True
             if kind in ("assistant", "user", "stream_event") and not row.get("parent_tool_use_id"):
                 handler = {"assistant": self._assistant, "user": self._user, "stream_event": self._stream_event}[kind]
                 step = handler(row, source)
@@ -547,7 +552,7 @@ class ClaudeTurn:
         end = self._end(state, reason, detail=detail, source=source.next(),
                         extra={"permission_denials": len(denials), "num_turns": row.get("num_turns"),
                                "fast_mode_state": row.get("fast_mode_state"),
-                               "stop_too_late": ok and self.interrupt_requested})
+                               "stop_too_late": ok and self.interrupt_requested}, ended_by="provider")
         return step.extend(end)
 
     # --- helpers ---------------------------------------------------------------
@@ -568,11 +573,11 @@ class ClaudeTurn:
                                      source=source.next()))
 
     def _end(self, state: str, reason: str | None, *, source: str, detail: str | None = None,
-             extra: dict | None = None) -> Step:
+             extra: dict | None = None, ended_by: str = "driver") -> Step:
         if self.outcome is not None:
             return Step()
         self.outcome = Outcome(state, reason, detail, accepted=self.accepted, answered=self.answered,
-                               limited=self.limited, served_model=self.served_model)
+                               limited=self.limited, served_model=self.served_model, ended_by=ended_by)
         self.phase = "ended"
         withdrawn = sorted(self.pending)
         self.pending.clear()

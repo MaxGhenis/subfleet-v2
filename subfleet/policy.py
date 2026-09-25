@@ -60,6 +60,14 @@ SESSION_DEFAULTS: dict[str, Any] = {
 }
 
 #: `conversations.*` (C-24 to C-30): the desktop workspace's timings.
+#: The turn clocks, in seconds, are read by `TurnRunner` (`subfleet/conversations/runner.py`).
+#: A stop escalates as C-24.7, review IR-3 and design D-13 (revision 3) order
+#: it: the provider's own interrupt at once, then SIGINT through the guardian's
+#: relay, then closing stdin, then C-5.6 containment, each that many seconds
+#: after the stop was requested. `after_result_s` is how long a process may outlive its terminal
+#: event before the same escalation stops it (D-15: the 120 s background ceiling
+#: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's bound
+#: on an unanswered approval.
 CONVERSATION_DEFAULTS: dict[str, float] = {
     "approval_wait_s": 3600,         # C-26.9: an unanswered approval stops its turn
     "catalog_interval_s": 60,        # C-30.1, design D-23: a catalog run this often; 0: on request only
@@ -67,6 +75,10 @@ CONVERSATION_DEFAULTS: dict[str, float] = {
     "compact_per_tick": 20,          # C-25.4: attempts compacted per conversation tick
     "max_active_turns": 3,           # C-26.9: turns running at once, apart from detached jobs
     "turn_slots_per_lane": 1,        # C-26.9: turns on one lane at once, apart from detached jobs
+    "stop_sigint_after_s": 10,       # C-24.7: a stop not honoured by then gets SIGINT
+    "stop_close_after_s": 20,        # C-24.7: then stdin is closed
+    "stop_contain_after_s": 30,      # C-24.7: then the attempt is contained
+    "after_result_s": 135,           # C-26.5: background output allowed after `result`
 }
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -79,6 +91,8 @@ RETENTION_DEFAULTS: dict[str, float] = {
     "turn_bytes": TURN_RETENTION_MAX_BYTES,
     "turn_keep_days": TURN_RETENTION_KEEP_DAYS,
 }
+
+
 
 
 def policy_hash(path: str | Path) -> str:
@@ -310,6 +324,14 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             if key in whole and item != int(item):
                 fail(f"{section}.{key}", "must be a whole number")
         value[section] = settings
+    # C-24.7, C-26.5, C-26.9: the stop escalation keeps its order (SIGINT, then
+    # closing stdin, then containment), because each step is only worth taking
+    # while the previous one had its chance to end the turn.
+    clocks = value["conversations"]
+    if not clocks["stop_sigint_after_s"] < clocks["stop_close_after_s"] < clocks["stop_contain_after_s"]:
+        fail("conversations.stop_close_after_s",
+             "the stop escalation must keep its order: "
+             "stop_sigint_after_s < stop_close_after_s < stop_contain_after_s")
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()

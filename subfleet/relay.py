@@ -23,6 +23,17 @@ Large lines (an image attachment in base64) are logged by digest, not
 content: the daemon keeps the original, and replay needs to know only that the
 frame was applied.
 
+The relay advertises its version and frame cap twice: in `start.json`
+(`relay: {"version", "frame_max"}`, published before the daemon can connect)
+and in its answer to `{"op": "status"}`. A status request is not a frame: it
+carries no number, is never logged, and is answered after any frame being
+applied has finished (frames and status share one lock and one connection at
+a time), with the number of frames applied, whether stdin is closed, whether
+the child still runs, and the cap. A daemon asks for it before it sends or
+replays anything on a new runner (review IR-27). A relay older than version 2
+answers it `bad-frame`, as it answers anything without a number; the daemon
+then relies on the log file, as before.
+
 Each frame carries the SHA-256 of its line. The log holds an `intent` record
 (fsynced before the pipe write) and then a `written` or `failed` record, so a
 write that did not finish is never mistaken for one that did: a resent number
@@ -50,6 +61,13 @@ FRAME_MAX = 64 * 1024 * 1024        # one image in base64 plus JSON, with margin
 LOG_INLINE_MAX = 64 * 1024          # frames logged verbatim up to this size
 ACK_TIMEOUT_S = 60.0
 SOCKET_DIR_NAME = "run"
+RELAY_VERSION = 2                   # 2: `status` and the advertised frame cap (review IR-27)
+REPLY_MAX = 1 << 16                 # an acknowledgement or status line
+
+
+def advertisement() -> dict:
+    """What `start.json` and a status answer say about this relay (IR-27)."""
+    return {"version": RELAY_VERSION, "frame_max": FRAME_MAX}
 
 
 def socket_path(state_root: str | Path, attempt_id: str) -> Path:
@@ -281,8 +299,20 @@ class RelayServer:
     def _reply(conn: socket.socket, body: dict) -> None:
         conn.sendall((json.dumps(body, separators=(",", ":")) + "\n").encode())
 
+    def status(self) -> dict:
+        """The relay's state (IR-27). Taken under the lock that `apply` holds for
+        a whole frame, so a frame being written when the request arrived has
+        finished and been logged before the answer is built."""
+        with self._lock:
+            child = self._child
+            return {"ok": True, "status": {
+                **advertisement(), "applied": len(self._records), "closed": self._closed,
+                "child": "none" if child is None else "running" if child.poll() is None else "exited"}}
+
     def apply(self, frame: dict) -> dict:
         """Apply one frame. Public so the unit tests can drive it without a socket."""
+        if isinstance(frame, dict) and frame.get("op") == "status" and "seq" not in frame:
+            return self.status()
         if not isinstance(frame, dict) or type(frame.get("seq")) is not int or frame["seq"] < 1:
             return {"ok": False, "error": "bad-frame"}
         seq, op, line = frame["seq"], frame.get("op"), frame.get("line")
@@ -380,12 +410,23 @@ class RelayError(Exception):
     until the same number is sent again."""
 
 
+class FrameTooLarge(Exception):
+    """The frame exceeds the relay's advertised cap and was not sent (IR-27): its
+    fate is known, nothing reached the relay."""
+
+    def __init__(self, size: int, cap: int):
+        super().__init__(f"frame of {size} bytes exceeds the relay cap of {cap}")
+        self.size = size
+        self.cap = cap
+
+
 class RelayClient:
     """The daemon side: one connection, reopened on demand; frames resent by number."""
 
     def __init__(self, path: str | Path, *, timeout_s: float = ACK_TIMEOUT_S):
         self.path = str(path)
         self.timeout_s = timeout_s
+        self.frame_max = FRAME_MAX       # replaced by the relay's own advertisement
         self._sock: socket.socket | None = None
         self._reader = None
 
@@ -410,6 +451,45 @@ class RelayClient:
         self._sock = sock
         self._reader = sock.makefile("rb")
 
+    def _exchange(self, payload: bytes) -> dict:
+        try:
+            self._connect()
+            assert self._sock is not None and self._reader is not None
+            self._sock.sendall(payload)
+            raw = self._reader.readline(REPLY_MAX)
+        except (OSError, RelayError) as exc:
+            self.close()
+            raise RelayError(f"relay send failed: {exc}") from exc
+        if not raw:
+            self.close()
+            raise RelayError("relay closed the connection before acknowledging")
+        try:
+            body = json.loads(raw)
+        except ValueError as exc:
+            self.close()
+            raise RelayError(f"relay answered with a malformed line: {exc}") from exc
+        if not isinstance(body, dict):
+            self.close()
+            raise RelayError("relay answered with something other than an object")
+        return body
+
+    def status(self) -> dict | None:
+        """The relay's state (IR-27), or None from a relay older than version 2,
+        which refuses a request without a number as `bad-frame`. Adopts the
+        advertised frame cap."""
+        body = self._exchange(b'{"op":"status"}\n')
+        if not body.get("ok"):
+            if body.get("error") == "bad-frame":
+                return None
+            raise RelayError(f"relay refused status: {body.get('error')}")
+        status = body.get("status")
+        if not isinstance(status, dict) or type(status.get("applied")) is not int:
+            raise RelayError("relay status is malformed")
+        cap = status.get("frame_max")
+        if type(cap) is int and cap > 0:
+            self.frame_max = cap
+        return status
+
     def send(self, seq: int, op: str, *, line: str | None = None, tag: str | None = None,
              sig: str | None = None) -> Ack:
         frame: dict = {"seq": seq, "op": op, "tag": tag, "sha256": frame_sha256(op, line, sig)}
@@ -418,17 +498,9 @@ class RelayClient:
         if sig is not None:
             frame["sig"] = sig
         payload = (json.dumps(frame, separators=(",", ":")) + "\n").encode("utf-8")
-        try:
-            self._connect()
-            assert self._sock is not None and self._reader is not None
-            self._sock.sendall(payload)
-            raw = self._reader.readline(1 << 16)
-        except (OSError, RelayError) as exc:
-            self.close()
-            raise RelayError(f"relay send failed: {exc}") from exc
-        if not raw:
-            self.close()
-            raise RelayError("relay closed the connection before acknowledging")
-        body = json.loads(raw)
+        if len(payload) > self.frame_max:
+            # The relay would refuse it and end the connection; it is never sent.
+            raise FrameTooLarge(len(payload), self.frame_max)
+        body = self._exchange(payload)
         return Ack(seq=body.get("seq", seq), ok=bool(body.get("ok")), dup=bool(body.get("dup")),
                    error=body.get("error"))
