@@ -78,8 +78,9 @@ C-6.11's `route` hold.
    per job, both where the route is prepared and inside the reserving
    transaction, which rolls back first. It covers `evaluate` and
    `probe_required`, which checks an unmeasured-reserve authorization. A
-   `ValueError`, `KeyError`, or `TypeError` settles that job, and the pass
-   moves on.
+   `ValueError`, `KeyError`, `TypeError`, `AttributeError`, or `IndexError`
+   settles that job, and the pass moves on (the last two since the
+   2026-09-23 follow-up).
    - A `scheduler.RouteError` is the job's own problem: an ambiguous pin, a
      pin and a model on different providers, or an incomplete authorization.
      The job fails with exit 2 and the message, the same answer submit would
