@@ -124,7 +124,8 @@ def test_c18_1_frontend_accepts_empty_fleet(probe, tmp_path):
     """C-18.1 an empty initial daemon snapshot decodes without inventing lanes or capacity."""
     result = display(probe, tmp_path, [])
     assert result == {"stale": False, "codex": [], "claude": [],
-                      "has_jobs_section": True, "job_groups": [], "recent_jobs": []}
+                      "has_jobs_section": True, "job_groups": [], "recent_jobs": [],
+                      "dispatchable": {"claude": 0, "codex": 0}, "auto_provider": "claude"}
 
 
 def test_c9_1_frontend_handles_lanes_without_usage_windows(probe, tmp_path):
@@ -209,3 +210,19 @@ def test_c29_6_frontend_decodes_the_conversation_window_and_kind_additions(probe
     result = project(probe, tmp_path, payload)
     assert result["claude"][0]["percentage"] == 25 and result["claude"][0]["weekly_percentage"] == 60
     assert [job["title"] for group in result["job_groups"] for job in group["jobs"]] == ["a"]
+
+
+def test_auto_provider_follows_the_lanes_ready_now(probe, tmp_path):
+    """A new conversation's Auto choice: the provider with more lanes admission
+    could place work on now, from the daemon's own status.json; Claude on a tie."""
+    payload = build_status({"lanes": [lane("codex"), lane("claude")], "offline": False}, now=NOW)
+    payload["claude"]["lanes"] = {"dispatchable_now": 1}
+    payload["codex"]["fleet"]["dispatchable_now"] = 1
+    tie = project(probe, tmp_path, payload)
+    assert tie["dispatchable"] == {"claude": 1, "codex": 1} and tie["auto_provider"] == "claude"
+    payload["codex"]["fleet"]["dispatchable_now"] = 4
+    assert project(probe, tmp_path, payload)["auto_provider"] == "codex"
+    del payload["claude"]["lanes"]
+    payload["codex"]["fleet"]["dispatchable_now"] = 0
+    unknown = project(probe, tmp_path, payload)
+    assert unknown["dispatchable"] == {"codex": 0} and unknown["auto_provider"] == "claude"

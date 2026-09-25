@@ -113,6 +113,27 @@ struct ClaudeAccount: Decodable {
 
 struct ClaudeSection: Decodable {
     var accounts: [ClaudeAccount]?
+    var lanes: ClaudeLaneCounts?
+}
+
+/// How many Claude lanes admission could place a job on now.
+struct ClaudeLaneCounts: Decodable {
+    var dispatchable_now: Int?
+}
+
+/// Lanes each provider could take work on now, from `status.json`: what the
+/// new-conversation sheet's Auto choice weighs (Max: "calling from various
+/// lanes of Claude or Codex, depending on where I have the capacity").
+func dispatchableLanes(_ snapshot: Snapshot) -> [String: Int] {
+    var counts: [String: Int] = ["codex": snapshot.codex.fleet.dispatchable_now]
+    if let claude = snapshot.claude.lanes?.dispatchable_now { counts["claude"] = claude }
+    return counts
+}
+
+/// Auto's pick: the provider with more lanes ready, Claude on a tie or when
+/// nothing is known.
+func autoProvider(_ counts: [String: Int]) -> String {
+    (counts["codex"] ?? 0) > (counts["claude"] ?? 0) ? "codex" : "claude"
 }
 
 // C-17.7, C-18.2: jobs submitted together by `run --batch` carry one label.

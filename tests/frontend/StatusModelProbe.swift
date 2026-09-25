@@ -33,7 +33,9 @@ struct StatusModelProbe {
             "recent_jobs": (snapshot.jobs?.recent ?? []).map(show),
             "stale": snapshot.isStale(now: now),
             "codex": snapshot.codex.homes.map { project(codexDisplay($0, snapshot: snapshot, now: now)) },
-            "claude": (snapshot.claude.accounts ?? []).map { project(claudeDisplay($0, snapshot: snapshot, now: now)) }
+            "claude": (snapshot.claude.accounts ?? []).map { project(claudeDisplay($0, snapshot: snapshot, now: now)) },
+            "dispatchable": dispatchableLanes(snapshot),
+            "auto_provider": autoProvider(dispatchableLanes(snapshot)),
         ]
         print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
     }

@@ -247,6 +247,30 @@ final class UIModel: ObservableObject {
         }
     }
 
+    /// Lanes ready per provider, read from `status.json` now; empty when the
+    /// snapshot is missing or old.
+    func providerCapacity() -> [String: Int] {
+        let environment = ProcessInfo.processInfo.environment
+        guard let url = resolveDaemonEndpoint(environment: environment, home: FileManager.default.homeDirectoryForCurrentUser,
+                                              flavor: .current).endpoint?.statusURL,
+              let data = try? Data(contentsOf: url),
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
+              !snapshot.isStale() else { return [:] }
+        return dispatchableLanes(snapshot)
+    }
+
+    /// Workspaces of recent conversations and sessions, newest first, each once.
+    func recentWorkspaces(limit: Int = 12) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for entry in state.sidebarEntries() {
+            guard let path = entry.workspace, !path.isEmpty, entry.continuable, seen.insert(path).inserted else { continue }
+            out.append(path)
+            if out.count == limit { break }
+        }
+        return out
+    }
+
     /// Reads a conversation's runs; the conversation view calls it on a timer
     /// while it is on screen. An older daemon without the op shows none.
     func refreshRuns(_ conversationID: String) async {

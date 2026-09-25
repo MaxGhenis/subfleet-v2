@@ -758,24 +758,33 @@ struct NewConversationSheet: View {
     @ObservedObject var model: UIModel
     @Binding var isPresented: Bool
     @AppStorage("lastWorkspace") private var workspace = NSHomeDirectory()
-    @AppStorage("lastProvider") private var provider = "claude"
-    @State private var modelValue = ""
+    /// "auto", "claude" or "codex"; Auto takes whichever has more lanes ready.
+    @AppStorage("providerChoice") private var providerChoice = "auto"
+    @AppStorage("lastModel.claude") private var claudeModel = ""
+    @AppStorage("lastModel.codex") private var codexModel = ""
+    @AppStorage("lastPermission") private var lastPermission = PermissionPolicy.ask.rawValue
     @State private var permission = PermissionPolicy.ask.rawValue
     @State private var title = ""
     @State private var message = ""
     @State private var confirmWiden = false
+    @State private var capacity: [String: Int] = [:]
+
+    private var provider: String { providerChoice == "auto" ? autoProvider(capacity) : providerChoice }
+    private var modelValue: Binding<String> { provider == "codex" ? $codexModel : $claudeModel }
 
     var body: some View {
         let models = model.state.models[provider] ?? []
         let writableCodex = model.state.availability.capabilities?.codex_writable == true
         VStack(alignment: .leading, spacing: 12) {
             Text("New conversation").font(.title3.bold())
-            Picker("Provider", selection: $provider) {
-                Text("Claude").tag("claude")
-                Text("Codex").tag("codex")
-            }.pickerStyle(.segmented)
             HStack {
-                TextField("Workspace", text: $workspace)
+                TextField("Folder", text: $workspace)
+                Menu("Recent") {
+                    ForEach(model.recentWorkspaces(), id: \.self) { path in
+                        Button(abbreviatedPath(path)) { workspace = path }
+                    }
+                }
+                .fixedSize()
                 Button("Choose…") {
                     let panel = NSOpenPanel()
                     panel.canChooseDirectories = true
@@ -784,7 +793,15 @@ struct NewConversationSheet: View {
                     if panel.runModal() == .OK, let url = panel.url { workspace = url.path }
                 }
             }
-            Picker("Model", selection: $modelValue) {
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("Provider", selection: $providerChoice) {
+                    Text("Auto").tag("auto")
+                    Text("Claude").tag("claude")
+                    Text("Codex").tag("codex")
+                }.pickerStyle(.segmented)
+                Text(capacityWords).font(.caption).foregroundStyle(.secondary)
+            }
+            Picker("Model", selection: modelValue) {
                 ForEach(models) { entry in Text(entry.id).tag(entry.value) }
             }
             Picker("Permission", selection: $permission) {
@@ -793,43 +810,55 @@ struct NewConversationSheet: View {
                         .disabled(provider == "codex" && policy != .readOnly && !writableCodex)
                 }
             }
-            if provider == "codex" && !writableCodex {
-                Text("Codex conversations are read-only until the never-rules check is recorded on this daemon.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
             if PermissionPolicy.widens(from: PermissionPolicy.ask.rawValue, to: permission) {
                 Toggle("I understand the agent will act without asking", isOn: $confirmWiden).font(.callout)
             }
             TextField("Title (optional)", text: $title)
-            TextField("First message", text: $message, axis: .vertical).lineLimit(3...8)
+            TextField("First message", text: $message, axis: .vertical).lineLimit(3...10)
             HStack {
                 Button("Cancel", role: .cancel) { isPresented = false }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Start") {
-                    let settings = ConversationSettings(model: modelValue, permission: permission)
+                    let settings = ConversationSettings(model: modelValue.wrappedValue, permission: permission)
+                    lastPermission = permission
                     model.create(provider: provider, workspace: workspace, settings: settings,
                                  title: title.isEmpty ? nil : title, firstMessage: message, staged: [],
                                  confirmWiden: confirmWiden)
                     isPresented = false
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(modelValue.isEmpty || workspace.isEmpty
+                .disabled(modelValue.wrappedValue.isEmpty || workspace.isEmpty
                           || (PermissionPolicy.widens(from: PermissionPolicy.ask.rawValue, to: permission) && !confirmWiden))
             }
         }
         .padding(18)
-        .frame(width: 520)
-        .onAppear(perform: pickDefaults)
-        .onChange(of: provider) { _, _ in pickDefaults() }
+        .frame(width: 560)
+        .onAppear {
+            capacity = model.providerCapacity()
+            permission = lastPermission
+            pickDefaults()
+        }
+        .onChange(of: providerChoice) { _, _ in pickDefaults() }
+    }
+
+    private var capacityWords: String {
+        guard !capacity.isEmpty else { return "Lane readiness unknown; Auto uses Claude." }
+        let words = ["claude", "codex"].compactMap { name in
+            capacity[name].map { "\(name == "claude" ? "Claude" : "Codex"): \($0) lane\($0 == 1 ? "" : "s") ready" }
+        }.joined(separator: " · ")
+        return providerChoice == "auto" ? words + " — Auto uses \(provider == "codex" ? "Codex" : "Claude")" : words
     }
 
     private func pickDefaults() {
         let models = model.state.models[provider] ?? []
-        if !models.contains(where: { $0.value == modelValue }) { modelValue = models.first?.value ?? "" }
+        if !models.contains(where: { $0.value == modelValue.wrappedValue }) {
+            modelValue.wrappedValue = models.first?.value ?? ""
+        }
         if provider == "codex" && model.state.availability.capabilities?.codex_writable != true {
             permission = PermissionPolicy.readOnly.rawValue
-        } else if permission == PermissionPolicy.readOnly.rawValue && provider == "claude" {
-            permission = PermissionPolicy.ask.rawValue
+        } else if permission == PermissionPolicy.readOnly.rawValue && provider == "claude"
+                    && lastPermission != PermissionPolicy.readOnly.rawValue {
+            permission = lastPermission
         }
     }
 }
