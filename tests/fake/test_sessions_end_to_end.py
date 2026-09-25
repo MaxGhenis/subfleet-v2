@@ -23,6 +23,7 @@ import uuid
 import pytest
 
 from subfleet import daemon as daemon_module
+from subfleet import procs
 from subfleet.adapters import registry as adapter_registry
 from subfleet.contracts import Credential, Lane, LaneOwner, Sandbox
 from subfleet.daemon import Daemon, revive_lease_key
@@ -91,11 +92,38 @@ class Client:
         return self.service.dispatch("submit", dataclasses.asdict(args))
 
 
+def process_inspection() -> bool:
+    """Whether this host lets the daemon read process identity (C-5.3)."""
+    try:
+        return bool(procs.boot_id() and procs.proc_start(os.getpid()))
+    except procs.InspectionError:
+        return False
+
+
 @pytest.fixture
 def world(tmp_path, monkeypatch):
-    """A daemon, a lane, a `~/.claude`, and a desktop session store."""
-    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
-    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+    """A daemon, a lane, a `~/.claude`, and a desktop session store.
+
+    The daemon reads the host's real process identity wherever the host allows
+    it. The guardian is a separate process that writes its own `boot_id()` and
+    ps start time into start.json, and the daemon judges each running attempt
+    against those (C-5.3). A pinned `proc_start` on the daemon side made every
+    running guardian look like a reused pid: finished attempts ended through
+    `_lost`, and a provider still running had its kill refused as unowned and
+    was quarantined. `watch_recovery` fails the teardown of any test that lets
+    that happen again.
+
+    Identity is pinned only where a sandbox denies ps and sysctl, because a
+    `Daemon` cannot record its own lock identity without them. The `sessions`
+    op tests start no process and still run there. A pinned daemon can never
+    agree with a real guardian, so each test that starts one requests
+    `process_inspection_available` and skips, and the world refuses any
+    guardian launch that gets past that.
+    """
+    pinned = not process_inspection()
+    if pinned:
+        monkeypatch.setattr(procs, "boot_id", lambda: "fixture-boot")
+        monkeypatch.setattr(procs, "proc_start", lambda pid: "fixture-start")
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     monkeypatch.setattr(adapter_registry, "_factories",
                         {"codex": FakeAdapter, "claude": FakeAdapter})
@@ -111,6 +139,7 @@ def world(tmp_path, monkeypatch):
                                     Credential("codex", str(root / "home"), "home"),
                                     str(root / "home"), LaneOwner.V2, False))
         (root / "home").mkdir(exist_ok=True)
+        recoveries = watch_recovery(service, pinned=pinned)
         try:
             # `tmp_path` for the job workdir and `/tmp` for the state root: a
             # unix socket path is capped near 104 bytes, and C-2.4 refuses a
@@ -119,6 +148,41 @@ def world(tmp_path, monkeypatch):
             yield service, Client(service), home, store_dir, root, policy, tmp_path
         finally:
             close_world(service)
+        assert not recoveries, f"process identity disagreed with a guardian's: {recoveries}"
+
+
+def watch_recovery(service: Daemon, *, pinned: bool) -> list[str]:
+    """Record every attempt the daemon treats as lost rather than finished, and
+    every guardian launched while identity is pinned.
+
+    Nothing in this world loses a guardian: each provider exits on its own or is
+    held and then released by its test. `_lost`, or a kill started with
+    `lost=True`, means the daemon found the guardian dead with no exit receipt,
+    which in this fixture has meant a disagreement about its process identity.
+    A kill without `lost` is the daemon acting on a cancel or its wall limit,
+    not a verdict about the guardian, so it is not recorded.
+    """
+    seen: list[str] = []
+    lost, kill = service._lost, service._kill_attempt   # noqa: SLF001 - the seam
+
+    def recorded_lost(a):
+        seen.append(f"_lost({a['attempt_id']}) from {a['state']}")
+        return lost(a)
+
+    def recorded_kill(a, **options):
+        if options.get("lost"):
+            seen.append(f"_kill_attempt({a['attempt_id']}, lost=True) from {a['state']}")
+        return kill(a, **options)
+
+    service._lost, service._kill_attempt = recorded_lost, recorded_kill
+    if pinned:
+        for name in ("_launch", "_execute_probe", "_enrollment_turn"):
+            def refuse(*args, name=name, **kwargs):
+                seen.append(f"{name} under a pinned identity")
+                raise AssertionError(f"{name}: a pinned identity cannot judge a real "
+                                     "guardian; request process_inspection_available")
+            setattr(service, name, refuse)
+    return seen
 
 
 def close_world(service: Daemon) -> None:
@@ -207,11 +271,8 @@ def stage(root: Path):
     return write
 
 
-def test_world_shutdown_reaps_a_provider_still_writing_receipts(world, monkeypatch):
-    """Fixture cleanup waits for detached writers before deleting their root."""
-    service, _client, _home, _store, root, _policy, base = world
-    release = root / "release-provider"
-
+def held_provider(release: Path) -> type[FakeAdapter]:
+    """A fake provider that prints `ready`, then runs until `release` exists."""
     class HeldProvider(FakeAdapter):
         def build_launch(self, *args, **kwargs):
             launch = super().build_launch(*args, **kwargs)
@@ -220,18 +281,29 @@ def test_world_shutdown_reaps_a_provider_still_writing_receipts(world, monkeypat
                        "while not Path(sys.argv[1]).exists(): time.sleep(.01)\n"
                        "print('fake deliverable', flush=True)\n")
             return replace(launch, argv=(sys.executable, "-c", program, str(release)))
+    return HeldProvider
 
-    monkeypatch.setitem(adapter_registry._factories, "codex", HeldProvider)
-    run(service)
-    prompt = stage(root)("Exercise fixture shutdown.")
-    result = service.dispatch("submit", {
+
+def dispatch_read_only(service: Daemon, root: Path, base: Path, text: str) -> str:
+    prompt = stage(root)(text)
+    return service.dispatch("submit", {
         "request_id": str(uuid.uuid4()), "kind": "dispatch", "workdir": str(base),
         "prompt_path": str(prompt), "sandbox": "read-only", "pinned_model": "astra",
         "allow_tmp": True,
-    })
-    adir = root / "jobs" / result["job_id"] / "a1"
+    })["job_id"]
+
+
+def test_world_shutdown_reaps_a_provider_still_writing_receipts(
+        process_inspection_available, world, monkeypatch):
+    """Fixture cleanup waits for detached writers before deleting their root."""
+    service, _client, _home, _store, root, _policy, base = world
+    release = root / "release-provider"
+    monkeypatch.setitem(adapter_registry._factories, "codex", held_provider(release))
+    run(service)
+    job_id = dispatch_read_only(service, root, base, "Exercise fixture shutdown.")
+    adir = root / "jobs" / job_id / "a1"
     until(lambda: (adir / "stdout").is_file() and "ready" in (adir / "stdout").read_text())
-    child = service._children[result["job_id"] + "/a1"]
+    child = service._children[job_id + "/a1"]
     assert child.poll() is None
     wait = child.wait
 
@@ -244,6 +316,61 @@ def test_world_shutdown_reaps_a_provider_still_writing_receipts(world, monkeypat
     close_world(service)
     assert child.poll() == 0
     assert json.loads((adir / "exit.json").read_text())["rc"] == 0
+
+
+def test_world_judges_a_running_guardian_by_the_identity_it_recorded(
+        process_inspection_available, world, monkeypatch):
+    """C-5.3, C-4.2: a provider that is still running stays `running`, and
+    succeeds once it exits.
+
+    The daemon copies the guardian's start.json identity into the attempt row
+    and asks `procs.liveness` about exactly that from then on. When the
+    fixture's daemon side read a different identity than the guardian wrote,
+    this attempt was judged dead on its first running tick, its kill signals
+    were refused as unowned, and it was quarantined (job `lost`, rc 125) while
+    the provider was still running. That it ends through its receipt and not
+    `_lost` is the world's own check (`watch_recovery`): both paths write the
+    same rows once a receipt exists.
+    """
+    service, _client, _home, _store, root, _policy, base = world
+    release = root / "release-provider"
+    monkeypatch.setitem(adapter_registry._factories, "codex", held_provider(release))
+    judged: list[str] = []
+    process = service._process_attempt                  # noqa: SLF001 - the seam
+
+    def counted(aid):
+        judged.append(aid)
+        return process(aid)
+
+    service._process_attempt = counted
+    run(service)
+    job_id = dispatch_read_only(service, root, base, "Hold until released.")
+    aid = job_id + "/a1"
+    try:
+        attempt = until(lambda: (a := service.store.get_attempt(aid))
+                        and a["state"] == "running" and a)
+        start = json.loads((root / "jobs" / job_id / "a1" / "start.json").read_text())
+        assert (attempt["guardian_pid"], attempt["boot_id"], attempt["proc_start"]) == (
+            start["guardian_pid"], start["boot_id"], start["proc_start"])
+        assert procs.liveness(attempt["guardian_pid"], attempt["boot_id"],
+                              attempt["proc_start"]) == "alive"
+
+        # Count control-loop passes rather than seconds, so host load cannot
+        # make the window vacuous: each pass re-judges the held guardian.
+        passes = judged.count(aid)
+        until(lambda: judged.count(aid) >= passes + 20, timeout=60)
+        assert service.store.get_attempt(aid)["state"] == "running"
+        assert service.store.get_job(job_id)["state"] == "running"
+    finally:
+        release.touch()                 # a failed check must not strand the provider
+    until(lambda: service.store.get_job(job_id)["state"] in
+          ("succeeded", "failed", "cancelled", "lost"), timeout=30)
+    job, final = service.store.get_job(job_id), service.store.get_attempt(aid)
+    assert (job["state"], job["rc"], final["state"], final["killed_by"]) == (
+        "succeeded", 0, "succeeded", None)
+    kinds = {row["kind"] for row in service.store.query(
+        "SELECT kind FROM events WHERE attempt_id=?", (aid,))}
+    assert not {"attempt.kill_started", "attempt.quarantined"} & kinds
 
 
 # --- `sessions continue --scope interrupted` (C-23.33, C-23.31) ---------------
@@ -396,7 +523,7 @@ def test_a_revive_records_the_requested_model_substitution(world):
     assert len(events) == 1
     assert json.loads(events[0]["data_json"])["job_id"] == result.job_id
 
-def test_revive_probes_lane_before_launch(world):
+def test_revive_probes_lane_before_launch(process_inspection_available, world):
     """C-23.20: revive admits a lane only on a `provider` reading taken in the
     same pass — a stored reading never qualifies it on its own.
 
@@ -442,7 +569,7 @@ def test_revive_probes_lane_before_launch(world):
         "the probe released its lane reservation before the attempt took it"
 
 
-def test_revive_census_refreshed_and_skips_running_twin(world):
+def test_revive_census_refreshed_and_skips_running_twin(process_inspection_available, world):
     """C-23.55: a session has at most one live revive. The lease
     `session:<id>:revive` is taken in the transaction that admits the attempt,
     and a session that already holds it is skipped rather than launched again.
@@ -477,7 +604,8 @@ def test_revive_census_refreshed_and_skips_running_twin(world):
     assert len(service.store.query("SELECT * FROM jobs WHERE kind='revive'")) == 1
 
 
-def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world):
+def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(
+        process_inspection_available, world):
     """C-23.55: "a session that already holds it is skipped rather than launched
     again" — and skipped means terminal, not patient.
 
@@ -509,7 +637,8 @@ def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world):
     assert notice["session_id"] == ALICE
 
 
-def test_the_lease_is_session_scoped_and_released_with_the_job(world):
+def test_the_lease_is_session_scoped_and_released_with_the_job(
+        process_inspection_available, world):
     """C-23.55 and C-6.3: the key names the session, the holder is the job, and
     every existing holder-keyed release site frees it."""
     service, client, home, store_dir, root, policy, base = world
@@ -526,7 +655,8 @@ def test_the_lease_is_session_scoped_and_released_with_the_job(world):
                              (revive_lease_key(ALICE),)) is None
 
 
-def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world):
+def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(
+        process_inspection_available, world):
     """C-23.54: a revive is an ordinary submission whose launch is
     `--resume <session id>`. Starting a fresh conversation would look like a
     revive and not be one."""
@@ -569,7 +699,8 @@ def test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job(world):
 
 # --- `subfleet handoff` (C-23.14, C-23.36, C-23.54) ---------------------------
 
-def test_handoff_dispatches_detached_through_the_normal_submit_path(world):
+def test_handoff_dispatches_detached_through_the_normal_submit_path(
+        process_inspection_available, world):
     """C-23.54: a handoff is dispatched through the ordinary submit path so it
     inherits routing, the guard, salvage, the ledger and notices.
 
