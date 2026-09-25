@@ -22,7 +22,6 @@ from __future__ import annotations
 import sys
 import threading
 import time
-import traceback
 from collections.abc import Callable
 
 #: C-3.6: a hold this long is reported with the holder's live stack.
@@ -45,12 +44,17 @@ def thread_name(ident: int | None) -> str:
     return f"thread {ident}"
 
 
+def format_stack(frame, limit: int = STACK_LIMIT) -> str:
+    import traceback            # only when there is something to report: every CLI imports the store
+    return "".join(traceback.format_stack(frame, limit=limit))
+
+
 def live_stack(ident: int, limit: int = STACK_LIMIT) -> str:
     """The Python stack thread `ident` is running now, innermost frame last."""
     frame = sys._current_frames().get(ident)
     if frame is None:
         return "    (no Python frame: the thread has ended)\n"
-    return "".join(traceback.format_stack(frame, limit=limit))
+    return format_stack(frame, limit)
 
 
 class WatchedLock:
@@ -190,7 +194,7 @@ class LockWatch:
         self._emit(lock.name, "released", seconds, lambda: (
             f"{lock.name} lock released after {seconds:.1f} s by {thread_name(ident)}"
             + ("" if sampled or frame is None else ". Where it was held:\n"
-               + "".join(traceback.format_stack(frame, limit=STACK_LIMIT)))))
+               + format_stack(frame))))
 
     def waited(self, lock: WatchedLock, me: int, seconds: float, frame=None) -> None:
         """Called by a thread still waiting for `lock` after `seconds`; `frame` is
@@ -204,7 +208,7 @@ class LockWatch:
             text = (f"{thread_name(me)} has waited {seconds:.1f} s for the {lock.name} lock; "
                     f"{self._waiting(lock, now)}; {holder}."
                     + ("" if frame is None else " Waiter's stack:\n"
-                       + "".join(traceback.format_stack(frame, limit=12))))
+                       + format_stack(frame, 12)))
             if held is not None:
                 text += f"Holder's stack:\n{live_stack(held[0])}"
             return text

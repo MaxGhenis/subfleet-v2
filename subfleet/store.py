@@ -2,14 +2,25 @@
 
 Transactions are deliberately synchronous and short. Callers perform process,
 network, and filesystem work before entering a transaction, then atomically
-record the resulting state. The shared connection is serialized across workers.
+record the resulting state. The one writing connection is serialized across
+workers by the store lock.
+
+C-3.7: a store opened with `readers` also keeps that many read-only
+connections. A read made outside a transaction (`query`, `one`) takes one of
+them instead of the store lock, so no read waits for a writer and readers run
+side by side (SQLite releases the GIL while a statement steps). A read made
+by a thread that holds the store lock goes to the writing connection, so a
+transaction still sees its own uncommitted rows. `snapshot()` gives a block of
+reads one committed state without the store lock.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import queue
 import sqlite3
+import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -53,9 +64,17 @@ class SchemaVersionError(RuntimeError):
 
 
 class Store:
-    def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None):
+    def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None,
+                 readers: int = 0):
         self.path = Path(path)
         self.read_only = read_only if readonly is None else readonly
+        # C-3.7: read connections, opened on first use, at most `readers` of them.
+        self._max_readers = 0 if self.read_only else max(0, int(readers))
+        self._idle: queue.LifoQueue[sqlite3.Connection] = queue.LifoQueue()
+        self._readers: list[sqlite3.Connection] = []
+        self._readers_lock = threading.Lock()
+        self._local = threading.local()
+        self._closed = False
         # C-3.6: an RLock that remembers its holder, so the daemon can say who
         # held it, for how long, and what they were doing.
         self._lock = WatchedLock("store")
@@ -176,17 +195,118 @@ class Store:
                 self._depth -= 1
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
+        if self._reads_elsewhere():
+            with self._reading() as conn:
+                return [dict(row) for row in conn.execute(sql, params).fetchall()]
         with self._lock:
             return [dict(row) for row in self.connection.execute(sql, params).fetchall()]
 
     def one(self, sql: str, params: Sequence[Any] = ()) -> Row | None:
+        if self._reads_elsewhere():
+            with self._reading() as conn:
+                cursor = conn.execute(sql, params)
+                try:
+                    row = cursor.fetchone()
+                finally:
+                    cursor.close()          # ends the statement, so no snapshot is kept open
+                return dict(row) if row is not None else None
         with self._lock:
             row = self.connection.execute(sql, params).fetchone()
             return dict(row) if row is not None else None
 
+    # --- C-3.7: reads off the store lock --------------------------------------
+
+    def _holds_writer(self) -> bool:
+        held = self._lock.held
+        return held is not None and held[0] == threading.get_ident()
+
+    def _reads_elsewhere(self) -> bool:
+        """Whether this thread's next read goes to a read connection."""
+        if getattr(self._local, "snapshot", None) is not None:
+            return True
+        return bool(self._max_readers) and not self._closed and not self._holds_writer()
+
+    def _open_reader(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path.resolve().as_uri() + "?mode=rw", uri=True, isolation_level=None,
+                               check_same_thread=False, timeout=5)
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA query_only=ON")
+        except BaseException:
+            conn.close()
+            raise
+        return conn
+
+    def _checkout(self) -> sqlite3.Connection:
+        try:
+            return self._idle.get_nowait()
+        except queue.Empty:
+            pass
+        with self._readers_lock:
+            grow = len(self._readers) < self._max_readers
+            if grow:
+                self._readers.append(None)          # the slot, filled below
+        if not grow:
+            return self._idle.get()                 # every reader busy: one statement's wait
+        try:
+            conn = self._open_reader()
+        except BaseException:
+            with self._readers_lock:
+                self._readers.remove(None)
+            raise
+        with self._readers_lock:
+            self._readers[self._readers.index(None)] = conn
+        return conn
+
+    @contextmanager
+    def _reading(self) -> Iterator[sqlite3.Connection]:
+        pinned = getattr(self._local, "snapshot", None)
+        if pinned is not None:
+            yield pinned
+            return
+        conn = self._checkout()
+        try:
+            yield conn
+        finally:
+            self._idle.put(conn)
+
+    @contextmanager
+    def snapshot(self) -> Iterator[None]:
+        """C-3.7: every read this thread makes in the block sees one committed
+        state, and none of them takes the store lock.
+
+        Inside a transaction, or nested in another snapshot, the block reads what
+        the enclosing one reads. A store without read connections holds the
+        store lock for the block instead, which gives the same one state.
+        """
+        if getattr(self._local, "snapshot", None) is not None or self._holds_writer():
+            yield
+            return
+        if not self._reads_elsewhere():
+            with self._lock:
+                yield
+            return
+        conn = self._checkout()
+        try:
+            conn.execute("BEGIN")                   # deferred: the snapshot is taken at the first read
+            self._local.snapshot = conn
+            try:
+                yield
+            finally:
+                self._local.snapshot = None
+                conn.execute("ROLLBACK")            # a read transaction has nothing to keep
+        finally:
+            self._idle.put(conn)
+
     def close(self) -> None:
         with self._lock:
+            self._closed = True
             self.connection.close()
+        with self._readers_lock:
+            readers, self._readers = [conn for conn in self._readers if conn is not None], []
+        for conn in readers:
+            conn.close()
 
     def __enter__(self) -> Store:
         return self
@@ -390,6 +510,30 @@ class Store:
 
     def add_reading(self, reading: Reading) -> int:
         return self._insert("readings", asdict(reading))
+
+    #: A timestamp `utc_now` writes. Strings of this one fixed-width shape sort
+    #: as the instants they name, so SQL's max over them is the newest.
+    CANONICAL_TS = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z"
+
+    def latest_reading_candidates(self) -> list[Row]:
+        """C-3.7: every reading that can be the newest of its lane, scope and window.
+
+        `capacity.latest_readings` keeps only the newest reading of each key,
+        by parsed instant and then reading id; a view used to read and parse
+        every reading ever recorded (34k rows and growing, the view's largest
+        cost). This returns, per key, the readings at the greatest timestamp of
+        the canonical shape, where string order is time order, plus every
+        reading whose timestamp has any other shape, for Python to compare. The
+        newest reading of every key is always among them, so
+        `latest_readings` gives the same answer over these as over all.
+        """
+        return self.query(
+            "WITH top AS (SELECT lane_id,scope,window,max(observed_at) AS at FROM readings "
+            "WHERE observed_at GLOB ? GROUP BY lane_id,scope,window) "
+            "SELECT r.* FROM readings r JOIN top ON r.lane_id=top.lane_id AND r.scope=top.scope "
+            "AND r.window=top.window AND r.observed_at=top.at "
+            "UNION ALL SELECT * FROM readings WHERE NOT observed_at GLOB ? "
+            "ORDER BY observed_at DESC,reading_id DESC", (self.CANONICAL_TS, self.CANONICAL_TS))
 
     def list_readings(self, lane_id: str | None = None) -> list[Row]:
         return self.query("SELECT * FROM readings" + (" WHERE lane_id=?" if lane_id else "") + " ORDER BY observed_at DESC,reading_id DESC", (lane_id,) if lane_id else ())

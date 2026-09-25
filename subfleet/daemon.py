@@ -45,6 +45,7 @@ from .contracts import (
 from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
+from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
@@ -63,6 +64,21 @@ LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
+
+#: C-3.7: read connections the daemon's store keeps beside its one writer. A
+#: read holds one for a single statement (or a `snapshot` block), so a few serve
+#: every pool; a request that finds them all busy waits for a statement, never
+#: for a transaction.
+READ_CONNECTIONS = 6
+#: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
+#: They have their own pool, so they never queue behind a view build or a write
+#: waiting for the store lock on the general request pool.
+LOOKUP_OPS = frozenset({"list", "show", "notice.pending"})
+
+#: C-6.3, C-3.7: how old an evaluation admission made outside its reserving
+#: transaction may be and still be reserved on, when nothing has been committed
+#: since. Its view's clock (reading freshness, closure ends) is that old at most.
+ROUTE_REUSE_S = 5.0
 
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
@@ -331,6 +347,10 @@ class Daemon:
         self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
+        # C-15.5: `wait` requests between dispatch and their answer being sent, so
+        # `close` can let each answer before it shuts the connections down.
+        self._waits_answering = 0
+        self._waits_answered = threading.Condition()
         self._closed = False
         self._socket: socket.socket | None = None
         self._lock_fd = os.open(self.root / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -364,15 +384,20 @@ class Daemon:
             atomic_publish(policy_path, Path(__file__).with_name("default_policy.json").read_bytes())
         self.policy = load_policy(policy_path)
         self.policy_digest = policy_hash(policy_path)
-        self.store = Store(self.root / "state.sqlite3")
+        # C-3.7: reads outside a transaction take a read connection, not the store lock.
+        self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        # C-15.5: one reader answers every `wait`; its thread starts with the first.
+        self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
+            "wait hub read failed: %s", type(exc).__name__))
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
+        self.lookups = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subfleet-read")   # C-16.5
         self.readers = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-socket")
         self._accept_trouble_logged = 0.0
         self._accept_failing_since: float | None = None
         self._busy_logged = 0.0
-        # A `wait` holds its thread for up to WAIT_POLL_MAX_S on a condition variable, so
+        # A `wait` holds its thread for up to WAIT_POLL_MAX_S on its hub event (C-15.5), so
         # there is one for every connection that could send one (review of the
         # descriptor hotfix: at 16, a 17th wait queued until its client gave up).
         self.waiters = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-wait")
@@ -413,6 +438,9 @@ class Daemon:
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass.
         self._holds: dict[str, dict] = {}
+        # C-6.3, C-3.7: reserving transactions that took the decision evaluated
+        # before them, and those that evaluated again inside.
+        self._route_evaluations = {"reused": 0, "again": 0}
         self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
                                            "idle_since_at": None, "checked_at": None, "logged_at": None,
                                            "reasons": {}}
@@ -679,6 +707,7 @@ class Daemon:
         atomic_publish(path, contents)
 
     def _notify(self) -> None:
+        self.wait_hub.poke()                # C-15.5: the waits' one reader looks now
         with self.changed:
             self.changed.notify_all()
 
@@ -697,19 +726,22 @@ class Daemon:
         return JobSpec(**values)
 
     def _capacity_view(self, desktop=None):
-        view = capacity.build_view(
-            self.store.lane_rows(), self.store.list_readings(), self.store.list_closures(),
-            self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
-            reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
-        # Probe reservations are explicit leases, not invented in-flight attempt
-        # counts. A recovered probe keeps its lane unavailable until containment.
-        leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
-        view["unavailable_lanes"] = {row["lease_key"].split(":")[1]: row["holder"] for row in leases}
-        view["reserved_probes"] = len(leases)
-        for lane in view["lanes"]:
-            if holder := view["unavailable_lanes"].get(lane["lane_id"]):
-                lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
-        return self.timers.enrich_view(view)
+        # C-3.7: one committed state for the whole view, read off the store lock
+        # (inside a transaction, the transaction's own state, as before).
+        with self.store.snapshot():
+            view = capacity.build_view(
+                self.store.lane_rows(), self.store.latest_reading_candidates(), self.store.list_closures(),
+                self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
+                reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
+            # Probe reservations are explicit leases, not invented in-flight attempt
+            # counts. A recovered probe keeps its lane unavailable until containment.
+            leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
+            view["unavailable_lanes"] = {row["lease_key"].split(":")[1]: row["holder"] for row in leases}
+            view["reserved_probes"] = len(leases)
+            for lane in view["lanes"]:
+                if holder := view["unavailable_lanes"].get(lane["lane_id"]):
+                    lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
+            return self.timers.enrich_view(view)
 
     def _cached_desktop_identity(self) -> capacity.DesktopIdentity:
         """Read-only advisory identity: a warm profile or conservative cached hints."""
@@ -819,8 +851,9 @@ class Daemon:
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
         view = self._capacity_view(desktop)
+        context = self.timers.actions.override_context()        # read once for every lane (C-3.7)
         overrides = {lane["lane_id"] for lane in view["lanes"]
-                     if self.timers.actions.confirmed_override(lane["lane_id"])}
+                     if self.timers.actions.confirmed_override(lane["lane_id"], context=context)}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
         return scheduler.evaluate(self.policy, view,
                                   {**job, "exclusions": tuple(exclusions) + extra_exclusions,
@@ -1389,15 +1422,17 @@ class Daemon:
         if not job_ids:
             return {}
         marks = ",".join("?" for _ in job_ids)
-        rows = self.store.query(f"SELECT job_id,data_json FROM events WHERE kind='job.submitted' "
+        # `+kind`: look the jobs up by id (events_job). By kind, SQLite walked
+        # every job.submitted event ever written on each `list` (C-3.7).
+        rows = self.store.query(f"SELECT job_id,data_json FROM events WHERE +kind='job.submitted' "
                                 f"AND job_id IN ({marks}) AND data_json LIKE '%\"batch\"%'", job_ids)
         found = {row["job_id"]: json.loads(row["data_json"]).get("batch") for row in rows}
         return {job_id: batch for job_id, batch in found.items() if batch}
 
     def _submitted(self, job_id: str) -> dict:
         """What `submit` recorded beside the job row: the caller instance and write target."""
-        row = self.store.one("SELECT data_json FROM events WHERE job_id=? AND kind='job.submitted' "
-                             "ORDER BY event_id LIMIT 1", (job_id,))
+        row = self.store.one("SELECT data_json FROM events WHERE job_id=? AND +kind='job.submitted' "
+                             "ORDER BY event_id LIMIT 1", (job_id,))      # by job id, as `_batches` (C-3.7)
         return json.loads(row["data_json"] or "{}") if row else {}
 
     @staticmethod
@@ -1851,9 +1886,24 @@ class Daemon:
         """
         marks = ",".join("?" for _ in kinds)
         latest: dict[str, dict] = {}
-        for row in self.store.query(
-                f"SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
-                "ORDER BY event_id DESC", kinds):
+        # C-3.7: SQLite picks the rows. Every event of these kinds used to be
+        # fetched and parsed in Python, once inside the `nudged` transaction.
+        # For named sessions, only theirs; for all, only the newest per kind and
+        # session. The loop below still applies every rule it always did.
+        session = "CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.session_id') END"
+        if session_ids is not None:
+            if not session_ids:
+                return latest
+            wanted = sorted(session_ids)
+            sql = (f"SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
+                   f"AND {session} IN ({','.join('?' for _ in wanted)}) ORDER BY event_id DESC")
+            params = (*kinds, *wanted)
+        else:
+            sql = (f"SELECT event_id,kind,ts,data_json FROM events WHERE event_id IN "
+                   f"(SELECT max(event_id) FROM events WHERE kind IN ({marks}) GROUP BY kind,{session}) "
+                   "ORDER BY event_id DESC")
+            params = kinds
+        for row in self.store.query(sql, params):
             try:
                 data = json.loads(row["data_json"])
             except (TypeError, ValueError):
@@ -2023,29 +2073,32 @@ class Daemon:
         job_ids = args.job_ids
         if not job_ids:
             job_ids = [j["job_id"] for j in self.dispatch("list", {"mine": args.mine, "last": 1 if args.last else None})["jobs"]]
-        # Everything this answer depends on is in the store, so it is read again
-        # only after a transaction has committed, or every WAIT_RECHECK_S. A
-        # waiter used to re-read every job on every wake-up, and the control
-        # loop wakes all waiters each time any worker finishes: with a few
-        # running attempts that was thousands of store reads a second behind the
-        # one store lock (2026-09-24).
-        seen, recheck_at = None, 0.0
-        while True:
-            generation = self.store.generation
-            if generation != seen or time.monotonic() >= recheck_at:
-                seen, recheck_at = generation, time.monotonic() + WAIT_RECHECK_S
-                jobs = [self._job(j) for j in job_ids]
-                pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
-                if all(j["state"] in TERMINAL for j in jobs) and not pending_exports:
-                    for job in jobs:
-                        job["attempt"] = self.store.one(
-                            "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
-                    return {"jobs": jobs, "timeout": False}
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or self.stopping.is_set():
-                return {"timeout": True}
-            with self.changed:
-                self.changed.wait(min(remaining, .25))
+        # C-15.5: this waiter reads the store when it starts and when the hub,
+        # which reads once for every waiter after each commit, says its jobs may
+        # be done. It registers before its first read, so no commit is missed; a
+        # waiter used to re-read every job on every wake-up of every waiter.
+        with self.wait_hub.watching(job_ids) as ready:
+            while True:
+                ready.clear()
+                answer = self._wait_answer(job_ids)
+                if answer is not None:
+                    return answer
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or self.stopping.is_set():
+                    return {"timeout": True}
+                ready.wait(remaining)
+
+    def _wait_answer(self, job_ids: list[str]) -> dict | None:
+        """The answer to a `wait` if every job has ended and every export is done."""
+        with self.store.snapshot():         # one committed state for the whole answer
+            jobs = [self._job(j) for j in job_ids]
+            pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
+            if not all(j["state"] in TERMINAL for j in jobs) or pending_exports:
+                return None
+            for job in jobs:
+                job["attempt"] = self.store.one(
+                    "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+        return {"jobs": jobs, "timeout": False}
 
     def kill(self, args: protocol.KillArgs) -> dict:
         job = self._job(args.job_id)
@@ -2404,12 +2457,12 @@ class Daemon:
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
-        rows = self.store.query("SELECT data_json FROM events WHERE kind='probe.state' ORDER BY event_id DESC")
-        for row in rows:
-            record = json.loads(row["data_json"])
-            if record.get("holder") == holder:
-                return record
-        return None
+        # C-3.7: the newest record for this holder, found by SQLite; every
+        # probe.state event (thousands, never pruned) used to be fetched and
+        # parsed in Python, once per probe lease per capacity view.
+        row = self.store.one("SELECT data_json FROM events WHERE kind='probe.state' "
+                             "AND json_extract(data_json,'$.holder')=? ORDER BY event_id DESC LIMIT 1", (holder,))
+        return json.loads(row["data_json"]) if row else None
 
     def _save_probe(self, record: dict) -> None:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
@@ -2983,6 +3036,21 @@ class Daemon:
                     holds[job["job_id"]]["next_check_at"] = current["next_check_at"]
                     self._refresh_hold(job["job_id"], holds[job["job_id"]])
                 continue
+            # C-6.3, C-3.7: the route is evaluated first in a read snapshot, off
+            # the store lock. The reserving transaction takes that decision only
+            # if no transaction has committed since, so it rests on the very rows
+            # the reservation reads, and only if it is at most ROUTE_REUSE_S old;
+            # otherwise it evaluates again inside, as it always did. An early
+            # evaluation that fails is dropped: the transaction's own evaluation
+            # fails the same way and settles the job as before (C-6.12). This
+            # evaluation, a whole capacity view, was the longest planned hold of
+            # the store lock (13.5 s with the daemon held to 5% of a core).
+            seen, evaluated_at = self.store.generation, time.monotonic()
+            try:
+                with self.store.snapshot():
+                    early = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
+            except Unroutable:
+                early = None
             # C-6.12: outside the transaction, so a route that fails here rolls it back first.
             with self._isolated_route(job, holds) as route, \
                     self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
@@ -2992,7 +3060,13 @@ class Daemon:
                 if extra_exclusions:
                     job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
-                decision = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
+                if (early is not None and self.store.generation == seen
+                        and time.monotonic() - evaluated_at <= ROUTE_REUSE_S):
+                    decision = early
+                    self._route_evaluations["reused"] += 1
+                else:
+                    decision = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
+                    self._route_evaluations["again"] += 1
                 needs_probe = self._needs_probe(decision, job)
                 live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
                                   "WHERE a.state IN ('reserved','starting','running','finalizing') "
@@ -3995,6 +4069,18 @@ class Daemon:
         self._notify()
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request) -> None:
+        if req.op != "wait":
+            return self._answer(conn, write_lock, req)
+        with self._waits_answered:
+            self._waits_answering += 1
+        try:
+            self._answer(conn, write_lock, req)
+        finally:
+            with self._waits_answered:
+                self._waits_answering -= 1
+                self._waits_answered.notify_all()
+
+    def _answer(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request) -> None:
         try:
             response = protocol.ok(req.id, self.dispatch(req.op, req.args))
         except (protocol.ProtocolError, AdapterError) as exc:
@@ -4036,7 +4122,15 @@ class Daemon:
                         pending.append(self.conversations.pool_for(req.op).submit(
                             self.conversations.respond, conn, write_lock, req, peer))
                         continue
-                    pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
+                    if req.op == "ping" and not req.args.get("text"):
+                        # C-16.5: a liveness question is answered here, never
+                        # queued: it reads nothing, so a slow daemon still says
+                        # at once that it is alive.
+                        self._respond(conn, write_lock, req)
+                        continue
+                    pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
+                            self.waiters if req.op == "wait" else
+                            self.lookups if req.op in LOOKUP_OPS else self.requests)
                     pending.append(pool.submit(self._respond, conn, write_lock, req))
         except OSError:
             pass
@@ -4157,6 +4251,12 @@ class Daemon:
         self.stopping.set()
         self.timers.cancel.set()
         self._notify()
+        # C-15.5: every waiter wakes now, sees the daemon stopping and answers
+        # `{"timeout": true}` while its connection is still open; the answers get
+        # up to 2 s to be sent before the connections are shut down.
+        self.wait_hub.stop()
+        with self._waits_answered:
+            self._waits_answered.wait_for(lambda: self._waits_answering == 0, timeout=2)
         if self._socket:
             self._socket.close()
         if self._control_thread and threading.current_thread() != self._control_thread:
@@ -4169,7 +4269,7 @@ class Daemon:
                     pass
         self.timers.stop()
         self.conversations.close()
-        for pool in (self.readers, self.requests, self.waiters, self.workers):
+        for pool in (self.readers, self.requests, self.lookups, self.waiters, self.workers):
             pool.shutdown(wait=True, cancel_futures=True)
         self.lock_watch.stop()
         self.store.close()

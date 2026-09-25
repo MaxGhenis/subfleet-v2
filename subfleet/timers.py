@@ -109,7 +109,11 @@ class Timers:
             self._status[name].update(last_run=iso(self.now()), last_error_type=error)
             if next_due is not None:
                 self._status[name]['next_due'] = next_due
-            self.store.add_event('timer.run', data={'timer': name, **self._status[name]})
+            data = {'timer': name, **self._status[name]}
+        # C-3.7: written after `_lock` is let go. The control loop takes that
+        # lock every tick (`tick`), so a store write waiting for the store lock
+        # while holding it kept the loop from scheduling anything.
+        self.store.add_event('timer.run', data=data)
 
     def tick(self):
         with self._lock:
@@ -142,9 +146,17 @@ class Timers:
                     or name == 'probe' and 'reset_credits' in self._running):
                 return {'status': 'already-running', 'timer': name}
             self._running.add(name)
+        # C-3.7: the store write happens outside `_lock` (see `mark`). The name
+        # is already running, so no tick starts it meanwhile; a failed write
+        # gives it back rather than leaving it "already-running" for good.
+        try:
             self.store.add_event('timer.requested', data={'timer': name, 'target': target})
-            callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
-            self._cycles.submit(self._run, name, callback)
+        except BaseException:
+            with self._lock:
+                self._running.discard(name)
+            raise
+        callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
+        self._cycles.submit(self._run, name, callback)
         return {'status': 'scheduled', 'timer': name, 'target': target}
 
     def _run(self, name, callback=None):
@@ -169,10 +181,12 @@ class Timers:
                     # These passes run inside probe_cycle, so their displayed
                     # deadlines must follow its completion-based schedule too.
                     # Preserve last_run/error if the cycle failed before them.
+                    companions = []
                     for companion in ('reset_credits', 'alerts'):
                         self._status[companion]['next_due'] = next_due
-                        self.store.add_event('timer.run', data={
-                            'timer': companion, **self._status[companion]})
+                        companions.append({'timer': companion, **self._status[companion]})
+                for data in companions:             # outside `_lock` (C-3.7, see `mark`)
+                    self.store.add_event('timer.run', data=data)
             self.mark(name, error=error)
             with self._lock:
                 self._running.discard(name)
@@ -472,7 +486,10 @@ class Timers:
         self.metadata[lane.lane_id] = meta
 
     def snapshot(self):
-        with self.store.transaction('timer.snapshot'):
+        # One committed state for the whole view. C-3.7: a read snapshot, not a
+        # write transaction, so building it (every lane, reading, closure,
+        # attempt and job) holds nobody else back.
+        with self.store.snapshot():
             view = capacity.from_store(self.store, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
         return self.enrich_view(view)
 
@@ -482,6 +499,7 @@ class Timers:
         bindings = {}
         for lane in self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'):
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
+        overrides = self.actions.override_context()      # read once for every lane (C-3.7)
         for row in view['lanes']:
             row.update(self.metadata.get(row['lane_id'], {}))
             bound = bindings.get((row['provider'], row['home'] or row['credential_ref']))
@@ -493,7 +511,7 @@ class Timers:
             if row.get('revoked_epoch') is not None or row.get('probe_status') in ('revoked', 'auth-revoked', 'expired-token', 'no-auth'):
                 view.setdefault('unavailable_lanes', {})[row['lane_id']] = 'credential-latched'
             row['reset_credits_remaining'] = (row.get('reset_credits') or {}).get('available')
-            override = self.actions.confirmed_override(row['lane_id'], now=self.now())
+            override = self.actions.confirmed_override(row['lane_id'], now=self.now(), context=overrides)
             if override:
                 balance = self.balances.get(row['lane_id'], {})
                 if balance.get('action_id') == override['action_id']:

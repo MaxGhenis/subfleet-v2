@@ -214,10 +214,13 @@ class Client:
     """Connects to `<state root>/daemon.sock` and speaks the C-16 protocol."""
 
     def __init__(self, root: Path | str | None = None, *,
-                 timeout: float = DEFAULT_TIMEOUT_S):
+                 timeout: float = DEFAULT_TIMEOUT_S, verify_lock: bool = True):
         self.root = Path(root).expanduser() if root is not None else state_root()
         self.timeout = timeout
-        self._checked = False
+        # C-15.6: a hook passes False. The lock check costs a `ps` and a `sysctl`
+        # per process, and a hook, run on every Bash call of every session, says
+        # nothing whichever way the daemon is down; a refused connect says it.
+        self._checked = not verify_lock
 
     # --- paths ---------------------------------------------------------------
 

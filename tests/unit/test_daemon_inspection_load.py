@@ -303,9 +303,11 @@ def test_the_export_sweep_is_one_statement_however_much_history_is_kept(daemon, 
 # --- waiters ------------------------------------------------------------------
 
 def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
-    """C-5.11: a waiter woken without a committed change reads nothing. Before the fix
-    every wake-up re-read every watched job; 200 wake-ups were 200 reads."""
-    monkeypatch.setattr(daemon_module, "WAIT_RECHECK_S", 60)   # only commits may cause a read here
+    """C-5.11, C-15.5: wake-ups without a committed change read nothing. Before the
+    fix every wake-up re-read every watched job; 200 wake-ups were 200 reads. The
+    waiter now reads when it starts and when its job has ended; the hub between
+    them reads only after a commit."""
+    daemon.wait_hub.recheck_s = 60                              # only commits may cause a read here
     reads = []
     get_job = daemon.store.get_job
     monkeypatch.setattr(daemon.store, "get_job", lambda job_id: reads.append(job_id) or get_job(job_id))
@@ -313,12 +315,14 @@ def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
     waiter = threading.Thread(target=lambda: result.update(
         daemon.wait(protocol.WaitArgs(job_ids=[JOB], deadline_s=20))))
     waiter.start()
-    while not reads:
+    while not reads or daemon.wait_hub.reads < 1:
         time.sleep(.001)
+    hub_reads = daemon.wait_hub.reads
     for _ in range(200):
         daemon._notify()
         time.sleep(.001)
     assert len(reads) == 1
+    assert daemon.wait_hub.reads == hub_reads
 
     with daemon.store.transaction("test.finished", job_id=JOB) as tx:
         tx.execute("UPDATE jobs SET state='succeeded',rc=0 WHERE job_id=?", (JOB,))
@@ -327,16 +331,14 @@ def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
     assert not waiter.is_alive()
     assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded"
     assert len(reads) == 2
+    assert daemon.wait_hub.reads == hub_reads + 1
 
 
 def test_wait_rechecks_on_its_own_clock_without_a_commit(daemon, monkeypatch):
-    """C-5.11: the generation is a hint; a waiter still looks again on its own clock."""
-    monkeypatch.setattr(daemon_module, "WAIT_RECHECK_S", .05)
-    reads = []
-    get_job = daemon.store.get_job
-    monkeypatch.setattr(daemon.store, "get_job", lambda job_id: reads.append(job_id) or get_job(job_id))
+    """C-5.11, C-15.5: the generation is a hint; the hub still looks again on its own clock."""
+    daemon.wait_hub.recheck_s = .05
     assert daemon.wait(protocol.WaitArgs(job_ids=[JOB], deadline_s=.6)) == {"timeout": True}
-    assert 2 <= len(reads) <= 20
+    assert 2 <= daemon.wait_hub.reads <= 20
 
 
 def test_a_worker_that_commits_nothing_wakes_no_waiter(daemon, monkeypatch):

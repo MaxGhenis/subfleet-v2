@@ -176,7 +176,8 @@ def attach_batches(store: Any, snapshot: dict[str, Any]) -> None:
         snapshot["batches"] = {}
         return
     marks = ",".join("?" for _ in ids)
-    rows = store.query(f"SELECT job_id,data_json FROM events WHERE kind='job.submitted' "
+    # `+kind`: by job id (events_job), not a walk of every job.submitted event (C-3.7).
+    rows = store.query(f"SELECT job_id,data_json FROM events WHERE +kind='job.submitted' "
                        f"AND job_id IN ({marks}) AND data_json LIKE '%\"batch\"%'", ids)
     found = {row["job_id"]: json.loads(row["data_json"] or "{}").get("batch") for row in rows}
     snapshot["batches"] = {job_id: batch for job_id, batch in found.items() if isinstance(batch, dict)}

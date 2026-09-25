@@ -308,3 +308,17 @@ def test_a_closed_daemon_gives_up_sigusr1_and_a_newer_one_keeps_it(tmp_path):
 def test_the_defaults_are_the_contracts():
     assert (lockwatch.HOLD_REPORT_S, lockwatch.WAIT_REPORT_S) == (2.0, 5.0)
     assert lockwatch.REPORT_EVERY_S == 60.0
+
+
+def test_timers_write_to_the_store_outside_their_own_lock(daemon, monkeypatch):
+    """C-3.7: the control loop takes `Timers._lock` every tick, so a store write
+    must never wait for the store lock while holding it."""
+    timers = daemon.timers
+    held = []
+    add_event = daemon.store.add_event
+    monkeypatch.setattr(daemon.store, "add_event", lambda *a, **k: held.append(
+        timers._lock._is_owned()) or add_event(*a, **k))
+    timers.mark("retention")
+    timers.started = True
+    timers.request("keepalive")
+    assert held and not any(held)

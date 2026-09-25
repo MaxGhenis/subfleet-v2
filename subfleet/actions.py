@@ -214,9 +214,16 @@ class ResetCredits:
         return {json.loads(row["data_json"]).get("action_id") for row in self.store.query(
             "SELECT data_json FROM events WHERE kind='action.reconciled'")}
 
-    def _belongs_to_lane(self, action: dict, lane_id: str) -> bool:
-        """C-1.4, C-19.1: imported home/account subjects retain account authority."""
-        lane = self.store.get_lane(lane_id)
+    def _belongs_to_lane(self, action: dict, lane_id: str, lanes: dict | None = None) -> bool:
+        """C-1.4, C-19.1: imported home/account subjects retain account authority.
+
+        `lanes` memoizes the lane rows across one pass over many lanes (C-3.7)."""
+        if lanes is None:
+            lane = self.store.get_lane(lane_id)
+        else:
+            if lane_id not in lanes:
+                lanes[lane_id] = self.store.get_lane(lane_id)
+            lane = lanes[lane_id]
         if lane is None:
             return action["subject"] == lane_id
         request = json.loads(action.get("request_json") or "{}")
@@ -404,12 +411,23 @@ class ResetCredits:
                 self._release(lane_id, _iso(instant), action_id=action["action_id"])
         return result
 
-    def confirmed_override(self, lane_id: str, *, now: str | datetime | None = None) -> dict | None:
+    def override_context(self) -> dict:
+        """What `confirmed_override` reads, read once for a pass over every lane.
+
+        A view asks about each of its ~20 lanes, and each question read the
+        whole reset-credit history, every reconciliation event and a lane row
+        per action: hundreds of statements per view, several views per
+        admission pass (C-3.7, 2026-09-25)."""
+        return {"reconciled": self._reconciled(), "history": self._history(), "lanes": {}}
+
+    def confirmed_override(self, lane_id: str, *, now: str | datetime | None = None,
+                           context: dict | None = None) -> dict | None:
         """C-23.17: reopen during usage propagation without inventing percentages."""
         instant = _time(now or datetime.now(timezone.utc))
-        reconciled = self._reconciled()
-        for action in reversed(self._history()):
-            if not self._belongs_to_lane(action, lane_id) or action["state"] != "confirmed" or action["action_id"] in reconciled:
+        context = context or self.override_context()
+        reconciled, lanes = context["reconciled"], context["lanes"]
+        for action in reversed(context["history"]):
+            if not self._belongs_to_lane(action, lane_id, lanes) or action["state"] != "confirmed" or action["action_id"] in reconciled:
                 continue
             confirmed = _time(action["updated_at"])
             if confirmed + timedelta(days=7) <= instant:

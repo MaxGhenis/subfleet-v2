@@ -38,19 +38,37 @@ def _iso(value: datetime) -> str:
     return value.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+#: C-10.3, C-3.7: the login file's version (inode, size, mtime, ctime) -> the
+#: email it names. The file is ~250 KB of JSON, asked about on every admission
+#: pass (up to twenty a second) and every status-style request; it is parsed
+#: again only when it is a different file or has been written or touched since.
+_DESKTOP_ACCOUNT: dict[str, tuple[tuple[int, int, int, int], str | None]] = {}
+
+
 def read_desktop_account(path: str | Path | None = None) -> str | None:
     """C-10.3: reread the current Claude desktop login without caching secrets.
 
     An unreadable or incomplete login file is unknown, so callers preserve the
-    last recorded desktop flags instead of silently removing protection.
+    last recorded desktop flags instead of silently removing protection. Only
+    the email is kept, and only for as long as the file is the same version:
+    any write, replace or touch changes its ctime, so a switched login is seen
+    at the next call, as when the file was parsed every time.
     """
+    target = Path(path) if path is not None else Path.home() / ".claude.json"
     try:
-        value = json.loads((Path(path) if path is not None else Path.home() / ".claude.json").read_text())
+        info = target.stat()
+        version = (info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        known = _DESKTOP_ACCOUNT.get(str(target))
+        if known is not None and known[0] == version:
+            return known[1]
+        value = json.loads(target.read_text())
         account = value.get("oauthAccount") if isinstance(value, dict) else None
         email = account.get("emailAddress") if isinstance(account, dict) else None
-        return email.strip().casefold() if isinstance(email, str) and email.strip() else None
+        result = email.strip().casefold() if isinstance(email, str) and email.strip() else None
     except (OSError, UnicodeError, ValueError):
         return None
+    _DESKTOP_ACCOUNT[str(target)] = (version, result)
+    return result
 
 
 def cached_desktop_identity(path: str | Path | None = None) -> dict[str, Any]:
@@ -320,7 +338,9 @@ def from_store(store: Any, *, now: str | datetime | None = None,
                reading_ttl_s: int = READING_TTL_S, desktop_account: str | None = None,
                desktop: DesktopIdentity | None = None) -> dict[str, Any]:
     """Read store rows; supply desktop identity read before any transaction."""
-    return build_view(store.lane_rows(), store.list_readings(), store.list_closures(),
+    # C-3.7: every reading that can be a key's newest, not every reading.
+    readings = getattr(store, "latest_reading_candidates", store.list_readings)()
+    return build_view(store.lane_rows(), readings, store.list_closures(),
                       store.list_attempts(), store.list_jobs(), now=now,
                       reading_ttl_s=reading_ttl_s, desktop_account=desktop_account,
                       desktop=desktop)
