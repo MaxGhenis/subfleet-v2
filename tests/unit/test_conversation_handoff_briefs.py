@@ -223,6 +223,11 @@ def test_both_readers_name_their_provider_and_source(reader, tmp_path, monkeypat
     call("shell", {"command": ["security", "find-generic-password", "-s", "x", "-w"]}, "c9"),
     shell(["cat", ".env"], "c9"),
     custom_call("keychain_read", "anything", "c9"),
+    # The shapes the review of 6290a51 leaked (shared-matcher holes older than this reader):
+    call("exec_command", {"cmd": "/usr/bin/printenv"}, "c9"),
+    call("exec_command", {"cmd": "cat .env; true"}, "c9"),
+    custom_call("exec", 'const r = await tools.exec_command({cmd: "printenv"}); text(r.output);', "c9"),
+    custom_call("exec", 'await tools.exec_command({cmd: "env"})', "c9"),
 ])
 def test_a_credential_reading_codex_call_is_omitted_by_pattern(item, tmp_path, workspace, caps):
     """C-23.14: the input and the output of a call that reads credentials are

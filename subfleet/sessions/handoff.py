@@ -126,10 +126,19 @@ _SENSITIVE_TOOL_PATTERNS = tuple(
     for pattern in (
         r"\bagent-secret\s+(?:get|show)\b",
         r"\bsecurity\s+(?:dump-keychain|find-generic-password|find-internet-password)\b",
-        r"(?:^[ \t]*|[;&|(]\s*|\bsudo\s+|[\"']command[\"']\s*:\s*[\"'])"
-        r"(?:env|printenv)(?=[\s;&|)\"']|$)",
-        r"(?:auth\.json|credentials(?:\.json)?|(?:^|[/\s])\.env"
-        r"(?:\.[A-Za-z0-9_-]+)?(?=[\s\"']|$))",
+        # `printenv` does nothing but print the environment: any mention of the
+        # command, bare or by path (`/usr/bin/printenv`), inside an executor's
+        # input (`tools.exec_command({cmd: "printenv"})`) or a wrapper's.
+        r"(?<![\w.-])(?:[\w.~-]*/)*printenv(?![\w.-])",
+        # `env` is also a word, so only where a command starts: a line, after a
+        # separator or backquote, after a wrapper (`sudo -E`, `nice`, `xargs`),
+        # inside `sh -c '...'`, or as a `command`/`cmd` value; bare or by path.
+        r"(?:^[ \t]*|[;&|(`]\s*|\b(?:sudo|doas|nice|nohup|time|command|exec|xargs)\s+(?:-\S+\s+)*"
+        r"|[\"'`](?:command|cmd)[\"'`]?\s*:\s*[\"'`]|\bcmd\s*:\s*[\"'`]|\s-l?c\s+[\"'])"
+        r"(?:[\w.~-]*/)*env(?=[\s;&|)\"'`]|$)",
+        # A `.env` file, also when a separator follows it (`cat .env; true`).
+        r"(?:auth\.json|credentials(?:\.json)?|(?:^|[/\s\"'`=<(])\.env"
+        r"(?:\.[A-Za-z0-9_-]+)?(?=[\s\"'`;&|)<>]|$))",
     )
 )
 
