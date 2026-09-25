@@ -778,15 +778,21 @@ class Timers:
             if base:
                 record['previous'] = {key: base.get(key) for key in
                                       ('at', 'status', 'requested_at', 'ineffective', 'detail') if base.get(key) is not None}
+                # Whether that touch was of a clock that had not started: only
+                # such a touch can have failed to start this one.
+                record['previous']['unstarted'] = base.get(
+                    'unstarted', (base.get('before') or {}).get('weekly_clock') == 'not-started')
             recent = base.get('at') and (self.now() - instant(base['at'])).total_seconds() <= 2 * spacing
             if entry.get('weekly_clock') == 'not-started' and recent:
                 # Count the touches in this idle stretch that reached the provider
                 # and left the clock unstarted, across any failed ones between, so
                 # the lane reads `not-started` (not `touched`), no "started" notice
                 # goes out, and its warning stays up instead of clearing for ten
-                # minutes an hour. A touch from an earlier week started that
-                # week's clock and says nothing about this one.
-                count = int(base.get('ineffective') or 0) + (1 if base.get('status') == 'ok' else 0)
+                # minutes an hour. A touch of a clock that was running (an
+                # operator's, forced), or from an earlier week, started nothing
+                # that was waiting and says nothing about this one.
+                effective_base = base.get('status') == 'ok' and record['previous']['unstarted']
+                count = int(base.get('ineffective') or 0) + (1 if effective_base else 0)
                 if count:
                     record['ineffective'] = count
             item['record'] = record
