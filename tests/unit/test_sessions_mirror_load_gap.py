@@ -1608,3 +1608,137 @@ def test_starred_anywhere_wins_with_no_base(world):
     running.run_once()
     assert all(row["isStarred"] for row in copies(store, ONE).values())
     assert mirror._load(running.flags_path)[ONE]["isStarred"] is True
+
+
+def test_a_rollback_to_the_apps_save_is_not_restamped(world, monkeypatch):
+    """C-23.28: when the rollback restores the app's own save, the report reads
+    it as the app's, not as the mirror's old write (review round 5)."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    running = engine(world)
+    running.now = lambda: fx.NOW - timedelta(hours=1)
+    running.run_once()                        # B copied at 10:30
+    say(log, *loads(store, ACCOUNT_B, ORG_B, BEFORE))   # app loads B at 11:00
+    running.now = lambda: fx.NOW
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isArchived": True})
+    running.run_once()                        # flag write into B at 11:30
+    assert running.load_gap()["stale"] == 1
+    rewrite(b_copy, {**json.loads(b_copy.read_text()), "lastFocusedAt": 42})  # app re-saves B
+    assert running.load_gap()["stale"] == 0
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
+    running.run_once()                        # B written, C raced, B rolled back to app save
+    b = json.loads(b_copy.read_text())
+    assert b["isStarred"] is False and b["lastFocusedAt"] == 42, "rolled back to app save"
+    assert running.load_gap()["stale"] == 0
+
+
+def test_a_restamped_row_keeps_its_original_time(world, monkeypatch):
+    """C-23.28: a restamp keeps the copy's original time, so a copy the app
+    already lists does not read as pending again."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    running = engine(world)
+    running.now = lambda: fx.NOW - timedelta(hours=1)
+    assert running.run_once().added == 1      # B copied at 10:30
+    say(log, *loads(store, ACCOUNT_B, ORG_B, BEFORE))   # app loads B at 11:00
+    running.now = lambda: fx.NOW
+    assert running.load_gap()["pending"] == 0
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
+    running.run_once()
+    assert json.loads(b_copy.read_text())["isStarred"] is False, "rolled back"
+    assert running.load_gap()["pending"] == 0
+
+
+def three_copies(world):
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    running = engine(world)
+    running.run_once()
+    return store, running
+
+
+def test_an_app_save_right_after_the_rename_is_not_rolled_back(world, monkeypatch):
+    """C-23.28: a copy the app replaced right after the mirror's rename is not
+    the mirror's write any more; the rollback leaves it."""
+    store, running = three_copies(world)
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
+    write = mirror._write_json
+    state = {"done": False}
+
+    def app_saves_b_after_rename(path, value, **kwargs):
+        result = write(path, value, **kwargs)
+        if path == b_copy and not state["done"] and kwargs.get("expect") is not None:
+            state["done"] = True
+            rewrite(b_copy, {**json.loads(b_copy.read_text()), "lastFocusedAt": 42})
+        return result
+
+    monkeypatch.setattr(mirror, "_write_json", app_saves_b_after_rename)
+    running.run_once()
+    b = json.loads(b_copy.read_text())
+    assert b.get("lastFocusedAt") == 42, "the app's save stands"
+
+
+def test_a_failed_rollback_does_not_journal_the_apps_save(world, monkeypatch):
+    """C-23.28: if the rollback fails after the app replaced the copy, the
+    journal does not record the app's save as the mirror's."""
+    store, running = three_copies(world)
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
+    write = mirror._write_json
+    written = []
+
+    def app_saves_b_then_disk_full(path, value, **kwargs):
+        if path == b_copy and written.count(path):
+            rewrite(b_copy, {**json.loads(b_copy.read_text()), "lastFocusedAt": 42})
+            raise OSError("disk full")
+        written.append(path)
+        return write(path, value, **kwargs)
+
+    monkeypatch.setattr(mirror, "_write_json", app_saves_b_then_disk_full)
+    running.run_once()
+    rows = [row for row in running.journal.rows()
+            if row.name == b_copy.name and row.folder == f"{ACCOUNT_B}/{ORG_B}"]
+    assert all(row.ctime_ns != os.stat(b_copy).st_ctime_ns for row in rows), "app save not journaled as ours"
+
+
+def test_an_app_save_after_the_rollback_is_not_restamped(world, monkeypatch):
+    """C-23.28: a copy the app replaced after the rollback is the app's."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    say(log, *loads(store, ACCOUNT_B, ORG_B, BEFORE))
+    running = engine(world)
+    assert running.run_once().added == 1
+    assert running.load_gap()["pending"] == 1
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
+    the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
+    write = mirror._write_json
+    written = []
+
+    def app_saves_b_after_rollback(path, value, **kwargs):
+        result = write(path, value, **kwargs)
+        if path == b_copy and written.count(path):
+            rewrite(b_copy, {**json.loads(b_copy.read_text()), "lastFocusedAt": 42})
+        written.append(path)
+        return result
+
+    monkeypatch.setattr(mirror, "_write_json", app_saves_b_after_rollback)
+    running.run_once()
+    assert json.loads(b_copy.read_text())["lastFocusedAt"] == 42
+    assert running.load_gap()["pending"] == 0, "the app rewrote it, so it holds it"

@@ -7,8 +7,9 @@ and unarchive in the loaded account, account switches, the app's focus
 rewrites (a save that keeps the flag), the app's stale re-saves (a save that
 puts back a value it held), full passes, passes with app writes landing
 between the read and the pre-check, passes with app writes landing between
-two of the publish's writes (so a write fails and the rollback runs), and
-passes cancelled before they publish. After every step every file's flag and
+two of the publish's writes (so a write fails and the rollback runs), passes
+that cannot list a folder or read a copy, and passes cancelled before they
+publish. After every step every file's flag and
 the merge base must equal the model's. `test_mirror_flags_model.py` checks
 the model's invariants over every reachable state, so this ties the
 implementation to them; the same model is `docs/formal/MirrorFlags.tla`, which
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -59,6 +61,9 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             self.root, fx.policy(), now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
         self.state: model.State | None = None
         self.focus = itertools.count(1)
+        #: Folders some earlier pass listed (the code reads an unlisted
+        #: folder's copies by name from its last listing).
+        self.listed: set[int] = set()
 
     # --- the two worlds -------------------------------------------------------
 
@@ -128,6 +133,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
     def full_pass(self):
         assert self.running.run_once().state == "ok"
         self.state = model.pass_publish(model.pass_decide(self.state))
+        self.listed.update(range(len(FOLDERS)))
 
     @rule(actions=st.lists(st.sampled_from(ENVIRONMENT), min_size=1, max_size=3))
     def pass_with_writes_between_read_and_publish(self, actions):
@@ -144,6 +150,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             patch.setattr(mirror.Mirror, "sync_flags", interleave)
             assert self.running.run_once().state == "ok"
         self.state = model.pass_publish(self.state)
+        self.listed.update(range(len(FOLDERS)))
 
     @rule(flip=st.booleans(), k=st.integers(min_value=0, max_value=2),
           actions=st.lists(st.sampled_from(ENVIRONMENT), min_size=1, max_size=3))
@@ -180,6 +187,44 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             while state.phase == model.PUBLISHING:
                 state = model.pass_write(state)
         self.state = state
+        self.listed.update(range(len(FOLDERS)))
+
+    @rule(account=st.integers(min_value=0, max_value=2),
+          mode=st.sampled_from(("unlisted", "unreadable", "both")))
+    def pass_that_cannot_read_a_copy(self, account, mode):
+        """A folder that cannot be listed, a copy that cannot be read (EMFILE),
+        or both (review round 5). The code reads an unlisted folder's copies by
+        name from its last listing; a copy it cannot read holds the session,
+        which the model sees as a cancelled pass."""
+        target = self.path(account)
+        if mode != "unlisted":
+            self.apply(f"focus_{account}")          # so the pass must read it again
+        scandir, read = os.scandir, mirror._read_entry
+
+        def unlisting(where="."):
+            if str(where) == str(target.parent):
+                raise PermissionError(1, "Operation not permitted", str(where))
+            return scandir(where)
+
+        def unreadable(where):
+            if str(where) == str(target):
+                raise OSError(24, "Too many open files")
+            return read(where)
+
+        with self.monkeypatch.context() as patch:
+            if mode != "unreadable":
+                patch.setattr(mirror.os, "scandir", unlisting)
+            if mode != "unlisted":
+                patch.setattr(mirror, "_read_entry", unreadable)
+            result = self.running.run_once()
+        assert result.state == "ok"
+        if mode == "unlisted" and account in self.listed:
+            self.state = model.pass_publish(model.pass_decide(self.state))
+            assert result.flags_held == 0
+        else:
+            self.state = model.cancel(model.pass_decide(self.state))
+            assert result.flags_held == 1
+        self.listed.update(a for a in range(len(FOLDERS)) if a != account or mode == "unreadable")
 
     @rule()
     def pass_cancelled_before_publish(self):
@@ -196,6 +241,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             assert running.run_once().state == "cancelled"
         running.cancel = None
         self.state = model.cancel(model.pass_decide(self.state))
+        self.listed.update(range(len(FOLDERS)))
 
     # --- the check --------------------------------------------------------------
 

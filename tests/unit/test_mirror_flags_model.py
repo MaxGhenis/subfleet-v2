@@ -15,11 +15,14 @@ the invariants the 2026-09-25 consistency brief asks for:
 * all or nothing: a held session writes nothing, and a failed write puts back
   every copy the publish wrote (except one rewritten since), keeping the base;
 * base agreement: after a publish that went through, the base is the value decided;
-* never undo a settled value (the brief's "no resurrection", both directions).
+* intent wins: with a base, a pass decides what the user last set since the
+  last publish that converged (the brief's "no resurrection" for a user's
+  change);
+* never undo a settled value (the same, for a value every copy agreed on).
 
 With an app whose saves never change the flag, all of them hold in every
 state. With an app that can re-save a stale value (the known limit in the
-2026-09-24 report), only "never undo a settled value" fails.
+2026-09-24 report), exactly the last two fail.
 """
 
 from __future__ import annotations
@@ -41,7 +44,7 @@ def test_a_stale_resave_is_the_one_way_to_undo_a_settled_value():
     a value it held from before the mirror's write breaks an invariant, and
     the invariant it breaks is "never undo a settled value"."""
     _states, broken = model.explore(3, stale=True)
-    assert set(broken) == {"never-undo-settled"}
+    assert set(broken) == {"never-undo-settled", "intent-wins"}
     trace = broken["never-undo-settled"]
     # From the unsynced start the shortest case is the bootstrap rule: with no
     # base, archived-anywhere overrides the user's unarchive, and the app's
@@ -58,7 +61,7 @@ def test_from_a_settled_state_a_parked_accounts_stale_save_undoes_the_users_chan
     roots = [model.State(copy=(v,) * 3, base=v, loaded=0, mem=(v, None, None), settled=v)
              for v in (False, True)]
     _states, broken = model.explore(3, stale=True, roots=roots)
-    assert set(broken) == {"never-undo-settled"}
+    assert set(broken) == {"never-undo-settled", "intent-wins"}
     trace = broken["never-undo-settled"]
     acted = [step for step in trace if step.startswith("user_set")]
     saved = [step for step in trace if step.startswith("app_save")]
@@ -136,3 +139,39 @@ def test_a_rollback_skips_a_copy_rewritten_after_the_mirrors_write():
     after = model.pass_write(state)
     assert after.copy == (True, True, False), "B keeps what the app saved over it"
     assert after.base is False
+
+
+def test_intent_wins_is_exercised_for_an_honest_app():
+    """C-23.28, review round 5: never-undo-settled cannot fire for an honest
+    app (a user action clears `settled`), so the user's change is guarded by
+    intent-wins, and that guard fires on reachable decisions."""
+    fired = 0
+    seen = {model.initial(3, value) for value in (False, True)}
+    queue = list(seen)
+    while queue:
+        state = queue.pop()
+        for label, nxt in model.successors(state, stale=False):
+            if label == "pass_decide" and isinstance(state.base, bool) \
+                    and isinstance(state.intent, bool):
+                fired += 1
+            if nxt not in seen:
+                seen.add(nxt)
+                queue.append(nxt)
+    assert fired > 100
+
+
+def test_a_pass_that_skips_a_copy_would_undo_the_users_change():
+    """C-23.28, review round 5: the fault the code now refuses (deciding and
+    advancing the base without one copy) breaks intent-wins in the model."""
+    state = model.State(copy=(False,) * 3, base=False, loaded=0,
+                        mem=(False, None, None), settled=False)
+    state = model.user_set(state, True)                   # A archives
+    state = model.focus(state, 2)                         # (idle: no effect)
+    skipped = model.State(copy=state.copy[:2], base=state.base, loaded=0,
+                          mem=state.mem[:2], intent=state.intent)
+    partial = model.pass_publish(model.pass_decide(skipped))   # decides without C
+    after = model.State(copy=partial.copy + (state.copy[2],), base=partial.base, loaded=0,
+                        mem=state.mem, intent=state.intent)
+    decided = model.pass_decide(after)
+    assert decided.decided is False, "C's old value reads as a change"
+    assert "intent-wins" in model.check_step(after, "pass_decide", decided)

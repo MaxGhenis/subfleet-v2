@@ -113,6 +113,14 @@ holds the last synced value.
   finds its copy rewritten since the check fails, and the copies already
   written are put back, except any rewritten since then. The base is kept.
 - **Advance.** After the last write, the base takes the decided value.
+- **Every copy or none.** A session is decided from every copy or not at all.
+  - An unlisted folder's copies are read by name from its last listing.
+  - A copy that exists but cannot be read (EMFILE, on 2026-09-25) holds its
+    session, so the pass writes nothing for it and keeps its base.
+  - If the unreadable copy's session is unknown, or a folder was never listed,
+    every session is held that pass.
+  - Bases of sessions a pass did not see survive it.
+  - The pass counts held sessions in `flags_held`.
 
 | Invariant | Statement |
 |---|---|
@@ -123,7 +131,14 @@ holds the last synced value.
 | No lost update | The mirror writes only a copy that nobody has rewritten since it last checked or wrote it. |
 | All or nothing | A held session writes nothing and keeps its base. A write that fails puts back every copy the publish wrote, except one rewritten since, and keeps the base. |
 | Base agreement | After a publish that went through, the base is the decided value. Every copy the pass read differently holds that value, unless the app or the user rewrote it since. |
-| Never undo a settled value | Once a clean publish converged every copy and no user has acted since, no pass writes any other value. This is the brief's "no resurrection", in both directions. |
+| Intent wins | With a base, a pass decides what the user last set since the last publish that converged. This is the brief's "no resurrection" for a user's change. |
+| Never undo a settled value | Once a clean publish converged every copy and no user has acted since, no pass writes any other value. This is "no resurrection" for a value every copy agreed on. It cannot fire with an honest app (a user action clears it), which is why intent wins exists. |
+
+Review round 5 found that passes used to decide over whichever copies they
+had read. A copy skipped because its folder did not list, or because its read
+failed, then read as a user's change on the next pass. That pass undid the
+change it had just spread, in every account. "Intent wins" catches this in the
+model, and the code now decides from every copy or not at all.
 
 "No lost update" has one gap, which no check can close. The app can rename its
 save into place in the instant between the mirror's last signature check and
@@ -135,11 +150,21 @@ re-checks right before the rename to keep it that narrow.
 
 | Method | Where | Result |
 |---|---|---|
-| Specification | `docs/formal/MirrorFlags.tla`, with configs `MirrorFlags.cfg` (honest app) and `MirrorFlagsStale.cfg` (stale saves) | Written, not run under TLC. On 2026-09-25 Max ruled to skip TLC for now. Running it needs `tla2tools.jar`, which is not installed; a Homebrew OpenJDK is, off `PATH`. The twin below checks the same properties. TLC can join CI later. |
-| Exhaustive model check | `tests/mirror_flags_model.py`, the spec's executable twin, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 15,164 states, and every property holds. Stale saves allowed: 20,640 states, and only "never undo a settled value" fails. |
+| Specification | `docs/formal/MirrorFlags.tla`, with configs `MirrorFlags.cfg` (honest app), `MirrorFlagsStale.cfg` (stale saves: what should still hold) and `MirrorFlagsStaleUndo.cfg` (the two that should fail) | Written, not run under TLC. On 2026-09-25 Max ruled to skip TLC for now. Running it needs `tla2tools.jar`, which is not installed; a Homebrew OpenJDK is, off `PATH`. The twin below checks the same properties. TLC can join CI later. |
+| Exhaustive model check | `tests/mirror_flags_model.py`, the spec's executable twin, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 22,038 states, and every property holds; "intent wins" is exercised on 218 of 1,053 decisions. Stale saves allowed: 44,058 states, and only "intent wins" and "never undo a settled value" fail. |
 | Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | After every step, every file's flag and the merge base equal the model's. See below for the steps and coverage. |
-| Examples | `tests/unit/test_sessions_mirror_load_gap.py` | The rollback leaves an app save made after the mirror's write. A rolled-back copy still counts in the load-gap report. A rollback that cannot write journals the write it left. The no-base star rule holds. |
-| Mutation | Eleven hand-written mutants of `sync_flags` and its writes, each run against the mirror's three test files | All eleven killed; see the table below. |
+| Examples | `tests/unit/test_sessions_mirror_load_gap.py`, `tests/unit/test_mirror_flags_faults.py` | See the list below. |
+| Mutation | 22 hand-written mutants of `sync_flags`, its writes, its journal and its inventory, each run against the mirror's four test files | All 22 killed; see the table below. |
+
+The example tests check:
+- the rollback leaves an app save made after the mirror's write;
+- a rolled-back copy still counts in the load-gap report;
+- the journal guards against misreading the app's saves;
+- the no-base star rule;
+- the partial-inventory cases (an unlisted folder, an unreadable copy, a pass
+  that reads nothing, a folder never listed);
+- no repair over an unreadable copy;
+- a base that cannot be written fails the pass.
 
 The differential test's steps are:
 - user archive, unarchive and flips;
@@ -149,6 +174,7 @@ The differential test's steps are:
 - full passes;
 - passes with writes between the read and the check;
 - passes with writes between two of the publish's writes;
+- passes that cannot list a folder or read a copy;
 - cancelled passes.
 
 One run of 100 examples reaches 535 publishes, 39 of them rolled back.
@@ -166,6 +192,13 @@ One run of 100 examples reaches 535 publishes, 39 of them rolled back.
 | star bootstrap flipped | with no base, unstarred-anywhere wins | `test_starred_anywhere_wins_with_no_base` |
 | base not synced | the merge base can be lost to a crash | `test_the_mirror_syncs_what_it_writes_before_the_rename` |
 | rollback not journaled | the load-gap report reads a rollback as the app's rewrite | `test_a_rolled_back_copy_still_waits_for_the_load` |
+| five journal and rollback guards | the report misreads the app's saves; a rollback overwrites a save made right after the rename | one example test each |
+| no hold for an unread copy | a pass decides without a copy it could not read | the stateful differential test |
+| unlisted folder not read by name | a pass decides without an unlisted folder's copies | the stateful differential test |
+| never-listed folder proceeds | a pass decides without a folder it never saw | the stateful differential test |
+| unseen bases dropped | a session no copy of which was read loses its base | `test_a_session_no_copy_of_which_could_be_read_keeps_its_base` |
+| repair over an unreadable copy | an EMFILE read is taken for an empty record and replaced | `test_an_unreadable_copy_is_never_repaired_over` |
+| base write failure swallowed | a pass that did not write the base reports ok | `test_a_base_that_cannot_be_written_fails_the_pass` |
 
 "Honest app" means an app save never changes the flag in the file, as when the
 app's memory is current. The real app serializes each record from memory, so
@@ -184,6 +217,21 @@ checker finds two shapes of counterexample.
      write (a parked session), and saves the old value there.
   3. The next pass reads that save as a change from the base and spreads it to
      every account.
+
+### What is still open
+
+Three failures leave copies ahead of the merge base:
+- a rollback write that fails;
+- a crash between a session's first copy write and the base write;
+- a base write that fails (this one now fails the pass, but its copies are
+  already written).
+
+If the user reverts before the next pass, that pass reads the mirror's own
+writes as a change and undoes the revert. Each needs an I/O failure or a crash
+inside the publish. The fix is to treat the mirror's own writes as the
+mirror's: a copy whose current file is the one the journal records the mirror
+writing does not vote. That needs the journal saved before the base, and a
+write-ahead record for crashes. It is a follow-up (review round 5, finding F2).
 
 ## Design question: an authoritative intent ledger
 
