@@ -72,8 +72,11 @@ _PEM_RE = re.compile(
 #: Every PEM match ends at an END marker, so `_scrub_pem` applies `_PEM_RE` only
 #: up to the last one. Past it, each opening marker would rescan the rest of the
 #: text for an END that is not there, which is quadratic (PR #26 review: 11 s for
-#: 256 KB of repeated openings).
-_PEM_END_RE = re.compile(r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----")
+#: 256 KB of repeated openings). The lookahead finds every END marker, also one
+#: whose leading dashes end the marker before it (`...KEY-----END PRIVATE
+#: KEY-----`). A plain search resumes after each match and never sees that one,
+#: so the block `_PEM_RE` closes there was kept (PR #26 review round 3).
+_PEM_END_RE = re.compile(r"(?=(-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----))")
 _JWT_RE = re.compile(
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\."
     r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
@@ -111,15 +114,19 @@ _HEADER_RE = re.compile(r"(?im)^([^\S\n]*(?:authorization|cookie|set-cookie)\s*:
 # header starts. Elsewhere on a line (an exception message, a `curl -H '...'`
 # argument, a command's repr, after an escaped `\n` in a repr) the value is
 # replaced to the closing quote when a quote opens the header, and otherwise to
-# the end of the line. A value must start with something other than a space or
-# a quote, so an empty header (`curl -H "Authorization:" ...`) is kept verbatim.
+# the end of the line. A value starts where `_PLAIN_ASSIGN_RE` would start one,
+# at a character other than a space, a quote, `;` or `,`, so these rules only
+# lengthen a value the assignment rules replace. A header with no value
+# (`curl -H "Authorization:" ...`, `"cookie=; Max-Age=0"`, `export COOKIE=; make`)
+# is kept verbatim: a value starting at `;` took the rest of the line (PR #26
+# review round 3).
 _HEADER_NAME = r"(?:proxy-authorization|authorization|set-cookie|cookie)"
 _QUOTED_HEADER_RE = re.compile(
     rf"(?i)(?P<quote>['\"])(?P<prefix>{_HEADER_NAME}[^\S\r\n]*[:=][^\S\r\n]*)"
-    r"(?P<value>(?!\[REDACTED\](?:(?P=quote)|[^\S\r\n]*$))[^\s'\"](?:(?!(?P=quote))[^\r\n])*)", re.M)
+    r"(?P<value>(?!\[REDACTED\](?:(?P=quote)|[^\S\r\n]*$))[^\s'\",;](?:(?!(?P=quote))[^\r\n])*)", re.M)
 _INLINE_HEADER_RE = re.compile(
     rf"(?im)(?:(?<![A-Za-z0-9_'\"])|(?<=\\[nrt]))(?P<prefix>{_HEADER_NAME}[^\S\r\n]*[:=][^\S\r\n]*)"
-    r"(?P<value>(?!\[REDACTED\][^\S\r\n]*$)[^\s'\"].*)$")
+    r"(?P<value>(?!\[REDACTED\][^\S\r\n]*$)[^\s'\",;].*)$")
 # The key names match anywhere, so `MY_API_KEY=` is found at `API_KEY=` and the
 # text before it is kept as it was. A compound-name alternative,
 # `[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*[_-](?:api[_-]?key|token|...)`, used to
@@ -186,13 +193,11 @@ class HandoffError(ValueError):
 
 def _scrub_pem(text: str) -> tuple[str, int]:
     """`_PEM_RE.subn` over the text, applied only where a match can end."""
-    last = None
-    for last in _PEM_END_RE.finditer(text):
-        pass
-    if last is None:
+    end = max((marker.end(1) for marker in _PEM_END_RE.finditer(text)), default=0)
+    if not end:
         return text, 0
-    head, count = _PEM_RE.subn("[PRIVATE KEY REDACTED]", text[:last.end()])
-    return head + text[last.end():], count
+    head, count = _PEM_RE.subn("[PRIVATE KEY REDACTED]", text[:end])
+    return head + text[end:], count
 
 
 def scrub_secrets(text: str) -> tuple[str, int]:

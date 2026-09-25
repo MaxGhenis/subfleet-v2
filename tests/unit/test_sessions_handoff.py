@@ -13,9 +13,11 @@ import time
 from pathlib import Path
 
 import pytest
+from hypothesis import assume, given, settings, strategies as st
 
 from subfleet.contracts import Sandbox
 from subfleet.sessions import handoff
+from tests import scrub_baseline as baseline
 from tests import sessions_fixtures as fx
 
 SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
@@ -590,11 +592,40 @@ def test_a_header_name_with_no_value_is_ordinary_code(line):
     assert handoff.scrub_secrets(line) == (line, 0)
 
 
+@pytest.mark.parametrize("line", [
+    'resp.headers["Set-Cookie"] = "cookie=; Max-Age=0"',
+    "export COOKIE=; make test",
+    "set_header('Set-Cookie=, Path=/')",
+    "x Authorization: ; retry",
+])
+def test_a_header_whose_value_is_empty_before_a_semicolon_or_comma_is_kept(line):
+    """C-23.14's retention half, review round 3 of PR #26: a header value could start at `;` or `,`,
+    so an empty assignment took the rest of its line or quote (`Max-Age=0`, `make test`). A value
+    starts where the assignment rules start one, and these are kept byte for byte, as before PR #26."""
+    assert handoff.scrub_secrets(line) == (line, 0)
+    assert baseline.scrub_secrets(line) == (line, 0)
+
+
 def test_the_header_rules_only_add_to_what_the_assignment_rules_replace():
     """C-23.14, found by the PR #26 differential fuzz: run before the assignment rules, a header rule
     took the `Token :` that ends a line, and the value on the next line lost its key."""
     text, _count = handoff.scrub_secrets(f"x Proxy-Authorization: a Token :\n  {UNSHAPED} rest")
     assert UNSHAPED not in text
+
+
+@pytest.mark.parametrize("key", [
+    "-----BEGIN PRIVATE KEY-----END Q7WD9ZK2 PRIVATE KEY-----END PRIVATE KEY-----",
+    "-----BEGIN PRIVATE KEY-----END Q7WD9ZK2 PRIVATE KEY------END PRIVATE KEY-----",
+    "-----BEGIN RSA PRIVATE KEY-----END A PRIVATE KEY-----END PRIVATE KEY BLOCK-----",
+])
+def test_a_private_key_closed_by_an_end_marker_that_overlaps_another_is_replaced(key):
+    """C-23.14, review round 3 of PR #26: the END markers were found with a search that resumes after
+    each match, so an END whose leading dashes end the one before it was never seen, and the block
+    it closes, which the rule replaced before PR #26, was kept whole."""
+    for text in (key, f"before\n{key}\nafter"):
+        assert baseline.scrub_secrets(text)[1] == 1
+        scrubbed, count = handoff.scrub_secrets(text)
+        assert scrubbed == text.replace(key, "[PRIVATE KEY REDACTED]") and count == 1
 
 
 @pytest.mark.parametrize("url", [
@@ -622,7 +653,8 @@ def test_a_compound_key_name_is_still_found_by_its_suffix(assignment):
 @pytest.mark.parametrize("unit", [
     "x_", "a-", "a:", "a=", "eyJa.", "api_", "'", "-----BEGIN PRIVATE KEY-----\n", "'Authorization: x",
     "\\nCookie: x", "a://u:", "Authorization: '", "token: '", "data:image/png;base64,", "Bearer ", "a b",
-    "\n", "\n  ", "\r\n",
+    "\n", "\n  ", "\r\n", "-", "-----END PRIVATE KEY-----", "-----BEGIN PRIVATE KEY------END X PRIVATE KEY",
+    "Cookie=; ",
 ])
 def test_scrubbing_takes_time_linear_in_the_text(unit):
     """C-23.14, found in the PR #26 reviews: two assignment rules backtracked through every
@@ -634,6 +666,97 @@ def test_scrubbing_takes_time_linear_in_the_text(unit):
     started = time.perf_counter()
     handoff.scrub_secrets(text)
     assert time.perf_counter() - started < 2.0
+
+
+# --- the scrubber against the list before PR #26, for every input ----------------
+
+#: Stands for a credential; each one in a text becomes a different `Q<n>ZX`.
+_CREDENTIAL = None
+#: What the property tests build text from: every header, key and credential shape the scrub list
+#: knows, a header name with its separator as one piece, and the characters the rules stop at.
+_PIECES = (
+    "Authorization", "authorization", "Proxy-Authorization", "Cookie", "COOKIE", "Set-Cookie", "set-cookie",
+    "Cookie=", "cookie: ", "Set-Cookie =", "Authorization:", "Proxy-Authorization: ", "AUTHORIZATION=",
+    "token", "api_key", "MY_API_KEY", "password", "client_secret", "db-password",
+    ":", "=", " ", "  ", "\t", "\n", "\r\n", "\r", "\\n", "\\t", '"', "'", ";", ",", "[", "]", "(", ")", "{",
+    "}", "-", "_", ".", "/", "@", "&", "|", "#", "Bearer ", "Basic ", "Digest ", "[REDACTED]",
+    "eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2Q", fx.FAKE_SECRET, "data:image/png;base64,",
+    "QUJDREVGR0hJSktMTU5PUFFSU1RVVldY" * 2, "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----",
+    "://", "postgres", "my_", "u:", "@host", "x", "Max-Age=0", "make test", "export ", "curl -H ",
+    _CREDENTIAL, _CREDENTIAL, _CREDENTIAL,
+)
+#: Private-key markers without their dashes, which `_private_key_markers` puts between them.
+_MARKER_WORDS = (
+    ("BEGIN PRIVATE KEY",), ("BEGIN ", _CREDENTIAL, " PRIVATE KEY"), ("END PRIVATE KEY",),
+    ("END PRIVATE KEY BLOCK",), ("END ", _CREDENTIAL, " PRIVATE KEY"), (_CREDENTIAL,), ("\n",),
+)
+_MARKER_DASHES = ("-----", "-----", "------", "----", "", "\n")
+#: A header assignment, one draw from each in turn: what precedes the name, the name, the
+#: separator, and what follows it, which is where a header rule decides whether there is a value.
+_HEADER_PARTS = (
+    ("", " ", '"', "'", "\\n", "-", "_", "x"),
+    ("Authorization", "authorization", "PROXY-AUTHORIZATION", "Cookie", "COOKIE", "Set-Cookie", "set-cookie"),
+    (":", "=", " :", ": ", "= ", " = ", "\t:\t"),
+    (";", ",", " ;", ", ", '"', "'", " ", "\n", "\\n", "", "x", "Basic ", _CREDENTIAL, "[REDACTED]", "; Max-Age=0"),
+)
+
+
+@st.composite
+def _private_key_markers(draw):
+    """Private-key markers, most of them sharing their dashes with the next one."""
+    pieces = [draw(st.sampled_from(_MARKER_DASHES))]
+    for word in draw(st.lists(st.sampled_from(_MARKER_WORDS), max_size=6)):
+        pieces += [*word, draw(st.sampled_from(_MARKER_DASHES))]
+    return pieces
+
+
+@st.composite
+def _texts(draw, pieces=_PIECES):
+    """A text, and the credentials in it."""
+    runs = draw(st.lists(st.sampled_from(pieces).map(lambda piece: [piece])
+                         | st.text(max_size=3).map(lambda text: [text])
+                         | _private_key_markers()
+                         | st.tuples(*map(st.sampled_from, _HEADER_PARTS)).map(list), max_size=24))
+    drawn = [piece for run in runs for piece in run]
+    credentials = [f"Q{index}ZX" for index in range(drawn.count(_CREDENTIAL))]
+    numbered = iter(credentials)
+    return "".join(next(numbered) if piece is _CREDENTIAL else piece for piece in drawn), credentials
+
+
+@settings(max_examples=1500, deadline=None)
+@given(_texts())
+def test_every_credential_the_list_before_pr_26_hid_is_hidden(case):
+    """C-23.14: the header rules PR #26 added "only add to what is replaced", and its other rewrites
+    change no output but a URL password it now finds. So a credential the list before PR #26
+    (`tests/scrub_baseline.py`) hid is hidden, whatever surrounds it. Review round 3 found a private
+    key that list replaced and PR #26's END-marker search kept."""
+    text, credentials = case
+    before, after = baseline.scrub_secrets(text)[0], handoff.scrub_secrets(text)[0]
+    assert [shown for shown in credentials if shown not in before and shown in after] == []
+
+
+@settings(max_examples=1500, deadline=None)
+@given(_texts(pieces=tuple(piece for piece in _PIECES if piece != "://")))
+def test_text_the_list_before_pr_26_left_alone_is_left_alone(case):
+    """C-23.14's retention half: a header value starts where the assignment rule starts one, so the
+    header rules only lengthen a value it replaces, and text the list before PR #26 changed nowhere
+    is kept byte for byte. The one exception is a URL password that list missed, so no text here has
+    a `://`. Review round 3 found an empty header (`cookie=; Max-Age=0`) that took the rest of its
+    line."""
+    text, _credentials = case
+    assume("://" not in text)
+    if baseline.scrub_secrets(text)[1] == 0:
+        assert handoff.scrub_secrets(text) == (text, 0)
+
+
+@settings(max_examples=1500, deadline=None)
+@given(_texts(pieces=("-----", "-", "BEGIN ", "END ", "PRIVATE KEY", " BLOCK", "Q7 ", " ", "\n", "x")))
+def test_the_private_key_rule_replaces_what_it_would_over_the_whole_text(case):
+    """C-23.14: `_scrub_pem` applies the private-key rule only up to the last END marker, so that it
+    stays linear, and replaces exactly what the rule does over the whole text. Review round 3 found
+    an END marker that overlapped the one before it, which the search for the last one skipped."""
+    text, _credentials = case
+    assert handoff._scrub_pem(text) == handoff._PEM_RE.subn("[PRIVATE KEY REDACTED]", text)
 
 
 def test_truncation_keeps_the_head_and_the_tail(home):
