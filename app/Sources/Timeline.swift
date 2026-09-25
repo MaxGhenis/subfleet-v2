@@ -747,3 +747,26 @@ func parseTimestamp(_ value: String) -> Date? {
     formatter.formatOptions = [.withInternetDateTime]
     return formatter.date(from: value)
 }
+
+
+/// C-29.8: one history request. It fetches a page; with `follow` ("Load
+/// earlier"), while pages add nothing to the timeline but hand on a cursor below
+/// the one asked with, it fetches the next, up to `pages` in all. It stops at the
+/// history's start or on an error (history is a courtesy: the live turns stay).
+/// Returns how many pages it fetched.
+@discardableResult
+func loadHistoryPages(pages: Int, follow: Bool,
+                      timeline: () async -> Timeline?,
+                      fetch: (Int?) async throws -> HistoryPage,
+                      apply: (HistoryPage) async -> Void) async -> Int {
+    var fetched = 0
+    while fetched < max(1, pages) {
+        guard let current = await timeline(), !current.historyComplete else { return fetched }
+        let before = current.historyBefore
+        guard let page = try? await fetch(before) else { return fetched }
+        await apply(page)
+        fetched += 1
+        guard follow, await timeline()?.shouldFollowHistory(askedBefore: before) == true else { return fetched }
+    }
+    return fetched
+}

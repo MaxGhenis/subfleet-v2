@@ -414,3 +414,63 @@ def test_a_launch_starts_codex_at_the_top_and_claude_in_the_callers_place(state_
     assert worktree and daemon.store.get_attempt(attempt["attempt_id"])["lane_id"] == ("codex-1" if provider == "codex" else "claude-1")
     want = worktree if provider == "codex" else str(Path(worktree) / "pkg")
     assert daemon._saved_launch(attempt).cwd == want
+
+
+def test_a_committed_directory_named_with_leading_dots_is_inside_the_checkout(state_daemon):
+    """Review of 5aa2718, finding 2: `..data` is a name, not the parent; the job
+    starts there and its note names it (before, `startswith("..")` sent it to the top)."""
+    import json
+    from tests.unit.test_salvage import git
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    (workdir / "..data").mkdir()
+    (workdir / "..data" / "x.txt").write_text("x\n")
+    git(workdir, "add", ".")
+    git(workdir, "commit", "-m", "dots")
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write",
+                                                           workdir=str(workdir / "..data")))["job_id"]
+    jobdir = daemon.root / "jobs" / job_id
+    worktree = daemon.root / "worktrees" / job_id
+    assert json.loads((jobdir / "manifest.json").read_text())["workspace"]["prefix"] == "..data"
+    assert f"is relative to {worktree / '..data'} here" in (jobdir / "prompt.prepared.md").read_text()
+    daemon._admit()
+    assert daemon._launch_dir(daemon.store.get_job(job_id), "claude") == str(worktree / "..data")
+
+
+def test_a_place_outside_the_checkout_is_never_named(state_daemon, monkeypatch):
+    """When git cannot give the prefix and the caller's path, compared as spelled,
+    lies outside the top it found, the job starts at the top with no place note."""
+    import json
+    from subfleet import daemon as daemon_module
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    monkeypatch.setattr(daemon_module, "_git_prefix", lambda *a: None)
+    monkeypatch.setattr(daemon_module, "git_toplevel", lambda *a, **k: "/nonexistent/elsewhere")
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(workdir / "pkg")))["job_id"]
+    jobdir = daemon.root / "jobs" / job_id
+    assert json.loads((jobdir / "manifest.json").read_text())["workspace"]["prefix"] == "."
+    assert "The caller ran this job from" not in (jobdir / "prompt.prepared.md").read_text()
+
+
+def test_a_resume_whose_recorded_start_lies_outside_its_worktree_starts_at_the_top(state_daemon):
+    import json
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    source, adir, worktree = finished_source(daemon, harness, workdir)
+    (adir / "launch.json").write_text(json.dumps({"argv": ["x"], "cwd": str(workdir)}))   # the caller's checkout
+    resumed = daemon.dispatch("submit", harness.submit_args(kind="resume", parent_job_id=source,
+                                                            sandbox="workspace-write"))["job_id"]
+    assert "workspace" not in json.loads((daemon.root / "jobs" / resumed / "manifest.json").read_text())
+
+
+def test_an_explicit_writer_refused_by_a_writer_conflict_is_not_told_it_writes_by_policy(state_daemon, monkeypatch):
+    """Only a job the policy made a writer hears that; one that asked to write
+    (`-s workspace-write`) gets the refusal as it is (review of 5aa2718, finding 8)."""
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", in_place=True, workdir=str(workdir)))
+    monkeypatch.setattr(daemon, "_writable_precheck", lambda *args: frozenset())
+    with pytest.raises(AdapterError) as refused:
+        daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", task="build", tier="standard",
+                                                      in_place=True, workdir=str(workdir), caller_session="s-4"))
+    assert "held by a live job" in str(refused.value) and "write by policy" not in str(refused.value)

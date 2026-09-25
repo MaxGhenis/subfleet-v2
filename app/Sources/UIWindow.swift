@@ -240,7 +240,7 @@ struct ConversationView: View {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if let timeline, !timeline.historyComplete, timeline.historyPagesLoaded > 0 {
                             Button("Load earlier") {
-                                Task { await model.loadHistory(conversation.conversation_id) }
+                                Task { await model.loadHistory(conversation.conversation_id, follow: true) }
                             }.buttonStyle(.link)
                         }
                         ForEach(timeline?.items ?? []) { item in
@@ -624,9 +624,13 @@ struct DiffLinesView: View {
         return max(0, pane - scroller)
     }
 
+    /// Read again when a mouse arrives or "Show scroll bars" changes, so rows never
+    /// keep a width for the other style (review of 5aa2718).
+    @State private var scrollerStyle = NSScroller.preferredScrollerStyle
+
     var body: some View {
         GeometryReader { geometry in
-            let width = Self.rowWidth(pane: geometry.size.width)
+            let width = Self.rowWidth(pane: geometry.size.width, scrollerStyle: scrollerStyle)
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(sections) { section in
@@ -643,6 +647,9 @@ struct DiffLinesView: View {
                 }
                 .textSelection(.enabled)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSScroller.preferredScrollerStyleDidChangeNotification)) { _ in
+            scrollerStyle = NSScroller.preferredScrollerStyle
         }
     }
 }

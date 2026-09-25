@@ -102,7 +102,13 @@ _SENSITIVE_KEY = (
 )
 _QUOTED_ASSIGN_RE = re.compile(
     rf"(?im)(?P<prefix>[\"']?{_SENSITIVE_KEY}[\"']?\s*[:=]\s*)"
-    r"(?P<quote>[\"'])(?P<value>[^\r\n]*?)(?P=quote)"
+    # An escaped quote inside the value is part of it (`"abc\\"def"`).
+    r"(?P<quote>[\"'])(?P<value>(?:\\.|[^\\\r\n])*?)(?P=quote)"
+)
+#: A credential given as a command-line flag's separate argument
+#: (`mysql --password hunter2`, `--token s3cr3t`); `--flag=value` is an assignment.
+_FLAG_VALUE_RE = re.compile(
+    rf"(?i)(?P<prefix>--{_SENSITIVE_KEY}[ \t]+)(?P<value>[^\s-][^\s]*)"
 )
 _PLAIN_ASSIGN_RE = re.compile(
     rf"(?im)(?P<prefix>[\"']?{_SENSITIVE_KEY}[\"']?\s*[:=]\s*)"
@@ -162,11 +168,24 @@ class HandoffError(ValueError):
 
 #: What `scrub_secrets` puts in place of what it removes.
 _PLACEHOLDERS = (REDACTED, "[PRIVATE KEY REDACTED]", "[BASE64 DATA OMITTED]", "[BASE64 OMITTED]")
+#: A run that looks like a secret value rather than a word or a key name: six or
+#: more of `[A-Za-z0-9_-]`, with a letter and a digit.
+_VALUE_RUN_RE = re.compile(r"(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{6,}")
+
+
+def _values_removed(matched: str, out: str) -> int:
+    """How many secret-looking values a replacement removed that no earlier rule
+    had: the runs of `matched`, placeholders aside, that `out` no longer holds."""
+    for mark in _PLACEHOLDERS:
+        matched = matched.replace(mark, " ")
+    kept = set(_VALUE_RUN_RE.findall(out))
+    return len({run for run in _VALUE_RUN_RE.findall(matched) if run not in kept})
 
 
 def scrub_secrets(text: str) -> tuple[str, int]:
     """Remove credential values and encoded binary; retain ordinary text. The
-    count is of values replaced: one credential two rules match counts once."""
+    count is of values replaced: one credential two rules match counts once, and
+    a header that held several values (`Cookie: a=...; b=...`) counts each."""
     total = 0
     for pattern, replacement in (
         (_PEM_RE, "[PRIVATE KEY REDACTED]"),
@@ -181,16 +200,24 @@ def scrub_secrets(text: str) -> tuple[str, int]:
          lambda match: (match.group("prefix") + match.group("quote")
                         + REDACTED + match.group("quote"))),
         (_PLAIN_ASSIGN_RE, lambda match: match.group("prefix") + REDACTED),
+        (_FLAG_VALUE_RE, lambda match: match.group("prefix") + REDACTED),
     ):
         changed = 0
 
-        def replace(match, replacement=replacement):
+        def replace(match, replacement=replacement, pattern=pattern):
             nonlocal changed
+            matched = match.group(0)
             out = replacement(match) if callable(replacement) else match.expand(replacement)
+            if out == matched:
+                return out
             # A match that holds what an earlier rule put in (`Authorization:
-            # Bearer [REDACTED]` after the bearer rule, `token = '[REDACTED] x'`
-            # after the token rule) is that credential again, not a second one.
-            changed += out != match.group(0) and not any(mark in match.group(0) for mark in _PLACEHOLDERS)
+            # Bearer [REDACTED]` after the bearer rule) is that credential again;
+            # what it removed besides is counted only if it held a value.
+            earlier = any(mark in matched for mark in _PLACEHOLDERS)
+            if pattern is _HEADER_RE:
+                changed += _values_removed(matched, out) or (0 if earlier else 1)
+            else:
+                changed += 1 if not earlier else min(1, _values_removed(matched, out))
             return out
 
         text = pattern.sub(replace, text)

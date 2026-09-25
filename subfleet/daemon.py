@@ -240,6 +240,12 @@ class DaemonUnavailable(RuntimeError):
     code = 69
 
 
+def _outside(prefix: str) -> bool:
+    """Whether a relative path leaves its directory: `..` or `../x`, never a name
+    that merely starts with dots (`..data`, review of 5aa2718), nor an absolute one."""
+    return prefix == os.pardir or prefix.startswith(os.pardir + os.sep) or os.path.isabs(prefix)
+
+
 def _written_by_policy(exc: AdapterError, task: str | None) -> AdapterError:
     """d261: a writer's refusal of a job the caller did not ask to write: say who
     did, and the way out."""
@@ -1160,7 +1166,7 @@ class Daemon:
                 top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
                 prefix = _git_prefix(str(workdir), cap) or os.path.relpath(os.path.realpath(workdir),
                                                                             os.path.realpath(top))
-                if prefix.startswith("..") or os.path.isabs(prefix):
+                if _outside(prefix):
                     prefix = "."        # outside the checkout as far as can be told: the top
                 worktree = self.root / "worktrees" / job_id
                 place = ""
@@ -1324,7 +1330,7 @@ class Daemon:
         launch = self._read_json(self.root / "jobs" / attempt["attempt_id"] / "launch.json") or {}
         if isinstance(launch.get("cwd"), str):
             prefix = os.path.relpath(os.path.realpath(launch["cwd"]), os.path.realpath(source["worktree"]))
-            return None if prefix.startswith("..") or os.path.isabs(prefix) else prefix
+            return None if _outside(prefix) else prefix
         return (source_manifest.get("workspace") or {}).get("prefix")
 
     def _legacy_resume_identity(self, attempt: dict) -> str | None:
@@ -2329,7 +2335,7 @@ class Daemon:
         root = job.get("worktree") or job["workdir"]
         workspace = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("workspace") or {}
         prefix = workspace.get("prefix")
-        if provider == "codex" or not prefix or prefix == "." or prefix.startswith("..") or os.path.isabs(prefix):
+        if provider == "codex" or not prefix or prefix == "." or _outside(prefix):
             return root
         if workspace.get("worktree") and os.path.realpath(workspace["worktree"]) != os.path.realpath(root):
             return root

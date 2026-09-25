@@ -619,3 +619,51 @@ def test_scrub_secrets_counts_each_credential_once_whatever_rules_match_it():
         text, count = scrub_secrets("\n".join(lines))
         assert count == len(secrets), (trial, lines, text)
         assert not any(s in text for s in secrets), (trial, text)
+
+
+def test_scrub_secrets_counts_every_value_a_header_held():
+    """Review of 5aa2718, finding 1 (seeded property check): a `Cookie` or
+    `Authorization` header holding two credentials, one of which an earlier rule
+    already replaced, counts two; a header whose only credential an earlier rule
+    replaced counts none again; nothing survives."""
+    import random
+    from subfleet.sessions.handoff import scrub_secrets
+    rng = random.Random(925)
+    alnum = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    value = lambda: "".join(rng.choice(alnum) for _ in range(15)) + str(rng.randint(0, 9))
+    key = lambda: "sk-ant-api03-" + "".join(rng.choice(alnum.lower()) for _ in range(40))
+    for trial in range(300):
+        known, plain = key(), value()
+        shape = rng.choice(["cookie-mixed", "cookie-two-plain", "bearer-only", "already"])
+        if shape == "cookie-mixed":
+            line, secrets = f"Cookie: session={plain}; refresh={known}", [plain, known]
+        elif shape == "cookie-two-plain":
+            other = value()
+            line, secrets = f"Cookie: a={plain}; b={other}", [plain, other]
+        elif shape == "bearer-only":
+            line, secrets = f"Authorization: Bearer {known}", [known]
+        else:
+            line, secrets = f"Cookie: [REDACTED]; session={plain}", [plain]
+        text, count = scrub_secrets(line)
+        assert count == len(secrets), (trial, line, text, count)
+        assert not any(secret in text for secret in secrets), (trial, text)
+
+
+@pytest.mark.parametrize("line,secret", [
+    ("mysql --password hunter2hunter2 db", "hunter2hunter2"),
+    ("tool --api-key=abcd1234efgh --token s3cr3t99", "s3cr3t99"),
+    ('password = "abc\\"defghijk"', "defghijk"),
+    ("deploy --client-secret\tz9y8x7w6v5", "z9y8x7w6v5"),
+])
+def test_a_credential_given_as_a_flag_or_with_an_escaped_quote_is_scrubbed(line, secret):
+    """Review of 5aa2718 (older gaps): a secret passed as a flag's separate
+    argument, or holding an escaped quote, was left in the text uncounted."""
+    from subfleet.sessions.handoff import scrub_secrets
+    text, count = scrub_secrets(line)
+    assert secret not in text and count >= 1, (line, text, count)
+
+
+@pytest.mark.parametrize("line", ["mysql --password\nnext line", "git log --token-limit 5", "cmd --secret-file path"])
+def test_a_flag_without_a_value_on_its_line_is_left_alone(line):
+    from subfleet.sessions.handoff import scrub_secrets
+    assert scrub_secrets(line) == (line, 0)

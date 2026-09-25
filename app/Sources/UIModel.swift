@@ -344,24 +344,26 @@ final class UIModel: ObservableObject {
         if result.available && !result.isLive && turnChanges[messageID] != result.stats { turnChanges[messageID] = result.stats }
     }
 
-    /// Pages that add nothing are followed at once, up to this many per request,
-    /// so "Load earlier" shows something or reaches the start.
+    /// Pages that add nothing are followed at once, up to this many per "Load
+    /// earlier", so it shows something or reaches the start. Opening a
+    /// conversation reads one page and follows none (review of 5aa2718).
     static let historyPagesFollowed = 16
 
-    func loadHistory(_ conversationID: String) async {
+    func loadHistory(_ conversationID: String, follow: Bool = false) async {
         guard let engine else { return }
-        for _ in 0..<Self.historyPagesFollowed {
-            guard let timeline = state.timelines[conversationID], !timeline.historyComplete else { return }
-            let before = timeline.historyBefore
-            do {
-                let page = try await onOutbox { try engine.history(conversationID: conversationID, before: before) }
-                state.apply(history: page, conversationID: conversationID)
-            } catch {
-                // History is a courtesy: a transcript that cannot be read leaves the live turns.
-                return
-            }
-            guard state.timelines[conversationID]?.shouldFollowHistory(askedBefore: before) == true else { return }
-        }
+        await loadHistoryPages(
+            pages: Self.historyPagesFollowed, follow: follow,
+            timeline: { await self.timeline(conversationID) },
+            fetch: { before in
+                try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+            },
+            apply: { page in await self.applyHistory(page, conversationID) })
+    }
+
+    private func timeline(_ conversationID: String) -> Timeline? { state.timelines[conversationID] }
+
+    private func applyHistory(_ page: HistoryPage, _ conversationID: String) {
+        state.apply(history: page, conversationID: conversationID)
     }
 
     func create(provider: String, workspace: String, settings: ConversationSettings, title: String?,

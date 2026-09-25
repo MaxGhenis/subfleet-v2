@@ -391,3 +391,28 @@ def test_paging_through_random_rollouts_shows_every_item_once_in_order(tmp_path,
         big = {i["text"] for i in expected if len(i["text"]) > budget - 300}
         key = lambda i: (i["kind"], i["text"], i.get("preview"), i.get("is_error"))
         assert [key(i) for i in paged if i["text"] not in big] == [key(i) for i in expected if i["text"] not in big], trial
+
+
+def test_leading_blank_space_ends_the_history_however_long(tmp_path):
+    """Review of 5aa2718, findings 3 and 7: a page that does not fill its limit and
+    reaches the first row after blank lines ends the history; so does a page
+    below which lies only blank space longer than the probe (before, 66,000
+    blank lines took 466 pages, most of them empty)."""
+    rows = [assistant(f"a-{i:02d}", {"type": "text", "text": f"row {i}"}) for i in range(1, 4)]
+    short = tmp_path / "short.jsonl"
+    short.write_text("\n\n" + "".join(json.dumps(r) + "\n" for r in rows))
+    items, cursor = history._claude_items(short, None, 10)
+    assert [i["text"] for i in items] == ["row 3", "row 2", "row 1"] and cursor is None
+    long = tmp_path / "long.jsonl"
+    long.write_text("\n" * 70_000 + "".join(json.dumps(r) + "\n" for r in rows))
+    items, sizes = every_page(history._claude_items, long, 2)
+    assert [i["text"] for i in items] == ["row 3", "row 2", "row 1"] and len(sizes) <= 3, sizes
+
+
+def test_a_status_line_is_judged_only_in_the_outputs_head(tmp_path):
+    """A negative exit code is a failure; a header whose `Output:` line lies past
+    `STATUS_HEAD` is not read for a status (outputs are bounded before judging)."""
+    outcome = history._codex_outcome
+    assert outcome("Chunk ID: a\nWall time: 0 seconds\nProcess exited with code -1\nOutput:\n")[1] is True
+    late = "Chunk ID: a\n" + "w" * (history.STATUS_HEAD + 100) + "\nProcess exited with code 1\nOutput:\nok"
+    assert outcome(late)[1] is False

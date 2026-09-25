@@ -3,7 +3,8 @@
 Read from the transcript's tail backwards and rendered as `{role, text, ts,
 id, kind}`, scrubbed as events are (C-25.5). A page reads at most `READ_CAP`
 (4 MiB) of rows below its cursor, or the one row there when that row is larger
-(up to 64 MiB), and up to `RESULT_WINDOW` (8 MiB) past the cursor for the
+(up to `READ_BUDGET`, 68 MiB: the cap plus 64 MiB), and up to `RESULT_WINDOW`
+(8 MiB) past the cursor for the
 results of calls at the page's edge. A tool
 call is `kind: "tool"` with its redacted summary, its result preview and
 whether it failed, as a live `tool.completed` carries them; a credential-reading
@@ -94,6 +95,10 @@ def _next_cursor(path: Path, top: int, last: int | None) -> int | None:
     """Where the next page starts once the rows ran out: None at the file's start;
     past a row too large for the reader when nothing below the cursor was read."""
     if last is None:
+        if top <= READ_BUDGET:
+            # The reader covered everything back to the file's start and found no
+            # row (only blank space): the history ends (review of 5aa2718).
+            return None
         start = transcripts.line_start(path, top - 1) if top > 0 else 0
         return _earlier(path, start)
     return _earlier(path, last)

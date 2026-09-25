@@ -454,3 +454,25 @@ def test_c29_8_load_earlier_follows_pages_that_add_nothing(core_probe, tmp_path)
     assert result["results"] == ["history:follow", "history", "history:follow", "history", "history"]
     assert result["history_added"] == 0 and result["history_complete"] is True
     assert [i.get("text") for i in result["items"]] == ["an old answer"]
+
+
+
+def test_c29_8_load_earlier_follows_up_to_its_cap_and_opening_follows_none(core_probe, tmp_path):
+    """Review of 5aa2718, findings 4 and 9: "Load earlier" fetches while pages add
+    nothing and the cursor moves back, at most `pages` of them; it stops on an
+    error or at the start; opening a conversation (follow off) reads one page."""
+    empty = lambda cursor: {"items": [], "next_before": cursor}
+    row = {"role": "assistant", "kind": "text", "text": "old", "ts": None, "id": None, "cursor": 10}
+
+    def follow(pages, cap, on):
+        path = tmp_path / f"follow-{uuid.uuid4().hex}.json"
+        path.write_text(json.dumps(pages))
+        return run_probe(core_probe, "follow", path, cap, "1" if on else "0")
+
+    many = [empty(10_000 - 100 * i) for i in range(40)]
+    capped = follow(many, 16, True)
+    assert capped["fetched"] == 16 and capped["asked"][:3] == [None, 10_000, 9_900]
+    assert follow(many, 16, False)["fetched"] == 1
+    assert follow([empty(5000), "error", empty(4000)], 16, True)["fetched"] == 1
+    ended = follow([empty(5000), {"items": [row], "next_before": None}], 16, True)
+    assert ended["fetched"] == 2 and ended["complete"] is True

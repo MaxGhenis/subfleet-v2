@@ -275,8 +275,42 @@ func runStore(_ data: Data) throws -> [String: Any] {
 
 // MARK: - Dispatch
 
+/// `follow <pages.json> <max> <0|1>`: `loadHistoryPages` against scripted pages
+/// (a page object per fetch, or the string "error"); reports the pages fetched,
+/// the cursor each fetch asked with, and whether the history ended.
+final class FollowScript: @unchecked Sendable {
+    var timeline = Timeline(conversationID: "cv")
+    var asked: [Any] = []
+    var index = 0
+    var fetched = 0
+}
+
+func runFollow(_ data: Data, pages: Int, follow: Bool) throws -> [String: Any] {
+    struct Scripted: Error {}
+    let steps = try JSONValue.parse(data).array ?? []
+    let script = FollowScript()
+    let done = DispatchSemaphore(value: 0)
+    Task.detached {
+        script.fetched = await loadHistoryPages(
+            pages: pages, follow: follow,
+            timeline: { script.timeline },
+            fetch: { before in
+                script.asked.append(before as Any? ?? NSNull())
+                defer { script.index += 1 }
+                guard script.index < steps.count, steps[script.index].string != "error" else { throw Scripted() }
+                return try steps[script.index].decode(HistoryPage.self)
+            },
+            apply: { page in script.timeline.apply(history: page) })
+        done.signal()
+    }
+    done.wait()
+    return ["fetched": script.fetched, "asked": script.asked, "complete": script.timeline.historyComplete]
+}
+
 func extraCommand(_ arguments: [String]) throws -> Any? {
     switch arguments[1] {
+    case "follow":
+        return try runFollow(readFile(arguments[2]), pages: Int(arguments[3]) ?? 16, follow: arguments[4] == "1")
     case "outbox":
         return try runOutbox(socket: arguments[2], journal: arguments[3], stepsData: readFile(arguments[4]))
     case "store":

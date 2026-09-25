@@ -113,7 +113,10 @@ def git_toplevel(workdir: str | Path, *, timeout_s: float | None = None) -> str 
     Two directories of one checkout (`/repo` and `/repo/sub`) are one place to
     write; two linked worktrees of one repository are two.
     """
-    top = _git(workdir, "rev-parse", "--show-toplevel", optional=True, timeout_s=timeout_s)
+    # Only git's line end is removed: a directory whose name ends in a space is
+    # still that directory (review of 5aa2718).
+    raw = _git_bytes(workdir, "rev-parse", "--show-toplevel", timeout_s=timeout_s)
+    top = os.fsdecode(raw[:-1] if raw and raw.endswith(b"\n") else raw or b"")
     return os.path.realpath(top) if top else None
 
 

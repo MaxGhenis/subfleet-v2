@@ -375,3 +375,16 @@ def test_c6_8_snapshot_keeps_the_real_index_mtime_for_racy_entries(repository):
     os.utime(repository / ".git" / "index", ns=(old, old))  # index as old as the entry
     tree = working_tree(repository, baseline)
     assert git(repository, "show", f"{tree}:racy.txt") == "bbbb"
+
+
+
+def test_a_checkout_whose_name_ends_in_a_space_is_found(tmp_path):
+    """C-6.5: git's output loses only its line end, so a top-level directory named
+    `repo ` is that directory, not one that does not exist."""
+    from subfleet.salvage import git_toplevel
+    repo = tmp_path / "repo "
+    (repo / "pkg").mkdir(parents=True)
+    git(repo, "init", "-q")
+    top = git_toplevel(repo / "pkg")
+    assert top == os.path.realpath(repo) and os.path.isdir(top)
+    assert git_toplevel(tmp_path) is None
