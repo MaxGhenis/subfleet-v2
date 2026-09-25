@@ -443,13 +443,15 @@ class Pass:
     folders_scanned: int = 0
     swept: bool = False
     skipped: int = 0                        # writes that failed and wait for a later pass
+    #: Sessions whose flags were not synced because a copy could not be read.
+    flags_held: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {key: getattr(self, key) for key in (
             "started_at", "finished_at", "state", "added", "repaired", "revived",
             "pruned", "flag_synced", "retitled", "transcript_retitled",
             "accounts", "sessions", "error", "dry_run", "stage", "entries_scanned",
-            "kind", "folders_scanned", "swept", "skipped")}
+            "kind", "folders_scanned", "swept", "skipped", "flags_held")}
 
     @property
     def changed(self) -> bool:
@@ -636,6 +638,10 @@ class Mirror:
         self.journal = _Journal(self.dir / JOURNAL_NAME)
         #: `(path, inode, ctime) -> projection` for the load-gap report's reads.
         self._gap_reads: dict[tuple[str, int, int], dict] = {}
+        #: This pass's entries that exist but could not be read: path -> the
+        #: session id their last good read held ("" if none). Flag sync must
+        #: not decide a session without one of its copies (C-23.28).
+        self._unread: dict[str, str] = {}
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -676,9 +682,10 @@ class Mirror:
         Equal bytes are parsed once: the 217,706 entries of 2026-09-24 held
         9,619 distinct contents. Only flag sync makes writable copies.
         """
+        cached = self._entries.get(os.fspath(path))
+        known = (self._payloads[cached[1]].value.get("cliSessionId") or "") if cached else ""
         try:
             signature = self._signature(path)
-            cached = self._entries.get(os.fspath(path))
             if cached is not None and cached[0] == signature:
                 return self._payloads[cached[1]].value
             self._forget(path)
@@ -695,8 +702,17 @@ class Mirror:
             if self._signature(path) == signature:
                 return self._remember(path, signature, digest, data)
             return data
-        except (OSError, ValueError):
+        except FileNotFoundError:
+            self._forget(path)                  # gone: no longer anyone's copy
+            return {}
+        except OSError:
+            # It exists and could not be read (EMFILE on 2026-09-25): unknown,
+            # not absent. Flag sync holds the session it belongs to.
             self._forget(path)
+            self._unread[os.fspath(path)] = str(known)
+            return {}
+        except ValueError:
+            self._forget(path)                  # not a record the app wrote
             return {}
 
     def _file(self, folder: Path, name: str) -> dict:
@@ -1069,8 +1085,10 @@ class Mirror:
                             continue
                         try:
                             still = _load(path / name, strict=True).get("cliSessionId")
-                        except (OSError, ValueError):
-                            still = None
+                        except ValueError:
+                            still = None            # torn or corrupt: repair it
+                        except OSError:
+                            continue                # unreadable is unknown, not empty
                         if still:
                             continue
                     if not self._place(source, path / name, identity, data, "repaired",
@@ -1190,7 +1208,8 @@ class Mirror:
 
     def sync_flags(self, folder_files: dict[Path, dict[str, dict]],
                    stems: dict[str, Path], options: Options,
-                   current: Pass) -> set[tuple[Path, str]]:
+                   current: Pass, *, unread: dict[str, str] | None = None,
+                   blind: bool = False, complete: bool = True) -> set[tuple[Path, str]]:
         """Propagate `isArchived`, `isStarred` and the title across every copy.
 
         The merge base in `mirror-flags.json` holds each session's last synced
@@ -1213,6 +1232,14 @@ class Mirror:
         is specified in docs/formal/MirrorFlags.tla, with an executable twin
         in tests/mirror_flags_model.py.
 
+        A session is decided from every copy or not at all. `unread` names the
+        copies that exist but could not be read this pass (path -> the session
+        id their last good read held); each one holds its session, and so does
+        any session with a copy of the same name. One whose session is unknown,
+        or `blind` (a folder that was never listed), holds every session. A
+        held session writes nothing and keeps its base. Bases of sessions this
+        pass did not see are kept unless the inventory was `complete`.
+
         Known limit: the app saves a record from memory, so a folder it holds
         (the loaded one, or one where an earlier account's session still runs)
         can write back a value the mirror changed there, and the merge base
@@ -1220,12 +1247,23 @@ class Mirror:
         """
         base_all = _load(self.flags_path)
         groups: dict[str, list[tuple[Path, str, dict]]] = {}
+        named: dict[str, set[str]] = {}
         for path, files in folder_files.items():
             for name, data in files.items():
                 identity = data.get("cliSessionId") or ""
                 if identity:
                     groups.setdefault(identity, []).append((path, name, data))
-        fresh: dict[str, dict] = {}
+                    named.setdefault(name, set()).add(identity)
+        waiting: set[str] = set()
+        for failed, known in (unread or {}).items():
+            owners_of = named.get(os.path.basename(failed), set()) | ({known} if known else set())
+            if not owners_of:
+                blind = True                    # whose copy it is, nobody can say
+            waiting |= owners_of
+        if blind:
+            waiting = set(groups)
+        # Unseen sessions keep their base unless every copy was read.
+        fresh: dict[str, dict] = {} if complete else dict(base_all)
         dirty: set[tuple[Path, str]] = set()
         originals: dict[tuple[Path, str], dict] = {}
         owners: dict[tuple[Path, str], str] = {}
@@ -1251,6 +1289,11 @@ class Mirror:
 
         for identity, copies in groups.items():
             self._checkpoint(current)
+            if identity in waiting:
+                current.flags_held += 1
+                if identity in base_all:
+                    fresh[identity] = base_all[identity]
+                continue
             for path, name, _data in copies:
                 owners[(path, name)] = identity
             base = base_all.get(identity) or {}
@@ -1423,12 +1466,10 @@ class Mirror:
                 else:
                     fresh.pop(identity, None)
             self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
-            try:
-                # Synced like the records it describes: a base lost to a crash
-                # would hand every divergent session to the bootstrap rule.
-                _write_json(self.flags_path, fresh, sync=True)
-            except OSError:
-                pass
+            # Synced like the records it describes: a base lost to a crash would
+            # hand every divergent session to the bootstrap rule. A base that
+            # cannot be written fails the pass rather than pass for synced.
+            _write_json(self.flags_path, fresh, sync=True)
         return dirty
 
     # --- one pass ------------------------------------------------------------
@@ -1559,13 +1600,16 @@ class Mirror:
         folder_files: dict[Path, dict[str, dict]] = {}
         folder_ids: dict[Path, set[str]] = {}
         fresh_ids: set[str] = set()
+        unlisted: list[Path] = []
+        self._unread = {}
         self._checkpoint(current, "reading entries")
         for _account, _org, path in folders:
             self._checkpoint(current)
             try:
                 files, fresh = self._scan(path, current, sweep=sweep)
             except _Unlisted:
-                continue                    # neither a source nor a target this pass
+                unlisted.append(path)       # neither a source nor a target of copies
+                continue
             folder_files[path] = files if files is not None else self._files(path)
             folder_ids[path] = set(self._folders[path].ids)
             for name in fresh:
@@ -1629,7 +1673,21 @@ class Mirror:
 
         if options.flag_sync:
             self._checkpoint(current, "resolving flags")
-            self.sync_flags(folder_files, stems, options, current)
+            # Flag sync decides a session from every copy or not at all: a copy
+            # it skipped would read as a user's change next pass and undo the
+            # change it spread (review round 5). An unlisted folder's copies
+            # are read by name from its last listing; a folder never listed
+            # hides which sessions it holds, so every session waits.
+            flag_files = dict(folder_files)
+            blind = False
+            for path in unlisted:
+                state = self._folders.get(path)
+                if state is None:
+                    blind = True
+                    continue
+                flag_files[path] = {name: self._entry(path / name) for name in sorted(state.names)}
+            self.sync_flags(flag_files, stems, options, current, unread=dict(self._unread),
+                            blind=blind, complete=not unlisted and not self._unread)
 
         if options.prune:
             self._checkpoint(current, "pruning entries")

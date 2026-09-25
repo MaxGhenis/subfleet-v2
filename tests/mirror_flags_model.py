@@ -24,7 +24,10 @@ steps, because the app can write between any two:
   advances.
 
 A pass can be cancelled only between the decision and the pre-check: the
-code's last cancellation point is before the publish.
+code's last cancellation point is before the publish. A pass that cannot read
+every copy of the session holds it (writes nothing, keeps the base), which is
+the same as a cancelled pass here; `test_mirror_flags_faults.py` and the
+stateful test's unreadable-copy rule hold the code to that.
 
 The app is modeled as `mirror.py`'s docstring and `desktop.py` describe it: it
 holds in memory the record of the folder it loaded (as it was on disk at that
@@ -49,6 +52,7 @@ from dataclasses import dataclass, replace
 from typing import Iterator
 
 IDLE, DECIDED, PUBLISHING = "idle", "decided", "publishing"
+CONFLICT = "conflict"
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,10 @@ class State:
     #: Ghost: the value a clean publish converged every copy to, cleared by
     #: any user action. While set, no pass may write anything else.
     settled: bool | None = None
+    #: Ghost: what the user set since the last publish that converged every
+    #: copy (None: nothing; CONFLICT: both values). While a bool, a pass with
+    #: a base must decide it: the user's change is never undone.
+    intent: bool | str | None = None
 
 
 def decide(copy: tuple[bool, ...], base: bool | None) -> bool:
@@ -99,7 +107,8 @@ def _idle(state: State) -> State:
 def _finish(state: State, copy: tuple[bool, ...]) -> State:
     converged = all(value == state.decided for value in copy)
     return replace(_idle(state), copy=copy, base=state.decided,
-                   settled=state.decided if converged else None)
+                   settled=state.decided if converged else None,
+                   intent=None if converged else state.intent)
 
 
 # --- actions (each returns the next state, or None when not enabled) --------------
@@ -118,8 +127,9 @@ def user_set(state: State, value: bool) -> State | None:
         return None
     copy, mem = list(state.copy), list(state.mem)
     copy[here] = mem[here] = value
+    intent = value if state.intent in (None, value) else CONFLICT
     return replace(state, copy=tuple(copy), mem=tuple(mem), settled=None,
-                   touched=_touch(state, here))
+                   touched=_touch(state, here), intent=intent)
 
 
 def app_save(state: State, account: int, *, stale: bool) -> State | None:
@@ -241,6 +251,12 @@ def check_step(before: State, label: str, after: State) -> list[str]:
             moved = {v for v in before.copy if v != before.base}
             if len(moved) == 1 and after.decided not in moved:
                 broken.append("change-wins")
+        # Intent wins: with a base, a pass decides what the user last set since
+        # the last publish that converged. This is what "no resurrection"
+        # means for an honest app; never-undo-settled covers the rest.
+        if isinstance(before.base, bool) and isinstance(before.intent, bool) \
+                and after.decided != before.intent:
+            broken.append("intent-wins")
     if label == "pass_check":
         # The pre-check writes nothing. A held session keeps its base (all or
         # nothing); one with nothing to write advances it (base agreement).
