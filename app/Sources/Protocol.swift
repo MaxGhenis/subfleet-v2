@@ -105,6 +105,7 @@ enum Ops {
     static let attachmentAdd = DaemonOperation<AttachmentAddArgs, AttachmentResult>(name: "attachment.add")
     static let catalogRefresh = DaemonOperation<NoArgs, CatalogRefreshResult>(name: "catalog.refresh")
     static let modelsList = DaemonOperation<ModelsListArgs, ModelsListResult>(name: "models.list")
+    static let conversationRuns = DaemonOperation<ConversationRunsArgs, ConversationRunsResult>(name: "conversation.runs")
 
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
@@ -112,7 +113,7 @@ enum Ops {
         conversationSettings.name, conversationUnblock.name, conversationHistory.name, conversationEvents.name,
         conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, turnInterrupt.name,
         messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
-        catalogRefresh.name, modelsList.name,
+        catalogRefresh.name, modelsList.name, conversationRuns.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
@@ -482,6 +483,41 @@ struct ConversationUnblockArgs: Codable, Equatable {
 }
 
 // MARK: - conversation.history
+
+struct ConversationRunsArgs: Codable, Equatable {
+    var conversation_id: String
+    var limit: Int?
+}
+
+struct ConversationRunsResult: Codable, Equatable {
+    var runs: [RunSummary]
+}
+
+/// One detached job a conversation's turns dispatched: a sub-agent, where it
+/// runs (its latest attempt's lane) and on which model.
+struct RunSummary: Codable, Equatable, Identifiable {
+    var job_id: String
+    var name: String?
+    var kind: String
+    var state: String
+    var task: String?
+    var tier: String?
+    var sandbox: String?
+    var wait_reason: String?
+    var created_at: String?
+    var started_at: String?
+    var finished_at: String?
+    var out_path: String?
+    var workdir: String?
+    var lane_id: String?
+    var model_served: String?
+    var model_requested: String?
+    var attempt_state: String?
+    var attempts: Int?
+
+    var id: String { job_id }
+    var isLive: Bool { !["succeeded", "failed", "cancelled", "lost"].contains(state) }
+}
 
 struct ConversationHistoryArgs: Codable, Equatable {
     var conversation_id: String

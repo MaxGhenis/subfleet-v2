@@ -902,3 +902,32 @@ def test_the_catalog_is_parsed_once_per_version_of_the_file(svc, runs, monkeypat
     write_catalog(svc.root, now, [{"provider": "claude", "native_session_id": "s-2", "mtime": 1.0}])
     assert [i["native_session_id"] for i in svc.handle("conversation.list", {}, None)["catalog"]["items"]] == ["s-2"]
     assert len(parses) == 2
+
+
+def test_a_conversation_lists_the_runs_its_turns_dispatched(svc):
+    """Design §12: a turn's `subfleet run` records the turn's session as its
+    caller; the conversation shows those jobs with the lane and model each
+    landed on, newest first, and leaves out turn jobs and other callers'."""
+    store = svc.daemon.store
+    cid = conversation(svc, origin="native", native_session_id="s-conv")
+    assert svc.handle("conversation.runs", {"conversation_id": conversation(svc)}, None) == {"runs": []}
+
+    def job(job_id, caller, created, kind="dispatch", state="running", **extra):
+        store.add_job(job_id=job_id, request_id=job_id, payload_digest="d", kind=kind, workdir="/w",
+                      prompt_path="/p", sandbox="read-only", name=job_id, caller_session=caller, state=state,
+                      created_at=created, task=extra.get("task"), tier=extra.get("tier"))
+    job("j-old", "s-conv", "2026-09-25T01:00:00Z", state="succeeded", task="review", tier="standard")
+    job("j-new", "s-conv", "2026-09-25T02:00:00Z", task="build", tier="hard")
+    job("j-turn", "s-conv", "2026-09-25T03:00:00Z", kind="turn")
+    job("j-other", "s-else", "2026-09-25T04:00:00Z")
+    store.put_lane(Lane("codex-2", "codex", "codex:two", Credential("codex", "/h", "home"), "/h", LaneOwner.V2, False))
+    store.add_attempt(attempt_id="j-new/a1", job_id="j-new", seq=1, lane_id="claude-1", model_requested="claude-opus-5-5",
+                      state="failed")
+    store.add_attempt(attempt_id="j-new/a2", job_id="j-new", seq=2, lane_id="codex-2", model_requested="gpt-6-astra",
+                      model_served="gpt-6-astra", state="running")
+    runs = svc.handle("conversation.runs", {"conversation_id": cid}, None)["runs"]
+    assert [r["job_id"] for r in runs] == ["j-new", "j-old"]
+    new = runs[0]
+    assert (new["lane_id"], new["model_served"], new["attempt_state"], new["attempts"], new["task"], new["tier"]) == (
+        "codex-2", "gpt-6-astra", "running", 2, "build", "hard")
+    assert runs[1]["lane_id"] is None and runs[1]["attempts"] == 0

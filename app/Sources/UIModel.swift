@@ -19,6 +19,8 @@ final class UIModel: ObservableObject {
     @Published var problem: String?
     /// A listed session that cannot continue here, shown in place of a conversation.
     @Published var lockedEntry: SidebarEntry?
+    /// Each conversation's dispatched runs (its sub-agents), newest first.
+    @Published var runs: [String: [RunSummary]] = [:]
     @Published var busy = false
 
     let paths: AppPaths
@@ -242,6 +244,15 @@ final class UIModel: ObservableObject {
                 return
             }
             report(error)
+        }
+    }
+
+    /// Reads a conversation's runs; the conversation view calls it on a timer
+    /// while it is on screen. An older daemon without the op shows none.
+    func refreshRuns(_ conversationID: String) async {
+        guard let engine else { return }
+        if let found = try? await onOutbox({ try engine.runs(conversationID: conversationID) }), runs[conversationID] != found {
+            runs[conversationID] = found
         }
     }
 

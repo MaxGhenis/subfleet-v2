@@ -605,6 +605,7 @@ marked †.
 | `attachment.add` | `{path, sha256?}` → `{sha256, media_type, bytes}` |
 | `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
 | `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, state_reason, pending_approvals}], next}` (D-24; `state_reason` says why a message waits, so a hold shows without a second open) |
+| `conversation.runs` | `{conversation_id, limit?}` → `{runs:[{job_id, name, kind, state, task, tier, sandbox, wait_reason, created_at, started_at, finished_at, out_path, workdir, lane_id, model_served, model_requested, attempt_state, attempts}]}`: the detached jobs whose caller is the conversation's native session (a Claude turn's tools carry it), turn jobs excluded, lane and model from the latest attempt; the app shows the live ones under the header and all of them on click |
 | `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
 | `turn.diff` | `{message_id, path?}` → `{files:[{path, status, additions, deletions}], diff, truncated}` (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` |

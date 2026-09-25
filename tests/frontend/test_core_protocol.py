@@ -124,6 +124,25 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     image.write_bytes(bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
                                     "1f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4a50000000049454e44ae426082"))
     results["attachment.add"] = harness.call("attachment.add", path=str(image))
+    # conversation.runs reads the job store; the harness has none, so one real
+    # store holds a run with two attempts and the real op answers from it.
+    from subfleet.contracts import Credential, Lane, LaneOwner
+    from subfleet.store import Store
+    jobs = Store(tmp_path / "state.sqlite3")
+    jobs.put_lane(Lane("codex-2", "codex", "codex:two", Credential("codex", "/h", "home"), "/h", LaneOwner.V2, False))
+    runs_cid = harness.create()["conversation_id"]
+    harness.store.update_conversation(runs_cid, native_session_id="s-runs")
+    jobs.add_job(job_id="j-1", request_id="r-1", payload_digest="d", kind="dispatch", workdir="/w", prompt_path="/p",
+                 sandbox="workspace-write", name="review-pr", caller_session="s-runs", state="running",
+                 task="review", tier="hard", started_at="2026-09-25T02:00:00Z")
+    jobs.add_attempt(attempt_id="j-1/a1", job_id="j-1", seq=1, lane_id="codex-2", model_requested="gpt-6-astra",
+                     model_served="gpt-6-astra", state="running")
+    main_store, harness.daemon.store = harness.daemon.store, jobs
+    try:
+        results["conversation.runs"] = harness.call("conversation.runs", conversation_id=runs_cid)
+    finally:
+        harness.daemon.store = main_store
+    assert results["conversation.runs"]["runs"][0]["lane_id"] == "codex-2"
     # Unblock and resolve need their blocked states, set as the daemon sets them.
     harness.store.update_conversation(cid, blocked_by="unfinished-turn")
     results["conversation.unblock"] = harness.call("conversation.unblock", conversation_id=cid, choice="continue",

@@ -223,6 +223,7 @@ struct ConversationView: View {
         let timeline = model.state.timelines[conversation.conversation_id]
         VStack(spacing: 0) {
             header
+            RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
             if let banner = model.state.blockedBanner(for: conversation.conversation_id) {
                 VStack(alignment: .leading, spacing: 6) {
                     StatusBanner(title: banner.title, detail: banner.detail, symbol: "exclamationmark.octagon")
@@ -297,6 +298,13 @@ struct ConversationView: View {
                 .padding(.horizontal, 14).padding(.top, 6)
             }
             ComposerView(model: model, conversation: conversation)
+        }
+        .task(id: conversation.conversation_id) {
+            // Sub-agents change outside this conversation's event log: look every 10 s.
+            while !Task.isCancelled {
+                await model.refreshRuns(conversation.conversation_id)
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+            }
         }
         .sheet(isPresented: Binding(get: { approval != nil }, set: { if !$0 { approval = nil } })) {
             if let approval {
@@ -436,6 +444,83 @@ struct LiveTurnStrip: View {
                 model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
             }.buttonStyle(.link).font(.caption)
         }
+    }
+}
+
+/// The sub-agents a conversation dispatched: the live ones in a line under the
+/// header (what each is, the lane and model it landed on), all of them on click.
+struct RunsStrip: View {
+    let runs: [RunSummary]
+    @State private var showAll = false
+
+    var body: some View {
+        let live = runs.filter(\.isLive)
+        if !runs.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
+                if live.isEmpty {
+                    Text("\(runs.count) sub-agent run\(runs.count == 1 ? "" : "s"), none running")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text(live.prefix(3).map(runLine).joined(separator: "   "))
+                        .font(.caption).lineLimit(1).truncationMode(.tail)
+                    if live.count > 3 { Text("+\(live.count - 3)").font(.caption).foregroundStyle(.secondary) }
+                }
+                Spacer()
+                Button(showAll ? "Hide" : "All runs") { showAll.toggle() }.buttonStyle(.link).font(.caption)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 4)
+            .popover(isPresented: $showAll, arrowEdge: .bottom) { RunsList(runs: runs) }
+        }
+    }
+}
+
+/// "review-pr on codex-2 · gpt-6-astra", or where it waits.
+func runLine(_ run: RunSummary) -> String {
+    let name = run.name ?? run.task ?? run.job_id
+    if run.state == "queued" || run.state == "waiting" {
+        return "\(name) waiting" + (run.wait_reason.map { " (\($0))" } ?? "")
+    }
+    let model = run.model_served ?? run.model_requested
+    return "\(name) on " + [run.lane_id, model].compactMap { $0 }.joined(separator: " · ")
+}
+
+struct RunsList: View {
+    let runs: [RunSummary]
+
+    var body: some View {
+        List(runs) { run in
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: runSymbol(run.state)).foregroundStyle(runColor(run.state))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(run.name ?? run.job_id).font(.callout).lineLimit(1)
+                    Text([run.task.map { t in run.tier.map { "\(t) · \($0)" } ?? t }, run.lane_id,
+                          run.model_served ?? run.model_requested, run.state]
+                        .compactMap { $0 }.joined(separator: "  ·  "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .help(run.job_id)
+        }
+        .frame(width: 520, height: min(420, CGFloat(runs.count) * 44 + 20))
+    }
+}
+
+func runSymbol(_ state: String) -> String {
+    switch state {
+    case "succeeded": return "checkmark.circle"
+    case "failed", "lost": return "xmark.circle"
+    case "cancelled": return "minus.circle"
+    case "queued", "waiting": return "clock"
+    default: return "circle.dotted"
+    }
+}
+
+func runColor(_ state: String) -> Color {
+    switch state {
+    case "succeeded": return .green
+    case "failed", "lost": return .red
+    default: return .secondary
     }
 }
 

@@ -172,6 +172,27 @@ class ConversationService:
                 "conversation_schema": 1, "capabilities": list(CAPABILITIES), "limits": LIMITS,
                 "codex_writable": self._codex_writable()}
 
+    def op_conversation_runs(self, args, peer) -> dict:
+        """The detached jobs a conversation's turns dispatched (design §12): what
+        its sub-agents are, where each runs and on which model. A Claude turn's
+        tools carry its session id, which `subfleet run` records as the caller."""
+        conversation = self.store.conversation(args["conversation_id"])
+        sid = conversation.get("native_session_id")
+        limit = max(1, min(int(args.get("limit") or 50), 200))
+        if not sid:
+            return {"runs": []}
+        latest = "(SELECT {col} FROM attempts a WHERE a.job_id=j.job_id ORDER BY a.seq DESC LIMIT 1)"
+        rows = self.daemon.store.query(
+            "SELECT j.job_id, j.name, j.kind, j.state, j.task, j.tier, j.sandbox, j.wait_reason, j.created_at, "
+            "j.started_at, j.finished_at, j.out_path, j.workdir, "
+            f"{latest.format(col='lane_id')} AS lane_id, {latest.format(col='model_served')} AS model_served, "
+            f"{latest.format(col='model_requested')} AS model_requested, "
+            f"{latest.format(col='state')} AS attempt_state, "
+            "(SELECT COUNT(*) FROM attempts a WHERE a.job_id=j.job_id) AS attempts "
+            "FROM jobs j WHERE j.caller_session=? AND j.kind<>'turn' ORDER BY j.created_at DESC, j.rowid DESC LIMIT ?",
+            (sid, limit))
+        return {"runs": rows}
+
     def op_models_list(self, args, peer) -> dict:
         """The models this fleet routes, each with the value a conversation stores
         and what the providers' own catalogs last said about it (design D-19)."""

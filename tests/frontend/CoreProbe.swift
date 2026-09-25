@@ -80,7 +80,7 @@ let codecs: [String: OpCodec] = {
         codec(Ops.conversationEvents), codec(Ops.conversationWatch), codec(Ops.messageSubmit), codec(Ops.messageStatus),
         codec(Ops.messageCancel), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
         codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
-        codec(Ops.modelsList),
+        codec(Ops.modelsList), codec(Ops.conversationRuns),
     ]
     return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 }()

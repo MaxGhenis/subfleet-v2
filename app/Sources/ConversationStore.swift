@@ -648,6 +648,10 @@ final class ConversationEngine {
         try client.call(Ops.conversationWatch, ConversationWatchArgs(after: after, wait_s: wait ?? pollWait))
     }
 
+    func runs(conversationID: String, limit: Int = 50) throws -> [RunSummary] {
+        try client.call(Ops.conversationRuns, ConversationRunsArgs(conversation_id: conversationID, limit: limit)).runs
+    }
+
     func history(conversationID: String, before: Int?, limit: Int = 50) throws -> HistoryPage {
         try client.call(Ops.conversationHistory, ConversationHistoryArgs(conversation_id: conversationID, before: before,
                                                                           limit: limit))
