@@ -151,8 +151,13 @@ class HandoffError(ValueError):
         self.fix = fix
 
 
+#: What `scrub_secrets` puts in place of what it removes.
+_PLACEHOLDERS = (REDACTED, "[PRIVATE KEY REDACTED]", "[BASE64 DATA OMITTED]", "[BASE64 OMITTED]")
+
+
 def scrub_secrets(text: str) -> tuple[str, int]:
-    """Remove credential values and encoded binary; retain ordinary text."""
+    """Remove credential values and encoded binary; retain ordinary text. The
+    count is of values replaced: one credential two rules match counts once."""
     total = 0
     for pattern, replacement in (
         (_PEM_RE, "[PRIVATE KEY REDACTED]"),
@@ -173,9 +178,10 @@ def scrub_secrets(text: str) -> tuple[str, int]:
         def replace(match, replacement=replacement):
             nonlocal changed
             out = replacement(match) if callable(replacement) else match.expand(replacement)
-            # A value an earlier rule already replaced (`token = '[REDACTED]'`
-            # after the token rule) is not a second credential.
-            changed += out != match.group(0)
+            # A match that holds what an earlier rule put in (`Authorization:
+            # Bearer [REDACTED]` after the bearer rule, `token = '[REDACTED] x'`
+            # after the token rule) is that credential again, not a second one.
+            changed += out != match.group(0) and not any(mark in match.group(0) for mark in _PLACEHOLDERS)
             return out
 
         text = pattern.sub(replace, text)

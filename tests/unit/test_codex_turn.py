@@ -450,3 +450,28 @@ def test_c23_6_a_turn_whose_shell_reaches_the_network_has_unified_exec_off():
     assert codex_turn.unified_exec_off("bypass", False, environ={}) is False
     assert codex_turn.unified_exec_off("ask", False, environ={"SUBFLEET_CODEX_UNIFIED_EXEC": "off"}) is True
     assert codex_turn.argv("codex", "hooks={x}", unified_exec_off=True)[-2:] == ["-c", "features.unified_exec=false"]
+
+
+def test_c23_6_the_service_launches_network_turns_with_unified_exec_off(tmp_path, monkeypatch):
+    """The wiring, not the helper alone: the conversation service's launch of a
+    Codex turn passes the switch to the server's command and to the turn spec for
+    a bypass turn granted the network, and not for one without it or under ask."""
+    import json
+    from types import SimpleNamespace
+    from subfleet.conversations.launch import TURN_MANIFEST_KEY
+    from subfleet.conversations.service import ConversationService
+    monkeypatch.delenv("SUBFLEET_CODEX_UNIFIED_EXEC", raising=False)
+    lane = SimpleNamespace(provider="codex", lane_id="codex-1", home=str(tmp_path / "home"), credential=None,
+                           identity="acct:org", label="me@example.com")
+    guard = SimpleNamespace(override="hooks={x}", executable="codex", hooks_hash="h")
+    service = SimpleNamespace(root=tmp_path)
+    for n, (permission, network, off) in enumerate([("bypass", True, True), ("bypass", False, False),
+                                                    ("ask", True, False), ("accept-edits", True, False)]):
+        job = {"job_id": f"j{n}"}
+        turn = {"provider": "codex", "conversation_id": "cv", "message_id": f"m{n}", "text": "hi", "cwd": str(tmp_path),
+                "settings": {"model": "astra", "permission": permission}, "network": network}
+        (tmp_path / "jobs" / job["job_id"]).mkdir(parents=True)
+        (tmp_path / "jobs" / job["job_id"] / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
+        launch = ConversationService.launch(service, job, {"attempt_id": f"j{n}/a1"}, lane, {}, tmp_path, "gpt-6-astra",
+                                            guard_result=guard)
+        assert ("features.unified_exec=false" in launch.argv) is off, (permission, network)

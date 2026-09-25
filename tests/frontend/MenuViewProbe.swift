@@ -7,6 +7,21 @@ struct MenuViewProbe {
     @MainActor static func main() throws {
         NSApplication.shared.setActivationPolicy(.prohibited)
         let arguments = CommandLine.arguments
+        if arguments[1] == "diff-rows" {
+            // The Changes pane's row width, and a row honouring it.
+            let line = UnifiedDiff.parse("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n")
+                .flatMap(\.lines).first { $0.kind == .added }!
+            let row = NSHostingController(rootView: DiffLineRow(line: line, minWidth: 480))
+            let result: [String: Any] = [
+                "overlay": DiffLinesView.rowWidth(pane: 500, scrollerStyle: .overlay),
+                "legacy": DiffLinesView.rowWidth(pane: 500, scrollerStyle: .legacy),
+                "scroller": NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy),
+                "narrow": DiffLinesView.rowWidth(pane: 4, scrollerStyle: .legacy),
+                "row_width": row.sizeThatFits(in: .zero).width,
+                "visible_windows": NSApp.windows.filter(\.isVisible).count]
+            print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
+            return
+        }
         let url = URL(fileURLWithPath: arguments[1])
         let store = QuotaStore(url: url, automaticallyReload: false)
         let controller = NSHostingController(rootView: ContentView(store: store))

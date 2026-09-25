@@ -91,3 +91,16 @@ def test_manual_reload_acknowledges_read_and_loads_replacement(menu_probe, tmp_p
     assert result["failed_read_error"]
     assert result["failed_snapshot_cleared"] is True
     assert result["visible_windows"] == 0
+
+
+def test_changes_pane_rows_fill_the_pane_without_scrolling_sideways(menu_probe):
+    """A diff row is as wide as the pane, less a legacy vertical scroller, so its
+    colour runs to the edge and a pane of short lines never scrolls sideways;
+    overlay scrollers take no width (review, 2026-09-25)."""
+    result = subprocess.run([str(menu_probe), "diff-rows"], capture_output=True, text=True, timeout=20, check=True)
+    widths = json.loads(result.stdout)
+    assert widths["overlay"] == 500
+    assert widths["scroller"] > 0 and widths["legacy"] == 500 - widths["scroller"]
+    assert widths["narrow"] == 0
+    assert widths["row_width"] >= 480
+    assert widths["visible_windows"] == 0

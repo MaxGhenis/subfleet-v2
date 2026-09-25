@@ -166,15 +166,55 @@ def test_codex_outputs_that_report_failure_are_failures(tmp_path):
 
 
 def every_page(read, path, limit):
-    """Every page from the newest to the file's start: the items, and each page's size."""
+    """Every page from the newest to the file's start: the items, and each page's
+    size. Each cursor is below the one before it, so paging always ends."""
     items, sizes, cursor = [], [], None
     for _ in range(10_000):
+        before = cursor
         page, cursor = read(path, cursor, limit)
+        assert cursor is None or before is None or cursor < before, (before, cursor)
         items += page
         sizes.append(len(page))
         if cursor is None:
             return items, sizes
     raise AssertionError("paging never reached the file's start")
+
+
+def test_the_page_that_reaches_the_first_row_ends_the_history(tmp_path):
+    """A page that fills its limit on the file's first row (or on the first row
+    after leading blank lines) says the history ended, so the app offers no
+    "Load earlier" that would load an empty page (review, 2026-09-25)."""
+    rows = [assistant(f"a-{i:02d}", {"type": "text", "text": f"row {i}"}) for i in range(1, 5)]
+    for lead in ("", "\n", "\n \n"):
+        path = tmp_path / f"s{len(lead)}.jsonl"
+        path.write_text(lead + "".join(json.dumps(r) + "\n" for r in rows))
+        first, cursor = history._claude_items(path, None, 2)
+        rest, end = history._claude_items(path, cursor, 2)
+        assert [i["text"] for i in first + rest] == ["row 4", "row 3", "row 2", "row 1"] and end is None, repr(lead)
+    codex = [codex_row({"type": "message", "role": "assistant",
+                        "content": [{"type": "output_text", "text": f"say {i}"}]}, i) for i in range(1, 5)]
+    for lead in ("", "\n"):
+        path = tmp_path / f"r{len(lead)}.jsonl"
+        path.write_text(lead + "".join(json.dumps(r) + "\n" for r in codex))
+        first, cursor = history._codex_items(path, None, 2)
+        rest, end = history._codex_items(path, cursor, 2)
+        assert [i["text"] for i in first + rest] == ["say 4", "say 3", "say 2", "say 1"] and end is None, repr(lead)
+
+
+def test_the_read_cap_is_measured_from_the_cursor(tmp_path, monkeypatch):
+    """Each page reads up to the cap below its own cursor, so a page far from the
+    file's end is as full as the first (measured from the end, every page past
+    the cap would hold one row). Both providers."""
+    monkeypatch.setattr(history, "READ_CAP", 2_000)
+    claude = write(tmp_path / "s.jsonl", [assistant(f"a-{i % 100:02d}", {"type": "text", "text": f"row {i}" + "." * 150})
+                                          for i in range(80)])
+    codex = write(tmp_path / "r.jsonl", [codex_row({"type": "message", "role": "assistant",
+                                                    "content": [{"type": "output_text", "text": f"say {i}" + "." * 150}]}, i % 60)
+                                         for i in range(80)])
+    for read, path in ((history._claude_items, claude), (history._codex_items, codex)):
+        items, sizes = every_page(read, path, 10**6)
+        assert len(items) == 80
+        assert len(sizes) <= 16 and min(sizes[:-1]) >= 5, (read.__name__, sizes)
 
 
 def test_a_page_never_splits_a_rows_blocks(tmp_path):
@@ -291,9 +331,18 @@ def test_paging_through_random_transcripts_shows_every_item_once_in_order(tmp_pa
 
 
 def test_codex_failures_are_judged_on_the_status_line_and_the_exit_code():
-    """Review B-5: only an output's first line says the command failed, so a log it
-    printed may say anything; a nonzero `metadata.exit_code` is a failure."""
+    """Review B-5: only an output's header says the command failed (its lines before
+    `Output:`, or its first line), so a log it printed may say anything; a nonzero
+    `metadata.exit_code` is a failure. The exec_command header is the one lane
+    rollouts carry: `Chunk ID`, `Wall time`, `Process exited with code N`."""
     outcome = history._codex_outcome
+    shell = "Chunk ID: 29e2d1\nWall time: 0.0000 seconds\nProcess exited with code {}\nOriginal token count: 9\nOutput:\n{}"
+    assert outcome(shell.format(1, "boom"))[1] is True
+    assert outcome(shell.format(137, ""))[1] is True
+    assert outcome(shell.format(0, "Process exited with code 1\nScript failed"))[1] is False
+    assert outcome("Script failed\nWall time 0.4 seconds\nOutput:\n\nScript error:\nno such process")[1] is True
+    assert outcome("Script completed\nWall time 0.1 seconds\nOutput:\nExit code: 1\nScript failed")[1] is False
+    assert outcome("Wall time: 20.0 seconds\nSleep completed.")[1] is False
     assert outcome([{"type": "input_text", "text": "Script completed\nExit code: 1\n"}])[1] is False
     assert outcome("Exit code: 0\nProcess exited with code 2 (in the log)")[1] is False
     assert outcome("Exit code: 1\nboom")[1] is True

@@ -164,6 +164,10 @@ WORKSPACE_PLACE = (" The caller ran this job from {top}/{prefix}: a path the tas
 WORKSPACE_PLACE_UNCOMMITTED = (" The caller ran this job from {top}/{prefix}, which commit {head} does not "
                                "hold, so your workspace has no {prefix}: create what the task needs there, "
                                "under {worktree}.")
+#: Git could not say whether the commit holds the caller's directory.
+WORKSPACE_PLACE_UNCHECKED = (" The caller ran this job from {top}/{prefix}: a path the task gives relative to "
+                             "that directory is relative to {worktree}/{prefix} here (if commit {head} does not "
+                             "hold it, you start at {worktree}; create it there).")
 HEADLESS_PREAMBLE = (
     HEADLESS_MARKER + "\nThis is a delegated, headless job. Complete the task "
     "autonomously, preserve the caller's work, and return a final deliverable.\n\n"
@@ -196,6 +200,28 @@ def json_bytes(value: Any) -> bytes:
 
 class DaemonUnavailable(RuntimeError):
     code = 69
+
+
+def _written_by_policy(exc: AdapterError, task: str | None) -> AdapterError:
+    """d261: a writer's refusal of a job the caller did not ask to write: say who
+    did, and the way out."""
+    return AdapterError(f"{exc} ({task or 'these'} jobs write by policy)", code=exc.code,
+                        fix=(exc.fix + "; or " if exc.fix else "") + "pass -s read-only")
+
+
+def _git_prefix(workdir: str, cap: float) -> str | None:
+    """Where `workdir` is in its repository as git spells it (`pkg/sub`; `.` at the
+    top), which is how a worktree cut from it spells it. Git resolves a directory
+    named in another case, in decomposed Unicode or through the
+    `/System/Volumes/Data` firmlink to its committed name; `os.path.relpath` of
+    the caller's spelling does not (review, 2026-09-25). None when git cannot say."""
+    try:
+        shown = subprocess.run(["git", "-C", workdir, "rev-parse", "--show-prefix"], capture_output=True, timeout=cap)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if shown.returncode:
+        return None
+    return os.fsdecode(shown.stdout.rstrip(b"\n")).rstrip("/") or "."
 
 
 def _commit_holds_dir(top: str, commit: str, prefix: str, cap: float) -> bool | None:
@@ -885,8 +911,13 @@ class Daemon:
             # here. A resume's session is its source attempt's; a revive's is
             # `caller_session`.
             fence: tuple[str | None, str] | None = None
+            resume_workspace = None
             if args.kind == "resume":
                 args, resume = self._resume_submission(args)
+                # Where the resume starts is the source's, not the request's: it
+                # stays out of the digest, so a resume retried across an upgrade
+                # that began recording it is still the same request (C-6.2).
+                resume_workspace = resume.pop("workspace", None)
                 fence = (resume["native_session_id"], "resume")
             elif args.kind == "revive":
                 fence = (args.caller_session, "revive")
@@ -1045,17 +1076,21 @@ class Daemon:
             instance = (self._caller_instance(args.caller_pid)
                         if sandbox == Sandbox.WORKSPACE_WRITE and args.caller_session else None)
             if turn is None:
+                by_policy = from_policy and sandbox == Sandbox.WORKSPACE_WRITE
                 try:
                     cleared = self._writable_precheck(values, instance, write_target)
                 except AdapterError as exc:
-                    if not from_policy or sandbox != Sandbox.WORKSPACE_WRITE:
+                    if not by_policy:
                         raise
-                    # d261: the caller did not ask to write; say who did, and the way
-                    # out. Only the writers' refusals: a read-only job would meet the
+                    raise _written_by_policy(exc, args.task) from exc
+                try:
+                    self._validate_conflicts(values, cleared, write_target)
+                except AdapterError as exc:
+                    # Only the writers' refusals: a read-only job would meet the
                     # others (a cancelled parent, a held output path) all the same.
-                    raise AdapterError(f"{exc} ({args.task or 'these'} jobs write by policy)", code=exc.code,
-                                       fix=(exc.fix + "; or " if exc.fix else "") + "pass -s read-only") from exc
-                self._validate_conflicts(values, cleared, write_target)
+                    if not by_policy or not self._read_only_clears(values, write_target):
+                        raise
+                    raise _written_by_policy(exc, args.task) from exc
             else:
                 # C-26.1, IR-12: a turn waits for its workspace at admission (the
                 # `worktree:` lease), it is never refused here.
@@ -1070,22 +1105,26 @@ class Daemon:
             if turn is not None:
                 manifest["turn"] = turn
             note = b""
-            if resume and resume.get("workspace"):
+            if resume_workspace:
                 # Review B-2: a resume starts where its source started (`_launch_dir`).
-                manifest["workspace"] = resume.pop("workspace")
+                manifest["workspace"] = resume_workspace
             if sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None and head is not None:
                 # C-6.6: the worktree is cut at admission; where it will be and where
                 # in it the job starts (the caller's place in the repository) are
                 # known now.
                 cap = self.policy["caps"]["workspace_git_timeout_s"]
                 top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
-                prefix = os.path.relpath(os.path.realpath(workdir), os.path.realpath(top))
+                prefix = _git_prefix(str(workdir), cap) or os.path.relpath(os.path.realpath(workdir),
+                                                                            os.path.realpath(top))
+                if prefix.startswith("..") or os.path.isabs(prefix):
+                    prefix = "."        # outside the checkout as far as can be told: the top
                 worktree = self.root / "worktrees" / job_id
                 place = ""
                 if prefix != ".":
                     held = _commit_holds_dir(top, head, prefix, cap)
-                    place = (WORKSPACE_PLACE_UNCOMMITTED if held is False else WORKSPACE_PLACE).format(
-                        top=top, prefix=prefix, worktree=worktree, head=head[:12])
+                    template = {True: WORKSPACE_PLACE, False: WORKSPACE_PLACE_UNCOMMITTED}.get(held,
+                                                                                            WORKSPACE_PLACE_UNCHECKED)
+                    place = template.format(top=top, prefix=prefix, worktree=worktree, head=head[:12])
                     if held is False:
                         # Review B-4: the worktree will not hold it; start at the top.
                         prefix = "."
@@ -1225,12 +1264,24 @@ class Daemon:
         resume = {"source_job_id": source["job_id"], "source_attempt_id": attempt["attempt_id"],
                   "native_session_id": native, "lane_id": attempt["lane_id"],
                   "model_id": attempt["model_requested"]}
-        workspace = source_manifest.get("workspace") or {}
-        if source["worktree"] and workspace.get("prefix") not in (None, "."):
+        prefix = self._source_launch_prefix(source, attempt, source_manifest)
+        if prefix not in (None, "."):
             # Review B-2: the session was made in the source's place in its
             # worktree; Claude finds it, and its transcript, from that directory.
-            resume["workspace"] = {"worktree": source["worktree"], "prefix": workspace["prefix"]}
+            resume["workspace"] = {"worktree": source["worktree"], "prefix": prefix}
         return args, resume
+
+    def _source_launch_prefix(self, source: dict, attempt: dict, source_manifest: dict) -> str | None:
+        """Where in its worktree the resumed attempt started: the `cwd` its launch
+        recorded, or, for an attempt launched before that was kept, the place its
+        manifest named. None outside an allocated worktree."""
+        if not source["worktree"]:
+            return None
+        launch = self._read_json(self.root / "jobs" / attempt["attempt_id"] / "launch.json") or {}
+        if isinstance(launch.get("cwd"), str):
+            prefix = os.path.relpath(os.path.realpath(launch["cwd"]), os.path.realpath(source["worktree"]))
+            return None if prefix.startswith("..") or os.path.isabs(prefix) else prefix
+        return (source_manifest.get("workspace") or {}).get("prefix")
 
     def _legacy_resume_identity(self, attempt: dict) -> str | None:
         """C-23.32: recover old Codex identity in memory, never rewriting imported evidence."""
@@ -1403,6 +1454,14 @@ class Daemon:
                 raise AdapterError(
                     f"session {session} already has a live revive ({holder})", code=7,
                     fix=f"subfleet runs show {holder}, or kill it before reviving again")
+
+    def _read_only_clears(self, job: dict, write_target: str | None) -> bool:
+        """Whether the same job, read-only, would pass `_validate_conflicts`."""
+        try:
+            self._validate_conflicts({**job, "sandbox": Sandbox.READ_ONLY.value}, frozenset(), write_target)
+        except AdapterError:
+            return False
+        return True
 
     def _validate_conflicts(self, job: dict, cleared: frozenset[str] = frozenset(),
                             write_target: str | None = None) -> None:

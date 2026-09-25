@@ -245,3 +245,172 @@ def test_an_in_place_writable_job_gets_no_workspace_note(state_daemon):
     jobdir = daemon.root / "jobs" / job_id
     assert "workspace" not in json.loads((jobdir / "manifest.json").read_text())
     assert "Your workspace is" not in (jobdir / "prompt.prepared.md").read_text()
+
+
+def test_the_callers_place_is_named_as_git_spells_it(state_daemon):
+    """Review, 2026-09-25: a caller's directory named in another case, in decomposed
+    Unicode or through the `/System/Volumes/Data` firmlink is the committed
+    directory; the job starts there, and its note never names a place outside the
+    worktree (`os.path.relpath` of the caller's spelling gave `PKG`, which a
+    checkout does not hold, or `../..`)."""
+    import json
+    import sys
+    import unicodedata
+    from tests.unit.test_salvage import git
+    if sys.platform != "darwin":
+        pytest.skip("case-insensitive and firmlinked paths are macOS's")
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    cafe = unicodedata.normalize("NFC", "café")
+    (workdir / cafe).mkdir()
+    (workdir / cafe / "a.txt").write_text("a\n")
+    git(workdir, "add", ".")
+    git(workdir, "commit", "-m", "accent")
+    spellings = [(workdir / "PKG", "pkg"), (workdir / unicodedata.normalize("NFD", "café"), cafe)]
+    data = Path("/System/Volumes/Data" + str((workdir / "pkg").resolve()))
+    if data.is_dir():
+        spellings.append((data, "pkg"))
+    for spelled, committed in spellings:
+        if not spelled.is_dir():
+            continue                 # a case-sensitive volume: another directory
+        job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(spelled)))["job_id"]
+        jobdir = daemon.root / "jobs" / job_id
+        worktree = daemon.root / "worktrees" / job_id
+        assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {
+            "worktree": str(worktree), "prefix": committed}, spelled
+        prepared = (jobdir / "prompt.prepared.md").read_text()
+        assert f"is relative to {worktree / committed} here" in prepared and ".." not in prepared.split("worktrees")[1][:80]
+        daemon.dispatch("kill", {"job_id": job_id})
+
+
+def test_a_place_git_cannot_check_is_named_with_its_fallback(state_daemon, monkeypatch):
+    """When git cannot say whether the commit holds the caller's directory, the
+    note says where the job starts if it does not (the top, `_launch_dir`)."""
+    from subfleet import daemon as daemon_module
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    monkeypatch.setattr(daemon_module, "_commit_holds_dir", lambda *args: None)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(workdir / "pkg")))["job_id"]
+    prepared = (daemon.root / "jobs" / job_id / "prompt.prepared.md").read_text()
+    worktree = daemon.root / "worktrees" / job_id
+    assert f"does not hold it, you start at {worktree}; create it there" in prepared
+
+
+def finished_source(daemon, harness, workdir):
+    from tests.fake.test_state_contract import receipt_fixture
+    source = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(workdir / "pkg")))["job_id"]
+    daemon._admit()
+    attempt, = daemon.store.list_attempts(source)
+    daemon._pending_launches.discard(attempt["attempt_id"])
+    daemon.store.update_attempt(attempt["attempt_id"], native_session_id="source-session")
+    adir = daemon.root / "jobs" / source / "a1"
+    adir.mkdir()
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    return source, adir, daemon.store.get_job(source)["worktree"]
+
+
+@pytest.mark.parametrize("started", ["top", "pkg"])
+def test_a_resume_starts_where_its_source_attempt_actually_started(state_daemon, started):
+    """The resumed attempt's recorded launch `cwd` decides, not its manifest: a
+    source that started at its worktree's top (a Codex attempt) is resumed at the
+    top, one that started in `pkg` in `pkg`."""
+    import json
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    source, adir, worktree = finished_source(daemon, harness, workdir)
+    cwd = worktree if started == "top" else str(Path(worktree) / "pkg")
+    (adir / "launch.json").write_text(json.dumps({"argv": ["x"], "cwd": cwd}))
+    resumed = daemon.dispatch("submit", harness.submit_args(kind="resume", parent_job_id=source,
+                                                            sandbox="workspace-write"))["job_id"]
+    manifest = json.loads((daemon.root / "jobs" / resumed / "manifest.json").read_text())
+    job = daemon.store.get_job(resumed)
+    if started == "top":
+        assert "workspace" not in manifest and daemon._launch_dir(job, "claude") == worktree
+    else:
+        assert manifest["workspace"] == {"worktree": worktree, "prefix": "pkg"}
+        assert daemon._launch_dir(job, "claude") == str(Path(worktree) / "pkg")
+
+
+def test_a_resumes_start_stays_out_of_its_digest(state_daemon, monkeypatch):
+    """C-6.2: where a resume starts is its source's, so it is not part of the
+    request: a resume sent before an upgrade that began recording it and retried
+    after is the same request."""
+    from subfleet import daemon as daemon_module
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    source, _, _ = finished_source(daemon, harness, workdir)
+    seen = []
+    digest = daemon_module.ids.payload_digest
+    monkeypatch.setattr(daemon_module.ids, "payload_digest", lambda *a, **k: seen.append(k.get("resume")) or digest(*a, **k))
+    args = harness.submit_args(kind="resume", parent_job_id=source, sandbox="workspace-write")
+    first = daemon.dispatch("submit", args)["job_id"]
+    assert seen[-1] and "workspace" not in seen[-1]
+    again = daemon.dispatch("submit", args)
+    assert again["job_id"] == first and again["created"] is False
+
+
+def test_a_writer_only_conflict_says_the_policy_made_it_write(state_daemon, monkeypatch):
+    """A policy-made writer refused by a conflict only writers meet (its checkout
+    is held by another writer) hears why it writes and how to run it read-only;
+    with no task named, "these" jobs (review B-6)."""
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", in_place=True, workdir=str(workdir)))
+    monkeypatch.setattr(daemon, "_writable_precheck", lambda *args: frozenset())   # reach the conflict check
+    with pytest.raises(AdapterError) as refused:
+        daemon.dispatch("submit", harness.submit_args(sandbox=protocol.POLICY_SANDBOX, task="build", tier="standard",
+                                                      in_place=True, workdir=str(workdir), caller_session="s-2"))
+    assert "held by a live job" in str(refused.value) and "(build jobs write by policy)" in str(refused.value)
+    assert refused.value.fix.endswith("; or pass -s read-only")
+    daemon.policy["permissions"] = {"*": "workspace-write"}
+    with pytest.raises(AdapterError) as untasked:
+        daemon.dispatch("submit", harness.submit_args(sandbox=protocol.POLICY_SANDBOX, in_place=True, workdir=str(workdir),
+                                                      caller_session="s-3"))
+    assert "held by a live job" in str(untasked.value) and "(these jobs write by policy)" in str(untasked.value)
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+def test_a_launch_starts_codex_at_the_top_and_claude_in_the_callers_place(state_daemon, monkeypatch, provider):
+    """Review B-1 at the launch itself, not `_launch_dir` alone: the attempt's
+    recorded `cwd` is the worktree's top for a Codex lane (its sandbox writes only
+    under its working directory) and `<worktree>/pkg` for a Claude lane. Git runs
+    for real; only the guardian is not started."""
+    import subprocess
+    from dataclasses import replace
+    from subfleet import daemon as module
+    from subfleet.adapters.claude import ClaudeAdapter
+    from subfleet.contracts import Credential
+    daemon, harness = state_daemon
+    workdir = committed_package(daemon, harness)
+    monkeypatch.setattr(module.scheduler, "probe_required", lambda decision, job: False)
+    monkeypatch.setattr(daemon, "_guard_override", lambda *args: "hooks={}")
+    real = subprocess.Popen
+
+    class Guardian:
+        pid = 987654321
+
+        def poll(self):
+            return None
+
+    def popen(command, *args, **kwargs):
+        if any("subfleet.guardian" in str(part) for part in command):
+            return Guardian()
+        return real(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    model = "astra"
+    if provider == "claude":
+        lane = daemon.store.get_lane("codex-1")
+        daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude", account_key="claude:fixture",
+                                      credential=Credential("claude", lane.credential.ref, "home")))
+        monkeypatch.setattr(module, "get_adapter", lambda _: ClaudeAdapter())
+        model = "haiku"
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", pinned_model=model,
+                                                           workdir=str(workdir / "pkg")))["job_id"]
+    daemon._admit()
+    attempt, = daemon.store.list_attempts(job_id)
+    module.Daemon._launch(daemon, attempt)          # the fixture refuses launches on the instance
+    worktree = daemon.store.get_job(job_id)["worktree"]
+    assert worktree and daemon.store.get_attempt(attempt["attempt_id"])["lane_id"] == ("codex-1" if provider == "codex" else "claude-1")
+    want = worktree if provider == "codex" else str(Path(worktree) / "pkg")
+    assert daemon._saved_launch(attempt).cwd == want

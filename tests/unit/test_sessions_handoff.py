@@ -576,3 +576,32 @@ def test_a_conversations_session_is_refused_rather_than_handed_off(home, policy,
     assert raised.value.code == 7
     assert "Subfleet app" in raised.value.fix
     assert daemon.submits == []
+
+
+def test_scrub_secrets_counts_each_credential_once_whatever_rules_match_it():
+    """Property check (seeded): lines that each carry one credential in a context
+    two rules may match (a bearer token in an Authorization header, a key in a
+    quoted assignment with more text, a key block in JSON) give a count equal to
+    the number of credentials, and no credential survives."""
+    import random
+    from subfleet.sessions.handoff import scrub_secrets
+    rng = random.Random(20260925)
+    key = lambda n: "sk-ant-api03-" + "".join(rng.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(40)) + str(n)
+    contexts = [
+        lambda s: f"Authorization: Bearer {s}",
+        lambda s: f"Authorization: Basic {s}",
+        lambda s: f"token = '{s}'",
+        lambda s: f'api_key = "{s} and more"',
+        lambda s: f"password={s}",
+        lambda s: f"curl -H 'X-Key: 1' https://user:{s}@example.com/x",
+        lambda s: f'"private_key": "-----BEGIN PRIVATE KEY-----\\n{s}\\n-----END PRIVATE KEY-----\\n"',
+        lambda s: f"export SECRET_TOKEN={s}",
+    ]
+    for trial in range(300):
+        secrets = [key(n) for n in range(rng.randint(0, 6))]
+        lines = [rng.choice(contexts)(s) for s in secrets]
+        lines += ["ordinary text"] * rng.randint(0, 3)
+        rng.shuffle(lines)
+        text, count = scrub_secrets("\n".join(lines))
+        assert count == len(secrets), (trial, lines, text)
+        assert not any(s in text for s in secrets), (trial, text)

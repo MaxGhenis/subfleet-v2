@@ -1,7 +1,10 @@
 """Pages of a conversation's native history (C-25.2 `conversation.history`, C-29.8).
 
-Read from the transcript's tail backwards, at most 4 MiB per call, rendered
-as `{role, text, ts, id, kind}` and scrubbed as events are (C-25.5). A tool
+Read from the transcript's tail backwards and rendered as `{role, text, ts,
+id, kind}`, scrubbed as events are (C-25.5). A page reads at most `READ_CAP`
+(4 MiB) of rows below its cursor, or the one row there when that row is larger
+(up to 64 MiB), and up to `RESULT_WINDOW` (8 MiB) past the cursor for the
+results of calls at the page's edge. A tool
 call is `kind: "tool"` with its redacted summary, its result preview and
 whether it failed, as a live `tool.completed` carries them; a credential-reading
 call is hidden, with no preview. Thinking the transcript kept is
@@ -68,13 +71,32 @@ def _below_cursor(path: Path, top: int):
     return transcripts.lines_reversed_with_offsets(path, end=top, max_bytes=READ_BUDGET, chunk=READ_CHUNK)
 
 
+#: Leading blank space longer than this is not looked through for a row.
+BLANK_PROBE = 64 * 1024
+
+
+def _earlier(path: Path, start: int) -> int | None:
+    """The cursor for what lies before the row at `start`: None when only blank
+    space does, so the page that reached the file's first row ends the history
+    rather than leaving one more, empty page to load."""
+    if start <= 0:
+        return None
+    if start > BLANK_PROBE:
+        return start
+    try:
+        with path.open("rb") as handle:
+            return start if handle.read(start).strip() else None
+    except OSError:
+        return start
+
+
 def _next_cursor(path: Path, top: int, last: int | None) -> int | None:
     """Where the next page starts once the rows ran out: None at the file's start;
     past a row too large for the reader when nothing below the cursor was read."""
     if last is None:
         start = transcripts.line_start(path, top - 1) if top > 0 else 0
-        return start or None
-    return last or None
+        return _earlier(path, start)
+    return _earlier(path, last)
 
 
 def _note_blocks(blocks: list[dict], results: dict[str, dict]) -> None:
@@ -118,7 +140,7 @@ def _claude_items(path: Path, before: int | None, limit: int) -> tuple[list[dict
     last: int | None = None
     for index, raw in _below_cursor(path, top):
         if last is not None and top - index > READ_CAP:
-            return items, last
+            return items, _earlier(path, last)
         last = index
         try:
             row = json.loads(raw)
@@ -147,7 +169,7 @@ def _claude_items(path: Path, before: int | None, limit: int) -> tuple[list[dict
                 items.append(_tool_item(str(block.get("name")), block.get("input"), tool_id,
                                         results.get(tool_id or ""), ts=row.get("timestamp"), cursor=index))
         if len(items) >= limit:
-            return items, index
+            return items, _earlier(path, index)
     return items, _next_cursor(path, top, last)
 
 
@@ -220,22 +242,33 @@ def _codex_call(payload: dict) -> tuple[str, Any]:
     return name, payload.get("action")
 
 
-#: The status line a code-mode or shell output starts with when the command
-#: failed. Only the first line is judged: a successful command's own output
-#: (a log it printed) may hold any of these words further down.
-_FAILED_OUTPUT = re.compile(r"\A\s*(Script failed|Process exited with code [1-9]|Exit code: [1-9])")
+#: A status line that says the command failed. Only an output's header is
+#: judged: its lines before the `Output:` line, or its first line when it has
+#: none. Code mode puts `Script failed` first; an `exec_command` output has
+#: `Chunk ID`, `Wall time`, then `Process exited with code N` (seen in lane
+#: rollouts, 2026-09-25). The command's own output (a log it printed) may hold
+#: any of these words.
+_FAILED_STATUS = re.compile(r"\s*(Script failed\b|Process exited with code -?[1-9]|Exit code: -?[1-9])")
+#: How much of an output's start holds its header.
+STATUS_HEAD = 4096
+
+
+def _failed_status(text: str) -> bool:
+    lines = text[:STATUS_HEAD].splitlines()
+    header = next((lines[:at] for at, line in enumerate(lines) if line.strip() == "Output:"), lines[:1])
+    return any(_FAILED_STATUS.match(line) for line in header)
 
 
 def _codex_outcome(output: Any) -> tuple[str, bool]:
     """An output's text and whether it reports a failure: `success: false`, a
-    nonzero `metadata.exit_code`, or a failing status line at its start."""
+    nonzero `metadata.exit_code`, or a failing status line in its header."""
     if isinstance(output, dict):
         text = str(output.get("content") or output.get("output") or "")
         code = (output.get("metadata") or {}).get("exit_code") if isinstance(output.get("metadata"), dict) else None
         failed = output.get("success") is False or (isinstance(code, int) and code != 0)
-        return text, failed or bool(_FAILED_OUTPUT.search(text))
+        return text, failed or _failed_status(text)
     text = _result_text(output)
-    return text, bool(_FAILED_OUTPUT.search(text))
+    return text, _failed_status(text)
 
 
 def _note_output(raw: str, outputs: dict[str, dict], row: dict | None = None) -> None:
@@ -265,7 +298,7 @@ def _codex_items(path: Path, before: int | None, limit: int) -> tuple[list[dict]
     last: int | None = None
     for index, raw in _below_cursor(path, top):
         if last is not None and top - index > READ_CAP:
-            return items, last
+            return items, _earlier(path, last)
         last = index
         try:
             row = json.loads(raw)
@@ -295,5 +328,5 @@ def _codex_items(path: Path, before: int | None, limit: int) -> tuple[list[dict]
         except (ValueError, TypeError, AttributeError):
             continue
         if len(items) >= limit:
-            return items, index
+            return items, _earlier(path, index)
     return items, _next_cursor(path, top, last)

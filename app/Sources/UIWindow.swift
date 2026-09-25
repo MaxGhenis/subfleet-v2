@@ -615,22 +615,30 @@ func diffStatusColor(_ status: String) -> Color {
 struct DiffLinesView: View {
     let sections: [DiffSection]
 
+    /// How wide a row is at least: the pane's width, less a vertical scroller the
+    /// system draws beside the content (the legacy style, with a mouse attached),
+    /// so a pane of short lines never scrolls sideways. Overlay scrollers take no
+    /// width. A line's colour runs to the edge; a longer line scrolls sideways.
+    static func rowWidth(pane: CGFloat, scrollerStyle: NSScroller.Style = NSScroller.preferredScrollerStyle) -> CGFloat {
+        let scroller = scrollerStyle == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return max(0, pane - scroller)
+    }
+
     var body: some View {
-        // Rows are at least as wide as the pane, so a line's colour runs to its
-        // edge; a longer line scrolls sideways.
         GeometryReader { geometry in
+            let width = Self.rowWidth(pane: geometry.size.width)
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(sections) { section in
                         Text(section.path).font(.system(.caption, design: .monospaced).bold())
                             .padding(.horizontal, 8).padding(.vertical, 5)
-                            .frame(minWidth: geometry.size.width, alignment: .leading)
+                            .frame(minWidth: width, alignment: .leading)
                             .background(Color.secondary.opacity(0.12))
                         if section.lines.isEmpty {
                             Text(section.binary ? "Binary file: no text to show." : "No line changes (a mode or a rename).")
                                 .font(.caption).foregroundStyle(.secondary).padding(8)
                         }
-                        ForEach(section.lines) { line in DiffLineRow(line: line, minWidth: geometry.size.width) }
+                        ForEach(section.lines) { line in DiffLineRow(line: line, minWidth: width) }
                     }
                 }
                 .textSelection(.enabled)

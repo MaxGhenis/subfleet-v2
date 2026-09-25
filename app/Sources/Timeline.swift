@@ -610,6 +610,19 @@ struct Timeline: Equatable {
 
     var needsHistory: Bool { !historyComplete }
 
+    /// How many rows the last history page added: none when it held only rows the
+    /// timeline leaves out (this conversation's own turns) or nothing to show.
+    private(set) var historyAddedByLastPage = 0
+
+    /// Whether "Load earlier" should fetch the next page at once: the page just
+    /// folded added nothing, and it handed on a cursor below the one it was
+    /// asked with (C-29.8: a page may be empty and still hand on a cursor, as when
+    /// a large tool result fills its read cap).
+    func shouldFollowHistory(askedBefore: Int?) -> Bool {
+        guard historyAddedByLastPage == 0, !historyComplete, let next = historyBefore else { return false }
+        return askedBefore.map { next < $0 } ?? true
+    }
+
     /// Fold one page of the native transcript (newest first). Rows of the
     /// conversation's Subfleet turns are left out, since the events show them:
     /// everything at or after the oldest user row that carries one of this
@@ -641,6 +654,7 @@ struct Timeline: Equatable {
             older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item), ts: item.ts))
         }
         history = older.reversed() + history
+        historyAddedByLastPage = older.count
     }
 
     /// A history row drawn as the live row of its kind: a tool call with its

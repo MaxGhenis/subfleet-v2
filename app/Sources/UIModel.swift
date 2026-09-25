@@ -344,13 +344,23 @@ final class UIModel: ObservableObject {
         if result.available && !result.isLive && turnChanges[messageID] != result.stats { turnChanges[messageID] = result.stats }
     }
 
+    /// Pages that add nothing are followed at once, up to this many per request,
+    /// so "Load earlier" shows something or reaches the start.
+    static let historyPagesFollowed = 16
+
     func loadHistory(_ conversationID: String) async {
-        guard let engine, let timeline = state.timelines[conversationID], !timeline.historyComplete else { return }
-        do {
-            let page = try await onOutbox { try engine.history(conversationID: conversationID, before: timeline.historyBefore) }
-            state.apply(history: page, conversationID: conversationID)
-        } catch {
-            // History is a courtesy: a transcript that cannot be read leaves the live turns.
+        guard let engine else { return }
+        for _ in 0..<Self.historyPagesFollowed {
+            guard let timeline = state.timelines[conversationID], !timeline.historyComplete else { return }
+            let before = timeline.historyBefore
+            do {
+                let page = try await onOutbox { try engine.history(conversationID: conversationID, before: before) }
+                state.apply(history: page, conversationID: conversationID)
+            } catch {
+                // History is a courtesy: a transcript that cannot be read leaves the live turns.
+                return
+            }
+            guard state.timelines[conversationID]?.shouldFollowHistory(askedBefore: before) == true else { return }
         }
     }
 

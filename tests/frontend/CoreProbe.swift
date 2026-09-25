@@ -185,6 +185,7 @@ func project(_ timeline: Timeline) -> [String: Any] {
         "items": timeline.items.map(project), "turns": Dictionary(uniqueKeysWithValues: timeline.order.compactMap { id in
             timeline.turn(id).map { (id, project($0)) } }),
         "history_before": timeline.historyBefore as Any? ?? NSNull(), "history_complete": timeline.historyComplete,
+        "history_added": timeline.historyAddedByLastPage,
         "unknown_kinds": timeline.unknownKinds, "pending_cards": timeline.pendingApprovalCards.map(project),
         "live_message": timeline.liveMessageID as Any? ?? NSNull(),
     ]
@@ -214,8 +215,9 @@ func runFold(_ data: Data) throws -> [String: Any] {
             timeline.attach(approvals: try approvals.decode([ApprovalView].self))
             results.append("approvals")
         } else if let history = step["history"] {
+            let asked = timeline.historyBefore
             timeline.apply(history: try history.decode(HistoryPage.self))
-            results.append("history")
+            results.append(timeline.shouldFollowHistory(askedBefore: asked) ? "history:follow" : "history")
         } else if let local = step["local"] {
             timeline.addLocal(messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "")
             results.append("local")

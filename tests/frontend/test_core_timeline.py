@@ -435,3 +435,22 @@ def test_c26_3_a_held_turn_says_where_the_session_is_open_and_a_stop_reads_stopp
     assert result["turns"][held]["status_text"] == (
         "Waiting: open in the Claude app or a terminal; close it there to continue here")
     assert result["turns"][running]["status_text"] == "Stopping"
+
+
+def test_c29_8_load_earlier_follows_pages_that_add_nothing(core_probe, tmp_path):
+    """A history page may add nothing (a large tool result filled its read cap, or
+    its rows are this conversation's own turns) yet hand on a cursor. "Load
+    earlier" then fetches the next page at once, while the cursor moves back and
+    until a page adds a row or the history ends; a cursor that does not move back
+    is never followed (review, 2026-09-25)."""
+    row = {"role": "assistant", "kind": "text", "text": "an old answer", "ts": None, "id": None, "cursor": 100}
+    result = fold(core_probe, tmp_path, "cv", [
+        {"history": {"items": [], "next_before": 5000}},                 # nothing, cursor handed on: follow
+        {"history": {"items": [], "next_before": 5000}},                 # same cursor again: stop
+        {"history": {"items": [], "next_before": 4000}},                 # nothing, moved back: follow
+        {"history": {"items": [row], "next_before": 100}},               # a row shown: stop
+        {"history": {"items": [], "next_before": None}},                 # the start: stop
+    ])
+    assert result["results"] == ["history:follow", "history", "history:follow", "history", "history"]
+    assert result["history_added"] == 0 and result["history_complete"] is True
+    assert [i.get("text") for i in result["items"]] == ["an old answer"]
