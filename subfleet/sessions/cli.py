@@ -133,8 +133,10 @@ def _guard(handler):
                 emit({"job_id": None, "request_id": exc.request_id, "outcome": "unknown",
                       "error": str(exc)})
             if hasattr(args, "request_id"):
+                # Only `handoff` takes --request-id, and its brief is rebuilt
+                # from a transcript that may have grown since (C-16.3).
                 return cli._submit_unknown(_verb(args), exc, exc.request_id,
-                                           supplied=bool(args.request_id))
+                                           supplied=bool(args.request_id), rebuilds=True)
             note(f"subfleet {_verb(args)}: outcome unknown: the daemon may have created "
                  f"the job, and no answer says whether it did ({'; then '.join(exc.reasons)})")
             note(f"  request id: {exc.request_id}")
@@ -293,7 +295,7 @@ def _continue_cold(args: argparse.Namespace) -> int:
             force=bool(getattr(args, "force", False)),
             model=getattr(args, "model", None),
             dry_run=bool(getattr(args, "dry_run", False)),
-            request_id=request_id)
+            request_id=request_id, minted=True)
         attempts.append(attempt)
         launched += int(attempt.admitted)
     if args.json:
@@ -334,7 +336,7 @@ def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
             model=args.target, stage_prompt=_stage(args, request_id),
             workdir=candidate.cwd, task=getattr(args, "task", None),
             tier=getattr(args, "tier", None), caller_session=cli.session_id(),
-            caller_pid=cli.caller_pid(), request_id=request_id,
+            caller_pid=cli.caller_pid(), request_id=request_id, minted=True,
             dry_run=bool(getattr(args, "dry_run", False)))
         rows.append({"session_id": candidate.session_id, "job_id": result.job_id,
                      "reason": f"handed off to {args.target}",
@@ -367,7 +369,7 @@ def cmd_revive(args: argparse.Namespace) -> int:
         model=getattr(args, "model", None),
         workdir=getattr(args, "C", None),
         dry_run=bool(getattr(args, "dry_run", False)),
-        request_id=request_id)
+        request_id=request_id, minted=True)            # C-16.3: minted just above
     if args.json:
         emit(attempt.to_dict())
         if attempt.admitted or getattr(args, "dry_run", False):
@@ -508,7 +510,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
         out_path=(str(Path(args.o).expanduser().absolute())
                   if getattr(args, "o", None) else None),
         current_session=os.environ.get("CLAUDE_CODE_SESSION_ID"),
-        request_id=request_id,
+        request_id=request_id, minted=not getattr(args, "request_id", None),   # C-16.3
         lane_ids=sessions.state([]).get("lane_sessions") or [],
         dry_run=bool(getattr(args, "dry_run", False)))
     if args.json:

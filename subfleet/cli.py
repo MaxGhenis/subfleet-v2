@@ -710,16 +710,24 @@ def _look_command(request_id: str) -> str:
 
 
 def _submit_unknown(verb: str, exc: OutcomeUnknown, request_id: str, *,
-                    supplied: bool) -> int:
+                    supplied: bool, rebuilds: bool = False) -> int:
     """C-16.3, C-17.3: a submission whose outcome could not be learned is exit 1.
 
     Never "not submitted": the daemon may have committed it. Stdout carries no
     job id, because none is known; stderr names the request id and the command
-    that settles the question without risking a second job.
+    that settles the question without risking a second job. `rebuilds` is for a
+    verb whose payload is rebuilt on every run (a handoff's brief comes from a
+    transcript that keeps growing), where the lookup, not a re-run, settles it.
     """
     note(f"{PROG} {verb}: outcome unknown: the daemon may have created the job, and no "
          f"answer says whether it did ({'; then '.join(exc.reasons)})")
     note(f"  request id: {request_id}")
+    if rebuilds:
+        note(f"  settle it: {_look_command(request_id)}")
+        note(f"  a re-run with --request-id {shlex.quote(request_id)} rebuilds the payload, "
+             f"so it may be refused as a different payload; that refusal names the job "
+             f"(C-6.2) and never creates a second one")
+        return int(Exit.OPERATIONAL)
     if supplied:
         note("  settle it: re-run this command; its --request-id never creates a second "
              "job (C-6.2)")
@@ -1040,7 +1048,8 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
             elif row["outcome"] == "unknown":
                 note(f"  [{row['index']}] {row['name']} outcome unknown (request id "
                      f"{row['request_id']}): the daemon may have created it "
-                     f"({notes.get(row['index']) or row['error']})")
+                     f"({notes.get(row['index']) or row['error']}) · look: "
+                     f"{_look_command(row['request_id'])}")
             else:
                 note(f"  [{row['index']}] {row['name']} {row['error']}")
         if submitted:
@@ -1599,18 +1608,18 @@ def cmd_kill(args: argparse.Namespace) -> int:
             if resolution:
                 # A quarantine resolution, not a cancel: plain `kill` would only
                 # answer "already finished" and resolve nothing (C-5.7).
-                again = f"{PROG} kill {job_id} {resolution}" + (
+                again = f"{PROG} kill {shlex.quote(job_id)} {resolution}" + (
                     f" --note {shlex.quote(args.note)}" if args.note else "")
                 note(f"{PROG} kill: {job_id}: outcome unknown: the {resolution} resolution may "
                      f"have been requested, and no answer says whether it was "
                      f"({'; then '.join(exc.reasons)})")
-                note(f"  {PROG} runs show {job_id} shows the attempt's state and the leases it "
-                     f"holds; running {again} again is safe (C-16.3)")
+                note(f"  {PROG} runs show {shlex.quote(job_id)} shows whether the attempt is "
+                     f"still quarantined; running {again} again is safe (C-16.3)")
             else:
                 note(f"{PROG} kill: {job_id}: outcome unknown: the cancel may have been recorded, "
                      f"and no answer says whether it was ({'; then '.join(exc.reasons)})")
-                note(f"  {PROG} runs show {job_id} shows cancel_requested_at; running "
-                     f"{PROG} kill {job_id} again is safe (C-7.1)")
+                note(f"  {PROG} runs show {shlex.quote(job_id)} shows cancel_requested_at; running "
+                     f"{PROG} kill {shlex.quote(job_id)} again is safe (C-7.1)")
         except DaemonUnavailable as exc:
             if args.confirm_dead or args.force_release:
                 # Both resolutions release leases and record an event, and only

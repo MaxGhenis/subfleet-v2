@@ -651,7 +651,9 @@ def test_c16_3_sessions_verbs_report_an_unknown_outcome(monkeypatch, capsys, roo
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {"job_id": None, "request_id": "rid-7",
                                         "outcome": "unknown", "error": str(unknown)}
-    assert "settle it: re-run this command with --request-id rid-7" in captured.err
+    # A handoff's brief is rebuilt from a growing transcript: the lookup settles it.
+    assert "settle it: subfleet runs --request-id rid-7 --json" in captured.err
+    assert "a re-run with --request-id rid-7 rebuilds the payload" in captured.err
 
 
 # --- review round 1 (2026-09-25): provenance, lookups, resolutions, quoting ------
@@ -733,3 +735,50 @@ def test_c16_3_an_unknown_resolution_says_to_repeat_the_resolution(daemon, capsy
     assert f"the {flag} resolution may have been requested" in err
     assert f"subfleet kill JOB-1 {flag} --note 'checked by hand' again is safe" in err
     assert "cancel_requested_at" not in err
+
+
+class _Captured(Exception):
+    """Stops a sessions verb at the kit call, carrying the arguments it was given."""
+
+
+@pytest.mark.parametrize("argv,minted", [
+    (["sessions", "revive", "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"], True),
+    (["handoff", "--last", "--to", "opus"], True),
+    (["handoff", "--last", "--to", "opus", "--request-id", "operator-rid"], False),
+])
+def test_c16_3_the_sessions_verbs_pass_whose_request_id_it_is(monkeypatch, root, argv, minted):
+    """C-16.3 (review round 2): the CLI mints the id before calling revive/handoff (the
+    staged prompt is named after it), so it must say it minted it; only an operator's
+    --request-id is not minted. Revive and handoff pass it on to the kit (tested in
+    test_sessions_revive/handoff), and the kit settles with it (tested above)."""
+    from subfleet.sessions import cli as sessions_cli
+    from subfleet.sessions import handoff as handoff_module
+    from subfleet.sessions import revive as revive_module
+
+    def capture(*args, **kwargs):
+        raise _Captured(kwargs)
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: {})
+    monkeypatch.setattr(sessions_cli.Sessions, "state", lambda self, ids=None: {})
+    monkeypatch.setattr(revive_module, "revive", capture)
+    monkeypatch.setattr(handoff_module, "handoff", capture)
+    with pytest.raises(_Captured) as caught:
+        cli.main(argv)
+    kwargs = caught.value.args[0]
+    assert kwargs["minted"] is minted
+    assert kwargs["request_id"] == ("operator-rid" if not minted else kwargs["request_id"])
+
+
+def test_c16_3_every_sessions_call_into_revive_or_handoff_says_whose_id_it_is():
+    """C-16.3: `sessions continue` mints each revive's or handoff's id itself, as
+    `sessions revive` does; every call from the sessions CLI names `minted`, so a
+    new call site cannot silently fall back to "the operator's id"."""
+    import ast
+    import inspect
+    from subfleet.sessions import cli as sessions_cli
+    calls = [node for node in ast.walk(ast.parse(inspect.getsource(sessions_cli)))
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and isinstance(node.func.value, ast.Name)
+             and (node.func.value.id, node.func.attr) in {("revive_module", "revive"),
+                                                          ("handoff_module", "handoff")}]
+    assert len(calls) == 4                     # continue (revive, handoff), revive, handoff
+    assert all(any(k.arg == "minted" for k in call.keywords) for call in calls)
