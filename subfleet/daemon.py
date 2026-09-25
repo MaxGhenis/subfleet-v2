@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
+import errno
 import fcntl
 import hashlib
 import json
@@ -172,6 +173,40 @@ def json_bytes(value: Any) -> bytes:
     return (json.dumps(value, sort_keys=True, ensure_ascii=False) + "\n").encode()
 
 
+#: How many client connections the daemon serves at once. A connection holds one
+#: reader thread from connect until its client closes, including while its
+#: request runs in another pool or waits as a long poll, so the reader pool is
+#: this size; a connection past it is told the daemon is busy at once rather than
+#: queued until its client gives up. (2026-09-25: 32 readers and 71 open
+#: connections, from `wait`s, the app's watches and hooks, left every new request
+#: waiting out the client's 15 s.)
+MAX_CONNECTIONS = 512
+#: The descriptor soft limit the daemon asks for at start: room for every
+#: connection, the stores, and the pipes of the processes it starts. launchd
+#: starts an agent with 256, and `accept` failing with EMFILE stopped the daemon
+#: (eleven times in the log by 2026-09-25).
+OPEN_FILES = 4096
+#: Errors `accept` returns while the system is short of descriptors or memory, or
+#: a client gave up in the queue: the daemon keeps serving and tries again.
+ACCEPT_TRANSIENT = frozenset({errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM, errno.ECONNABORTED,
+                              errno.EINTR})
+
+
+def raise_open_file_limit(want: int = OPEN_FILES) -> tuple[int, int]:
+    """Raise the descriptor soft limit toward `want`, never past the hard limit, and
+    return the (soft, hard) limits in force afterwards."""
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target = want if hard == resource.RLIM_INFINITY else min(want, hard)
+    if soft != resource.RLIM_INFINITY and soft < target:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            soft = target
+        except (ValueError, OSError):
+            pass            # the kernel's own cap is lower: keep what there is
+    return soft, hard
+
+
 class DaemonUnavailable(RuntimeError):
     code = 69
 
@@ -257,7 +292,8 @@ class Daemon:
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
-        self.readers = ThreadPoolExecutor(max_workers=32, thread_name_prefix="subfleet-socket")
+        self.readers = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-socket")
+        self._accept_trouble_logged = 0.0
         self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
         # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
         from .conversations.service import ConversationService
@@ -3646,15 +3682,47 @@ class Daemon:
                     conn, _ = self._socket.accept()
                 except socket.timeout:
                     continue
-                except OSError:
+                except OSError as exc:
                     if self.stopping.is_set():
                         break
-                    raise
+                    if exc.errno not in ACCEPT_TRANSIENT:
+                        raise
+                    # The connection stays queued; the daemon keeps serving the
+                    # ones it has and tries again (before, it exited here).
+                    self._accept_trouble(exc)
+                    continue
                 with self._connection_lock:
-                    self._connections.add(conn)
+                    busy = len(self._connections) >= MAX_CONNECTIONS
+                    if not busy:
+                        self._connections.add(conn)
+                if busy:
+                    self._refuse_busy(conn)
+                    continue
                 self.readers.submit(self._connection, conn)
         finally:
             self.close()
+
+    def _accept_trouble(self, exc: OSError) -> None:
+        """Say so at most once a minute, and pause so a full queue is not spun on."""
+        now = time.monotonic()
+        if now - self._accept_trouble_logged >= 60:
+            self._accept_trouble_logged = now
+            with self._connection_lock:
+                open_now = len(self._connections)
+            self.log.warning("accept failed (%s) with %d connections open; serving on", exc, open_now)
+        self.stopping.wait(.2)
+
+    def _refuse_busy(self, conn: socket.socket) -> None:
+        """A connection past `MAX_CONNECTIONS` is answered at once, never queued."""
+        try:
+            conn.settimeout(1)
+            conn.sendall(protocol.encode(protocol.fail(
+                "", Exit.DAEMON_UNAVAILABLE, f"the daemon is serving {MAX_CONNECTIONS} connections",
+                fix="try again shortly")))
+        except OSError:
+            pass
+        finally:
+            conn.close()
 
     def close(self) -> None:
         if self._closed:
@@ -3690,11 +3758,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--foreground", action="store_true")
     parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
     args = parser.parse_args(argv)
+    limits = raise_open_file_limit()
     try:
         daemon = Daemon(args.state_root)
     except DaemonUnavailable as exc:
         print(str(exc), file=sys.stderr)
         return 69
+    daemon.log.info("open files: soft limit %s, hard limit %s", *limits)
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: daemon.stopping.set())
     daemon.serve_forever()
