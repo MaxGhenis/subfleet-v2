@@ -174,9 +174,14 @@ class Harness:
             stream.close()
         self.check_notices()
 
+    #: A test that rewrites a finished job's row into a state the daemon never
+    #: gives one (for example `running` again) turns this off: its notice then
+    #: disagrees with a row no daemon wrote.
+    notice_check = True
+
     def check_notices(self) -> None:
         """C-15.1: every notice's header is its job row's state and rc (2026-09-24)."""
-        if (self.root / "state.sqlite3").exists():
+        if self.notice_check and (self.root / "state.sqlite3").exists():
             from tests.fake.notice_invariant import notice_mismatches
             problems = notice_mismatches(self.rows)
             assert not problems, "C-15.1 notice headers disagree with job rows:\n" + "\n".join(problems)
