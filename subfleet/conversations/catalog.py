@@ -306,6 +306,37 @@ def _atomic(path: Path, value: Any) -> None:
 # --- readers the daemon uses ----------------------------------------------------
 
 
+#: The last parse of each catalog file, by path: (file identity, catalog, state).
+#: The app lists every 30 s and opens call here too; one parse per catalog run
+#: keeps ~70k objects per call out of the daemon's garbage collector, whose
+#: passes held the GIL for minutes while the machine was swapping (2026-09-25).
+#: Callers treat the catalog and its items as read-only.
+_PARSED: dict[str, tuple[tuple, dict, str]] = {}
+
+
+def _load(path: Path) -> tuple[dict, str]:
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return {}, "absent"
+    except OSError:
+        return {}, "unreadable"
+    identity = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+    hit = _PARSED.get(str(path))
+    if hit and hit[0] == identity:
+        return hit[1], hit[2]
+    try:
+        catalog, state = json.loads(path.read_text()), "fresh"
+    except FileNotFoundError:
+        return {}, "absent"
+    except (OSError, ValueError):
+        catalog, state = {}, "unreadable"
+    if not isinstance(catalog, dict):
+        catalog, state = {}, "unreadable"
+    _PARSED[str(path)] = (identity, catalog, state)
+    return catalog, state
+
+
 def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = None, limit: int = 200,
                  before: str | None = None, include_archived: bool = False, stale_after_s: float | None = None,
                  now: datetime | None = None) -> dict:
@@ -315,15 +346,7 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
     `unreadable`, `stale` (older than `stale_after_s`) or `fresh`, with its age;
     a missing, damaged or old catalog never fails `conversation.list`.
     """
-    try:
-        catalog = json.loads((Path(root) / "catalog.json").read_text())
-        state = "fresh"
-    except FileNotFoundError:
-        catalog, state = {}, "absent"
-    except (OSError, ValueError):
-        catalog, state = {}, "unreadable"
-    if not isinstance(catalog, dict):
-        catalog, state = {}, "unreadable"
+    catalog, state = _load(Path(root) / "catalog.json")
     generated_at = catalog.get("generated_at") if isinstance(catalog.get("generated_at"), str) else None
     age_s = None
     if generated_at:

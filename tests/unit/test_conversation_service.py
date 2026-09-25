@@ -883,3 +883,22 @@ def test_a_limited_turns_continuation_exists_before_the_failure_is_visible(svc, 
     svc._on_outcome(runner)
     follow = svc.store.query("SELECT origin, state FROM messages WHERE continues=?", (mid,))
     assert follow == [{"origin": "failover", "state": "queued"}]
+
+
+def test_the_catalog_is_parsed_once_per_version_of_the_file(svc, runs, monkeypatch):
+    """D-23: the app lists every 30 s and opens read the live set too; parsing a
+    ~3 MB catalog per call fed the collector passes that stalled the daemon
+    under swap (2026-09-25). One parse per version of the file; a rewrite, even
+    at the same size, is read again."""
+    from datetime import UTC, datetime
+    parses = []
+    real = catalog_module.json.loads
+    monkeypatch.setattr(catalog_module.json, "loads", lambda text: parses.append(1) or real(text))
+    now = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    write_catalog(svc.root, now, [{"provider": "claude", "native_session_id": "s-1", "mtime": 1.0}])
+    for _ in range(3):
+        svc.handle("conversation.list", {}, None)
+    assert len(parses) == 1
+    write_catalog(svc.root, now, [{"provider": "claude", "native_session_id": "s-2", "mtime": 1.0}])
+    assert [i["native_session_id"] for i in svc.handle("conversation.list", {}, None)["catalog"]["items"]] == ["s-2"]
+    assert len(parses) == 2
