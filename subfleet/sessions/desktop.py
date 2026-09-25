@@ -10,8 +10,9 @@ loaded folder after that listing stays out of the running app's sidebar until
 the next initialization. (Read from the app bundle 2.7032.0 on 2026-09-24:
 `doInitialize` → `loadSessions` → `loadSessionRecords` is the only reader, and
 no watcher, timer, focus handler or IPC call reaches it. Confirmed on the live
-app the same day: 19 records the mirror copied at 17:13-17:14 ET were "not
-found" until the 17:24:47 relaunch listed them.)
+app the same day: `list_sessions` omitted all 19 records the mirror copied at
+17:13-17:14 ET, and `get_session` found none of the two it was asked about,
+until the 17:24:47 load; after it, `get_session` found all 19.)
 
 So the mirror needs two facts it cannot get from the files: which folder the
 app has loaded, and when. The app logs both to `~/Library/Logs/Claude/main.log`:
@@ -37,12 +38,13 @@ load that starts from an empty list is "fresh" for a record the app holds.
 The log is a diagnostic, not an interface: this module reads it read-only,
 never depends on it for copying, and reports `None` rather than guessing when
 the lines it knows are absent. Timestamps are the app's local wall clock,
-whole seconds, with no zone. They are read in the zone the app wrote them in,
-not the reader's: each file's UTC offset is its newest line's wall time
-against the file's own mtime (the app appends constantly), so a reader in
-another zone after a trip still places every load correctly. A zone change in
-the middle of one file (a trip, or a DST change within the file's one or two
-days) shifts that file's earlier lines by the difference.
+whole seconds, with no zone. They are read in the zone the app wrote them in:
+each file's UTC offset is its newest line's wall time against the file's own
+mtime (the app appends constantly). When that matches the reader's zone, each
+line is converted with its own date's DST; when the reader has since moved to
+another zone, the file's offset is applied to every line, so a DST change
+inside that one file (one or two days of log) shifts its earlier lines by an
+hour.
 """
 
 from __future__ import annotations
@@ -50,7 +52,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 
@@ -111,13 +113,6 @@ class AppState:
     #: A logout after that load: the list stays in memory until the next login.
     logged_out_at: datetime | None = None
     error: str | None = None
-    #: `"<account>/<org>" ->` the start of the latest fresh load of that folder
-    #: anywhere in the log read so far, so a caller can ask whether the app has
-    #: re-read a folder since some instant.
-    fresh_loads: dict[str, datetime] = field(default_factory=dict)
-    #: The earliest instant the log read so far covers; before it, the absence
-    #: of a load says nothing.
-    covers_since: datetime | None = None
 
 
 class DesktopLog:
@@ -138,9 +133,8 @@ class DesktopLog:
         self._offset = 0
         self._partial = b""
         self._pending_init: tuple[str, str, datetime, int] | None = None
-        self._fresh_loads: dict[str, datetime] = {}
-        self._covers_since: datetime | None = None
-        #: The file being read's UTC offset in seconds (wall clock minus UTC).
+        #: The file being read's UTC offset in seconds (wall clock minus UTC),
+        #: when it differs from the reader's own zone at the file's mtime.
         self._utc_offset: float | None = None
         self.state = AppState()
 
@@ -156,7 +150,7 @@ class DesktopLog:
         if self._utc_offset is not None:
             return datetime.fromtimestamp(
                 naive.replace(tzinfo=timezone.utc).timestamp() - self._utc_offset, timezone.utc)
-        # No calibration yet: the reader's zone; mktime applies that date's DST.
+        # The writer's zone is the reader's: mktime applies each line's own DST.
         return datetime.fromtimestamp(time.mktime(naive.timetuple()), timezone.utc)
 
     def _calibrate(self, data: bytes, mtime: float) -> None:
@@ -176,8 +170,12 @@ class DesktopLog:
                 naive = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 continue
-            offset = naive.replace(tzinfo=timezone.utc).timestamp() - mtime
-            self._utc_offset = round(offset / 900) * 900
+            offset = round((naive.replace(tzinfo=timezone.utc).timestamp() - mtime) / 900) * 900
+            local = datetime.fromtimestamp(mtime).astimezone().utcoffset()
+            here = local.total_seconds() if local is not None else None
+            # Same zone as the reader: keep mktime, which gets each line's DST
+            # right. Another zone (the reader moved): the file's fixed offset.
+            self._utc_offset = None if here == offset else offset
             return
 
     def _store_dir(self) -> Path:
@@ -236,22 +234,16 @@ class DesktopLog:
         previous = self.state.load
         same = previous is not None and (previous.account, previous.org) == folder
         # A load that began from a non-empty list of the SAME folder only adds
-        # ids; any other load starts from an empty list.
-        fresh = not same or existing == 0 or previous.missing
+        # ids; any other load starts from an empty list. Without the
+        # "Initialization succeeded" line the size of the list is unknown, and
+        # the load is taken as fresh, as launches and switches (most loads) are.
+        fresh = not same or existing is None or existing == 0 or previous.missing
         load = Load(account=folder[0], org=folder[1], started_at=started,
                     fresh_started_at=started if fresh else previous.fresh_started_at,
                     loaded_at=None if missing else at, count=count, missing=missing)
-        self._fresh_loads[load.folder] = load.fresh_started_at
-        self.state = AppState(load=load, logged_out_at=None, error=None,
-                              fresh_loads=dict(self._fresh_loads),
-                              covers_since=self._covers_since)
+        self.state = AppState(load=load, logged_out_at=None, error=None)
 
     def _consume(self, data: bytes, *, final: bool = False) -> None:
-        if self._covers_since is None and data:
-            first = _LINE.match((self._partial + data).split(b"\n", 1)[0]
-                                .decode("utf-8", "replace"))
-            if first:
-                self._covers_since = self._instant(first.group(1))
         data = self._partial + data
         lines = data.split(b"\n")
         self._partial = b"" if final else lines.pop()
@@ -303,8 +295,8 @@ class DesktopLog:
         except OSError as exc:
             self.state = replace(self.state, error=f"cannot read {self.path}: {exc.strerror}")
             return self.state
-        self.state = replace(self.state, error=None, fresh_loads=dict(self._fresh_loads),
-                             covers_since=self._covers_since)
+        if self.state.error:
+            self.state = replace(self.state, error=None)
         return self.state
 
 

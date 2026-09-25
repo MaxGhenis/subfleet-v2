@@ -156,22 +156,15 @@ Commit on `fix/mirror-load-time-gap`; clause C-23.28, second half.
   - Flag sync re-reads the record and patches only the synced fields. If those
     fields moved since the inventory, it skips the write and holds that
     session's merge base, so the next pass decides on what is there.
-  - An app's stale re-save no longer undoes a user's archive, star or rename.
-    The app saves from memory, so a session still running from an earlier
-    account (or a loaded folder the mirror wrote into) writes back the value it
-    held. Before this, flag sync took such a re-save for a user's change and
-    spread it to every account. Now, while the app's log is readable:
-    - for each field the mirror wrote into a copy since that folder's last
-      fresh load, the app is taken to hold the value the earliest such write
-      replaced, until an app save shows it holding something else;
-    - a rewritten copy whose field equals that held value has no say in the
-      merge and is written back;
-    - a copy that is still exactly the mirror's own write has no vote at all,
-      so a merge base held after a lost write race cannot let the mirror's
-      writes outvote the user.
-  - The stale-empty repair skips a record the app emptied itself: /clear
-    records the old id in `priorCliSessionIds` first, and a cwd or worktree
-    move changes `cwd`. Repairing those would undo the /clear at the next load.
+  - Each session's flag writes are all or nothing: if any copy's synced
+    fields moved since the pass read it, none is written and the session's
+    merge base is held, so a partial write cannot later outvote the user.
+  - The stale-empty repair skips a record the app moved off this session:
+    /clear records the id it leaves in `priorCliSessionIds` first, and a cwd or
+    worktree move changes `cwd` on a record newer than the copy. Repairing those
+    would undo the /clear at the next load. A frozen or torn copy is still
+    repaired, as v1 did.
+  - Written files are fsynced before the rename, as the app does.
   - A folder that cannot be listed is skipped for that pass rather than taken
     as empty, and the write journal merges rows another process (a manual
     `sessions mirror`) saved, so the report counts every late copy.
@@ -203,13 +196,24 @@ different measure (RSS), so it is given only for scale.
   app's next save of that record overwrites it there (the mirror then writes it
   back, and the other folders keep the right value). The report counts these
   as `stale`. Preventing that needs the app to reload, which only it can do.
-- **A set-and-reverse inside one full pass.** If the mirror wrote a value into
-  the loaded folder after its load, and the user sets that same value and
-  reverts it within one full-pass interval, the reversal looks like a stale
-  re-save and is written back. After the interval, an app save showing the
-  value is recorded, and a later reversal counts as the user's.
-- **A zone change within one log file.** A trip, or a DST change within the
-  file's one or two days, shifts that file's earlier lines by the difference.
+- **An app's stale re-save can read as a user's change.** The app saves a
+  record from memory, so a folder it holds (the loaded one, or one where an
+  earlier account's session still runs) can write back a flag or title the
+  mirror changed there. The merge base, unchanged from v1, reads that as a user
+  action and spreads it. Three review rounds of a guard that tried to tell the
+  two apart each found ways it undid a user's real change in every account,
+  which is worse than this narrow case, so the guard was removed. Telling them
+  apart reliably needs a separate design.
+- **A split flag batch.** An app save that lands between the last check and a
+  rename can still split one session's batch; its merge base is then held, and
+  a user reversal within the next full pass can lose to the mirror's half.
+- **A zone change within one log file.** When the reader is in another zone
+  than the one a log file was written in, a DST change inside that file (one
+  or two days of log) shifts its earlier lines by an hour.
+- **Store growth.** Every new session is copied into 120 folders and nothing
+  is pruned: 4.7k to 10k entries a day on 2026-09-24. The index's 1M-entry
+  cache limit is months away; past it, passes slow (never go wrong), and the
+  store itself needs pruning of archived and dead sessions before then.
 - **Dependence on the app's log.** The report relies on the app's log lines.
   The log is a diagnostic, not an interface. If the lines change, the report
   says `unknown` rather than guessing, and copying is unaffected.
