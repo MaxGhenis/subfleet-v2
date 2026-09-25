@@ -258,6 +258,17 @@ def test_authentication_precedes_admission_and_quota(tmp_path):
     assert outcome.closure is None
 
 
+def test_a_refused_api_key_is_dead_authentication_not_a_transient_failure(tmp_path):
+    """C-9.2: the lane's credential refused outright (the event codex-3 emitted on
+    every attempt, 2026-09-25) is AUTH_DEAD, so the lane leaves routing instead of
+    each job spending its attempts on it; a bare 401 is still transient."""
+    message = ("unexpected status 401 Unauthorized: Incorrect API key provided: sk-svcac****fvMA. "
+               "You can find your API key at https://platform.openai.com/account/api-keys.")
+    launch = _events(tmp_path, {"type": "error", "message": f"Reconnecting... 5/5 ({message})"},
+                     {"type": "turn.failed", "error": {"message": message}})
+    assert CodexAdapter().classify(tmp_path, launch, _exit(rc=1)).cls == OutcomeClass.AUTH_DEAD
+
+
 def test_content_filter_admission_precedes_quota(tmp_path):
     """C-9.2 C-4.5 Admission content filtering takes precedence over quota-looking evidence."""
     launch = _events(tmp_path, {"type": "turn.failed", "error": {"message": "You've hit your usage limit."}},

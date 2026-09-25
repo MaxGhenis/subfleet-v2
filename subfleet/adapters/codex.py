@@ -34,6 +34,10 @@ ROLLOUT_THREAD_RE = re.compile(
 )
 ATTESTATION_CANDIDATE_LIMIT = 32
 AUTH_RE = re.compile(
+    # The lane's credential itself was refused, not a moment's 401: "Incorrect
+    # API key provided" after Codex's five reconnects (codex-1, -3 and -6 failed
+    # every job this way on 2026-09-25 while classed transient).
+    r"incorrect api key provided|\binvalid_api_key\b|"
     r"refresh[ _-]token.{0,60}revoked|"
     r"(?:organi[sz]ation|organization_id).{0,60}(?:blocked|disabled|deactivated)|"
     r"(?:wham/usage|usage endpoint).{0,100}\b401\b|"
