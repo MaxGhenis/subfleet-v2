@@ -62,6 +62,18 @@ def _emit(result: dict, as_json: bool) -> None:
               + (f" — {result['message']}" if result.get("message") else ""))
 
 
+def _preview_policy(root: Path) -> dict:
+    """C-19.1, C-11.1: a dry run checks against the validated live policy, or the shipped
+    one when the live file is missing or invalid, so a preview refuses what start refuses."""
+    from ..policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
+    for path in (root / "policy.json", DEFAULT_POLICY_PATH):
+        try:
+            return load_policy(path)
+        except (PolicyError, OSError):
+            continue
+    return {}
+
+
 def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         poll_interval: float = .25) -> int:
     from .service import preview
@@ -72,11 +84,7 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         if getattr(args, "peer", None) == "sol":
             print("subfleet gate: sol is retired from dispatch; using astra", file=sys.stderr)
         if args.dry_run:
-            try:
-                policy = json.loads((root / "policy.json").read_text())
-            except FileNotFoundError:
-                policy = {}
-            result = preview(args, root, runner=runner, policy=policy)
+            result = preview(args, root, runner=runner, policy=_preview_policy(root))
             print(json.dumps(result, sort_keys=True, indent=None if args.json else 2))
             return 0
         for key in MANAGED:

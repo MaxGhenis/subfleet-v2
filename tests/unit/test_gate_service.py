@@ -280,6 +280,27 @@ def test_dry_run_refuses_what_start_refuses(core, tmp_path, change, message):
     assert core.store.list_jobs() == [] and not (core.root / "gates").exists()
 
 
+@pytest.mark.parametrize("live_policy", [None, "{not json", '{"models": {}}'])
+def test_cli_dry_run_checks_the_main_model_against_a_valid_policy(tmp_path, capsys, live_policy):
+    """C-19.1, C-11.1: with the live policy.json missing, malformed or invalid, the CLI dry run
+    checks against the shipped policy: an unknown main model exits 2 with the one-line error,
+    and a retired alias resolves."""
+    from subfleet.gate import cli as gate_cli
+    root = tmp_path / "state"
+    root.mkdir()
+    if live_policy is not None:
+        (root / "policy.json").write_text(live_policy)
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview through the CLI\n")
+    def preview_with(main_model):
+        return gate_cli.run(cli.build_parser().parse_args(
+            ["gate", "plan", str(plan), "--peer", "opus", "--dry-run", "--main-model", main_model]), root=root)
+    assert preview_with("gpt-9") == 2
+    assert capsys.readouterr().err.strip() == "subfleet gate: unknown --main-model"
+    assert preview_with("sol") == 0
+    assert not (root / "gates").exists()
+
+
 def test_dry_run_resolves_a_retired_main_model(core, tmp_path):
     """C-19.1, C-17.1: `--main-model sol` resolves as `-m sol` does, in a preview too."""
     plan = tmp_path / "plan.md"
