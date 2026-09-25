@@ -142,6 +142,24 @@ def test_read_only_launch_can_omit_guard(tmp_path):
     assert not any(value.startswith("hooks=") for value in launch.argv)
 
 
+def test_a_probe_turn_may_run_outside_a_repository_and_work_may_not(tmp_path):
+    """C-11.4, C-12.3, C-18.3: a probe or timer turn (heal, touch) runs in a private directory
+    under the state root, which is never a repository; `codex exec` refuses an untrusted one
+    without `--skip-git-repo-check`. Work keeps codex's own repository check."""
+    (tmp_path / "prompt").write_bytes(b"Reply with exactly OK. Do not use tools.\n")
+    probe = replace(_job(tmp_path, tmp_path / "prompt"), kind="probe")
+    launch = CodexAdapter(codex_bin="/test/bin/codex").build_launch(
+        probe, "probe:timer:token", tmp_path / "attempt", _lane(tmp_path / "home"),
+        {"CODEX_HOME": str(tmp_path / "home")}, "gpt-5.6-luna", None, tmp_path / "prompt", GUARD_OVERRIDE)
+    assert launch.argv[:4] == ("/test/bin/codex", "exec", "--json", "--skip-git-repo-check")
+    assert launch.argv[launch.argv.index("-m") + 1] == "gpt-5.6-luna"
+    assert GUARD_OVERRIDE in launch.argv
+    work = CodexAdapter().build_launch(
+        _job(tmp_path, tmp_path / "prompt"), "job/a1", tmp_path / "work-attempt", _lane(tmp_path / "home"),
+        {"CODEX_HOME": str(tmp_path / "home")}, MODEL, None, tmp_path / "prompt", GUARD_OVERRIDE)
+    assert "--skip-git-repo-check" not in work.argv
+
+
 def test_workspace_write_requires_guard_override(tmp_path):
     """C-14.3 An executable workspace-write launch requires the guard override."""
     with pytest.raises(AdapterError) as exc:

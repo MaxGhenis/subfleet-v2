@@ -430,6 +430,13 @@ class CodexAdapter(Adapter):
             argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
                                inspector=getattr(self, "isolation_inspector", None))
+        elif job.kind == "probe":
+            # C-11.4, C-18.3: a probe or timer turn (heal, touch) runs in a private
+            # directory under the state root that is never a repository, and
+            # `codex exec` exits 1 in an untrusted one without this flag (codex-cli
+            # 0.153.3: "Not inside a trusted directory and --skip-git-repo-check
+            # was not specified").
+            argv += ["--skip-git-repo-check"]
         if model_id:
             argv += ["-m", model_id]
         if effort:
