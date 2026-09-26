@@ -89,6 +89,8 @@ EXTERNAL_WRITER_RECHECK_S = 5.0
 #: A Codex thread's other writer is seen only by starting a provider: every 30 s.
 CODEX_WRITER_RECHECK_S = 30.0
 DEFER_MAX_S = 300.0
+# The handover locks (`ConversationService._handover`, C-24.7).
+HANDOVER_STRIPES = 64
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
 # times that is wedged outside the cap (a directory walk, `ps`) and is stopped.
 CATALOG_KILL_AFTER_S = 60.0
@@ -126,6 +128,11 @@ class ConversationService:
         # A person's cancel and stop of messages never interleave: each records,
         # and a cancel may clear, a stop the other must not lose (C-24.7).
         self._stops = threading.Lock()
+        # C-24.7: a person's stop is recorded, and a runner hands its message frame
+        # to the relay, under the message's lock, so whichever comes first is seen
+        # by the other: a stop recorded first means the message is never written.
+        # Striped by message id, so a relay slow to answer holds up few others.
+        self._handovers = tuple(threading.Lock() for _ in range(HANDOVER_STRIPES))
         self.log = daemon.log
         self.clock = time.monotonic
         # message id -> (refusals in a row, monotonic time of the next try)
@@ -657,11 +664,16 @@ class ConversationService:
         self._clear_stop(message_id, recorded)
         raise ConversationError("too-late", "the provider may already have this message", fix="use turn.interrupt")
 
+    def _handover(self, message_id: str) -> threading.Lock:
+        """The lock a stop of `message_id` is recorded under, and its runner hands
+        the message frame over under (`TurnRunner._handover_verdict`, C-24.7)."""
+        return self._handovers[hash(message_id) % len(self._handovers)]
+
     def _record_stop(self, message_id: str) -> str | None:
         """Record a person's stop on a message that has none, in the store itself
         (never from a copy read earlier); the value recorded, else None."""
         at = utcnow()
-        with self.store.transaction() as tx:
+        with self._handover(message_id), self.store.transaction() as tx:
             changed = tx.execute("UPDATE messages SET stop_requested_at=?, updated_at=? WHERE message_id=? "
                                  "AND stop_requested_at IS NULL", (at, at, message_id)).rowcount
         return at if changed else None
@@ -721,7 +733,11 @@ class ConversationService:
         message = self.store.message(message_id)
         if message["state"] not in (STARTING, RUNNING, APPROVAL_NEEDED, WAITING):
             raise ConversationError("not-running", f"the message is {message['state']}")
-        self.store.update_message(message_id, stop_requested_at=utcnow())
+        with self._handover(message_id):
+            # Recorded before the runner is looked up (a runner started meanwhile
+            # reads it), and under the handover lock: a runner about to write the
+            # message sees it first, or has already handed the message over (C-24.7).
+            self.store.update_message(message_id, stop_requested_at=utcnow())
         runner = self._runner_for_message(message_id)
         if runner is not None:
             runner.interrupt("stopped")
@@ -1780,7 +1796,7 @@ class ConversationService:
                                 control_socket=start["control_socket"], on_outcome=self._on_outcome,
                                 on_contain=self._on_contain, log=self.log,
                                 clocks=Clocks.from_policy(self.daemon.policy),   # C-24.7, C-26.5, C-26.9
-                                on_catalog=self._on_catalog)
+                                on_catalog=self._on_catalog, handover=self._handover(turn["message_id"]))
             if legacy:
                 # C-30.4, D-17: a pass run while the daemon was down found the
                 # legacy cockpit may be using this session again. A turn that

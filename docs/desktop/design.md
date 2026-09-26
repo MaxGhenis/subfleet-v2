@@ -288,7 +288,12 @@ turn with a `result` (live probe, `reviews/2026-09-24-live-probes.md`), while
 a closed stdin only ends the process once the turn has finished (D-15). The
 steps are taken at policy clocks (C-24.7).
 `turn.interrupt` records `stop_requested_at` on the message; the job's
-cancel request is set only at step 4 (reviews F1, F4, P4). A Codex turn stops
+cancel request is set only at step 4 (reviews F1, F4, P4). A stop recorded
+before the message frame is handed over ends the turn before it is ever
+written: the stop is recorded, and the runner hands the frame to the relay,
+under the message's lock, and the runner reads the stored stop again under it
+just before the handover (`TurnRunner._handover_verdict`, C-24.7), so the
+escalation above starts only for a message the relay already holds. A Codex turn stops
 with `turn/interrupt`, then containment.
 
 A Claude attempt that ends without a terminal `result` after its message was

@@ -198,6 +198,14 @@ class ClaudeTurn:
         return Step(frames=[Frame("interrupt", "write", _line(request))],
                     events=[Event("status", {"phase": "stopping"}, "cmd:interrupt")])
 
+    def withdraw(self) -> Step:
+        """The runner did not hand the message frame over: a stop came first
+        (C-24.7). The turn ends as one stopped before sending, and stdin closes."""
+        if self.outcome is not None:
+            return Step()
+        self.interrupt_requested = True
+        return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
+
     def respond(self, request_id: str, decision: str, message: str | None = None,
                 answers: dict | None = None) -> Step:
         """A person's answer to one pending `can_use_tool` request (C-27.1, C-27.2)."""

@@ -28,6 +28,7 @@ from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
 from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
+from .reconcile import USER_FRAME
 from .store import ConversationError, ConversationStore
 from .turn import APPROVAL_NEEDED, RUNNING, Frame, Step, TurnSpec
 
@@ -86,7 +87,8 @@ class TurnRunner:
                  on_outcome: Callable[["TurnRunner"], None],
                  on_contain: Callable[[str], None],
                  clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
-                 log=None, on_catalog: Callable[[str, str | None, list], None] | None = None):
+                 log=None, on_catalog: Callable[[str, str | None, list], None] | None = None,
+                 handover: threading.Lock | None = None):
         self.store = store
         self.attempt = attempt
         self.attempt_id = attempt["attempt_id"]
@@ -134,6 +136,11 @@ class TurnRunner:
         self.idle_since: float | None = None
         self.finished = threading.Event()
         self.withheld = False
+        # C-24.7: the message frame is handed to the relay under this lock, which a
+        # person's stop is recorded under too (`ConversationService._handover`), so
+        # a stop recorded first is always seen first (`_handover_verdict`).
+        self.handover = handover or threading.Lock()
+        self.handover_tried = False            # a send of the message frame whose answer was lost
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
 
@@ -403,32 +410,86 @@ class TurnRunner:
             if self.sent.get(frame.tag) == "written":
                 self.outbox.pop(0)            # replayed: already delivered to the provider
                 continue
-            try:
-                if frame.op == "signal":
-                    ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
-                else:
-                    ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
-            except FrameTooLarge as exc:
-                self._refuse_frame(frame, exc)
-                continue
-            except RelayError as exc:
-                self._unacknowledged(f"frame {frame.tag}: {exc}")
+            if frame.tag == USER_FRAME:
+                with self.handover:
+                    verdict = self._handover_verdict()
+                    going = verdict == "send" and self._transmit(frame)
+                if verdict == "withdraw":
+                    self._withdraw()
+                elif verdict == "wait" or not going:
+                    return
+                continue                        # `again`: the relay's log now says what it holds
+            if not self._transmit(frame):
                 return
-            self.resends = 0
-            if ack.ok:
-                self.sent[frame.tag] = "written"
+
+    def _transmit(self, frame: Frame) -> bool:
+        """Send the head frame and act on the answer; whether the outbox may go on."""
+        try:
+            if frame.op == "signal":
+                ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
+            else:
+                ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
+        except FrameTooLarge as exc:
+            self._refuse_frame(frame, exc)
+            return True
+        except RelayError as exc:
+            if frame.tag == USER_FRAME:
+                self.handover_tried = True    # the relay may have logged it: `_handover_verdict` asks
+            self._unacknowledged(f"frame {frame.tag}: {exc}")
+            return False
+        self.resends = 0
+        if ack.ok:
+            self.sent[frame.tag] = "written"
+            self.next_seq += 1
+            self.outbox.pop(0)
+            return True
+        if (ack.error == "closed" and frame.op == "close") or (ack.error == "no-child" and frame.op == "signal"):
+            # Stdin already closed, or the child already exited: nothing to do.
+            if ack.error == "no-child":
                 self.next_seq += 1
-                self.outbox.pop(0)
-                continue
-            if (ack.error == "closed" and frame.op == "close") or (ack.error == "no-child" and frame.op == "signal"):
-                # Stdin already closed, or the child already exited: nothing to do.
-                if ack.error == "no-child":
-                    self.next_seq += 1
-                self.outbox.pop(0)
-                continue
-            # conflict, failed, closed, gap, peer-refused: nothing more is written.
-            self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}")
-            return
+            self.outbox.pop(0)
+            return True
+        # conflict, failed, closed, gap, peer-refused: nothing more is written.
+        self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}")
+        return False
+
+    def _handover_verdict(self) -> str:
+        """Whether the message frame at the head of the outbox may be handed over
+        (C-24.7): `send`; `withdraw` (a stop came first: it is never written);
+        `wait` (the relay cannot say yet; nothing is sent); or `again` (the relay's
+        log, read afresh, holds the frame or ended relaying, which the outbox loop
+        acts on as for any frame). Called under `handover`.
+
+        A stop is a person's recorded in the store (read here, not from a copy:
+        `turn.interrupt` and `message.cancel` record theirs under the same lock) or
+        one this runner was asked for (`interrupt`: the daemon's, a timeout's). A
+        send whose answer was lost may have reached the relay, so a stop after it
+        withdraws the frame only when the relay's log, read after a fresh status
+        answer (which comes after any frame in flight is applied), does not hold
+        it; when it does, the message was handed over first and D-13 stops it."""
+        stopped = self.stop_reason is not None
+        if not stopped:
+            row = self.store.one("SELECT stop_requested_at FROM messages WHERE message_id=?", (self.message_id,))
+            stopped = bool(row and row["stop_requested_at"])
+        if not stopped:
+            return "send"
+        if self.handover_tried:
+            self.handshaken = False
+            if not self._handshake():
+                return "wait"
+            if self.relay_failed or USER_FRAME in self.sent:
+                return "again"                # handed over (or lost): not this runner's to withdraw
+        return "withdraw"
+
+    def _withdraw(self) -> None:
+        """A stop came before the message frame was handed over: it and every frame
+        queued behind it are dropped, never sent, and the driver ends the turn as
+        stopped before sending (C-24.7, IR-2)."""
+        self.outbox.clear()
+        self.withheld = True
+        self.stop_reason = self.stop_reason or "stopped"
+        self.stop_at = self.stop_at or self.clock()
+        self._apply(self.driver.withdraw())
 
     def _refuse_frame(self, frame: Frame, exc: FrameTooLarge) -> None:
         """A frame over the relay's cap is never sent (IR-27). Nothing after it can

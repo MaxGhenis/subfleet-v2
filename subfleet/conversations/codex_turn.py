@@ -174,6 +174,14 @@ class CodexTurn:
             return self._send_interrupt("cmd:interrupt")
         return Step(events=[Event("status", {"phase": "stopping"}, "cmd:interrupt")])  # sent when the id arrives
 
+    def withdraw(self) -> Step:
+        """The runner did not hand `turn/start` over: a stop came first (C-24.7).
+        The turn ends as one stopped before sending, and stdin closes."""
+        if self.outcome is not None:
+            return Step()
+        self.interrupt_requested = True
+        return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
+
     def _send_interrupt(self, source: str) -> Step:
         frame = Frame("interrupt", "write", _request(ID_INTERRUPT, "turn/interrupt",
                                                      {"threadId": self.thread_id, "turnId": self.turn_id}))

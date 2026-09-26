@@ -191,7 +191,8 @@ def relayed(tmp_path):
     short = Path(tempfile.mkdtemp(prefix="sfrr-", dir="/tmp"))
     servers, pipes, stores = [], [], []
 
-    def make(*, text="hi", server_class=RelayServer, clocks=Clocks(), serve=True, before_runner=None):
+    def make(*, text="hi", server_class=RelayServer, clocks=Clocks(), serve=True, before_runner=None,
+             provider="claude", recorded=False):
         adir = tmp_path / "a1"
         adir.mkdir(exist_ok=True)
         server = server_class(short / "r.sock", adir / "stdin.jsonl")
@@ -207,10 +208,21 @@ def relayed(tmp_path):
         store = ConversationStore(tmp_path / "state")
         stores.append(store)
         clock = Clock()
-        spec = TurnSpec(provider="claude", message_id=MID, text=text, model_id="opus[1m]", permission="ask",
-                        native_session_id=None, new_session_id=SID)
-        runner = TurnRunner(store=store, attempt={"attempt_id": "job/a1", "lane_id": "claude-1"}, spec=spec,
-                            conversation_id="cv-x", attempt_dir=adir, control_socket=str(short / "r.sock"),
+        claude = provider == "claude"
+        settings = {"model": "opus[1m]" if claude else "gpt-6", "effort": None, "fast": False,
+                    "permission": "ask" if claude else "read-only", "auto_continue": True}
+        conversation_id = "cv-x"
+        if recorded:                            # the message has a row, where a person's stop is recorded
+            conversation_id = store.create_conversation(provider=provider, workspace=str(tmp_path),
+                                                        workspace_kind="in-place", settings=settings,
+                                                        origin="new")[0]["conversation_id"]
+            store.submit_message(conversation_id=conversation_id, message_id=MID, after_message_id=None, text=text,
+                                 attachments=[], settings=settings)
+        spec = TurnSpec(provider=provider, message_id=MID, text=text, model_id=settings["model"],
+                        permission=settings["permission"], native_session_id=None,
+                        new_session_id=SID if claude else None, cwd=str(tmp_path))
+        runner = TurnRunner(store=store, attempt={"attempt_id": "job/a1", "lane_id": f"{provider}-1"}, spec=spec,
+                            conversation_id=conversation_id, attempt_dir=adir, control_socket=str(short / "r.sock"),
                             on_outcome=lambda r: None, on_contain=lambda a: None, clocks=clocks, clock=clock)
         runner.relay.timeout_s = 5
         return runner, clock, server, adir
@@ -340,3 +352,143 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
     assert runner.sent == {"init": "written"} and runner.outbox == [] and runner.next_seq == 2
     assert [(r["tag"], r["status"]) for r in read_log(adir / "stdin.jsonl")] == [("init", "written")]
     assert server.last_applied == 1
+
+
+# --- a stop before the message is handed over (C-24.7; review of 3c1a34e, finding 2) ---------
+
+
+def codex_replies(cwd: str) -> list[str]:
+    """What a Codex app server answers before `turn/start`: initialize, hooks/list,
+    model/list, then the thread (the probe of `import-codex-handoff-probe.py`)."""
+    from subfleet.guard.preflight import HOOK_KEY
+    return [json.dumps(reply) for reply in (
+        {"id": 1, "result": {}},
+        {"id": 2, "result": {"data": [{"cwd": cwd, "hooks": [{"key": HOOK_KEY, "enabled": True,
+                                                               "trustStatus": "trusted"}]}]}},
+        {"id": 3, "result": {"data": [{"id": "gpt-6", "model": "gpt-6"}]}},
+        {"id": 4, "result": {"thread": {"id": "7f1c9a0e-2222-4222-8333-444455556666", "status": {"type": "idle"}},
+                             "model": "gpt-6"}})]
+
+
+def answer_up_to_the_message(runner, tmp_path, provider: str) -> None:
+    """Feed the provider's answers, the last of which makes the driver produce the message frame."""
+    lines = [INIT_OK] if provider == "claude" else codex_replies(str(tmp_path))
+    for offset, line in enumerate(lines):
+        runner._apply(runner.driver.feed(line, offset))
+
+
+def logged(adir) -> list[str]:
+    return [record["tag"] for record in read_log(adir / "stdin.jsonl")]
+
+
+def before_the_message(provider: str) -> list[str]:
+    return ["init"] if provider == "claude" else ["init", "initialized", "hooks", "models"]
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_stop_recorded_after_the_runner_s_first_look_still_keeps_the_message_unwritten(relayed, tmp_path,
+                                                                                        provider):
+    """C-24.7 (review of 3c1a34e, finding 2): a person's stop recorded after the
+    runner read the message at its start, but before the relay log shows the
+    message handed over (a cancel's, or `turn.interrupt`'s before the runner
+    drains its command), is seen when the message frame's turn comes: the frame
+    is never sent, nor anything queued behind it, stdin is closed, and the turn
+    ends stopped before sending."""
+    runner, clock, server, adir = relayed(provider=provider, recorded=True)
+    runner._apply(runner.driver.start())
+    runner.store.update_message(MID, stop_requested_at="2026-09-26T12:00:00.000Z")
+    answer_up_to_the_message(runner, tmp_path, provider)
+    tail = ["thread"] if provider == "codex" else []
+    assert logged(adir) == before_the_message(provider) + tail + ["close"]
+    assert runner.driver.outcome.reason == "stopped-before-send" and runner.withheld
+    assert runner.outbox == [] and runner.stop_reason == "stopped" and runner.stop_at is not None
+    assert json.loads((adir / "turn.json").read_text())["user_frame_written"] is False
+
+
+@pytest.mark.parametrize("reason", ["stopped", "wall-limit", "operator-kill"])
+def test_a_stop_the_runner_was_asked_for_keeps_an_unsent_message_unwritten(relayed, tmp_path, reason):
+    """C-24.7 (review of 3c1a34e, finding 2): a stop queued on the runner (a
+    person's `turn.interrupt`, the daemon's wall limit or kill) before the
+    provider answered `initialize` wins over the answer, which the runner reads
+    before its commands: the message frame is never sent."""
+    runner, clock, server, adir = relayed(recorded=True)
+    runner._apply(runner.driver.start())
+    runner.interrupt(reason)
+    answer_up_to_the_message(runner, tmp_path, "claude")
+    assert logged(adir) == ["init", "close"]
+    assert runner.driver.outcome.reason == "stopped-before-send" and runner.stop_reason == reason
+    runner._drain_commands()                                      # the queued interrupt finds the turn ended
+    assert logged(adir) == ["init", "close"]
+
+
+def test_without_a_stop_the_message_is_handed_over(relayed, tmp_path):
+    """C-24.7: the check costs nothing when nobody stopped the turn."""
+    runner, clock, server, adir = relayed(recorded=True)
+    runner._apply(runner.driver.start())
+    answer_up_to_the_message(runner, tmp_path, "claude")
+    assert logged(adir) == ["init", "user-message"] and runner.driver.outcome is None
+
+
+def _lose_the_answer(runner, *, reached: bool):
+    """The relay's answer to the message frame is lost once: after the relay took
+    it (`reached`), or before anything reached it (a refused connection)."""
+    real = runner.relay.send
+    lost = []
+
+    def send(seq, op, line=None, tag=None, sig=None):
+        if tag == "user-message" and not lost:
+            lost.append(tag)
+            if reached:
+                real(seq, op, line=line, tag=tag, sig=sig)
+            raise relay_module.RelayError("relay closed the connection before acknowledging")
+        return real(seq, op, line=line, tag=tag, sig=sig)
+    runner.relay.send = send
+
+
+def test_a_stop_after_a_handover_whose_answer_was_lost_is_decided_by_the_relay_log(relayed, tmp_path):
+    """C-24.7, IR-27 (review of 3c1a34e, finding 2): the relay took the message
+    frame but its answer was lost, and then a person stopped the turn. The
+    relay's log, read after a fresh status answer, shows the message handed
+    over before the stop, so it is not withdrawn: it is not sent twice, and
+    D-13 stops the turn with the provider's interrupt."""
+    runner, clock, server, adir = relayed(recorded=True)
+    _lose_the_answer(runner, reached=True)
+    runner._apply(runner.driver.start())
+    answer_up_to_the_message(runner, tmp_path, "claude")
+    assert runner.handover_tried and runner.outbox[0].tag == "user-message"
+    runner.store.update_message(MID, stop_requested_at="2026-09-26T12:00:00.000Z")
+    runner.interrupt("stopped")
+    clock.now += 100
+    runner._send_outbox()
+    runner._drain_commands()
+    assert logged(adir) == ["init", "user-message", "interrupt"]
+    assert runner.driver.outcome is None and not runner.withheld
+
+
+def test_a_stop_after_a_send_that_never_reached_the_relay_keeps_the_message_unwritten(relayed, tmp_path):
+    """C-24.7, IR-27 (review of 3c1a34e, finding 2): the message frame's send
+    failed before the relay took it, and then a person stopped the turn. The
+    relay's log, read after a fresh status answer, does not hold it, so the
+    retry never sends it: stdin is closed and the turn ends stopped before
+    sending. Without a stop the retry sends it once."""
+    runner, clock, server, adir = relayed(recorded=True)
+    _lose_the_answer(runner, reached=False)
+    runner._apply(runner.driver.start())
+    answer_up_to_the_message(runner, tmp_path, "claude")
+    assert runner.handover_tried and logged(adir) == ["init"]
+    runner.store.update_message(MID, stop_requested_at="2026-09-26T12:00:00.000Z")
+    clock.now += 100
+    runner._send_outbox()
+    assert logged(adir) == ["init", "close"] and runner.driver.outcome.reason == "stopped-before-send"
+
+
+@pytest.mark.parametrize("reached", [True, False])
+def test_without_a_stop_a_message_whose_answer_was_lost_is_sent_once(relayed, tmp_path, reached):
+    """IR-27: the resend of a message frame whose answer was lost writes it once."""
+    runner, clock, server, adir = relayed(recorded=True)
+    _lose_the_answer(runner, reached=reached)
+    runner._apply(runner.driver.start())
+    answer_up_to_the_message(runner, tmp_path, "claude")
+    clock.now += 100
+    runner._send_outbox()
+    assert logged(adir) == ["init", "user-message"] and runner.outbox == []

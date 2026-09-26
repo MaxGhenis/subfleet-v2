@@ -1053,6 +1053,102 @@ def test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden(
         svc.close()
 
 
+def test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_message_unwritten(
+        world, tmp_path, monkeypatch):
+    """C-24.7 (review of 3c1a34e, finding 2; the reviewer's probe): the runner
+    read no stop at its start and sent `initialize`; a person's `turn.interrupt`
+    is acknowledged (`stop_requested: true`) before the provider's answer can be
+    read. The runner reads that answer before its commands, but the message
+    frame is never sent: stdin is closed, the turn ends stopped before sending,
+    and the message settles as the person's stop, not re-admitted."""
+    world.run_pass()
+    svc, daemon = service(world)
+    cid = world.conversation_id()
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    aid = running_attempt(world, daemon, cid, mid)
+    adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
+    tags, receipts = [], []
+
+    class Relay(RecordingRelay):
+        def send(self, seq, op, line=None, tag=None, sig=None):
+            from subfleet.relay import Ack
+            tags.append(tag)
+            if tag == "init":
+                receipts.append(svc.op_turn_interrupt({"message_id": mid}, None))
+                (adir / "stdout").write_text(json.dumps(_init_answer()) + "\n")
+            if tag == "close":
+                (adir / "exit.json").write_text("{}")         # the provider ends at end of input
+            return Ack(seq=seq, ok=True)
+
+    monkeypatch.setattr(runner_mod, "RelayClient", Relay)
+    monkeypatch.setattr(service_mod.reconcile, "gather", lambda *a, **k: service_mod.reconcile.Evidence(
+        acknowledged=False, frame="absent", process_gone=True, native="absent", session_exists=True))
+    try:
+        svc._adopt_runners()
+        runner = svc.runners[aid]
+        assert runner.finished.wait(10)
+        assert receipts[0]["stop_requested"] is True
+        assert tags == ["init", "close"] and runner.driver.outcome.reason == "stopped-before-send"
+        assert json.loads((adir / "turn.json").read_text())["user_frame_written"] is False
+        message = svc.store.message(mid)
+        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: stopped-before-send")
+    finally:
+        svc.close()
+
+
+def test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it(world, monkeypatch):
+    """C-24.7 (review of 3c1a34e, finding 2): recording a person's stop and handing
+    the message frame to the relay are serialized, so neither overtakes the
+    other half-way: a `turn.interrupt` made while the frame is being handed over
+    is recorded only once the relay has it, and so stops the turn through D-13
+    (the provider's interrupt) rather than claiming the message was never
+    written."""
+    world.run_pass()
+    svc, daemon = service(world)
+    cid = world.conversation_id()
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    aid = running_attempt(world, daemon, cid, mid)
+    adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
+    (adir / "stdout").write_text(json.dumps(_init_answer()) + "\n")
+    tags, events = [], {"acked": threading.Event(), "recorded": threading.Event()}
+    order: list[str] = []
+
+    def interrupt():
+        svc.op_turn_interrupt({"message_id": mid}, None)
+        order.append("stop recorded")
+        events["recorded"].set()
+
+    class Relay(RecordingRelay):
+        def send(self, seq, op, line=None, tag=None, sig=None):
+            from subfleet.relay import Ack
+            tags.append(tag)
+            if tag == "user-message":
+                threading.Thread(target=interrupt, daemon=True).start()
+                # The stop waits for the handover; a wait long enough to see it overtake would show here.
+                assert not events["recorded"].wait(0.5)
+                order.append("handed over")
+            if tag == "interrupt":
+                (adir / "exit.json").write_text("{}")
+            return Ack(seq=seq, ok=True)
+
+    monkeypatch.setattr(runner_mod, "RelayClient", Relay)
+    try:
+        svc._adopt_runners()
+        runner = svc.runners[aid]
+        assert events["recorded"].wait(10)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and "interrupt" not in tags:
+            time.sleep(0.02)
+        assert order == ["handed over", "stop recorded"]
+        assert tags == ["init", "user-message", "interrupt"] and not runner.withheld
+        runner.stop()
+        assert runner.finished.wait(5)
+    finally:
+        svc.close()
+
+
 @pytest.mark.parametrize("store_error", [sqlite3.OperationalError("database is locked"), OSError(5, "I/O error")])
 def test_a_store_error_in_the_conversation_check_is_the_pass_s(core, monkeypatch, caplog, store_error):
     """C-6.12, C-5.10 (second review, finding 4): a store error while checking a
