@@ -322,7 +322,8 @@ class ConversationService:
             catalog["refreshing"] = bool(refresh_running(self.root))
             live = set(catalog.pop("live_elsewhere", ()))
             for view in conversations:
-                view["live_elsewhere"] = view["provider"] == "claude" and view["native_session_id"] in live
+                view["live_elsewhere"] = (view["provider"] == "claude"
+                                          and canonical_native(view["native_session_id"]) in live)
             out["catalog"] = catalog
         return out
 
@@ -349,7 +350,7 @@ class ConversationService:
         if view["provider"] == "claude" and view["native_session_id"]:
             from .catalog import read_catalog
             live = read_catalog(self.root, limit=1, stale_after_s=self._catalog_stale_after_s())["live_elsewhere"]
-            view["live_elsewhere"] = view["native_session_id"] in live
+            view["live_elsewhere"] = canonical_native(view["native_session_id"]) in live
         return view
 
     def op_conversation_open(self, args, peer) -> dict:

@@ -690,8 +690,9 @@ def test_the_daemon_never_revives_or_nudges_a_conversation_bound_session(core):
     assert daemon.store.query("SELECT * FROM jobs WHERE kind='revive'") == []
 
 
-def _registered(world: World, *, subfleet: bool) -> subprocess.Popen:
-    """A live process registered for SESSION in `<claude>/sessions`, as the Claude app or a terminal is."""
+def _registered(world: World, *, subfleet: bool, session: str = SESSION) -> subprocess.Popen:
+    """A live process registered for SESSION (as `session` spells it) in `<claude>/sessions`, as the
+    Claude app or a terminal is."""
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **({"SUBFLEET_ATTEMPT": "turn-x/a1"} if subfleet else {})}
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], env=env)
     # C-26.3: a row holds its session only while its `procStart` is its pid's
@@ -700,7 +701,7 @@ def _registered(world: World, *, subfleet: bool) -> subprocess.Popen:
                              env={**os.environ, "TZ": "UTC"}).stdout.strip()
     (world.claude / "sessions").mkdir(exist_ok=True)
     (world.claude / "sessions" / f"{process.pid}.json").write_text(
-        json.dumps({"sessionId": SESSION, "pid": process.pid, "cwd": str(world.workspace), "procStart": started}),
+        json.dumps({"sessionId": session, "pid": process.pid, "cwd": str(world.workspace), "procStart": started}),
         encoding="utf-8")
     return process
 
@@ -734,6 +735,80 @@ def test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait(core, monkeyp
         svc._deferred.clear()                  # its recheck interval has passed
     svc._dispatch()
     assert len(daemon.store.query("SELECT * FROM jobs WHERE kind='turn'")) == 1
+
+
+@pytest.mark.parametrize("direction, subfleet", [("same", False), ("same", True), ("upper-stored", False),
+                                                 ("lower-stored", False)])
+def test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait(
+        core, monkeypatch, direction, subfleet):
+    """C-26.3, D-17 (review M3's second case, dropped by the merge and restored
+    after the review of 3c1a34e): the turn job is made, and only then does a live
+    Claude process outside Subfleet register for the session (the Claude app took
+    it while the job waited). Admission holds nothing for it and places the job;
+    the launch finds the writer, whichever case the conversation's binding and
+    the registry row spell the session in, and the attempt ends before
+    `initialize`, so the message is never written. It waits again as
+    `readmit:external-writer`, and its next launch, once the process is gone,
+    finds nobody. A Subfleet process is not an external writer."""
+    world, daemon = core
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(world.claude))
+    RecordingRelay.frames = []
+    monkeypatch.setattr(runner_mod, "RelayClient", RecordingRelay)
+    svc = daemon.conversations
+    cid = world.conversation_id()
+    stored, registered = {"same": (SESSION, SESSION), "upper-stored": (SESSION.upper(), SESSION),
+                          "lower-stored": (SESSION, SESSION.upper())}[direction]
+    with svc.store.transaction() as tx:                  # a binding a store kept as it was first spelled
+        tx.execute("UPDATE conversations SET native_session_id=? WHERE conversation_id=?", (stored, cid))
+    first = submit(svc, cid)
+    svc._dispatch()
+    (job,) = daemon.store.query("SELECT * FROM jobs WHERE kind='turn'")
+    process = _registered(world, subfleet=subfleet, session=registered)
+    try:
+        daemon._admit()
+        (attempt,) = daemon.store.list_attempts(job["job_id"])      # no admission hold: placed
+        adir = world.root / "jobs" / job["job_id"] / f"a{attempt['seq']}"
+        adir.mkdir(parents=True, exist_ok=True)
+        (adir / "start.json").write_text(json.dumps({"control_socket": str(world.root / "relay.sock")}))
+        with daemon.store.transaction("attempt.starting", job_id=job["job_id"], attempt_id=attempt["attempt_id"]) as tx:
+            tx.execute("UPDATE attempts SET state='starting' WHERE attempt_id=?", (attempt["attempt_id"],))
+        monkeypatch.setattr(service_mod.reconcile, "gather", lambda *a, **k: service_mod.reconcile.Evidence(
+            acknowledged=False, frame="absent", process_gone=True, native="absent", session_exists=True))
+        svc._adopt_runners()
+        runner = svc.runners[attempt["attempt_id"]]
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not RecordingRelay.frames:
+            time.sleep(0.02)
+        tags = [tag for _, _, tag in RecordingRelay.frames]
+        if subfleet:
+            assert tags == ["init"] and runner.spec.held_by == ()
+            runner.stop()
+            assert runner.finished.wait(5)
+            return
+        assert tags == ["close"] and runner.spec.held_by == (process.pid,)
+        assert (runner.driver.outcome.state, runner.driver.outcome.reason) == ("failed", "external-writer")
+        (adir / "exit.json").write_text("{}")                 # the guardian reaped the provider
+        assert runner.finished.wait(10)
+        message = svc.store.message(first)
+        assert (message["state"], message["state_reason"], message["job_id"], message["turn_seq"]) == (
+            WAITING, "readmit:external-writer", None, 1)
+        with daemon.store.transaction("attempt.finalized", job_id=job["job_id"]) as tx:   # as finalization ends it
+            tx.execute("UPDATE attempts SET state='failed' WHERE attempt_id=?", (attempt["attempt_id"],))
+            tx.execute("UPDATE jobs SET state='failed', finished_at=? WHERE job_id=?", ("2026-09-26", job["job_id"]))
+            tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
+    finally:
+        process.kill()
+        process.wait()
+    with svc._lock:
+        svc._deferred.clear()
+    svc._dispatch()
+    again = daemon.store.one("SELECT * FROM jobs WHERE request_id=?", (f"turn:{first}:1",))
+    daemon._admit()
+    (attempt,) = daemon.store.list_attempts(again["job_id"])
+    later = world.root / "jobs" / again["job_id"] / f"a{attempt['seq']}"
+    later.mkdir(parents=True, exist_ok=True)
+    turn = json.loads((world.root / "jobs" / again["job_id"] / "manifest.json").read_text())["turn"]
+    assert turn["native_session_id"] == stored and svc._writer_check(turn, later) == []
 
 
 def test_conversation_open_binds_one_spelling_of_a_session(world, monkeypatch):

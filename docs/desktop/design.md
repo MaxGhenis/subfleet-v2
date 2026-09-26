@@ -354,8 +354,9 @@ sessions kit's: never listed, nudged, revived, cold-swept or handed off
 `UserPromptSubmit` hooks surface only notices that name a job: the completion
 of work the conversation dispatched reaches its next turn, and a `ping` or a
 nudge does not (C-26.13). An
-external writer (a live pid in `~/.claude/sessions/*.json` naming the session
-that carries no Subfleet markers and is not a recorded owned identity) is an
+external writer (a live pid in `~/.claude/sessions/*.json` naming the session,
+its UUID compared in lower case on both sides, that carries no Subfleet markers
+and is not a recorded owned identity) is an
 admission wait `external-writer` shown in the app ("open in the Claude app;
 close it there to continue here"), not a refusal. Claude's is checked when a
 message is dispatched (`ConversationService._hold_for_writer`) and again when

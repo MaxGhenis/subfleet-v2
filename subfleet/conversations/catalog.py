@@ -35,6 +35,7 @@ from typing import Any, Callable, Iterable
 
 from ..sessions import transcripts
 from .redact import scrub
+from .store import canonical_native
 
 WALL_S = 20.0
 #: A run's exit status when it stopped publishing because its owner is gone (`Owner`):
@@ -208,7 +209,8 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                               "archived": archived})
     live = _live_claude_sessions()
     for item in items:
-        item["live_elsewhere"] = item["provider"] == "claude" and item["native_session_id"] in live
+        item["live_elsewhere"] = (item["provider"] == "claude"
+                                  and canonical_native(item["native_session_id"]) in live)
     items.sort(key=lambda i: i["mtime"], reverse=True)
     # Every live session, listed or not: a conversation born in Subfleet and
     # resumed in a terminal is no catalog item but is still held (C-26.3).
@@ -255,17 +257,23 @@ def _codex_names(home: Path, opener=transcripts.open_regular) -> dict[str, str]:
 
 
 def _live_claude_sessions() -> set[str]:
-    """Session ids a live Claude process outside Subfleet holds (IR-16)."""
+    """Session ids a live Claude process outside Subfleet holds (IR-16), a UUID in
+    lower case (`store.canonical_native`)."""
     from ..sessions import registry
-    return {row.session_id for row in registry.rows() if row.alive and _outside_claude(row)}
+    return {canonical_native(row.session_id) for row in registry.rows() if row.alive and _outside_claude(row)}
 
 
 def external_writers(session_id: str) -> list[int]:
     """Pids of live Claude processes outside Subfleet that hold this session: its
-    turns wait for them (C-26.3, design D-17). Read now, not from the catalog."""
+    turns wait for them (C-26.3, design D-17). Read now, not from the catalog.
+
+    Both ids are compared in one spelling (`store.canonical_native`): a store
+    written before bindings were canonical keeps an upper-case UUID, while Claude
+    Code registers the lower-case one, and either may be asked about."""
     from ..sessions import registry
+    wanted = canonical_native(session_id)
     return sorted(row.pid for row in registry.rows()
-                  if row.session_id == session_id and row.alive and row.pid and _outside_claude(row))
+                  if canonical_native(row.session_id) == wanted and row.alive and row.pid and _outside_claude(row))
 
 
 def _outside_claude(row) -> bool:
@@ -460,7 +468,9 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
             age_s = None
     if state == "fresh" and (age_s is None or (stale_after_s is not None and age_s > stale_after_s)):
         state = "stale"
-    exclude = exclude or set()
+    # A binding and a live registry row may spell a UUID in either case; the
+    # catalog's own ids are transcript names, in lower case (C-26.3).
+    exclude = {(provider, canonical_native(native)) for provider, native in (exclude or set())}
     needle = (query or "").lower().strip()
     out = []
     items = catalog.get("items") if isinstance(catalog.get("items"), list) else []
@@ -469,14 +479,15 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
     live: list[str] = []
     if state == "fresh":
         recorded = catalog.get("live_claude")
-        live = sorted({str(x) for x in recorded if isinstance(x, str) and x}) if isinstance(recorded, list) else sorted(
-            {str(item["native_session_id"]) for item in items
-             if isinstance(item, dict) and item.get("live_elsewhere") and item.get("native_session_id")})
+        live = sorted({canonical_native(x) for x in recorded if isinstance(x, str) and x}) \
+            if isinstance(recorded, list) else sorted(
+                {canonical_native(str(item["native_session_id"])) for item in items
+                 if isinstance(item, dict) and item.get("live_elsewhere") and item.get("native_session_id")})
     for item in items:
         if not isinstance(item, dict) or item.get("provider") not in ("claude", "codex") \
                 or not item.get("native_session_id"):
             continue
-        if (item["provider"], item["native_session_id"]) in exclude:
+        if (item["provider"], canonical_native(item["native_session_id"])) in exclude:
             continue
         if item.get("archived") and not include_archived:
             continue

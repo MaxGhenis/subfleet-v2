@@ -26,7 +26,9 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from unittest import mock
 
+import hypothesis
 import pytest
 
 from subfleet import protocol
@@ -41,6 +43,7 @@ from subfleet.conversations.launch import TURN_MANIFEST_KEY
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
 from subfleet.store import Store
+from tests import spellings
 from tests.unit.test_conversation_handoff import handoff, world  # noqa: F401 (a fixture)
 from tests.unit.test_conversation_handoff import source as handoff_source
 
@@ -576,6 +579,107 @@ def test_a_registry_pid_holds_a_session_only_while_it_is_the_outside_process_tha
     assert catalog_module.external_writers("s-6") == [15]          # ps timed out: it holds
     assert catalog_module.external_writers("s-7") == []            # ps says no such process
     assert catalog_module._live_claude_sessions() == {"s-1", "s-5", "s-6"}
+
+
+def _registry_row(session_id: str, pid: int):
+    from subfleet.sessions import registry
+    return registry.SessionRow(session_id=session_id, pid=pid, socket=None, name=None, cwd=None, started_at=None,
+                               alive=True, socket_present=False, registry_path=f"/x/{pid}.json", proc_start=None)
+
+
+@hypothesis.settings(max_examples=300, deadline=None)
+@hypothesis.given(session=spellings.uuids, stored=spellings.masks, registered=spellings.masks)
+def test_an_outside_writer_holds_its_session_in_any_spelling(session, stored, registered):
+    """C-26.3 (review of 3c1a34e, finding 1): a live Claude process outside
+    Subfleet registered for a session holds it whichever case either side spells
+    its UUID in (a store written before ids were canonical keeps an upper-case
+    one; Claude Code registers the lower-case one), and holds no other session.
+    The catalog lists the sessions such processes hold in lower case."""
+    from subfleet.sessions import registry
+    rows = [_registry_row(spellings.spell(session, registered), 4242)]
+    with mock.patch.object(registry, "rows", lambda: rows), \
+            mock.patch.object(catalog_module, "_outside_claude", lambda row: True):
+        assert catalog_module.external_writers(spellings.spell(session, stored)) == [4242]
+        assert catalog_module.external_writers(spellings.other_uuid(session)) == []
+        assert catalog_module._live_claude_sessions() == {session}
+
+
+def _bound_in(svc, session: str, spelled: str) -> str:
+    """A Claude conversation bound to `session`, its binding stored as `spelled`
+    (a store written before native ids were canonical)."""
+    cid = conversation(svc, origin="native", native_session_id=session)
+    with svc.store.transaction() as tx:
+        tx.execute("UPDATE conversations SET native_session_id=? WHERE conversation_id=?", (spelled, cid))
+    return cid
+
+
+SPELLED_SESSION = "5e551011-abcd-4ef0-8000-0000000000c1"
+
+
+@pytest.mark.parametrize("direction", sorted(spellings.DIRECTIONS))
+def test_an_outside_writer_holds_dispatch_in_either_spelling(svc, monkeypatch, direction):
+    """C-26.3, D-17 (review of 3c1a34e, finding 1): dispatch finds the outside
+    writer whichever case the conversation's binding and the registry row spell
+    the session in: the message waits `external-writer`, with no job, and gets
+    its job once the process is gone."""
+    from subfleet.sessions import registry
+    stored_as, registered_as = spellings.DIRECTIONS[direction]
+    cid = _bound_in(svc, SPELLED_SESSION, stored_as(SPELLED_SESSION))
+    rows = [_registry_row(registered_as(SPELLED_SESSION), 4242)]
+    monkeypatch.setattr(registry, "rows", lambda: rows)
+    monkeypatch.setattr(catalog_module, "_outside_claude", lambda row: True)
+    mid = submit(svc, cid)
+    svc._dispatch()
+    message = svc.store.message(mid)
+    assert (message["state"], message["state_reason"], message["job_id"]) == ("waiting", "external-writer: pid 4242", None)
+    assert svc.daemon.submits == []
+    rows.clear()
+    svc.clock.now += service_module.EXTERNAL_WRITER_RECHECK_S
+    svc._dispatch()
+    assert svc.store.message(mid)["job_id"] == "job-1"
+
+
+@pytest.mark.parametrize("direction", sorted(spellings.DIRECTIONS))
+def test_an_outside_writer_holds_launch_in_either_spelling(svc, monkeypatch, tmp_path, direction):
+    """C-26.3, D-17 (review of 3c1a34e, finding 1): a writer that took the session
+    after the job was made is found at launch whichever case the turn's manifest
+    (the conversation's binding) and the registry row spell it in; the answer is
+    recorded, and the driver ends before `initialize`, writing nothing."""
+    from subfleet.conversations.claude_turn import ClaudeTurn
+    from subfleet.conversations.turn import TurnSpec
+    from subfleet.sessions import registry
+    stored_as, registered_as = spellings.DIRECTIONS[direction]
+    monkeypatch.setattr(registry, "rows", lambda: [_registry_row(registered_as(SPELLED_SESSION), 4242)])
+    monkeypatch.setattr(catalog_module, "_outside_claude", lambda row: True)
+    adir = tmp_path / "a1"
+    adir.mkdir()
+    turn = {"provider": "claude", "native_session_id": stored_as(SPELLED_SESSION)}
+    assert svc._writer_check(turn, adir) == [4242]
+    assert json.loads((adir / "held_by.json").read_text())["pids"] == [4242]
+    driver = ClaudeTurn(TurnSpec(provider="claude", message_id=str(uuid.uuid4()), text="hello", model_id="opus",
+                                 permission="ask", native_session_id=turn["native_session_id"], held_by=(4242,)),
+                        read_bytes=lambda path: b"")
+    step = driver.start()
+    assert [frame.tag for frame in step.frames] == ["close"]
+    assert (step.outcome.state, step.outcome.reason) == ("failed", "external-writer")
+
+
+def test_the_catalog_matches_a_binding_and_a_live_session_in_either_spelling(svc):
+    """C-26.3, C-30.1 (review of 3c1a34e, finding 1): a conversation whose binding
+    a store kept in upper case is shown `live_elsewhere` for a live session the
+    catalog names in lower case, and its catalog item is left out of the list as
+    one the conversation already holds."""
+    from datetime import UTC, datetime
+    cid = _bound_in(svc, SPELLED_SESSION, SPELLED_SESSION.upper())
+    now = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    item = {"provider": "claude", "native_session_id": SPELLED_SESSION, "path": "/x.jsonl", "title": "t",
+            "cwd": svc.test_workspace, "mtime": 1.0, "continuable": True, "live_elsewhere": True}
+    (svc.root / "catalog.json").write_text(json.dumps({"generated_at": now, "complete": True, "items": [item],
+                                                       "live_claude": [SPELLED_SESSION]}))
+    listed = svc.handle("conversation.list", {}, None)
+    assert [view["live_elsewhere"] for view in listed["conversations"]] == [True]
+    assert listed["catalog"]["items"] == []
+    assert svc.handle("conversation.open", {"conversation_id": cid}, None)["conversation"]["live_elsewhere"] is True
 
 
 def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, tmp_path):
