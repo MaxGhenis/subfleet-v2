@@ -41,10 +41,16 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
         # `posix_spawn` on macOS; with the default it forks, and a fork of the
         # daemon costs in proportion to its memory (measured 2026-09-21 at 1 GB
         # resident and 40 threads: 8.2 ms of daemon CPU per fork, 0.17 ms per
-        # spawn). Nothing leaks: every descriptor Python opens is close-on-exec
-        # (PEP 446) and the daemon makes none inheritable. The one this package
-        # does hand down, the guardian's launch gate (`pass_fds`), is closed by
-        # the guardian before it inspects anything; a second one must be too.
+        # spawn). CPython on macOS has no `POSIX_SPAWN_CLOSEFROM`, so closing
+        # descriptors means forking. What the reader can inherit: every
+        # descriptor Python opens is close-on-exec (PEP 446), but macOS has no
+        # `pipe2` and no `SOCK_CLOEXEC`, so a pipe or socket that another thread
+        # is creating is inheritable for an instant, and a spawn in that instant
+        # hands it down. Only a `ps` or `sysctl` holds it, until it exits within
+        # the 10 s cap, so the most that follows is an end-of-file seen that
+        # much later. The one descriptor this package hands down on purpose, the
+        # guardian's launch gate (`pass_fds`), is closed by the guardian before
+        # it inspects anything; a second one must be too.
         result = subprocess.run(argv, capture_output=True, text=True, timeout=10, env=env,
                                 close_fds=False)
     except (OSError, subprocess.SubprocessError) as exc:
