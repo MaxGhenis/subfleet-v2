@@ -265,11 +265,15 @@ def test_the_daemon_writes_long_store_holds_to_its_log(daemon, monkeypatch):
     watch = daemon.lock_watch
     assert daemon.store._lock.watch is watch
     assert daemon.conversations.store._lock.watch is watch
+    assert daemon.conversations.store._writes.watch is watch     # a file write holds it across fsyncs
     watch.hold_s = .05
     with daemon.store.transaction("test.slow"):
         time.sleep(.1)
+    with daemon.conversations.store.writing():
+        time.sleep(.1)
     text = log_text(daemon)
     assert "store lock released after" in text
+    assert "conversation-files lock released after" in text
     assert "test_the_daemon_writes_long_store_holds_to_its_log" in text
 
 
