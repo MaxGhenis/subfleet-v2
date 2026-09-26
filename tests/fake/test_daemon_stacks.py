@@ -133,6 +133,30 @@ def test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives(root):
         child.wait(10)
 
 
+def test_a_lock_that_changes_between_the_two_reads_is_not_signalled(root, monkeypatch, capsys):
+    """C-3.6: the CLI reads the lock again just before the signal. A daemon that
+    began to stop after the first read has dropped the flag and may have let its
+    handler go; the fixture is such a daemon, SIGUSR1 at its default action, whose
+    lock said `stack_dumps` when first read. Review of 78a8476: nothing failed
+    without the second read."""
+    from subfleet import cli
+    from subfleet.client import Client
+    stopping = spawn(OLD_DAEMON, root)
+    try:
+        record = json.loads((root / "daemon.lock").read_text())
+        reads = iter([{**record, "stack_dumps": True}, record])
+        monkeypatch.setattr(Client, "lock_info", lambda self: next(reads))
+        monkeypatch.setenv("SUBFLEET_HOME", str(root))
+        assert cli.main(["daemon", "stacks"]) == 1
+        err = capsys.readouterr().err
+        assert "changed while it was being checked; refusing to signal pid" in err and "run it again" in err
+        time.sleep(.3)
+        assert stopping.poll() is None                       # never signalled: it lives
+    finally:
+        stopping.kill()
+        stopping.wait(10)
+
+
 def test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before(tmp_path, monkeypatch):
     """The order that makes the flag true whenever it is read (C-3.6)."""
     from subfleet import daemon as daemon_module
@@ -154,6 +178,8 @@ def test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before(tmp_path
         assert record["stack_dumps"] is True and record["pid"] == os.getpid()
     finally:
         core.close()
-    assert seen == [("register", None), ("unregister", None)]
+    # The first unregister lets go of any earlier daemon's registration in this
+    # process before registering (a no-op here); no call finds the flag set.
+    assert seen == [("unregister", None), ("register", None), ("unregister", None)]
     record = json.loads((root / "daemon.lock").read_text())
     assert "stack_dumps" not in record and record["pid"] == os.getpid()   # the identity stays

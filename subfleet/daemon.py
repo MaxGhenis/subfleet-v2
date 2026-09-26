@@ -4277,6 +4277,12 @@ class Daemon:
         global _STACK_DUMPS
         stream = self._log_handler.stream
         stream.flush()
+        # A daemon built earlier in this process (tests build several) may hold
+        # the registration still. `faulthandler.register` over a live one only
+        # changes the file: it would not put its handler back over the SIG_IGN
+        # below, and the signal would be ignored while the lock says
+        # `stack_dumps` (review of 78a8476). Let it go first (a no-op if none).
+        faulthandler.unregister(signal.SIGUSR1)
         if threading.current_thread() is threading.main_thread():
             # What faulthandler puts back when it lets the signal go (at close,
             # or as the interpreter exits): ignore it, so a SIGUSR1 that races

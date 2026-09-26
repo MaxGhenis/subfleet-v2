@@ -12,6 +12,7 @@ lock, and that the daemon wires it to `daemon.log` along with SIGUSR1 dumps.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import signal
 import threading
@@ -293,16 +294,62 @@ def test_sigusr1_writes_every_threads_stack_to_the_daemon_log(daemon):
     assert "Thread 0x" in text
 
 
+#: What every thread's entry in a `faulthandler` dump says, the current one's too.
+DUMPED = "(most recent call first)"
+
+
+def disposition(signum: int) -> str:
+    """What the kernel does with `signum` in this process: "default", "ignore" or
+    "handler". `signal.getsignal` answers from Python's own table, which does
+    not see `faulthandler` install or remove its handler, so ask `sigaction`.
+    The handler is the first field of `struct sigaction` on macOS and Linux."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    action = ctypes.create_string_buffer(256)
+    assert libc.sigaction(signum, None, action) == 0, ctypes.get_errno()
+    handler = ctypes.c_void_p.from_buffer(action).value or 0
+    return {0: "default", 1: "ignore"}.get(handler, "handler")
+
+
+def dumped_into(daemon, before: int) -> bool:
+    """Whether a SIGUSR1 sent now writes this process's stacks to `daemon`'s log.
+
+    Sent only while a handler is in place: SIGUSR1 at its default action would
+    end the test run, and the assertion says so first."""
+    assert disposition(signal.SIGUSR1) == "handler", disposition(signal.SIGUSR1)
+    os.kill(os.getpid(), signal.SIGUSR1)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and DUMPED not in log_text(daemon)[before:]:
+        time.sleep(.02)
+    return DUMPED in log_text(daemon)[before:]
+
+
 def test_a_closed_daemon_gives_up_sigusr1_and_a_newer_one_keeps_it(tmp_path):
+    """Review of 78a8476: the newer daemon's lock said `stack_dumps` while SIGUSR1
+    was ignored. Its `SIG_IGN` replaced the older daemon's handler, and
+    `faulthandler.register` over a live registration only changes the file."""
     older = Daemon(tmp_path / "older")
     newer = Daemon(tmp_path / "newer")
     try:
         assert daemon_module._STACK_DUMPS() is newer
+        start = len(log_text(newer)), len(log_text(older))
+        assert dumped_into(newer, start[0]) and DUMPED not in log_text(older)[start[1]:]
         older.close()
         assert daemon_module._STACK_DUMPS() is newer      # not the older one's to remove
+        assert dumped_into(newer, len(log_text(newer)))
     finally:
         newer.close()
     assert daemon_module._STACK_DUMPS is None
+
+
+def test_a_signal_after_the_daemon_lets_the_handler_go_ends_nothing(tmp_path):
+    """C-3.6: a daemon built on the main thread leaves SIGUSR1 ignored, not at its
+    default action, when it closes: a `daemon stacks` that read the lock just
+    before the flag was dropped signals a process that no longer dumps."""
+    core = Daemon(tmp_path / "state")
+    assert disposition(signal.SIGUSR1) == "handler"
+    core.close()
+    assert disposition(signal.SIGUSR1) == "ignore", disposition(signal.SIGUSR1)
+    os.kill(os.getpid(), signal.SIGUSR1)                    # ignored: the run goes on
 
 
 def test_the_defaults_are_the_contracts():
