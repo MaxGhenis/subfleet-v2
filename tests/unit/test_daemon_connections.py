@@ -10,9 +10,10 @@ These run a real daemon core in this process on a short temp root, with its
 background control loop stubbed out.
 """
 
+import errno
 import json
+import os
 import socket
-from contextlib import suppress
 import tempfile
 import threading
 import time
@@ -22,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import daemon as daemon_module
-from subfleet.client import Client, DaemonError
+from subfleet.client import SEND_MET_CLOSE_ERRNOS, Client, DaemonError, ResponseLost
 from subfleet.daemon import Daemon
 
 RUNNING = "20260925-000000-still-running"
@@ -92,9 +93,12 @@ def connect(service) -> socket.socket:
 
 def send(sock, op, **args):
     # A connection over the cap may be answered and closed before the request is
-    # sent (C-16.7); the answer is still there to read.
-    with suppress(BrokenPipeError, ConnectionResetError):
+    # sent (C-16.7); the answer is still there to read, whichever errno the send met.
+    try:
         sock.sendall((json.dumps({"v": 1, "id": op, "op": op, "args": args}) + "\n").encode())
+    except OSError as exc:
+        if exc.errno not in SEND_MET_CLOSE_ERRNOS:
+            raise
 
 
 def reply(sock) -> dict:
@@ -159,6 +163,53 @@ def test_c16_7_over_the_cap_a_client_is_answered_busy_at_once_and_served_after(s
     assert call(service, "ping")["result"]["pong"] is True
     for sock in idle[1:]:
         sock.close()
+
+
+@pytest.mark.parametrize("code", sorted(SEND_MET_CLOSE_ERRNOS), ids=errno.errorcode.get)
+def test_c16_7_the_client_reads_busy_whichever_errno_its_send_met(serve, monkeypatch, code):
+    """C-16.7 the busy answer is read even when the send met the daemon's close.
+
+    On macOS the send that races the daemon's answer-and-close fails now and then
+    with ENOTCONN rather than EPIPE (CI, 2026-09-25: one of 300 storm clients read
+    `[Errno 57]` and never looked at its answer). Each errno is forced here on the
+    client's own send, in this thread only; the daemon's answer is real.
+    """
+    service = serve(max_connections=1)
+    idle = connect(service)
+    until(lambda: counts(service)["connections"] == 1)
+    caller = threading.current_thread()
+    real_sendall = socket.socket.sendall
+
+    def sendall(sock, data, *flags):
+        if threading.current_thread() is caller:
+            raise OSError(code, os.strerror(code))
+        return real_sendall(sock, data, *flags)
+    client = Client(service.root, timeout=5)
+    client._checked = True                  # the lock records this fixture's fake boot identity
+    with monkeypatch.context() as patch:
+        patch.setattr(socket.socket, "sendall", sendall)
+        with pytest.raises(DaemonError) as caught:
+            client.call("ping")
+    assert caught.value.code == 1 and "busy" in str(caught.value)
+    idle.close()
+
+
+def test_c16_7_any_other_send_error_is_still_a_lost_answer(serve, monkeypatch):
+    """C-16.7 only a send that met a close is read past; another error is C-16.3's lost answer."""
+    service = serve()
+    caller = threading.current_thread()
+    real_sendall = socket.socket.sendall
+
+    def sendall(sock, data, *flags):
+        if threading.current_thread() is caller:
+            raise OSError(errno.ENOBUFS, os.strerror(errno.ENOBUFS))
+        return real_sendall(sock, data, *flags)
+    client = Client(service.root, timeout=5)
+    client._checked = True
+    with monkeypatch.context() as patch:
+        patch.setattr(socket.socket, "sendall", sendall)
+        with pytest.raises(ResponseLost, match="daemon connection failed"):
+            client.call("ping")
 
 
 def test_c16_7_an_idle_client_is_closed_but_one_awaiting_its_reply_is_not(serve):

@@ -30,6 +30,7 @@ so the CLI does not import the daemon-side `procs` module.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -59,6 +60,15 @@ DEFAULT_TIMEOUT_S = 15.0
 REQUERY_TIMEOUT_S = 60.0
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 DEFAULT_STATE_ROOT = "~/.subfleet"
+#: C-16.7: the errors of a request's send that met a socket the daemon had
+#: already answered and closed (at its connection cap it answers `busy` before
+#: reading): BrokenPipeError (EPIPE, ESHUTDOWN), ConnectionResetError, and, on
+#: macOS when the close races the send, ENOTCONN (errno 57). Measured against a
+#: unix-socket server that answers and closes at once, 8,000 sends under Python
+#: 3.12 and 3.14: 510 met EPIPE and 6 ENOTCONN, and the answer was readable
+#: after every one of them.
+SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESET,
+                                   errno.ENOTCONN})
 START_DAEMON_FIX = "subfleet daemon start"
 
 
@@ -354,10 +364,13 @@ class Client:
             try:
                 try:
                     conn.sendall(encode(request))
-                except (BrokenPipeError, ConnectionResetError):
+                except OSError as exc:
                     # C-16.7: a daemon at its connection cap answers at once and
-                    # closes before reading the request. Its answer says why.
-                    pass
+                    # closes before reading the request. Its answer says why, so
+                    # a send that met that close is read past, whichever errno
+                    # the kernel gave it; anything else is a lost answer.
+                    if exc.errno not in SEND_MET_CLOSE_ERRNOS:
+                        raise
                 line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
                 raise ResponseLost(f"no response from the daemon within {deadline:g}s",

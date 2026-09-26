@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import descriptors
+from subfleet.client import SEND_MET_CLOSE_ERRNOS
 from tests.fake.conftest import Harness
 
 
@@ -49,8 +50,14 @@ def exchange(root: Path, message: dict | None, timeout: float) -> str:
         except OSError:
             return "connect-refused"          # the listen backlog was full for a moment
         if message is not None:
-            with suppress(BrokenPipeError, ConnectionResetError):
+            try:
                 sock.sendall((json.dumps(message) + "\n").encode())
+            except OSError as exc:
+                # Answered busy and closed before the request was read (C-16.7): the
+                # send meets the close, on macOS now and then as ENOTCONN rather than
+                # EPIPE (CI, 2026-09-25), and the answer is still there to read.
+                if exc.errno not in SEND_MET_CLOSE_ERRNOS:
+                    raise
         data = b""
         while not data.endswith(b"\n"):
             chunk = sock.recv(65536)
