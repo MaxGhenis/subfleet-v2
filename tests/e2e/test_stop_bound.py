@@ -12,6 +12,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 
 from subfleet.procs import same_process
@@ -85,8 +86,13 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
             "every thread's stack follows and it exits 1") in log
     dump = log[log.index("Timeout ("):]
     # The dump names the thread that would not return: the held worker, in
-    # the harness's hold, under the daemon's boundary.
-    assert "subfleet-io" in dump and " in hold\n" in dump and " in _boundary\n" in dump, dump
+    # the harness's hold, under the daemon's boundary, and the main thread
+    # joining it from close(). Thread names appear in faulthandler's headers
+    # from Python 3.14.
+    for frame in (" in hold\n", " in _boundary\n", " in _process_attempt\n", " in close\n"):
+        assert frame in dump, (frame, dump)
+    if sys.version_info >= (3, 14):
+        assert "[subfleet-io_" in dump, dump
 
     # The kernel released the flock with the process: nothing else holds it.
     fd = os.open(e2e.root / "daemon.lock", os.O_RDWR)

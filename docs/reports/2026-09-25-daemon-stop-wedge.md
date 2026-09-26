@@ -93,7 +93,7 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
 
 1. A worker commits `attempt.running`, then parks forever at the `running` boundary while the guardian's provider runs.
 2. SIGTERM is sent. While the daemon is stopping, `daemon.lock` is still held.
-3. The process ends between 2 s and 10 s later with exit 1. The dump names the held `subfleet-io` thread, in `hold` under `_boundary`.
+3. The process ends between 2 s and 10 s later with exit 1. The dump names the held worker's frames, `hold` under `_boundary`, and the main thread joining it from `close()`. On Python 3.14, faulthandler also prints thread names, so the dump names the thread, `subfleet-io_*`.
 4. The flock is free, and the guardian is still alive.
 5. A fresh daemon adopts the attempt. The job succeeds with one attempt and one notice.
 
