@@ -433,6 +433,23 @@ def fence_bound_sessions(store: ConversationStore, hold: Callable[[str], str | N
             result.add(**_conversation_item(store, row, key, "bound-session-released", None))
 
 
+#: Why `retire` lifts a hold.
+RETIRED = "the legacy cockpit is retired (--cockpit-retired)"
+
+
+def retire(store: ConversationStore) -> Result:
+    """Lift every legacy hold and forget every held session: the operator says
+    the legacy cockpit will never run again (C-30.4)."""
+    result = Result()
+    store.record_legacy_sessions({})
+    for row in store.query("SELECT * FROM conversations WHERE legacy_hold IS NOT NULL "
+                           "ORDER BY created_at, conversation_id"):
+        store.set_legacy_hold(row["conversation_id"], None)
+        key = f"{row['provider']}:{canonical_native(row['native_session_id'])}"
+        result.add(**{**_conversation_item(store, row, key, "bound-session-released", None), "detail": RETIRED})
+    return result
+
+
 def _conversation_item(store: ConversationStore, row: Mapping[str, Any], session_id: str, disposition: str,
                        reason: str | None) -> dict[str, Any]:
     unsettled = [{"message_id": message["message_id"], "state": message["state"]} for message in store.query(

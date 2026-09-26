@@ -1368,14 +1368,81 @@ def test_a_missing_outbox_still_reads_the_journal_and_fences(v1):
     assert report.stores["outbox"].reasons == {"absent": 1, "bound-session-released": 1}
 
 
-def test_a_pass_with_nothing_to_import_or_fence_creates_no_store(v1):
-    """C-30.4: with no outbox and no conversation store there is nothing to hold,
-    so a pass opens no store, whatever the journal says."""
+def test_a_pass_with_nothing_to_import_hold_or_fence_creates_no_store(v1):
+    """C-30.4: with no outbox message, nothing held and no conversation store, a
+    pass opens no store."""
     (v1["state"] / "outbox.sqlite3").unlink()
-    _unreadable_journal(v1["state"] / legacy.JOURNAL, "not json")
+    journal = v1["state"] / legacy.JOURNAL
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    journal.write_text("{}", encoding="utf-8")
     report = run_legacy(v1)
     assert report.stores["outbox"].reasons == {"absent": 1}
     assert not (v1["root"] / "conversations.sqlite3").exists()
+
+
+def _recorded(v1) -> dict[str, str]:
+    return {row["session_key"]: row["reason"]
+            for row in conversations(v1["root"], "SELECT session_key, reason FROM legacy_sessions")}
+
+
+@pytest.mark.parametrize("kind", ["unreadable outbox", "journal entry", "broker"])
+def test_a_first_pass_that_holds_a_session_records_it(v1, kind):
+    """C-30.4 (second review, finding 1): a first pass with no outbox message and
+    no conversation store still records what it holds, so a session opened
+    afterwards is bound held."""
+    handle = None
+    if kind == "unreadable outbox":
+        _damage_outbox(v1["state"], "corrupt")
+        expected = {"*": legacy.outbox_hold("unreadable-database")}
+    elif kind == "journal entry":
+        (v1["state"] / "outbox.sqlite3").unlink()
+        write_json(v1["state"] / legacy.JOURNAL, {f"claude:{LEGACY_SESSION}": {"request": {
+            "message_id": LEGACY[5], "session_id": f"claude:{LEGACY_SESSION}"}}})
+        expected = {f"claude:{LEGACY_SESSION}": f"the cockpit journal holds an unacknowledged send {LEGACY[5]}"}
+    else:
+        (v1["state"] / "outbox.sqlite3").unlink()
+        handle = os.open(v1["state"] / "broker.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        expected = {"*": "the cockpit broker holds broker.lock, so it may dispatch into any session"}
+    try:
+        run_legacy(v1)
+    finally:
+        if handle is not None:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+            os.close(handle)
+    assert _recorded(v1) == expected
+    store = ConversationStore(v1["root"])
+    try:
+        opened, _ = store.create_conversation(provider="claude", workspace=str(v1["workspace"]),
+                                              workspace_kind="in-place", settings=PERSON_SETTINGS,
+                                              origin="native", native_session_id=LEGACY_SESSION)
+    finally:
+        store.close()
+    assert opened["legacy_hold"] == next(iter(expected.values()))
+
+
+def test_a_later_pass_forgets_the_sessions_an_earlier_one_held(v1):
+    """C-30.4: each pass replaces the held sessions it records; one that finds a
+    session settled records nothing for it, so a conversation opened on it is
+    not held. A Codex thread is recorded by its thread id."""
+    thread = "0199a5f3-0000-7000-8000-00000000c0de"
+    write_outbox(v1["state"], [*fixture_rows(), outbox_row(LEGACY[3], f"app:{thread}", "dispatched", "codex",
+                                                           provider="codex", at=50)])
+    run_legacy(v1)
+    assert _recorded(v1) == {f"claude:{QUEUED_SESSION}": f"message {LEGACY[2]} is queued",
+                             f"codex:{thread}": f"message {LEGACY[3]} is dispatched"}
+    write_outbox(v1["state"], [outbox_row(LEGACY[0], LEGACY_SESSION, "finished", "he replied", at=300)])
+    run_legacy(v1)
+    assert _recorded(v1) == {}
+    store = ConversationStore(v1["root"])
+    try:
+        opened, _ = store.create_conversation(provider="codex", workspace=str(v1["workspace"]),
+                                              workspace_kind="in-place",
+                                              settings={"model": "gpt-6-astra", "permission": "read-only"},
+                                              origin="native", native_session_id=thread, lane_id="codex-1")
+    finally:
+        store.close()
+    assert opened["legacy_hold"] is None
 
 
 def _sleeper(**env: str) -> subprocess.Popen:
@@ -2147,11 +2214,34 @@ def test_a_v1_state_that_is_not_there_releases_nothing(v1):
     held = f"message {LEGACY[3]} is dispatched"
     assert _hold_of(v1, cid) == held
     missing = v1["state"].parent / "v1-stat"                      # a typo
-    with pytest.raises(ImportRefused):
-        import_legacy_cockpit(v1["root"], v1_state=missing, claude_projects=v1["claude"] / "projects")
+    empty = v1["state"].parent / "empty"
+    empty.mkdir()
+    for wrong in (missing, empty, v1["state"].parent):             # not there, empty, the directory above
+        with pytest.raises(ImportRefused):
+            import_legacy_cockpit(v1["root"], v1_state=wrong, claude_projects=v1["claude"] / "projects")
     assert importer.main(["--legacy-cockpit", "--state-root", str(v1["root"]), "--v1-state", str(missing),
                           "--claude-dir", str(v1["claude"])]) == 7
     report = import_v1(v1["root"], v1_state=missing, delegate_state=v1["delegate"], roster_dir=v1["roster"],
                        home=v1["home"], milestone=importer.LEGACY_MILESTONE, claude_projects=v1["claude"] / "projects")
     assert report.stores["outbox"].reasons == {"v1-state-missing": 1}
     assert _hold_of(v1, cid) == held
+
+
+def test_a_retired_cockpit_lifts_every_hold(v1, capsys):
+    """C-30.4: once the legacy cockpit will never run again, `--cockpit-retired`
+    lifts every legacy hold and forgets every held session without reading the
+    v1 state; its dry run changes nothing."""
+    cid = _bind(v1)
+    _unreadable_journal(v1["state"] / legacy.JOURNAL, "not json")
+    run_legacy(v1)
+    assert _hold_of(v1, cid) and _recorded(v1)
+    gone = v1["state"].parent / "retired"
+    argv = ["--legacy-cockpit", "--cockpit-retired", "--state-root", str(v1["root"]), "--v1-state", str(gone)]
+    assert importer.main([*argv, "--dry-run"]) == 0
+    assert _hold_of(v1, cid) and _recorded(v1)
+    capsys.readouterr()
+    assert importer.main(argv) == 0
+    assert f"conversation {cid} claude:{LEGACY_SESSION} -> bound-session-released" in capsys.readouterr().out
+    assert _hold_of(v1, cid) is None and _recorded(v1) == {}
+    with pytest.raises(SystemExit):
+        importer.main(["--cockpit-retired", "--state-root", str(v1["root"])])

@@ -445,12 +445,22 @@ class ConversationService:
         if message["state"] == QUEUED and not self._turn_job(message):
             if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED,)):
                 return self._receipt(self.store.message(message_id))
+        if self._readmit_pending(message):
+            if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,)):
+                return self._receipt(self.store.message(message_id))
         if message["state"] in (QUEUED, WAITING):
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING, STARTING))
                 return self._receipt(self.store.message(message_id))
         raise ConversationError("too-late", "the provider may already have this message", fix="use turn.interrupt")
+
+    def _readmit_pending(self, message: dict) -> bool:
+        """A message waiting to be re-admitted with no turn job yet (IR-1, IR-23):
+        its last attempt provably never delivered it and no new one exists, so
+        the provider cannot have it and a person may still withdraw it (IR-2)."""
+        return (message["state"] == WAITING and not message.get("job_id")
+                and str(message.get("state_reason") or "").startswith("readmit:") and not self._turn_job(message))
 
     def _tombstone(self, message_id: str, conversation_id: str | None) -> dict:
         if not conversation_id:
@@ -487,6 +497,8 @@ class ConversationService:
         runner = self._runner_for_message(message_id)
         if runner is not None:
             runner.interrupt("stopped")
+        elif self._readmit_pending(message):
+            self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,))
         elif message["state"] == WAITING:
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
@@ -781,15 +793,15 @@ class ConversationService:
             lane = self.daemon.store.get_lane(attempt["lane_id"])
             spec = spec_from_manifest(turn, lane_email=lane_email(lane) if lane else None,
                                       guard_hash=notes.get("guard_hash"), model_ref=notes.get("model_id"))
+            # Read before the runner is registered: a runner registered and never
+            # started would never be adopted again (C-30.4, D-17).
+            held = (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
             runner = TurnRunner(store=self.store, attempt=dict(attempt), spec=spec,
                                 conversation_id=turn["conversation_id"], attempt_dir=adir,
                                 control_socket=start["control_socket"], on_outcome=self._on_outcome,
                                 on_contain=self._on_contain, log=self.log,
                                 approval_wait_s=float(self.daemon.policy.get("conversations", {}).get("approval_wait_s", 3600)),
                                 on_catalog=self._on_catalog)
-            self.runners[aid] = runner
-            self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
-            held = (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
             if held:
                 # C-30.4, D-17: a pass run while the daemon was down found the
                 # legacy cockpit may be using this session again. A turn that
@@ -798,7 +810,11 @@ class ConversationService:
                 # it was not handed over, else through D-13.
                 self.log.warning("turn %s stopped: its conversation is held %s (%s)", aid, LEGACY_OWNER, held)
                 runner.withhold(LEGACY_OWNER)
-            runner.start()
+            self.runners[aid] = runner
+            try:
+                self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
+            finally:
+                runner.start()
 
     def _settle_unstarted(self) -> None:
         """A waiting message whose job ended with no provider start was never delivered."""

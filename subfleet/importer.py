@@ -1630,15 +1630,19 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     The journal, the cockpit's own activity and the fence are read and run
     whatever the outbox says (review M2): an outbox that exists and cannot be
     read holds every session, as an unreadable journal does, and a missing one
-    holds none. A pass with no outbox message and no conversation store opens
-    none. `claude_dir` is the `~/.claude` whose `sessions/` registry names live
-    Claude processes (default `projects`' parent, else `~/.claude`).
+    holds none. A pass with no outbox message, nothing held and no conversation
+    store opens none; one that holds a session creates the store to record it,
+    so a conversation opened on that session later is bound held. `claude_dir`
+    is the `~/.claude` whose `sessions/` registry names live Claude processes
+    (default `projects`' parent, else `~/.claude`). A `v1_state` that holds none
+    of the manifest's entries is read as nothing, and changes no hold.
     """
-    if not v1_state.is_dir():
+    if not _is_v1_state(v1_state):
         # Nothing about the cockpit can be read, which is not the same as the
         # cockpit holding nothing: every hold stays as the last pass left it.
         report.skip("v1-state-missing")
-        report.note(f"{v1_state} is not a directory: nothing is read, and every legacy hold stays as it is")
+        report.note(f"{v1_state} is not a v1 state directory (it holds none of the manifest's entries): nothing "
+                    "is read, and every legacy hold stays as it is")
         return None
     messages, outbox_problem = _read_legacy_outbox(v1_state)
     if outbox_problem:
@@ -1648,10 +1652,9 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     entries, problem = legacy.read_journal(v1_state / legacy.JOURNAL)
     activity = legacy.cockpit_activity(
         v1_state, claude_dir=claude_dir if claude_dir is not None else projects.parent if projects else None)
-    if not messages and not conversations.exists():
-        if unreadable or problem or activity.problem or activity.sessions:
-            report.note("no conversation is bound yet, so the legacy writer's hold has nothing to fence")
-        return None
+    if not messages and not conversations.exists() and not (
+            entries or problem or unreadable or activity.problem or activity.sessions):
+        return None                                  # nothing to import, hold or fence: no store is opened
     result = legacy.import_outbox(conversations.get(), messages, projects=projects, journal=entries,
                                   journal_problem=problem, outbox_problem=unreadable, activity=activity)
     report.seen += len(messages)
@@ -1705,6 +1708,32 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
         return None
     return {"mapping": "legacy-history", "rows": len(messages),
             "max_sequence": max((message.sequence for message in messages), default=0)}
+
+
+def _is_v1_state(v1_state: Path) -> bool:
+    """Whether `v1_state` is a v1 state directory: one holding an entry the
+    manifest names under S. A mistyped or moved `--v1-state` (missing, empty,
+    the directory above it) would otherwise read as a cockpit that holds
+    nothing and release every legacy hold (C-30.4)."""
+    if not v1_state.is_dir():
+        return False
+    names = {name for row in MANIFEST if row.root == "S" for name in row.names}
+    return any((v1_state / name).exists() or (v1_state / name).is_symlink() for name in names)
+
+
+def retire_legacy_cockpit(conversations: _Conversations, report: StoreReport) -> None:
+    """`--cockpit-retired`: the operator says the legacy cockpit will never run
+    again, so every legacy hold is lifted and no session stays recorded as held
+    (C-30.4). Nothing under the v1 state is read."""
+    if not conversations.exists():
+        report.note("no conversation store: there is no legacy hold to lift")
+        return
+    result = legacy.retire(conversations.get())
+    for item in result.items:
+        report.count(item["disposition"])
+    report.items.extend(result.items)
+    report.note(f"the legacy cockpit is retired: {len(result.items)} held conversations are released and no "
+                "session stays recorded as held (C-30.4)")
 
 
 def import_cockpit_client(report: StoreReport, *, v1_state: Path) -> None:
@@ -2068,7 +2097,8 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
 
 def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
                           claude_projects: str | Path | None = None, dry_run: bool = False,
-                          write_report: bool = True, now: str | None = None) -> ImportReport:
+                          write_report: bool = True, now: str | None = None,
+                          cockpit_retired: bool = False) -> ImportReport:
     """The legacy cockpit rows alone (C-30.4): `outbox` and `cockpit`, whatever the
     milestone, and nothing else. `state.sqlite3` is not opened.
 
@@ -2082,10 +2112,11 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     state_root = Path(state_root).expanduser()
     v1_state = Path(v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
-    if not v1_state.is_dir():
+    if not cockpit_retired and not _is_v1_state(v1_state):
         # A mistyped or moved --v1-state would otherwise read as a cockpit that
         # holds nothing and release every hold (C-30.4).
-        raise ImportRefused(f"{v1_state} is not a directory; name the v1 state with --v1-state")
+        raise ImportRefused(f"{v1_state} is not a v1 state directory; name it with --v1-state, or pass "
+                            "--cockpit-retired once the legacy cockpit will never run again")
     now = now or utc_now()
     report = ImportReport(str(state_root), str(v1_state), "", "", dry_run, LEGACY_MILESTONE, now)
     scratch_dir: str | None = None
@@ -2097,8 +2128,11 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
         lock = _hold_daemon_lock(state_root)
     conversations = _Conversations(state_root, scratch_dir)
     try:
-        import_outbox(conversations, report.store_report("outbox"), v1_state=v1_state, projects=projects)
-        import_cockpit_client(report.store_report("cockpit"), v1_state=v1_state)
+        if cockpit_retired:
+            retire_legacy_cockpit(conversations, report.store_report("outbox"))
+        else:
+            import_outbox(conversations, report.store_report("outbox"), v1_state=v1_state, projects=projects)
+            import_cockpit_client(report.store_report("cockpit"), v1_state=v1_state)
     finally:
         conversations.close()
         if scratch_dir is not None:
@@ -2130,16 +2164,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--legacy-cockpit", action="store_true",
                         help="import only the legacy cockpit outbox and client journal into "
                              "conversations.sqlite3 (C-30.4), whatever the milestone")
+    parser.add_argument("--cockpit-retired", action="store_true",
+                        help="with --legacy-cockpit: the legacy cockpit will never run again, so lift every "
+                             "legacy hold without reading the v1 state (C-30.4)")
     parser.add_argument("--claude-dir", default=None,
                         help="the ~/.claude whose projects/ holds the Claude transcripts "
                              "(default: $SUBFLEET_CLAUDE_DIR or ~/.claude)")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     args = parser.parse_args(argv)
     projects = Path(args.claude_dir).expanduser() / "projects" if args.claude_dir else None
+    if args.cockpit_retired and not args.legacy_cockpit:
+        parser.error("--cockpit-retired goes with --legacy-cockpit")
     try:
         if args.legacy_cockpit:
             report = import_legacy_cockpit(args.state_root, v1_state=args.v1_state,
-                                           claude_projects=projects, dry_run=args.dry_run)
+                                           claude_projects=projects, dry_run=args.dry_run,
+                                           cockpit_retired=args.cockpit_retired)
         else:
             report = import_v1(args.state_root, v1_state=args.v1_state,
                                delegate_state=args.delegate_state, roster_dir=args.roster_dir,

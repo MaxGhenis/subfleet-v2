@@ -328,7 +328,8 @@ dispatched or re-admitted, its queued turn job waits at admission
 stopped when the daemon adopts it. If the relay log does not show its message
 handed over, the runner is stopped before it replays any output, so the
 message is never written (`TurnRunner.withhold`), and it is re-admitted once
-the hold lifts unless a person had asked to stop it. An external Claude writer (a live pid
+the hold lifts unless a person had asked to stop it; until then a person may
+still withdraw it (`message.cancel`, `turn.interrupt`). An external Claude writer (a live pid
 registered for the session in `~/.claude/sessions/*.json` whose environment
 carries no `SUBFLEET_ATTEMPT`) is an admission wait `external-writer`, not a
 refusal: the turn job places nothing, and the waiting message's reason says
@@ -812,9 +813,8 @@ case, a Codex id by its thread id), and the store binds and finds a native id
 the same way (`canonical_native`). A session stays with the legacy writer as a
 whole, so Subfleet never becomes a second writer in it (D-17), when it has a
 non-terminal message or a journal entry (whatever the outbox says of that
-entry's id), or when the cockpit is using it now (`cockpit_activity`: a live
-worker pid in `native-workers.json`, or a live Claude process outside Subfleet
-in the `sessions/` registry, which keeps history out and fences nothing).
+entry's id), or when a live cockpit worker is in it (`cockpit_activity`: a live
+pid in `native-workers.json`).
 Every session is held when the journal, the
 outbox or the workers file exists and cannot be read, or while the broker
 holds `broker.lock`; the probe is a shared, non-blocking `flock` on a
@@ -829,13 +829,15 @@ turn outcome replaces it and neither `conversation.unblock` nor
 `message.resolve` lifts it, and the import never reads or writes `blocked_by`.
 A store written before the column existed moves a `blocked_by` of
 `legacy-owner` into it when it is opened. Each pass also records the sessions
-it holds in `legacy_sessions` (`*` when it holds every one), and
-`create_conversation` binds a conversation to one of them held, so a session
-opened after the pass gets no turn either. A live Claude process outside
-Subfleet in a session keeps history out of it that pass but holds no
-conversation: the admission wait `external-writer` (D-17) covers it while it
-lives. A `--v1-state` that is not a directory is refused, never read as a
-cockpit that holds nothing. A session whose transcript raises
+it holds in `legacy_sessions` (`*` when it holds every one), creating the store
+if it must, and `create_conversation` binds a conversation to one of them
+held, so a session opened after the pass gets no turn either. A live Claude
+process outside Subfleet in a session keeps history out of it that pass but
+holds no conversation: while it lives, admission makes a new turn there wait
+(`external-writer`, D-17); a turn already running there is not stopped for it.
+A `--v1-state` that holds none of the manifest's entries is refused, never
+read as a cockpit that holds nothing, and `--cockpit-retired` lifts every hold
+once the cockpit will never run again. A session whose transcript raises
 while it is read, or a row whose timestamp is out of range, is reported and
 the pass goes on. `python -m subfleet.importer --legacy-cockpit [--dry-run]`
 runs the import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").

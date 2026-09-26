@@ -288,6 +288,9 @@ class Daemon:
         # C-6.10: the leases the last pass saw that no probe holds. One that has
         # gone since is capacity that came free.
         self._leases_seen: frozenset[tuple[str, str]] = frozenset()
+        # C-6.12, C-24.5: turn job id -> the error type its conversation check last
+        # raised, so the log says so once per change rather than once a pass.
+        self._turn_check_errors: dict[str, str] = {}
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass.
         self._holds: dict[str, dict] = {}
@@ -2459,11 +2462,18 @@ class Daemon:
                 # down) places nothing and holds nobody back until both blocks clear.
                 try:
                     hold = self.conversations.admission_hold(job)
-                except Exception as exc:           # C-6.12: one job's check never ends the pass
-                    self.log.warning("admission: job %s: its conversation could not be checked: %s",
-                                     job["job_id"], type(exc).__name__)
-                    hold = {"reason": "conversation-blocked", "error_type": type(exc).__name__,
-                            "error": str(exc)[:200]}
+                    self._turn_check_errors.pop(job["job_id"], None)
+                except (sqlite3.Error, OSError):
+                    raise                           # C-6.12: a store error is the pass's; C-5.10 retries it
+                except Exception as exc:            # C-6.12: anything else is this job's, never the pass's
+                    if self._turn_check_errors.get(job["job_id"]) != type(exc).__name__:
+                        self.log.warning("admission: job %s: its conversation could not be checked: %s",
+                                         job["job_id"], type(exc).__name__)
+                    self._turn_check_errors[job["job_id"]] = type(exc).__name__
+                    turn = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn")
+                    hold = {"reason": "conversation-blocked",
+                            "conversation_id": (turn or {}).get("conversation_id"),
+                            "error_type": type(exc).__name__, "error": str(exc)[:200]}
                 if hold:
                     holds[job["job_id"]] = hold
                     continue

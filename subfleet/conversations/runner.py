@@ -143,6 +143,9 @@ class TurnRunner:
             message = self.store.message(self.message_id)
             if message.get("stop_requested_at"):
                 self.stop_at = self.clock()
+                # A person's stop that came before the message was handed over
+                # stands: the message is never written (C-24.7, IR-2).
+                self.withheld = self.withheld or "user-message" not in self.sent
             self._apply(self.driver.start())
             if self.withheld:
                 self.stop_at = self.stop_at or self.clock()

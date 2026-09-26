@@ -821,3 +821,92 @@ def test_why_says_what_holds_a_turn():
         "reason": "external-writer", "conversation_id": "cv-1", "native_session_id": SESSION, "pids": [41, 42]}})
     assert writer[1] == (f"Held: a Claude process outside Subfleet (pid 41, 42) holds its session {SESSION}; the "
                          "turn is placed once that process ends (C-26.3)")
+
+
+@pytest.mark.parametrize("op", ["message.cancel", "turn.interrupt"])
+def test_a_message_the_hold_withheld_can_still_be_withdrawn(world, tmp_path, op):
+    """C-24.7, IR-2, C-30.4 (second review, finding 2): a message waiting to be
+    re-admitted with no turn job yet never reached the provider, so a person
+    may withdraw it, by cancelling or stopping it; it is not dispatched when the
+    hold lifts."""
+    world.run_pass()
+    cid = world.conversation_id()
+    world.cockpit("dispatched")
+    world.run_pass()
+    svc, daemon = service(world)
+    svc._person = lambda peer, what: types.SimpleNamespace(person=True, pid=1, reason="test")
+    try:
+        first = submit(svc, cid)
+        svc.store.set_state(first, STARTING, expect=("queued",), job_id="job-0")
+        outcome(svc, tmp_path, first, cid, state="interrupted", reason="stopped-before-send",
+                stop_reason="legacy-owner", user_frame_written=False)
+        assert svc.store.message(first)["state_reason"] == "readmit:legacy-owner"
+        receipt = svc.handle(op, {"message_id": first, "conversation_id": cid}, None)
+        assert (receipt["state"], receipt["state_reason"]) == ("cancelled", "withdrawn")
+    finally:
+        svc.close()
+    world.cockpit("finished")
+    world.run_pass()
+    svc, daemon = service(world)
+    try:
+        svc._dispatch()
+        assert daemon.submitted == []
+    finally:
+        svc.close()
+
+
+def test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden(world, monkeypatch):
+    """C-24.7, IR-2 (second review, finding 2): a runner whose message has a
+    person's stop recorded, and which the relay log does not show handed over,
+    never writes it, whatever the provider has answered meanwhile."""
+    RecordingRelay.frames = []
+    monkeypatch.setattr(runner_mod, "RelayClient", RecordingRelay)
+    world.run_pass()
+    svc, daemon = service(world)
+    try:
+        first = submit(svc, world.conversation_id())
+        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.update_message(first, stop_requested_at="2026-09-25T20:00:00.000Z")
+        aid = running_attempt(world, daemon, world.conversation_id(), first)
+        adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
+        (adir / "stdin.jsonl").write_text(json.dumps({"kind": "intent", "seq": 1, "tag": "init", "op": "write"})
+                                          + "\n" + json.dumps({"kind": "written", "seq": 1}) + "\n")
+        (adir / "stdout").write_text(json.dumps(_init_answer()) + "\n")
+        svc._adopt_runners()
+        runner = svc.runners[aid]
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not runner.driver.outcome:
+            time.sleep(0.02)
+        time.sleep(0.2)
+        runner.stop()
+        assert runner.finished.wait(5)
+        assert [tag for _, _, tag in RecordingRelay.frames] == ["close"]
+        assert runner.driver.outcome.reason == "stopped-before-send"
+    finally:
+        svc.close()
+
+
+def test_a_store_error_in_the_conversation_check_is_the_pass_s(core, monkeypatch, caplog):
+    """C-6.12, C-5.10 (second review, finding 4): a store error while checking a
+    turn's conversation ends the pass, for C-5.10 to retry; any other error
+    holds that job alone and is logged once, not once a pass."""
+    world, daemon = core
+    svc = daemon.conversations
+    submit(svc, world.conversation_id())
+    svc._dispatch()
+    job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
+
+    def locked(job):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(svc, "admission_hold", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        daemon._admit()
+
+    def broken(job):
+        raise ValueError("a bad registry row")
+    monkeypatch.setattr(svc, "admission_hold", broken)
+    with caplog.at_level(logging.WARNING, logger="subfleet.test.legacy-hold"):
+        for _ in range(3):
+            daemon._admit()
+    assert sum("could not be checked" in record.getMessage() for record in caplog.records) == 1
+    assert daemon._holds[job["job_id"]]["conversation_id"] == world.conversation_id()
