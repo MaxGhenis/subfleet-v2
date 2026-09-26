@@ -346,10 +346,18 @@ class Store:
                 conn = self._open_reader()
             except BaseException:
                 with self._readers_lock:
-                    self._readers.remove(None)
+                    if None in self._readers:           # `close` may have emptied the list meanwhile
+                        self._readers.remove(None)
                 raise
             with self._readers_lock:
-                self._readers[self._readers.index(None)] = conn
+                # The store closed while this connection opened: `close` found no
+                # read in use and dropped the pool, this place with it.
+                closed = self._closed or None not in self._readers
+                if not closed:
+                    self._readers[self._readers.index(None)] = conn
+            if closed:
+                conn.close()
+                raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
             return conn, False
         try:
             return self._idle.get(timeout=max(0.0, deadline - time.monotonic())), True

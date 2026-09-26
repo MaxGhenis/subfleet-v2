@@ -12,7 +12,8 @@ case, and re-running that seed reproduces it.
   handed to two readers at once, snapshots hold at most `snapshot_share` of
   them, no checkout takes longer than `read_wait_s` (plus the time to open a
   connection), a read's own connection is closed when it ends, and every one
-  it opened is counted; afterwards every pooled connection is idle.
+  it opened is counted; afterwards every pooled connection is idle and every
+  snapshot slot is free.
 """
 
 from __future__ import annotations
@@ -181,6 +182,28 @@ def perform(store: Store, ops: list[tuple], errors: list) -> None:
         errors.append(exc)
 
 
+def hold_snapshots(store: Store, count: int) -> None:
+    """`count` snapshots open at once, each on its own thread, then ended."""
+    inside, release, errors = threading.Barrier(count + 1, timeout=20), threading.Event(), []
+
+    def run():
+        try:
+            with store.snapshot():
+                store.one("SELECT 1 AS n")
+                inside.wait()
+                release.wait(20)
+        except Exception as exc:                             # noqa: BLE001
+            errors.append(exc)
+    threads = [threading.Thread(target=run) for _ in range(count)]
+    for thread in threads:
+        thread.start()
+    inside.wait()
+    release.set()
+    for thread in threads:
+        thread.join(20)
+    assert not errors, errors
+
+
 def test_the_read_pool_stays_within_its_bounds(tmp_path):
     for case in range(POOL_CASES):
         rng = random.Random(1000 + case)
@@ -207,5 +230,10 @@ def test_the_read_pool_stays_within_its_bounds(tmp_path):
             for conn in tracker.own:                          # each read's own connection is closed
                 with pytest.raises(sqlite3.ProgrammingError):
                     conn.execute("SELECT 1")
+            # Every slot came back: as many snapshots at once as the share allows
+            # take pooled connections without waiting (review of 20435d2).
+            waits = store.pool_waits["waits"]
+            hold_snapshots(store, store.snapshot_share)
+            assert store.pool_waits["waits"] == waits, (where, store.pool_waits)
         finally:
             store.close()

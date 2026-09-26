@@ -401,6 +401,73 @@ def test_close_does_not_wait_forever_for_a_read(tmp_path, monkeypatch):
     assert store._in_use == {}
 
 
+def test_a_read_opening_a_pooled_connection_as_the_store_closes_is_refused_and_closes_it(tmp_path, monkeypatch):
+    """Review of 20435d2: a read that was opening a new pooled connection when `close`
+    ran (it is not yet in use, so `close` does not wait for it) found its place in
+    the pool gone and died of `ValueError: list.index(x): x not in list`, leaving
+    the connection it opened to the garbage collector. It is now refused as any
+    read after `close` is, and closes that connection."""
+    store = Store(tmp_path / "state.sqlite3", readers=2)
+    real, opening, go_on, opened = store._open_reader, threading.Event(), threading.Event(), []
+
+    def slow_open():
+        opening.set()
+        assert go_on.wait(10)
+        opened.append(real())
+        return opened[-1]
+    monkeypatch.setattr(store, "_open_reader", slow_open)
+    outcome = []
+
+    def reader():
+        try:
+            outcome.append(store.query("SELECT 1 AS one"))
+        except Exception as exc:                            # noqa: BLE001
+            outcome.append(exc)
+    thread = threading.Thread(target=reader)
+    thread.start()
+    assert opening.wait(10)
+    started = time.monotonic()
+    store.close()
+    assert time.monotonic() - started < 2                   # nothing was in use to wait for
+    go_on.set()
+    thread.join(10)
+    assert len(outcome) == 1 and isinstance(outcome[0], sqlite3.ProgrammingError), outcome
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")                       # closed, not left to the collector
+    assert store._in_use == {} and store._readers == []
+
+
+def test_snapshots_give_back_the_slot_they_take_on_every_path(tmp_path):
+    """Review of 20435d2: nothing failed when a snapshot kept its slot. Snapshots on a
+    pool of three share one slot, so a slot kept by any snapshot makes every later
+    one wait `read_wait_s` and open its own connection, which `pool_waits` counts.
+    The paths: a snapshot that ends, one whose block raises, and one that took the
+    slot but found every pooled connection busy and opened its own."""
+    store = Store(tmp_path / "state.sqlite3", readers=3, read_wait_s=.1)
+    try:
+        assert store.snapshot_share == 1
+
+        def snapshots(count: int) -> None:
+            for _ in range(count):
+                with store.snapshot():
+                    store.one("SELECT count(*) n FROM leases")
+        snapshots(4)
+        for _ in range(3):
+            with pytest.raises(ZeroDivisionError), store.snapshot():
+                store.one("SELECT 1 AS n")
+                1 / 0
+        snapshots(4)
+        assert store.pool_waits["waits"] == 0, store.pool_waits
+        with Holding(store, 3, kind="statement"):         # every pooled connection busy
+            snapshots(1)                                    # the slot, then its own connection
+        assert store.pool_waits["waits"] == 1 and store.pool_waits["own_connections"] == 1, store.pool_waits
+        snapshots(4)
+        assert store.pool_waits["waits"] == 1, store.pool_waits
+        assert store.read_pool()["in_use"] == 0
+    finally:
+        store.close()
+
+
 def test_capacity_views_hold_no_read_connection_while_they_build(tmp_path, monkeypatch):
     """Twelve views at once, each build slowed to 0.4 s: the reads are done in a
     snapshot, the builds after it, so a hook's `list` and `notice.pending` and a
