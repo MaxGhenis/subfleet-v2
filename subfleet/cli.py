@@ -45,6 +45,7 @@ from .client import (
     Client,
     DaemonError,
     DaemonUnavailable,
+    busy_pause,
     same_process,
     state_root,
 )
@@ -999,6 +1000,8 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     # what it exits with (C-17.3).
     adopting = bool(mine) or bool(last) or not requested
     idle_polls = 0
+    busy: DaemonError | None = None
+    busy_streak = 0
     try:
         client = _client(args, timeout=WAIT_POLL_MAX_S + 15)
         while True:
@@ -1022,6 +1025,23 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     timed_out = True
                     break
                 raise
+            except DaemonError as exc:
+                # C-16.1: a daemon at its connection cap answers "try again
+                # shortly" before it reads the poll. The loop does, backing off,
+                # inside `--timeout` (review of the descriptor hotfix, F8).
+                if not exc.busy:
+                    raise
+                busy, busy_streak = exc, busy_streak + 1
+                pause = busy_pause(busy_streak)
+                if timeout is not None:
+                    left = timeout - (time.monotonic() - started)
+                    if left <= 0:
+                        timed_out = True
+                        break
+                    pause = min(pause, left)
+                time.sleep(pause)
+                continue
+            busy, busy_streak = None, 0
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
             progress = False
@@ -1056,6 +1076,8 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
 
     worst = int(Exit.OK)
     as_json = quiet or bool(getattr(args, "json", False))
+    if timed_out and busy is not None:
+        note(f"{PROG} wait: the daemon was still busy ({busy}); the jobs are unaffected")
     for job_id, job in sorted(finished.items()):
         if as_json:
             emit(job)
@@ -1923,17 +1945,22 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     info = client.lock_info()
     alive = client.lock_holder_alive()
     started = time.monotonic()
-    reachable, detail = False, ""
+    reachable, busy, detail, connections = False, False, "", None
     try:
-        client.call("daemon.status", {}, timeout=5.0)
+        connections = client.call("daemon.status", {}, timeout=5.0).get("connections")
         reachable = True
-    except (DaemonUnavailable, DaemonError, ProtocolError) as exc:
+    except DaemonError as exc:
+        # It answered, so it is running: busy at its connection cap (C-16.1), or
+        # refusing this op; not unreachable (review of the descriptor hotfix, F9).
+        reachable, busy, detail = True, exc.busy, str(exc) + (f" ({exc.fix})" if exc.fix else "")
+    except (DaemonUnavailable, ProtocolError) as exc:
         detail = str(exc)
     elapsed_ms = (time.monotonic() - started) * 1000
     payload = {"state_root": str(root), "socket": str(client.socket_path),
                "socket_present": client.socket_path.exists(), "lock": info,
-               "lock_holder_alive": alive, "ping": reachable,
-               "ping_ms": round(elapsed_ms, 1), "detail": detail or None}
+               "lock_holder_alive": alive, "ping": reachable, "busy": busy,
+               "ping_ms": round(elapsed_ms, 1), "detail": detail or None,
+               "connections": connections}
     if args.json:
         emit(payload)
         return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)
@@ -1945,7 +1972,11 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     else:
         out(f"lock        {json.dumps(info, sort_keys=True)}")
         out(f"holder      {'alive' if alive else ('dead' if alive is False else 'unverifiable')}")
-    out(f"ping        {'ok' if reachable else 'unreachable'} ({elapsed_ms:.1f} ms)")
+    answer = ("busy" if busy else "refused") if detail and reachable else "ok" if reachable else "unreachable"
+    out(f"ping        {answer} ({elapsed_ms:.1f} ms)")
+    if isinstance(connections, dict):
+        out(f"connections {connections.get('reading')} of {connections.get('cap')} read, "
+            f"{connections.get('open')} open, {connections.get('refused_busy')} refused busy")
     if detail:
         note(f"  {detail}")
     return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)

@@ -1354,3 +1354,137 @@ def test_run_against_a_daemon_older_than_policy_sandboxes_says_restart(daemon, r
     assert run_cli(["run", "--task", "build", "--tier", "standard", "-C", str(workdir), "hi"]) == 69
     err = capsys.readouterr().err
     assert "daemon restart" in err and "-s read-only" in err
+
+
+# --- a daemon at its connection cap (C-16.1) ----------------------------------
+
+def busy(request=None) -> bytes:
+    """The daemon's own answer to a connection past its cap, sent before it reads
+    the request."""
+    from subfleet.daemon import busy_answer
+    return busy_answer("the daemon is serving 512 connections")
+
+
+def busy_then(answer, times: int):
+    """A handler that answers busy `times` times, then as `answer` does."""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return busy() if len(calls) <= times else answer(request)
+    handler.calls = calls
+    return handler
+
+
+def test_wait_asks_again_while_the_daemon_is_busy(daemon, capsys):
+    """Review of the descriptor hotfix, F8: one busy answer (exit 69, "try again
+    shortly") ended `wait` with 69 while the job ran on. It asks again, backing off."""
+    poll = busy_then(lambda request: terminal("succeeded", rc=0), 3)
+    daemon({"wait": poll})
+    assert run_cli(["wait", JOB, "--timeout", "60"]) == 0
+    assert len(poll.calls) == 4
+    capsys.readouterr()
+
+
+def test_kill_wait_asks_again_while_the_daemon_is_busy(daemon, capsys):
+    """F8: `kill --wait` waits through `wait_jobs` too."""
+    poll = busy_then(lambda request: terminal("cancelled"), 2)
+    daemon({"kill": lambda request: {"status": "cancel requested"}, "wait": poll})
+    assert run_cli(["kill", JOB, "--wait", "--timeout", "60"]) == 130
+    assert len(poll.calls) == 3
+    capsys.readouterr()
+
+
+def test_a_daemon_busy_to_the_end_is_a_wait_timeout(daemon, capsys):
+    """F8: the retries stay inside `--timeout`, which ends in 124 as a timeout does,
+    and says the daemon was busy."""
+    import time as _time
+    poll = busy_then(lambda request: terminal(), 10**6)
+    daemon({"wait": poll})
+    started = _time.monotonic()
+    assert run_cli(["wait", JOB, "--timeout", "2"]) == 124
+    assert _time.monotonic() - started < 5
+    assert 2 <= len(poll.calls) <= 8, len(poll.calls)            # backed off, not a spin
+    err = capsys.readouterr().err
+    assert "still busy" in err and "still running" in err
+
+
+def test_wait_still_ends_on_other_refusals(daemon, capsys):
+    """Only the busy answer is asked again: any other refusal ends `wait` with its code."""
+    daemon({"wait": lambda request: protocol.fail(request.id, Exit.INVALID_INPUT, "no such job")})
+    assert run_cli(["wait", JOB, "--timeout", "60"]) == 2
+    assert "no such job" in capsys.readouterr().err
+
+
+class GateClient:
+    """`gate.start` hands out a gate; `gate.poll` answers busy `busy` times first."""
+
+    def __init__(self, busy: int):
+        self.busy, self.polls = busy, 0
+
+    def call(self, op, args, **kwargs):
+        from subfleet.client import DaemonError
+        if op == "gate.start":
+            return {"gate_id": "gate-1", "job_id": "job-1", "code": None}
+        self.polls += 1
+        if self.polls <= self.busy:
+            raise DaemonError(69, "the daemon is serving 512 connections", "try again shortly")
+        return {"gate_id": "gate-1", "status": "agreement", "code": 0}
+
+
+def gate_args(tmp_path):
+    import hashlib
+    plan = tmp_path / "plan.md"
+    plan.write_text("A plan.\n")
+    return cli.build_parser().parse_args(["gate", "plan", str(plan), "--peer", "astra", "--main-approve",
+                                          "--expect-sha256", hashlib.sha256(plan.read_bytes()).hexdigest()])
+
+
+@pytest.fixture
+def unmanaged(monkeypatch):
+    from subfleet.gate import cli as gate_cli
+    for key in gate_cli.MANAGED:
+        monkeypatch.delenv(key, raising=False)
+    return gate_cli
+
+
+def test_gate_polls_through_a_busy_daemon(unmanaged, tmp_path, capsys):
+    """F8: one busy answer to `gate.poll` ended `subfleet gate` with exit 1 while the
+    gate carried on in the daemon; it asks again."""
+    client = GateClient(busy=3)
+    assert unmanaged.run(gate_args(tmp_path), client=client, root=tmp_path, poll_interval=0) == 0
+    assert client.polls == 4
+    assert "agreement" in capsys.readouterr().out
+
+
+def test_gate_gives_up_on_a_daemon_busy_past_the_poll_timeout(unmanaged, tmp_path, monkeypatch, capsys):
+    """F8: asked again for as long as one poll may take, then exit 1 with the reason."""
+    monkeypatch.setattr(unmanaged, "POLL_TIMEOUT_S", 1.0)
+    client = GateClient(busy=10**6)
+    assert unmanaged.run(gate_args(tmp_path), client=client, root=tmp_path, poll_interval=0) == 1
+    assert 2 <= client.polls <= 8
+    assert "serving 512 connections" in capsys.readouterr().err
+
+
+def test_daemon_status_reads_a_busy_answer_as_running(daemon, capsys):
+    """Review of the descriptor hotfix, F9: a daemon that answers busy is running;
+    `daemon status` said "ping unreachable" and exited 69."""
+    daemon({"daemon.status": busy})
+    assert run_cli(["daemon", "status"]) == 0
+    captured = capsys.readouterr()
+    assert "ping        busy" in captured.out and "try again shortly" in captured.err
+    assert run_cli(["daemon", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["ping"] is True and status["busy"] is True and "512" in status["detail"]
+
+
+def test_daemon_status_shows_the_connections(daemon, capsys):
+    """F9: `daemon.status` reports the connections read against the cap, those
+    open, and those answered busy; `daemon status` shows them."""
+    daemon({"daemon.status": lambda request: {"connections": {"reading": 3, "open": 5, "cap": 512,
+                                                              "refused_busy": 7}}})
+    assert run_cli(["daemon", "status"]) == 0
+    assert "connections 3 of 512 read, 5 open, 7 refused busy" in capsys.readouterr().out
+    assert run_cli(["daemon", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["busy"] is False and status["connections"]["refused_busy"] == 7
