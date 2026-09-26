@@ -244,12 +244,12 @@ def _fenced_refusal(verb: str, named: Sequence[str], *, conversations: Sequence[
     question whose answer is a refusal, and gets the reason and the fix on
     stderr (none under `--json`, where stdout already carries the rows).
     """
-    wanted = set(named)
+    wanted = registry.folded(named)                  # C-26.3: whichever case a UUID is spelled in
     if not wanted:
         return None
-    bound = [item for item in dict.fromkeys(conversations) if item in wanted]
-    lane_runs = [item for item in dict.fromkeys(lanes) if item in wanted and item not in bound]
-    if not wanted <= set(bound) | set(lane_runs):
+    bound = [item for item in dict.fromkeys(conversations) if item.lower() in wanted]
+    lane_runs = [item for item in dict.fromkeys(lanes) if item.lower() in wanted and item not in bound]
+    if not wanted <= registry.folded([*bound, *lane_runs]):
         return None
     if quiet:
         return int(Exit.REFUSED)

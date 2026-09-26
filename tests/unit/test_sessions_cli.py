@@ -525,6 +525,37 @@ def test_the_cold_scope_refuses_a_named_conversations_session(argv, cold_kit, mo
     assert daemon.submits == [] and daemon.records == []
 
 
+@pytest.mark.parametrize("scope", [["--scope", "cold", "--revive", "--force"], ["--scope", "cold", "--dry-run"],
+                                   ["--scope", "cold", "--handoff", "--to", "opus"], ["--delay", "0"]],
+                         ids=["cold-revive", "cold-dry-run", "cold-handoff", "interrupted"])
+@pytest.mark.parametrize("named_as", [str.upper, str.lower], ids=["typed-upper", "typed-lower"])
+@pytest.mark.parametrize("listed_as", [str.upper, str.lower], ids=["listed-upper", "listed-lower"])
+def test_a_conversations_session_named_in_either_case_is_refused(scope, named_as, listed_as, cold_kit, monkeypatch):
+    """C-26.3, C-26.13 (review of 3c1a34e's fixes): the refusal's exit code and
+    reason do not depend on the case the person types the session in or the
+    daemon lists it in: naming only a conversation's session exits 7, and
+    nothing is sent or submitted."""
+    daemon, _repo = cold_kit
+    daemon.conversation_sessions = [listed_as(CONVERSATION)]
+    code, out, err = run(["sessions", "continue", *scope, "--session", named_as(CONVERSATION)], monkeypatch)
+    assert code == int(Exit.REFUSED) == 7, (out, err)
+    assert "bound to a Subfleet conversation" in err and "Subfleet app" in err
+    assert daemon.submits == [] and daemon.records == [] and daemon.pings == []
+
+
+@pytest.mark.parametrize("named_as, refused_as", [(str.upper, str.lower), (str.lower, str.upper)])
+def test_the_refusal_compares_the_named_and_refused_sessions_in_either_case(named_as, refused_as):
+    """C-26.3 (review of 3c1a34e's fixes): a request that names only sessions the
+    kit refused is refused (exit 7) whichever case the request and the refusal
+    spell each UUID in; one that also names another session is not."""
+    assert sessions_cli._fenced_refusal("v", [named_as(CONVERSATION)], conversations=[refused_as(CONVERSATION)],
+                                        lanes=[], quiet=True) == int(Exit.REFUSED)
+    assert sessions_cli._fenced_refusal("v", [named_as(LANE)], conversations=[], lanes=[refused_as(LANE)],
+                                        quiet=True) == int(Exit.REFUSED)
+    assert sessions_cli._fenced_refusal("v", [named_as(CONVERSATION), ALICE],
+                                        conversations=[refused_as(CONVERSATION)], lanes=[], quiet=True) is None
+
+
 @pytest.mark.parametrize("handoff", [False, True], ids=["revive", "handoff"])
 def test_the_cold_scope_refusal_holds_under_json(handoff, cold_kit, monkeypatch):
     """C-26.13 with C-17.3 and C-17.4: `--json` changes the format, not the
