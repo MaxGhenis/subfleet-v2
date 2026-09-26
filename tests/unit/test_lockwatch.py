@@ -322,3 +322,35 @@ def test_timers_write_to_the_store_outside_their_own_lock(daemon, monkeypatch):
     timers.started = True
     timers.request("keepalive")
     assert held and not any(held)
+
+
+def test_a_report_that_raises_never_fails_a_committed_transaction(tmp_path):
+    """Review of 5841d8b: an error inside a lock-watch report could make
+    `transaction()` raise after its rows were committed."""
+    from subfleet.store import Store
+
+    def broken(text):
+        raise OSError("log gone")
+    store = Store(tmp_path / "state.sqlite3", readers=2)
+    watch = LockWatch(broken, hold_s=0, wait_s=.01, every_s=0)
+    watch.add(store._lock)
+    try:
+        with store.transaction("test.reported") as tx:            # held >= hold_s: released() reports
+            tx.execute("INSERT INTO leases VALUES ('k','h','t',NULL)")
+        assert store.query("SELECT lease_key FROM leases") == [{"lease_key": "k"}]
+        holding, go = threading.Event(), threading.Event()
+
+        def hold():
+            with store.transaction("test.hold"):
+                holding.set()
+                go.wait(5)
+        holder = threading.Thread(target=hold)
+        holder.start()
+        assert holding.wait(5)
+        threading.Timer(.1, go.set).start()
+        with store.transaction("test.waited") as tx:              # waits past wait_s: waited() reports
+            tx.execute("INSERT INTO leases VALUES ('k2','h','t',NULL)")
+        holder.join(5)
+        assert len(store.query("SELECT lease_key FROM leases")) == 2
+    finally:
+        store.close()

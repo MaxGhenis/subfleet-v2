@@ -14,7 +14,9 @@ reports, rate-limited:
 
 Nothing here changes who gets the lock or when: the bookkeeping is done while
 the lock is held, and a waiter's report is written between two timed waits
-for it. On 2026-09-25 a `list` that takes 1 ms took 34-94 s in the daemon,
+for it. A report that raises is dropped: it never fails an acquire, and never
+makes a release raise after what the lock guarded (a committed transaction)
+is done. On 2026-09-25 a `list` that takes 1 ms took 34-94 s in the daemon,
 with 18 threads waiting on the store lock, and nothing said which thread held
 it or what it was doing; this module is how the daemon says so.
 """
@@ -102,7 +104,10 @@ class WatchedLock:
                 if limit is not None and time.monotonic() >= limit:
                     return False
                 if watch is not None:
-                    watch.waited(self, me, time.monotonic() - started, sys._getframe(1))
+                    try:
+                        watch.waited(self, me, time.monotonic() - started, sys._getframe(1))
+                    except Exception:                  # noqa: BLE001 - a report never fails an acquire
+                        pass
         finally:
             self.waiting.pop(me, None)
 
@@ -120,7 +125,12 @@ class WatchedLock:
         if watch is not None:
             seconds = time.monotonic() - held[1]
             if seconds >= watch.hold_s:
-                watch.released(self, held, seconds, sys._getframe(1))
+                # The lock is already let go, and what it guarded is done (a
+                # transaction committed): a report that fails must not say otherwise.
+                try:
+                    watch.released(self, held, seconds, sys._getframe(1))
+                except Exception:                      # noqa: BLE001 - diagnostics only
+                    pass
 
     def __enter__(self) -> bool:
         return self.acquire()
