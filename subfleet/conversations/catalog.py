@@ -388,11 +388,10 @@ def _workspace(path: Path, first: str | None) -> str | None:
 
 
 def _project_names(cwd: str) -> set[str]:
-    """The names Claude Code may give `cwd`'s project directory: the adapter's
-    encoding (`/`, `.`, `_` to `-`), and every other character but letters and
-    digits to `-` as well."""
-    from ..adapters.claude import encode_project_dir
-    return {encode_project_dir(cwd), re.sub(r"[^A-Za-z0-9]", "-", cwd)}
+    """The names Claude Code may give `cwd`'s project directory: the Claude
+    adapter's encoding (`adapters.claude.encode_project_dir`: `/`, `.`, `_` to
+    `-`), and every other character but letters and digits to `-` as well."""
+    return {re.sub(r"[/._]", "-", cwd), re.sub(r"[^A-Za-z0-9]", "-", cwd)}
 
 
 def _claude_value(model_id: str) -> str:

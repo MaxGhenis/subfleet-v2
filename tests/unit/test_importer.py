@@ -1385,7 +1385,8 @@ def _recorded(v1) -> dict[str, str]:
             for row in conversations(v1["root"], "SELECT session_key, reason FROM legacy_sessions")}
 
 
-@pytest.mark.parametrize("kind", ["unreadable outbox", "journal entry", "broker"])
+@pytest.mark.parametrize("kind", ["unreadable outbox", "journal entry", "unreadable journal", "broker",
+                                  "live worker"])
 def test_a_first_pass_that_holds_a_session_records_it(v1, kind):
     """C-30.4 (second review, finding 1): a first pass with no outbox message and
     no conversation store still records what it holds, so a session opened
@@ -1399,15 +1400,26 @@ def test_a_first_pass_that_holds_a_session_records_it(v1, kind):
         write_json(v1["state"] / legacy.JOURNAL, {f"claude:{LEGACY_SESSION}": {"request": {
             "message_id": LEGACY[5], "session_id": f"claude:{LEGACY_SESSION}"}}})
         expected = {f"claude:{LEGACY_SESSION}": f"the cockpit journal holds an unacknowledged send {LEGACY[5]}"}
-    else:
+    elif kind == "unreadable journal":
+        (v1["state"] / "outbox.sqlite3").unlink()
+        expected = {"*": legacy.journal_hold(_unreadable_journal(v1["state"] / legacy.JOURNAL, "not json"))}
+    elif kind == "broker":
         (v1["state"] / "outbox.sqlite3").unlink()
         handle = os.open(v1["state"] / "broker.lock", os.O_RDWR | os.O_CREAT, 0o600)
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         expected = {"*": "the cockpit broker holds broker.lock, so it may dispatch into any session"}
+    else:
+        (v1["state"] / "outbox.sqlite3").unlink()
+        handle = _sleeper()
+        write_json(v1["state"] / "native-workers.json", {f"claude:{LEGACY_SESSION}": {"pid": handle.pid}})
+        expected = {f"claude:{LEGACY_SESSION}": f"the cockpit's worker pid {handle.pid} is live in it"}
     try:
         run_legacy(v1)
     finally:
-        if handle is not None:
+        if isinstance(handle, subprocess.Popen):
+            handle.kill()
+            handle.wait()
+        elif handle is not None:
             fcntl.flock(handle, fcntl.LOCK_UN)
             os.close(handle)
     assert _recorded(v1) == expected
@@ -2227,7 +2239,12 @@ def test_a_v1_state_that_is_not_there_releases_nothing(v1):
     missing = v1["state"].parent / "v1-stat"                      # a typo
     empty = v1["state"].parent / "empty"
     empty.mkdir()
-    for wrong in (missing, empty, v1["state"].parent):             # not there, empty, the directory above
+    (v1["root"] / "gates").mkdir(exist_ok=True)                    # a v2 root can hold manifest names too
+    other_v2 = v1["state"].parent / "other-v2-root"
+    (other_v2 / "gates").mkdir(parents=True)
+    (other_v2 / "state.sqlite3").write_bytes(b"")
+    # not there, empty, the directory above, this v2 state root (--v1-state and --state-root swapped), another
+    for wrong in (missing, empty, v1["state"].parent, v1["root"], other_v2):
         with pytest.raises(ImportRefused):
             import_legacy_cockpit(v1["root"], v1_state=wrong, claude_projects=v1["claude"] / "projects")
     assert importer.main(["--legacy-cockpit", "--state-root", str(v1["root"]), "--v1-state", str(missing),
@@ -2256,3 +2273,22 @@ def test_a_retired_cockpit_lifts_every_hold(v1, capsys):
     assert _hold_of(v1, cid) is None and _recorded(v1) == {}
     with pytest.raises(SystemExit):
         importer.main(["--cockpit-retired", "--state-root", str(v1["root"])])
+    # Retirement lasts: the cockpit's unsettled rows never settle, and no later pass holds them again.
+    (v1["state"] / legacy.JOURNAL).unlink()
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "dispatched", "never settles", at=50)])
+    for report in (run_legacy(v1), import_legacy_cockpit(v1["root"], v1_state=v1["state"],
+                                                          claude_projects=v1["claude"] / "projects")):
+        assert report.stores["outbox"].reasons == {"cockpit-retired": 1}
+    assert _hold_of(v1, cid) is None and _recorded(v1) == {}
+
+
+def test_a_dangling_manifest_entry_still_marks_a_v1_state(v1):
+    """C-30.4: a v1 state whose only manifest entry is a symlink to a moved
+    file is still a v1 state, read as holding nothing in that entry."""
+    lonely = v1["state"].parent / "lonely"
+    lonely.mkdir()
+    (lonely / "outbox.sqlite3").symlink_to(lonely / "moved-away.sqlite3")
+    report = import_legacy_cockpit(v1["root"], v1_state=lonely, claude_projects=v1["claude"] / "projects",
+                                   write_report=False)
+    assert report.stores["outbox"].reasons == {"absent": 1}

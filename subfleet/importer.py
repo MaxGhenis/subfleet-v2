@@ -1637,7 +1637,13 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     (default `projects`' parent, else `~/.claude`). A `v1_state` that holds none
     of the manifest's entries is read as nothing, and changes no hold.
     """
-    if not _is_v1_state(v1_state):
+    retired = conversations.get().legacy_retired_at() if conversations.exists() else None
+    if retired:
+        report.skip("cockpit-retired")
+        report.note(f"the legacy cockpit was retired at {retired} (--cockpit-retired): nothing under the v1 state "
+                    "is read and no session is held")
+        return None
+    if not _is_v1_state(v1_state, conversations.state_root):
         # Nothing about the cockpit can be read, which is not the same as the
         # cockpit holding nothing: every hold stays as the last pass left it.
         report.skip("v1-state-missing")
@@ -1710,12 +1716,22 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
             "max_sequence": max((message.sequence for message in messages), default=0)}
 
 
-def _is_v1_state(v1_state: Path) -> bool:
+#: Files only a v2 state root holds: a `--v1-state` holding one is not v1's.
+V2_MARKERS = ("state.sqlite3", "conversations.sqlite3", "daemon.lock")
+
+
+def _is_v1_state(v1_state: Path, state_root: Path | None = None) -> bool:
     """Whether `v1_state` is a v1 state directory: one holding an entry the
-    manifest names under S. A mistyped or moved `--v1-state` (missing, empty,
-    the directory above it) would otherwise read as a cockpit that holds
-    nothing and release every legacy hold (C-30.4)."""
+    manifest names under S, and not a v2 state root (which can hold `gates/`
+    and `integration-events.salt` too). A mistyped, swapped or moved
+    `--v1-state` (missing, empty, the directory above it, the v2 root) would
+    otherwise read as a cockpit that holds nothing and release every legacy
+    hold (C-30.4)."""
     if not v1_state.is_dir():
+        return False
+    if state_root is not None and v1_state.resolve() == Path(state_root).resolve():
+        return False
+    if any((v1_state / name).exists() for name in V2_MARKERS):
         return False
     names = {name for row in MANIFEST if row.root == "S" for name in row.names}
     return any((v1_state / name).exists() or (v1_state / name).is_symlink() for name in names)
@@ -2112,7 +2128,7 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     state_root = Path(state_root).expanduser()
     v1_state = Path(v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
-    if not cockpit_retired and not _is_v1_state(v1_state):
+    if not cockpit_retired and not _is_v1_state(v1_state, state_root):
         # A mistyped or moved --v1-state would otherwise read as a cockpit that
         # holds nothing and release every hold (C-30.4).
         raise ImportRefused(f"{v1_state} is not a v1 state directory; name it with --v1-state, or pass "

@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS legacy_sessions (
   reason      TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS legacy_retirement (retired_at TEXT NOT NULL);
 """
 
 
@@ -409,6 +410,19 @@ class ConversationStore:
             tx.execute("DELETE FROM legacy_sessions")
             tx.executemany("INSERT INTO legacy_sessions(session_key,reason,recorded_at) VALUES (?,?,?)",
                            [(key, reason, now) for key, reason in sorted(holds.items())])
+
+    def retire_legacy(self) -> str:
+        """Record that the legacy cockpit will never run again (C-30.4); later
+        passes read nothing from it. Returns when it was first recorded."""
+        with self.transaction() as tx:
+            row = tx.execute("SELECT retired_at FROM legacy_retirement").fetchone()
+            if row is None:
+                tx.execute("INSERT INTO legacy_retirement(retired_at) VALUES (?)", (utcnow(),))
+        return self.legacy_retired_at()
+
+    def legacy_retired_at(self) -> str | None:
+        row = self.one("SELECT retired_at FROM legacy_retirement")
+        return row["retired_at"] if row else None
 
     def turn_hold(self, conversation_id: str) -> dict | None:
         """Why no turn may run in a conversation now (C-24.5): its `blocked_by`

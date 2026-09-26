@@ -445,9 +445,8 @@ class ConversationService:
         if message["state"] == QUEUED and not self._turn_job(message):
             if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED,)):
                 return self._receipt(self.store.message(message_id))
-        if self._readmit_pending(message):
-            if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,)):
-                return self._receipt(self.store.message(message_id))
+        if self._readmit_pending(message) and self._withdraw_readmit(message):
+            return self._receipt(self.store.message(message_id))
         if message["state"] in (QUEUED, WAITING):
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
@@ -461,6 +460,21 @@ class ConversationService:
         the provider cannot have it and a person may still withdraw it (IR-2)."""
         return (message["state"] == WAITING and not message.get("job_id")
                 and str(message.get("state_reason") or "").startswith("readmit:") and not self._turn_job(message))
+
+    def _withdraw_readmit(self, message: dict) -> bool:
+        """Withdraw a message `_readmit_pending` found. The dispatcher may submit
+        its next turn job meanwhile: the stop is recorded first, so a runner for
+        that job never writes the message, and a job found after the message is
+        cancelled is cancelled too while it has no attempt; admission cancels
+        any that is left (`admission_hold`)."""
+        message_id = message["message_id"]
+        self.store.update_message(message_id, stop_requested_at=message.get("stop_requested_at") or utcnow())
+        if not self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,)):
+            return False
+        job = self._turn_job(self.store.message(message_id))
+        if job:
+            self._cancel_job_without_attempt(job["job_id"])
+        return True
 
     def _tombstone(self, message_id: str, conversation_id: str | None) -> dict:
         if not conversation_id:
@@ -498,7 +512,7 @@ class ConversationService:
         if runner is not None:
             runner.interrupt("stopped")
         elif self._readmit_pending(message):
-            self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,))
+            self._withdraw_readmit(message)
         elif message["state"] == WAITING:
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
@@ -624,9 +638,17 @@ class ConversationService:
         daemon is stopped, with its turn job already queued. The job then waits
         here, placing nothing, until both blocks are clear.
         """
-        manifest = _read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
-        turn = manifest.get(TURN_MANIFEST_KEY) or {}
+        manifest = _read_json(self.root / "jobs" / job["job_id"] / "manifest.json")
+        turn = manifest.get(TURN_MANIFEST_KEY) if isinstance(manifest, dict) else None
+        turn = turn if isinstance(turn, dict) else {}
         conversation_id = turn.get("conversation_id")
+        message = (self.store.one("SELECT state FROM messages WHERE message_id=?", (turn["message_id"],))
+                   if isinstance(turn.get("message_id"), str) else None)
+        if message and message["state"] in TERMINAL_STATES:
+            # IR-2: its message was withdrawn (or settled) after the job was
+            # made; the job is cancelled while it has no attempt, never run.
+            self._cancel_job_without_attempt(job["job_id"])
+            return {"reason": "message-settled", "conversation_id": conversation_id, "state": message["state"]}
         hold = self.store.turn_hold(conversation_id) if conversation_id else None
         if hold:
             return {"reason": "conversation-blocked", "conversation_id": conversation_id, **hold}

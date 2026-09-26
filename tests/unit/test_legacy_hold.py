@@ -855,10 +855,12 @@ def test_a_message_the_hold_withheld_can_still_be_withdrawn(world, tmp_path, op)
         svc.close()
 
 
-def test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden(world, monkeypatch):
+@pytest.mark.parametrize("handed_over", [False, True])
+def test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden(world, monkeypatch, handed_over):
     """C-24.7, IR-2 (second review, finding 2): a runner whose message has a
     person's stop recorded, and which the relay log does not show handed over,
-    never writes it, whatever the provider has answered meanwhile."""
+    never writes it, whatever the provider has answered meanwhile. One the log
+    shows handed over is stopped through D-13 after the replay."""
     RecordingRelay.frames = []
     monkeypatch.setattr(runner_mod, "RelayClient", RecordingRelay)
     world.run_pass()
@@ -869,24 +871,32 @@ def test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden(
         svc.store.update_message(first, stop_requested_at="2026-09-25T20:00:00.000Z")
         aid = running_attempt(world, daemon, world.conversation_id(), first)
         adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
-        (adir / "stdin.jsonl").write_text(json.dumps({"kind": "intent", "seq": 1, "tag": "init", "op": "write"})
-                                          + "\n" + json.dumps({"kind": "written", "seq": 1}) + "\n")
+        log = [{"kind": "intent", "seq": 1, "tag": "init", "op": "write"}, {"kind": "written", "seq": 1}]
+        if handed_over:
+            log += [{"kind": "intent", "seq": 2, "tag": "user-message", "op": "write"}, {"kind": "written", "seq": 2}]
+        (adir / "stdin.jsonl").write_text("".join(json.dumps(row) + "\n" for row in log))
         (adir / "stdout").write_text(json.dumps(_init_answer()) + "\n")
         svc._adopt_runners()
         runner = svc.runners[aid]
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and not runner.driver.outcome:
+        while time.monotonic() < deadline and not (runner.driver.outcome or runner.offset):
             time.sleep(0.02)
         time.sleep(0.2)
         runner.stop()
         assert runner.finished.wait(5)
-        assert [tag for _, _, tag in RecordingRelay.frames] == ["close"]
-        assert runner.driver.outcome.reason == "stopped-before-send"
+        tags = [tag for _, _, tag in RecordingRelay.frames]
+        if handed_over:
+            # D-13 from the recorded stop (its escalation clock runs), and never written twice.
+            assert "user-message" not in tags and not runner.withheld and runner.stop_at is not None
+            assert runner.driver.phase == "sent" and runner.driver.outcome is None
+        else:
+            assert tags == ["close"] and runner.driver.outcome.reason == "stopped-before-send"
     finally:
         svc.close()
 
 
-def test_a_store_error_in_the_conversation_check_is_the_pass_s(core, monkeypatch, caplog):
+@pytest.mark.parametrize("store_error", [sqlite3.OperationalError("database is locked"), OSError(5, "I/O error")])
+def test_a_store_error_in_the_conversation_check_is_the_pass_s(core, monkeypatch, caplog, store_error):
     """C-6.12, C-5.10 (second review, finding 4): a store error while checking a
     turn's conversation ends the pass, for C-5.10 to retry; any other error
     holds that job alone and is logged once, not once a pass."""
@@ -897,9 +907,9 @@ def test_a_store_error_in_the_conversation_check_is_the_pass_s(core, monkeypatch
     job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
 
     def locked(job):
-        raise sqlite3.OperationalError("database is locked")
+        raise store_error
     monkeypatch.setattr(svc, "admission_hold", locked)
-    with pytest.raises(sqlite3.OperationalError):
+    with pytest.raises(type(store_error)):
         daemon._admit()
 
     def broken(job):
@@ -910,3 +920,103 @@ def test_a_store_error_in_the_conversation_check_is_the_pass_s(core, monkeypatch
             daemon._admit()
     assert sum("could not be checked" in record.getMessage() for record in caplog.records) == 1
     assert daemon._holds[job["job_id"]]["conversation_id"] == world.conversation_id()
+    assert svc._cancel_job_without_attempt(job["job_id"])
+    daemon._admit()
+    assert job["job_id"] not in daemon._turn_check_errors          # forgotten once the job leaves the queue
+
+
+def test_a_withdrawal_racing_the_dispatcher_leaves_no_turn_to_run(core, tmp_path, monkeypatch):
+    """C-24.7, IR-2 (third review, finding A): the dispatcher may submit the next
+    turn job of a message waiting to be re-admitted between a person's cancel
+    checking for one and committing. The cancel still stands: the stop is
+    recorded, the job is cancelled while it has no attempt, and admission never
+    places it."""
+    world, daemon = core
+    svc = daemon.conversations
+    cid = world.conversation_id()
+    first = submit(svc, cid)
+    svc.store.set_state(first, STARTING, expect=("queued",), job_id="job-0")
+    outcome(svc, tmp_path, first, cid, state=None, reason="provider-init-failed", user_frame_written=False)
+    assert svc.store.message(first)["state_reason"] == "readmit:provider-init-failed"
+    real = svc._turn_job
+    raced = []
+
+    def racing(message):
+        found = real(message)
+        if not raced:                                    # the cancel's first look: nothing yet...
+            raced.append(True)
+            svc._dispatch()                              # ...and the dispatcher submits right after it
+        return found
+    monkeypatch.setattr(svc, "_turn_job", racing)
+    receipt = svc.op_message_cancel({"message_id": first}, None)
+    monkeypatch.setattr(svc, "_turn_job", real)
+    assert (receipt["state"], receipt["stop_requested"]) == ("cancelled", True)
+    job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
+    assert job["request_id"] == f"turn:{first}:1" and job["state"] == "cancelled"
+    daemon._admit()
+    assert daemon.store.list_attempts(job["job_id"]) == []
+
+
+def test_admission_cancels_a_turn_job_whose_message_is_settled(core):
+    """C-24.7, C-6.11 (third review, finding A): a turn job whose message was
+    withdrawn after the job was made is cancelled at admission, never run."""
+    world, daemon = core
+    svc = daemon.conversations
+    first = submit(svc, world.conversation_id())
+    svc._dispatch()
+    job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
+    svc.store.set_state(first, "cancelled", reason="withdrawn", expect=("waiting",))
+    daemon._admit()
+    assert daemon.store.get_job(job["job_id"])["state"] == "cancelled"
+    assert daemon.store.list_attempts(job["job_id"]) == []
+    assert daemon._holds[job["job_id"]]["reason"] == "message-settled"
+
+
+def test_a_failed_check_with_an_unreadable_manifest_still_holds_that_job_alone(core, monkeypatch):
+    """C-6.12 (third review, finding C): when a turn job's check fails and its
+    manifest cannot be read either, the job is held and the pass goes on."""
+    world, daemon = core
+    svc = daemon.conversations
+    submit(svc, world.conversation_id())
+    svc._dispatch()
+    job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
+    (world.root / "jobs" / job["job_id"] / "manifest.json").write_text("[1, 2", encoding="utf-8")
+    prompt = world.root / "detached.md"
+    prompt.write_text("a detached job", encoding="utf-8")
+    other = daemon.submit(protocol.SubmitArgs(request_id="detached-2", kind="dispatch", workdir=str(world.workspace),
+                                              prompt_path=str(prompt), sandbox="read-only", pinned_model="opus",
+                                              allow_tmp=True))["job_id"]
+
+    def broken(job):
+        raise ValueError("a bad registry row")
+    monkeypatch.setattr(svc, "admission_hold", broken)
+    daemon._admit()
+    assert daemon._holds[job["job_id"]]["conversation_id"] is None
+    assert len(daemon.store.list_attempts(other)) == 1
+
+
+def test_a_runner_the_store_refuses_to_mark_is_still_started(world, monkeypatch):
+    """C-30.4, D-17 (second review, finding 5): a runner the service registers is
+    always started, even when marking its message raises, so it is never left
+    registered and idle, beyond adoption and containment."""
+    RecordingRunner.made = []
+    monkeypatch.setattr(service_mod, "TurnRunner", RecordingRunner)
+    world.run_pass()
+    cid = world.conversation_id()
+    svc, daemon = service(world)
+    try:
+        first = submit(svc, cid)
+        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        running_attempt(world, daemon, cid, first)
+        real = svc.store.set_state
+
+        def failing(*args, **kwargs):
+            monkeypatch.setattr(svc.store, "set_state", real)
+            raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(svc.store, "set_state", failing)
+        with pytest.raises(sqlite3.OperationalError):
+            svc._adopt_runners()
+        (runner,) = RecordingRunner.made
+        assert runner.started
+    finally:
+        svc.close()

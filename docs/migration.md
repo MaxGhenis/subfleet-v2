@@ -127,9 +127,11 @@ uv run python -m subfleet.importer --legacy-cockpit --v1-state ~/chief-of-staff/
 
 `--claude-dir` names another `~/.claude` for the transcripts and its
 `sessions/` registry, `--json` prints the report. A `--v1-state` that holds
-none of the manifest's entries (missing, empty, another directory) is refused.
-Once the cockpit will never run again, `--legacy-cockpit --cockpit-retired`
-lifts every legacy hold without reading the v1 state. Before a real pass, stop the daemon and quit the
+none of the manifest's entries (missing, empty, another directory), or that is
+a v2 state root, is refused. Once the cockpit will never run again,
+`--legacy-cockpit --cockpit-retired` lifts every legacy hold without reading
+the v1 state and records the retirement; later passes, milestone passes
+included, then read nothing from the cockpit. Before a real pass, stop the daemon and quit the
 cockpit: while its broker holds `S/broker.lock` every session is held, as it
 is while the journal, the outbox or `S/native-workers.json` exists and cannot
 be read, and a session with a live cockpit worker is held too. A session with

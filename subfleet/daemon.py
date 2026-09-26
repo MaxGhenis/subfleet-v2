@@ -66,7 +66,7 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 #: C-6.11: waits that are a person's or a retry's to end, not admission's. A
 #: turn held for its conversation (C-24.5, C-30.4) is not admission's to place.
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked",
-                           "external-writer")
+                           "external-writer", "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job"})
@@ -2428,6 +2428,8 @@ class Daemon:
             self._route_deferrals.pop(gone, None)
         for gone in set(self._retry_verdicts) - {job["job_id"] for job in queued}:
             self._retry_verdicts.pop(gone, None)
+        for gone in set(self._turn_check_errors) - {job["job_id"] for job in queued}:
+            self._turn_check_errors.pop(gone, None)
         # C-6.10: a lease that was held at the last pass and is not now is capacity
         # that came free (an attempt ended, a job let go of its worktree or its
         # output path), so backed-off capacity waits are looked at on this pass
@@ -2470,9 +2472,13 @@ class Daemon:
                         self.log.warning("admission: job %s: its conversation could not be checked: %s",
                                          job["job_id"], type(exc).__name__)
                     self._turn_check_errors[job["job_id"]] = type(exc).__name__
-                    turn = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn")
+                    try:
+                        manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json")
+                    except (OSError, ValueError):
+                        manifest = None
+                    turn = manifest.get("turn") if isinstance(manifest, dict) else None
                     hold = {"reason": "conversation-blocked",
-                            "conversation_id": (turn or {}).get("conversation_id"),
+                            "conversation_id": turn.get("conversation_id") if isinstance(turn, dict) else None,
                             "error_type": type(exc).__name__, "error": str(exc)[:200]}
                 if hold:
                     holds[job["job_id"]] = hold

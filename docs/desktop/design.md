@@ -329,7 +329,8 @@ stopped when the daemon adopts it. If the relay log does not show its message
 handed over, the runner is stopped before it replays any output, so the
 message is never written (`TurnRunner.withhold`), and it is re-admitted once
 the hold lifts unless a person had asked to stop it; until then a person may
-still withdraw it (`message.cancel`, `turn.interrupt`). An external Claude writer (a live pid
+still withdraw it (`message.cancel`, `turn.interrupt`), and a turn job made for
+it meanwhile is cancelled, by the withdrawal or at admission. An external Claude writer (a live pid
 registered for the session in `~/.claude/sessions/*.json` whose environment
 carries no `SUBFLEET_ATTEMPT`) is an admission wait `external-writer`, not a
 refusal: the turn job places nothing, and the waiting message's reason says
@@ -835,9 +836,11 @@ held, so a session opened after the pass gets no turn either. A live Claude
 process outside Subfleet in a session keeps history out of it that pass but
 holds no conversation: while it lives, admission makes a new turn there wait
 (`external-writer`, D-17); a turn already running there is not stopped for it.
-A `--v1-state` that holds none of the manifest's entries is refused, never
-read as a cockpit that holds nothing, and `--cockpit-retired` lifts every hold
-once the cockpit will never run again. A session whose transcript raises
+A `--v1-state` that holds none of the manifest's entries, or a v2 root's
+files, is never read as a cockpit that holds nothing: `--legacy-cockpit`
+refuses it and a milestone pass reads nothing from it. `--cockpit-retired`
+lifts every hold once the cockpit will never run again and records that, so
+later passes read nothing from it. A session whose transcript raises
 while it is read, or a row whose timestamp is out of range, is reported and
 the pass goes on. `python -m subfleet.importer --legacy-cockpit [--dry-run]`
 runs the import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").

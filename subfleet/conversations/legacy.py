@@ -438,9 +438,11 @@ RETIRED = "the legacy cockpit is retired (--cockpit-retired)"
 
 
 def retire(store: ConversationStore) -> Result:
-    """Lift every legacy hold and forget every held session: the operator says
-    the legacy cockpit will never run again (C-30.4)."""
+    """Lift every legacy hold, forget every held session, and record the
+    retirement so no later pass reads the cockpit again: the operator says it
+    will never run again (C-30.4)."""
     result = Result()
+    store.retire_legacy()
     store.record_legacy_sessions({})
     for row in store.query("SELECT * FROM conversations WHERE legacy_hold IS NOT NULL "
                            "ORDER BY created_at, conversation_id"):
