@@ -349,6 +349,10 @@ def test_c5_12_members_are_recorded_only_while_the_recorded_guardian_leads_the_g
                            4243: (4242, 4242, "S", STARTED)}, "boot")
     daemon._record_owned(attempt(daemon), reused)
     assert "owned_identities" not in json.loads(attempt(daemon)["evidence_json"])
+    # The recorded guardian, alive, but no longer leading the recorded group: not its members either.
+    elsewhere = ProcessTable({4242: (1, 1, "S", STARTED), 4243: (4242, 4242, "S", STARTED)}, "boot")
+    daemon._record_owned(attempt(daemon), elsewhere)
+    assert "owned_identities" not in json.loads(attempt(daemon)["evidence_json"])
 
 
 def test_c5_12_a_failed_process_table_read_is_rationed_like_a_good_one(daemon, monkeypatch):

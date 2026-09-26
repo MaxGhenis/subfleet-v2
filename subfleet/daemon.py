@@ -3112,7 +3112,9 @@ class Daemon:
         the kill protocol records members, so a legacy boot timestamp that
         matches counts.
         """
-        if not table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"], legacy=True):
+        guardian = a["guardian_pid"]
+        if (not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
+                or table.rows[guardian][1] != a["pgid"]):
             return
         members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
         evidence = json.loads(a["evidence_json"] or "{}")
