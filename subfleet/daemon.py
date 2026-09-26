@@ -77,9 +77,10 @@ PROBE_RECORD = (
     "ORDER BY event_id DESC")
 
 #: C-3.7: read connections the daemon's store keeps beside its one writer. A
-#: read holds one for a single statement (or a `snapshot` block), so a few serve
-#: every pool; a request that finds them all busy waits for a statement, never
-#: for a transaction.
+#: read holds one for a single statement (or a `snapshot` block, which only
+#: reads), so a few serve every pool. Snapshots may hold all but
+#: `store.STATEMENT_RESERVE` (2) of them; a read that finds none free waits at
+#: most `store.READ_WAIT_S` (1 s), then opens one of its own, and says so.
 READ_CONNECTIONS = 6
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
 #: They have their own pool, so they never queue behind a view build or a write
@@ -738,23 +739,36 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _capacity_view(self, desktop=None):
-        # C-3.7: one committed state for the whole view, read off the store lock
-        # (inside a transaction, the transaction's own state, as before).
+    def _capacity_rows(self) -> dict:
+        """C-3.7: every row a capacity view is built from, read in one committed
+        state off the store lock (inside a transaction, the transaction's own).
+
+        Only the reads: the view is built after the snapshot ends, so building
+        it holds no read connection. Six views building at once used to hold
+        all six, and every other read waited (review of 5841d8b, finding 2)."""
         with self.store.snapshot():
-            view = capacity.build_view(
-                self.store.lane_rows(), self.store.latest_reading_candidates(), self.store.list_closures(),
-                self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
-                reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
+            lanes = self.store.lane_rows()
+            rows = {"lanes": lanes, "readings": self.store.latest_reading_candidates(),
+                    "closures": self.store.list_closures(), "attempts": self.store.list_attempts(),
+                    "jobs": self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")}
             # Probe reservations are explicit leases, not invented in-flight attempt
             # counts. A recovered probe keeps its lane unavailable until containment.
             leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
-            view["unavailable_lanes"] = {row["lease_key"].split(":")[1]: row["holder"] for row in leases}
-            view["reserved_probes"] = len(leases)
-            for lane in view["lanes"]:
-                if holder := view["unavailable_lanes"].get(lane["lane_id"]):
-                    lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
-            return self.timers.enrich_view(view)
+            records = {row["holder"]: self._probe_record(row["holder"]) for row in leases}
+            return {"view": rows, "probe_leases": leases, "probe_records": records,
+                    "timers": self.timers.view_rows(lanes)}
+
+    def _capacity_view(self, desktop=None, rows: dict | None = None):
+        rows = rows or self._capacity_rows()
+        view = capacity.build_view(**rows["view"], reading_ttl_s=self.policy["caps"]["reading_ttl_s"],
+                                   desktop=desktop)
+        leases = rows["probe_leases"]
+        view["unavailable_lanes"] = {row["lease_key"].split(":")[1]: row["holder"] for row in leases}
+        view["reserved_probes"] = len(leases)
+        for lane in view["lanes"]:
+            if holder := view["unavailable_lanes"].get(lane["lane_id"]):
+                lane["probe_state"] = (rows["probe_records"].get(holder) or {}).get("state", "uncertain")
+        return self.timers.enrich_view(view, rows["timers"])
 
     def _cached_desktop_identity(self) -> capacity.DesktopIdentity:
         """Read-only advisory identity: a warm profile or conservative cached hints."""
@@ -863,8 +877,9 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        view = self._capacity_view(desktop)
-        context = self.timers.actions.override_context()        # read once for every lane (C-3.7)
+        rows = self._capacity_rows()
+        view = self._capacity_view(desktop, rows)
+        context = rows["timers"]["overrides"]          # read once, in the view's snapshot (C-3.7)
         overrides = {lane["lane_id"] for lane in view["lanes"]
                      if self.timers.actions.confirmed_override(lane["lane_id"], context=context)}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
@@ -1826,7 +1841,8 @@ class Daemon:
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
-                    "admission": self._admission_status(view)}
+                    "admission": self._admission_status(view),
+                    "read_pool": self.store.read_pool()}             # C-3.7
         raise protocol.ProtocolError(f"unknown op {op}")
 
     def _why_job(self, job: dict) -> dict:
@@ -3065,19 +3081,19 @@ class Daemon:
                     holds[job["job_id"]]["next_check_at"] = current["next_check_at"]
                     self._refresh_hold(job["job_id"], holds[job["job_id"]])
                 continue
-            # C-6.3, C-3.7: the route is evaluated first in a read snapshot, off
-            # the store lock. The reserving transaction takes that decision only
-            # if no transaction has committed since, so it rests on the very rows
-            # the reservation reads, and only if it is at most ROUTE_REUSE_S old;
-            # otherwise it evaluates again inside, as it always did. An early
-            # evaluation that fails is dropped: the transaction's own evaluation
-            # fails the same way and settles the job as before (C-6.12). This
-            # evaluation, a whole capacity view, was the longest planned hold of
-            # the store lock (13.5 s with the daemon held to 5% of a core).
+            # C-6.3, C-3.7: the route is evaluated first, off the store lock, on
+            # rows read in one snapshot (`_capacity_rows`). The reserving
+            # transaction takes that decision only if no transaction has
+            # committed since, so it rests on the very rows the reservation
+            # reads, and only if it is at most ROUTE_REUSE_S old; otherwise it
+            # evaluates again inside, as it always did. An early evaluation that
+            # fails is dropped: the transaction's own evaluation fails the same
+            # way and settles the job as before (C-6.12). This evaluation, a
+            # whole capacity view, was the longest planned hold of the store
+            # lock (13.5 s with the daemon held to 5% of a core).
             seen, evaluated_at = self.store.generation, time.monotonic()
             try:
-                with self.store.snapshot():
-                    early = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
+                early = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
             except Unroutable:
                 early = None
             # C-6.12: outside the transaction, so a route that fails here rolls it back first.

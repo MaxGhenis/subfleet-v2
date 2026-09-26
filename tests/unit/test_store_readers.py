@@ -246,3 +246,192 @@ def test_another_threads_commit_during_a_snapshot_is_how_a_race_arrives(store):
         other.join(5)
         assert done == [True] and keys(store) == []
     assert keys(store) == ["raced"]
+
+
+# --- C-3.7: the read pool (review of 5841d8b, finding 2) ---------------------------------------
+
+class Holding:
+    """Threads each holding a snapshot (or a one-statement read) open until `finish()`."""
+
+    def __init__(self, store, count: int, kind: str = "snapshot"):
+        self.store, self.kind = store, kind
+        self.inside, self.release, self.errors = [], threading.Event(), []
+        self.threads = [threading.Thread(target=self._run, name=f"hold-{kind}-{n}") for n in range(count)]
+
+    def _run(self):
+        try:
+            if self.kind == "snapshot":
+                with self.store.snapshot():
+                    self.store.one("SELECT count(*) n FROM leases")
+                    self.inside.append(time.monotonic())
+                    self.release.wait(30)
+            else:
+                with self.store._reading() as conn:
+                    conn.execute("SELECT 1").fetchone()
+                    self.inside.append(time.monotonic())
+                    self.release.wait(30)
+        except Exception as exc:                            # noqa: BLE001
+            self.errors.append(exc)
+
+    def __enter__(self):
+        for thread in self.threads:
+            thread.start()
+        deadline = time.monotonic() + 20
+        while len(self.inside) < len(self.threads) and time.monotonic() < deadline and not self.errors:
+            time.sleep(.01)
+        assert not self.errors and len(self.inside) == len(self.threads), (self.errors, len(self.inside))
+        return self
+
+    def __exit__(self, *exc):
+        self.release.set()
+        for thread in self.threads:
+            thread.join(10)
+        assert not self.errors
+
+
+def watched(store):
+    from subfleet.lockwatch import LockWatch
+    lines = []
+    watch = LockWatch(lines.append, every_s=0)               # every report, no rate limit
+    watch.add(store._lock)
+    return lines
+
+
+def test_more_snapshots_than_connections_leave_one_statement_reads_a_connection(tmp_path):
+    """Ten snapshots held open on a pool of six: four hold pooled connections, six
+    wait `read_wait_s` and open their own; a one-statement read, as a hook, `ping`,
+    the wait hub or the control loop makes, still answers at once from the two
+    connections no snapshot may take. Before: the seventh reader waited, unbounded
+    and unlogged, for a snapshot to end (1.53 s in the review's probe)."""
+    store = Store(tmp_path / "state.sqlite3", readers=6, read_wait_s=.3)
+    lines = watched(store)
+    try:
+        with Holding(store, 10):
+            pool = store.read_pool()
+            assert pool["in_use"] == 10 and pool["snapshots"] == 10 and pool["own_connections"] == 6
+            assert pool["open"] <= 6
+            before = dict(store.pool_waits)
+            started = time.monotonic()
+            assert store.one("SELECT count(*) n FROM leases") == {"n": 0}
+            assert store.query("SELECT 1 AS one") == [{"one": 1}]
+            assert time.monotonic() - started < .25                 # well under read_wait_s: no wait at all
+            assert store.pool_waits == before                         # and from the pool, not its own
+        assert len([line for line in lines if "for a snapshot and, none free after 0.3 s, opened one of its own"
+                    in line]) == 6, lines
+        assert all("at most 4 of the" in line for line in lines if "read connection" in line)
+    finally:
+        store.close()
+    assert store._in_use == {}
+
+
+def test_no_read_waits_for_a_connection_longer_than_the_bound(tmp_path):
+    """Every pooled connection busy with statements: the next read waits `read_wait_s`,
+    opens its own, says so, and closes it after."""
+    store = Store(tmp_path / "state.sqlite3", readers=3, read_wait_s=.2)
+    lines = watched(store)
+    try:
+        with Holding(store, 3, kind="statement"):
+            started = time.monotonic()
+            assert store.one("SELECT 7 AS n") == {"n": 7}
+            waited = time.monotonic() - started
+            assert .15 <= waited < 2, waited
+            assert store.read_pool()["in_use"] == 3                 # its own connection is closed again
+            assert store.pool_waits["own_connections"] == 1 and store.pool_waits["waits"] == 1
+        assert any("waited" in line and "for a statement and, none free after 0.2 s, opened one of its own" in line
+                   and "hold-statement-" in line for line in lines), lines
+    finally:
+        store.close()
+
+
+def test_a_wait_the_pool_answers_is_logged_too(tmp_path):
+    store = Store(tmp_path / "state.sqlite3", readers=1, read_wait_s=5)
+    lines = watched(store)
+    try:
+        with Holding(store, 1, kind="statement") as holding:
+            threading.Timer(.2, holding.release.set).start()
+            started = time.monotonic()
+            assert store.one("SELECT 1 AS n") == {"n": 1}
+            assert .1 <= time.monotonic() - started < 4
+        assert store.pool_waits["waits"] == 1 and store.pool_waits["own_connections"] == 0
+        assert any("waited" in line and "for a statement;" in line for line in lines), lines
+    finally:
+        store.close()
+
+
+def test_close_waits_for_a_read_in_progress_and_refuses_later_ones(tmp_path):
+    """Review of 5841d8b: `close` closed read connections still in use."""
+    store = Store(tmp_path / "state.sqlite3", readers=2)
+    with store.transaction("test.seed") as tx:
+        lease(tx, "a")
+    results, entered, go_on = [], threading.Event(), threading.Event()
+
+    def reader():
+        try:
+            with store.snapshot():
+                results.append(keys(store))
+                entered.set()
+                go_on.wait(10)
+                results.append(keys(store))              # after close began: still its connection
+        except Exception as exc:                          # noqa: BLE001
+            results.append(exc)
+    thread = threading.Thread(target=reader)
+    thread.start()
+    assert entered.wait(10)
+    threading.Timer(.3, go_on.set).start()
+    started = time.monotonic()
+    store.close()
+    assert time.monotonic() - started >= .2                # it waited for the read
+    thread.join(10)
+    assert results == [["a"], ["a"]]
+    with pytest.raises(sqlite3.ProgrammingError):
+        store.query("SELECT 1")
+    assert store._in_use == {} and store._readers == []
+
+
+def test_close_does_not_wait_forever_for_a_read(tmp_path, monkeypatch):
+    from subfleet import store as store_module
+    monkeypatch.setattr(store_module, "CLOSE_WAIT_S", .2)
+    store = Store(tmp_path / "state.sqlite3", readers=2)
+    with Holding(store, 1) as holding:
+        started = time.monotonic()
+        store.close()
+        assert time.monotonic() - started < 3
+        assert len(store._in_use) == 1                     # still reading, on its own open connection
+        holding.release.set()
+    assert store._in_use == {}
+
+
+def test_capacity_views_hold_no_read_connection_while_they_build(tmp_path, monkeypatch):
+    """Twelve views at once, each build slowed to 0.4 s: the reads are done in a
+    snapshot, the builds after it, so a hook's `list` and `notice.pending` and a
+    `ping` answer at once throughout, and no build holds a read connection."""
+    from subfleet import capacity
+    daemon = Daemon(tmp_path / "state")
+    real, during = capacity.build_view, []
+
+    def slow_build(*args, **kwargs):
+        me = threading.get_ident()
+        during.append(any(ident == me for ident, _, _ in daemon.store.read_holds()))
+        time.sleep(.4)
+        return real(*args, **kwargs)
+    monkeypatch.setattr(capacity, "build_view", slow_build)
+    try:
+        builders = [threading.Thread(target=daemon._capacity_view) for _ in range(12)]
+        for builder in builders:
+            builder.start()
+        while len(during) < 6:
+            time.sleep(.01)
+        worst = 0.0
+        for _ in range(10):
+            started = time.monotonic()
+            assert daemon.dispatch("list", {"mine": "someone", "running": True}) == {"jobs": []}
+            assert daemon.dispatch("notice.pending", {"session_id": "someone"}) == {"notices": []}
+            assert daemon.dispatch("ping", {})["pong"] is True
+            worst = max(worst, time.monotonic() - started)
+        for builder in builders:
+            builder.join(30)
+        assert worst < 1.0, worst                              # READ_WAIT_S is 1 s: nothing waited it out
+        assert during == [False] * 12                          # no build held a read connection
+        assert daemon.store.read_pool()["in_use"] == 0
+    finally:
+        daemon.close()

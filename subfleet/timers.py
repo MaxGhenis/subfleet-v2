@@ -18,6 +18,7 @@ from . import capacity
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential
+from .store import Store
 
 
 def instant(value=None):
@@ -487,19 +488,32 @@ class Timers:
 
     def snapshot(self):
         # One committed state for the whole view. C-3.7: a read snapshot, not a
-        # write transaction, so building it (every lane, reading, closure,
-        # attempt and job) holds nobody else back.
+        # write transaction, and only for the reads: the view (every lane,
+        # reading, closure, attempt and job) is built after it, holding nothing.
         with self.store.snapshot():
-            view = capacity.from_store(self.store, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
-        return self.enrich_view(view)
+            rows = capacity.store_rows(self.store)
+            extra = self.view_rows(rows['lanes'])
+        view = capacity.build_view(**rows, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
+        return self.enrich_view(view, extra)
 
-    def enrich_view(self, view):
+    def view_rows(self, lanes=()):
+        """What `enrich_view` reads from the store, to be read inside the snapshot
+        the view's own rows come from (C-3.7). `lanes` are that snapshot's lane
+        rows: the override context's lane lookups are answered from them, so the
+        build reads nothing."""
+        overrides = self.actions.override_context()      # read once for every lane (C-3.7)
+        overrides['lanes'].update({row['lane_id']: Store.lane_from_row(row) for row in lanes})
+        return {'enabled': self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'),
+                'overrides': overrides}
+
+    def enrich_view(self, view, rows=None):
+        rows = rows or self.view_rows()
         # Re-enrolment creates a new lane id. The previous binding stays in the
         # ledger but no longer supplies the home's active credential condition.
         bindings = {}
-        for lane in self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'):
+        for lane in rows['enabled']:
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
-        overrides = self.actions.override_context()      # read once for every lane (C-3.7)
+        overrides = rows['overrides']
         for row in view['lanes']:
             row.update(self.metadata.get(row['lane_id'], {}))
             bound = bindings.get((row['provider'], row['home'] or row['credential_ref']))

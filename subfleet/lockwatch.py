@@ -221,6 +221,11 @@ class LockWatch:
             return "none waiting"
         return f"{len(starts)} waiting, the longest {now - min(starts):.1f} s"
 
+    def note(self, name: str, kind: str, seconds: float, render: Callable[[], str]) -> None:
+        """Report something else about a watched lock's store (the read pool's
+        waits, C-3.7), under the same rate limit as the lock's own reports."""
+        self._emit(name, kind, seconds, render)
+
     def _emit(self, name: str, kind: str, seconds: float, render: Callable[[], str]) -> None:
         now = self.clock()
         with self._limits_lock:

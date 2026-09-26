@@ -334,13 +334,20 @@ def owned_lanes(view: Mapping[str, Any], owner: str = "v2") -> list[dict[str, An
     return [lane for lane in view["lanes"] if lane.get("owner") == owner]
 
 
+def store_rows(store: Any) -> dict[str, list]:
+    """The store rows `build_view` is made from, as its keyword arguments.
+
+    C-3.7: read them in one `Store.snapshot()` and build the view after it, so
+    a view build holds no read connection (review of 5841d8b, finding 2)."""
+    # Every reading that can be a key's newest, not every reading.
+    readings = getattr(store, "latest_reading_candidates", store.list_readings)()
+    return {"lanes": store.lane_rows(), "readings": readings, "closures": store.list_closures(),
+            "attempts": store.list_attempts(), "jobs": store.list_jobs()}
+
+
 def from_store(store: Any, *, now: str | datetime | None = None,
                reading_ttl_s: int = READING_TTL_S, desktop_account: str | None = None,
                desktop: DesktopIdentity | None = None) -> dict[str, Any]:
     """Read store rows; supply desktop identity read before any transaction."""
-    # C-3.7: every reading that can be a key's newest, not every reading.
-    readings = getattr(store, "latest_reading_candidates", store.list_readings)()
-    return build_view(store.lane_rows(), readings, store.list_closures(),
-                      store.list_attempts(), store.list_jobs(), now=now,
-                      reading_ttl_s=reading_ttl_s, desktop_account=desktop_account,
-                      desktop=desktop)
+    return build_view(**store_rows(store), now=now, reading_ttl_s=reading_ttl_s,
+                      desktop_account=desktop_account, desktop=desktop)
