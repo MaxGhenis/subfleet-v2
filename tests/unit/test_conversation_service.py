@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -122,11 +124,15 @@ def submit(service, cid, text="hello", after=None) -> str:
 
 
 class FakeRun:
-    """A catalog process that runs until `end` is called; waiting on it is a failure."""
+    """A catalog process that runs until `end` is called or a signal ends it. Waiting
+    on one nothing has signalled is a failure: only close() may wait for a run."""
 
-    def __init__(self):
-        self.pid = 4_000_000
+    def __init__(self, pid):
+        self.pid = pid
         self.returncode = None
+        self.signals: list[int] = []
+        self.stubborn = False               # signals reach it but do not end it
+        self.fence_fd = None
 
     def poll(self):
         return self.returncode
@@ -135,24 +141,44 @@ class FakeRun:
         self.returncode = rc
 
     def wait(self, timeout=None):
-        raise AssertionError("the conversation tick waited for a catalog run")
+        if self.returncode is not None:
+            return self.returncode
+        if not self.signals:
+            raise AssertionError("the conversation tick waited for a catalog run")
+        raise subprocess.TimeoutExpired("catalog", timeout)
 
 
 @pytest.fixture
-def runs(monkeypatch):
+def runs(svc, monkeypatch):
+    """Fake catalog runs; a signal to one's process group reaches that fake."""
     started = []
+    real_killpg = os.killpg
 
-    def spawn(root):
+    def spawn(root, *, fence_fd=None):
         if started and started[-1].returncode is None:
             return None                     # the running one holds the lock
-        run = FakeRun()
+        run = FakeRun(4_000_000 + len(started))
+        run.fence_fd = fence_fd
         started.append(run)
         return run
+
+    def killpg(pid, sig):
+        run = next((r for r in started if r.pid == pid), None)
+        if run is None:
+            return real_killpg(pid, sig)
+        if run.returncode is not None:
+            raise ProcessLookupError(pid)
+        run.signals.append(sig)
+        if not run.stubborn:
+            run.end(-sig)
 
     monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
     monkeypatch.setattr(catalog_module, "refresh_running",
                         lambda root: bool(started) and started[-1].returncode is None)
-    return started
+    monkeypatch.setattr(service_module.os, "killpg", killpg)
+    monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.0)
+    yield started
+    svc.close()                             # while the fakes still answer signals
 
 
 def test_the_tick_starts_a_catalog_run_every_interval_and_never_waits_for_it(svc, runs):
@@ -191,19 +217,18 @@ def test_with_the_timer_off_the_catalog_runs_only_on_request(svc, runs):
     assert svc.handle("conversation.list", {}, None)["catalog"]["stale_after_s"] == 180
 
 
-def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs, monkeypatch):
+def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs):
     """C-30.1: a run alive past three times its own cap is killed by process group, once;
     a later tick reaps it and the timer carries on."""
-    killed = []
-    monkeypatch.setattr(service_module.os, "killpg", lambda pid, sig: killed.append((pid, sig)))
     svc._catalog_tick()
+    runs[0].stubborn = True                 # it takes a while to die
     svc.clock.now += service_module.CATALOG_KILL_AFTER_S - 1
     svc._catalog_tick()
-    assert killed == []
+    assert runs[0].signals == []
     svc.clock.now += 2
     svc._catalog_tick()
     svc._catalog_tick()
-    assert killed == [(runs[0].pid, service_module.signal.SIGKILL)]
+    assert runs[0].signals == [service_module.signal.SIGKILL]
     runs[0].end(-9)
     svc._catalog_tick()
     assert svc._catalog_proc is not None and len(runs) == 2         # reaped, and the next one due
@@ -218,6 +243,166 @@ def test_catalog_refresh_starts_a_run_without_waiting_and_resets_the_timer(svc, 
     assert again["requested"] is False and again["running"] is True
     svc._catalog_tick()
     assert len(runs) == 1
+
+
+def test_close_stops_the_catalog_run_and_starts_none_after(svc, runs, caplog):
+    """C-30.1: close() ends the run it started (SIGTERM to its process group) before it
+    returns, and closes the run's fence; after it, neither the timer, a tick close()
+    overtook, nor `catalog.refresh` starts another, and the tick touches nothing."""
+    svc._catalog_tick()
+    assert runs[0].fence_fd is not None and runs[0].returncode is None
+    svc.close()
+    assert runs[0].signals == [service_module.signal.SIGTERM] and runs[0].returncode == -15
+    assert svc._catalog_proc is None and svc._catalog_fence is None
+    svc.clock.now += 1000
+    with caplog.at_level(logging.WARNING):
+        svc._catalog_tick()
+        svc.tick()
+    assert svc.handle("catalog.refresh", {}, None)["requested"] is False
+    assert len(runs) == 1 and caplog.text == ""
+
+
+def test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm(svc, runs, caplog):
+    """C-30.1: a run still alive once the wait after SIGTERM passes gets SIGKILL and a
+    second bounded wait; close() never waits longer, and says so."""
+    svc._catalog_tick()
+    runs[0].stubborn = True
+    with caplog.at_level(logging.WARNING):
+        svc.close()
+    assert runs[0].signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    assert "did not end" in caplog.text
+
+
+def test_close_kills_a_real_run_that_ignores_sigterm(svc, monkeypatch, tmp_path):
+    """C-30.1: the same with a real process: close() returns with it killed and reaped."""
+    monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.5)
+    ready = tmp_path / "ready"
+    script = ("import pathlib, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+              "pathlib.Path(sys.argv[1]).touch(); time.sleep(60)")
+    monkeypatch.setattr(catalog_module, "spawn_refresh", lambda root, *, fence_fd=None: subprocess.Popen(
+        [sys.executable, "-c", script, str(ready)], start_new_session=True))
+    svc._catalog_tick()
+    process = svc._catalog_proc
+    deadline = time.monotonic() + 30
+    while not ready.exists() and time.monotonic() < deadline:
+        time.sleep(.02)
+    assert ready.exists(), "the stand-in run never started"
+    started = time.monotonic()
+    svc.close()
+    assert process.returncode == -service_module.signal.SIGKILL
+    assert time.monotonic() - started < 10
+
+
+def test_a_run_started_while_close_waits_for_the_lock_is_stopped_too(svc, runs, monkeypatch):
+    """C-30.1: a start and close() take the same lock. A start already inside it
+    finishes; close() then stops the run it made, so none outlives close()."""
+    entered, go = threading.Event(), threading.Event()
+    fake_spawn = catalog_module.spawn_refresh
+
+    def slow_spawn(root, **kw):
+        entered.set()
+        assert go.wait(10)
+        return fake_spawn(root, **kw)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", slow_spawn)
+    starter = threading.Thread(target=svc._start_catalog)
+    starter.start()
+    assert entered.wait(10)
+    closer = threading.Thread(target=svc.close)
+    closer.start()
+    time.sleep(.2)
+    assert closer.is_alive() and runs == []
+    go.set()
+    starter.join(10)
+    closer.join(10)
+    assert not closer.is_alive() and not starter.is_alive()
+    assert len(runs) == 1 and runs[0].signals == [service_module.signal.SIGTERM]
+    assert runs[0].returncode == -15 and svc._catalog_proc is None
+
+
+CATALOG_STEPS = ("tick", "refresh", "advance", "exit", "stubborn", "close")
+
+
+def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, monkeypatch):
+    """C-30.1, checked after every step of 150 seeded random sequences of timer
+    ticks, `catalog.refresh`, clock jumps, run exits, runs that ignore signals and
+    close(), with close() at a random point or not at all:
+
+    - before close(), at most one started run is alive, and it is the one the
+      service tracks (the lock admits one; nothing alive goes untracked);
+    - close() leaves no tracked run and no fence; the run it found alive got
+      SIGTERM, then SIGKILL only when SIGTERM did not end it; no other run got a
+      signal from it;
+    - after close(), nothing starts and nothing is signalled, whatever follows
+      (close() again included)."""
+    state = {"runs": []}
+
+    def spawn(root, *, fence_fd=None):
+        runs = state["runs"]
+        if runs and runs[-1].returncode is None:
+            return None
+        runs.append(FakeRun(5_000_000 + len(runs)))
+        return runs[-1]
+
+    def killpg(pid, sig):
+        run = next((r for r in state["runs"] if r.pid == pid), None)
+        if run is None or run.returncode is not None:
+            raise ProcessLookupError(pid)
+        run.signals.append(sig)
+        if not run.stubborn:
+            run.end(-sig)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    monkeypatch.setattr(catalog_module, "refresh_running",
+                        lambda root: bool(state["runs"]) and state["runs"][-1].returncode is None)
+    monkeypatch.setattr(service_module.os, "killpg", killpg)
+    monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.0)
+    TERM, KILL = service_module.signal.SIGTERM, service_module.signal.SIGKILL
+    for seed in range(150):
+        rng = random.Random(seed)
+        steps = [rng.choice(CATALOG_STEPS) for _ in range(rng.randint(1, 14))]
+        root = tmp_path / f"s{seed}"
+        root.mkdir()
+        daemon = FakeDaemon(root)
+        svc = ConversationService(daemon)
+        svc.clock = Clock()
+        state["runs"] = runs = []
+        closed_with = None                  # (runs started, signals per run) when close() first ran
+        try:
+            for n, step in enumerate(steps):
+                where = f"seed {seed}, steps {steps[:n + 1]}"
+                live = [r for r in runs if r.returncode is None]
+                if step == "tick":
+                    svc._catalog_tick()
+                elif step == "refresh":
+                    svc.handle("catalog.refresh", {}, None)
+                elif step == "advance":
+                    svc.clock.now += rng.choice((1, 30, 61, 200))
+                elif step == "exit" and live and not live[0].stubborn:
+                    live[0].end(rng.choice((0, 1)))
+                elif step == "stubborn" and live:
+                    live[0].stubborn = True
+                elif step == "close":
+                    if closed_with is None:
+                        closed_with = (len(runs), [list(r.signals) for r in runs], live)
+                    svc.close()
+                    assert svc._catalog_proc is None and svc._catalog_fence is None, where
+                live = [r for r in runs if r.returncode is None]
+                if closed_with is None:
+                    assert len(live) <= 1, where
+                    assert not live or svc._catalog_proc is live[0] is runs[-1], where
+                    continue
+                count, signals, found = closed_with
+                assert len(runs) == count, f"a run started after close(): {where}"
+                for run, before in zip(runs, signals):
+                    added = run.signals[len(before):]
+                    if run in found:
+                        assert added == ([TERM, KILL] if run.stubborn else [TERM]), where
+                    else:
+                        assert added == [], where
+        finally:
+            svc.close()
+            daemon.store.close()
 
 
 def write_catalog(root: Path, generated_at: str, items=None):
@@ -251,7 +436,7 @@ def test_conversation_list_reports_a_stale_or_damaged_catalog(svc, runs):
     assert svc.handle("conversation.list", {}, None)["catalog"]["state"] == "unreadable"
     (svc.root / "catalog.json").write_text("[1, 2]")
     assert svc.handle("conversation.list", {}, None)["catalog"]["state"] == "unreadable"
-    runs.append(FakeRun())
+    runs.append(FakeRun(4_000_000 + len(runs)))
     assert svc.handle("conversation.list", {}, None)["catalog"]["refreshing"] is True
 
 

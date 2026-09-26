@@ -91,6 +91,8 @@ DEFER_MAX_S = 300.0
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
 # times that is wedged outside the cap (a directory walk, `ps`) and is stopped.
 CATALOG_KILL_AFTER_S = 60.0
+# How long close() waits for a catalog run to end after SIGTERM, and again after SIGKILL.
+CATALOG_STOP_WAIT_S = 2.0
 # Attempt states that have ended; `quarantined` has not (its processes may live).
 ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 # The dispatcher's claim on a queued message while it creates the message's turn job
@@ -126,8 +128,11 @@ class ConversationService:
         self._catalog_started = 0.0            # monotonic time of the run this service last started
         self._catalog_killed = False
         self._catalog_last: float | None = None   # the last start or request; None: the first tick starts one
+        self._catalog_fence: tuple[int, int] | None = None   # (read, write): catalog.Owner
+        self._closed = False
 
     def close(self) -> None:
+        self._stop_catalog()
         for runner in list(self.runners.values()):
             runner.stop()
         self.polls.shutdown(wait=False, cancel_futures=True)
@@ -1238,6 +1243,8 @@ class ConversationService:
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
         for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners, self._settle_unstarted,
                      self._reap_runners, self._compact):
+            if self._closed:
+                return                          # a tick close() overtook: its store is gone
             try:
                 step()
             except Exception as exc:
@@ -1265,12 +1272,18 @@ class ConversationService:
     def _start_catalog(self) -> dict:
         from .catalog import refresh_running, spawn_refresh
         with self._catalog_lock:
+            if self._closed:
+                # A tick or request close() overtook: nothing would stop or reap a run
+                # started now, and its root may be on its way out (_stop_catalog).
+                return {"requested": False, "running": False}
             self._reap_catalog()
             if self._catalog_proc is not None:
                 return {"requested": False, "running": True}
             self._catalog_last = self.clock()
             try:
-                process = spawn_refresh(self.root)
+                if self._catalog_fence is None:
+                    self._catalog_fence = os.pipe()
+                process = spawn_refresh(self.root, fence_fd=self._catalog_fence[0])
             except OSError as exc:
                 self.log.warning("catalog run not started: %s", exc)
                 return {"requested": False, "running": bool(refresh_running(self.root))}
@@ -1300,6 +1313,37 @@ class ConversationService:
                 os.killpg(process.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
+
+    def _stop_catalog(self) -> None:
+        """close(): end this service's catalog run before returning, and start none
+        after (C-30.1). A run that outlived its daemon recreated a state root its
+        owner had just removed, or wrote into it while `rmtree` was emptying it
+        (2026-09-25). Closing the fence first means a run that somehow survives
+        the signals still writes nothing (`catalog.Owner`)."""
+        with self._catalog_lock:
+            self._closed = True
+            process, self._catalog_proc = self._catalog_proc, None
+            fence, self._catalog_fence = self._catalog_fence, None
+        if fence is not None:
+            os.close(fence[1])
+        try:
+            if process is None or process.poll() is not None:
+                return
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                # Unreaped until a wait returns, so the group it leads is still its own.
+                try:
+                    os.killpg(process.pid, sig)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                try:
+                    process.wait(timeout=CATALOG_STOP_WAIT_S)
+                    return
+                except subprocess.TimeoutExpired:
+                    continue
+            self.log.warning("catalog run %s did not end within %g s of SIGKILL", process.pid, CATALOG_STOP_WAIT_S)
+        finally:
+            if fence is not None:
+                os.close(fence[0])
 
     # --- compaction (C-25.4, review IR-6) ---------------------------------------
 
