@@ -690,6 +690,47 @@ def test_the_daemon_never_revives_or_nudges_a_conversation_bound_session(core):
     assert daemon.store.query("SELECT * FROM jobs WHERE kind='revive'") == []
 
 
+@pytest.mark.parametrize("recorded_as, asked_as", [(str.upper, str.lower), (str.lower, str.upper)],
+                         ids=["upper-recorded", "lower-recorded"])
+def test_a_session_only_a_turn_attempt_recorded_is_a_conversation_s_in_either_spelling(core, recorded_as, asked_as):
+    """C-26.13, D-17 (review of 3c1a34e, finding 5): a turn ran in a session its
+    conversation has not recorded yet (the session is minted, and bound once the
+    turn settles), so only its attempt names it, possibly in the other case from
+    a request. The daemon still treats it as the conversation's in either
+    direction: `sessions state` lists it, a revive of it is refused at submit, one
+    accepted before the turn ran is failed at admission, and a nudge of it is
+    not recorded."""
+    world, daemon = core
+    svc = daemon.conversations
+    minted = "5e551011-abcd-4ef0-8000-0000000000d7"
+    prompt = world.root / "revive.md"
+    prompt.write_text("continue", encoding="utf-8")
+
+    def revive(request_id: str) -> dict:
+        return daemon.submit(protocol.SubmitArgs(request_id=request_id, kind="revive", workdir=str(world.workspace),
+                                                 prompt_path=str(prompt), sandbox="read-only", pinned_model="opus",
+                                                 caller_session=asked_as(minted), in_place=True, allow_tmp=True))
+    early = revive("revive-before-the-turn")["job_id"]
+    submit(svc, world.conversation_id())
+    svc._dispatch()
+    (turn,) = daemon.store.query("SELECT * FROM jobs WHERE kind='turn'")
+    daemon.store.update_job(turn["job_id"], state="failed")
+    daemon.store.add_attempt(attempt_id=f"{turn['job_id']}/a1", job_id=turn["job_id"], seq=1, lane_id="claude-1",
+                             model_requested="claude-opus-5-5", state="failed", native_session_id=recorded_as(minted))
+    assert Daemon._conversation_binding(daemon, asked_as(minted)) == f"turn job {turn['job_id']}"
+    state = daemon.sessions(protocol.SessionsArgs(action="state", session_ids=[]))
+    assert minted in state["conversation_sessions"]
+    with pytest.raises(AdapterError) as refused:
+        revive("revive-after-the-turn")
+    assert refused.value.code == 7
+    daemon._admit()
+    job = daemon.store.get_job(early)
+    assert (job["state"], job["rc"]) == ("failed", 7) and daemon.store.list_attempts(early) == []
+    nudged = daemon.sessions(protocol.SessionsArgs(action="nudged", session_id=asked_as(minted), dedupe_key="k",
+                                                   force=True))
+    assert nudged["recorded"] is False and "bound to a Subfleet conversation" in nudged["reason"]
+
+
 def _registered(world: World, *, subfleet: bool, session: str = SESSION) -> subprocess.Popen:
     """A live process registered for SESSION (as `session` spells it) in `<claude>/sessions`, as the
     Claude app or a terminal is."""

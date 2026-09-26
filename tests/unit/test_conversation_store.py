@@ -7,11 +7,14 @@ import stat
 import threading
 import uuid
 
+import hypothesis
 import pytest
 
 from subfleet.conversations.store import (
     SCHEMA_VERSION, ConversationError, ConversationStore, message_digest, validate_settings, widens,
 )
+
+from tests import spellings
 
 SETTINGS = {"model": "opus", "effort": "high", "fast": False, "permission": "ask"}
 
@@ -562,3 +565,29 @@ def test_history_is_rechecked_inside_its_transaction(store, monkeypatch):
     assert err.value.reason == "history-after-messages"
     monkeypatch.setattr(store, "one", real)
     assert [(m["message_id"], m["origin"]) for m in store.messages(c["conversation_id"])] == [(person, "person")]
+
+
+@hypothesis.settings(max_examples=300, deadline=None)
+@hypothesis.given(session=spellings.uuids, stored=spellings.masks, asked=spellings.masks,
+                  opaque=hypothesis.strategies.text(alphabet="abcdefXYZ-_:0123456789", min_size=1, max_size=40)
+                  .filter(lambda text: not spellings.is_uuid(text)))
+def test_a_native_id_matches_in_any_spelling_of_a_uuid_and_an_opaque_one_exactly(session, stored, asked, opaque):
+    """C-26.3, C-26.13 (review of 3c1a34e, finding 5): `native_any_case`, which
+    the store's bindings and the daemon's turn-attempt fence share, finds a UUID
+    whatever the case of its hex digits on either side, never another UUID, and
+    an id that is not a UUID only as it is spelled."""
+    import sqlite3
+    from subfleet.conversations.store import native_any_case
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE attempts (native_session_id TEXT)")
+    db.executemany("INSERT INTO attempts VALUES (?)", [(spellings.spell(session, stored),), (opaque,)])
+
+    def found(asked_for: str) -> list[str]:
+        condition, params = native_any_case("native_session_id", asked_for)
+        return [row[0] for row in db.execute(f"SELECT native_session_id FROM attempts WHERE {condition}", params)]
+    assert found(spellings.spell(session, asked)) == [spellings.spell(session, stored)]
+    assert found(spellings.other_uuid(session)) == []
+    assert found(opaque) == [opaque]
+    if opaque.swapcase() != opaque:
+        assert found(opaque.swapcase()) == []
+    db.close()

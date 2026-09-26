@@ -202,8 +202,8 @@ def inspect(session_id: str, *, lane_ids: set[str], facts: dict[str, Any],
         # one it does not know (a tmux CLI session, a lane) is not.
         desktop_owned=bool(meta.get("desktop_owned")),
         lane=registry.is_lane_run(session_id, lane_ids=lane_ids, transcript=path),
-        # Review L1: the daemon lists a UUID in lower case too.
-        conversation=session_id in conversation_ids or session_id.lower() in conversation_ids,
+        # Review L1: either side may spell a UUID in either case.
+        conversation=registry.is_conversation_session(session_id, conversation_ids),
         retired=(facts.get("retired") if facts else None),
         last_revive=(facts.get("last_revive") if facts else None),
         live_pids=live.live_pids if live else (),

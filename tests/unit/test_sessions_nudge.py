@@ -15,6 +15,7 @@ import pytest
 
 from subfleet.sessions import nudge
 from tests import sessions_fixtures as fx
+from tests import spellings
 
 ALICE = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 BOB = "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50"
@@ -500,6 +501,25 @@ def test_a_session_start_wake_for_a_conversations_session_sends_nothing(home, po
                         now=clock, sleep=lambda _s: None, delay_s=0)
     assert daemon.pings == []
     assert report.outcomes[0].reason.startswith("bound to a Subfleet conversation")
+
+
+@pytest.mark.parametrize("direction", sorted(spellings.DIRECTIONS))
+def test_a_conversation_bound_session_is_never_nudged_in_either_direction(home, policy, direction):
+    """C-26.3, C-26.13 (review of 3c1a34e, finding 5): the daemon lists the
+    session as its store recorded it and the registry row and transcript name
+    it in another case, either way round. No sweep nudges it, and a person
+    naming it in either spelling (forced) is refused with the reason; nothing
+    is recorded or sent."""
+    listed_as, registered_as = spellings.DIRECTIONS[direction]
+    live(home, registered_as(ALICE), entries=fx.interrupted(age_s=1800))
+    daemon = fx.FakeSessions(conversation_sessions=[listed_as(ALICE)])
+    report = sweep(daemon, policy, scope="interrupted", manual=False)
+    assert report.outcomes == []
+    for named in (registered_as(ALICE), listed_as(ALICE)):
+        report = sweep(daemon, policy, scope="interrupted", manual=True, only=[named], force=True)
+        assert [item.session_id for item in report.outcomes] == [named]
+        assert report.outcomes[0].reason.startswith("bound to a Subfleet conversation")
+    assert daemon.pings == [] and daemon.records == []
 
 
 def test_a_conversation_bound_session_is_never_nudged_in_any_spelling(home, policy):

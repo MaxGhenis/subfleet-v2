@@ -25,6 +25,14 @@ DIRECTIONS = {"upper-stored": (lambda u: u.upper(), lambda u: u.lower()),
               "mixed": (lambda u: spell(u, 0x5A5A5A5A5), lambda u: spell(u, 0xA5A5A5A5A))}
 
 
+def is_uuid(value: str) -> bool:
+    """Whether `value` is some casing of a UUID's canonical form."""
+    try:
+        return str(uuid.UUID(value)) == value.lower()
+    except ValueError:
+        return False
+
+
 def other_uuid(value: str) -> str:
     """A different UUID from `value`, in the same case."""
     flipped = str(uuid.UUID(int=uuid.UUID(value).int ^ 1))

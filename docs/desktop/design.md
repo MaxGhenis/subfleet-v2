@@ -349,7 +349,9 @@ the daemon refuses a resume or revive of a conversation's session at submit
 and fails one at admission if its session became a conversation's since.
 Conversation-bound sessions, and every session a turn ran, are not the
 sessions kit's: never listed, nudged, revived, cold-swept or handed off
-(`sessions state` reports them as `conversation_sessions`). A turn's own
+(`sessions state` reports them as `conversation_sessions`), whichever case
+either side spells a UUID in (`registry.is_conversation_session`, and
+`store.native_any_case` for a binding or a turn attempt's record). A turn's own
 `SessionStart` hook wakes nothing, and its `SessionStart` and
 `UserPromptSubmit` hooks surface only notices that name a job: the completion
 of work the conversation dispatched reaches its next turn, and a `ping` or a

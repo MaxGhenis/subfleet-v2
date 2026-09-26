@@ -802,7 +802,7 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
     """
     caps = {**policy.get("sessions", {}).get("handoff_caps", {})}
     canonical, transcript = resolve_source(session_id, last, current=current_session)
-    if canonical in set(conversation_ids or ()):
+    if registry.is_conversation_session(canonical, conversation_ids or ()):
         # C-26.13, before the lane check: a conversation's transcript can look
         # like a lane run. Its work continues in its conversation, and a
         # labelled cross-provider handoff of it is the app's (C-30.3).

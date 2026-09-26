@@ -2101,11 +2101,14 @@ class Daemon:
         conversation = self.conversations.store.binding(session_id)
         if conversation:
             return f"conversation {conversation}"
-        from .conversations.store import canonical_native      # review L1: either spelling
+        # Review L1 and the review of 3c1a34e (finding 5): a turn attempt may have
+        # recorded a UUID in upper case and the request name it in lower, or the
+        # reverse; both sides are compared without regard to case.
+        from .conversations.store import native_any_case
+        match, params = native_any_case("a.native_session_id", session_id)
         row = self.store.one(
-            "SELECT a.job_id FROM attempts a JOIN jobs j USING(job_id) "
-            "WHERE a.native_session_id IN (?, ?) AND j.kind='turn' ORDER BY a.reserved_at LIMIT 1",
-            (session_id, canonical_native(session_id)))
+            f"SELECT a.job_id FROM attempts a JOIN jobs j USING(job_id) "
+            f"WHERE {match} AND j.kind='turn' ORDER BY a.reserved_at LIMIT 1", params)
         return f"turn job {row['job_id']}" if row else None
 
     def _refuse_conversation_session(self, session_id: str | None, verb: str) -> None:
@@ -2167,8 +2170,10 @@ class Daemon:
         if action == "nudged":
             if not args.session_id:
                 raise protocol.ProtocolError("sessions nudged: session_id is required")
-            if self.conversations.bound_session(args.session_id):
-                # C-26.3, D-17: a nudge would be a second writer in the conversation's session.
+            if self._conversation_binding(args.session_id):
+                # C-26.3, C-26.13, D-17: a nudge would be a second writer in the
+                # session of a conversation, or of a turn that ran there before its
+                # conversation recorded the session, in either spelling.
                 return {"recorded": False, "session_id": args.session_id,
                         "reason": "bound to a Subfleet conversation, which continues it (C-26.3)"}
             # C-23.33's dedupe and cooldown are re-checked HERE, inside the

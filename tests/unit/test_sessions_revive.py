@@ -10,11 +10,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import hypothesis
 import pytest
 
 from subfleet.contracts import OutcomeClass, Sandbox
-from subfleet.sessions import revive
+from subfleet.sessions import revive, transcripts
 from tests import sessions_fixtures as fx
+from tests import spellings
 
 COLD = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 LANE = "8f2c1d90-4a7b-4f31-9c22-0d5b6e7a1234"
@@ -438,6 +440,46 @@ def test_c16_3_revive_says_whether_it_minted_the_request_id(world, policy, tmp_p
     extra = {} if given is None else {"minted": given}
     attempt(daemon, policy, COLD, tmp_path, opt_in=True, request_id=request_id, **extra)
     assert daemon.minted == [minted]
+
+
+@pytest.mark.parametrize("direction", sorted(spellings.DIRECTIONS))
+def test_a_conversation_bound_session_is_never_revived_or_cold_swept_in_either_direction(
+        world, policy, tmp_path, direction):
+    """C-26.3, C-26.13 (review of 3c1a34e, finding 5): the daemon lists the
+    session as its store recorded it and its transcript is named in another
+    case, either way round. An unnamed cold sweep leaves it out; named in
+    either spelling it is held as a conversation's and never admitted, even
+    opted in and forced; revive refuses it."""
+    listed_as, named_as = spellings.DIRECTIONS[direction]
+    cold_session(world, named_as(COLD), desktop_owned=False)
+    daemon = fx.FakeSessions(conversation_sessions=[listed_as(COLD)])
+    assert revive.cold_candidates(daemon, policy, now=fx.NOW) == []
+    for named in (named_as(COLD), listed_as(COLD)):
+        (candidate,) = revive.cold_candidates(daemon, policy, only=[named], now=fx.NOW)
+        assert candidate.conversation
+        assert revive.admits(candidate, policy=policy, opt_in=True, force=True)[0] is False
+        result = attempt(daemon, policy, named, tmp_path, opt_in=True, force=True)
+        assert result.admitted is False and result.reason.startswith("bound to a Subfleet conversation")
+    assert daemon.submits == []
+
+
+@hypothesis.settings(max_examples=100, deadline=None,
+                     suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
+@hypothesis.given(session=spellings.uuids, named=spellings.masks, listed=spellings.masks)
+def test_a_cold_sweep_leaves_out_a_conversations_session_in_any_spelling(world, session, named, listed):
+    """C-26.3, C-26.13 (review of 3c1a34e, finding 5): whatever case its
+    transcript and the daemon's list spell the UUID in, the cold scan never
+    returns a conversation's session, and still returns another."""
+    home, _ = world
+    for path in (home / "projects").rglob("*.jsonl"):
+        path.unlink()
+    other = spellings.other_uuid(session)
+    for session_id in (spellings.spell(session, named), other):
+        fx.transcript(home, session_id, fx.interrupted(age_s=1800))
+    bound = {spellings.spell(session, listed)}
+    cold = transcripts.cold_sessions(live_ids=set(), lane_ids=set(), max_age_s=8 * 3600, now=fx.NOW,
+                                     conversation_ids=bound)
+    assert [row.session_id for row in cold] == [other]
 
 
 def test_a_conversation_bound_session_is_never_revived_in_any_spelling(world, policy, tmp_path):

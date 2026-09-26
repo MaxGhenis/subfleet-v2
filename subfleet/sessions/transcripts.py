@@ -561,6 +561,9 @@ def cold_sessions(*, live_ids: set[str], lane_ids: set[str], max_age_s: float,
     """
     now = now or datetime.now(timezone.utc)
     cutoff = now.timestamp() - max_age_s
+    # C-26.3: a transcript and the daemon's list may spell one UUID in either case
+    # (`registry.is_conversation_session`).
+    bound = {item.lower() for item in conversation_ids if isinstance(item, str)}
     rows: list[ColdSession] = []
     try:
         directories = [item for item in projects_dir().iterdir() if item.is_dir()]
@@ -574,7 +577,7 @@ def cold_sessions(*, live_ids: set[str], lane_ids: set[str], max_age_s: float,
         for entry in entries:
             session_id = entry.name[:-len(".jsonl")]
             if session_id in live_ids or session_id in lane_ids \
-                    or session_id in conversation_ids:
+                    or session_id.lower() in bound:
                 continue
             try:
                 if entry.stat().st_mtime < cutoff:

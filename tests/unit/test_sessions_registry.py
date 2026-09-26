@@ -11,10 +11,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import hypothesis
 import pytest
 
 from subfleet.sessions import registry
 from tests import sessions_fixtures as fx
+from tests import spellings
 
 SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 DEAD_PID = 4_000_001            # above the default pid_max; never allocated
@@ -196,6 +198,26 @@ def test_a_conversations_session_is_never_listed(home, include_lanes, live_only)
     listing = registry.sessions(conversation_ids={SESSION}, include_lanes=include_lanes,
                                 live_only=live_only)
     assert [item.session_id for item in listing] == ["someone-else"]
+
+
+@hypothesis.settings(max_examples=150, deadline=None,
+                     suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
+@hypothesis.given(session=spellings.uuids, registered=spellings.masks, listed=spellings.masks)
+def test_a_conversations_session_is_never_listed_in_any_spelling(home, session, registered, listed):
+    """C-26.3, C-26.13 (review of 3c1a34e, finding 5): the registry row and the
+    daemon's list may spell the session's UUID in any case (a store written
+    before ids were canonical lists it as recorded): it is left out of the
+    listing and `is_conversation_session` says it is a conversation's, while
+    another live session is still listed."""
+    for row in (home / "sessions").glob("*.json"):
+        row.unlink()
+    spelled, other = spellings.spell(session, registered), spellings.other_uuid(session)
+    fx.register(home, spelled, os.getpid(), started_at=1.0)
+    fx.register(home, other, os.getppid(), started_at=2.0)
+    bound = registry.conversation_ids_of({"conversation_sessions": [spellings.spell(session, listed)]})
+    assert [item.session_id for item in registry.sessions(conversation_ids=bound)] == [other]
+    assert registry.is_conversation_session(spelled, bound)
+    assert not registry.is_conversation_session(other, bound)
 
 
 def test_the_daemons_conversation_list_is_read_defensively():

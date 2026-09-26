@@ -84,8 +84,23 @@ def conversation_ids_of(facts: dict[str, Any]) -> set[str]:
             "cannot say which sessions a conversation holds")
     ids = {item for item in listed if isinstance(item, str) and item}
     # Review L1: a store written before ids were canonical may list a UUID in
-    # upper case; the registry and transcripts name it in lower case.
+    # upper case; the registry and transcripts name it in lower case. A reader
+    # compares its own ids through `is_conversation_session` (or `folded`), so a
+    # registry row or transcript named in upper case is found too.
     return ids | {item.lower() for item in ids}
+
+
+def folded(ids: Iterable[str]) -> frozenset[str]:
+    """Session ids as C-26.3 compares them, whichever case a UUID is spelled in."""
+    return frozenset(item.lower() for item in ids if isinstance(item, str) and item)
+
+
+def is_conversation_session(session_id: str, conversation_ids: Iterable[str]) -> bool:
+    """C-26.3, C-26.13: whether `session_id` is one of the daemon's
+    `conversation_sessions`, whichever case either side spells a UUID in: the
+    daemon lists what a store recorded, and a registry row, a transcript or a
+    person may spell it the other way (review of 3c1a34e, finding 5)."""
+    return isinstance(session_id, str) and session_id.lower() in folded(conversation_ids)
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -262,10 +277,10 @@ def sessions(*, lane_ids: Iterable[str] = (),
     conversation's session is excluded always: it is not the kit's to list.
     """
     marker = set(lane_ids)
-    bound = set(conversation_ids)
+    bound = folded(conversation_ids)
     listing: list[Session] = []
     for session_id, candidates in grouped().items():
-        if session_id in bound:
+        if session_id.lower() in bound:             # C-26.3: in either spelling
             continue
         best = speaker(candidates)
         if best is None:

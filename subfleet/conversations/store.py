@@ -446,10 +446,9 @@ class ConversationStore:
     def binding(self, native_session_id: str) -> str | None:
         """The conversation that binds `native_session_id`, if one does (C-26.13), in
         whatever case its UUID was spelled when bound or asked about (review L1)."""
-        _, native, is_uuid, lowered = _native_params("claude", native_session_id)
-        row = self.one("SELECT conversation_id FROM conversations WHERE provider IN ('claude','codex') "
-                       "AND (native_session_id IN (?, ?) OR (? AND lower(native_session_id)=?)) "
-                       "ORDER BY created_at LIMIT 1", (native_session_id, native, is_uuid, lowered))
+        match, params = native_any_case("native_session_id", native_session_id)
+        row = self.one(f"SELECT conversation_id FROM conversations WHERE provider IN ('claude','codex') "
+                       f"AND {match} ORDER BY created_at LIMIT 1", params)
         return row["conversation_id"] if row else None
 
     def by_native(self, provider: str, native_session_id: str) -> dict | None:
@@ -1349,6 +1348,17 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
 
 #: A binding by native id, matched without regard to the case of a UUID's hex digits.
 _NATIVE_MATCH = "provider=? AND (native_session_id=? OR (? AND lower(native_session_id)=?))"
+
+
+def native_any_case(column: str, native_session_id: str) -> tuple[str, tuple]:
+    """A SQL condition that `column` names `native_session_id`, and its parameters:
+    the id as given or in one spelling, and a UUID whatever the case of its hex
+    digits on either side (C-26.3, review L1). An id that is not a UUID is matched
+    exactly. Any store's column: the conversation store's bindings and the main
+    store's turn attempts (`Daemon._conversation_binding`) alike."""
+    _, native, is_uuid, lowered = _native_params("claude", native_session_id)
+    return (f"({column} IN (?, ?) OR (? AND lower({column})=?))",
+            (native_session_id, native, is_uuid, lowered))
 
 
 def _native_params(provider: str, native_session_id: str) -> tuple:
