@@ -56,6 +56,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 
+from .transcripts import open_regular
+
 #: Where the desktop app writes its main-process log; a test points it elsewhere.
 LOG_ENV = "SUBFLEET_DESKTOP_LOG"
 #: The app rotates `main.log` to `main1.log` (then `main2.log`, ...) at ~10 MB.
@@ -252,7 +254,9 @@ class DesktopLog:
                 self._feed(raw.decode("utf-8", "replace").rstrip("\r"))
 
     def _read(self, path: Path, start: int) -> tuple[bytes, int]:
-        with path.open("rb") as stream:
+        # Only a regular file: the daemon's mirror worker polls the log after
+        # every pass, and a FIFO in its place made open() wait for a writer.
+        with open_regular(path) as stream:
             stream.seek(start)
             data = stream.read(READ_LIMIT)
             info = os.fstat(stream.fileno())

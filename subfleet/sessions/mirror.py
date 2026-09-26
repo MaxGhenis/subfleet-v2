@@ -109,6 +109,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from . import transcripts
 from .desktop import AppState, DesktopLog
 
 #: Where the desktop app keeps its per-account Code session index.
@@ -218,8 +219,11 @@ def _directory_signature(path: Path) -> tuple[int, ...] | None:
 def _permanent(exc: OSError) -> bool:
     """The app cannot read it either (see NO_ONES_SIDEBAR). If such a copy is
     later readable again, its old value reads as a change, as an app's stale
-    re-save does: the known limit, not a hold that could never end."""
-    return exc.errno in NO_ONES_SIDEBAR
+    re-save does: the known limit, not a hold that could never end. Anything
+    but a regular file where a record belongs (a directory, a FIFO, a device)
+    holds no record either; `transcripts.open_regular` refuses each of them as
+    `NotRegularFile` (EINVAL), a directory included."""
+    return exc.errno in NO_ONES_SIDEBAR or isinstance(exc, transcripts.NotRegularFile)
 
 
 @dataclass
@@ -306,7 +310,6 @@ def store_dir() -> Path:
 
 
 def projects_dir() -> Path:
-    from . import transcripts
     return transcripts.projects_dir()
 
 
@@ -319,8 +322,16 @@ def slug(cwd: str) -> str:
 
 
 def _load(path: Path, *, strict: bool = False) -> dict[str, Any]:
+    """A JSON object from an index record, `cc-mirror.json` or a state file.
+
+    Every read the mirror makes outside its state root opens the file only as a
+    regular file (`transcripts.open_regular`): the daemon's mirror worker runs
+    it, `Timers.stop()` waits for that worker, and a FIFO with no writer had
+    made open() wait for one (C-23.28).
+    """
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        with transcripts.open_regular(path, "r", encoding="utf-8") as stream:
+            value = json.loads(stream.read())
     except (OSError, ValueError):
         if strict:
             raise
@@ -329,8 +340,25 @@ def _load(path: Path, *, strict: bool = False) -> dict[str, Any]:
 
 
 def _read_entry(path: Path) -> bytes:
-    """An index entry's bytes: the one read the inventory makes per changed file."""
-    return path.read_bytes()
+    """An index entry's bytes: the one read the inventory makes per changed file.
+
+    The store is listed by name alone, so whatever holds a record's name is
+    opened only as a regular file (see `_load`).
+    """
+    with transcripts.open_regular(path) as stream:
+        return stream.read()
+
+
+def _copy_regular(source: str | Path, destination: Path) -> os.stat_result:
+    """Copy `source`'s bytes into a new file at `destination`, reading `source`
+    only as a regular file; returns `source`'s status as read.
+
+    shutil refused a FIFO only by a stat before its own open(), and copied a
+    device (see `_load`).
+    """
+    with transcripts.open_regular(source) as stream, open(destination, "wb") as out:
+        shutil.copyfileobj(stream, out)
+        return os.fstat(stream.fileno())
 
 
 def _temporary(path: Path) -> Path:
@@ -433,7 +461,8 @@ def _copy_entry(source: Path, destination: Path, *, expect: tuple[int, ...] | No
     except FileNotFoundError:
         pass
     try:
-        shutil.copy2(source, temporary)
+        info = _copy_regular(source, temporary)
+        os.utime(temporary, ns=(info.st_atime_ns, info.st_mtime_ns))   # as copy2 did
         os.chmod(temporary, 0o600)
         handle = os.open(temporary, os.O_RDONLY)
         try:
@@ -530,7 +559,6 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
 
 
 def transcripts_dir() -> Path:
-    from . import transcripts
     return transcripts.claude_dir()
 
 
@@ -974,10 +1002,11 @@ class Mirror:
         The app appends one on every (re)title — UI, backend, and auto alike — so
         the last record is the newest intended title regardless of which
         account's index caught it. `None` means no record inside the window:
-        no signal, never a change.
+        no signal, never a change. A FIFO, device or directory at `path` is no
+        signal either, at once (see `_load`).
         """
         try:
-            with path.open("rb") as stream:
+            with transcripts.open_regular(path) as stream:
                 stream.seek(0, 2)
                 stream.seek(max(0, stream.tell() - window))
                 tail = stream.read().decode("utf-8", "ignore")
@@ -1322,13 +1351,17 @@ class Mirror:
                 continue
             destination = projects_dir() / slug(cwd) / f"{identity}.jsonl"
             if not dry_run:
-                if destination.exists():                # raced with another writer
-                    stems[identity] = destination
+                if destination.exists():
+                    # Raced with another writer. Only a regular file is a
+                    # transcript, as in `transcript_stems`; a FIFO there is
+                    # none, and revival never replaces what it finds.
+                    if destination.is_file():
+                        stems[identity] = destination
                     continue
                 try:
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     temporary = destination.with_name(destination.name + ".tmp-revive")
-                    shutil.copyfile(source[1], temporary)
+                    _copy_regular(source[1], temporary)
                     os.replace(temporary, destination)
                     stamp = self.now().timestamp()
                     os.utime(destination, (stamp, stamp))   # cleanup cannot insta-prune

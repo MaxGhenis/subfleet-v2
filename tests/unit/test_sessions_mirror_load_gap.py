@@ -1047,15 +1047,15 @@ def test_a_name_taken_between_the_listing_and_the_copy_is_left_alone(world, monk
     running.run_once()
     openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
     target = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
-    copy2 = mirror.shutil.copy2
+    copy = mirror._copy_regular
 
-    def the_app_creates_it_meanwhile(source, destination, **kwargs):
-        result = copy2(source, destination, **kwargs)
+    def the_app_creates_it_meanwhile(source, destination):
+        result = copy(source, destination)
         if not target.exists():
             target.write_text(json.dumps({"sessionId": "the app's", "cliSessionId": TWO}))
         return result
 
-    monkeypatch.setattr(mirror.shutil, "copy2", the_app_creates_it_meanwhile)
+    monkeypatch.setattr(mirror, "_copy_regular", the_app_creates_it_meanwhile)
     assert running.run_hot().added == 0
     assert json.loads(target.read_text())["sessionId"] == "the app's"
     assert not list(store.glob("*/*/*.tmp-subfleet"))

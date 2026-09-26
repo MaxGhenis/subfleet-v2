@@ -156,17 +156,17 @@ def test_transient_read_failure_is_retried_without_a_metadata_change(world, monk
     """C-23.28: an I/O failure must not become a cached, apparently empty entry."""
     home, store, _root = world
     path = openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
-    read = Path.read_bytes
+    read = mirror._read_entry
     failed = False
 
-    def fail_once(target, *args, **kwargs):
+    def fail_once(target):
         nonlocal failed
         if target == path and not failed:
             failed = True
             raise OSError("transient read failure")
-        return read(target, *args, **kwargs)
+        return read(target)
 
-    monkeypatch.setattr(Path, "read_bytes", fail_once)
+    monkeypatch.setattr(mirror, "_read_entry", fail_once)
     running = engine(world)
     signature = running._signature(path)
     assert running.run_once().added == 0
