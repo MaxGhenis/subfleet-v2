@@ -936,15 +936,18 @@ or `approval_wait_s` passes (D-7).
 - Claude: depth-1 `*.jsonl` under `~/.claude/projects`, newest 400 by mtime;
   per file the last `custom-title` from a 256 KiB tail (present in every
   recent transcript inspected: 2,619 records across 25 files), else the first
-  real user prompt (160 characters, scrubbed), `cwd`, last model and
-  permission mode; lane runs excluded; `live_elsewhere` from the pid
-  registry, ignoring Subfleet-owned pids.
+  real user prompt (160 characters, scrubbed), `cwd` (the workspace the copy
+  continues from, `catalog._workspace`, which `conversation.open` uses too, so
+  a moved session is shown and judged continuable as it opens; C-30.2), last
+  model and permission mode; lane runs excluded; `live_elsewhere` from the pid
+  registry, ignoring Subfleet-owned pids, a UUID compared in lower case.
 - Codex: rollouts under every enrolled Codex lane home and under `~/.codex`,
   newest 400 by path date; title from `session_index.jsonl` `thread_name`;
   `continuable` only in lane homes (`~/.codex` threads continue by handoff,
   C-10.3).
-- Per-file cache keyed by (path, size, mtime); 20 s cap; `complete:false`
-  when capped.
+- Per-file cache keyed by (path, size, mtime) and, for Claude, the record's
+  version (`CLAUDE_RECORD_VERSION`: a record cached before it carried the
+  workspace is read again); 20 s cap; `complete:false` when capped.
 
 ## 11. Recovery
 

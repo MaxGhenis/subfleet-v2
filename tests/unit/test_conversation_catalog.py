@@ -11,6 +11,9 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from unittest import mock
+
+import hypothesis
 
 from subfleet.conversations import catalog
 from subfleet.sessions import transcripts
@@ -154,3 +157,90 @@ def test_a_session_that_moved_and_then_moved_within_its_new_project_keeps_the_ne
     _copy(projects, old, head, 1_700_000_000)
     live = _copy(projects, new, [*head, *_turn(new, "2"), *_turn(new / "sub", "3")], 1_800_000_000)
     assert catalog.claude_session(live)["cwd"] == str(new)
+
+
+# --- discovery shares the workspace opening uses (C-30.2; review of 3c1a34e, finding 7) --------
+
+
+def _discovered(root: Path, projects: Path) -> list[dict]:
+    """A catalog run's Claude items (C-30.1), with no live registry and no Codex home."""
+    state = root / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    with mock.patch.object(catalog, "_live_claude_sessions", return_value=set()):
+        return catalog.build(state, lanes=[], claude_projects=projects, codex_app_home=root / "no-codex")["items"]
+
+
+def test_the_catalog_shows_a_moved_session_where_it_opens(tmp_path):
+    """C-30.2 (review of 3c1a34e, finding 7): a session that moved from a /tmp
+    directory into a permanent project is discovered with the workspace its
+    newest copy continues from, continuable, exactly as `conversation.open`
+    opens it; the app had refused to open it as a /tmp session. A move between
+    two permanent directories shows the new one."""
+    scratch = Path(tempfile.mkdtemp(prefix="sf-moved-", dir="/private/tmp"))
+    try:
+        new = tmp_path / "work" / "new"
+        new.mkdir(parents=True)
+        projects = tmp_path / "projects"
+        live = _copy(projects, new, [*_turn(scratch, "1"), *_turn(new, "2")], 1_800_000_000)
+        (item,) = _discovered(tmp_path, projects)
+        facts = catalog.claude_session(live)
+        assert (item["cwd"], item["continuable"], item["continue_blocker"]) == (str(new), True, None)
+        assert (facts["cwd"], facts["continuable"]) == (str(new), True)
+    finally:
+        os.rmdir(scratch)
+    old = tmp_path / "work" / "old"
+    old.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    _copy(elsewhere, new, [*_turn(old, "1"), *_turn(new, "2")], 1_800_000_000)
+    (item,) = _discovered(tmp_path / "second", elsewhere)
+    assert item["cwd"] == str(new) and item["continuable"] is True
+
+
+def test_a_record_cached_before_discovery_knew_the_workspace_is_read_again(tmp_path):
+    """C-30.1, C-30.2 (review of 3c1a34e, finding 7): a transcript whose size and
+    mtime have not changed since a run cached its record without the workspace
+    (the first `cwd` only) is read again, so the catalog does not keep showing a
+    moved session at its old directory."""
+    new = tmp_path / "work" / "new"
+    new.mkdir(parents=True)
+    old = "/tmp/previous-project"
+    projects = tmp_path / "projects"
+    live = _copy(projects, new, [*_turn(Path(old), "1"), *_turn(new, "2")], 1_800_000_000)
+    state = tmp_path / "state"
+    state.mkdir()
+    st = live.stat()
+    stale = {k: v for k, v in catalog._claude_record(live).items() if k != "workspace"}
+    (state / "catalog-cache.json").write_text(json.dumps(
+        {str(live): {"size": st.st_size, "mtime": st.st_mtime, "record": {**stale, "cwd": old}}}))
+    (item,) = _discovered(tmp_path, projects)
+    assert (item["cwd"], item["continuable"]) == (str(new), True)
+    cached = json.loads((state / "catalog-cache.json").read_text())[str(live)]
+    assert cached["version"] == catalog.CLAUDE_RECORD_VERSION and cached["record"]["workspace"] == str(new)
+    assert _discovered(tmp_path, projects)[0]["cwd"] == str(new)            # and read from the cache after
+
+
+@hypothesis.settings(max_examples=60, deadline=None)
+@hypothesis.given(moves=hypothesis.strategies.lists(hypothesis.strategies.integers(0, 4), min_size=1, max_size=6),
+                  copy=hypothesis.strategies.integers(0, 4))
+def test_discovery_and_opening_agree_on_every_transcript(moves, copy):
+    """C-30.2 (review of 3c1a34e, finding 7), differential: for a transcript whose
+    rows move through any sequence of directories (two under /tmp, two
+    permanent, one inside a permanent one), kept under any one of their project
+    directories, the catalog item names the workspace `claude_session` opens
+    and refuses the /tmp ones exactly when it does."""
+    with tempfile.TemporaryDirectory(prefix="sf-agree-", dir=Path(__file__).parent) as base, \
+            tempfile.TemporaryDirectory(prefix="sf-agree-", dir="/private/tmp") as scratch:
+        base, scratch = Path(base), Path(scratch)
+        places = [scratch / "a", scratch / "b", base / "work" / "c", base / "work" / "d", base / "work" / "c" / "sub"]
+        for place in places:
+            place.mkdir(parents=True, exist_ok=True)
+        rows = [row for n, index in enumerate(moves) for row in _turn(places[index], str(n))]
+        live = _copy(base / "projects", places[copy], rows, 1_800_000_000)
+        (item,) = _discovered(base, base / "projects")
+        facts = catalog.claude_session(live)
+        if facts["continuable"]:
+            assert item["cwd"] == facts["cwd"]
+        else:
+            assert catalog._temporary(item["cwd"])            # opening names no cwd for a /tmp session
+        assert item["continuable"] == facts["continuable"]
+        assert item["continue_blocker"] == facts.get("continue_blocker")

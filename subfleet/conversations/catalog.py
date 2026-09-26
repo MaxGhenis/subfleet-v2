@@ -62,7 +62,17 @@ def map_permission(mode: str | None) -> str:
     return PERMISSION_MAP.get(mode or "", "ask")
 
 
+#: The shape of a Claude record in `catalog-cache.json`; a cached record of another
+#: version is read again. 2: the record carries `workspace` (`_workspace`), which
+#: discovery and opening share (review of 3c1a34e, finding 7).
+CLAUDE_RECORD_VERSION = 2
+
+
 def _claude_record(path: Path, opener=transcripts.open_regular) -> dict:
+    """What discovery and opening read of one Claude transcript copy, its
+    `workspace` included: the cwd it continues from (`_workspace`, C-30.2), not
+    only its first `cwd`, so the catalog shows and judges a moved session as
+    `conversation.open` will open it."""
     title, first, cwd, model = None, None, None, None
     try:
         size = path.stat().st_size
@@ -95,8 +105,10 @@ def _claude_record(path: Path, opener=transcripts.open_regular) -> dict:
             model = m
             break
     mode = transcripts.last_permission_mode(path)
+    headless = bool(transcripts.headless_transcript(path))
     return {"title": scrub(title)[:200] if title else None, "first_prompt": first, "cwd": cwd, "model": model,
-            "permission_mode": mode, "headless": bool(transcripts.headless_transcript(path))}
+            "permission_mode": mode, "headless": headless,
+            "workspace": None if headless else _workspace(Path(path), cwd)}
 
 
 def _object(value: Any) -> dict:
@@ -170,15 +182,15 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     except OSError:
         pass
     for path in paths:
-        record = _cached(cache, fresh, path, claude_record, started, wall_s, clock)
+        record = _cached(cache, fresh, path, claude_record, started, wall_s, clock, version=CLAUDE_RECORD_VERSION)
         if record is None:
             complete = False
             continue
         sid = path.stem
         if record.get("headless") or sid in known_attempts or not record:
             continue
-        cwd = record.get("cwd") or ""
-        blocker = "tmp-workspace" if cwd.startswith(("/tmp/", "/private/tmp/")) else None
+        cwd = record.get("workspace") or ""
+        blocker = "tmp-workspace" if _temporary(cwd) else None
         items.append({"provider": "claude", "native_session_id": sid, "path": str(path), "home": None,
                       "title": record.get("title"), "first_prompt": record.get("first_prompt"), "cwd": cwd,
                       "model": record.get("model"), "permission_mode": record.get("permission_mode"),
@@ -222,20 +234,24 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     return catalog
 
 
-def _cached(cache: dict, fresh: dict, path: Path, reader, started: float, wall_s: float, clock):
+def _cached(cache: dict, fresh: dict, path: Path, reader, started: float, wall_s: float, clock,
+            version: int | None = None):
+    """`reader(path)`, or its cached record while the file's size and mtime, and
+    the record's `version`, are unchanged."""
     try:
         st = path.stat()
     except OSError:
         return {}
     key = str(path)
     hit = cache.get(key)
-    if hit and hit.get("size") == st.st_size and hit.get("mtime") == st.st_mtime:
+    if hit and hit.get("size") == st.st_size and hit.get("mtime") == st.st_mtime and hit.get("version") == version:
         fresh[key] = hit
         return hit["record"]
     if clock() - started > wall_s:
         return None
     record = reader(path)
-    fresh[key] = {"size": st.st_size, "mtime": st.st_mtime, "record": record}
+    fresh[key] = {"size": st.st_size, "mtime": st.st_mtime, "record": record,
+                  **({"version": version} if version is not None else {})}
     return record
 
 
@@ -576,10 +592,10 @@ def claude_session(path: Path) -> dict:
     record = _claude_record(path)
     if record.get("headless"):
         return {"continuable": False, "continue_blocker": "a Subfleet lane run"}
-    cwd = _workspace(Path(path), record.get("cwd"))
+    cwd = record.get("workspace")
     if not cwd or not os.path.isdir(cwd):
         return {"continuable": False, "continue_blocker": "its working directory no longer exists"}
-    if cwd.startswith(("/tmp/", "/private/tmp/")):
+    if _temporary(cwd):
         return {"continuable": False, "continue_blocker": "tmp-workspace"}
     model = record.get("model") or ""
     return {"cwd": cwd, "title": record.get("title") or record.get("first_prompt"),
@@ -606,6 +622,12 @@ def _workspace(path: Path, first: str | None) -> str | None:
     if first and path.parent.name in _project_names(first):
         return first
     return first or transcripts.last_cwd(path)
+
+
+def _temporary(cwd: str) -> bool:
+    """A workspace under /tmp does not continue in place (C-30.2, IR-15): discovery
+    and opening ask the same question of the same `workspace`."""
+    return cwd.startswith(("/tmp/", "/private/tmp/"))
 
 
 def _project_names(cwd: str) -> set[str]:
