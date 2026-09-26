@@ -136,7 +136,13 @@ class ConversationService:
         for runner in list(self.runners.values()):
             runner.stop()
         self.polls.shutdown(wait=False, cancel_futures=True)
-        self.files.shutdown(wait=False, cancel_futures=True)
+        # File ops write into the state root: an attachment's copy, a worktree. One
+        # still running when close() returned finished after its owner had removed
+        # the root, and made it again (review of #47). The ones running finish here,
+        # while the root and the store are still there; queued ones never run, and
+        # the pool takes none after. Each is bounded (a capped file read, git under
+        # its caps), as the ops the daemon's own pools wait for are.
+        self.files.shutdown(wait=True, cancel_futures=True)
         self.store.close()
 
     # --- the socket seam -------------------------------------------------------
@@ -410,8 +416,7 @@ class ConversationService:
         top = self._git_toplevel(source)
         if top is None:
             raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
-        parent = self.root / "worktrees"
-        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        parent = self.store.subdirectory("worktrees")
         target = parent / f"conversation-{cid}"
         branch = f"subfleet/{cid}"
         timeout = self._git_timeout_s()
@@ -1270,7 +1275,7 @@ class ConversationService:
         return 3 * interval
 
     def _start_catalog(self) -> dict:
-        from .catalog import refresh_running, spawn_refresh
+        from .catalog import fence_pipe, refresh_running, spawn_refresh
         with self._catalog_lock:
             if self._closed:
                 # A tick or request close() overtook: nothing would stop or reap a run
@@ -1282,7 +1287,7 @@ class ConversationService:
             self._catalog_last = self.clock()
             try:
                 if self._catalog_fence is None:
-                    self._catalog_fence = os.pipe()
+                    self._catalog_fence = fence_pipe()
                 process = spawn_refresh(self.root, fence_fd=self._catalog_fence[0])
             except OSError as exc:
                 self.log.warning("catalog run not started: %s", exc)
@@ -1293,6 +1298,7 @@ class ConversationService:
             return {"requested": True, "running": True}
 
     def _reap_catalog(self) -> None:
+        from .catalog import DECLINED
         with self._catalog_lock:
             process = self._catalog_proc
             if process is None:
@@ -1300,7 +1306,13 @@ class ConversationService:
             if process.poll() is not None:
                 self._catalog_proc = None
                 if process.returncode and not self._catalog_killed:
-                    self.log.warning("catalog run exited %s", process.returncode)
+                    # A run this service still tracks declined while the service is open.
+                    why = DECLINED.get(process.returncode)
+                    if why:
+                        self.log.warning("catalog run %s stopped publishing (exit %s): %s", process.pid,
+                                         process.returncode, why)
+                    else:
+                        self.log.warning("catalog run exited %s", process.returncode)
                 return
             if self._catalog_killed or self.clock() - self._catalog_started < CATALOG_KILL_AFTER_S:
                 return

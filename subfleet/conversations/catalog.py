@@ -12,6 +12,8 @@ The daemon starts the process on a timer and on request and never scans these
 trees on a request or control thread; `native_session` reads one session's
 files for `conversation.open`. A run writes only for the service that started
 it and only into the root it locked (`Owner`); it never creates a state root.
+One that stops publishing for either reason says so in its exit status
+(`OWNER_GONE`, `FENCE_BROKEN`), which the service logs while it tracks the run.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import fcntl
 import json
 import os
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -32,6 +35,18 @@ from ..sessions import transcripts
 from .redact import scrub
 
 WALL_S = 20.0
+#: A run's exit status when it stopped publishing because its owner is gone (`Owner`):
+#: the service that started it closed, or the state root it was started for was
+#: removed or replaced. Not 0, so a service that still tracks the run, and so is open,
+#: logs it; after close() nothing tracks the run and the decline it expects is quiet.
+OWNER_GONE = 3
+#: A run's exit status when its `--fence-fd` is not a pipe: not the fence its owner
+#: made (a descriptor never passed, or one a standard-stream redirect replaced), so it
+#: cannot tell whether that owner is open, and writes nothing.
+FENCE_BROKEN = 4
+#: Why a run stopped publishing, by its exit status, for its owner's log.
+DECLINED = {OWNER_GONE: "it found its owner gone (the fence closed, or the state root removed or replaced)",
+            FENCE_BROKEN: "its fence descriptor was not the pipe it was given"}
 TAIL = 256 * 1024
 HEAD = 64 * 1024
 PROMPT_CHARS = 160
@@ -320,8 +335,14 @@ class Owner:
 
     def __init__(self, root: Path, lock_fd: int, fence_fd: int | None = None):
         self.lock_path, self.lock_fd, self.fence_fd = Path(root) / "catalog.lock", lock_fd, fence_fd
+        self.gone = False                   # it said no: nothing more is published (OWNER_GONE)
 
     def __call__(self) -> bool:
+        if not self.gone and not self._here():
+            self.gone = True
+        return not self.gone
+
+    def _here(self) -> bool:
         try:
             here, held = os.stat(self.lock_path), os.fstat(self.lock_fd)
         except OSError:
@@ -342,6 +363,36 @@ def fence_open(fd: int | None) -> bool:
         return True
     except OSError:
         return False
+
+
+def fence_is_pipe(fd: int) -> bool:
+    """Whether `fd` is a pipe, as the owner's fence is (`FENCE_BROKEN` otherwise)."""
+    try:
+        return stat.S_ISFIFO(os.fstat(fd).st_mode)
+    except OSError:
+        return False
+
+
+def fence_pipe() -> tuple[int, int]:
+    """A new fence pipe for `Owner`, (read, write), both above 2 and close-on-exec.
+
+    `os.pipe()` returns the lowest free descriptors. In an owner with 0, 1 or 2
+    closed, a read end there is replaced in the run by its /dev/null standard streams
+    (`spawn_refresh`), and the run reads end-of-file as if its owner had closed; a
+    write end there would take whatever the owner writes to that stream."""
+    raw = os.pipe()
+    moved: list[int] = []
+    try:
+        for fd in raw:
+            moved.append(fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3))
+    except OSError:
+        for fd in moved:
+            os.close(fd)
+        raise
+    finally:
+        for fd in raw:
+            os.close(fd)
+    return moved[0], moved[1]
 
 
 # --- readers the daemon uses ----------------------------------------------------
@@ -456,7 +507,9 @@ def spawn_refresh(root: Path, *, fence_fd: int | None = None) -> subprocess.Pope
     """Start one catalog run unless one is running (the lock decides), and return
     the process without waiting for it. Its owner reaps it (`Popen.poll`) and stops
     it on close. `fence_fd` is the read end of the owner's fence pipe, the one
-    descriptor the run inherits (`Owner`)."""
+    descriptor the run inherits (`Owner`), above 2 (`fence_pipe`)."""
+    if fence_fd is not None and fence_fd <= 2:
+        raise ValueError(f"fence descriptor {fence_fd} would be replaced by the run's standard streams")
     if refresh_running(root) is not False:
         return None
     package_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -521,17 +574,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-root", type=Path, required=True)
     parser.add_argument("--fence-fd", type=int, help="the read end of the starting service's fence pipe (Owner)")
     args = parser.parse_args(argv)
+    if args.fence_fd is not None and not fence_is_pipe(args.fence_fd):
+        return FENCE_BROKEN                 # not its owner's fence: it cannot tell whether the owner is open
     if not fence_open(args.fence_fd):
-        return 0                            # the service closed before the run began: touch nothing
+        return OWNER_GONE                   # the service closed before the run began: touch nothing
     lock = args.state_root / "catalog.lock"
     try:
         fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
     except FileNotFoundError:
-        return 0                            # no state root, and a run never makes one
+        return OWNER_GONE                   # no state root, and a run never makes one
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        return 0
+        return 0                            # another run holds the lock, and writes the catalog
     lanes = []
     try:
         import sqlite3
@@ -541,8 +596,9 @@ def main(argv: list[str] | None = None) -> int:
         db.close()
     except Exception:
         pass
-    build(args.state_root, lanes=lanes, may_write=Owner(args.state_root, fd, args.fence_fd))
-    return 0
+    owner = Owner(args.state_root, fd, args.fence_fd)
+    build(args.state_root, lanes=lanes, may_write=owner)
+    return OWNER_GONE if owner.gone else 0
 
 
 def _terminated(signum, frame):

@@ -9,10 +9,12 @@ controls; everything else is the real service and conversation store.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import random
+import shutil
 import subprocess
 import sys
 import threading
@@ -25,6 +27,7 @@ import pytest
 from subfleet import protocol
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.conversations import attachments as attachment_module
 from subfleet.conversations import catalog as catalog_module
 from subfleet.conversations import service as service_module
 from subfleet.conversations.service import ConversationService
@@ -232,6 +235,31 @@ def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs):
     runs[0].end(-9)
     svc._catalog_tick()
     assert svc._catalog_proc is not None and len(runs) == 2         # reaped, and the next one due
+
+
+def test_a_tracked_run_that_declined_is_logged_with_why_and_one_after_close_is_not(svc, runs, caplog):
+    """C-30.1, review of #47: a run that declines to write exits nonzero. One this
+    service still tracks declined although the service is open, and is logged with
+    why, where it had passed for a clean run. After close() nothing tracks the run,
+    so its expected decline is quiet."""
+    with caplog.at_level(logging.WARNING, logger="test-conversations"):
+        for status in (catalog_module.OWNER_GONE, catalog_module.FENCE_BROKEN):
+            svc._start_catalog()
+            runs[-1].end(status)
+            svc._reap_catalog()
+    said = [r.getMessage() for r in caplog.records]
+    assert len(said) == 2, said
+    assert "stopped publishing (exit 3)" in said[0] and "owner gone" in said[0], said
+    assert "stopped publishing (exit 4)" in said[1] and "fence" in said[1], said
+    caplog.clear()
+    svc._start_catalog()
+    runs[-1].stubborn = True                # it outlives close()'s signals, then declines
+    with caplog.at_level(logging.WARNING, logger="test-conversations"):
+        svc.close()
+        runs[-1].end(catalog_module.OWNER_GONE)
+        svc._reap_catalog()
+        svc.tick()
+    assert "did not end" in caplog.text and "stopped publishing" not in caplog.text
 
 
 def test_catalog_refresh_starts_a_run_without_waiting_and_resets_the_timer(svc, runs):
@@ -957,6 +985,144 @@ def test_a_worktree_needs_a_repository_and_creates_nothing_without_one(svc, tmp_
 def test_conversation_create_runs_on_the_file_pool(svc):
     """C-25.3: the op that may run `git worktree add` never holds the request pool."""
     assert svc.pool_for("conversation.create") is svc.files
+
+
+# --- close() and the file pool (C-25.3, C-28.1) -------------------------------------
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
+
+
+def file_op_args(op, tmp_path, repo) -> dict:
+    """An `attachment.add` of a small PNG, or a create that cuts a worktree of `repo`."""
+    if op == "attachment.add":
+        image = tmp_path / "pixel.png"
+        image.write_bytes(PNG)
+        return {"path": str(image)}
+    return {"provider": "claude", "request_id": "req-file-op", "workspace": str(repo), "workspace_kind": "worktree",
+            "settings": SETTINGS}
+
+
+def held_file_op(svc, monkeypatch, tmp_path, repo, op):
+    """Start `op` on the file pool, held inside its work until the returned event is
+    set: an attachment in its type check, after it read the file and before it writes
+    anything; a create after its row, before it cuts the worktree."""
+    entered, go = threading.Event(), threading.Event()
+
+    def hold(real):
+        def held(*args, **kwargs):
+            entered.set()
+            assert go.wait(30), "the test never let the op go on"
+            return real(*args, **kwargs)
+        return held
+
+    if op == "attachment.add":
+        monkeypatch.setattr(attachment_module, "sniff", hold(attachment_module.sniff))
+    else:
+        monkeypatch.setattr(svc, "_cut_worktree", hold(svc._cut_worktree))
+    future = svc.pool_for(op).submit(svc.handle, op, file_op_args(op, tmp_path, repo), None)
+    assert entered.wait(30), f"{op} never started"
+    return future, go
+
+
+def tree(root: Path) -> list[str]:
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*"))
+
+
+@pytest.mark.parametrize("op", ["attachment.add", "conversation.create"])
+def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_gone(
+        svc, repo, monkeypatch, tmp_path, op):
+    """C-25.3, C-28.1 (review of #47): close() shut the file pool down without waiting.
+    An `attachment.add` still running when the daemon closed finished after its owner
+    had removed the state root, and made the root again, holding `attachments/<sha>.png`
+    (a worktree create did the same with `worktrees/`). close() now returns only once
+    the file ops already running have finished, while the root and the store are still
+    there, so removing the root afterwards leaves nothing to bring it back."""
+    root = svc.root
+    future, go = held_file_op(svc, monkeypatch, tmp_path, repo, op)
+    running_at_return = []
+
+    def owner():                            # as a daemon's owner does: close it, then remove its root
+        svc.close()
+        running_at_return.append(not future.done())
+        shutil.rmtree(root)
+
+    closer = threading.Thread(target=owner)
+    closer.start()
+    closer.join(1.0)                        # a close() that does not wait has returned by now
+    go.set()
+    closer.join(30)
+    assert not closer.is_alive(), "close() did not return once the op had finished"
+    problems = []
+    if running_at_return != [False]:
+        problems.append(f"close() returned while {op} was still running")
+    try:
+        result = future.result(30)
+    except Exception as exc:
+        problems.append(f"{op} failed: {type(exc).__name__}: {exc}")
+    else:
+        if op == "attachment.add" and set(result) != {"sha256", "media_type", "bytes"}:
+            problems.append(f"no receipt: {result}")
+        if op == "conversation.create" and not result["conversation"]["worktree"]:
+            problems.append(f"no worktree recorded: {result}")
+    if root.exists():
+        problems.append(f"the removed state root came back holding {tree(root)}")
+    assert problems == [], "\n".join(problems)
+
+
+def test_close_never_runs_a_file_op_it_had_not_started(svc, monkeypatch, tmp_path):
+    """C-25.3: close() drops the file ops still queued behind busy threads (they never
+    run, so write nothing), and the pool accepts none after it."""
+    # Three different images: two adds of the same bytes at once share a temporary name.
+    running = [tmp_path / "one.png", tmp_path / "two.png"]
+    for n, path in enumerate(running):
+        path.write_bytes(PNG + bytes([n]))
+    second = tmp_path / "queued.png"
+    second.write_bytes(PNG + b"\x09")
+    entered, go = threading.Semaphore(0), threading.Event()
+    real = attachment_module.sniff
+
+    def held(head):
+        entered.release()
+        assert go.wait(30)
+        return real(head)
+
+    monkeypatch.setattr(attachment_module, "sniff", held)
+    pool = svc.pool_for("attachment.add")
+    busy = [pool.submit(svc.handle, "attachment.add", {"path": str(path)}, None) for path in running]
+    for _ in busy:
+        assert entered.acquire(timeout=30), "the pool's two threads never both started"
+    queued = pool.submit(svc.handle, "attachment.add", {"path": str(second)}, None)
+    closer = threading.Thread(target=svc.close)
+    closer.start()
+    until_true(queued.cancelled, "close() to drop the queued op")
+    go.set()
+    closer.join(30)
+    assert not closer.is_alive() and all(f.result(30)["sha256"] for f in busy)
+    digest = hashlib.sha256(second.read_bytes()).hexdigest()
+    assert not (svc.root / "attachments" / f"{digest}.png").exists()
+    with pytest.raises(RuntimeError):
+        pool.submit(svc.handle, "attachment.add", {"path": str(second)}, None)
+
+
+@pytest.mark.parametrize("op", ["attachment.add", "conversation.create"])
+def test_a_file_op_never_makes_the_state_root(svc, repo, tmp_path, op):
+    """C-28.1, D-16: an attachment's copy and a conversation's worktree go into the state
+    root as it stands, and neither makes it again once it is gone. (Only something that
+    removed it under an open service can get here: close() lets no file op run after it.)"""
+    args = file_op_args(op, tmp_path, repo)
+    shutil.rmtree(svc.root)
+    with pytest.raises(ConversationError) as err:
+        svc.handle(op, args, None)
+    assert err.value.reason == "state-root-gone" and err.value.code == 1
+    assert not svc.root.exists()
+
+
+def until_true(predicate, what: str, timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, f"timed out waiting for {what}"
+        time.sleep(.01)
 
 
 # --- turn jobs retention must keep (C-26.12, IR-17) -------------------------------

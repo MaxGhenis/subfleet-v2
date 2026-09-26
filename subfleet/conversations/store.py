@@ -296,6 +296,17 @@ class ConversationStore:
         with self._lock:
             self._db.close()
 
+    def subdirectory(self, name: str) -> Path:
+        """`<root>/<name>`, made if missing, for the files an op writes there. Never the
+        root itself: a write that outlived its owner's close() made the removed state
+        root again (review of #47)."""
+        path = self.root / name
+        try:
+            path.mkdir(mode=0o700, exist_ok=True)
+        except FileNotFoundError:
+            raise ConversationError("state-root-gone", f"the state root {self.root} is gone", code=1) from None
+        return path
+
     # --- plumbing --------------------------------------------------------------
 
     @contextlib.contextmanager
