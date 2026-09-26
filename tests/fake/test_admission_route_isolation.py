@@ -19,7 +19,8 @@ import json
 import logging
 import subprocess
 import threading
-from datetime import datetime
+import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -308,6 +309,63 @@ def test_c6_3_an_early_evaluation_older_than_the_bound_is_evaluated_again(fleet,
     service._admit()
     assert admitted(service, job_id)
     assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 0, "old": 1, "failed": 0}
+
+
+def ageing_reading(service, fresh_for_s: float) -> datetime:
+    """A codex-1 reading that stops being fresh `fresh_for_s` from now; returns when."""
+    ttl = service.policy["caps"]["reading_ttl_s"]
+    observed = (datetime.now(timezone.utc) - timedelta(seconds=ttl - fresh_for_s)).replace(microsecond=0)
+    service.store.add_reading(Reading("codex-1", "account", "seven_day", .2, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", observed.strftime("%Y-%m-%dT%H:%M:%SZ")))
+    return observed + timedelta(seconds=ttl)
+
+
+def busy_codex(service, harness):
+    """One attempt of another job already running on codex-1: measured, the lane has
+    a second slot; unmeasured, it has none (C-6.4's `max_in_flight_unmeasured`)."""
+    running = submit(service, harness, pinned_model="astra")
+    service.store.update_job(running, state="running")
+    service.store.add_attempt(attempt_id=running + "/a1", job_id=running, seq=1, lane_id="codex-1",
+                              model_requested="gpt-6-astra", state="running")
+
+
+def test_c6_3_a_reading_that_ages_out_before_the_reservation_means_evaluating_again(routing_state, monkeypatch):  # noqa: F811
+    """Review of 5841d8b: an early evaluation made while codex-1's reading was fresh
+    was reserved on after the reading aged out, putting a second attempt on a lane
+    that was unmeasured by then. The reservation now evaluates again, and the lane,
+    unmeasured, has no second slot."""
+    service, harness = routing_state
+    busy_codex(service, harness)
+    job_id = submit(service, harness, pinned_model="astra")
+    real, early, stale = service._pick, [], []
+
+    def pick(job, **options):
+        if not stale:                                     # just before admission's first look
+            stale.append(ageing_reading(service, fresh_for_s=5))
+        decision = real(job, **options)
+        if "horizon" in options and not service.store._holds_writer():
+            early.append(decision.chosen_lane)
+            assert options["horizon"]["fresh_until"] == stale[0]
+            while datetime.now(timezone.utc) <= stale[0] + timedelta(seconds=.2):
+                time.sleep(.05)                               # the reading ages out before the reservation
+        return decision
+    monkeypatch.setattr(service, "_pick", pick)
+    service._admit()
+    assert early == ["codex-1"]                                # measured then: a second slot
+    assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 0, "old": 1, "failed": 0}
+    assert not service.store.list_attempts(job_id)             # no second attempt on an unmeasured lane
+    assert service.store.get_job(job_id)["state"] == "waiting"
+
+
+def test_c6_3_an_early_evaluation_whose_readings_stay_fresh_is_reserved_on(routing_state):  # noqa: F811
+    """The same fleet, with the reading fresh for minutes: the early decision is reserved on."""
+    service, harness = routing_state
+    busy_codex(service, harness)
+    ageing_reading(service, fresh_for_s=100)
+    job_id = submit(service, harness, pinned_model="astra")
+    service._admit()
+    assert service._route_evaluations == {"reused": 1, "again": 0, "moved": 0, "old": 0, "failed": 0}
+    assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == ["codex-1"]
 
 
 def test_c6_12_why_names_a_route_error_it_meets_itself(incident):

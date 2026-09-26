@@ -12,7 +12,7 @@ import math
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -231,6 +231,27 @@ def fresh_provider(reading: Mapping[str, Any], *, now: str | datetime,
     age = (instant - _time(reading["observed_at"])).total_seconds()
     return (0 <= age <= reading_ttl_s
             and (not reading.get("resets_at") or _time(reading["resets_at"]) > instant))
+
+
+def fresh_until(readings: Iterable[Mapping[str, Any]], *, now: str | datetime,
+                reading_ttl_s: int = READING_TTL_S) -> datetime | None:
+    """C-6.3: the first instant after `now` at which a reading fresh at `now`
+    may no longer be (its `observed_at` plus `reading_ttl_s`, or its
+    `resets_at`, whichever comes first); None when no reading is fresh.
+
+    Until then every lane measured at `now` is still measured, so a routing
+    decision taken at `now` may be reserved on; a reading that turns fresh
+    later only makes a lane more open."""
+    instant = _time(now)
+    ends = []
+    for item in readings:
+        row = _row(item)
+        if fresh_provider(row, now=instant, reading_ttl_s=reading_ttl_s):
+            end = _time(row["observed_at"]) + timedelta(seconds=reading_ttl_s)
+            if row.get("resets_at"):
+                end = min(end, _time(row["resets_at"]))
+            ends.append(end)
+    return min(ends, default=None)
 
 
 def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int) -> tuple:
