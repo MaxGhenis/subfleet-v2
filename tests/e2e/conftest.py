@@ -61,6 +61,8 @@ if Path(sys.argv[0]).name == "subfleetd":
             kwargs["crash_hook"] = hold
         kwargs["guardian_start_delay_s"] = float(
             os.environ.get("SUBFLEET_E2E_START_DELAY_S", "0"))
+        if os.environ.get("SUBFLEET_E2E_STOP_GRACE_S"):
+            kwargs["stop_grace_s"] = float(os.environ["SUBFLEET_E2E_STOP_GRACE_S"])
         original_init(self, *args, **kwargs)
     Daemon.__init__ = observed_init
 '''
