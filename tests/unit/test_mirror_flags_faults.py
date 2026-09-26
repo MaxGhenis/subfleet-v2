@@ -501,7 +501,8 @@ def test_a_hot_pass_that_cannot_list_the_store_forgets_nothing(world, monkeypatc
     with monkeypatch.context() as patch:
         failing_scandir(patch, str(store))
         result = running.run_hot()
-    assert result.state == "error"
+    assert result.state == "ok" and not result.changed, "the full pass reports it, once a minute"
+    assert "store not listed" in (result.error or "")
     assert set(running._folders) == known
 
 
@@ -581,3 +582,19 @@ def test_a_hold_at_publish_is_counted_and_named(world, monkeypatch):
     assert result.flags_held == 1
     assert result.held_by == [{"path": f"session {SESSION}",
                                "reason": "a copy changed while the pass published"}]
+
+
+def test_a_failed_accounts_folder_that_lists_is_listed_directly(world, monkeypatch):
+    """Review round 7: while an account keeps failing to list, its folders are
+    still listed one by one, so the mirror's own writes into them (which
+    change their directories) do not make every later pass hold."""
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    with monkeypatch.context() as patch:
+        failing_scandir(patch, "/acct-c")
+        for value in (True, False, True):
+            rewrite(store, 0, isArchived=value)       # the user toggles in A
+            result = running.run_once()
+            assert result.flags_held == 0
+            assert flags(store) == (value,) * 3
