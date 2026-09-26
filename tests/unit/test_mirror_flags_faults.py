@@ -515,7 +515,7 @@ def test_a_hot_pass_keeps_the_folders_of_an_account_that_did_not_list(world, mon
         failing_scandir(patch, "/acct-c")
         assert running.run_hot().state == "ok"
         assert store / "acct-c" / "org-c" in running._folders
-        result = running.run_once()                      # still failing: read by name
+        result = running.run_once()                      # still failing: listed one by one
     assert result.flags_held == 0
     assert flags(store) == (True,) * 3
 
@@ -598,3 +598,23 @@ def test_a_failed_accounts_folder_that_lists_is_listed_directly(world, monkeypat
             result = running.run_once()
             assert result.flags_held == 0
             assert flags(store) == (value,) * 3
+
+
+def test_a_folder_created_since_a_failed_accounts_listing_holds(world, monkeypatch):
+    """Final review: an org folder created after the account's last listing
+    (another process, such as a CLI pass, may have filled it) is in no
+    listing this pass has, so the account's contents are unknown."""
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    fx.index_entry(store, "acct-c", "org-new", SESSION, archived=False,
+                   settings={"ultracode": True})           # filled by someone else
+    rewrite(store, 0, isArchived=True)
+    with monkeypatch.context() as patch:
+        failing_scandir(patch, "/acct-c")
+        result = running.run_once()
+    assert result.flags_held == 1
+    assert any("changed since its listing" in item["reason"] for item in result.held_by)
+    assert running.run_once().state == "ok"
+    new_copy = store / "acct-c" / "org-new" / f"local_{SESSION}.json"
+    assert flags(store) == (True,) * 3 and json.loads(new_copy.read_text())["isArchived"] is True
