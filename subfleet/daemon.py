@@ -130,11 +130,12 @@ ROUTE_RETRY_CEILING_S = 300
 
 
 class _RouteMoved(Exception):
-    """C-6.3: the reserving transaction's check refused its early decision; raised to roll it back."""
+    """C-6.3: the reserving transaction's check refused its early decision, or raised; raised to roll it back."""
 
-    def __init__(self, why: str, judged: int):
+    def __init__(self, why: str, judged: int, *, error: BaseException | None = None):
         super().__init__(why)
-        self.why, self.judged = ("old" if why == "old" else "moved"), judged
+        self.why = why if why in ("old", "error") else "moved"
+        self.judged, self.error = judged, error
 
 
 class Unroutable(Exception):
@@ -544,10 +545,10 @@ class Daemon:
         # whose check chose again from the lanes that changed (`rechosen`); the
         # evaluations made again off the lock after a check refused one, and why
         # (`moved`: it took lanes never judged, a cap that began or ended
-        # included; `old`: its horizon passed); jobs left for the next pass after
-        # ROUTE_TRIES; and the lanes checks judged again.
-        self._route_evaluations = {"reused": 0, "rechosen": 0, "again": 0, "moved": 0, "old": 0, "deferred": 0,
-                                   "rejudged": 0}
+        # included; `old`: its horizon passed; `error`: the check raised); jobs
+        # left for the next pass after ROUTE_TRIES; and the lanes checks judged again.
+        self._route_evaluations = {"reused": 0, "rechosen": 0, "again": 0, "moved": 0, "old": 0, "error": 0,
+                                   "deferred": 0, "rejudged": 0}
         self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
                                            "idle_since_at": None, "checked_at": None, "logged_at": None,
                                            "reasons": {}}
@@ -854,10 +855,10 @@ class Daemon:
             return {"view": rows, "probe_leases": leases, "probe_records": records,
                     "timers": self.timers.view_rows(lanes), "reading_mark": mark}
 
-    def _capacity_view(self, desktop=None, rows: dict | None = None):
+    def _capacity_view(self, desktop=None, rows: dict | None = None, now: datetime | None = None):
         rows = rows or self._capacity_rows()
         view = capacity.build_view(**rows["view"], reading_ttl_s=self.policy["caps"]["reading_ttl_s"],
-                                   desktop=desktop)
+                                   desktop=desktop, now=now)
         leases = rows["probe_leases"]
         view["unavailable_lanes"] = {row["lease_key"].split(":")[1]: row["holder"] for row in leases}
         view["reserved_probes"] = len(leases)
@@ -982,7 +983,10 @@ class Daemon:
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
         rows = self._capacity_rows()
-        view = self._capacity_view(desktop, rows)
+        # The instant the view is built at: it keeps closures and labels readings
+        # on it, and gives `evaluate` its whole second (C-6.3's clock check).
+        instant = datetime.now(timezone.utc)
+        view = self._capacity_view(desktop, rows, now=instant)
         context = rows["timers"]["overrides"]          # read once, in the view's snapshot (C-3.7)
         # At the view's clock, as `enrich_view` decided them: two clocks could put
         # an override's end between them, its readings relabelled stale there and
@@ -1001,7 +1005,7 @@ class Daemon:
         route_job = {**job, "exclusions": tuple(exclusions) + extra_exclusions, "policy_hash": self.policy_digest}
         decision = scheduler.evaluate(policy, view, route_job)
         if basis is not None:
-            basis.update(policy=policy, job=route_job, view=view, rows=rows, until=until, desktop=desktop,
+            basis.update(policy=policy, job=route_job, view=view, rows=rows, until=until, desktop=desktop, instant=instant,
                          overrides={lane_id: (found["action_id"], found["weekly_reset_at"])
                                     for lane_id, found in overrides.items()})
         return decision
@@ -2035,10 +2039,11 @@ class Daemon:
                 # whose rows changed (`rechosen`); evaluations made again, off the
                 # lock, after a check refused one (`again`), and why: it took lanes
                 # never judged, a fleet or parent cap that began or ended included
-                # (`moved`), or its horizon passed (`old`: a reading it counted
-                # fresh aged out, or a closure or an override ended); jobs left for
-                # the next pass after ROUTE_TRIES (`deferred`); and the lanes whose
-                # rows changed that checks judged again (`rejudged`).
+                # (`moved`), its horizon passed (`old`: a reading it counted fresh
+                # aged out, or a closure or an override ended), or the check raised
+                # (`error`); jobs left for the next pass after ROUTE_TRIES
+                # (`deferred`); and the lanes whose rows changed that checks judged
+                # again (`rejudged`).
                 "route_evaluations": dict(self._route_evaluations)}
 
     # --- the sessions kit's store seam (C-23.33, C-23.35, C-23.55) ------------
@@ -3015,7 +3020,10 @@ class Daemon:
         try:
             self._admit_kind("turn", wait=False)
         finally:
-            self._admit_kind("detached")       # whatever the turn half raised (C-5.10 paces a raise)
+            # A store error in the turn half is the pass's (C-6.12), raised for
+            # C-5.10 to retry, but only once the detached half has run: a turn's
+            # trouble never stops detached jobs.
+            self._admit_kind("detached")
 
     def _admit_turns(self) -> None:
         """C-26.9: the turn pass alone, on its own worker: a person is waiting."""
@@ -3045,8 +3053,10 @@ class Daemon:
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
             lock.release()
-        # C-6.11 over both kinds' holds. `_note_admission` may build a view; the
-        # other pass never waits for it, and its placements are noted next time.
+        # C-6.11 over both kinds' holds. The other pass never waits for the note
+        # lock, and its placements are noted next time. `_note_admission` builds a
+        # view at most once per ten minutes of idleness, which delays this pass's
+        # next run by that one build.
         if self._note_lock.acquire(blocking=False):
             try:
                 with self._admission_lock:
@@ -3390,7 +3400,7 @@ class Daemon:
                     self._unroutable(job, exc, holds)
                     continue
             decision, basis = early
-            status, route = "moved", {"failed": False}
+            status, route, last = "moved", {"failed": False}, None
             for tries in range(1, ROUTE_TRIES + 1):
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
@@ -3545,6 +3555,7 @@ class Daemon:
                     # C-6.3: rolled back, nothing written. Evaluated again off the
                     # lock, on a new snapshot, and checked again.
                     self._count_route(**{moved.why: 1}, rejudged=moved.judged)
+                    last = moved
                     if tries == ROUTE_TRIES:
                         break
                     self._count_route(again=1)
@@ -3559,6 +3570,9 @@ class Daemon:
                     continue
                 break
             if route["failed"]:
+                continue
+            if status == "moved" and last is not None and last.error is not None:
+                self._unroutable(job, Unroutable(last.error), holds)     # C-6.12: named, backed off, warned
                 continue
             if status == "moved":
                 # C-6.3: ROUTE_TRIES evaluations in a row were overtaken by commits
@@ -3604,7 +3618,7 @@ class Daemon:
         if not basis or basis.get("policy") is not self.policy:
             return "moved", 0, None
         now = datetime.now(timezone.utc)
-        if (basis["until"] is not None and now >= basis["until"]) or now < capacity._time(basis["view"]["now"]):
+        if (basis["until"] is not None and now >= basis["until"]) or now < basis["instant"]:
             return "old", 0, None                  # past the horizon, or a clock that stepped back
         try:
             rows = self._route_rows(basis, now)
@@ -3613,11 +3627,13 @@ class Daemon:
             return route_check.still_stands(basis["policy"], basis["job"], decision, view=basis["view"],
                                             candidates=basis["rows"]["view"]["readings"],
                                             overridden=set(basis["overrides"]), now=now, **rows)
-        except route_check.ROUTE_ERRORS:
+        except route_check.ROUTE_ERRORS as exc:
             # C-6.12: a row the check cannot read (a timestamp that does not parse)
             # is the job's, never the pass's: the route is evaluated again off the
-            # lock, where the same row settles this one job as `Unroutable`.
-            return "moved", 0, None
+            # lock, where the same row settles this one job as `Unroutable`. A
+            # check that raises on every try settles it so too, with its error
+            # named, never as a silent `route-moved` (review of this change).
+            raise _RouteMoved("error", 0, error=exc) from exc
 
     def _route_rows(self, basis: dict, now: datetime) -> dict | None:
         """C-6.3: what `route_check.still_stands` reads now, inside the reservation.

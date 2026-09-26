@@ -124,7 +124,7 @@ def test_c6_11_the_full_fleet_is_named(fleet):
     ({"reason": "probe-pending"}, "its lane is being probed"),
     ({"reason": "reserve:fable:unmeasured"}, "no lane admits it (reserve:fable:unmeasured)"),
     ({"reason": "behind-older-job"}, "held behind ?"),                # a hold missing its fields still renders
-    ({"reason": "route-moved", "tries": 3}, "commits changed its route before each of 3 reservations"),
+    ({"reason": "route-moved", "tries": 3}, "its route could not be settled in 3 reservations in a row"),
     (None, "no admission pass has reached this job yet"),
 ])
 def test_c6_11_every_hold_renders_as_a_sentence(hold, expected):

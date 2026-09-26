@@ -357,7 +357,7 @@ def test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote(fleet, monk
 
 # --- C-6.3, C-3.7: the reservation checks the evaluation made before it, and never evaluates --------
 
-ZERO = {"reused": 0, "rechosen": 0, "again": 0, "moved": 0, "old": 0, "deferred": 0, "rejudged": 0}
+ZERO = {"reused": 0, "rechosen": 0, "again": 0, "moved": 0, "old": 0, "error": 0, "deferred": 0, "rejudged": 0}
 
 
 def test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_committed(fleet, monkeypatch):

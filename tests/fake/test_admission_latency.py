@@ -556,9 +556,10 @@ def test_c6_12_a_row_the_check_cannot_read_settles_its_job_not_the_pass(routing_
 
 
 def test_c26_9_a_turn_half_that_raises_still_lets_the_detached_half_run(routing_state, monkeypatch):  # noqa: F811
-    """A store error in the turn half is the pass's (C-6.12) and is raised, but not before
-    the detached half has run: a turn's trouble never stops detached jobs, as before the
-    split, when the pass placed an earlier-tier job before it met the turn."""
+    """A store error in the turn half is the pass's (C-6.12) and is raised, for C-5.10 to
+    retry, but not before the detached half has run: a turn's trouble never stops
+    detached jobs, as before the split, when the pass placed an earlier-tier job before
+    it met the turn. The turn worker's own pass raises it too."""
     service, harness = routing_state
     measure(service, "codex-1")
     detached = submit(service, harness, pinned_model="astra", tier="trivial")
@@ -570,6 +571,8 @@ def test_c26_9_a_turn_half_that_raises_still_lets_the_detached_half_run(routing_
     with pytest.raises(sqlite3.OperationalError):
         service._admit()
     assert reserved(service, detached)
+    with pytest.raises(sqlite3.OperationalError):
+        service._admit_turns()
 
 
 def test_c6_11_a_detached_pass_that_is_placing_never_reads_as_idle(routing_state, monkeypatch):  # noqa: F811
@@ -578,6 +581,8 @@ def test_c6_11_a_detached_pass_that_is_placing_never_reads_as_idle(routing_state
     placing, not 'none placed for N s'."""
     service, harness = routing_state
     measure(service, "codex-1")
+    service.policy.setdefault("conversations", {})["max_active_turns"] = 0     # a turn that stays held,
+    submit_turn(service, harness, 1)                                            # so the turn pass runs
     job_id = submit(service, harness, pinned_model="astra")
     boundary, seen = service._boundary, []
 
@@ -619,20 +624,31 @@ def test_c6_11_a_job_left_for_the_next_pass_reports_that_look(routing_state, mon
 
 
 def test_c6_3_a_clock_that_steps_back_is_evaluated_again(routing_state, monkeypatch):  # noqa: F811
-    """The check reads the clock before the early view's: before its horizon, but not a
-    clock the view's judgements hold at (a reading can have a negative age then). It
-    refuses (`old`) and the route is evaluated again, off the lock."""
+    """The wall clock steps back 30 s between the early evaluation and its reservation:
+    the check reads a clock earlier than the instant the view was built at, where the
+    view's judgements need not hold (a reading can have a negative age then). It
+    refuses (`old`); the route is evaluated again, off the lock, on the clock as it now
+    is, and that decision is reserved."""
     service, harness = routing_state
     measure(service, "codex-1")
     job_id = submit(service, harness, pinned_model="astra")
+    step = [timedelta(0)]
 
-    class Behind(datetime):
+    class Stepped(datetime):
         @classmethod
         def now(cls, tz=None):
-            return datetime.now(tz) - timedelta(seconds=30)
-    monkeypatch.setattr(daemon_module, "datetime", Behind)
+            return datetime.now(tz) + step[0]
+    monkeypatch.setattr(daemon_module, "datetime", Stepped)
+    pick = service._pick
+
+    def pick_then_step_back(job, **options):
+        decision = pick(job, **options)
+        step[0] = timedelta(seconds=-30)                      # after this evaluation, before its reservation
+        return decision
+    monkeypatch.setattr(service, "_pick", pick_then_step_back)
     service._admit()
-    assert service._route_evaluations["old"] >= 1 and service._route_evaluations["again"] >= 1
+    assert service._route_evaluations["old"] == 1 and service._route_evaluations["again"] == 1
+    assert reserved(service, job_id)
 
 
 def test_c26_9_an_idle_turn_pass_is_one_statement(routing_state, monkeypatch):  # noqa: F811
@@ -653,3 +669,23 @@ def test_c26_9_an_idle_turn_pass_is_one_statement(routing_state, monkeypatch):  
     submit_turn(service, harness, 1)
     service._admit_turns()
     assert calls[:1] == ["pass"]
+
+
+def test_c6_12_a_check_that_raises_on_every_try_settles_its_job_with_the_error_named(routing_state, monkeypatch):  # noqa: F811
+    """A defect in the check itself (it raises whatever the rows) must not become a silent
+    `route-moved` stall, looked at and deferred on every pass with nothing said. After
+    ROUTE_TRIES it settles the job as an evaluation error does (C-6.12): a `route` wait
+    naming the error, backed off, and counted (review of this change)."""
+    service, harness = routing_state
+    measure(service, "codex-1")
+    job_id = submit(service, harness, pinned_model="astra")
+
+    def broken(*args, **kwargs):
+        raise KeyError("fixture: a check defect")
+    monkeypatch.setattr(daemon_module.route_check, "still_stands", broken)
+    service._admit()
+    hold = service._holds[job_id]
+    assert hold["reason"] == "route" and hold["error_type"] == "KeyError"
+    assert service.store.get_job(job_id)["next_check_at"] > utcnow()   # backed off (C-6.12)
+    assert service._route_evaluations["error"] == daemon_module.ROUTE_TRIES
+    assert not service.store.list_attempts(job_id)

@@ -190,8 +190,8 @@ _HOLD_TEXT = {
                             "that clears and holds no other job back (C-24.5)",
     "message-settled": "its message was withdrawn after the job was made; the job is cancelled while it has no "
                        "attempt, never run (C-24.7)",
-    "route-moved": "commits changed its route before each of {tries} reservations; it keeps its place and the "
-                   "next pass looks again (C-6.3)",
+    "route-moved": "its route could not be settled in {tries} reservations in a row (commits changed it, or its "
+                   "clock ran out); it keeps its place and the next pass looks again (C-6.3)",
 }
 
 
