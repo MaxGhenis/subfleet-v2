@@ -238,16 +238,23 @@ class ProcessTable:
             return None
         return ProcessIdentity(pid, self.boot(), self.rows[pid][3])
 
-    def is_process(self, pid: int | None, boot_id: str | None, proc_start: str | None) -> bool:
+    def is_process(self, pid: int | None, boot_id: str | None, proc_start: str | None, *,
+                   legacy: bool = False) -> bool:
         """Was the recorded identity live, exactly, when the table was read (C-5.3)?
 
-        Raises `InspectionError` when the boot identity is needed and cannot be
-        read; a pid that is absent, a zombie or another process needs none."""
+        With `legacy`, a recorded `kern.boottime` timestamp that C-5.3 matches to
+        this boot counts as well, at the cost of one `sysctl`. Raises
+        `InspectionError` when the boot identity is needed and cannot be read;
+        a pid that is absent, a zombie or another process needs none."""
         if not pid or pid <= 0 or not boot_id or not proc_start:
             return False
         if not self.live(pid) or self.rows[pid][3] != proc_start:
             return False
-        return self.boot() == str(boot_id)
+        current = self.boot()
+        if current == str(boot_id):
+            return True
+        return legacy and boot_identity.matches(str(boot_id), current,
+                                                lambda: boot_identity.boot_seconds(_read)) is True
 
     def group(self, pgid: int | None) -> frozenset[int]:
         if not pgid or pgid <= 0:

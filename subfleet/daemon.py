@@ -3081,9 +3081,12 @@ class Daemon:
 
         Both facts come from the one table, so the leader is known to be ours at
         the instant its members were listed. Only group members are recorded,
-        which is why the marker scan of a full census is not run here.
+        which is why the marker scan of a full census is not run here. The
+        leader is ours by C-5.3's rule, the one `same_process` applies before
+        the kill protocol records members, so a legacy boot timestamp that
+        matches counts.
         """
-        if not table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+        if not table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"], legacy=True):
             return
         members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
         evidence = json.loads(a["evidence_json"] or "{}")

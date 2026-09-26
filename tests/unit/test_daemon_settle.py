@@ -465,3 +465,24 @@ def test_c5_12_a_boot_identity_the_table_cannot_read_is_read_once_and_decides_no
         daemon._process_attempt(aid)
     assert boot_reads == [1] and asked == []
     assert [daemon.store.get_attempt(aid)["state"] for aid in attempts] == ["running"] * 3
+
+
+def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_group_owned(daemon, monkeypatch):
+    """C-5.3, C-5.6, C-5.12 the shared table cannot say "alive" for a `kern.boottime` record, so the fresh reads
+    do; once they have, its group's members are recorded as owned, as `same_process` would allow."""
+    session = "11111111-1111-4111-8111-111111111111"
+    daemon.store.update_attempt(ATTEMPT, boot_id="1726000000")
+    table = ProcessTable({4242: (1, 4242, "Ss", STARTED), 4243: (4242, 4242, "S", STARTED)}, session)
+
+    def read(argv, *, empty_ok=False):
+        assert argv[-1] == "kern.boottime", argv
+        return "{ sec = 1726000000, usec = 0 } Sat Sep 10 10:00:00 2024\n"
+    monkeypatch.setattr(daemon_module.procs, "_read", read)
+    daemon._process_table = shared(table)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")   # C-5.3 matched the timestamp
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table)
+    daemon._contain = never_census
+    daemon._process_attempt(ATTEMPT)
+    owned = json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
+    assert owned == {"4242": {"pid": 4242, "boot_id": session, "proc_start": STARTED},
+                     "4243": {"pid": 4243, "boot_id": session, "proc_start": STARTED}}

@@ -330,6 +330,17 @@ def test_c5_12_a_table_reads_the_boot_identity_once_and_only_when_it_needs_it(mo
             failed.is_process(42, BOOT_A, START)
 
 
+def test_c5_12_a_table_matches_a_legacy_boot_record_only_when_asked_and_c5_3_agrees(monkeypatch):
+    """C-5.3, C-5.12 a `kern.boottime` record is never "alive" in the shared table, but can lead a group (C-5.6)."""
+    census(monkeypatch, parents=f"42 1 42 Ss {START}\n", session=BOOT_A)   # and kern.boottime says 100
+    table = procs.snapshot()
+    assert not table.is_process(42, "100", START)
+    assert table.is_process(42, "100", START, legacy=True)
+    assert not table.is_process(42, "99", START, legacy=True)       # shifted: unknown, never the same
+    assert not table.is_process(42, BOOT_B, START, legacy=True)     # another boot
+    assert not table.is_process(42, "100", "Sun Sep  6 11:00:00 2026", legacy=True)
+
+
 def test_c5_12_an_unreadable_process_table_is_an_inspection_failure(monkeypatch):
     """C-5.5 a table that cannot be read or parsed proves nothing."""
     census(monkeypatch, fail="ps")
