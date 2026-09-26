@@ -1634,6 +1634,12 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     none. `claude_dir` is the `~/.claude` whose `sessions/` registry names live
     Claude processes (default `projects`' parent, else `~/.claude`).
     """
+    if not v1_state.is_dir():
+        # Nothing about the cockpit can be read, which is not the same as the
+        # cockpit holding nothing: every hold stays as the last pass left it.
+        report.skip("v1-state-missing")
+        report.note(f"{v1_state} is not a directory: nothing is read, and every legacy hold stays as it is")
+        return None
     messages, outbox_problem = _read_legacy_outbox(v1_state)
     if outbox_problem:
         report.skip(outbox_problem)
@@ -1674,8 +1680,10 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
         report.note(f"every session is held while the cockpit may be using any of them: {result.activity_problem} "
                     "(C-30.4)")
     if activity.sessions:
-        report.note(f"{len(activity.sessions)} sessions are in use now by a cockpit worker or a Claude process "
-                    "outside Subfleet, and are held (C-30.4)")
+        report.note(f"{len(activity.sessions)} sessions have a live cockpit worker in them and are held (C-30.4)")
+    if activity.live:
+        report.note(f"{len(activity.live)} sessions have a live Claude process outside Subfleet in them: no history "
+                    "is placed there this pass, and a turn there waits at admission while it lives (C-26.3)")
     held = [item for item in result.items if item["disposition"] == "bound-session-held"]
     if held:
         report.note(f"{len(held)} conversations an earlier pass bound are held while the legacy writer may be "
@@ -2074,6 +2082,10 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     state_root = Path(state_root).expanduser()
     v1_state = Path(v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
+    if not v1_state.is_dir():
+        # A mistyped or moved --v1-state would otherwise read as a cockpit that
+        # holds nothing and release every hold (C-30.4).
+        raise ImportRefused(f"{v1_state} is not a directory; name the v1 state with --v1-state")
     now = now or utc_now()
     report = ImportReport(str(state_root), str(v1_state), "", "", dry_run, LEGACY_MILESTONE, now)
     scratch_dir: str | None = None

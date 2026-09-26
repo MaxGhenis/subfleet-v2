@@ -372,16 +372,19 @@ def _workspace(path: Path, first: str | None) -> str | None:
     A session that moved to another worktree leaves a copy under each project
     directory, and `transcripts.transcript_path` picks the newest; that copy's
     first rows keep the old cwd and its last rows the new one (review L7). The
-    directory the file is in names the cwd it belongs to, so that one of the
-    first and the last cwd is the workspace; a session that `cd`s within its
-    project keeps its first. When neither names the directory (a copy directly
+    directory the file is in names the cwd it belongs to, so the workspace is
+    the latest cwd in the copy that names it: a session that moved and then
+    `cd`s within its new project keeps the new project, one that `cd`s within
+    its only project keeps that. When none names the directory (a copy directly
     under `projects/`), the first cwd, else the last, as before.
     """
-    last = transcripts.last_cwd(path)
-    for cwd in (last, first):
-        if cwd and path.parent.name in _project_names(cwd):
-            return cwd
-    return first or last
+    for line in transcripts.lines_reversed(path, chunk=TAIL):
+        cwd = _object(line.encode()).get("cwd")
+        if isinstance(cwd, str) and cwd and path.parent.name in _project_names(cwd):
+            return cwd                    # the latest cwd that names this copy's directory
+    if first and path.parent.name in _project_names(first):
+        return first
+    return first or transcripts.last_cwd(path)
 
 
 def _project_names(cwd: str) -> set[str]:

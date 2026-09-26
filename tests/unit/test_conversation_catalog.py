@@ -140,3 +140,17 @@ def test_a_session_that_moves_within_its_project_keeps_its_project(tmp_path):
     (root / "sub").mkdir(parents=True)
     path = _copy(tmp_path / "projects", root, [*_turn(root, "1"), *_turn(root / "sub", "2")], 1_800_000_000)
     assert catalog.claude_session(path)["cwd"] == str(root)
+
+
+def test_a_session_that_moved_and_then_moved_within_its_new_project_keeps_the_new_one(tmp_path):
+    """C-30.2 (review L7 follow-up): a session moved to a new worktree and then
+    into a directory inside it continues from the new worktree, the latest cwd
+    that names its copy's project directory."""
+    old, new = tmp_path / "work" / "old", tmp_path / "work" / "new"
+    (new / "sub").mkdir(parents=True)
+    old.mkdir(parents=True)
+    projects = tmp_path / "projects"
+    head = _turn(old, "1")
+    _copy(projects, old, head, 1_700_000_000)
+    live = _copy(projects, new, [*head, *_turn(new, "2"), *_turn(new / "sub", "3")], 1_800_000_000)
+    assert catalog.claude_session(live)["cwd"] == str(new)

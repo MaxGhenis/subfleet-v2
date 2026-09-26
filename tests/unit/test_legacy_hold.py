@@ -19,6 +19,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 import types
 import uuid
 from pathlib import Path
@@ -27,7 +28,7 @@ import pytest
 
 from subfleet import daemon as daemon_module, importer, protocol
 from subfleet.adapters.base import AdapterError
-from subfleet.conversations import service as service_mod
+from subfleet.conversations import runner as runner_mod, service as service_mod
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError, ConversationStore
 from subfleet.conversations.turn import DELIVERY_UNKNOWN, RUNNING, STARTING, WAITING
@@ -299,6 +300,7 @@ class RecordingRunner:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.interrupts: list[str] = []
+        self.withheld: list[str] = []
         self.started = False
         self.message_id = kwargs["spec"].message_id
         self.finished = threading.Event()
@@ -309,6 +311,10 @@ class RecordingRunner:
 
     def interrupt(self, reason="stopped"):
         self.interrupts.append(reason)
+
+    def withhold(self, reason):
+        assert not self.started, "withheld after the runner started"
+        self.withheld.append(reason)
 
     def stop(self):
         pass
@@ -353,7 +359,98 @@ def test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversat
         (runner,) = RecordingRunner.made
         assert runner.started and aid in svc.runners
         assert svc.store.message(first)["state"] == STARTING
-        assert runner.interrupts == (["legacy-owner"] if held else [])
+        assert runner.withheld == (["legacy-owner"] if held else []) and runner.interrupts == []
+    finally:
+        svc.close()
+
+
+class RecordingRelay:
+    """The guardian relay as the runner sees it: every frame accepted and recorded."""
+
+    frames: list[tuple[int, str, str]] = []
+
+    def __init__(self, path, timeout_s=30):
+        pass
+
+    def send(self, seq, op, line=None, tag=None, sig=None):
+        from subfleet.relay import Ack
+        RecordingRelay.frames.append((seq, op, tag))
+        return Ack(seq=seq, ok=True)
+
+    def close(self):
+        pass
+
+
+def _init_answer() -> dict:
+    """Claude's answer to `initialize`, as the driver reads it."""
+    from subfleet.conversations.claude_turn import INIT_REQUEST_ID
+    return {"type": "control_response", "response": {"subtype": "success", "request_id": INIT_REQUEST_ID, "response": {
+        "account": {"email": "max@example.org"}, "fast_mode_state": "off",
+        "models": [{"value": "opus", "resolvedModel": "claude-opus-5-5", "supportsEffort": True,
+                    "supportedEffortLevels": ["low", "medium", "high"]}]}}}
+
+
+@pytest.mark.parametrize("handed_over", [False, True])
+def test_an_adopted_turn_on_a_held_conversation_never_writes_its_message(world, monkeypatch, handed_over):
+    """C-30.4, D-13 (reviews H1 and its follow-up): the daemon stopped while a
+    turn was starting; the provider answered `initialize` while no daemon ran,
+    and a pass held the conversation. The real runner, adopting it, never
+    writes the message: the turn is stopped before any stdout is replayed and
+    the provider's stdin is closed. A message the relay log shows handed over
+    is stopped through D-13 instead, and never written twice."""
+    RecordingRelay.frames = []
+    monkeypatch.setattr(runner_mod, "RelayClient", RecordingRelay)
+    world.run_pass()
+    cid = world.conversation_id()
+    world.cockpit("dispatched")
+    world.run_pass()
+    svc, daemon = service(world)
+    try:
+        first = submit(svc, cid)
+        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        aid = running_attempt(world, daemon, cid, first)
+        adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
+        log = [{"kind": "intent", "seq": 1, "tag": "init", "op": "write"}, {"kind": "written", "seq": 1}]
+        if handed_over:
+            log += [{"kind": "intent", "seq": 2, "tag": "user-message", "op": "write"}, {"kind": "written", "seq": 2}]
+        (adir / "stdin.jsonl").write_text("".join(json.dumps(row) + "\n" for row in log))
+        (adir / "stdout").write_text(json.dumps(_init_answer()) + "\n")
+        svc._adopt_runners()
+        runner = svc.runners[aid]
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not (runner.driver.outcome or RecordingRelay.frames):
+            time.sleep(0.02)
+        time.sleep(0.2)                                   # a frame sent late would show here
+        runner.stop()
+        assert runner.finished.wait(5)
+        tags = [tag for _, _, tag in RecordingRelay.frames]
+        assert "user-message" not in tags
+        if handed_over:
+            assert tags == ["interrupt"] and runner.driver.outcome is None
+        else:
+            assert tags == ["close"] and runner.driver.outcome.reason == "stopped-before-send"   # stdin closed
+            assert json.loads((adir / "turn.json").read_text())["stop_reason"] == "legacy-owner"
+    finally:
+        svc.close()
+
+
+def test_a_person_s_stop_stands_over_the_hold(world, tmp_path):
+    """C-24.7, C-30.4 (review follow-up F): a turn a person had asked to stop,
+    stopped before its message by the hold, settles as the person's stop; it is
+    not re-admitted when the hold lifts."""
+    world.run_pass()
+    cid = world.conversation_id()
+    world.cockpit("dispatched")
+    world.run_pass()
+    svc, _ = service(world)
+    try:
+        first = submit(svc, cid)
+        svc.store.set_state(first, STARTING, expect=("queued",), job_id="job-0")
+        svc.store.update_message(first, stop_requested_at="2026-09-25T20:00:00.000Z")
+        outcome(svc, tmp_path, first, cid, state="interrupted", reason="stopped-before-send",
+                stop_reason="legacy-owner", user_frame_written=False)
+        message = svc.store.message(first)
+        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: stopped-before-send")
     finally:
         svc.close()
 
@@ -616,3 +713,111 @@ def test_conversation_open_binds_one_spelling_of_a_session(world, monkeypatch):
         assert len(svc.store.query("SELECT * FROM conversations")) == 2
     finally:
         svc.close()
+
+
+# --- review follow-ups: a session opened after the pass, one job's failed check, why --
+
+
+OPENED_LATER = "5e551011-0000-4000-8000-0000000000c7"
+LATER = "1e9ac700-0000-4000-8000-0000000000c7"
+
+
+def test_a_held_session_opened_after_the_pass_is_bound_held(world, monkeypatch):
+    """C-30.4, D-17 (review follow-up B): a session the pass found held that
+    had no conversation then gets one held when it is opened later, so no turn
+    runs in it; the next pass that finds it settled releases it."""
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(world.claude))
+    write_transcript(world.claude, OPENED_LATER, world.workspace)
+
+    def cockpit(status: str) -> None:
+        write_outbox(world.v1, [outbox_row(HISTORY, SESSION, "finished", "cockpit history", at=600),
+                                outbox_row(LATER, OPENED_LATER, status, "the cockpit's", at=60)])
+    cockpit("dispatched")
+    world.run_pass()
+    svc, daemon = service(world)
+    try:
+        opened = svc._open_native({"provider": "claude", "session_id": OPENED_LATER})
+        assert opened["legacy_hold"] == f"message {LATER} is dispatched"
+        submit(svc, opened["conversation_id"])
+        svc._dispatch()
+        assert daemon.submitted == []
+    finally:
+        svc.close()
+    cockpit("finished")
+    report = world.run_pass()
+    released = [item for item in report.stores["outbox"].items if item["source"] == "conversation"]
+    assert [(item["conversation_id"], item["disposition"]) for item in released] == [
+        (opened["conversation_id"], "bound-session-released")]
+    svc, daemon = service(world)
+    try:
+        svc._dispatch()
+        assert len(daemon.submitted) == 1
+    finally:
+        svc.close()
+
+
+def test_while_every_session_is_held_any_session_opened_is_held(world, monkeypatch):
+    """C-30.4 (review follow-up B): while a pass holds every session (here, a
+    journal it cannot read), a session opened after it is bound held too."""
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(world.claude))
+    write_transcript(world.claude, OPENED_LATER, world.workspace)
+    journal = world.v1 / "cockpit-client" / "pending-messages.json"
+    journal.parent.mkdir(parents=True)
+    journal.write_text("{torn", encoding="utf-8")
+    world.run_pass()
+    svc, _ = service(world)
+    try:
+        opened = svc._open_native({"provider": "claude", "session_id": OPENED_LATER})
+        assert opened["legacy_hold"].startswith("the cockpit journal could not be read")
+    finally:
+        svc.close()
+
+
+def test_one_turn_job_whose_conversation_cannot_be_checked_never_ends_the_pass(core, monkeypatch):
+    """C-6.12, C-24.5 (review follow-up E): a turn job whose conversation check
+    raises is held and named, and the pass goes on to place other jobs."""
+    world, daemon = core
+    svc = daemon.conversations
+    submit(svc, world.conversation_id())
+    svc._dispatch()
+    job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
+    prompt = world.root / "detached.md"
+    prompt.write_text("a detached job", encoding="utf-8")
+    other = daemon.submit(protocol.SubmitArgs(request_id="detached-1", kind="dispatch", workdir=str(world.workspace),
+                                              prompt_path=str(prompt), sandbox="read-only", pinned_model="opus",
+                                              allow_tmp=True))["job_id"]
+
+    def broken(job):
+        raise OverflowError("signed integer is greater than maximum")
+    monkeypatch.setattr(svc, "admission_hold", broken)
+    daemon._admit()
+    hold = daemon._holds[job["job_id"]]
+    assert (hold["reason"], hold["error_type"]) == ("conversation-blocked", "OverflowError")
+    assert daemon.store.list_attempts(job["job_id"]) == []
+    assert len(daemon.store.list_attempts(other)) == 1
+
+
+def test_a_registry_row_with_impossible_numbers_is_not_a_live_process(tmp_path):
+    """C-26.3 (review follow-up E): a registry file whose pid or start time no
+    process can have reads as not alive, and never raises."""
+    from subfleet.sessions import registry
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "1.json").write_text(json.dumps({"sessionId": SESSION, "pid": 10 ** 30, "startedAt": 10 ** 400}))
+    (row,) = registry.rows(sessions)
+    assert (row.alive, row.started_at) == (False, None)
+
+
+def test_why_says_what_holds_a_turn():
+    """C-6.11 (review follow-up G): `why` states the two turn holds in sentences."""
+    from subfleet.render import why_queue
+    held = why_queue({"job_id": "j", "state": "queued", "hold": {
+        "reason": "conversation-blocked", "conversation_id": "cv-1", "blocked_by": "unfinished-turn",
+        "legacy_hold": "message m is queued"}})
+    assert held[1] == ("Held: its conversation cv-1 is blocked (blocked_by unfinished-turn; held by the legacy "
+                       "import: message m is queued); the turn is placed once that clears and holds no other job "
+                       "back (C-24.5)")
+    writer = why_queue({"job_id": "j", "state": "queued", "hold": {
+        "reason": "external-writer", "conversation_id": "cv-1", "native_session_id": SESSION, "pids": [41, 42]}})
+    assert writer[1] == (f"Held: a Claude process outside Subfleet (pid 41, 42) holds its session {SESSION}; the "
+                         "turn is placed once that process ends (C-26.3)")

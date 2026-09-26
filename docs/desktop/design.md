@@ -325,8 +325,10 @@ one or to accept a revive job for one. A conversation the
 legacy import holds (`legacy_hold`, C-30.4) gets no turn: nothing is
 dispatched or re-admitted, its queued turn job waits at admission
 (`conversation-blocked`), and a turn that kept running across the restart is
-stopped when the daemon adopts it; one stopped before its message was written
-is re-admitted once the hold lifts. An external Claude writer (a live pid
+stopped when the daemon adopts it. If the relay log does not show its message
+handed over, the runner is stopped before it replays any output, so the
+message is never written (`TurnRunner.withhold`), and it is re-admitted once
+the hold lifts unless a person had asked to stop it. An external Claude writer (a live pid
 registered for the session in `~/.claude/sessions/*.json` whose environment
 carries no `SUBFLEET_ATTEMPT`) is an admission wait `external-writer`, not a
 refusal: the turn job places nothing, and the waiting message's reason says
@@ -525,6 +527,10 @@ CREATE TABLE events (
   UNIQUE (attempt_id, source, position, ordinal)
 );
 CREATE TABLE floors (conversation_id TEXT PRIMARY KEY, compacted_through INTEGER NOT NULL);
+CREATE TABLE legacy_sessions (              -- the sessions the last legacy pass held (C-30.4)
+  session_key TEXT PRIMARY KEY,             -- "<provider>:<native id>", or "*" for every session
+  reason TEXT NOT NULL, recorded_at TEXT NOT NULL
+);
 ```
 
 Driver output is persisted in batches: at most one transaction per attempt
@@ -808,7 +814,8 @@ whole, so Subfleet never becomes a second writer in it (D-17), when it has a
 non-terminal message or a journal entry (whatever the outbox says of that
 entry's id), or when the cockpit is using it now (`cockpit_activity`: a live
 worker pid in `native-workers.json`, or a live Claude process outside Subfleet
-in the `sessions/` registry). Every session is held when the journal, the
+in the `sessions/` registry, which keeps history out and fences nothing).
+Every session is held when the journal, the
 outbox or the workers file exists and cannot be read, or while the broker
 holds `broker.lock`; the probe is a shared, non-blocking `flock` on a
 read-only handle, released at once, and never creates the file. A missing
@@ -821,7 +828,14 @@ the session settled lifts the hold. The hold is the conversation's own
 turn outcome replaces it and neither `conversation.unblock` nor
 `message.resolve` lifts it, and the import never reads or writes `blocked_by`.
 A store written before the column existed moves a `blocked_by` of
-`legacy-owner` into it when it is opened. A session whose transcript raises
+`legacy-owner` into it when it is opened. Each pass also records the sessions
+it holds in `legacy_sessions` (`*` when it holds every one), and
+`create_conversation` binds a conversation to one of them held, so a session
+opened after the pass gets no turn either. A live Claude process outside
+Subfleet in a session keeps history out of it that pass but holds no
+conversation: the admission wait `external-writer` (D-17) covers it while it
+lives. A `--v1-state` that is not a directory is refused, never read as a
+cockpit that holds nothing. A session whose transcript raises
 while it is read, or a row whose timestamp is out of range, is reported and
 the pass goes on. `python -m subfleet.importer --legacy-cockpit [--dry-run]`
 runs the import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").

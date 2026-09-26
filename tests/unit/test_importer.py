@@ -1455,11 +1455,16 @@ def test_an_unreadable_workers_file_holds_every_session(v1):
 
 
 @pytest.mark.parametrize("subfleet", [False, True])
-def test_a_live_claude_process_outside_subfleet_holds_its_session(v1, subfleet):
-    """C-30.4, D-17 (review M1): a live Claude process registered for a session
-    in `<claude dir>/sessions` holds it unless it is Subfleet's own (its
-    environment names `SUBFLEET_ATTEMPT`, as a turn that kept running across the
-    restart does)."""
+def test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing(v1, subfleet):
+    """C-30.4, C-26.3 (review M1 and its follow-up): a live Claude process
+    registered for a session in `<claude dir>/sessions` keeps this pass from
+    placing history there, unless it is Subfleet's own (its environment names
+    `SUBFLEET_ATTEMPT`, as a turn that kept running across the restart does).
+    It holds no conversation: admission makes a turn there wait while the
+    process lives (`external-writer`), and a hold set now would outlast it."""
+    cid = _bind(v1)
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "finished", "later, in the app", at=50)])
     process = _sleeper(**({"SUBFLEET_ATTEMPT": "turn-x/a1"} if subfleet else {}))
     try:
         write_json(v1["claude"] / "sessions" / f"{process.pid}.json",
@@ -1468,13 +1473,15 @@ def test_a_live_claude_process_outside_subfleet_holds_its_session(v1, subfleet):
     finally:
         process.kill()
         process.wait()
+    assert fences(report) == [] and _hold_of(v1, cid) is None
     if subfleet:
-        assert dispositions(report)[LEGACY[0]] == "history"
+        assert dispositions(report)[LEGACY[3]] == "history"
     else:
         items = {item["message_id"]: item for item in report.stores["outbox"].items if item["source"] == "outbox"}
-        assert items[LEGACY[0]]["disposition"] == "session-held-by-legacy-owner"
-        assert items[LEGACY[0]]["detail"] == f"a live Claude process outside Subfleet (pid {process.pid}) holds it"
-        assert any("in use now" in note for note in report.stores["outbox"].notes)
+        assert (items[LEGACY[3]]["disposition"], items[LEGACY[3]]["detail"]) == (
+            "session-held-by-legacy-owner", f"a live Claude process outside Subfleet (pid {process.pid}) holds it")
+        assert any("waits at admission while it lives" in note for note in report.stores["outbox"].notes)
+        assert dispositions(run_legacy(v1))[LEGACY[3]] == "history"      # it has ended
 
 
 def test_a_conversation_subfleet_started_or_a_codex_thread_is_held_too(v1):
@@ -2127,3 +2134,24 @@ def test_nothing_under_the_v1_state_is_modified(v1):
     run_legacy(v1)
     import_legacy_cockpit(v1["root"], v1_state=v1["state"], claude_projects=v1["claude"] / "projects")
     assert snapshot() == before
+
+
+def test_a_v1_state_that_is_not_there_releases_nothing(v1):
+    """C-30.4 (review follow-up C): a `--v1-state` that is not a directory is
+    not a cockpit that holds nothing. The legacy pass refuses it (exit 7), and
+    a milestone pass reads nothing from it and leaves every hold as it is."""
+    cid = _bind(v1)
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "dispatched", "the cockpit again", at=50)])
+    run_legacy(v1)
+    held = f"message {LEGACY[3]} is dispatched"
+    assert _hold_of(v1, cid) == held
+    missing = v1["state"].parent / "v1-stat"                      # a typo
+    with pytest.raises(ImportRefused):
+        import_legacy_cockpit(v1["root"], v1_state=missing, claude_projects=v1["claude"] / "projects")
+    assert importer.main(["--legacy-cockpit", "--state-root", str(v1["root"]), "--v1-state", str(missing),
+                          "--claude-dir", str(v1["claude"])]) == 7
+    report = import_v1(v1["root"], v1_state=missing, delegate_state=v1["delegate"], roster_dir=v1["roster"],
+                       home=v1["home"], milestone=importer.LEGACY_MILESTONE, claude_projects=v1["claude"] / "projects")
+    assert report.stores["outbox"].reasons == {"v1-state-missing": 1}
+    assert _hold_of(v1, cid) == held

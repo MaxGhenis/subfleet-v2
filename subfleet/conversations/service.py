@@ -789,18 +789,16 @@ class ConversationService:
                                 on_catalog=self._on_catalog)
             self.runners[aid] = runner
             self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
-            runner.start()
             held = (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
             if held:
                 # C-30.4, D-17: a pass run while the daemon was down found the
-                # legacy cockpit may be using this session again. A turn that was
-                # already running is stopped (D-13), not left beside it. The
-                # runner replays the attempt's stdout before it takes a command,
-                # and the lines that carry a driver past sending its message are
-                # the first the provider writes, so the stop meets the turn where
-                # it is: stopped before its message only if it was never sent.
+                # legacy cockpit may be using this session again. A turn that
+                # kept running across the restart is stopped, not left beside
+                # it: before its message is ever written if the relay log shows
+                # it was not handed over, else through D-13.
                 self.log.warning("turn %s stopped: its conversation is held %s (%s)", aid, LEGACY_OWNER, held)
-                runner.interrupt(LEGACY_OWNER)
+                runner.withhold(LEGACY_OWNER)
+            runner.start()
 
     def _settle_unstarted(self) -> None:
         """A waiting message whose job ended with no provider start was never delivered."""
@@ -875,8 +873,10 @@ class ConversationService:
         elif reason in NOT_DELIVERED and not turn.get("user_frame_written"):
             readmits = message["turn_seq"]
             # A turn the legacy hold stopped before its message was written waits
-            # for the hold to lift and is admitted again (C-30.4).
-            held = reason == "stopped-before-send" and turn.get("stop_reason") == LEGACY_OWNER
+            # for the hold to lift and is admitted again (C-30.4), unless a
+            # person had asked to stop it: that stop stands.
+            held = (reason == "stopped-before-send" and turn.get("stop_reason") == LEGACY_OWNER
+                    and not message.get("stop_requested_at"))
             if (reason in READMIT or held) and readmits < MAX_READMITS:
                 self.store.set_state(message["message_id"], WAITING,
                                      reason=f"readmit:{LEGACY_OWNER if held else reason}", expect=live,

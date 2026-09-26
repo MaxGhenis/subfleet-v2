@@ -101,6 +101,7 @@ class TurnRunner:
         self.contained = False
         self.idle_since: float | None = None
         self.finished = threading.Event()
+        self.withheld = False
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
 
@@ -117,6 +118,21 @@ class TurnRunner:
         self.stop_reason = self.stop_reason or reason
         self.commands.put(("interrupt",))
 
+    def withhold(self, reason: str) -> None:
+        """Stop the turn without ever writing its message, if it was not written.
+
+        Called before `start`. A message the relay log does not show handed to
+        the relay is never written: the driver is stopped as soon as it starts,
+        before any stdout is replayed, so replaying a provider's answer to
+        `initialize` cannot send it (C-30.4). One the log shows handed over is
+        stopped like any other, after the replay (D-13).
+        """
+        if "user-message" in self.sent:
+            self.interrupt(reason)
+            return
+        self.stop_reason = self.stop_reason or reason
+        self.withheld = True
+
     def respond(self, request_id: str, decision: str, message: str | None = None, answers: dict | None = None) -> None:
         self.commands.put(("respond", request_id, decision, message, answers))
 
@@ -128,6 +144,9 @@ class TurnRunner:
             if message.get("stop_requested_at"):
                 self.stop_at = self.clock()
             self._apply(self.driver.start())
+            if self.withheld:
+                self.stop_at = self.stop_at or self.clock()
+                self._apply(self.driver.interrupt())
             while not self._stopping.is_set():
                 progressed = self._read_stdout()
                 progressed |= self._drain_commands()

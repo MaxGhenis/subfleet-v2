@@ -124,7 +124,19 @@ _HOLD_TEXT = {
     "workspace": "its workspace could not be prepared; it is retried with backoff (C-6.8)",
     "route": "its route could not be evaluated ({error_type}: {error}); it is rechecked with backoff "
              "and holds no other job back (C-6.12)",
+    "conversation-blocked": "its conversation {conversation_id} is blocked ({blocked}); the turn is placed once "
+                            "that clears and holds no other job back (C-24.5)",
+    "external-writer": "a Claude process outside Subfleet (pid {pids}) holds its session {native_session_id}; "
+                       "the turn is placed once that process ends (C-26.3)",
 }
+
+
+def _blocked(hold: Mapping[str, Any]) -> str:
+    """What blocks a turn's conversation, for `conversation-blocked`."""
+    parts = [f"blocked_by {hold['blocked_by']}" if hold.get("blocked_by") else "",
+             f"held by the legacy import: {hold['legacy_hold']}" if hold.get("legacy_hold") else "",
+             f"it could not be checked: {hold.get('error_type')}: {hold.get('error')}" if hold.get("error_type") else ""]
+    return "; ".join(part for part in parts if part) or "blocked"
 
 
 def why_queue(standing: Mapping[str, Any]) -> list[str]:
@@ -143,9 +155,11 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         reason = hold.get("reason", "unknown")
         template = _HOLD_TEXT.get(reason)
         if template:
-            fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-"}
+            fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
+                      "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold)}
             lines.append("Held: " + template.format_map({**dict.fromkeys(
-                ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error"), "?"), **fields}))
+                ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
+                 "conversation_id", "native_session_id"), "?"), **{k: v for k, v in fields.items() if v is not None}}))
         else:
             lines.append(f"Held: no lane admits it ({reason})")
     else:

@@ -126,11 +126,14 @@ uv run python -m subfleet.importer --legacy-cockpit --v1-state ~/chief-of-staff/
 ```
 
 `--claude-dir` names another `~/.claude` for the transcripts and its
-`sessions/` registry, `--json` prints the report. Before a real pass, stop the
-daemon and quit the cockpit: while its broker holds `S/broker.lock` every
-session is held, as it is while the journal, the outbox or
-`S/native-workers.json` exists and cannot be read, and a session with a live
-cockpit worker or a live Claude process outside Subfleet is held too.
+`sessions/` registry, `--json` prints the report. A `--v1-state` that is not a
+directory is refused. Before a real pass, stop the daemon and quit the
+cockpit: while its broker holds `S/broker.lock` every session is held, as it
+is while the journal, the outbox or `S/native-workers.json` exists and cannot
+be read, and a session with a live cockpit worker is held too. A session with
+a live Claude process outside Subfleet gets no history that pass. Start the
+daemon again only from a build that knows `legacy_hold`: the column is
+additive, so an older build opens the store and ignores the hold.
 
 The report lists every message and journal entry by id with its disposition.
 `history` is written by this pass and `already-imported` by an earlier one.
@@ -152,4 +155,6 @@ bound to a held session, whatever its origin, with the reason (its
 `bound-session-released` for one whose session a pass finds settled. While a
 conversation is held no turn runs in it. When the daemon starts it stops a
 turn that kept running there, and a queued or waiting message runs once the
-hold lifts; cancel one first (`message.cancel`) if it should not.
+hold lifts; cancel one first (`message.cancel`, with the daemon running) if it
+should not. A session held by the pass that is opened after it
+(`conversation.open`) is bound held as well.

@@ -2457,7 +2457,13 @@ class Daemon:
                 # C-24.5, C-30.4: a turn job whose conversation became blocked after
                 # it was created (the legacy import holds one while the daemon is
                 # down) places nothing and holds nobody back until both blocks clear.
-                hold = self.conversations.admission_hold(job)
+                try:
+                    hold = self.conversations.admission_hold(job)
+                except Exception as exc:           # C-6.12: one job's check never ends the pass
+                    self.log.warning("admission: job %s: its conversation could not be checked: %s",
+                                     job["job_id"], type(exc).__name__)
+                    hold = {"reason": "conversation-blocked", "error_type": type(exc).__name__,
+                            "error": str(exc)[:200]}
                 if hold:
                     holds[job["job_id"]] = hold
                     continue

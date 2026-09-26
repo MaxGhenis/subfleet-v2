@@ -112,6 +112,11 @@ CREATE TABLE IF NOT EXISTS changes (
   conversation_id TEXT NOT NULL, message_id TEXT, state TEXT, pending_approvals INTEGER NOT NULL,
   ts TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS legacy_sessions (
+  session_key TEXT PRIMARY KEY,   -- "<provider>:<native id>", or "*" for every session
+  reason      TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
 """
 
 
@@ -263,11 +268,11 @@ class ConversationStore:
         `blocked_by`; that value moves to the column, since `blocked_by` is now
         the service's alone and nothing there would ever lift it.
         """
-        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
-        if "legacy_hold" in columns:
-            return
-        self._db.execute("BEGIN IMMEDIATE")
+        self._db.execute("BEGIN IMMEDIATE")            # checked inside, so two openers cannot both add it
         try:
+            if "legacy_hold" in {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}:
+                self._db.execute("COMMIT")
+                return
             self._db.execute("ALTER TABLE conversations ADD COLUMN legacy_hold TEXT")
             self._db.execute("UPDATE conversations SET legacy_hold=?, blocked_by=NULL WHERE blocked_by=?",
                              (f"held {LEGACY_OWNER} by an earlier import", LEGACY_OWNER))
@@ -330,6 +335,7 @@ class ConversationStore:
         settings = validate_settings(provider, settings)
         native_session_id = canonical_native(native_session_id)
         now = utcnow()
+        held = None
         with self.transaction() as tx:
             if request_id:
                 existing = tx.execute("SELECT * FROM conversations WHERE request_id=?", (request_id,)).fetchone()
@@ -340,14 +346,18 @@ class ConversationStore:
                                       _native_params(provider, native_session_id)).fetchone()
                 if existing:
                     return _decode_conversation(dict(existing)), False
+                # C-30.4: a session the last legacy pass found held is bound held.
+                row = tx.execute("SELECT reason FROM legacy_sessions WHERE session_key IN (?, '*') "
+                                 "ORDER BY session_key='*' LIMIT 1", (f"{provider}:{native_session_id}",)).fetchone()
+                held = row["reason"] if row else None
             cid = new_id("cv")
             tx.execute(
                 "INSERT INTO conversations(conversation_id,provider,native_session_id,title,workspace,workspace_kind,"
-                "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
+                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (cid, provider, native_session_id, title, workspace, workspace_kind, int(allow_main), lane_id,
                  json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
-                 now, now))
+                 held, now, now))
             self._change(tx, cid, None, None)
         return self.conversation(cid), True
 
@@ -387,6 +397,18 @@ class ConversationStore:
                        (reason, utcnow(), conversation_id))
             self._change(tx, conversation_id, None, None)
         return self.conversation(conversation_id)
+
+    def record_legacy_sessions(self, holds: dict[str, str]) -> None:
+        """The sessions the last legacy pass found held, by `legacy.session_key`
+        (`*`: every session), replacing what an earlier pass recorded (C-30.4).
+        A conversation bound later to one of them is bound held
+        (`create_conversation`), so opening a held session after the pass never
+        starts a turn in it."""
+        now = utcnow()
+        with self.transaction() as tx:
+            tx.execute("DELETE FROM legacy_sessions")
+            tx.executemany("INSERT INTO legacy_sessions(session_key,reason,recorded_at) VALUES (?,?,?)",
+                           [(key, reason, now) for key, reason in sorted(holds.items())])
 
     def turn_hold(self, conversation_id: str) -> dict | None:
         """Why no turn may run in a conversation now (C-24.5): its `blocked_by`

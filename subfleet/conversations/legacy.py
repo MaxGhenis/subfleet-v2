@@ -45,11 +45,12 @@ from the transcript, exactly as `conversation.open` creates a native one
 (`catalog.claude_session`); a conversation the session already has keeps its
 own origin. Every other message, and every journal entry whatever the outbox
 says about its id, keeps its legacy owner and is reported with its disposition,
-and so does its whole session (`held_sessions`), as does a session the cockpit
-is using now (`cockpit_activity`). A journal, outbox or workers file that exists
-and cannot be read, or a running broker, holds every session. Every
+and so does its whole session (`held_sessions`), as does a session a live
+cockpit worker is in (`cockpit_activity`). A journal, outbox or workers file
+that exists and cannot be read, or a running broker, holds every session. Every
 conversation bound to a held session, whatever its origin, is held
-(`legacy_hold`) until a pass finds the session settled (`fence_bound_sessions`).
+(`legacy_hold`) until a pass finds the session settled (`fence_bound_sessions`),
+and so is one bound to it after the pass (`record_legacy_sessions`).
 Nothing here ever queues, dispatches or sends a message. Nothing here writes
 under the v1 state directory; the caller reads the outbox from a copy, and the
 broker probe takes a shared lock on a read-only handle.
@@ -206,8 +207,13 @@ def _iso(epoch: float | None) -> str:
 class Activity:
     """What a pass read of the legacy writer besides its outbox and journal (review M1)."""
 
-    #: Session key to why the cockpit is using it now.
+    #: Session key to why the cockpit is using it now: held, and every conversation of it fenced.
     sessions: dict[str, str] = field(default_factory=dict)
+    #: Session key to why a live Claude process outside Subfleet is in it: no history is
+    #: placed there this pass, but nothing is fenced, since admission already makes a
+    #: turn there wait while the process lives (`external-writer`, C-26.3) and a hold
+    #: set now would outlast it.
+    live: dict[str, str] = field(default_factory=dict)
     #: Why any session may be in use (a running broker, a signal that could not be read).
     problem: str | None = None
 
@@ -313,7 +319,9 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
     def hold(key: str) -> str | None:
         return held.get(key) or everyone
 
+    store.record_legacy_sessions({**held, **({"*": everyone} if everyone else {})})
     fence_bound_sessions(store, hold, result)
+    live = activity.live if activity else {}
     sessions: dict[str, dict[str, Any]] = {}
     for message in messages:
         if message.status not in TERMINAL:
@@ -344,7 +352,7 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
             result.add(**_item(message, "not-a-claude-session",
                                detail="this release places legacy history only in Claude sessions"))
             continue
-        reason = hold(message.key)
+        reason = hold(message.key) or live.get(message.key)
         if reason:
             result.add(**_item(message, "session-held-by-legacy-owner", state=state[0], detail=reason))
             continue
@@ -395,16 +403,18 @@ def fence_bound_sessions(store: ConversationStore, hold: Callable[[str], str | N
     `conversation.open` made of a session the cockpit also continues, one a
     Subfleet turn started. `hold` takes a `session_key` and names why the legacy
     writer may be using that session (a cockpit message there that is not
-    terminal, a journal entry naming it, a live cockpit worker or Claude process
-    in it) or, for every session, why any may be in use (a journal or outbox
+    terminal, a journal entry naming it, a live cockpit worker in it) or, for
+    every session, why any may be in use (a journal or outbox
     that cannot be read, a running broker). Holding a conversation sets its
     `legacy_hold` to the reason, which keeps every turn off it (C-24.5: no
     dispatch, no re-admission, no admission of a turn job already queued, and a
     running turn is stopped when the daemon adopts it), and reports
     `bound-session-held` with the conversation's own `blocked_by` and every
-    message of it that is not settled, so the operator can cancel one before the
-    daemon starts. The first pass whose `hold` names no reason lifts the hold and
-    reports `bound-session-released`. The hold is the import's alone:
+    message of it that is not settled, which runs once the hold lifts unless it
+    is cancelled first. The first pass whose `hold` names no reason lifts the
+    hold and reports `bound-session-released`. The caller records the held
+    sessions first (`record_legacy_sessions`), so a conversation bound to one
+    after the pass is bound held. The hold is the import's alone:
     `blocked_by` (`unfinished-turn`, `delivery-unknown`, `quarantined-turn`) is
     never read or written here, and no outcome, `conversation.unblock` or
     `message.resolve` touches the hold.
@@ -534,9 +544,12 @@ def cockpit_activity(v1_state: Path, *, claude_dir: Path | None = None,
     * `S/native-workers.json` names each live worker's session with its pid
       (`native_dispatch.py:85-91`); a pid that is alive holds that session.
     * A live Claude process outside Subfleet registered for a session in
-      `<claude dir>/sessions` holds it (`catalog._live_claude_sessions`'s rule:
-      a live pid without `SUBFLEET_ATTEMPT` in its environment, so a Subfleet
-      turn that kept running across the restart is not the cockpit).
+      `<claude dir>/sessions` (`catalog._live_claude_sessions`'s rule: a live
+      pid without `SUBFLEET_ATTEMPT` in its environment, so a Subfleet turn that
+      kept running across the restart is not one) keeps history out of that
+      session this pass (`Activity.live`). It fences nothing: admission makes a
+      turn there wait while the process lives (C-26.3), and a hold would outlast
+      it.
 
     A signal that exists and cannot be read holds every session, as an
     unreadable journal does.
@@ -571,8 +584,8 @@ def cockpit_activity(v1_state: Path, *, claude_dir: Path | None = None,
     sessions = (Path(claude_dir) if claude_dir is not None else transcripts.claude_dir()) / "sessions"
     for row in registry.rows(sessions):
         if row.alive and not owned(row.pid):
-            activity.sessions.setdefault(session_key(f"claude:{row.session_id}"),
-                                         f"a live Claude process outside Subfleet (pid {row.pid}) holds it")
+            activity.live.setdefault(session_key(f"claude:{row.session_id}"),
+                                     f"a live Claude process outside Subfleet (pid {row.pid}) holds it")
     activity.problem = "; ".join(problems) or None
     return activity
 
