@@ -2348,5 +2348,8 @@ def test_swapped_roots_touch_neither_directory(v1):
     for argv in (["--state-root", str(v1["state"]), "--v1-state", str(v1["root"])],
                  ["--state-root", str(v1["state"]), "--v1-state", str(v1["state"])]):
         assert importer.main(["--legacy-cockpit", *argv, "--claude-dir", str(v1["claude"])]) == 7
+    with pytest.raises(ImportRefused):                             # the milestone pass, swapped the same way
+        import_v1(v1["state"], v1_state=v1["root"], delegate_state=v1["delegate"], roster_dir=v1["roster"],
+                  home=v1["home"], milestone=importer.LEGACY_MILESTONE, claude_projects=v1["claude"] / "projects")
     assert sorted(path.name for path in v1["state"].iterdir()) == before
     assert dispositions(run_legacy(v1))[LEGACY[0]] == "history"

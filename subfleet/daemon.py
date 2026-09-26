@@ -2464,7 +2464,13 @@ class Daemon:
                 # down) places nothing and holds nobody back until both blocks clear.
                 try:
                     hold = self.conversations.admission_hold(job)
-                    self._turn_check_errors.pop(job["job_id"], None)
+                    if hold and hold.get("error_type"):
+                        # A turn manifest that cannot be read: held, and said once.
+                        if self._turn_check_errors.get(job["job_id"]) != hold["error_type"]:
+                            self.log.warning("admission: job %s held: %s", job["job_id"], hold.get("error"))
+                        self._turn_check_errors[job["job_id"]] = hold["error_type"]
+                    else:
+                        self._turn_check_errors.pop(job["job_id"], None)
                 except (sqlite3.Error, OSError):
                     raise                           # C-6.12: a store error is the pass's; C-5.10 retries it
                 except Exception as exc:            # C-6.12: anything else is this job's, never the pass's

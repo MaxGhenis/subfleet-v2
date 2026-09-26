@@ -977,7 +977,7 @@ def test_admission_cancels_a_turn_job_whose_message_is_settled(core):
 
 @pytest.mark.parametrize("manifest", [None, "[1, 2", '{"turn": [1, 2]}', '{"turn": "a string"}', "7", '{"turn": {}}',
                                       '{"turn": {"conversation_id": [1], "message_id": "m", "provider": "claude"}}'])
-def test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone(core, manifest):
+def test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone(core, manifest, caplog):
     """C-6.12 (fourth review, finding 1): a turn job whose manifest cannot be read
     as one (not JSON, or no turn object) is held, and the pass goes on to place
     other jobs; it never ends every pass."""
@@ -996,11 +996,14 @@ def test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone(core, manifest
     other = daemon.submit(protocol.SubmitArgs(request_id="detached-3", kind="dispatch", workdir=str(world.workspace),
                                               prompt_path=str(prompt), sandbox="read-only", pinned_model="opus",
                                               allow_tmp=True))["job_id"]
-    daemon._admit()
+    with caplog.at_level(logging.WARNING, logger="subfleet.test.legacy-hold"):
+        daemon._admit()
+        daemon._admit()
     hold = daemon._holds[job["job_id"]]
     assert (hold["reason"], hold["error"]) == ("conversation-blocked", "its turn manifest cannot be read")
     assert daemon.store.list_attempts(job["job_id"]) == []
     assert len(daemon.store.list_attempts(other)) == 1
+    assert sum(f"job {job['job_id']} held" in record.getMessage() for record in caplog.records) == 1   # said once
 
 
 def test_a_failed_check_with_an_unreadable_manifest_still_holds_that_job_alone(core, monkeypatch):

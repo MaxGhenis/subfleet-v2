@@ -1737,6 +1737,19 @@ def _is_v1_state(v1_state: Path, state_root: Path | None = None) -> bool:
     return any((v1_state / name).exists() or (v1_state / name).is_symlink() for name in names)
 
 
+#: Entries of S that only v1 writes: a v2 state root never holds one (it may
+#: hold `gates/` or `integration-events.salt`, which v1 and v2 share).
+V1_ONLY = ("outbox.sqlite3", "cockpit-client", "runs", "notices", "tickles", "native-workers.json", "broker.lock",
+           "capacity-live-cache.json", "claude-oauth-raw.json")
+
+
+def _looks_like_v1_root(state_root: Path) -> bool:
+    """Whether a `--state-root` is a v1 state directory: one holding an entry
+    only v1 writes and none of a v2 root's files (the two roots swapped)."""
+    return (state_root.is_dir() and not any((state_root / name).exists() for name in V2_MARKERS)
+            and any((state_root / name).exists() for name in V1_ONLY))
+
+
 def _not_v1(v1_state: Path) -> str:
     return (f"{v1_state} is not a v1 state directory; name it with --v1-state, or pass --cockpit-retired once "
             "the legacy cockpit will never run again")
@@ -2021,6 +2034,11 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
     roster_dir = Path(roster_dir).expanduser()
     home = Path(home).expanduser() if home is not None else Path.home()
     now = now or utc_now()
+    if _looks_like_v1_root(state_root):
+        # A pass would put daemon.lock, state.sqlite3 and its report in the v1
+        # state, which would then read as a v2 root (C-30.4).
+        raise ImportRefused(f"{state_root} looks like a v1 state directory; name the v2 state root with "
+                            "--state-root")
     report = ImportReport(str(state_root), str(v1_state), str(delegate_state), str(roster_dir),
                           dry_run, milestone, now)
 
@@ -2143,7 +2161,7 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     v1_state = Path(v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
     v1_ok = _is_v1_state(v1_state, state_root)
-    if _is_v1_state(state_root):
+    if _looks_like_v1_root(state_root):
         # The daemon.lock this pass takes would make the v1 state read as a v2 root.
         raise ImportRefused(f"{state_root} looks like a v1 state directory; name the v2 state root with "
                             "--state-root")

@@ -129,7 +129,10 @@ uv run python -m subfleet.importer --legacy-cockpit --v1-state ~/chief-of-staff/
 `sessions/` registry, `--json` prints the report. A `--v1-state` that holds
 none of the manifest's entries (missing, empty, another directory), or that is
 a v2 state root, is refused, and so is a `--state-root` that looks like a v1
-state directory (the two swapped); a refused pass touches neither. Once the cockpit will never run again,
+state directory (the two swapped), by the milestone pass too. A refused pass
+touches neither directory, except that with a conversation store already
+there (it may record a retirement) the pass takes `daemon.lock` and opens that
+store before it refuses. Once the cockpit will never run again,
 `--legacy-cockpit --cockpit-retired` lifts every legacy hold without reading
 the v1 state and records the retirement, even before any conversation store
 exists; later passes, milestone passes included, then read nothing from the
