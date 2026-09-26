@@ -153,7 +153,7 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
                                               resolution="not-delivered", confirm=True)
     # approval.respond answers through the live runner; the harness stands in for it.
     runner = SimpleNamespace(driver=SimpleNamespace(outcome=None), respond=lambda *a: None,
-                             interrupt=lambda reason: None, stop=lambda: None,
+                             interrupt=lambda reason: None, stop=lambda: None, join=lambda timeout: True,
                              message_id=fixture["second"]["message_id"], finished=threading.Event())
     harness.service.runners[harness.store.approval(approval["approval_id"])["attempt_id"]] = runner
     detail = results["approval.get"]
