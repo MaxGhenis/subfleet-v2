@@ -379,6 +379,20 @@ def test_a_hub_whose_thread_dies_wakes_everyone_and_is_started_again():
         hub.stop()
 
 
+def refuse_hub_threads(monkeypatch) -> tuple[list, callable]:
+    """`Thread.start` refuses the hub's thread, as a process out of threads does;
+    returns the attempts made, and the real `start` to put back."""
+    start, attempts = threading.Thread.start, []
+
+    def cannot(self):
+        if self.name == "subfleet-waits":
+            attempts.append(time.monotonic())
+            raise RuntimeError("can't start new thread")
+        return start(self)
+    monkeypatch.setattr(threading.Thread, "start", cannot)
+    return attempts, start
+
+
 def test_a_hub_that_cannot_start_leaves_its_waiters_polling_and_no_registration_behind(monkeypatch):
     """Review of 139409b: `watching` started the hub after registering and outside
     its try, so a thread that could not be started (RuntimeError: can't start new
@@ -388,25 +402,28 @@ def test_a_hub_that_cannot_start_leaves_its_waiters_polling_and_no_registration_
     now reported and recorded as nothing running: the wait polls every
     `recheck_s` meanwhile, and a later start is tried after `recheck_s`."""
     store, errors = FakeStore(), []
-    hub = WaitHub(store, poll_s=.01, recheck_s=.1, on_error=errors.append)
+    hub = WaitHub(store, poll_s=.01, recheck_s=1.0, on_error=errors.append)
     store.add("j")
-    start = threading.Thread.start
-
-    def cannot(self):
-        if self.name == "subfleet-waits":
-            raise RuntimeError("can't start new thread")
-        return start(self)
-    monkeypatch.setattr(threading.Thread, "start", cannot)
+    attempts, start = refuse_hub_threads(monkeypatch)
     try:
-        with hub.watching(["j"]) as event:
+        with hub.watching(["j"]) as event:                 # the first try
             assert hub.watched == 1 and hub.status()["running"] is False
+            assert hub._thread is None                      # nothing unstarted is recorded
+            assert len(attempts) == 1
+            # Waits inside recheck_s of the last try try no start (review of 68d6beb:
+            # without the backoff each wait tried one).
+            for _ in range(5):
+                event.wait(.01)
+            assert len(attempts) == 1, attempts
             began = time.monotonic()
             assert event.wait(30) is False                  # cut to recheck_s: its waiter reads again
             assert time.monotonic() - began < 5
+            event.wait(.01)                                 # past recheck_s: this wait tries once
+            assert len(attempts) == 2, attempts
         assert hub.watched == 0
-        assert hub.start_failures >= 1 and isinstance(errors[0], RuntimeError)
+        assert hub.start_failures == len(attempts) and isinstance(errors[0], RuntimeError)
         monkeypatch.setattr(threading.Thread, "start", start)
-        time.sleep(.15)                                     # past recheck_s since the last try
+        time.sleep(1.05)                                    # past recheck_s since the last try
         with hub.watching(["j"]) as event:
             assert hub.status()["running"] is True
             store.end("j")
@@ -414,7 +431,40 @@ def test_a_hub_that_cannot_start_leaves_its_waiters_polling_and_no_registration_
             assert event.wait(2)
         assert hub.watched == 0 and hub.restarts == 0       # its first thread, not a restart
     finally:
-        hub.stop()                                          # no unstarted thread to join
+        hub.stop()
+
+
+def test_a_hub_that_never_started_stops_cleanly(monkeypatch):
+    """The other half of 139409b's defect: `stop` joined the thread `ensure_running`
+    had recorded but could not start ("cannot join thread before it is started")."""
+    hub = WaitHub(FakeStore(), poll_s=.01, recheck_s=.3)
+    refuse_hub_threads(monkeypatch)
+    with hub.watching(["j"]):
+        pass
+    hub.stop()
+    assert hub.watched == 0 and hub.status()["running"] is False
+
+
+def test_a_registration_is_withdrawn_whatever_starting_the_hub_raises():
+    """`watching` starts the hub inside its try: anything `ensure_running` raises
+    (here the clock) leaves no registration behind."""
+    class Broken(Exception):
+        pass
+    calls = []
+
+    def clock():
+        calls.append(1)
+        if len(calls) == 1:
+            raise Broken()
+        return time.monotonic()
+    hub = WaitHub(FakeStore(), poll_s=.01, recheck_s=.3, clock=clock)
+    try:
+        with pytest.raises(Broken):
+            with hub.watching(["j"]):
+                pass
+        assert hub.watched == 0
+    finally:
+        hub.stop()
 
 
 def test_a_hub_that_cannot_stay_up_turns_its_waiters_into_slow_pollers():
