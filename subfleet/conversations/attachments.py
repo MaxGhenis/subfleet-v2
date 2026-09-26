@@ -7,6 +7,8 @@ magic bytes, re-hashed after the copy. An add whose stored copy is missing or
 changed copies it again, and the copy's name is on disk before its row. The
 daemon's copy is what a provider sees; the original can be deleted the moment
 the receipt arrives.
+Retention (C-28.2, `subfleet/retention.py`) deletes a copy once no message needs
+it and it has gone 30 days unused; it and `add` each hold the hash's guard.
 """
 
 from __future__ import annotations
@@ -28,6 +30,8 @@ TYPES = (
     (b"GIF87a", "image/gif", "gif"),
     (b"GIF89a", "image/gif", "gif"),
 )
+#: A stored copy's extension by media type: `attachments/<sha256>.<ext>`.
+EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
 
 
 def sniff(head: bytes) -> tuple[str, str] | None:
@@ -154,14 +158,19 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
         raise ConversationError("hash-mismatch", "the file does not match the hash the app sent")
     directory = store.subdirectory("attachments")         # never the state root itself
     target = directory / f"{digest}.{ext}"
-    if not _holds(target, digest, len(data)):             # missing or changed: copy it again
-        _copy(data, target)
-        if not _holds(target, digest, len(data)):
-            raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
-    # Published as C-8.1 says, its name on disk before its row, whichever add made the
-    # copy: one that found it in place may have found it before its maker synced.
-    _sync_directory(directory)
-    store.add_attachment(digest, media, len(data), str(target))
+    # C-28.2: from the first look at the stored copy to its row, under the guard
+    # retention holds from its delete to its unlink. Retention cannot unlink a copy
+    # this add has checked, nor this add record a row for a copy about to go, so a
+    # receipt always names a stored copy that hashes right.
+    with store.attachment_guard(digest):
+        if not _holds(target, digest, len(data)):             # missing or changed: copy it again
+            _copy(data, target)
+            if not _holds(target, digest, len(data)):
+                raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
+        # Published as C-8.1 says, its name on disk before its row, whichever add made the
+        # copy: one that found it in place may have found it before its maker synced.
+        _sync_directory(directory)
+        store.add_attachment(digest, media, len(data), str(target))
     return {"sha256": digest, "media_type": media, "bytes": len(data)}
 
 

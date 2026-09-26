@@ -108,3 +108,44 @@ def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_p
     assert (seen['max_jobs'], seen['max_bytes']) == (7, 2 * 1024 ** 3)
     assert (seen['turn_max_jobs'], seen['turn_max_bytes'], seen['turn_keep_s']) == (9, 1234, 2 * 86400)
     assert seen['pins'] == service.conversations.retention_pins
+
+
+def test_retention_prunes_attachments_after_the_jobs(state_daemon, tmp_path, monkeypatch):
+    """C-28.2: the hourly pass deletes, from the conversation store, an attachment
+    no message needs that was last used 30 days ago, then its copy; one used since
+    stays."""
+    from datetime import UTC, datetime, timedelta
+    from subfleet.conversations import attachments
+    service, _ = state_daemon
+    store = service.conversations.store
+    shas = []
+    for k in range(2):
+        image = tmp_path / f"{k}.png"
+        image.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([k]) * 32)
+        shas.append(attachments.add(store, str(image))["sha256"])
+    old = (datetime.now(UTC) - timedelta(days=31)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    with store.transaction() as tx:
+        tx.execute("UPDATE attachments SET last_used_at=? WHERE sha256=?", (old, shas[0]))
+    service._retention()
+    assert store.attachment(shas[0]) is None and not (store.root / "attachments" / f"{shas[0]}.png").exists()
+    assert store.attachment(shas[1]) is not None and (store.root / "attachments" / f"{shas[1]}.png").exists()
+    assert service.timers.status()['retention']['last_error_type'] is None
+
+
+def test_retention_hands_the_attachment_pass_its_cancel_and_a_deadline(state_daemon, monkeypatch):
+    """C-28.2, C-16.4: the attachment pass gets the timers' cancel and its own
+    deadline; a cancelled pass leaves the hourly pass cancelled, as a cancelled job
+    pass does."""
+    import time
+    service, _ = state_daemon
+    monkeypatch.setattr(daemon_module, 'maintenance', lambda store, root, **kwargs: {})
+    seen = {}
+    def prune(store, **kwargs):
+        seen.update(store=store, **kwargs)
+        return {"deleted": [], "bytes": 0, "strays": [], "errors": [], "interrupted": "cancelled"}
+    monkeypatch.setattr(daemon_module, 'prune_attachments', prune)
+    before = time.monotonic()
+    service._retention()
+    assert seen['store'] is service.conversations.store
+    assert seen['cancel'] is service.timers.cancel and seen['deadline'] >= before + 60
+    assert service.timers.status()['retention']['last_error_type'] == 'CancelledError'

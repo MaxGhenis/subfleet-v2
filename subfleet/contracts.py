@@ -240,6 +240,11 @@ RETENTION_MAX_BYTES = 2 * 1024 ** 3
 TURN_RETENTION_MAX_JOBS = 2000
 TURN_RETENTION_MAX_BYTES = 4 * 1024 ** 3
 TURN_RETENTION_KEEP_DAYS = 14
+# C-28.2: an attachment no message still needs is deleted 30 days after its last
+# use; a file under `attachments/` with no row, or a temporary copy, a day after
+# it was last written.
+ATTACHMENT_KEEP_DAYS = 30
+ATTACHMENT_STRAY_GRACE_S = 86400
 
 # Codex window durations in minutes (C-9.7).
 WINDOW_KEYS = {300: "five_hour", 10080: "seven_day"}

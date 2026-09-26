@@ -7,13 +7,19 @@ it ends, and while the conversation service still needs it (its message is not
 terminal, its conversation is blocked, or a live runner reads its attempt):
 the service answers that through `pins`, which is asked again inside each
 delete transaction, like every other pin.
+
+Attachments (C-28.2) are pruned by `prune_attachments`: 30 days after their
+last use, once no message still needs them, and then files left without a
+row.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import threading
@@ -25,9 +31,10 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
-    RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES,
-    TURN_RETENTION_MAX_JOBS,
+    ATTACHMENT_KEEP_DAYS, ATTACHMENT_STRAY_GRACE_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, TURN_RETENTION_KEEP_DAYS,
+    TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
+from .conversations.attachments import EXTENSIONS
 from .store import Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
@@ -394,3 +401,114 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
     return {"pruned": pruned, "protected": sorted(protected), "bytes_before": before,
             "bytes_after": sum(totals.values()), "jobs_after": sum(counts.values()), "errors": errors,
             "pools": progress["pools"]}
+
+
+# --- attachments (C-28.2) ------------------------------------------------------
+
+#: The names `attachment.add` gives a stored copy and its temporary file (C-28.1).
+#: Retention removes nothing else from `attachments/`.
+_COPY = re.compile(r"([0-9a-f]{64})\.(png|jpg|gif|webp)")
+_TEMPORARY = re.compile(r"\.([0-9a-f]{64})\.[0-9a-f]{8}\.tmp")
+
+
+def prune_attachments(store, *, keep_s: float = ATTACHMENT_KEEP_DAYS * 86400,
+                      stray_grace_s: float = ATTACHMENT_STRAY_GRACE_S, now: datetime | None = None,
+                      cancel: threading.Event | None = None, deadline: float | None = None) -> dict[str, Any]:
+    """Delete attachments no message needs that were last used `keep_s` ago, then
+    the files under `attachments/` that no row names (C-28.2).
+
+    `store` is the conversation store. Each deletion holds its hash's guard
+    (`store.attachment_guard`, which `attachment.add` also holds) from the
+    transaction that re-checks the attachment is still unused and unneeded
+    (`delete_unused_attachment`) until the unlink after that transaction commits.
+    Retention unlinks only the names `attachment.add` makes, directly under
+    `<state root>/attachments`, never a path read from a row, and nothing at all
+    when `attachments` is a symlink. A copy with no row (a crash between an add's
+    copy and its row, or between a deletion and its unlink) and a temporary copy
+    go once `stray_grace_s` has passed since they were last written. Cancellation
+    and the deadline are checked between files; the next pass finds what this one
+    left.
+    """
+    moment = now or datetime.now(UTC)
+    cutoff = _store_time(moment - timedelta(seconds=keep_s))
+    result: dict[str, Any] = {"deleted": [], "bytes": 0, "strays": [], "errors": []}
+    directory = Path(store.root) / "attachments"
+    try:
+        _checkpoint(cancel, deadline)
+        if directory.is_symlink():
+            result["errors"].append({"path": str(directory), "error": "attachments is a symlink; nothing was removed"})
+            return result
+        needed = store.needed_attachments()
+        after = None
+        while page := store.attachments_used_by(cutoff, after=after):
+            after = (page[-1]["last_used_at"], page[-1]["sha256"])
+            for row in page:
+                _checkpoint(cancel, deadline)
+                if row["sha256"] not in needed:
+                    _delete_attachment(store, directory, row["sha256"], row["media_type"], cutoff, result)
+        _sweep_strays(store, directory, moment, stray_grace_s, cancel, deadline, result)
+    except _Interrupted as exc:
+        result["interrupted"] = str(exc)
+    return result
+
+
+def _delete_attachment(store, directory: Path, sha: str, media_type: str, cutoff: str, result: dict) -> None:
+    ext = EXTENSIONS.get(media_type)
+    with store.attachment_guard(sha):
+        deleted = store.delete_unused_attachment(sha, cutoff)
+        if deleted is None:
+            return
+        result["deleted"].append(sha)
+        result["bytes"] += int(deleted["bytes"] or 0)
+        name = f"{sha}.{ext}"
+        if ext is None or not _COPY.fullmatch(name):
+            # Not a name retention made; a copy left behind is a stray the sweep judges.
+            result["errors"].append({"sha256": sha, "error": f"no stored copy name for {media_type!r}"})
+            return
+        try:
+            os.unlink(directory / name)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            result["errors"].append({"sha256": sha, "error": str(exc)})     # a stray now; a later sweep retries
+
+
+def _sweep_strays(store, directory: Path, moment: datetime, grace_s: float,
+                  cancel: threading.Event | None, deadline: float | None, result: dict) -> None:
+    try:
+        with os.scandir(directory) as entries:
+            names = sorted(entry.name for entry in entries)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        result["errors"].append({"path": str(directory), "error": str(exc)})
+        return
+    for name in names:
+        _checkpoint(cancel, deadline)
+        copy = _COPY.fullmatch(name)
+        match = copy or _TEMPORARY.fullmatch(name)
+        if match is None:
+            continue
+        path = directory / name
+        with store.attachment_guard(match.group(1)):
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(info.st_mode) or moment.timestamp() - info.st_mtime < grace_s:
+                continue
+            if copy and store.attachment(match.group(1)) is not None:
+                continue
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                result["errors"].append({"path": str(path), "error": str(exc)})
+                continue
+            result["strays"].append(name)
+
+
+def _store_time(moment: datetime) -> str:
+    """The conversation store's time format: UTC, milliseconds, `Z`."""
+    return moment.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")

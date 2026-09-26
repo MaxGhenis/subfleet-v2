@@ -45,8 +45,8 @@ from .peers import APP_EXECUTABLES, judge, peer_pid
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
-    LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native, canonical_uuid,
-    validate_settings, widens,
+    HANDOFF_FENCE, LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native,
+    canonical_uuid, validate_settings, widens,
     utcnow,
 )
 from .turn import (
@@ -109,9 +109,9 @@ CLAIMED = "dispatching"
 # unblock note in the source, where it still guards the source's next turn (IR-28).
 HANDOFF_MOVES = ("person",)
 HANDOFF_KEEPS = ("unblock-note",)
-# The source's `blocked_by` from just before a handoff cancels a waiting message's
-# job until its commit: `handoff:<request id>` (C-30.3, D-18).
-HANDOFF_FENCE = "handoff:"
+# From just before a handoff cancels a waiting message's job until its commit, the
+# source's `blocked_by` is `HANDOFF_FENCE` + the request id (C-30.3, D-18). The
+# prefix lives in the store, whose attachment retention reads it too (C-28.2).
 
 
 class ConversationService:

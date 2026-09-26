@@ -33,6 +33,8 @@ PROVIDERS = ("claude", "codex")
 EVENT_ROW_MAX = 64 * 1024
 #: A message's text, in UTF-8 bytes (C-24.3, `LIMITS['message_bytes']`).
 TEXT_MAX = 1_048_576
+# A handoff fences its source with `blocked_by='handoff:<request id>'` (C-30.3).
+HANDOFF_FENCE = "handoff:"
 PAGE_BYTES = 256 * 1024
 # Streamed fragments a settled turn no longer needs: its `text` and `thinking`
 # events carry the whole of each (design §3).
@@ -129,6 +131,12 @@ CREATE TABLE IF NOT EXISTS legacy_sessions (
 );
 CREATE TABLE IF NOT EXISTS legacy_retirement (retired_at TEXT NOT NULL);
 """
+
+# The messages that are not terminal: literal states, so the planner can match a
+# query's predicate to the partial index `messages_open` (C-28.2).
+_OPEN = "m.state NOT IN ({})".format(",".join(f"'{state}'" for state in TERMINAL_STATES))
+MESSAGES_OPEN = ("CREATE INDEX IF NOT EXISTS messages_open ON messages(state) WHERE state NOT IN ({})".format(
+    ",".join(f"'{state}'" for state in TERMINAL_STATES)))
 
 # Schema 2 (C-26.14, design D-25): a turn's working-tree snapshots, one row per
 # attempt, keyed by the job store's attempt id as `attempt_marks` is. The start
@@ -283,6 +291,10 @@ class ConversationStore:
         # Watched like `_lock` (C-3.6): a write can hold it across two fsyncs.
         self._writes = WatchedLock("conversation-files")
         self._closed = False
+        # C-28.1, C-28.2: one guard per hash (striped), held by `attachment.add` from its
+        # first look at the stored copy to its row, and by retention from its delete
+        # transaction to its unlink. Not `_lock`: a 20 MiB copy must not hold up events.
+        self._attachment_guards = tuple(threading.Lock() for _ in range(64))
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         fresh = not self.path.exists()
         self._db = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None, timeout=5)
@@ -315,6 +327,8 @@ class ConversationStore:
             # app with its state (design §12).
             if "state_reason" not in {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}:
                 self._db.execute("ALTER TABLE changes ADD COLUMN state_reason TEXT")
+            # So is an index: retention's re-check reads only the open messages (C-28.2).
+            self._db.execute(MESSAGES_OPEN)
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
             self._add_legacy_hold()
@@ -539,14 +553,16 @@ class ConversationStore:
         if existing:
             return {"existing": existing}
         from .attachments import check as check_attachment
-        for item in moves:
-            for sha in item["attachments"]:
-                if self.attachment(sha) is None:
-                    raise ConversationError("unknown-attachment", f"no attachment {sha}")
-                # The stored copy must be there and hash right now, before the
-                # source's job is cancelled: a damaged one would fail the target's
-                # turn after the source had been withdrawn (review of 6290a51).
-                check_attachment(self, sha)
+        moved = [sha for item in moves for sha in item["attachments"]]
+        # A moved message is `cancelled` for a moment when the tick settles the job
+        # this handoff cancels, and nothing would then keep its attachments from
+        # retention (C-28.2): each is used now, first, so it stays for 30 days.
+        self.touch_attachments(moved)
+        for sha in moved:
+            # The stored copy must be there and hash right now, before the
+            # source's job is cancelled: a damaged one would fail the target's
+            # turn after the source had been withdrawn (review of 6290a51).
+            check_attachment(self, sha)
         cid = new_id("cv")
         now = utcnow()
         prepared = {"request_id": request_id, "cid": cid, "provider": provider, "workspace": workspace,
@@ -1116,7 +1132,14 @@ class ConversationStore:
 
     # --- attachments -----------------------------------------------------------
 
+    def attachment_guard(self, sha256: str) -> threading.Lock:
+        """The guard `attachment.add` and retention hold for one hash (C-28.2). Taken
+        before any transaction, never inside one, and one at a time."""
+        return self._attachment_guards[hash(sha256) % len(self._attachment_guards)]
+
     def add_attachment(self, sha256: str, media_type: str, size: int, path: str) -> dict:
+        """Record a stored copy the caller has just checked, under its guard. A second
+        add of the same hash refreshes its last use and points the row at that copy."""
         now = utcnow()
         with self.transaction() as tx:
             tx.execute("INSERT INTO attachments(sha256,media_type,bytes,path,created_at,last_used_at) VALUES (?,?,?,?,?,?) "
@@ -1126,6 +1149,45 @@ class ConversationStore:
 
     def attachment(self, sha256: str) -> dict | None:
         return self.one("SELECT * FROM attachments WHERE sha256=?", (sha256,))
+
+    def touch_attachments(self, shas: list[str]) -> None:
+        """Refresh each attachment's last use in one transaction (C-28.2); exit 2
+        `unknown-attachment`, and nothing changed, when one is not stored."""
+        if not shas:
+            return
+        now = utcnow()
+        with self.transaction() as tx:
+            for sha in shas:
+                if not tx.execute("UPDATE attachments SET last_used_at=? WHERE sha256=?", (now, sha)).rowcount:
+                    raise ConversationError("unknown-attachment", f"no attachment {sha}")
+
+    def attachments_used_by(self, cutoff: str, *, after: tuple[str, str] | None = None, limit: int = 200) -> list[dict]:
+        """Retention's candidates (C-28.2): attachments last used no later than
+        `cutoff` (UTC ISO, this store's format), oldest first, a page at a time:
+        `after` is the (last_used_at, sha256) of the previous page's last row."""
+        start = after or ("", "")
+        return self.query("SELECT sha256, media_type, bytes, last_used_at FROM attachments WHERE last_used_at<=? "
+                          "AND (last_used_at, sha256) > (?, ?) ORDER BY last_used_at, sha256 LIMIT ?",
+                          (cutoff, *start, max(1, int(limit))))
+
+    def needed_attachments(self) -> set[str]:
+        """Every hash a message still needs (C-28.2); retention re-checks each one it
+        would delete inside its transaction (`delete_unused_attachment`)."""
+        return {row["sha256"] for row in self.query(_NEEDED.format(sha=""), _needed_params())}
+
+    def delete_unused_attachment(self, sha256: str, cutoff: str) -> dict | None:
+        """C-28.2: delete an attachment's row in one transaction that re-checks that it
+        was last used no later than `cutoff` and that no message still needs it.
+        Returns the deleted row, or None when it stays. The caller holds the hash's
+        guard and unlinks the copy after this commits."""
+        with self.transaction() as tx:
+            row = tx.execute("SELECT * FROM attachments WHERE sha256=?", (sha256,)).fetchone()
+            if row is None or not _used_by(row["last_used_at"], cutoff):
+                return None
+            if tx.execute(_NEEDED.format(sha="j.value=? AND ") + " LIMIT 1", _needed_params(sha256)).fetchone():
+                return None
+            tx.execute("DELETE FROM attachments WHERE sha256=?", (sha256,))
+            return dict(row)
 
     # --- events ----------------------------------------------------------------
 
@@ -1409,6 +1471,37 @@ def _native_params(provider: str, native_session_id: str) -> tuple:
     except (ValueError, AttributeError, TypeError):
         is_uuid = False
     return provider, native, int(is_uuid), native
+
+
+#: C-28.2: a message still needs its attachments while it is not terminal, and
+#: while a handoff fences its conversation, since a handoff that does not commit
+#: puts the messages it withdrew back in the queue (`restore_after_handoff`, C-30.3).
+#: The first half reads `messages_open`, the second `messages_by_state`, so the
+#: re-check inside retention's delete transaction never scans settled history.
+_NEEDED = ("SELECT j.value AS sha256 FROM messages m, json_each(m.attachments_json) j "
+           f"WHERE {{sha}}{_OPEN} "
+           # CROSS JOIN keeps the fenced conversations the outer loop (SQLite's rule).
+           "UNION SELECT j.value FROM conversations c CROSS JOIN messages m CROSS JOIN json_each(m.attachments_json) j "
+           "WHERE {sha}m.conversation_id=c.conversation_id AND c.blocked_by LIKE ?")
+
+
+def _needed_params(sha: str | None = None) -> tuple:
+    return (sha, sha, f"{HANDOFF_FENCE}%") if sha is not None else (f"{HANDOFF_FENCE}%",)
+
+
+def _used_by(last_used_at: str | None, cutoff: str) -> bool:
+    """Whether an attachment was last used no later than `cutoff`; a time that does
+    not parse was not, so retention keeps what it cannot date."""
+    used, limit = _utc(last_used_at), _utc(cutoff)
+    return used is not None and limit is not None and used <= limit
+
+
+def _utc(stamp: str | None) -> datetime | None:
+    try:
+        value = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _decode_conversation(row: dict) -> dict:

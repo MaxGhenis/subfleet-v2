@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated": "2026-09-24",
+  "updated": "2026-09-26",
   "statuses": [
     "open",
     "recovered",
@@ -484,6 +484,21 @@
       "status": "open",
       "evidence": [],
       "notes": ""
+    },
+    {
+      "id": "R-11",
+      "requirement": "The state root stays bounded: pasted images are removed 30 days after their last use, never while a message that is not terminal, or a handoff in progress, still needs them",
+      "source": "audit of C-28.2, 2026-09-26: no code deleted attachments, so attachments/ grew without bound",
+      "clauses": [
+        "C-28.1",
+        "C-28.2"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_attachment_retention.py: what is deleted and kept, the in-transaction re-check, the handoff fence and handoff use, the stray sweep, the three forced interleavings of add and retention, a Hypothesis state machine against a reference model, and a concurrent stress run",
+        "tests/fake/test_native_maintenance_startup.py::test_retention_prunes_attachments_after_the_jobs"
+      ],
+      "notes": "Was listed only as infrastructure in tests/unit/test_desktop_ledger.py, which hid that nothing implemented it."
     },
     {
       "id": "S-1",

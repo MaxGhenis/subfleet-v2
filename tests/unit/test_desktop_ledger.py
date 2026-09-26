@@ -46,5 +46,5 @@ def test_milestone_9_clauses_are_all_cited():
     orphans = sorted(milestone9 - cited)
     # Clauses that bind mechanism rather than a user-visible requirement.
     infrastructure = {"C-24.4", "C-25.2", "C-26.5", "C-26.9", "C-26.12", "C-27.3", "C-27.4",
-                      "C-28.2", "C-29.4", "C-29.5"}
+                      "C-29.4", "C-29.5"}
     assert set(orphans) <= infrastructure, orphans

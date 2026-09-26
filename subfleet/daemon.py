@@ -49,7 +49,7 @@ from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
-from .retention import maintenance
+from .retention import maintenance, prune_attachments
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
@@ -2507,6 +2507,19 @@ class Daemon:
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))
                 return
             raise TimeoutError("retention deadline reached")
+        # C-28.2: attachments no message needs, 30 days after their last use, and
+        # files under attachments/ no row names. A pass the deadline cuts short is
+        # continued by the next one.
+        pruned = prune_attachments(self.conversations.store, cancel=self.timers.cancel,
+                                   deadline=time.monotonic() + 60)
+        if pruned.get("interrupted") == "cancelled":
+            self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+            return
+        if pruned["deleted"] or pruned["strays"]:
+            self.log.info("retention removed %d attachment(s) (%d bytes) and %d stray file(s)",
+                          len(pruned["deleted"]), pruned["bytes"], len(pruned["strays"]))
+        for error in pruned["errors"]:
+            self.log.warning("attachment retention: %s", error)
         with self.store.transaction("service-notice.retention") as tx:
             tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
         self.timers.mark("retention", next_due=after(3600))
