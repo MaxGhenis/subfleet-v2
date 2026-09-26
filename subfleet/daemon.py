@@ -510,17 +510,32 @@ class Daemon:
         # is not the job's demand while its clock runs; the next due look
         # evaluates the pair again, so a restart, which forgets this, changes nothing.
         self._retry_verdicts: dict[str, tuple[str, bool]] = {}
-        # C-6.10: the leases the last pass saw that no probe holds. One that has
-        # gone since is capacity that came free.
-        self._leases_seen: frozenset[tuple[str, str]] = frozenset()
+        # C-6.10: the leases the last pass of each kind saw that no probe holds.
+        # One that has gone since is capacity that came free.
+        self._leases_seen: dict[str, frozenset[tuple[str, str]]] = {}
         # C-6.12, C-24.5: turn job id -> the error type its conversation check last
         # raised, so the log says so once per change rather than once a pass.
         self._turn_check_errors: dict[str, str] = {}
         # C-6.11: why the last pass did not place each job it left, and when
-        # admission last placed anything. Replaced whole at the end of a pass.
+        # admission last placed anything. Replaced whole at the end of a pass:
+        # C-26.9's turn pass and the detached pass each replace their own, and
+        # `_holds` is the two together.
         self._holds: dict[str, dict] = {}
+        self._holds_by_kind: dict[str, dict[str, dict]] = {"turn": {}, "detached": {}}
+        # C-26.9: one pass of each kind at a time; the two kinds' passes run side
+        # by side (`_admit_turns` beside `_admit`), so a turn never waits for a
+        # detached job's evaluation, workspace or probe. `_admission_lock` guards
+        # what both write: the holds, `_admission` and the route counts.
+        self._pass_locks = {"turn": threading.Lock(), "detached": threading.Lock()}
+        self._admission_lock = threading.Lock()
+        # One pass at a time records what admission left (`_note_admission`),
+        # with the placements every pass made since, counted as each is made, so
+        # a long detached pass that is placing never reads as idle to the turn
+        # pass's notes; the other pass does not wait.
+        self._note_lock = threading.Lock()
+        self._placed_unnoted = 0
         # Never held while another lock is taken: a reservation counts with
-        # the store lock held (`_count_route`), and `daemon.status` reads them.
+        # the store lock held (`_count_route`).
         self._route_count_lock = threading.Lock()
         # C-6.3: job id -> the last evaluation `_prepare_route` made for it and the
         # rows it rests on, taken by the reservation that follows.
@@ -2426,6 +2441,9 @@ class Daemon:
                 if self._recovery_complete.is_set():
                     self._schedule("conversations", self.conversations.tick, paced=True)
                     self._schedule("admission", self._admit, paced=True)
+                    # C-26.9: turns also have a pass of their own, so a person's
+                    # turn never waits for a detached pass to reach it.
+                    self._schedule("admission:turns", self._admit_turns, paced=True)
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
@@ -2988,18 +3006,58 @@ class Daemon:
         return None, desktop
 
     def _admit(self) -> None:
-        """One admission pass, then the record of what it left unplaced (C-6.11)."""
-        holds: dict[str, dict] = {}
-        tally = {"placed": 0}
-        # A pass that raises leaves both as the last whole pass left them: half
-        # a hold set would read as "nothing left pending" and end the idle
-        # stretch with the queue untouched. C-5.10 logs and paces the failure.
-        self._admit_pass(holds, tally)
-        self._holds = holds
-        self._note_admission(tally, holds)
+        """One admission pass over turns, then one over detached jobs (C-26.9).
+
+        The control loop also runs the turn pass alone (`_admit_turns`), beside
+        this one, so a turn submitted while a long detached pass runs is placed
+        by the next turn pass, not after it. A turn pass already running on the
+        other worker is not waited for: that pass is looking at the turns."""
+        try:
+            self._admit_kind("turn", wait=False)
+        finally:
+            self._admit_kind("detached")       # whatever the turn half raised (C-5.10 paces a raise)
+
+    def _admit_turns(self) -> None:
+        """C-26.9: the turn pass alone, on its own worker: a person is waiting."""
+        self._admit_kind("turn", wait=False)
+
+    def _admit_kind(self, kind: str, *, wait: bool = True) -> None:
+        """One admission pass over one kind of job, then the record of what it left unplaced (C-6.11)."""
+        if kind == "turn" and not self._holds_by_kind["turn"] and not self.store.one(
+                "SELECT 1 FROM jobs WHERE state IN ('queued','waiting') AND kind='turn' "
+                "AND cancel_requested_at IS NULL LIMIT 1"):
+            # No turn to look at and none held by the last turn pass: nothing to
+            # place or report. The control loop offers this pass every tick, and
+            # a daemon held to a few percent of a core has no tick to spare.
+            return
+        lock = self._pass_locks[kind]
+        if not lock.acquire(blocking=wait):
+            return
+        try:
+            holds: dict[str, dict] = {}
+            tally = {"placed": 0}
+            # A pass that raises leaves both as the last whole pass left them: half
+            # a hold set would read as "nothing left pending" and end the idle
+            # stretch with the queue untouched. C-5.10 logs and paces the failure.
+            self._admit_pass(holds, tally, kind=kind)
+            with self._admission_lock:
+                self._holds_by_kind = {**self._holds_by_kind, kind: holds}
+                self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
+        finally:
+            lock.release()
+        # C-6.11 over both kinds' holds. `_note_admission` may build a view; the
+        # other pass never waits for it, and its placements are noted next time.
+        if self._note_lock.acquire(blocking=False):
+            try:
+                with self._admission_lock:
+                    placed, self._placed_unnoted = self._placed_unnoted, 0
+                    holds = self._holds
+                self._note_admission({"placed": placed}, holds)
+            finally:
+                self._note_lock.release()
 
     def _count_route(self, **counts: int) -> None:
-        """C-6.3: add to `daemon.status`'s `route_evaluations`."""
+        """C-6.3: add to `daemon.status`'s `route_evaluations`; both passes count."""
         with self._route_count_lock:
             totals = dict(self._route_evaluations)
             for key, value in counts.items():
@@ -3087,18 +3145,29 @@ class Daemon:
         finally:
             self._admission = state
 
-    def _admit_pass(self, holds: dict[str, dict], tally: dict) -> None:
-        self._recover_probes()
+    def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detached") -> None:
+        """One pass over the queued jobs of one kind: `turn` or `detached` (C-26.9)."""
+        if kind == "detached":
+            self._recover_probes()
         desktop_account = self._desktop_identity()
         queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
-        for gone in set(self._capacity_waits) - {job["job_id"] for job in queued}:
-            self._capacity_waits.pop(gone, None)
-        for gone in set(self._route_deferrals) - {job["job_id"] for job in queued}:
-            self._route_deferrals.pop(gone, None)
-        for gone in set(self._retry_verdicts) - {job["job_id"] for job in queued}:
-            self._retry_verdicts.pop(gone, None)
-        for gone in set(self._turn_check_errors) - {job["job_id"] for job in queued}:
-            self._turn_check_errors.pop(gone, None)
+        # What admission remembers of a job goes when the job is no longer queued,
+        # whichever pass notices. Each dict is walked as a copy: the other kind's
+        # pass writes its own jobs' entries meanwhile (`dict.copy` is one C call).
+        pending = {job["job_id"] for job in queued}
+        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors)
+        gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
+        if gone:
+            # A job submitted after the read above, whose entry the other pass has
+            # just written, is not gone: asked again, by id.
+            marks = ",".join("?" * len(gone))
+            gone -= {row["job_id"] for row in self.store.query(
+                f"SELECT job_id FROM jobs WHERE job_id IN ({marks}) AND state IN ('queued','waiting') "
+                "AND cancel_requested_at IS NULL", tuple(gone))}
+        for table in tables:
+            for job_id in gone:
+                table.pop(job_id, None)
+        queued = [job for job in queued if (job["kind"] == "turn") == (kind == "turn")]
         # C-6.10: a lease that was held at the last pass and is not now is capacity
         # that came free (an attempt ended, a job let go of its worktree or its
         # output path), so backed-off capacity waits are looked at on this pass
@@ -3106,7 +3175,9 @@ class Daemon:
         # and free nothing a job was waiting for.
         leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
             "SELECT lease_key,holder FROM leases WHERE holder NOT LIKE 'probe:%'"))
-        freed, self._leases_seen = bool(self._leases_seen - leases_now), leases_now
+        with self._admission_lock:                  # the other pass replaces its own entry meanwhile
+            freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now)
+            self._leases_seen = {**self._leases_seen, kind: leases_now}
         cap = self.policy["caps"]["max_active_attempts"]
         # C-6.9: FIFO within a tier holds among jobs that compete for a model. An
         # older job that cannot be placed holds back the later jobs that could run
@@ -3329,6 +3400,13 @@ class Daemon:
                         if job["cancel_requested_at"] or job["state"] in TERMINAL:
                             status = "gone"
                             break
+                        if tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
+                                      "('reserved','starting','running','finalizing','quarantined')",
+                                      (job["job_id"],)).fetchone():
+                            # Checked again here: one job, one attempt at a time, whichever pass got there.
+                            holds[job["job_id"]] = {"reason": "attempt-live"}
+                            status = "held"
+                            break
                         why, judged, standing = self._route_stands(basis, decision)
                         if why is not None:
                             raise _RouteMoved(why, judged)
@@ -3498,7 +3576,10 @@ class Daemon:
             self._capacity_waits.pop(job["job_id"], None)
             # C-6.10: taken after this pass's snapshot. If the attempt ends before
             # the next one, that is a release the next pass must still see.
-            self._leases_seen |= frozenset(leases)
+            with self._admission_lock:
+                self._placed_unnoted += 1
+                self._leases_seen = {**self._leases_seen,
+                                     kind: self._leases_seen.get(kind, frozenset()) | frozenset(leases)}
             try:
                 self._boundary("reserved", job["job_id"], aid)
                 self._pending_launches.add(aid)

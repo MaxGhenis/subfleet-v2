@@ -1,4 +1,4 @@
-"""C-6.3: admission under commits.
+"""C-6.3, C-26.9: admission under commits, and turns first.
 
 Incident, 2026-09-26 (machine at load 110-170, 48 jobs queued): a conversation
 turn waited about 725 s queued and then ran in about 20 s. `why` said no
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -430,6 +431,67 @@ def test_c6_3_a_job_whose_decision_keeps_moving_keeps_its_place(routing_state, m
 
 # --- C-26.9: a turn does not wait for detached jobs ------------------------------------------------
 
+def test_c26_9_a_queued_turn_is_placed_before_a_detached_backlog_is_evaluated(routing_state, monkeypatch):  # noqa: F811
+    """A turn submitted after 30 queued detached jobs of an earlier tier is placed by the
+    pass's turn half, before any of them is evaluated. The single pass sorted turns ahead
+    only of their own tier's detached jobs, so it evaluated every `trivial` job first."""
+    service, harness = routing_state
+    add_codex_lanes(service, "codex-2", "codex-3")
+    for lane_id in ("codex-1", "codex-2", "codex-3"):
+        measure(service, lane_id)
+    service.policy["caps"].update(max_active_attempts=40, max_in_flight_per_lane=20, reading_ttl_s=3600)
+    backlog = [submit(service, harness, pinned_model="astra", tier="trivial") for _ in range(30)]
+    turn = submit_turn(service, harness, 1)
+    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))   # no git per job
+    pick, order = service._pick, []
+
+    def recording(job, **options):
+        order.append(job["job_id"])
+        return pick(job, **options)
+    monkeypatch.setattr(service, "_pick", recording)
+    service._admit()
+    assert order[0] == turn                                         # evaluated first ...
+    assert reserved(service, turn)                                  # ... and placed within the one pass
+    assert all(reserved(service, job_id) for job_id in backlog)
+
+
+def test_c26_9_a_turn_is_placed_while_a_detached_pass_is_held_up(routing_state, monkeypatch):  # noqa: F811
+    """The control loop runs a turn pass of its own beside the detached pass. A detached
+    job's preparation is held (a probe, a slow `git worktree add`, a starved evaluation);
+    a turn submitted meanwhile is reserved by the turn pass while the detached pass is
+    still held, not after it."""
+    service, harness = routing_state
+    measure(service, "codex-1")
+    detached = submit(service, harness, pinned_model="astra")
+    entered, release = threading.Event(), threading.Event()
+    prepare = service._prepare_route
+
+    def held(job, decision_job, exclusions):
+        if job["job_id"] == detached:
+            entered.set()
+            release.wait(30)
+        return prepare(job, decision_job, exclusions)
+    monkeypatch.setattr(service, "_prepare_route", held)
+    monkeypatch.setattr(service, "_launch", lambda attempt: None)            # nothing is started here
+    monkeypatch.setattr(service.timers, "tick", lambda: None)
+    service._recovery_complete.set()
+    loop = threading.Thread(target=service._control, name="test-control")
+    loop.start()
+    try:
+        assert entered.wait(20), "the detached pass reached the held job"
+        turn = submit_turn(service, harness, 1)
+        deadline = time.monotonic() + 20
+        while not reserved(service, turn) and time.monotonic() < deadline:
+            time.sleep(.02)
+        assert reserved(service, turn), "the turn waited for the detached pass"
+        assert not release.is_set() and not service.store.list_attempts(detached)
+    finally:
+        release.set()
+        service.stopping.set()
+        loop.join(30)
+    assert not loop.is_alive()
+
+
 # --- found by the review of this change ---------------------------------------------------------
 
 def test_c6_3_a_lane_enrolled_under_a_reset_credit_override_is_never_reserved_as_measured(routing_state, monkeypatch):  # noqa: F811
@@ -493,6 +555,42 @@ def test_c6_12_a_row_the_check_cannot_read_settles_its_job_not_the_pass(routing_
     assert service._route_evaluations["again"] == 1
 
 
+def test_c26_9_a_turn_half_that_raises_still_lets_the_detached_half_run(routing_state, monkeypatch):  # noqa: F811
+    """A store error in the turn half is the pass's (C-6.12) and is raised, but not before
+    the detached half has run: a turn's trouble never stops detached jobs, as before the
+    split, when the pass placed an earlier-tier job before it met the turn."""
+    service, harness = routing_state
+    measure(service, "codex-1")
+    detached = submit(service, harness, pinned_model="astra", tier="trivial")
+    submit_turn(service, harness, 1)
+
+    def locked(job):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(service.conversations, "admission_hold", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        service._admit()
+    assert reserved(service, detached)
+
+
+def test_c6_11_a_detached_pass_that_is_placing_never_reads_as_idle(routing_state, monkeypatch):  # noqa: F811
+    """The turn pass records admission's state (C-6.11) every tick. A placement made by a
+    detached pass still running is counted when it is made, so the turn pass's record says
+    placing, not 'none placed for N s'."""
+    service, harness = routing_state
+    measure(service, "codex-1")
+    job_id = submit(service, harness, pinned_model="astra")
+    boundary, seen = service._boundary, []
+
+    def on_boundary(name, job, attempt_id=None):
+        boundary(name, job, attempt_id)
+        if name == "reserved" and not seen:
+            service._admit_turns()                             # the turn worker's pass, mid-way through this one
+            seen.append(service._admission["placed_at"])
+    monkeypatch.setattr(service, "_boundary", on_boundary)
+    service._admit()
+    assert reserved(service, job_id) and seen and seen[0] is not None
+
+
 def test_c6_11_a_job_left_for_the_next_pass_reports_that_look(routing_state, monkeypatch):  # noqa: F811
     """`recheck` describes the last look: a waiting job whose look ends `route-moved`
     reports that, not the verdict its wait had before."""
@@ -535,3 +633,23 @@ def test_c6_3_a_clock_that_steps_back_is_evaluated_again(routing_state, monkeypa
     monkeypatch.setattr(daemon_module, "datetime", Behind)
     service._admit()
     assert service._route_evaluations["old"] >= 1 and service._route_evaluations["again"] >= 1
+
+
+def test_c26_9_an_idle_turn_pass_is_one_statement(routing_state, monkeypatch):  # noqa: F811
+    """The control loop offers the turn pass every 50 ms tick. With no turn queued and
+    none held, it asks one indexed question and does nothing else: no desktop identity,
+    no pass, no admission record."""
+    service, harness = routing_state
+    submit(service, harness, pinned_model="astra")                 # a detached job queued: not the turn pass's
+    calls, statements = [], []
+    monkeypatch.setattr(service, "_admit_pass", lambda *a, **k: calls.append("pass"))
+    monkeypatch.setattr(service, "_desktop_identity", lambda: calls.append("desktop"))
+    monkeypatch.setattr(service, "_note_admission", lambda *a, **k: calls.append("note"))
+    one, query = service.store.one, service.store.query
+    monkeypatch.setattr(service.store, "one", lambda *a, **k: statements.append(a[0]) or one(*a, **k))
+    monkeypatch.setattr(service.store, "query", lambda *a, **k: statements.append(a[0]) or query(*a, **k))
+    service._admit_turns()
+    assert calls == [] and len(statements) == 1
+    submit_turn(service, harness, 1)
+    service._admit_turns()
+    assert calls[:1] == ["pass"]
