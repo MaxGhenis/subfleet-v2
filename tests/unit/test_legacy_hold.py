@@ -346,6 +346,9 @@ class RecordingRunner:
     def stop(self):
         pass
 
+    def join(self, timeout):
+        return True                   # no thread: close() has nothing to wait for (C-25.3)
+
 
 def running_attempt(world: World, daemon: FakeDaemon, cid: str, message_id: str) -> str:
     """A turn attempt the guardian kept running across a daemon restart."""
