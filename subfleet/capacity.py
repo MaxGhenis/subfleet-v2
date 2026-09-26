@@ -239,9 +239,8 @@ def fresh_until(readings: Iterable[Mapping[str, Any]], *, now: str | datetime,
     may no longer be (its `observed_at` plus `reading_ttl_s`, or its
     `resets_at`, whichever comes first); None when no reading is fresh.
 
-    Until then every lane measured at `now` is still measured, so a routing
-    decision taken at `now` may be reserved on; a reading that turns fresh
-    later only makes a lane more open."""
+    Until then every lane measured at `now` is still measured. A routing
+    decision also waits on other clocks: `decision_horizon`."""
     instant = _time(now)
     ends = []
     for item in readings:
@@ -252,6 +251,33 @@ def fresh_until(readings: Iterable[Mapping[str, Any]], *, now: str | datetime,
                 end = min(end, _time(row["resets_at"]))
             ends.append(end)
     return min(ends, default=None)
+
+
+def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S,
+                     ends: Iterable[str | datetime] = ()) -> datetime | None:
+    """C-6.3: the first instant after the view's `now` at which a routing decision
+    taken on the view's rows may change with no row changing; None when nothing
+    in it waits on the clock.
+
+    `scheduler.evaluate` reads the clock only through `fresh_provider` and a
+    closure's `until_at`, so its decision on these rows is the same at every
+    instant before the earliest of: a reading turning fresh (its future
+    `observed_at`) or no longer fresh (`fresh_until`), a closure ending (its
+    `until_at`), and each of `ends` (a confirmed override's `weekly_reset_at`,
+    which puts the readings it held out back). Any of them can close a lane,
+    not only open one: an override that ends shows a reading below the floor,
+    and a reported closure on a reserved model gives its lane slack behind a
+    probe (C-11.7) that turns `unmeasured` when the closure ends (review of
+    f48df54)."""
+    instant = _time(view["now"])
+    readings = [_row(item) for item in view.get("readings", ())]
+    clocks = [fresh_until(readings, now=instant, reading_ttl_s=reading_ttl_s)]
+    clocks += [observed for row in readings if (observed := _time(row["observed_at"])) > instant
+               and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s)]
+    clocks += [until for item in view.get("closures", ()) if not (row := _row(item)).get("released_at")
+               and (until := _time(row["until_at"])) > instant]
+    clocks += [_time(end) for end in ends]
+    return min((clock for clock in clocks if clock is not None), default=None)
 
 
 def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int) -> tuple:

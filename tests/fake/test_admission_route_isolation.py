@@ -341,19 +341,59 @@ def test_c6_3_a_reading_that_ages_out_before_the_reservation_means_evaluating_ag
 
     def pick(job, **options):
         if not stale:                                     # just before admission's first look
-            stale.append(ageing_reading(service, fresh_for_s=5))
+            # Fresh for at most 2 s, so the wait below stays well inside
+            # ROUTE_REUSE_S whatever the clock's fraction of a second: only the
+            # horizon, not the age bound, can send the reservation back.
+            stale.append(ageing_reading(service, fresh_for_s=2))
         decision = real(job, **options)
         if "horizon" in options and not service.store._holds_writer():
             early.append(decision.chosen_lane)
-            assert options["horizon"]["fresh_until"] == stale[0]
+            assert options["horizon"]["until"] == stale[0]
             while datetime.now(timezone.utc) <= stale[0] + timedelta(seconds=.2):
                 time.sleep(.05)                               # the reading ages out before the reservation
         return decision
     monkeypatch.setattr(service, "_pick", pick)
+    started = time.monotonic()
     service._admit()
+    assert time.monotonic() - started < daemon_module.ROUTE_REUSE_S
     assert early == ["codex-1"]                                # measured then: a second slot
     assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 0, "old": 1, "failed": 0}
     assert not service.store.list_attempts(job_id)             # no second attempt on an unmeasured lane
+    assert service.store.get_job(job_id)["state"] == "waiting"
+
+
+def test_c6_3_an_override_that_ends_before_the_reservation_means_evaluating_again(routing_state, monkeypatch):  # noqa: F811
+    """Review of f48df54: a confirmed reset-credit override held codex-1's 99% reading
+    out of the early evaluation, which chose codex-1; the override ended before the
+    reservation, which reserved on that decision though its own evaluation rejects
+    the lane (below the floor). The override's end is now part of the horizon."""
+    service, harness = routing_state
+    now = datetime.now(timezone.utc)
+    service.store.add_reading(Reading("codex-1", "account", "seven_day", .99, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", now.strftime("%Y-%m-%dT%H:%M:%SZ")))
+    confirmed = (now - timedelta(days=7) + timedelta(seconds=2)).replace(microsecond=0)
+    ends = confirmed + timedelta(days=7)
+    stamp = confirmed.strftime("%Y-%m-%dT%H:%M:%SZ")
+    service.store.add_action(action_id="act-1", kind="reset-credit", op_key="codex:fake:op1", subject="codex-1",
+                             state="confirmed", request_json="{}", created_at=stamp, updated_at=stamp)
+    assert service.timers.actions.confirmed_override("codex-1") is not None
+    job_id = submit(service, harness, pinned_model="astra")
+    real, early = service._pick, []
+
+    def pick(job, **options):
+        decision = real(job, **options)
+        if "horizon" in options and not service.store._holds_writer():
+            early.append((decision.chosen_lane, options["horizon"]["until"]))
+            while datetime.now(timezone.utc) <= ends + timedelta(seconds=.2):
+                time.sleep(.05)                               # the override ends before the reservation
+        return decision
+    monkeypatch.setattr(service, "_pick", pick)
+    started = time.monotonic()
+    service._admit()
+    assert time.monotonic() - started < daemon_module.ROUTE_REUSE_S
+    assert early == [("codex-1", ends)]                       # held out, the 99% reading did not count
+    assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 0, "old": 1, "failed": 0}
+    assert not service.store.list_attempts(job_id)             # the lane is below the floor now
     assert service.store.get_job(job_id)["state"] == "waiting"
 
 

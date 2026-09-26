@@ -876,19 +876,22 @@ class Daemon:
         # C-6.3, C-11: one pure evaluation uses the same transaction's attempt
         # rows as reservation. Desktop file I/O and the desktop profile request
         # happen before entering it (C-3.3, C-10.3). `horizon`, when given, is
-        # told when a reading this evaluation counted as fresh may stop being so.
+        # told the first instant this decision may change with no row changing
+        # (`capacity.decision_horizon`: a reading's freshness, a closure's end,
+        # an override's end).
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
         rows = self._capacity_rows()
         view = self._capacity_view(desktop, rows)
         context = rows["timers"]["overrides"]          # read once, in the view's snapshot (C-3.7)
-        overrides = {lane["lane_id"] for lane in view["lanes"]
-                     if self.timers.actions.confirmed_override(lane["lane_id"], context=context)}
+        overrides = {lane["lane_id"]: found for lane in view["lanes"]
+                     if (found := self.timers.actions.confirmed_override(lane["lane_id"], context=context))}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
         if horizon is not None:
-            horizon["fresh_until"] = capacity.fresh_until(
-                view["readings"], now=view["now"], reading_ttl_s=self.policy["caps"]["reading_ttl_s"])
+            horizon["until"] = capacity.decision_horizon(
+                view, reading_ttl_s=self.policy["caps"]["reading_ttl_s"],
+                ends=[found["weekly_reset_at"] for found in overrides.values()])
         return scheduler.evaluate(self.policy, view,
                                   {**job, "exclusions": tuple(exclusions) + extra_exclusions,
                                    "policy_hash": self.policy_digest})
@@ -1910,7 +1913,8 @@ class Daemon:
                 # C-6.3: reservations that took the evaluation made before them, and
                 # those that evaluated again inside, since the daemon started, by why:
                 # a commit since (`moved`), too old for its clock (`old`: past
-                # ROUTE_REUSE_S, or a reading it counted fresh has aged out), or it
+                # ROUTE_REUSE_S, or past its horizon: a reading it counted fresh
+                # has aged out, or a closure or an override has ended), or it
                 # failed (`failed`).
                 "route_evaluations": dict(self._route_evaluations)}
 
@@ -3099,10 +3103,12 @@ class Daemon:
             # rows read in one snapshot (`_capacity_rows`). The reserving
             # transaction takes that decision only if no transaction has
             # committed since, so it rests on the very rows the reservation
-            # reads; only if it is at most ROUTE_REUSE_S old; and only if no
-            # reading it counted as fresh has aged out since, so a lane it saw
-            # measured is still measured (a second attempt never lands on a lane
-            # that is unmeasured by then). Otherwise it evaluates again inside,
+            # reads; only if it is at most ROUTE_REUSE_S old; and only before its
+            # horizon, the first instant the clock alone could change it (a
+            # reading it counted as fresh ages out, a closure or an override
+            # ends), so a lane it saw measured is still measured and one it saw
+            # open is still open: a second attempt never lands on a lane that is
+            # unmeasured by then. Otherwise it evaluates again inside,
             # as it always did. An early evaluation that fails is dropped: the
             # transaction's own evaluation fails the same way and settles the
             # job as before (C-6.12). This evaluation, a whole capacity view,
@@ -3123,10 +3129,10 @@ class Daemon:
                 if extra_exclusions:
                     job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
-                fresh_until = horizon.get("fresh_until")
+                until = horizon.get("until")
                 why = ("failed" if early is None else "moved" if self.store.generation != seen else
                        "old" if (time.monotonic() - evaluated_at > ROUTE_REUSE_S or (
-                           fresh_until is not None and datetime.now(timezone.utc) >= fresh_until)) else None)
+                           until is not None and datetime.now(timezone.utc) >= until)) else None)
                 if why is None:
                     decision = early
                     self._route_evaluations["reused"] += 1
