@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+import fcntl
 import os
 import re
 import signal
@@ -48,9 +49,11 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
         # is creating is inheritable for an instant, and a spawn in that instant
         # hands it down. Only a `ps` or `sysctl` holds it, until it exits within
         # the 10 s cap, so the most that follows is a close seen that much
-        # later. The one descriptor this package hands down on purpose, the
-        # guardian's launch gate (`pass_fds`), is closed by the guardian before
-        # it inspects anything; a second one must be too.
+        # later. This package hands down two descriptors on purpose (`pass_fds`),
+        # both from `pipe_above_stdio`: the guardian's launch gate, which the
+        # guardian closes before it inspects anything, and the catalog run's
+        # fence, which never reaches this function (the run's own `ps` reads
+        # close descriptors). A third must do one or the other.
         result = subprocess.run(argv, capture_output=True, text=True, timeout=10, env=env,
                                 close_fds=False)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -472,3 +475,39 @@ def signal_process(recorded: ProcessIdentity, sig: int | signal.Signals) -> bool
         return True
     except (ProcessLookupError, PermissionError):
         return False
+
+
+def pipe_above_stdio() -> tuple[int, int]:
+    """A new pipe whose read end a child inherits by `pass_fds`: (read, write), both
+    above 2 and close-on-exec in this process.
+
+    `os.pipe()` returns the lowest free descriptors. In a process with 0, 1 or 2
+    closed, a read end there is replaced in the child by the /dev/null standard
+    stream it is started with, so the child reads end-of-file although the byte was
+    written; a write end there takes whatever this process writes to that stream.
+    `subprocess` keeps its error pipe's write end above 2 for the same reason. During
+    the call the raw ends from `os.pipe()` may sit at 0, 1 or 2, so another thread's
+    output to that stream can land in the pipe; the call empties it before returning
+    it. The daemon's guardian launch gates (C-5.1) and the catalog run's fence (C-30.1)
+    come from here."""
+    raw = os.pipe()
+    moved: list[int] = []
+    try:
+        try:
+            for fd in raw:
+                moved.append(fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3))
+        finally:
+            for fd in raw:
+                os.close(fd)
+        os.set_blocking(moved[0], False)
+        try:
+            while os.read(moved[0], 65536):
+                pass
+        except BlockingIOError:
+            pass
+        os.set_blocking(moved[0], True)
+    except BaseException:
+        for fd in moved:
+            os.close(fd)
+        raise
+    return moved[0], moved[1]

@@ -1329,7 +1329,8 @@ class ConversationService:
         return 3 * interval
 
     def _start_catalog(self) -> dict:
-        from .catalog import fence_pipe, refresh_running, spawn_refresh
+        from ..procs import pipe_above_stdio
+        from .catalog import refresh_running, spawn_refresh
         with self._catalog_lock:
             if self._closed:
                 # A tick or request close() overtook: nothing would stop or reap a run
@@ -1341,7 +1342,7 @@ class ConversationService:
             self._catalog_last = self.clock()
             try:
                 if self._catalog_fence is None:
-                    self._catalog_fence = fence_pipe()
+                    self._catalog_fence = pipe_above_stdio()
                 process = spawn_refresh(self.root, fence_fd=self._catalog_fence[0])
             except OSError as exc:
                 self.log.warning("catalog run not started: %s", exc)

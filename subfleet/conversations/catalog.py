@@ -384,28 +384,6 @@ def fence_is_pipe(fd: int) -> bool:
         return False
 
 
-def fence_pipe() -> tuple[int, int]:
-    """A new fence pipe for `Owner`, (read, write), both above 2 and close-on-exec.
-
-    `os.pipe()` returns the lowest free descriptors. In an owner with 0, 1 or 2
-    closed, a read end there is replaced in the run by its /dev/null standard streams
-    (`spawn_refresh`), and the run reads end-of-file as if its owner had closed; a
-    write end there would take whatever the owner writes to that stream."""
-    raw = os.pipe()
-    moved: list[int] = []
-    try:
-        for fd in raw:
-            moved.append(fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3))
-    except OSError:
-        for fd in moved:
-            os.close(fd)
-        raise
-    finally:
-        for fd in raw:
-            os.close(fd)
-    return moved[0], moved[1]
-
-
 # --- readers the daemon uses ----------------------------------------------------
 
 
@@ -518,7 +496,7 @@ def spawn_refresh(root: Path, *, fence_fd: int | None = None) -> subprocess.Pope
     """Start one catalog run unless one is running (the lock decides), and return
     the process without waiting for it. Its owner reaps it (`Popen.poll`) and stops
     it on close. `fence_fd` is the read end of the owner's fence pipe, the one
-    descriptor the run inherits (`Owner`), above 2 (`fence_pipe`)."""
+    descriptor the run inherits (`Owner`), above 2 (`procs.pipe_above_stdio`)."""
     if fence_fd is not None and fence_fd <= 2:
         raise ValueError(f"fence descriptor {fence_fd} would be replaced by the run's standard streams")
     if refresh_running(root) is not False:
