@@ -184,6 +184,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     if not rows:
         out("no live Claude Code sessions are registered")
+        _sidebar_note(args)
         return int(Exit.OK)
     out(f"{'session':<10}{'pid':>8}  {'inbox':<6}{'state':<12}{'name'}")
     for row in rows:
@@ -193,7 +194,22 @@ def cmd_list(args: argparse.Namespace) -> int:
             f"{row['state']:<12}{(row['name'] or '-')[:44]}{mark}")
     for line in registry.duplicate_report(listing):
         note(f"subfleet sessions: duplicate {line}")
+    _sidebar_note(args)
     return int(Exit.OK)
+
+
+def _sidebar_note(args: argparse.Namespace) -> None:
+    """One stderr line when the running desktop app cannot list mirrored sessions.
+
+    Advisory: the listing above is the answer, so any failure here is silent.
+    """
+    try:
+        gap = mirror_module.load_gap(_cli()._root(args), _policy(args))
+    except Exception:                                   # noqa: BLE001 - advisory only
+        return
+    if gap.get("status") == "relaunch":
+        note(f"subfleet sessions: sidebar: {gap['detail']}")
+        note(f"  fix: {RELAUNCH_FIX}")
 
 
 # --- sessions continue / tickle / muster / revive ------------------------------
@@ -415,6 +431,26 @@ def cmd_unretire(args: argparse.Namespace) -> int:
 
 # --- sessions mirror (C-23.28) ------------------------------------------------
 
+#: What lists a mirrored session the running app has not: the app reads its
+#: session folder only when it loads it (`sessions/desktop.py`).
+RELAUNCH_FIX = "quit and reopen the Claude app (⌘Q + reopen) to list them"
+
+
+def _sidebar_lines(gap: dict[str, Any]) -> list[str]:
+    """`--status` lines for the load gap: the sessions the running app cannot list."""
+    status = gap.get("status")
+    if status == "relaunch":
+        lines = [f"sidebar relaunch needed: {gap['detail']}"]
+        for item in gap.get("sessions") or []:
+            lines.append(f"  {item['name']}  {item.get('title') or '-'}")
+        hidden = gap.get("pending", 0) - len(gap.get("sessions") or [])
+        if hidden > 0:
+            lines.append(f"  ... and {hidden} more")
+        lines.append(f"  fix: {RELAUNCH_FIX}")
+        return lines
+    return [f"sidebar {status}: {gap.get('detail')}"]
+
+
 def cmd_mirror(args: argparse.Namespace) -> int:
     """One sidebar pass, or the sidecar's health. Never calls a provider."""
     cli = _cli()
@@ -424,10 +460,13 @@ def cmd_mirror(args: argparse.Namespace) -> int:
         return _mirror_list(args, engine)
     if getattr(args, "status", False):
         health = engine.health()
+        gap = engine.load_gap()
         if args.json:
-            emit(health)
+            emit({**health, "load_gap": gap})
         else:
             out(f"mirror {health['status']}: {health['detail']}")
+            for line in _sidebar_lines(gap):
+                out(line)
         return int(Exit.OK if health["status"] in ("healthy", "running", "absent")
                    else Exit.OPERATIONAL)
     options = mirror_module.options_from(
@@ -443,8 +482,7 @@ def cmd_mirror(args: argparse.Namespace) -> int:
     if args.json:
         emit(result.to_dict())
         return int(Exit.OK)
-    changed = any((result.added, result.repaired, result.revived, result.pruned,
-                   result.flag_synced, result.retitled, result.transcript_retitled))
+    changed = result.changed
     if getattr(args, "quiet", False):
         # v1's launchd cadence: silent on a no-op pass, which is exactly why
         # C-23.28 judges health from the sidecar and never from log recency.
@@ -457,7 +495,16 @@ def cmd_mirror(args: argparse.Namespace) -> int:
     if result.error:
         note(f"subfleet sessions mirror: {result.error}")
     if (result.added or result.repaired) and not options.dry_run:
-        note("  restart the Claude app (⌘Q + reopen) to refresh the sidebar")
+        gap = engine.load_gap()
+        if gap.get("status") == "relaunch":
+            note(f"  sidebar: {gap['detail']}")
+            note(f"  fix: {RELAUNCH_FIX}")
+        elif gap.get("status") == "unknown":
+            # Without the app's log the mirror cannot tell whether a copy landed
+            # in the folder the running app has loaded, so it says what it can.
+            note("  sidebar: the app's log does not say which folder it loaded; a "
+                 "running app lists copies only when it next loads a folder")
+            note(f"  fix: {RELAUNCH_FIX}")
     return int(Exit.OK if result.state != "error" else Exit.OPERATIONAL)
 
 
@@ -639,7 +686,8 @@ def add_verbs(sub, *, nested: bool = True) -> None:
     p_mirror.add_argument("--once", action="store_true",
                           help="run one pass now (the default)")
     p_mirror.add_argument("--status", action="store_true",
-                          help="print the sidecar's health instead of running")
+                          help="print the sidecar's health and what the running "
+                               "app cannot list yet, instead of running")
     p_mirror.add_argument("--list", dest="list_accounts", action="store_true",
                           help="per-account openable/dead counts; change nothing")
     p_mirror.add_argument("--quiet", action="store_true",
