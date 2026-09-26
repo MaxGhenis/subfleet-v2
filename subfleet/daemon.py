@@ -424,6 +424,7 @@ class Daemon:
         self.lock_watch = LockWatch(lambda text: self.log.warning("%s", text))
         self.lock_watch.add(self.store._lock)
         self.lock_watch.add(self.conversations.store._lock)
+        self.lock_watch.watch_reads("store", self.store.read_holds)       # C-3.7
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,

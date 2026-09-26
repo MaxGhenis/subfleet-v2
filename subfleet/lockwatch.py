@@ -8,7 +8,9 @@ reports, rate-limited:
   while the hold lasts (the watch's own thread samples it);
 - the end of such a hold, with its length;
 - a thread that has waited `wait_s` for the lock, with the number of waiters,
-  the longest wait, and the holder's live stack.
+  the longest wait, and the holder's live stack;
+- a store read connection in use longer than `hold_s` (`watch_reads`), with
+  its thread's live stack, since no checkpoint passes its snapshot (C-3.7).
 
 Nothing here changes who gets the lock or when: the bookkeeping is done while
 the lock is held, and a waiter's report is written between two timed waits
@@ -137,6 +139,9 @@ class LockWatch:
         self.hold_s, self.wait_s, self.every_s, self.sample_s = hold_s, wait_s, every_s, sample_s
         self.locks: list[WatchedLock] = []
         self._sampled: dict[int, tuple[int, float]] = {}    # id(lock) -> the hold last sampled
+        # (name, read holds) sampled like the locks (C-3.7); the holds reported so far.
+        self.readers: list[tuple[str, Callable[[], list[tuple[int, float, str]]]]] = []
+        self._reads_sampled: set[tuple[str, int, float]] = set()
         # (lock name, kind) -> [next time a line may be written, lines held back, worst held back]
         self._limits: dict[tuple[str, str], list] = {}
         self._limits_lock = threading.Lock()
@@ -147,6 +152,13 @@ class LockWatch:
         lock.watch = self
         self.locks.append(lock)
         return lock
+
+    def watch_reads(self, name: str, holds: Callable[[], list[tuple[int, float, str]]]) -> None:
+        """Also sample `holds()`, the (thread ident, monotonic start, kind) of each
+        read connection in use (`Store.read_holds`): one held past `hold_s` is
+        reported once, with its thread's live stack. A long read holds the
+        write-ahead log back: no checkpoint passes its snapshot (C-3.7)."""
+        self.readers.append((name, holds))
 
     def start(self) -> None:
         if self._thread is None:
@@ -183,6 +195,18 @@ class LockWatch:
             self._emit(lock.name, "hold", seconds, lambda: (
                 f"{lock.name} lock held {seconds:.1f} s so far by {thread_name(ident)}; "
                 f"{self._waiting(lock, now)}. Holder's stack:\n{live_stack(ident)}"))
+        for name, holds in list(self.readers):
+            current = {(name, ident, since): kind for ident, since, kind in holds()}
+            self._reads_sampled = {key for key in self._reads_sampled if key[0] != name or key in current}
+            for key, kind in current.items():
+                ident, since = key[1], key[2]
+                if now - since < self.hold_s or key in self._reads_sampled:
+                    continue
+                self._reads_sampled.add(key)
+                seconds = now - since
+                self._emit(name, "read-hold", seconds, lambda name=name, ident=ident, kind=kind, seconds=seconds: (
+                    f"{name} read connection held {seconds:.1f} s so far by {thread_name(ident)} for a "
+                    f"{kind}; no checkpoint of the write-ahead log passes it. Its stack:\n{live_stack(ident)}"))
         self._flush(now)
 
     def released(self, lock: WatchedLock, held: tuple[int, float], seconds: float,

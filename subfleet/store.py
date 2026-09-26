@@ -50,6 +50,11 @@ READ_WAIT_S = 1.0
 #: C-3.7: how long `close` waits for reads in progress before it closes the idle
 #: connections; a read still going then closes its own when it ends.
 CLOSE_WAIT_S = 5.0
+#: C-3.7: the write-ahead log file is cut back to this size each time SQLite
+#: restarts the log, so a backlog one long reader built up does not stay on
+#: disk. SQLite's automatic checkpoints are PASSIVE: they never wait for a
+#: reader, only stop short of the oldest snapshot still open.
+WAL_SIZE_LIMIT = 64 * 1024 * 1024
 
 #: C-3.1: migrations are additive and numbered. Each entry is the statements that
 #: carry a database from `n - 1` to `n`; `store_schema.sql` always describes the
@@ -143,6 +148,7 @@ class Store:
             else:
                 self.connection.execute("PRAGMA journal_mode=WAL")
                 self.connection.execute("PRAGMA synchronous=FULL")
+                self.connection.execute(f"PRAGMA journal_size_limit={int(WAL_SIZE_LIMIT)}")
                 # Columns first, then the schema file: `store_schema.sql` always
                 # describes the newest version, and its indexes cannot be created
                 # over an older table until that table has caught up (C-3.1).

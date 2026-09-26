@@ -435,3 +435,62 @@ def test_capacity_views_hold_no_read_connection_while_they_build(tmp_path, monke
         assert daemon.store.read_pool()["in_use"] == 0
     finally:
         daemon.close()
+
+
+# --- C-3.7: the write-ahead log stays bounded (review of 5841d8b, low finding) ---------------
+
+def wal_size(path) -> int:
+    wal = path.with_name(path.name + "-wal")
+    return wal.stat().st_size if wal.exists() else 0
+
+
+def test_the_writer_limits_the_wal_it_leaves_behind(store):
+    from subfleet.store import WAL_SIZE_LIMIT
+    assert store.connection.execute("PRAGMA journal_size_limit").fetchone()[0] == WAL_SIZE_LIMIT
+    assert store.connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_a_long_snapshot_holds_the_wal_back_without_holding_a_commit_and_it_shrinks_after(tmp_path, monkeypatch):
+    """Checkpoints are SQLite's automatic, PASSIVE ones: a commit never waits for a
+    reader, it only checkpoints short of the oldest open snapshot. When that
+    snapshot ends, the next commits checkpoint everything, restart the log and cut
+    the file back to `WAL_SIZE_LIMIT`."""
+    from subfleet import store as store_module
+    monkeypatch.setattr(store_module, "WAL_SIZE_LIMIT", 256 * 1024)
+    path = tmp_path / "state.sqlite3"
+    handle = Store(path, readers=2)
+    pad = "x" * 1024
+    try:
+        with Holding(handle, 1):                             # a snapshot, open, with its first read done
+            worst = 0.0
+            for n in range(2500):
+                started = time.monotonic()
+                with handle.transaction("test.grow") as tx:
+                    tx.execute("INSERT INTO leases VALUES (?,?,?,NULL)", (f"k{n}", pad, "t"))
+                worst = max(worst, time.monotonic() - started)
+            held_back = wal_size(path)
+            assert held_back > 2 * 1024 * 1024, held_back    # past 1000 pages: the checkpoint stopped short
+            assert worst < 2.0, worst                          # no commit waited for the reader
+        for n in range(3):
+            with handle.transaction("test.after") as tx:
+                tx.execute("INSERT INTO leases VALUES (?,?,?,NULL)", (f"after{n}", "y", "t"))
+        assert wal_size(path) <= 256 * 1024 + 64 * 1024, wal_size(path)
+    finally:
+        handle.close()
+
+
+def test_a_long_read_is_reported_once_with_its_stack(store):
+    from subfleet.lockwatch import LockWatch
+    lines = []
+    watch = LockWatch(lines.append, hold_s=.1, every_s=0)
+    watch.watch_reads("store", store.read_holds)
+    with Holding(store, 1):
+        time.sleep(.2)
+        watch.sample()
+        watch.sample()                                          # the same hold: once
+    reports = [line for line in lines if "read connection held" in line]
+    assert len(reports) == 1, lines
+    assert "hold-snapshot-0" in reports[0] and "for a snapshot" in reports[0]
+    assert "no checkpoint of the write-ahead log passes it" in reports[0] and "_run" in reports[0]
+    watch.sample()
+    assert watch._reads_sampled == set()                        # forgotten once it ends
