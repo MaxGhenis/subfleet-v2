@@ -441,3 +441,57 @@ def test_the_daemon_log_says_what_the_policy_means_for_resets(tmp_path, monkeypa
         service.close()
     assert ("automatic redemption on" if enabled else "automatic redemption off") in text
     assert f"no-reset marker {root / 'no-reset'}" in text
+
+
+class Crash(BaseException):
+    """The daemon dying between the consume and the publication of its result."""
+
+
+def test_a_reset_whose_result_a_crash_lost_is_still_kept_for_its_job(fleet, monkeypatch):
+    """C-23.16 (c), C-19.1: the consume succeeds, the daemon dies before publishing it, the restart
+    records it `unknown`, and a usage read shows the lane open: the lane is the waiting job's, the job
+    is due at once, and an older competing job cannot take it.
+
+    Peer review of c5a8e99 (P2): reservations counted only `confirmed` actions, so the reconciled
+    lane went to whichever job admission reached first, here the older one, and the job the credit
+    was spent for stayed on its backoff clock.
+    """
+    service, http = fleet
+    service.store.put_lane(Lane("claude-1", "claude", "claude:fake:org", Credential("claude", "fake-token", "env"),
+                                None, LaneOwner.V2, False))
+    busy(service, "claude-1", model="claude-sonnet-5")
+    for number in range(1, 7):
+        limit(service, number)
+    older = submit(service, "older", pinned_model=None, task="review", tier="easy")   # sonnet, opus, astra
+    younger = submit(service, "younger", tier="standard")                             # astra only
+    service._admit()
+    assert {row["job_id"]: row["verdict"] for row in service._reset_demand()} == {
+        older: "lane-has-capacity", younger: "codex-demand"}
+
+    def die(*args, **kwargs):
+        raise Crash
+    monkeypatch.setattr(service.timers.actions.actions, "publish", die)
+    with pytest.raises(Crash):
+        service.timers.reset_credits_cycle()
+    assert http.consumed() == ["fake-6"]                   # the provider reset codex-6
+    root = service.root
+    service.close()
+
+    restarted = Daemon(root)
+    restarted.timers.adapter_factory = lambda provider: CodexAdapter(opener=http)
+    try:
+        restarted._recover_then_start_timers()
+        assert [row["state"] for row in restarted.store.query("SELECT state FROM actions")] == ["unknown"]
+        restarted._admit()                                 # the first look after the restart: codex-6 still closed
+        assert lanes_of(restarted, older) == lanes_of(restarted, younger) == []
+        assert restarted.store.get_job(younger)["next_check_at"] > utcnow()      # back on its clock
+        restarted.timers.probe_cycle()                     # codex-6 reads open: the unknown consume is reconciled
+        assert restarted.store.query("SELECT 1 FROM events WHERE kind='action.reconciled' AND data_json!='{}'")
+        assert restarted.timers.actions.reservations() == {"codex-6": younger}
+        assert restarted.store.get_job(younger)["next_check_at"] <= utcnow()     # due at once
+        restarted.store.update_job(older, next_check_at=utcnow())                # the older job's clock comes due
+        restarted._admit()
+        assert lanes_of(restarted, younger) == ["codex-6"] and lanes_of(restarted, older) == []
+        assert http.consumed() == ["fake-6"]               # and no second credit went anywhere
+    finally:
+        restarted.close()

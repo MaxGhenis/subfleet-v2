@@ -133,35 +133,77 @@ def _shadowed(row: Mapping[str, Any]) -> bool:
     return bool(row.get("app_shadowed") or row.get("shadowed_by_app"))
 
 
-def reset_reservations(store, *, now: str | datetime | None = None) -> dict[str, str]:
-    """C-23.16 (c): lane id -> the waiting job a confirmed reset was spent for.
+def usage_open_reconciliations(store) -> dict[str, dict]:
+    """C-19.1: action id -> the usage read that settled it open (the first), with the lane read."""
+    found: dict[str, dict] = {}
+    for row in store.query("SELECT lane_id,data_json FROM events WHERE kind='action.reconciled' ORDER BY event_id"):
+        try:
+            data = json.loads(row["data_json"] or "{}")
+        except ValueError:
+            continue
+        if (isinstance(data, dict) and isinstance(data.get("action_id"), str)
+                and data.get("outcome") == "usage-open"):
+            found.setdefault(data["action_id"], {**data, "lane_id": row["lane_id"]})
+    return found
 
-    A reservation lasts `RESERVATION_S` from the confirmation and ends as soon
-    as that job has an attempt reserved (anywhere), is no longer queued or
-    waiting, or is being cancelled. Admission keeps every other job off a
-    reserved lane while it lasts (`Daemon._capacity_view`). A plain read of the
-    store, so admission needs no timer to ask it.
+
+def _moment(value: Any) -> datetime | None:
+    """A stored timestamp, or None: admission reads these and must not raise on one."""
+    try:
+        return _time(value) if value else None
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _still_waits(store, job_id: str, spent_at: str) -> bool:
+    """C-23.16 (c): the job a reset was spent for still has no attempt since, and waits."""
+    job = store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
+    if job is None or job["state"] not in ("queued", "waiting") or job["cancel_requested_at"]:
+        return False
+    return not store.one("SELECT 1 FROM attempts WHERE job_id=? AND reserved_at>=?", (job_id, spent_at))
+
+
+def reset_reservations(store, *, now: str | datetime | None = None) -> dict[str, str]:
+    """C-23.16 (c): lane id -> the waiting job a reset was spent for.
+
+    A spend is a `confirmed` consume, held for `RESERVATION_S` from its
+    confirmation, or an `unknown` one (its result never published: a timeout,
+    or a daemon that died between the consume and its result) whose lane a
+    later usage read showed open (C-19.1's reconciliation), held for
+    `RESERVATION_S` from that reconciliation, since a restart can outlast the
+    reservation. Either ends as soon as the job has an attempt reserved
+    (anywhere) since the spend, is no longer queued or waiting, or is being
+    cancelled. Admission keeps every other job off a reserved lane while it
+    lasts (`Daemon._capacity_view`). A plain read of the store, so admission
+    needs no timer to ask it.
     """
     instant = _time(now or datetime.now(timezone.utc))
-    since = _iso(instant - timedelta(seconds=RESERVATION_S))
+    since = instant - timedelta(seconds=RESERVATION_S)
+    spends: list[tuple[datetime, dict, str | None]] = []
+    for action in store.query("SELECT action_id,request_json,updated_at FROM actions WHERE kind='reset-credit' "
+                              "AND state='confirmed' AND updated_at>=?", (_iso(since),)):
+        if (held_from := _moment(action["updated_at"])) is not None and held_from >= since:
+            spends.append((held_from, action, None))
+    unknown = store.query("SELECT action_id,request_json,updated_at FROM actions "
+                          "WHERE kind='reset-credit' AND state='unknown'")
+    opened = usage_open_reconciliations(store) if unknown else {}
+    for action in unknown:
+        if (settled := opened.get(action["action_id"])) is None:
+            continue            # not known to have reset anything: its lane still reads limited
+        held_from = _moment(settled.get("reconciled_at") or settled.get("observed_at"))
+        if held_from is not None and held_from >= since:
+            spends.append((held_from, action, settled.get("lane_id")))
     found: dict[str, str] = {}
-    for action in store.query(
-            "SELECT action_id,request_json,updated_at FROM actions WHERE kind='reset-credit' "
-            "AND state='confirmed' AND updated_at>=? ORDER BY updated_at,action_id", (since,)):
+    for _, action, lane_read in sorted(spends, key=lambda spend: (spend[0], spend[1]["action_id"])):
         try:
             request = json.loads(action["request_json"] or "{}")
         except ValueError:
             continue
-        job_id, lane_id = request.get("job_id"), request.get("lane_id")
+        job_id, lane_id = request.get("job_id"), lane_read or request.get("lane_id")
         if not isinstance(job_id, str) or not isinstance(lane_id, str):
             continue
-        job = store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
-        if job is None or job["state"] not in ("queued", "waiting") or job["cancel_requested_at"]:
-            continue
-        if store.one("SELECT 1 FROM attempts WHERE job_id=? AND reserved_at>=?",
-                     (job_id, action["updated_at"])):
-            continue
-        found[lane_id] = job_id
+        if _still_waits(store, job_id, action["updated_at"]):
+            found[lane_id] = job_id
     return found
 
 
@@ -451,7 +493,7 @@ class ResetCredits:
         return sorted(opened)
 
     def reservations(self, *, now: str | datetime | None = None) -> dict[str, str]:
-        """C-23.16 (c): lane id -> the waiting job a confirmed reset was spent for."""
+        """C-23.16 (c): lane id -> the waiting job a reset was spent for (`reset_reservations`)."""
         return reset_reservations(self.store, now=now)
 
     def _weekly_has_room(self, row: dict, instant: datetime) -> bool:
@@ -723,8 +765,15 @@ class ResetCredits:
                          (now, lane_id))
 
     def settle_by_usage(self, lane_id: str, probe: dict, *, now: str | datetime | None = None) -> dict | None:
-        """C-19.1, C-23.13: append read reconciliation; preserve the original result."""
+        """C-19.1, C-23.13: append read reconciliation; preserve the original result.
+
+        C-23.16 (c): an `unknown` consume spent for a waiting job is a spend
+        once its lane reads open. In the same transaction the job is made due
+        at once and the lane is kept for it (`reset_reservations`, from this
+        reconciliation's `reconciled_at`), exactly as a confirmation would.
+        """
         instant = _time(now or datetime.now(timezone.utc))
+        stamp = _iso(instant)
         if probe.get("status") != "ok" or probe.get("limit_reached") is not False or probe.get("allowed") is False:
             return None
         lane = self.store.get_lane(lane_id)
@@ -741,11 +790,28 @@ class ResetCredits:
                 continue
             result = {"action_id": action["action_id"], "effective_state": "settled",
                       "outcome": "usage-open", "observed_at": _iso(observed),
-                      "original_state": action["state"]}
-            with self.store.transaction("action.reconciliation", lane_id=lane_id):
+                      "original_state": action["state"], "reconciled_at": stamp}
+            with self.store.transaction("action.reconciliation", lane_id=lane_id) as conn:
                 self.store.add_event("action.reconciled", lane_id=lane_id, data=result)
-                self._release(lane_id, _iso(instant), action_id=action["action_id"])
+                self._release(lane_id, stamp, action_id=action["action_id"])
+                if action["state"] == "unknown":
+                    self._keep_for_job(conn, action, lane_id, instant)
         return result
+
+    def _keep_for_job(self, conn, action: dict, lane_id: str, instant: datetime) -> None:
+        """C-23.16 (c): a reconciled `unknown` consume's job is due now and the lane is kept for it."""
+        try:
+            job_id = json.loads(action.get("request_json") or "{}").get("job_id")
+        except ValueError:
+            return
+        if not isinstance(job_id, str) or not _still_waits(self.store, job_id, action["updated_at"]):
+            return
+        stamp, until = _iso(instant), _iso(instant + timedelta(seconds=RESERVATION_S))
+        conn.execute("UPDATE jobs SET next_check_at=? WHERE job_id=? AND state='waiting' "
+                     "AND cancel_requested_at IS NULL", (stamp, job_id))
+        self.store.add_event("reset-credit.reserved", lane_id=lane_id, job_id=job_id,
+                             data={"action_id": action["action_id"], "job_id": job_id, "lane_id": lane_id,
+                                   "until": until, "original_state": "unknown"})
 
     def confirmed_override(self, lane_id: str, *, now: str | datetime | None = None) -> dict | None:
         """C-23.17: reopen during usage propagation without inventing percentages."""

@@ -572,3 +572,71 @@ def test_a_preview_that_fails_to_read_the_queue_cannot_relabel_a_timer_result(st
         assert timers.evaluate_resets(timers.snapshot())["status"] == "no-demand"
     finally:
         timers.stop()
+
+
+# --- peer review of c5a8e99: a reset whose result was lost is still its job's --------------
+
+def _iso(value):
+    return value.isoformat().replace("+00:00", "Z")
+
+
+class Crash(BaseException):
+    """The daemon dying between the consume and the publication of its result."""
+
+
+@pytest.mark.parametrize("lost", ["timeout", "crash"])
+def test_an_unknown_consume_whose_lane_reads_open_is_kept_for_its_job(store, tmp_path, monkeypatch, lost):
+    """C-23.16 (c), C-19.1: a spend whose result was never published is its job's once the lane reads open.
+
+    Peer review of c5a8e99 (P2): only `confirmed` actions held a lane, so a consume that succeeded
+    and was then lost to a crash (recovered `unknown`) or a timeout, and later reconciled by a usage
+    read, released the lane to any older job, and its job stayed on its backoff clock. The lane is
+    held from the reconciliation, which can come long after the action's own time.
+    """
+    target = limited_lane(store, tmp_path)
+    resets = component(store, HTTP(response=TimeoutError()) if lost == "timeout" else HTTP())
+    if lost == "crash":
+        def die(*args, **kwargs):
+            raise Crash
+        monkeypatch.setattr(resets.actions, "publish", die)
+        with pytest.raises(Crash):
+            resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
+        assert store.query("SELECT state FROM actions")[0]["state"] == "executing"
+        resets = component(store, HTTP())                 # the restarted daemon's component
+        resets.recover(now=NOW + timedelta(minutes=1))
+    else:
+        assert resets.evaluate(snapshot(store), now=NOW, demand=wants(store))["status"] == "unknown"
+    action = store.query("SELECT * FROM actions")[0]
+    assert action["state"] == "unknown"
+    assert resets.reservations(now=NOW) == {}             # not known to be reset yet
+    later = NOW + timedelta(seconds=RESERVATION_S + 300)    # a restart can outlast the reservation
+    store.update_job("job-1", next_check_at=_iso(later + timedelta(minutes=10)))    # its backoff clock
+    settled = resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False,
+                                                      "checked_at": _iso(later)}, now=later)
+    assert resets.reservations(now=later) == {target.lane_id: "job-1"}
+    assert store.get_job("job-1")["next_check_at"] == _iso(later)             # due at once
+    assert settled["original_state"] == "unknown" and settled["reconciled_at"] == _iso(later)
+    assert resets.reservations(now=later + timedelta(seconds=RESERVATION_S)) == {target.lane_id: "job-1"}
+    assert resets.reservations(now=later + timedelta(seconds=RESERVATION_S + 1)) == {}
+    events = store.query("SELECT job_id,lane_id,data_json FROM events WHERE kind='reset-credit.reserved' "
+                         "AND data_json!='{}'")
+    assert [(row["job_id"], row["lane_id"]) for row in events] == [("job-1", target.lane_id)]
+    assert json.loads(events[0]["data_json"])["until"] == _iso(later + timedelta(seconds=RESERVATION_S))
+    assert store.get_action(action["action_id"]) == action                    # the original result stands
+    store.add_attempt(attempt_id="job-1/a1", job_id="job-1", seq=1, lane_id=target.lane_id,
+                      model_requested="gpt-6-astra", reserved_at=_iso(later))
+    assert resets.reservations(now=later) == {}           # placed: the reset reached its job
+
+
+def test_an_unknown_consume_reconciled_for_a_job_that_moved_on_reserves_nothing(store, tmp_path):
+    """C-23.16 (c): the reconciled lane is kept only for a job still waiting with no attempt since the spend."""
+    target = limited_lane(store, tmp_path)
+    resets = component(store, HTTP(response=TimeoutError()))
+    assert resets.evaluate(snapshot(store), now=NOW, demand=wants(store))["status"] == "unknown"
+    store.update_job("job-1", state="cancelled", next_check_at=None)
+    later = NOW + timedelta(minutes=5)
+    resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False, "checked_at": _iso(later)},
+                           now=later)
+    assert resets.reservations(now=later) == {}
+    assert store.get_job("job-1")["next_check_at"] is None
+    assert not store.query("SELECT * FROM events WHERE kind='reset-credit.reserved' AND data_json!='{}'")
