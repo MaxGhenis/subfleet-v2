@@ -254,10 +254,12 @@ BaseAgreement ==
        => /\ base' = decided
           /\ \A a \in Dirty \ touched : copy'[a] = decided]_vars
 
-\* Intent wins: with a base, a pass decides what the user last set since the
-\* last publish that converged. This is "no resurrection" for a user's change,
-\* and unlike NeverUndoSettled it is exercised with an honest app (a user
-\* action clears settled). Expected to fail with StaleSaves = TRUE.
+\* Intent wins: with a base, if the user set only one value since the last
+\* publish that converged, a pass decides that value; a user who set both is
+\* exempt (Conflict), because the merge base cannot order them. This is "no
+\* resurrection" for a user's change, and unlike NeverUndoSettled it is
+\* exercised with an honest app (a user action clears settled). Expected to
+\* fail with StaleSaves = TRUE.
 IntentWins ==
     [][PassDecide /\ base \in Values /\ intent \in Values => decided' = intent]_vars
 

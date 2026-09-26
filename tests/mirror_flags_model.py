@@ -75,7 +75,8 @@ class State:
     settled: bool | None = None
     #: Ghost: what the user set since the last publish that converged every
     #: copy (None: nothing; CONFLICT: both values). While a bool, a pass with
-    #: a base must decide it: the user's change is never undone.
+    #: a base must decide it. A user who set both values since is exempt: the
+    #: merge base cannot order them.
     intent: bool | str | None = None
 
 
@@ -251,9 +252,10 @@ def check_step(before: State, label: str, after: State) -> list[str]:
             moved = {v for v in before.copy if v != before.base}
             if len(moved) == 1 and after.decided not in moved:
                 broken.append("change-wins")
-        # Intent wins: with a base, a pass decides what the user last set since
-        # the last publish that converged. This is what "no resurrection"
-        # means for an honest app; never-undo-settled covers the rest.
+        # Intent wins: with a base, if the user set only one value since the
+        # last publish that converged, a pass decides that value (a user who
+        # set both is exempt: the merge base cannot order them). This is what
+        # "no resurrection" means for an honest app.
         if isinstance(before.base, bool) and isinstance(before.intent, bool) \
                 and after.decided != before.intent:
             broken.append("intent-wins")
