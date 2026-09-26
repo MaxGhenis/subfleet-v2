@@ -138,7 +138,8 @@ class SessionRow:
 
 def _row(path: Path) -> SessionRow | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        with transcripts.open_regular(path, "r", encoding="utf-8") as stream:
+            data = json.loads(stream.read())
     except (OSError, ValueError):
         return None
     if not isinstance(data, dict) or not isinstance(data.get("sessionId"), str):

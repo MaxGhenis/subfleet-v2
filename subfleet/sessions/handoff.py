@@ -362,7 +362,7 @@ def looks_binary(text: str) -> bool:
 def first_task(path: Path, cap: int) -> tuple[str, str | None, int]:
     """The session's original instruction: the first real human turn."""
     try:
-        stream = path.open("r", encoding="utf-8", errors="replace")
+        stream = transcripts.open_regular(path, "r", encoding="utf-8", errors="replace")
     except OSError as exc:
         raise HandoffError(f"cannot read transcript {path}: {exc}") from exc
     with stream:
@@ -496,7 +496,7 @@ def select_segments(segments: list[tuple[str, int, str | None]],
 def _read_bounded(path: Path, max_bytes: int = PROGRESS_READ_BYTES) -> str:
     try:
         size = path.stat().st_size
-        with path.open("rb") as stream:
+        with transcripts.open_regular(path) as stream:
             if size <= max_bytes:
                 raw = stream.read()
             else:

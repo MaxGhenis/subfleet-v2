@@ -35,9 +35,12 @@ a session that is actually working changes it within seconds.
 
 from __future__ import annotations
 
+import errno
+import fcntl
 import json
 import os
 import re
+import stat
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +61,28 @@ HEADLESS_PROMPT_LIMIT = 2
 
 _TAIL_BYTES = 512 * 1024
 _SCAN_MAX = 64 * 1024 * 1024
+
+
+class NotRegularFile(OSError):
+    """A path handed to a reader names something other than a regular file."""
+
+
+def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
+    """Open `path` for reading only if it is a regular file, and never block in
+    open(). A FIFO named where a transcript or rollout belongs made open() wait for
+    a writer, so a file op held there held the conversation service's close() for
+    good (reviews of 39223c9). O_NONBLOCK lets open() return whatever the path is;
+    the descriptor's own type then decides, so the file checked is the file read.
+    Anything else raises `NotRegularFile`, an OSError, as a missing file would."""
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
+        fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
+        return os.fdopen(fd, mode, **kwargs)
+    except BaseException:
+        os.close(fd)
+        raise
 _MAIN_ENTRY_LIMIT = 12
 _MODE_RE = re.compile(rb'"permissionMode"\s*:\s*"([A-Za-z]+)"')
 
@@ -128,7 +153,7 @@ def lines_reversed(path: Path, *, chunk: int = _TAIL_BYTES,
     """
     try:
         size = path.stat().st_size
-        with path.open("rb") as stream:
+        with open_regular(path) as stream:
             end, carry, scanned = size, b"", 0
             while end > 0 and scanned < max_bytes:
                 start = max(0, end - chunk)
@@ -158,7 +183,7 @@ def lines_reversed_with_offsets(path: Path, *, chunk: int = _TAIL_BYTES, max_byt
     inside, if any, comes first and cut short."""
     try:
         size = path.stat().st_size
-        with path.open("rb") as stream:
+        with open_regular(path) as stream:
             end = size if end is None else max(0, min(int(end), size))
             carry, carry_at, scanned = b"", end, 0
             while end > 0 and scanned < max_bytes:
@@ -186,7 +211,7 @@ def lines_forward_with_offsets(path: Path, start: int, max_bytes: int) -> Iterat
     """The non-blank lines that start at or after `start` (a line's start) and
     before `start + max_bytes`, oldest first, each with its byte offset."""
     try:
-        with path.open("rb") as stream:
+        with open_regular(path) as stream:
             stream.seek(max(0, start))
             offset = max(0, start)
             for raw in stream:
@@ -203,7 +228,7 @@ def line_start(path: Path, offset: int, *, chunk: int = _TAIL_BYTES) -> int:
     """The byte offset where the line holding byte `offset` starts (0 for the first
     line), found by scanning back for the newline before it."""
     try:
-        with path.open("rb") as stream:
+        with open_regular(path) as stream:
             end = max(0, offset)
             while end > 0:
                 start = max(0, end - chunk)
@@ -408,7 +433,7 @@ def headless_transcript(transcript: str | Path | None, *,
     text_prompts = 0
     first: str | None = None
     try:
-        with path.open(encoding="utf-8", errors="replace") as stream:
+        with open_regular(path, "r", encoding="utf-8", errors="replace") as stream:
             for index, line in enumerate(stream):
                 if index >= max_lines:
                     break
@@ -451,7 +476,7 @@ def last_permission_mode(transcript: str | Path | None) -> str | None:
     path = Path(transcript).expanduser()
     try:
         size = path.stat().st_size
-        with path.open("rb") as stream:
+        with open_regular(path) as stream:
             end, carry, scanned = size, b"", 0
             while end > 0 and scanned < _SCAN_MAX:
                 start = max(0, end - _TAIL_BYTES)

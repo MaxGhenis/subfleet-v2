@@ -9,6 +9,7 @@ controls; everything else is the real service and conversation store.
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
 import logging
@@ -1041,6 +1042,9 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     root = svc.root
     future, go = held_file_op(svc, monkeypatch, tmp_path, repo, op)
     running_at_return = []
+    shutting = threading.Event()
+    real_shutdown = svc.files.shutdown
+    monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (shutting.set(), real_shutdown(**kw))[1])
 
     def owner():                            # as a daemon's owner does: close it, then remove its root
         svc.close()
@@ -1049,6 +1053,7 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
 
     closer = threading.Thread(target=owner)
     closer.start()
+    assert shutting.wait(30), "close() never reached the file pool"
     closer.join(1.0)                        # a close() that does not wait has returned by now
     go.set()
     closer.join(30)
@@ -1117,6 +1122,68 @@ def test_a_file_op_never_makes_the_state_root(svc, repo, tmp_path, op):
     assert err.value.reason == "state-root-gone" and err.value.code == 1
     assert not svc.root.exists()
 
+
+
+CODEX_SETTINGS = {"model": "gpt-6-astra", "effort": None, "fast": False, "permission": "read-only",
+                  "auto_continue": True}
+
+
+def release_fifo(path: Path) -> None:
+    """Let a reader blocked opening `path` go on (a writer opens it, then leaves)."""
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError:
+        return                              # no reader is waiting on it
+    os.close(fd)
+
+
+@pytest.mark.parametrize("op", ["conversation.history", "conversation.handoff", "conversation.open"])
+def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(svc, tmp_path, monkeypatch, op):
+    """C-25.3 (both reviews of 39223c9, finding 1): close() waits for the file ops
+    already running, so one blocked for good held close() for good. A Codex thread
+    whose rollout was a FIFO did that: `conversation.history`, or a handoff reading
+    the thread's first record, blocked in open() until a writer came. The daemon now
+    opens a transcript or rollout only as a regular file, without ever blocking in
+    open(): each op answers at once, and close() returns. `conversation.open` runs on
+    the requests pool, which `Daemon.close()` waits for too; it reads the thread
+    through the catalog's record reader."""
+    monkeypatch.setenv("HOME", str(tmp_path / "user-home"))   # no real ~/.codex or ~/.claude
+    home = tmp_path / "codex-home"
+    thread = str(uuid.uuid4())
+    day = home / "sessions" / "2026" / "09" / "26"
+    day.mkdir(parents=True)
+    fifo = day / f"rollout-2026-09-26T00-00-00-{thread}.jsonl"
+    os.mkfifo(fifo)
+    svc.daemon.store.put_lane(Lane("codex-1", "codex", "codex:one", Credential("codex", str(home), "home"), str(home),
+                                   LaneOwner.V2, False))
+    if op == "conversation.open":
+        args = {"native": {"provider": "codex", "session_id": thread}}
+    else:
+        cid = svc.store.create_conversation(provider="codex", workspace=svc.test_workspace, workspace_kind="in-place",
+                                            settings=CODEX_SETTINGS, origin="native", native_session_id=thread,
+                                            lane_id="codex-1")[0]["conversation_id"]
+        args = ({"conversation_id": cid} if op == "conversation.history" else
+                {"request_id": "h-fifo", "from": {"conversation_id": cid},
+                 "to": {"provider": "claude", "settings": SETTINGS}})
+    requests = concurrent.futures.ThreadPoolExecutor(1)       # the fake daemon has no requests pool
+    future = (svc.pool_for(op) or requests).submit(svc.handle, op, args, None)
+    closer = threading.Thread(target=svc.close)
+    try:
+        try:
+            outcome = future.result(10)
+        except concurrent.futures.TimeoutError:
+            pytest.fail(f"{op} was still blocked on the FIFO after 10 s")
+        except ConversationError as exc:
+            outcome = exc.reason
+        closer.start()
+        closer.join(10)
+        assert not closer.is_alive(), "close() was held by the file op"
+    finally:
+        release_fifo(fifo)
+        if closer.is_alive():
+            closer.join(30)
+        requests.shutdown(wait=True)
+    assert outcome is not None
 
 def until_true(predicate, what: str, timeout: float = 30.0) -> None:
     deadline = time.monotonic() + timeout
