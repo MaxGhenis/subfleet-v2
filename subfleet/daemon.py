@@ -2245,9 +2245,15 @@ class Daemon:
         An attempt usually becomes terminal inside its own worker pass, after
         which the control loop never offers it again, so this is where its
         entries go.
+
+        Worker threads write these dicts while this runs on the control loop,
+        so it walks a copy: `dict.copy()` is one C call (atomic under the GIL,
+        and taken under the dict's own lock without it), where walking the dict
+        itself raised "dictionary changed size during iteration" whenever a
+        worker added an entry mid-walk (review of 5841d8b). Popping is safe.
         """
         for pacing in (self._liveness_next, self._census_next):
-            for aid in [aid for aid in pacing if aid not in live]:
+            for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
 
     def _control(self) -> None:
