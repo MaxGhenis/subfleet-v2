@@ -2990,6 +2990,13 @@ class Daemon:
             if time.monotonic() < deadline:
                 return
             census = self._contain(a)
+            # The guardian writes start.json, runs the provider, writes exit.json
+            # and exits, so the receipts can land while the census runs, and a
+            # census that then finds nothing is an attempt that finished. Read
+            # before them, it released a provider that had exited 0 to run again
+            # (C-4.2). The next tick takes them from the top.
+            if (adir / "start.json").exists() or (adir / "exit.json").exists():
+                return
             if census.verified_empty:
                 self._unlaunched(a, "starting-no-receipt")
             else:

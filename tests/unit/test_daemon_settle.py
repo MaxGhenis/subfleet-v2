@@ -486,3 +486,51 @@ def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_gr
     owned = json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
     assert owned == {"4242": {"pid": 4242, "boot_id": session, "proc_start": STARTED},
                      "4243": {"pid": 4243, "boot_id": session, "proc_start": STARTED}}
+
+
+def publish_start(core):
+    atomic_publish(attempt_dir(core.root, JOB, 1) / "start.json",
+                   json.dumps({"guardian_pid": 4242, "pgid": 4242, "boot_id": "boot", "proc_start": STARTED,
+                               "started_at": "2026-09-05T14:00:00Z"}).encode())
+
+
+@pytest.mark.parametrize("census", [EMPTY, GUARDIAN_ONLY], ids=["guardian-gone", "guardian-exiting"])
+def test_c4_2_start_grace_reads_the_receipts_again_after_its_census(daemon, monkeypatch, census):
+    """C-4.2, C-5.5 a guardian that wrote both receipts while start grace ran its census finished its attempt:
+    it is neither released to run again (`starting-no-receipt`) nor quarantined."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0   # start grace is over
+
+    def contain(a):
+        publish_start(daemon)
+        publish_receipt(daemon, rc=0)                          # the provider ran and exited 0 meanwhile
+        return census
+    daemon._contain = contain
+    daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "starting"               # nothing decided from the census
+    daemon._contain = never_census
+    daemon._process_attempt(ATTEMPT)                            # the next tick reads the receipts
+    a = attempt(daemon)
+    assert a["state"] == "finalizing" and a["rc"] == 0 and a["outcome_detail"] is None
+    assert daemon.store.get_job(JOB)["state"] == "running"
+    kinds = [row["kind"] for row in daemon.store.list_events(JOB)]
+    assert "attempt.no_launch" not in kinds and "attempt.quarantined" not in kinds
+
+
+@pytest.mark.parametrize(("census", "state", "detail"),
+                         [(EMPTY, "failed", "starting-no-receipt"), (GUARDIAN_ONLY, "quarantined", None)],
+                         ids=["empty", "guardian-alive"])
+def test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census(daemon, monkeypatch, census, state, detail):
+    """C-4.2 no receipt after the census: an empty census releases and retries, anything else quarantines."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
+    daemon._contain = lambda a: census
+    daemon._process_attempt(ATTEMPT)
+    a = attempt(daemon)
+    assert a["state"] == state
+    if detail:
+        assert a["outcome_detail"] == detail
+    else:
+        assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
