@@ -172,6 +172,26 @@ def test_a_probe_payload_that_is_not_json_is_passed_over(tmp_path):
         daemon.close()
 
 
+def test_a_probe_payload_with_a_repeated_key_is_never_another_holders(tmp_path):
+    """Review of 1516f3b: SQLite reads a repeated key's first value (the index, and
+    json_valid accepts the payload), Python its last. No writer makes such a payload;
+    if one were there, the lookup must not return it as another holder's record,
+    as the index's hit alone did. It is found under its first value only, so the
+    last value's holder gets its previous record (the old walk returned this one)."""
+    daemon = Daemon(tmp_path / "state")
+    try:
+        event(daemon.store, "probe.state", {"holder": "probe:a", "state": "older"})
+        with daemon.store.transaction("test.seed") as tx:
+            tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                       ("2026-09-25T00:00:00Z", "probe.state", '{"holder":"probe:b","holder":"probe:a","state":"twice"}'))
+        assert daemon.store.one("SELECT json_valid(data_json) ok, json_extract(data_json,'$.holder') first "
+                                "FROM events WHERE data_json LIKE '%twice%'") == {"ok": 1, "first": "probe:b"}
+        assert daemon._probe_record("probe:b") is None and old_probe_record(daemon.store, "probe:b") is None
+        assert daemon._probe_record("probe:a") == {"holder": "probe:a", "state": "older"}
+    finally:
+        daemon.close()
+
+
 def test_the_probe_record_lookup_uses_its_indexes(tmp_path):
     """Review of 5841d8b, finding 3: 8.20 ms a lookup over 6.5k events, 0.08 ms with the index."""
     from subfleet.daemon import PROBE_RECORD
@@ -417,6 +437,26 @@ def test_a_session_event_with_a_nan_is_still_the_newest(tmp_path):
         event(daemon.store, "session.nudged", {"session_id": "s-1", "n": 2, "weight": float("nan")})
         for wanted in (None, {"s-1"}):
             assert daemon._session_events(("session.nudged",), wanted)["session.nudged:s-1"]["n"] == 2
+    finally:
+        daemon.close()
+
+
+def test_a_session_payload_with_a_repeated_key_is_never_another_sessions(tmp_path):
+    """As for probe records: SQL filters and groups by the first `session_id`, the
+    loop reads the last; a row is never counted for a session it was not read
+    for, and the payload json_valid refuses is never given to json_extract."""
+    daemon = Daemon(tmp_path / "state")
+    try:
+        event(daemon.store, "session.nudged", {"session_id": "s-1", "n": 1})
+        with daemon.store.transaction("test.seed") as tx:
+            tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                       ("2026-09-25T00:00:01Z", "session.nudged", '{"session_id":"s-x","session_id":"s-1","n":2}'))
+            tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                       ("2026-09-25T00:00:02Z", "session.nudged", 'not json {'))
+        for wanted in ({"s-x"}, {"s-1"}, None):
+            found = daemon._session_events(("session.nudged",), wanted)
+            assert "session.nudged:s-x" not in found, (wanted, found)
+            assert all(entry["session_id"] == key.split(":", 1)[1] for key, entry in found.items())
     finally:
         daemon.close()
 

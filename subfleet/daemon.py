@@ -1940,7 +1940,9 @@ class Daemon:
         # writes and json.loads reads, or no JSON at all) cannot be filtered in
         # SQL, so every such row of these kinds rides along (`events_not_json`,
         # normally none) and the loop decides it, as the old walk did.
-        session = "json_extract(data_json,'$.session_id')"
+        # CASE, not a WHERE term, keeps json_extract off a payload json_valid
+        # refuses: SQLite does not promise to test WHERE terms in written order.
+        session = "CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.session_id') END"
         unread = (f"UNION ALL SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
                   "AND NOT json_valid(data_json) ")
         if session_ids is not None:
@@ -2519,12 +2521,16 @@ class Daemon:
         # C-3.7: the newest record for this holder, found by SQLite; every
         # probe.state event (thousands, never pruned) used to be fetched and
         # parsed in Python, once per probe lease per capacity view.
+        # The holder is checked in Python for the index's hit too: a payload
+        # with the key twice, which no writer makes (every one is json.dumps of
+        # a dict), is indexed under SQLite's first value and read by Python
+        # under the last, and must never be returned as another holder's.
         for row in self.store.query(PROBE_RECORD, (holder,)):
             try:
                 record = json.loads(row["data_json"])
             except (TypeError, ValueError):
                 continue        # not JSON at all; no writer makes one (the old walk raised here)
-            if row["hit"] or (isinstance(record, dict) and record.get("holder") == holder):
+            if isinstance(record, dict) and record.get("holder") == holder:
                 return record
         return None
 
