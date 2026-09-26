@@ -443,3 +443,25 @@ def test_c5_12_a_failed_shared_read_is_all_that_an_outage_costs_an_interval(daem
     assert reads == [1] and asked == []
     assert [daemon.store.get_attempt(aid)["state"] for aid in attempts] == ["running"] * 3
     assert all(daemon._inspect_next[aid] == daemon._table_next for aid in attempts)
+
+
+def test_c5_12_a_boot_identity_the_table_cannot_read_is_read_once_and_decides_nothing(daemon, monkeypatch):
+    """C-5.12, C-4.2 every attempt that asks shares the table's one boot-identity read; when it fails, no
+    attempt asks singly and nothing is decided."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
+    attempts = [ATTEMPT, add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
+    boot_reads, asked = [], []
+
+    def unavailable():
+        boot_reads.append(1)
+        raise daemon_module.procs.InspectionError("macOS boot identity is unavailable")
+    monkeypatch.setattr(daemon_module.procs, "boot_id", unavailable)
+    monkeypatch.setattr(daemon_module.procs, "snapshot",
+                        lambda: ProcessTable({pid: (1, pid, "Ss", STARTED) for pid in (4242, 5252, 6262)}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: asked.append(args) or "unknown")
+    daemon._contain = never_census
+    for aid in attempts:
+        daemon._process_attempt(aid)
+    assert boot_reads == [1] and asked == []
+    assert [daemon.store.get_attempt(aid)["state"] for aid in attempts] == ["running"] * 3

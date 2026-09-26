@@ -280,7 +280,7 @@ def test_c5_12_one_table_answers_identity_for_every_recorded_process(monkeypatch
     census(monkeypatch, parents=f"42 1 42 Ss   {START}    \n43 42 42 Z    {START}\n"
                                 f"44 1 44 S    Sun Sep  6 11:00:00 2026\n", session=BOOT_A)
     table = procs.snapshot()
-    assert table.boot_id == BOOT_A
+    assert table.boot() == BOOT_A
     assert table.is_process(42, BOOT_A, START)
     assert not table.is_process(42, BOOT_B, START)        # another boot: left to `liveness`
     assert not table.is_process(42, "100", START)         # a legacy record: left to `liveness`
@@ -289,6 +289,45 @@ def test_c5_12_one_table_answers_identity_for_every_recorded_process(monkeypatch
     assert not table.is_process(45, BOOT_A, START)        # gone
     assert not table.is_process(0, BOOT_A, START) and not table.is_process(42, None, None)
     assert table.group(42) == {42} and table.group(None) == frozenset()
+
+
+def test_c5_12_a_census_that_finds_nothing_needs_no_boot_identity(monkeypatch):
+    """C-5.5, C-5.12 a failed `sysctl` cannot make an empty census unverifiable; a census that finds a live pid
+    says its identity is unavailable, not that `ps` could not enumerate."""
+    census(monkeypatch, parents=f"1 0 1 Ss {START}\n7 1 7 S {START}\n", fail="sysctl")
+    result = procs.containment(42, 42, None, "job/a1")
+    assert result.verified_empty and result.errors == ()
+    census(monkeypatch, parents=f"42 1 42 Ss {START}\n43 42 42 S {START}\n", fail="sysctl")
+    result = procs.containment(42, 42, None, "job/a1")
+    assert result.unverifiable and result.live_pids == {42, 43}
+    assert sorted(result.errors) == ["identity inspection unavailable for pid 42",
+                                     "identity inspection unavailable for pid 43"]
+
+
+def test_c5_12_a_table_reads_the_boot_identity_once_and_only_when_it_needs_it(monkeypatch):
+    """C-5.12 no `sysctl` for the read itself or for a pid it does not show, one for all the live pids it
+    describes, and a failed one is the table's answer from then on."""
+    reads = []
+    census(monkeypatch, parents=f"42 1 42 Ss {START}\n43 42 42 S {START}\n", session=BOOT_A)
+    inner = procs._read
+
+    def counting(argv, **kwargs):
+        reads.append(os.path.basename(argv[0]))
+        return inner(argv, **kwargs)
+    monkeypatch.setattr(procs, "_read", counting)
+    table = procs.snapshot()
+    assert not table.is_process(45, BOOT_A, START) and not table.is_process(42, BOOT_A, "Sun Sep  6 11:00:00 2026")
+    assert reads == ["ps"]
+    procs.forget_boot_id()                                 # every table would share the module's cache
+    assert table.is_process(42, BOOT_A, START) and table.identity(43) == procs.ProcessIdentity(43, BOOT_A, START)
+    procs.forget_boot_id()
+    assert table.identity(42) == procs.ProcessIdentity(42, BOOT_A, START)
+    assert reads == ["ps", "sysctl"]
+    census(monkeypatch, parents=f"42 1 42 Ss {START}\n", fail="sysctl")
+    failed = procs.snapshot()
+    for _ in range(3):
+        with pytest.raises(procs.InspectionError):
+            failed.is_process(42, BOOT_A, START)
 
 
 def test_c5_12_an_unreadable_process_table_is_an_inspection_failure(monkeypatch):

@@ -200,25 +200,54 @@ class ProcessTable:
     timestamp record) and a pid it does not show are left to `liveness`, and it
     never grants authority to signal, which `signal_group` and `signal_process`
     still read afresh (C-5.4).
+
+    Its boot identity is read the first time it builds a live pid's identity,
+    and once, whatever the answer: a table that shows no live pid of interest,
+    as an empty census does, needs no `sysctl`, and a table shared by every
+    running attempt costs one read however many ask.
     """
     rows: dict[int, tuple[int, int, str, str]]   # pid -> (ppid, pgid, stat, lstart)
-    boot_id: str
+    boot_id: str | None = None                   # None: read on first need, by `boot`
     taken_at: float = field(default_factory=time.monotonic)
+    _boot: list = field(default_factory=list, init=False, repr=False, compare=False)
+    _reading: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+
+    def boot(self) -> str:
+        """The boot identity of every row; `InspectionError` when it cannot be read."""
+        if self.boot_id is not None:
+            return self.boot_id
+        with self._reading:
+            if not self._boot:
+                try:
+                    self._boot.append(boot_id())     # the module's reader, and its cache
+                except InspectionError as exc:
+                    self._boot.append(exc)
+        found = self._boot[0]
+        if isinstance(found, InspectionError):
+            raise InspectionError(str(found))
+        return found
 
     def live(self, pid: int) -> bool:
         return pid in self.rows and not self.rows[pid][2].startswith("Z")
 
     def identity(self, pid: int) -> ProcessIdentity | None:
-        """The live, non-zombie process at `pid`, or None when the table cannot say."""
+        """The live, non-zombie process at `pid`, or None when the table cannot say.
+
+        Raises `InspectionError` when the boot identity cannot be read."""
         if not self.live(pid) or not self.rows[pid][3]:
             return None
-        return ProcessIdentity(pid, self.boot_id, self.rows[pid][3])
+        return ProcessIdentity(pid, self.boot(), self.rows[pid][3])
 
     def is_process(self, pid: int | None, boot_id: str | None, proc_start: str | None) -> bool:
-        """Was the recorded identity live, exactly, when the table was read (C-5.3)?"""
+        """Was the recorded identity live, exactly, when the table was read (C-5.3)?
+
+        Raises `InspectionError` when the boot identity is needed and cannot be
+        read; a pid that is absent, a zombie or another process needs none."""
         if not pid or pid <= 0 or not boot_id or not proc_start:
             return False
-        return self.identity(pid) == ProcessIdentity(pid, str(boot_id), proc_start)
+        if not self.live(pid) or self.rows[pid][3] != proc_start:
+            return False
+        return self.boot() == str(boot_id)
 
     def group(self, pgid: int | None) -> frozenset[int]:
         if not pgid or pgid <= 0:
@@ -227,7 +256,9 @@ class ProcessTable:
 
 
 def snapshot() -> ProcessTable:
-    """Read the process table once (C-5.5); raises `InspectionError` when it cannot."""
+    """Read the process table once (C-5.5); raises `InspectionError` when it cannot.
+
+    The boot identity is not read here but when the table first needs it."""
     rows: dict[int, tuple[int, int, str, str]] = {}
     try:
         for row in _read(TABLE_ARGV).splitlines():
@@ -238,7 +269,7 @@ def snapshot() -> ProcessTable:
                                    parts[4].strip() if len(parts) > 4 else "")
     except ValueError as exc:
         raise InspectionError("ps printed a row that is not a process") from exc
-    return ProcessTable(rows, boot_id())
+    return ProcessTable(rows)
 
 
 @dataclass(frozen=True)

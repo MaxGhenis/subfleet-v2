@@ -3012,7 +3012,14 @@ class Daemon:
             # inspected decides nothing anyway (C-4.2, C-5.5).
             self.log.debug("process table unreadable; %s not inspected this interval", aid)
             return
-        if table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+        try:
+            shown = table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
+        except procs.InspectionError:
+            # The table's boot identity could not be read, once for every attempt
+            # that asks; asked singly, the guardian would need the same read.
+            self.log.debug("boot identity unreadable; %s not inspected this interval", aid)
+            return
+        if shown:
             self._record_owned(a, table)
             return  # Re-adopted solely by receipt identity, not parentage.
         # A shared table can say "alive" and nothing else: a guardian it does
