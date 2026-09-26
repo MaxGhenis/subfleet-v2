@@ -2483,10 +2483,12 @@ class Daemon:
             # take that lane (`_capacity_view`), so FIFO has nothing to hold it
             # behind there; whether it is placed there is known only after its
             # route is evaluated, where a job that would go elsewhere is held.
-            reserved_lane = next((lane for lane, holder in self._reset_reservations.items()
-                                  if holder == job["job_id"]), None)
-            held_behind = behind if reserved_lane is not None else None
-            if saturated or (behind and reserved_lane is None):
+            # A job can hold more than one (a reset lane that went out of use,
+            # then a second spend for the same job); each is its own.
+            reserved_lanes = frozenset(lane for lane, holder in self._reset_reservations.items()
+                                       if holder == job["job_id"])
+            held_behind = behind if reserved_lanes else None
+            if saturated or (behind and not reserved_lanes):
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": cap} if saturated else
                                         {"reason": "behind-older-job", "behind": behind, "tier": tier})
@@ -2554,8 +2556,8 @@ class Daemon:
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
                                    if scheduler.competes(models, theirs, lanes, their_lanes)), None)
-                    held_behind = behind if reserved_lane is not None else None
-                    if behind and reserved_lane is None:
+                    held_behind = behind if reserved_lanes else None
+                    if behind and not reserved_lanes:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
                         # the pass with its own demand, with no git and no scoring.
@@ -2609,7 +2611,7 @@ class Daemon:
                 needs_probe = self._needs_probe(decision, job)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
                 saturated = live >= cap
-                on_reserved = reserved_lane is not None and decision.chosen_lane == reserved_lane
+                on_reserved = decision.chosen_lane in reserved_lanes
                 if held_behind and decision.chosen_lane and not on_reserved:
                     # C-6.9, C-23.16 (c): the reset let this job past an older one
                     # for its own lane only. Routed elsewhere, it waits its turn,

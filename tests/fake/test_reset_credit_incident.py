@@ -484,7 +484,9 @@ def test_a_reset_whose_result_a_crash_lost_is_still_kept_for_its_job(fleet, monk
         assert [row["state"] for row in restarted.store.query("SELECT state FROM actions")] == ["unknown"]
         restarted._admit()                                 # the first look after the restart: codex-6 still closed
         assert lanes_of(restarted, older) == lanes_of(restarted, younger) == []
-        assert restarted.store.get_job(younger)["next_check_at"] > utcnow()      # back on its clock
+        assert state_of(restarted, younger) == ("waiting", "capacity")
+        # Its clock backed off after a few such looks (C-6.10); pinned, so no load can make it due.
+        restarted.store.update_job(younger, next_check_at=after(600))
         restarted.timers.probe_cycle()                     # codex-6 reads open: the unknown consume is reconciled
         assert restarted.store.query("SELECT 1 FROM events WHERE kind='action.reconciled' AND data_json!='{}'")
         assert restarted.timers.actions.reservations() == {"codex-6": younger}
@@ -495,3 +497,31 @@ def test_a_reset_whose_result_a_crash_lost_is_still_kept_for_its_job(fleet, monk
         assert http.consumed() == ["fake-6"]               # and no second credit went anywhere
     finally:
         restarted.close()
+
+
+def test_a_job_holding_two_reset_lanes_is_placed_on_either(fleet):
+    """C-6.9, C-23.16 (c): each lane kept for a job is its own, not only the first.
+
+    The first lane reset for a job goes out of use (here, disabled) before the job is placed, so
+    (d) no longer counts it and a second credit goes on another of its lanes. Admission knew only
+    the first lane as the job's, so routed to the second it held the job behind an older job that
+    could not use that lane either, and the lane just bought sat idle for up to 900 s.
+    """
+    service, http = fleet
+    older, younger = _same_tier_pair(service)
+    first = service.timers.reset_credits_cycle()
+    assert first["status"] == "confirmed" and first["job_id"] == younger and first["lane_id"] == "codex-6"
+    with service.store.transaction("fixture.earlier") as tx:
+        # The first reset a minute earlier, so the two are ordered by time and not by action id.
+        tx.execute("UPDATE actions SET updated_at=? WHERE action_id=?", (after(-60), first["action_id"]))
+    service.store.update_lane("codex-6", enabled=0)
+    service._admit()
+    assert lanes_of(service, younger) == [] and state_of(service, younger) == ("waiting", "capacity")
+    second = service.timers.reset_credits_cycle()
+    assert second["status"] == "confirmed" and second["job_id"] == younger and second["lane_id"] == "codex-5"
+    assert service.timers.actions.reservations() == {"codex-6": younger, "codex-5": younger}
+    for job_id in (older, younger):
+        service.store.update_job(job_id, next_check_at=utcnow())
+    service._admit()
+    assert lanes_of(service, younger) == ["codex-5"] and lanes_of(service, older) == []
+    assert http.consumed() == ["fake-6", "fake-5"]

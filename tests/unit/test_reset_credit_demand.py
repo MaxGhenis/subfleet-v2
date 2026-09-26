@@ -771,15 +771,30 @@ def test_an_unknown_consume_whose_lane_reads_open_is_kept_for_its_job(store, tmp
     assert resets.reservations(now=later) == {}           # placed: the reset reached its job
 
 
-def test_an_unknown_consume_reconciled_for_a_job_that_moved_on_reserves_nothing(store, tmp_path):
-    """C-23.16 (c): the reconciled lane is kept only for a job still waiting with no attempt since the spend."""
+@pytest.mark.parametrize("moved", ["cancelled", "workspace", "route", "approval"])
+def test_an_unknown_consume_reconciled_for_a_job_that_moved_on_reserves_nothing(store, tmp_path, moved):
+    """C-23.16 (c): a reconciled lane is kept only while its job still waits on capacity with no attempt since.
+
+    The spend was for a capacity wait; a restart can lie between it and the reconciliation. A job now
+    waiting on its workspace, its route, or a person is not brought forward (a workspace wait's clock
+    counts its retries, C-6.10) and keeps no lane it cannot take; back on capacity inside the window,
+    it has the lane again. A cancelled job never does.
+    """
     target = limited_lane(store, tmp_path)
     resets = component(store, HTTP(response=TimeoutError()))
     assert resets.evaluate(snapshot(store), now=NOW, demand=wants(store))["status"] == "unknown"
-    store.update_job("job-1", state="cancelled", next_check_at=None)
+    clock_before = "2026-09-05T13:00:00Z"
+    if moved == "cancelled":
+        store.update_job("job-1", state="cancelled", next_check_at=clock_before)
+    else:
+        store.update_job("job-1", wait_reason=moved, next_check_at=clock_before)
     later = NOW + timedelta(minutes=5)
     resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False, "checked_at": _iso(later)},
                            now=later)
     assert resets.reservations(now=later) == {}
-    assert store.get_job("job-1")["next_check_at"] is None
+    assert store.get_job("job-1")["next_check_at"] == clock_before
     assert not store.query("SELECT * FROM events WHERE kind='reset-credit.reserved' AND data_json!='{}'")
+    if moved != "cancelled":
+        store.update_job("job-1", wait_reason="capacity")
+        assert resets.reservations(now=later) == {target.lane_id: "job-1"}
+        assert resets.reservations(now=later + timedelta(seconds=RESERVATION_S + 1)) == {}

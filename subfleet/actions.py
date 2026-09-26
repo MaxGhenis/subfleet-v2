@@ -161,10 +161,18 @@ def _moment(value: Any) -> datetime | None:
         return None
 
 
-def _still_waits(store, job_id: str, spent_at: str) -> bool:
-    """C-23.16 (c): the job a reset was spent for still has no attempt since, and waits."""
-    job = store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
+def _still_waits(store, job_id: str, spent_at: str, *, on_capacity: bool = False) -> bool:
+    """C-23.16 (c): the job a reset was spent for still has no attempt since, and waits.
+
+    `on_capacity`: and the wait is still the one the spend was for, a capacity
+    wait (or the job is queued). A reconciled `unknown` consume asks this: a
+    restart can lie between the spend and its reconciliation, and a job now
+    waiting on its workspace, its route or a person cannot take the lane.
+    """
+    job = store.one("SELECT state,wait_reason,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
     if job is None or job["state"] not in ("queued", "waiting") or job["cancel_requested_at"]:
+        return False
+    if on_capacity and job["state"] == "waiting" and job["wait_reason"] != "capacity":
         return False
     return not store.one("SELECT 1 FROM attempts WHERE job_id=? AND reserved_at>=?", (job_id, spent_at))
 
@@ -173,23 +181,24 @@ def reset_reservations(store, *, now: str | datetime | None = None) -> dict[str,
     """C-23.16 (c): lane id -> the waiting job a reset was spent for.
 
     A spend is a `confirmed` consume, held for `RESERVATION_S` from its
-    confirmation, or an `unknown` one (its result never published: a timeout,
-    or a daemon that died between the consume and its result) whose lane a
-    later usage read showed open (C-19.1's reconciliation), held for
-    `RESERVATION_S` from that reconciliation, since a restart can outlast the
-    reservation. Either ends as soon as the job has an attempt reserved
-    (anywhere) since the spend, is no longer queued or waiting, or is being
-    cancelled. Admission keeps every other job off a reserved lane while it
-    lasts (`Daemon._capacity_view`). A plain read of the store, so admission
-    needs no timer to ask it.
+    confirmation, or an `unknown` one (a timeout, a network error or an
+    unreadable answer, or a daemon that died between the consume and its
+    result) whose lane a later usage read showed open (C-19.1's
+    reconciliation), held for `RESERVATION_S` from that reconciliation, since
+    a restart can outlast the reservation, and only while the job waits on
+    capacity or is queued. Either ends as soon as the job has an attempt
+    reserved (anywhere) since the spend, is no longer queued or waiting, or is
+    being cancelled. Admission keeps every other job off a reserved lane while
+    it lasts (`Daemon._capacity_view`). A plain read of the store, so
+    admission needs no timer to ask it.
     """
     instant = _time(now or datetime.now(timezone.utc))
     since = instant - timedelta(seconds=RESERVATION_S)
-    spends: list[tuple[datetime, dict, str | None]] = []
+    spends: list[tuple[datetime, dict, str | None, bool]] = []
     for action in store.query("SELECT action_id,request_json,updated_at FROM actions WHERE kind='reset-credit' "
                               "AND state='confirmed' AND updated_at>=?", (_iso(since),)):
         if (held_from := _moment(action["updated_at"])) is not None and held_from >= since:
-            spends.append((held_from, action, None))
+            spends.append((held_from, action, None, False))
     unknown = store.query("SELECT action_id,request_json,updated_at FROM actions "
                           "WHERE kind='reset-credit' AND state='unknown'")
     opened = usage_open_reconciliations(store) if unknown else {}
@@ -198,9 +207,9 @@ def reset_reservations(store, *, now: str | datetime | None = None) -> dict[str,
             continue            # not known to have reset anything: its lane still reads limited
         held_from = _moment(settled.get("reconciled_at") or settled.get("observed_at"))
         if held_from is not None and held_from >= since:
-            spends.append((held_from, action, settled.get("lane_id")))
+            spends.append((held_from, action, settled.get("lane_id"), True))
     found: dict[str, str] = {}
-    for _, action, lane_read in sorted(spends, key=lambda spend: (spend[0], spend[1]["action_id"])):
+    for _, action, lane_read, reconciled in sorted(spends, key=lambda spend: (spend[0], spend[1]["action_id"])):
         try:
             request = json.loads(action["request_json"] or "{}")
         except ValueError:
@@ -208,7 +217,7 @@ def reset_reservations(store, *, now: str | datetime | None = None) -> dict[str,
         job_id, lane_id = request.get("job_id"), lane_read or request.get("lane_id")
         if not isinstance(job_id, str) or not isinstance(lane_id, str):
             continue
-        if _still_waits(store, job_id, action["updated_at"]):
+        if _still_waits(store, job_id, action["updated_at"], on_capacity=reconciled):
             found[lane_id] = job_id
     return found
 
@@ -830,9 +839,10 @@ class ResetCredits:
         """C-19.1, C-23.13: append read reconciliation; preserve the original result.
 
         C-23.16 (c): an `unknown` consume spent for a waiting job is a spend
-        once its lane reads open. In the same transaction the job is made due
-        at once and the lane is kept for it (`reset_reservations`, from this
-        reconciliation's `reconciled_at`), exactly as a confirmation would.
+        once its lane reads open. In the same transaction the job, if it still
+        waits on capacity, is made due at once and the lane is kept for it
+        (`reset_reservations`, from this reconciliation's `reconciled_at`),
+        exactly as a confirmation would.
         """
         instant = _time(now or datetime.now(timezone.utc))
         stamp = _iso(instant)
@@ -866,11 +876,13 @@ class ResetCredits:
             job_id = json.loads(action.get("request_json") or "{}").get("job_id")
         except ValueError:
             return
-        if not isinstance(job_id, str) or not _still_waits(self.store, job_id, action["updated_at"]):
+        if not isinstance(job_id, str) or not _still_waits(self.store, job_id, action["updated_at"],
+                                                           on_capacity=True):
             return
         stamp, until = _iso(instant), _iso(instant + timedelta(seconds=RESERVATION_S))
+        # Only a capacity wait is brought forward: a workspace wait's clock counts its retries (C-6.10).
         conn.execute("UPDATE jobs SET next_check_at=? WHERE job_id=? AND state='waiting' "
-                     "AND cancel_requested_at IS NULL", (stamp, job_id))
+                     "AND wait_reason='capacity' AND cancel_requested_at IS NULL", (stamp, job_id))
         self.store.add_event("reset-credit.reserved", lane_id=lane_id, job_id=job_id,
                              data={"action_id": action["action_id"], "job_id": job_id, "lane_id": lane_id,
                                    "until": until, "original_state": "unknown"})
