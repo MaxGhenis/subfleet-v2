@@ -3,8 +3,10 @@
 `attachment.add` copies a person's pasted or chosen image into the state root
 before any message names it: a regular file owned by the daemon's user,
 opened without following symlinks, at most 20 MiB, PNG, JPEG, GIF or WebP by
-magic bytes, re-hashed after the copy. The daemon's copy is what a provider
-sees; the original can be deleted the moment the receipt arrives.
+magic bytes, re-hashed after the copy. An add whose stored copy is missing or
+changed copies it again, and the copy's name is on disk before its row. The
+daemon's copy is what a provider sees; the original can be deleted the moment
+the receipt arrives.
 """
 
 from __future__ import annotations
@@ -37,13 +39,46 @@ def sniff(head: bytes) -> tuple[str, str] | None:
     return None
 
 
+def _holds(target: Path, digest: str) -> bool:
+    """Whether `target` is a regular file whose bytes hash to `digest`. Anything else is
+    not holding, and the add copies over it: no file, other bytes (disk damage, a stray
+    write), a file this user cannot read, a symlink (not followed) or a FIFO (opened
+    without waiting for a writer)."""
+    try:
+        fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return False
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return False
+        sha = hashlib.sha256()
+        while chunk := os.read(fd, 1 << 20):
+            sha.update(chunk)
+        return sha.hexdigest() == digest
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def _sync_directory(directory: Path) -> None:
+    """fsync `directory`, so a name renamed into it survives a crash, as `store._publish`
+    does; not `_publish` itself, whose mkdir(parents=True) could make a removed state
+    root again (review of #47)."""
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _copy(data: bytes, target: Path) -> None:
     """Write `data` to `target` through a temporary file of this call's own, renamed
     onto it. Two adds of the same bytes at once (the app resending after its request
     timed out while the first add still ran, or two clients) each rename a whole copy
     into place; through one shared name, the second open truncated the first's file
     and one rename found it gone. A copy that fails removes its temporary file, if the
-    directory still lets it."""
+    directory still lets it. The caller fsyncs the directory before it writes the row."""
     for _ in range(8):                                    # a name another add holds is drawn again
         tmp = target.with_name(f".{target.stem}.{secrets.token_hex(4)}.tmp")
         try:
@@ -107,10 +142,13 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
         raise ConversationError("hash-mismatch", "the file does not match the hash the app sent")
     directory = store.subdirectory("attachments")         # never the state root itself
     target = directory / f"{digest}.{ext}"
-    if not target.exists():
+    if not _holds(target, digest):                        # missing or changed: copy it again
         _copy(data, target)
-    if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-        raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
+        if not _holds(target, digest):
+            raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
+    # Published as C-8.1 says, its name on disk before its row, whichever add made the
+    # copy: one that found it in place may have found it before its maker synced.
+    _sync_directory(directory)
     store.add_attachment(digest, media, len(data), str(target))
     return {"sha256": digest, "media_type": media, "bytes": len(data)}
 

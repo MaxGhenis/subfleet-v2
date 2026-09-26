@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import os
+import stat
 import threading
 from types import SimpleNamespace
 
@@ -239,6 +240,139 @@ def test_adds_at_once_each_get_their_receipt_and_leave_one_copy_per_image(store,
     digests = [hashlib.sha256(image.read_bytes()).hexdigest() for image in images]
     assert results == [digests[i % 2] for i in range(n)]
     assert copies(store) == sorted(f"{digest}.png" for digest in digests)
+
+
+def _symlink_elsewhere(copy, tmp_path):
+    elsewhere = tmp_path / "elsewhere.png"
+    elsewhere.write_bytes(PNG)
+    copy.unlink()
+    copy.symlink_to(elsewhere)
+
+
+def _fifo(copy, tmp_path):
+    copy.unlink()
+    os.mkfifo(copy)
+
+
+DAMAGE = {
+    "other bytes": lambda copy, tmp_path: copy.write_bytes(b"garbage"),
+    "emptied": lambda copy, tmp_path: copy.write_bytes(b""),
+    "gone": lambda copy, tmp_path: copy.unlink(),
+    "unreadable": lambda copy, tmp_path: copy.chmod(0),
+    "a symlink to the same bytes": _symlink_elsewhere,
+    "a fifo": _fifo,
+}
+
+
+@pytest.mark.parametrize("damage", DAMAGE)
+def test_a_re_add_repairs_a_stored_copy_that_changed(store, tmp_path, damage):
+    """C-28.1 adding an image again copies it again when its stored copy is not a regular
+    file holding its bytes (disk damage, a stray write), and returns the receipt. The
+    add copied only when no file was there, so a changed copy failed every re-add with
+    `copy-mismatch`, and every message naming it `attachment-missing`, for good."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    out = attachments.add(store, str(src))
+    copy = store.root / "attachments" / f"{out['sha256']}.png"
+    DAMAGE[damage](copy, tmp_path)
+    results: list = []
+
+    def re_add():
+        try:
+            results.append(attachments.add(store, str(src)))
+        except Exception as exc:
+            results.append(f"{type(exc).__name__}: {exc}")
+
+    worker = threading.Thread(target=re_add, daemon=True)     # a fifo must not hold the add
+    worker.start()
+    worker.join(10)
+    assert results == [out]
+    info = os.lstat(copy)
+    assert stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600
+    assert copies(store) == [copy.name]
+    assert attachments.check(store, out["sha256"])[0] == str(copy)
+
+
+def test_a_copy_gone_when_it_is_checked_is_a_mismatch_to_retry(store, tmp_path, monkeypatch):
+    """C-28.1 a copy that is gone when the add checks it after copying is `copy-mismatch`
+    (try again), not an unhandled FileNotFoundError, and names no row; the next add
+    copies it again."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    digest = hashlib.sha256(PNG).hexdigest()
+    real = attachments._copy
+
+    def copy_then_lose(data, target):
+        real(data, target)
+        target.unlink()
+
+    monkeypatch.setattr(attachments, "_copy", copy_then_lose)
+    with pytest.raises(ConversationError) as err:
+        attachments.add(store, str(src))
+    assert err.value.reason == "copy-mismatch"
+    assert store.attachment(digest) is None
+    monkeypatch.setattr(attachments, "_copy", real)
+    assert attachments.add(store, str(src))["sha256"] == digest
+
+
+@pytest.mark.parametrize("in_place", [False, True], ids=["copied", "found in place"])
+def test_the_copys_name_is_synced_after_the_rename_and_before_its_row(store, tmp_path, monkeypatch, in_place):
+    """C-28.1, C-8.1: `attachments/` is fsynced after the copy is renamed into it and
+    before the row names it, as `store._publish` does for message text. An add that
+    finds the copy already in place syncs it too, since the add that renamed it there
+    may not have synced yet."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    digest = hashlib.sha256(PNG).hexdigest()
+    directory = store.subdirectory("attachments")
+    if in_place:
+        (directory / f"{digest}.png").write_bytes(PNG)   # renamed in by another add, not yet synced
+    here = os.stat(directory)
+    events: list[str] = []
+    real_fsync, real_rename, real_row = os.fsync, os.rename, store.add_attachment
+
+    def fsync(fd):
+        info = os.fstat(fd)
+        synced = (info.st_dev, info.st_ino) == (here.st_dev, here.st_ino)
+        events.append("fsync attachments/" if synced else "fsync file")
+        return real_fsync(fd)
+
+    def rename(old, new):
+        events.append(f"rename onto {os.path.basename(new)}")
+        return real_rename(old, new)
+
+    def add_attachment(*args, **kwargs):
+        events.append("row")
+        return real_row(*args, **kwargs)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "rename", rename)
+    monkeypatch.setattr(store, "add_attachment", add_attachment)
+    attachments.add(store, str(src))
+    copied = ["fsync file", f"rename onto {digest}.png"]
+    assert events == [*([] if in_place else copied), "fsync attachments/", "row"]
+
+
+def test_no_row_names_a_copy_whose_directory_could_not_be_synced(store, tmp_path, monkeypatch):
+    """C-28.1 an add whose directory sync fails writes no row; the whole copy stays, and
+    the next add syncs it and writes the row."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    digest = hashlib.sha256(PNG).hexdigest()
+    real = os.fsync
+
+    def fsync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError(errno.EIO, "Input/output error")
+        return real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    with pytest.raises(OSError):
+        attachments.add(store, str(src))
+    assert store.attachment(digest) is None
+    monkeypatch.setattr(os, "fsync", real)
+    assert attachments.add(store, str(src))["sha256"] == digest
+    assert store.attachment(digest) is not None and copies(store) == [f"{digest}.png"]
 
 
 def test_a_development_build_counts_as_the_app_only_on_a_development_state_root(tmp_path, monkeypatch):
