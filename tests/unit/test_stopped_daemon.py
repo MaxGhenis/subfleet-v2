@@ -2,7 +2,9 @@
 
 Every test names the clause it proves (C-20.5). The holder is a real process
 that is really stopped, because the whole question is what `ps` says about it;
-it is continued, killed, and reaped however the test ends.
+it is stopped only after it has finished starting, no test begins until `ps`
+reads it as stopped, and it is continued, killed, and reaped however the test
+ends.
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import select
 import signal
 import socket
 import subprocess
@@ -32,42 +35,45 @@ def no_real_marker(root, monkeypatch):
         {**client_module.KNOWN_PAUSERS[0], "marker": str(root / "no-such-marker")},))
 
 
-@pytest.fixture
-def running_holder(root):
-    """A live process recorded in `daemon.lock` and left running (C-5.8)."""
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"],
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-    try:
-        started = client_module.proc_start(child.pid)
-        for _ in range(20):
-            if started:
-                break
-            time.sleep(.05)
-            started = client_module.proc_start(child.pid)
-        assert started, "ps could not read the child's start time"
-        (root / "daemon.lock").write_text(json.dumps(
-            {"pid": child.pid, "boot_id": boot_id(), "proc_start": started, "version": "stub"}))
-        yield child
-    finally:
-        with contextlib.suppress(OSError):
-            child.kill()
-        child.wait(timeout=5)
+#: The holder's program: one line once the interpreter it runs in is up, then sleep.
+HOLDER = "import sys, time; sys.stdout.write('ready\\n'); sys.stdout.flush(); time.sleep(300)"
+#: How long the holder may take to start, and `ps` to read a SIGSTOPped one as stopped.
+HOLDER_READY_S = 30.0
+STOP_SETTLE_S = 10.0
 
 
-@pytest.fixture
-def stopped_holder(root):
-    """A live process recorded in `daemon.lock` and then stopped (C-5.8)."""
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"],
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+@contextlib.contextmanager
+def holder(root):
+    """A live process past its own startup, recorded in `daemon.lock` (C-5.8).
+
+    It is handed over only after it has written its line, because a SIGSTOP
+    that lands while a process is still starting can be lost, and on the GitHub
+    macOS runner that is how it landed. The runner's interpreter is a framework
+    build (`/Library/Frameworks/Python.framework/Versions/3.x/bin/python3.x`, per
+    the CI log), and a framework build starts through a launcher that execs
+    `Python.app/Contents/MacOS/Python` (seen with Homebrew's framework build:
+    `ps -o comm=` of the running interpreter names `Python.app`). Measured on
+    macOS 26, a SIGSTOP sent a few milliseconds after `Popen` returned, around
+    that exec, never took effect in 21 of 56 tries with `sh -c 'exec sleep 300'`
+    (2 to 8 ms) and 7 of 18 with Homebrew's framework Python (4 to 6 ms): `ps`
+    read `R`, then `S`, never `T`. The line is written by the interpreter the
+    launcher execs, so a child that has written it is past the exec, and 150
+    stops sent to children that had written it all took effect. Run against a
+    venv on Homebrew's framework Python, this file failed in 3 of 6 runs when
+    the fixture stopped the child right after one `ps` and the lock write, the
+    way the runner's failures read, and in none of 30 runs since.
+    """
+    child = subprocess.Popen([sys.executable, "-c", HOLDER], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
+        readable, _, _ = select.select([child.stdout], [], [], HOLDER_READY_S)
+        line = child.stdout.readline() if readable else b""
+        assert line == b"ready\n", f"the holder did not start within {HOLDER_READY_S:g}s ({line!r})"
         started = proc_start(child.pid)
-        assert started, "ps could not read the child's start time"
+        assert started, "ps could not read the holder's start time"
         (root / "daemon.lock").write_text(json.dumps(
             {"pid": child.pid, "boot_id": boot_id(), "proc_start": started,
              "version": "stub"}))
-        os.kill(child.pid, signal.SIGSTOP)
         yield child
     finally:
         # SIGKILL lands on a stopped process too, so the teardown holds even if
@@ -78,6 +84,45 @@ def stopped_holder(root):
         with contextlib.suppress(OSError):
             child.kill()
         child.wait(timeout=5)
+        child.stdout.close()
+
+
+def stop(pid: int) -> None:
+    """SIGSTOP `pid` and return once `ps` reads it as stopped.
+
+    `kill` only posts the signal, and the process stops when the kernel next
+    acts on it. Every test here is about what the CLI makes of a holder that
+    `ps` reads as stopped, so none starts before that is true, and if it never
+    becomes true the fixture fails with the state `ps` did read, instead of the
+    test failing on a diagnosis it was never given a stopped process to make.
+    The state is matched by its letter here, independently of
+    `client.is_stopped`, which is under test.
+    """
+    os.kill(pid, signal.SIGSTOP)
+    deadline = time.monotonic() + STOP_SETTLE_S
+    while True:
+        state, _started = client_module.proc_status(pid)
+        if state and state[0] == "T":
+            return
+        if time.monotonic() >= deadline:
+            pytest.fail(f"pid {pid} was sent SIGSTOP {STOP_SETTLE_S:g}s ago and ps "
+                        f"still reads its state as {state!r}")
+        time.sleep(0.01)
+
+
+@pytest.fixture
+def running_holder(root):
+    """A live process recorded in `daemon.lock` and left running (C-5.8)."""
+    with holder(root) as child:
+        yield child
+
+
+@pytest.fixture
+def stopped_holder(root):
+    """A live process recorded in `daemon.lock` and then stopped (C-5.8)."""
+    with holder(root) as child:
+        stop(child.pid)
+        yield child
 
 
 @pytest.fixture
@@ -235,7 +280,7 @@ def test_a_refused_connect_asks_the_holder_too(running_holder, root, monkeypatch
         Client(root, timeout=1).call("daemon.status", {})
     assert not isinstance(caught.value, DaemonStopped)
     assert str(running_holder.pid) in str(caught.value) and "second daemon" in caught.value.fix
-    os.kill(running_holder.pid, signal.SIGSTOP)
+    stop(running_holder.pid)
     try:
         probe = Client(root, timeout=1)
         probe._checked = True                           # it was running when it was checked
