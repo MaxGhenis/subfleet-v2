@@ -1921,7 +1921,10 @@ def cmd_daemon_stacks(args: argparse.Namespace) -> int:
     """`daemon stacks`: every daemon thread's Python stack, from daemon.log (C-3.6).
 
     Sends SIGUSR1, which the daemon's `faulthandler` answers from its signal
-    handler, so this works when the daemon answers nothing on its socket.
+    handler, so this works when the daemon answers nothing on its socket. Only
+    to a daemon whose `daemon.lock` says `stack_dumps`: SIGUSR1's default action
+    ends a process, and a daemon built before the flag, or one not yet (or no
+    longer) holding its handler, has no other defence against it.
     """
     import signal as _signal
     root = _root(args)
@@ -1940,11 +1943,25 @@ def cmd_daemon_stacks(args: argparse.Namespace) -> int:
                     f"daemon stacks: pid {pid} is "
                     + ("not running" if alive is False else "not verifiably the recorded daemon")
                     + "; refusing to signal it")
+    if info.get("stack_dumps") is not True:
+        version = info.get("version") or "unknown"
+        return fail(Exit.DAEMON_UNAVAILABLE,
+                    f"daemon stacks: the daemon at pid {pid} (version {version}) does not say it "
+                    f"dumps its stacks on SIGUSR1 ({client.lock_path} has no \"stack_dumps\": true): "
+                    "it predates `daemon stacks`, or is starting or stopping, and SIGUSR1 would "
+                    "end it; refusing to signal it",
+                    fix=f"restart the daemon on this version, or sample it natively: sample {pid} 5")
     path = root / LOG_NAME
     try:
         start = path.stat().st_size
     except OSError:
         start = 0
+    # The lock again, just before the signal: a daemon that began to stop since
+    # has dropped the flag (it does so before it lets the handler go).
+    if client.lock_info() != info:
+        return fail(Exit.OPERATIONAL, f"daemon stacks: {client.lock_path} changed while it was "
+                                      f"being checked; refusing to signal pid {pid}",
+                    fix="run it again")
     try:
         os.kill(pid, _signal.SIGUSR1)
     except OSError as exc:

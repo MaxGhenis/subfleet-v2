@@ -368,15 +368,17 @@ class Daemon:
         except BaseException:
             self._lock_finalizer()
             raise
-        os.ftruncate(self._lock_fd, 0)
-        os.write(self._lock_fd, json_bytes(ident))
-        os.fsync(self._lock_fd)
+        self._ident = ident
         self.log = logging.getLogger(f"subfleet.daemon.{id(self)}")
         log_fd = os.open(self.root / "daemon.log", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
         self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
         self.log.addHandler(self._log_handler)
         self.log.setLevel(logging.INFO)
         self._enable_stack_dumps()
+        # C-3.6: the identity is written only now that SIGUSR1 has its handler, and
+        # says so: `daemon stacks` signals only a daemon whose lock says
+        # `stack_dumps`, never one that would die of the signal.
+        self._write_lock(stack_dumps=True)
         for directory in ("jobs", "lanes", "worktrees"):
             (self.root / directory).mkdir(mode=0o700, exist_ok=True)
         policy_path = self.root / "policy.json"
@@ -4190,24 +4192,44 @@ class Daemon:
         finally:
             self.close()
 
+    def _write_lock(self, *, stack_dumps: bool) -> None:
+        """Write this daemon's identity to `daemon.lock` (C-5.3), and whether
+        SIGUSR1 dumps its stacks now (C-3.6). Only `daemon stacks` reads the flag."""
+        record = {**self._ident, **({"stack_dumps": True} if stack_dumps else {})}
+        os.ftruncate(self._lock_fd, 0)
+        os.pwrite(self._lock_fd, json_bytes(record), 0)
+        os.fsync(self._lock_fd)
+
     def _enable_stack_dumps(self) -> None:
         """C-3.6: SIGUSR1 writes every thread's Python stack to daemon.log.
 
         `faulthandler` writes from the signal handler itself, so the dump
         arrives even when every Python thread is stuck behind a lock, the GIL
         or a pool (`subfleet daemon stacks` sends the signal). Registered as
-        soon as the log is open: SIGUSR1's default action is to end the process.
+        soon as the log is open, and before `daemon.lock` says so: SIGUSR1's
+        default action is to end the process.
         """
         global _STACK_DUMPS
         stream = self._log_handler.stream
         stream.flush()
+        if threading.current_thread() is threading.main_thread():
+            # What faulthandler puts back when it lets the signal go (at close,
+            # or as the interpreter exits): ignore it, so a SIGUSR1 that races
+            # the close ends nothing. A child started while the handler is in
+            # place gets the default action back at exec, as with any handler.
+            signal.signal(signal.SIGUSR1, signal.SIG_IGN)
         faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
         _STACK_DUMPS = weakref.ref(self)
 
     def _disable_stack_dumps(self) -> None:
         """Unregister before the log closes, so no dump is written to a closed or
-        reused descriptor; a later daemon in the same process keeps its own."""
+        reused descriptor; a later daemon in the same process keeps its own.
+        `daemon.lock` stops saying `stack_dumps` first (C-3.6)."""
         global _STACK_DUMPS
+        try:
+            self._write_lock(stack_dumps=False)
+        except OSError as exc:
+            self.log.warning("daemon.lock could not drop stack_dumps: %s", exc)
         if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
             faulthandler.unregister(signal.SIGUSR1)
             _STACK_DUMPS = None
@@ -4280,9 +4302,10 @@ class Daemon:
         self.lock_watch.stop()
         self.store.close()
         (self.root / "daemon.sock").unlink(missing_ok=True)
+        # While the lock is still this daemon's: the flag goes, then the handler.
+        self._disable_stack_dumps()
         fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
         self._lock_finalizer()
-        self._disable_stack_dumps()
         self.log.removeHandler(self._log_handler)
         self._log_handler.stream.close()
 
