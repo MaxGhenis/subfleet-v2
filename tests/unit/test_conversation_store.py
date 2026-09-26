@@ -307,3 +307,27 @@ def test_legacy_history_goes_first_and_the_conversation_continues_after_it(store
     assert err.value.reason == "history-after-messages"
     assert [(m["seq"], m["origin"]) for m in store.messages(c["conversation_id"])] == [(1, "legacy"), (2, "person")]
     assert store.message(old)["state"] == "complete"
+
+
+def test_history_is_rechecked_inside_its_transaction(store, monkeypatch):
+    """C-30.4, C-24.2 (review L6): the check that history goes first is made
+    again inside the writing transaction. A person's message that lands after
+    the first check (a concurrent writer) refuses the history row, which is
+    never written after it."""
+    c = conv(store, origin="legacy", native_session_id="s1")
+    person, old = mid(), mid()
+    real = store.one
+
+    def interleaved(sql, params=()):
+        if sql.startswith("SELECT 1 FROM messages WHERE conversation_id=? AND origin<>'legacy'"):
+            found = real(sql, params)                 # the first check sees nothing yet...
+            store.submit_message(conversation_id=c["conversation_id"], message_id=person, after_message_id=None,
+                                 text="sent meanwhile", attachments=[], settings=SETTINGS)
+            return found                              # ...and a person's message lands right after it
+        return real(sql, params)
+    monkeypatch.setattr(store, "one", interleaved)
+    with pytest.raises(ConversationError) as err:
+        history(store, c, old)
+    assert err.value.reason == "history-after-messages"
+    monkeypatch.setattr(store, "one", real)
+    assert [(m["message_id"], m["origin"]) for m in store.messages(c["conversation_id"])] == [(person, "person")]

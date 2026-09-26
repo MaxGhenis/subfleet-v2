@@ -94,3 +94,49 @@ def test_a_line_that_is_not_an_object_is_not_an_entry(tmp_path):
     assert (facts["continuable"], facts["cwd"], facts["title"], facts["model_value"]) == (
         True, str(work), "Importer fix", "claude-opus-5-5")
     assert transcripts.headless_transcript(path) is False
+
+
+def _copy(projects: Path, cwd: Path, rows: list[dict], mtime: float) -> Path:
+    """One copy of SESSION's transcript under `cwd`'s project directory, as Claude Code names it."""
+    from subfleet.adapters.claude import encode_project_dir
+    directory = projects / encode_project_dir(cwd)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{SESSION}.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    os.utime(path, (mtime, mtime))
+    return path
+
+
+def _turn(cwd: Path, uuid: str, **user) -> list[dict]:
+    return [{"type": "user", "uuid": f"u{uuid}", "cwd": str(cwd), "sessionId": SESSION,
+             "message": {"role": "user", "content": f"prompt {uuid}"}, **user},
+            {"type": "assistant", "uuid": f"a{uuid}", "cwd": str(cwd), "sessionId": SESSION,
+             "message": {"role": "assistant", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "ok"}]}}]
+
+
+def test_a_moved_session_continues_where_its_live_copy_is(tmp_path):
+    """C-30.2, C-30.4 (review L7): a session moved to another worktree leaves a
+    copy under each project directory. The newest copy, the one resumed, starts
+    with the old rows; its workspace is the cwd whose project directory holds
+    it, with the permission its last rows carry, never the old worktree's."""
+    old, new = tmp_path / "work" / "old_tree", tmp_path / "work" / "new.tree"
+    for directory in (old, new):
+        directory.mkdir(parents=True)
+    projects = tmp_path / "projects"
+    head = _turn(old, "1", permissionMode="default")
+    stale = _copy(projects, old, head, 1_700_000_000)
+    live = _copy(projects, new, [*head, *_turn(new, "2", permissionMode="acceptEdits")], 1_800_000_000)
+    assert transcripts.transcript_path(SESSION, projects) == live
+    facts = catalog.claude_session(live)
+    assert (facts["cwd"], facts["permission"]) == (str(new), "accept-edits")
+    assert catalog.claude_session(stale)["cwd"] == str(old)
+
+
+def test_a_session_that_moves_within_its_project_keeps_its_project(tmp_path):
+    """C-30.2 (review L7): a session whose later rows name a directory inside its
+    project still continues from the project's own directory, where its one
+    copy lives."""
+    root = tmp_path / "repo"
+    (root / "sub").mkdir(parents=True)
+    path = _copy(tmp_path / "projects", root, [*_turn(root, "1"), *_turn(root / "sub", "2")], 1_800_000_000)
+    assert catalog.claude_session(path)["cwd"] == str(root)

@@ -301,7 +301,8 @@ alive `ceiling + 15 s` after `result` is stopped by the D-13 escalation
 ### Workspace, identity, settings
 
 **D-16. Workspace.** A conversation is bound to one directory for its life:
-an existing session's recorded cwd, or for a new conversation a directory the
+an existing session's recorded cwd (C-30.2: that of the transcript copy it
+continues), or for a new conversation a directory the
 person picks (default: a new git worktree when the directory is a
 repository). Turns run in place and hold `worktree:<git toplevel or
 directory>`; two conversations on one checkout take turns (a lease wait,

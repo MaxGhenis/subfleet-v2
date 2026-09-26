@@ -19,6 +19,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -344,8 +345,9 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
 
 
 def claude_session(path: Path) -> dict:
-    """One Claude transcript's facts for a conversation row: its cwd, title, model
-    value and D-9 permission, and whether it continues here (C-30.2, IR-15).
+    """One Claude transcript's facts for a conversation row: its cwd (`_workspace`),
+    title, model value and D-9 permission, and whether it continues here (C-30.2,
+    IR-15).
 
     `conversation.open` of a native session and the legacy cockpit import
     (C-30.4) create a conversation from exactly these facts.
@@ -353,7 +355,7 @@ def claude_session(path: Path) -> dict:
     record = _claude_record(path)
     if record.get("headless"):
         return {"continuable": False, "continue_blocker": "a Subfleet lane run"}
-    cwd = record.get("cwd") or transcripts.last_cwd(path)
+    cwd = _workspace(Path(path), record.get("cwd"))
     if not cwd or not os.path.isdir(cwd):
         return {"continuable": False, "continue_blocker": "its working directory no longer exists"}
     if cwd.startswith(("/tmp/", "/private/tmp/")):
@@ -362,6 +364,32 @@ def claude_session(path: Path) -> dict:
     return {"cwd": cwd, "title": record.get("title") or record.get("first_prompt"),
             "model_value": _claude_value(model), "permission": map_permission(record.get("permission_mode")),
             "permission_source": record.get("permission_mode"), "continuable": True, "lane_id": None}
+
+
+def _workspace(path: Path, first: str | None) -> str | None:
+    """The working directory a turn continues this transcript copy from.
+
+    A session that moved to another worktree leaves a copy under each project
+    directory, and `transcripts.transcript_path` picks the newest; that copy's
+    first rows keep the old cwd and its last rows the new one (review L7). The
+    directory the file is in names the cwd it belongs to, so that one of the
+    first and the last cwd is the workspace; a session that `cd`s within its
+    project keeps its first. When neither names the directory (a copy directly
+    under `projects/`), the first cwd, else the last, as before.
+    """
+    last = transcripts.last_cwd(path)
+    for cwd in (last, first):
+        if cwd and path.parent.name in _project_names(cwd):
+            return cwd
+    return first or last
+
+
+def _project_names(cwd: str) -> set[str]:
+    """The names Claude Code may give `cwd`'s project directory: the adapter's
+    encoding (`/`, `.`, `_` to `-`), and every other character but letters and
+    digits to `-` as well."""
+    from ..adapters.claude import encode_project_dir
+    return {encode_project_dir(cwd), re.sub(r"[^A-Za-z0-9]", "-", cwd)}
 
 
 def _claude_value(model_id: str) -> str:
