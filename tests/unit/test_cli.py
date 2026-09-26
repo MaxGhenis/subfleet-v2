@@ -622,7 +622,9 @@ def test_runs_renders_the_table_and_json_lines(daemon, capsys):
     assert run_cli(["runs", "--last", "5", "--running"]) == 0
     table = capsys.readouterr().out
     assert "RUNNING" in table and JOB in table and "astra" in table
-    assert server.args("list") == {"mine": None, "running": True, "last": 5}
+    # `request_id` is C-16.3's settling filter; `runs` never sets it.
+    assert server.args("list") == {"mine": None, "running": True, "last": 5,
+                                   "request_id": None}
     assert run_cli(["jobs", "--json"]) == 0
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert len(lines) == 2 and json.loads(lines[0])["job_id"] == JOB
@@ -1321,3 +1323,19 @@ def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
     captured = capsys.readouterr().err
     assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in captured
     assert "LC_ALL=C and TZ=UTC" in captured
+
+
+def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):
+    """C-16.3, C-17.5: `runs --request-id` answers from the store when no daemon is up,
+    whatever `--last` would have cut off."""
+    import sqlite3
+    from test_offline import build_store
+    build_store(root)
+    with sqlite3.connect(root / "state.sqlite3") as db:
+        job_id, request_id = db.execute(
+            "SELECT job_id, request_id FROM jobs ORDER BY created_at LIMIT 1").fetchone()
+    assert run_cli(["runs", "--request-id", request_id, "--last", "1", "--json"]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [row["job_id"] for row in rows] == [job_id]
+    assert run_cli(["runs", "--request-id", "no-such-request", "--json"]) == 0
+    assert capsys.readouterr().out == ""
