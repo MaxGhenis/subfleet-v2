@@ -29,7 +29,7 @@ from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, 
 from .peers import APP_EXECUTABLES, judge, peer_pid
 from .runner import TurnRunner
 from .store import (
-    ConversationError, ConversationStore, canonical_uuid, validate_settings, widens, utcnow,
+    LEGACY_OWNER, ConversationError, ConversationStore, canonical_uuid, validate_settings, widens, utcnow,
 )
 from .turn import (
     APPROVAL_NEEDED, CANCELLED, COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, QUEUED, RUNNING,
@@ -210,7 +210,8 @@ class ConversationService:
                                  (conversation["conversation_id"],))["n"]
         return {**{k: conversation[k] for k in ("conversation_id", "provider", "native_session_id", "title",
                                                 "workspace", "workspace_kind", "allow_main", "lane_id", "settings",
-                                                "origin", "handoff_from", "blocked_by", "created_at", "updated_at")},
+                                                "origin", "handoff_from", "blocked_by", "legacy_hold", "created_at",
+                                                "updated_at")},
                 "last_message": last, "pending_approvals": pending,
                 "active": bool(last and last["state"] not in TERMINAL_STATES and last["state"] != QUEUED)}
 
@@ -313,6 +314,12 @@ class ConversationService:
         if args.get("confirm") is not True or args.get("choice") not in ("continue", "leave"):
             raise ConversationError("confirm", "unblock needs choice continue|leave and confirm: true")
         if conversation["blocked_by"] not in ("unfinished-turn", "delivery-unknown"):
+            if conversation.get("legacy_hold"):
+                # C-30.4: the import's own hold; only a pass that finds the session settled lifts it.
+                raise ConversationError(LEGACY_OWNER, f"the legacy cockpit may be using this session: "
+                                        f"{conversation['legacy_hold']}", code=7,
+                                        fix="settle it in the cockpit, then run python -m subfleet.importer "
+                                            "--legacy-cockpit")
             raise ConversationError("not-blocked", "the conversation is not blocked by an unfinished turn")
         if conversation["blocked_by"] == "delivery-unknown":
             raise ConversationError("resolve-first", "resolve the delivery-unknown message first",
@@ -591,6 +598,21 @@ class ConversationService:
         except Exception as exc:
             self.log.error("conversation tick failed: %s: %s", type(exc).__name__, exc)
 
+    def admission_hold(self, job: dict) -> dict | None:
+        """Why admission must not place this turn job now (C-24.5, C-30.4), or None.
+
+        A turn job is created only for a conversation that is not blocked, but it
+        can be blocked after: the legacy import holds a conversation while the
+        daemon is stopped, with its turn job already queued. The job then waits
+        here, placing nothing, until both blocks are clear.
+        """
+        manifest = _read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
+        conversation_id = (manifest.get(TURN_MANIFEST_KEY) or {}).get("conversation_id")
+        hold = self.store.turn_hold(conversation_id) if conversation_id else None
+        if hold:
+            return {"reason": "conversation-blocked", "conversation_id": conversation_id, **hold}
+        return None
+
     def _turn_job(self, message: dict) -> dict | None:
         """The main store decides which job carries a message (IR-1)."""
         row = self.daemon.store.one("SELECT * FROM jobs WHERE request_id=? AND kind='turn'",
@@ -620,14 +642,8 @@ class ConversationService:
                                      expect=(QUEUED, WAITING), job_id=job["job_id"])
 
     def _readmittable(self) -> list[dict]:
-        rows = self.store.query("SELECT * FROM messages WHERE state='waiting' AND state_reason LIKE 'readmit:%'")
-        out = []
-        from .store import _decode_message
-        for row in rows:
-            message = _decode_message(row)
-            if not self._turn_job(message):
-                out.append(message)
-        return out
+        """C-24.5: a re-admitted turn waits, like any other, while its conversation is blocked."""
+        return [message for message in self.store.readmittable() if not self._turn_job(message)]
 
     def _previous_released(self, conversation: dict, message: dict) -> bool:
         """C-24.5: the previous turn job is terminal and holds no lease."""
@@ -717,6 +733,13 @@ class ConversationService:
             self.runners[aid] = runner
             self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
             runner.start()
+            held = (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
+            if held:
+                # C-30.4, D-17: a pass run while the daemon was down found the
+                # legacy cockpit may be using this session again. A turn that was
+                # already running is stopped (D-13), not left beside it.
+                self.log.warning("turn %s stopped: its conversation is held %s (%s)", aid, LEGACY_OWNER, held)
+                runner.interrupt(LEGACY_OWNER)
 
     def _settle_unstarted(self) -> None:
         """A waiting message whose job ended with no provider start was never delivered."""
@@ -790,8 +813,12 @@ class ConversationService:
                                  expect=live, served=served)
         elif reason in NOT_DELIVERED and not turn.get("user_frame_written"):
             readmits = message["turn_seq"]
-            if reason in READMIT and readmits < MAX_READMITS:
-                self.store.set_state(message["message_id"], WAITING, reason=f"readmit:{reason}", expect=live,
+            # A turn the legacy hold stopped before its message was written waits
+            # for the hold to lift and is admitted again (C-30.4).
+            held = reason == "stopped-before-send" and turn.get("stop_reason") == LEGACY_OWNER
+            if (reason in READMIT or held) and readmits < MAX_READMITS:
+                self.store.set_state(message["message_id"], WAITING,
+                                     reason=f"readmit:{LEGACY_OWNER if held else reason}", expect=live,
                                      turn_seq=readmits + 1, job_id=None)
             else:
                 self.store.set_state(message["message_id"], FAILED, reason=f"not-delivered: {reason}",

@@ -983,9 +983,14 @@ def fences(report) -> list[dict]:
     return [item for item in report.stores["outbox"].items if item["source"] == "conversation"]
 
 
-def bound(cid: str, disposition: str, blocked_by: str | None, detail: str) -> dict:
-    return {"source": "conversation", "conversation_id": cid, "session_id": f"claude:{LEGACY_SESSION}",
-            "disposition": disposition, "blocked_by": blocked_by, "detail": detail}
+def bound(cid: str, disposition: str, legacy_hold: str | None, *, blocked_by: str | None = None,
+          unsettled: tuple = (), session: str = LEGACY_SESSION) -> dict:
+    """A fence item: the conversation's legacy hold beside its own block, and its
+    messages that are not settled (C-30.4)."""
+    return {"source": "conversation", "conversation_id": cid, "session_id": f"claude:{session}",
+            "disposition": disposition, "legacy_hold": legacy_hold, "blocked_by": blocked_by,
+            "unsettled": [{"message_id": message_id, "state": state} for message_id, state in unsettled],
+            "detail": legacy_hold or legacy.RELEASED}
 
 
 #: The fixture's own three outbox rows, as the v1 fixture writes them.
@@ -996,7 +1001,6 @@ def fixture_rows() -> list[tuple]:
 
 
 PERSON_SETTINGS = {"model": "opus", "permission": "ask"}
-RELEASED = "no message of this session is unsettled and no journal entry names it"
 
 
 def test_the_outbox_is_the_cockpits_and_never_becomes_notices(v1):
@@ -1245,7 +1249,7 @@ def _remove(path: Path) -> None:
 def test_an_unreadable_journal_holds_every_session(v1, kind):
     """C-30.4: a journal that cannot be read could name any session, so it is
     never read as empty. No session is bound while it is unreadable, a session
-    an earlier pass bound is blocked `legacy-owner`, and the first pass that can
+    an earlier pass bound is held (`legacy_hold`), and the first pass that can
     read it again imports and releases as usual."""
     journal = v1["state"] / legacy.JOURNAL
     problem = _unreadable_journal(journal, kind)
@@ -1265,22 +1269,25 @@ def test_an_unreadable_journal_holds_every_session(v1, kind):
 
     _unreadable_journal(journal, kind)                    # unreadable again: the bound session is fenced
     report = run_legacy(v1)
-    assert fences(report) == [bound(cid, "bound-session-held", "legacy-owner", held)]
-    assert conversations(v1["root"], "SELECT blocked_by FROM conversations") == [{"blocked_by": "legacy-owner"}]
+    assert fences(report) == [bound(cid, "bound-session-held", held)]
+    assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
+        {"blocked_by": None, "legacy_hold": held}]
 
     _remove(journal)
     journal.write_text("{}", encoding="utf-8")            # readable and empty: the hold lifts
     report = run_legacy(v1)
-    assert fences(report) == [bound(cid, "bound-session-released", None, RELEASED)]
+    assert fences(report) == [bound(cid, "bound-session-released", None)]
     assert report.stores["cockpit"].reasons == {}
-    assert conversations(v1["root"], "SELECT blocked_by FROM conversations") == [{"blocked_by": None}]
+    assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
+        {"blocked_by": None, "legacy_hold": None}]
 
 
 def test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles(v1, capsys):
     """C-30.4, C-24.5, design D-17: a session an earlier pass bound whose outbox
-    gains a message that is not terminal is held again. Its conversation is
-    blocked `legacy-owner`, so no turn runs in it, and reported by id; a repeated
-    pass changes nothing; the pass that finds the session settled lifts the block."""
+    gains a message that is not terminal is held again. Its conversation is held
+    (`legacy_hold`), so no turn runs in it, and reported by id with its unsettled
+    messages; a repeated pass changes nothing; the pass that finds the session
+    settled lifts the hold."""
     run_legacy(v1)
     (conversation,) = conversations(v1["root"], "SELECT * FROM conversations")
     cid = conversation["conversation_id"]
@@ -1290,17 +1297,18 @@ def test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles
     assert dispositions(report) == {LEGACY[0]: "already-imported", LEGACY[1]: "already-imported",
                                     LEGACY[2]: "legacy-owned", LEGACY[3]: "legacy-owned"}
     held = f"message {LEGACY[3]} is dispatched"
-    assert fences(report) == [bound(cid, "bound-session-held", "legacy-owner", held)]
+    assert fences(report) == [bound(cid, "bound-session-held", held)]
     outbox = report.stores["outbox"]
     assert outbox.reasons["bound-session-held"] == 1
     assert outbox.seen == 4 and outbox.skipped == 4           # a conversation is not one of the messages
-    assert any("blocked while the legacy writer" in note for note in outbox.notes)
+    assert any("held while the legacy writer" in note for note in outbox.notes)
 
     # C-24.5: a person's next message waits; nothing in the session is dispatchable.
     person = "0f0f0f0f-0000-4000-8000-000000000001"
     store = ConversationStore(v1["root"])
     try:
-        assert store.conversation(cid)["blocked_by"] == "legacy-owner"
+        assert store.conversation(cid)["legacy_hold"] == held
+        assert store.conversation(cid)["blocked_by"] is None
         store.submit_message(conversation_id=cid, message_id=person, after_message_id=None,
                              text="a person's next message", attachments=[], settings=PERSON_SETTINGS)
         assert store.next_dispatchable() == []
@@ -1314,7 +1322,7 @@ def test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles
     assert importer.main(argv) == 0
     table = capsys.readouterr().out
     assert (f"outbox: conversation {cid} claude:{LEGACY_SESSION} -> bound-session-held "
-            f"(blocked_by legacy-owner) {held}") in table
+            f"{held}; unsettled: {person} queued") in table
     assert "the cockpit again" not in table and "a person's next message" not in table
     assert conversations(v1["root"], "SELECT * FROM conversations") == before
 
@@ -1323,21 +1331,21 @@ def test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles
                                outbox_row(LEGACY[3], LEGACY_SESSION, "finished", "the cockpit again", at=50)])
     report = run_legacy(v1)
     assert dispositions(report)[LEGACY[3]] == "conversation-has-own-messages"   # C-24.2: history goes first
-    assert fences(report) == [bound(cid, "bound-session-released", None, RELEASED)]
+    assert fences(report) == [bound(cid, "bound-session-released", None, unsettled=[(person, "queued")])]
     assert report.stores["outbox"].reasons["bound-session-released"] == 1
     store = ConversationStore(v1["root"])
     try:
-        assert store.conversation(cid)["blocked_by"] is None
+        assert store.conversation(cid)["legacy_hold"] is None
         assert [message["message_id"] for message in store.next_dispatchable()] == [person]
     finally:
         store.close()
 
 
-def test_a_legacy_hold_never_replaces_or_lifts_another_block(v1):
-    """C-30.4, C-24.8: a bound conversation already blocked for another reason
-    keeps that block while its session is held, is reported with it, and is not
-    released by the import once the session settles; that block waits for its
-    own resolution."""
+def test_a_legacy_hold_and_another_block_are_independent(v1):
+    """C-30.4, C-24.8: the legacy hold is its own column. A bound conversation
+    already blocked for another reason is held beside that block and reported
+    with it; the pass that finds the session settled lifts only its hold, and
+    the other block waits for its own resolution."""
     run_legacy(v1)
     (cid,) = [row["conversation_id"] for row in conversations(v1["root"], "SELECT * FROM conversations")]
     store = ConversationStore(v1["root"])
@@ -1348,16 +1356,18 @@ def test_a_legacy_hold_never_replaces_or_lifts_another_block(v1):
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "delivery-unknown", "ambiguous", at=50)])
     report = run_legacy(v1)
-    assert fences(report) == [bound(cid, "bound-session-held", "unfinished-turn",
-                                    f"message {LEGACY[3]} is delivery-unknown; it stays blocked "
-                                    "'unfinished-turn', which the legacy hold does not replace")]
+    held = f"message {LEGACY[3]} is delivery-unknown"
+    assert fences(report) == [bound(cid, "bound-session-held", held, blocked_by="unfinished-turn")]
+    assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
+        {"blocked_by": "unfinished-turn", "legacy_hold": held}]
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "cancelled", "ambiguous", at=50, receipt={
                                    "ok": True, "error": None, "message": "Marked handled by you; no replay.",
                                    "resolution": "handled"})])
     report = run_legacy(v1)
-    assert fences(report) == []
-    assert conversations(v1["root"], "SELECT blocked_by FROM conversations") == [{"blocked_by": "unfinished-turn"}]
+    assert fences(report) == [bound(cid, "bound-session-released", None, blocked_by="unfinished-turn")]
+    assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
+        {"blocked_by": "unfinished-turn", "legacy_hold": None}]
 
 
 def test_history_lands_in_the_sessions_one_conversation_whatever_its_origin(v1):
@@ -1384,7 +1394,7 @@ def test_history_lands_in_the_sessions_one_conversation_whatever_its_origin(v1):
     found = {row["conversation_id"]: row for row in conversations(v1["root"], "SELECT * FROM conversations")}
     assert set(found) == {opened["conversation_id"], queued["conversation_id"]}
     assert found[opened["conversation_id"]]["origin"] == "native"
-    assert found[queued["conversation_id"]]["blocked_by"] is None
+    assert found[queued["conversation_id"]]["legacy_hold"] is None
     assert [(row["message_id"], row["origin"]) for row in conversations(
         v1["root"], "SELECT * FROM messages WHERE conversation_id=? ORDER BY seq", (opened["conversation_id"],))] == [
         (LEGACY[0], "legacy"), (LEGACY[1], "legacy")]
@@ -1392,7 +1402,7 @@ def test_history_lands_in_the_sessions_one_conversation_whatever_its_origin(v1):
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "starting", "the cockpit again", at=50)])
     report = run_legacy(v1)
-    assert fences(report) == [bound(opened["conversation_id"], "bound-session-held", "legacy-owner",
+    assert fences(report) == [bound(opened["conversation_id"], "bound-session-held",
                                     f"message {LEGACY[3]} is starting")]
 
 

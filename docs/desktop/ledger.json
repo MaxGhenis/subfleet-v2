@@ -463,7 +463,8 @@
       "evidence": [
         "tests/unit/test_importer.py, legacy cockpit section: per-message classification, repeated import creates nothing, held sessions, client journal, dry run, daemon.lock",
         "tests/unit/test_conversation_store.py: legacy history is terminal, idempotent by id, written first, never dispatched",
-        "tests/e2e/test_legacy_cockpit.py: imported history reopens through the daemon by its native session, and a new message resumes that session while no history row is sent"
+        "tests/e2e/test_legacy_cockpit.py: imported history reopens through the daemon by its native session, and a new message resumes that session while no history row is sent",
+        "tests/unit/test_legacy_hold.py: the import's hold keeps every turn off its conversation (no dispatch, no re-admission, no admission of a queued turn job, a running turn stopped on adoption), and no outcome, unblock or resolve replaces or lifts it"
       ],
       "notes": "Not run against the real v1 state yet. A dry run over a private copy of the real outbox (2026-09-24, scratch state root) placed all 6 finished messages as history in 3 legacy conversations. A real pass needs the daemon stopped (docs/migration.md, 'The legacy cockpit, milestone 9')."
     },

@@ -42,7 +42,7 @@ own origin. Every other message, and every journal entry whatever the outbox
 says about its id, keeps its legacy owner and is reported with its disposition,
 and so does its whole session (`held_sessions`); a journal that cannot be read
 holds every session. A conversation an earlier pass bound whose session is held
-again is blocked `legacy-owner` until a pass finds the session settled
+again is held (`legacy_hold`) until a pass finds the session settled
 (`fence_bound_sessions`). Nothing here ever queues, dispatches or sends a
 message. Nothing here writes under the v1 state directory; the caller reads the
 outbox from a copy.
@@ -61,8 +61,8 @@ from typing import Any
 
 from ..sessions import transcripts
 from .catalog import claude_session
-from .store import ConversationError, ConversationStore, canonical_uuid
-from .turn import CANCELLED, COMPLETE, FAILED
+from .store import LEGACY_OWNER, ConversationError, ConversationStore, canonical_uuid
+from .turn import CANCELLED, COMPLETE, FAILED, TERMINAL_STATES
 
 #: The cockpit's own terminal set (`outbox.py:31`).
 TERMINAL = frozenset({"finished", "error", "cancelled"})
@@ -72,10 +72,10 @@ NON_TERMINAL = frozenset({"queued", "starting", "dispatched", "failover-dispatch
 
 JOURNAL = Path("cockpit-client") / "pending-messages.json"
 
-#: The block a pass puts on a conversation it bound earlier while the legacy
-#: writer may be using that session again (C-30.4, design D-17). A blocked
-#: conversation gets no turn (C-24.5, `ConversationStore.next_dispatchable`).
-LEGACY_HOLD = "legacy-owner"
+#: The hold a pass puts on a conversation while the legacy writer may be using
+#: its session (C-30.4, design D-17): the conversation's `legacy_hold` column,
+#: beside the service's `blocked_by`. A held conversation gets no turn (C-24.5).
+LEGACY_HOLD = LEGACY_OWNER
 
 
 @dataclass(frozen=True)
@@ -301,48 +301,55 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
     return result
 
 
+#: Why a pass lifts a hold: nothing it read says the legacy writer is using the session.
+RELEASED = "no message of this session is unsettled and no journal entry names it"
+
+
 def fence_bound_sessions(store: ConversationStore, hold: Callable[[str], str | None], result: Result) -> None:
-    """Block each conversation the import bound whose session is held; release it once not (C-30.4).
+    """Hold each conversation the import bound whose session is held; release it once not (C-30.4).
 
     A conversation the import bound is one that holds legacy history, or that the
     import created (origin `legacy`); a later pass can find its session held again
     (a new cockpit message there that is not terminal, a journal entry naming
-    it, a journal that cannot be read). Holding it means `blocked_by:
-    "legacy-owner"`, which keeps every turn off it (C-24.5), and a
-    `bound-session-held` item. The first pass whose `hold` names no reason lifts
-    that block and reports `bound-session-released`. A pass never replaces
-    another block (`unfinished-turn`, `delivery-unknown`, `quarantined-turn`
-    each wait for their own resolution) and never lifts one it did not set; a
-    conversation blocked for another reason is reported with that block. A
+    it, a journal that cannot be read). Holding it sets its `legacy_hold` to the
+    reason, which keeps every turn off it (C-24.5: no dispatch, no re-admission,
+    no admission of a turn job already queued, and a running turn is stopped when
+    the daemon adopts it), and reports `bound-session-held` with the
+    conversation's own `blocked_by` and every message of it that is not settled,
+    so the operator can cancel one before the daemon starts. The first pass whose
+    `hold` names no reason lifts the hold and reports `bound-session-released`.
+    The hold is the import's alone: `blocked_by` (`unfinished-turn`,
+    `delivery-unknown`, `quarantined-turn`) is never read or written here, and
+    no outcome, `conversation.unblock` or `message.resolve` touches the hold. A
     conversation of a held session that holds no legacy history was never bound
     by the import and is not fenced here.
     """
     bound = store.query(
         "SELECT * FROM conversations c WHERE provider='claude' AND native_session_id IS NOT NULL "
-        "AND (origin='legacy' OR blocked_by=? OR EXISTS "
+        "AND (origin='legacy' OR legacy_hold IS NOT NULL OR EXISTS "
         "(SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id AND m.origin='legacy')) "
-        "ORDER BY created_at, conversation_id", (LEGACY_HOLD,))
+        "ORDER BY created_at, conversation_id")
     for row in bound:
         session_id = f"claude:{row['native_session_id']}"
         reason = hold(session_id)
-        blocked_by = row["blocked_by"]
         if reason:
-            if blocked_by is None:
-                store.update_conversation(row["conversation_id"], blocked_by=LEGACY_HOLD)
-                blocked_by = LEGACY_HOLD
-            elif blocked_by != LEGACY_HOLD:
-                reason += f"; it stays blocked {blocked_by!r}, which the legacy hold does not replace"
-            result.add(**_conversation_item(row, session_id, "bound-session-held", blocked_by, reason))
-        elif blocked_by == LEGACY_HOLD:
-            store.update_conversation(row["conversation_id"], blocked_by=None)
-            result.add(**_conversation_item(row, session_id, "bound-session-released", None,
-                                            "no message of this session is unsettled and no journal entry names it"))
+            if row["legacy_hold"] != reason:
+                store.set_legacy_hold(row["conversation_id"], reason)
+            result.add(**_conversation_item(store, row, session_id, "bound-session-held", reason))
+        elif row["legacy_hold"] is not None:
+            store.set_legacy_hold(row["conversation_id"], None)
+            result.add(**_conversation_item(store, row, session_id, "bound-session-released", None))
 
 
-def _conversation_item(row: Mapping[str, Any], session_id: str, disposition: str, blocked_by: str | None,
-                       detail: str) -> dict[str, Any]:
+def _conversation_item(store: ConversationStore, row: Mapping[str, Any], session_id: str, disposition: str,
+                       reason: str | None) -> dict[str, Any]:
+    unsettled = [{"message_id": message["message_id"], "state": message["state"]} for message in store.query(
+        f"SELECT message_id, state FROM messages WHERE conversation_id=? "
+        f"AND state NOT IN ({','.join('?' * len(TERMINAL_STATES))}) ORDER BY seq",
+        (row["conversation_id"], *TERMINAL_STATES))]
     return {"source": "conversation", "conversation_id": row["conversation_id"], "session_id": session_id,
-            "disposition": disposition, "blocked_by": blocked_by, "detail": detail}
+            "disposition": disposition, "legacy_hold": reason, "blocked_by": row["blocked_by"],
+            "unsettled": unsettled, "detail": reason or RELEASED}
 
 
 def _place(store: ConversationStore, native_id: str, projects: Path | None, result: Result) -> dict[str, Any]:

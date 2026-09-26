@@ -1649,11 +1649,16 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     if result.journal_problem:
         report.note(f"cockpit-client/pending-messages.json is {result.journal_problem}: every session is "
                     "held, as any of them may have an unacknowledged send, until a pass can read it (C-30.4)")
-    held = sum(1 for item in result.items if item["disposition"] == "bound-session-held")
+    held = [item for item in result.items if item["disposition"] == "bound-session-held"]
     if held:
-        report.note(f"{held} conversations an earlier pass bound are blocked while the legacy writer may be "
-                    f"using their sessions (blocked_by {legacy.LEGACY_HOLD!r}); the first pass that finds a "
-                    "session settled lifts its block (C-30.4)")
+        report.note(f"{len(held)} conversations an earlier pass bound are held while the legacy writer may be "
+                    f"using their sessions ({legacy.LEGACY_HOLD}, the conversation's legacy_hold): no turn runs "
+                    "in one, and the first pass that finds its session settled lifts the hold (C-30.4)")
+    unsettled = [item for item in held if item["unsettled"]]
+    if unsettled:
+        report.note(f"{len(unsettled)} held conversations have messages that are not settled (items list them): "
+                    "the daemon stops a running turn when it starts, and a queued or waiting message runs once "
+                    "the hold lifts unless it is cancelled first (message.cancel)")
     if any(item["disposition"] == "transcript-not-found" for item in result.items):
         report.note("terminal messages whose Claude transcript was not found are listed in items; "
                     "a later pass imports them if the transcript appears")
@@ -2119,7 +2124,10 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {key}: conversation {item['conversation_id']} {item['session_id']} "
                           f"-> {item['disposition']}"
                           + (f" (blocked_by {item['blocked_by']})" if item.get("blocked_by") else "")
-                          + (f" {item['detail']}" if item.get("detail") else ""))
+                          + (f" {item['detail']}" if item.get("detail") else "")
+                          + ("; unsettled: " + ", ".join(f"{message['message_id']} {message['state']}"
+                                                         for message in item["unsettled"])
+                             if item.get("unsettled") else ""))
                     continue
                 where = item.get("conversation_id") or item.get("detail") or ""
                 print(f"  {key}: {item.get('message_id')} {item.get('session_id')} "

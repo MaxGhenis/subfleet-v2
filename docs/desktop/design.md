@@ -317,7 +317,12 @@ previous one is terminal and has released them (review F9, F-06). Resume,
 revive and handoff reservations also check `native:*` and `conversation:*`
 (symmetric; review F-08); `_resume_submission` refuses a `turn` source.
 Conversation-bound sessions are listed by the sessions kit but never nudged,
-revived or cold-swept (`sessions state` returns them). An external writer (a
+revived or cold-swept (`sessions state` returns them). A conversation the
+legacy import holds (`legacy_hold`, C-30.4) gets no turn: nothing is
+dispatched or re-admitted, its queued turn job waits at admission
+(`conversation-blocked`), and a turn that kept running across the restart is
+stopped when the daemon adopts it; one stopped before its message was written
+is re-admitted once the hold lifts. An external writer (a
 live pid in `~/.claude/sessions/*.json` naming the session that carries no
 Subfleet markers and is not a recorded owned identity) is an admission wait
 `external-writer` shown in the app ("open in the Claude app; close it there
@@ -456,6 +461,7 @@ CREATE TABLE conversations (
   origin            TEXT NOT NULL CHECK (origin IN ('new','native','handoff','legacy')),
   handoff_from_json TEXT,
   blocked_by        TEXT,                     -- unfinished-turn | delivery-unknown | quarantined-turn
+  legacy_hold       TEXT,                     -- the legacy import's hold and its reason (C-30.4)
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
   UNIQUE (provider, native_session_id)
 );
@@ -791,10 +797,14 @@ message; the conversation is created from `catalog.claude_session`, the facts
 one. A session with a non-terminal message or a journal entry (whatever the
 outbox says of that entry's id) stays with the legacy writer as a whole, so
 Subfleet never becomes a second writer in it (D-17); a journal that cannot be
-read holds every session. `fence_bound_sessions` then blocks `legacy-owner` a
-conversation an earlier pass bound whose session is held again, and the first
-pass that finds the session settled lifts that block; it never replaces or
-lifts another block. `python -m subfleet.importer --legacy-cockpit [--dry-run]` runs the
+read holds every session. `fence_bound_sessions` then holds a conversation an
+earlier pass bound whose session is held again, and the first pass that finds
+the session settled lifts the hold. The hold is the conversation's own
+`legacy_hold` column: the service's single `blocked_by` never carries it, so no
+turn outcome replaces it and neither `conversation.unblock` nor
+`message.resolve` lifts it, and the import never reads or writes `blocked_by`.
+A store written before the column existed moves a `blocked_by` of
+`legacy-owner` into it when it is opened. `python -m subfleet.importer --legacy-cockpit [--dry-run]` runs the
 import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").
 
 ## 14. Test plan

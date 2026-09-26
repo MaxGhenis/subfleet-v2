@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   handoff_from_json TEXT,
   request_id        TEXT UNIQUE,
   blocked_by        TEXT,
+  legacy_hold       TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
   UNIQUE (provider, native_session_id)
 );
@@ -169,6 +170,16 @@ def validate_settings(provider: str, settings: Any) -> dict:
 # Messages Subfleet writes to repair a session; they go ahead of queued person messages.
 REPAIR_ORIGINS = ("unblock-note", "failover")
 
+#: The legacy import's hold (C-30.4, design D-17): the legacy cockpit may be using
+#: the conversation's session. It lives in its own column, `legacy_hold`, beside
+#: the service's single `blocked_by`, so no outcome replaces it and no
+#: `conversation.unblock` or `message.resolve` lifts it; only the import sets or
+#: clears it (`set_legacy_hold`).
+LEGACY_OWNER = "legacy-owner"
+
+#: C-24.5: a conversation gets no turn while either block is set.
+UNBLOCKED = "c.blocked_by IS NULL AND c.legacy_hold IS NULL"
+
 PERMISSION_ORDER = {"read-only": 0, "ask": 1, "accept-edits": 2, "bypass": 3}
 
 
@@ -229,7 +240,29 @@ class ConversationStore:
             self._db.executescript(SCHEMA)
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
+            self._add_legacy_hold()
         self.changed = threading.Condition()
+
+    def _add_legacy_hold(self) -> None:
+        """A schema 1 store written before `legacy_hold` gains the column (C-30.4).
+
+        The column is nullable and additive: a build that predates it reads rows
+        by name and ignores it. A store written then kept the legacy hold in
+        `blocked_by`; that value moves to the column, since `blocked_by` is now
+        the service's alone and nothing there would ever lift it.
+        """
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
+        if "legacy_hold" in columns:
+            return
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            self._db.execute("ALTER TABLE conversations ADD COLUMN legacy_hold TEXT")
+            self._db.execute("UPDATE conversations SET legacy_hold=?, blocked_by=NULL WHERE blocked_by=?",
+                             (f"held {LEGACY_OWNER} by an earlier import", LEGACY_OWNER))
+        except BaseException:
+            self._db.execute("ROLLBACK")
+            raise
+        self._db.execute("COMMIT")
 
     def close(self) -> None:
         with self._lock:
@@ -325,6 +358,27 @@ class ConversationStore:
             tx.execute(f"UPDATE conversations SET {','.join(sets)} WHERE conversation_id=?", (*params, conversation_id))
             self._change(tx, conversation_id, None, None)
         return self.conversation(conversation_id)
+
+    def set_legacy_hold(self, conversation_id: str, reason: str | None) -> dict:
+        """Set (a reason) or lift (None) the legacy import's hold (C-30.4).
+
+        Only `legacy.fence_bound_sessions` calls this; `update_conversation`
+        cannot name the column, so no service path can clear it.
+        """
+        with self.transaction() as tx:
+            tx.execute("UPDATE conversations SET legacy_hold=?, updated_at=? WHERE conversation_id=?",
+                       (reason, utcnow(), conversation_id))
+            self._change(tx, conversation_id, None, None)
+        return self.conversation(conversation_id)
+
+    def turn_hold(self, conversation_id: str) -> dict | None:
+        """Why no turn may run in a conversation now (C-24.5): its `blocked_by`
+        and `legacy_hold`, or None when neither is set."""
+        row = self.one("SELECT blocked_by, legacy_hold FROM conversations WHERE conversation_id=?",
+                       (conversation_id,))
+        if row is None or (row["blocked_by"] is None and row["legacy_hold"] is None):
+            return None
+        return {"blocked_by": row["blocked_by"], "legacy_hold": row["legacy_hold"]}
 
     def list_conversations(self, *, provider: str | None = None, limit: int = 200) -> list[dict]:
         sql = "SELECT * FROM conversations WHERE archived_at IS NULL"
@@ -511,11 +565,19 @@ class ConversationStore:
         repair = ",".join(f"'{origin}'" for origin in REPAIR_ORIGINS)
         rows = self.query(
             "SELECT m.* FROM messages m JOIN conversations c USING(conversation_id) "
-            "WHERE m.state='queued' AND c.blocked_by IS NULL AND c.archived_at IS NULL "
+            f"WHERE m.state='queued' AND {UNBLOCKED} AND c.archived_at IS NULL "
             "AND m.message_id = (SELECT q.message_id FROM messages q WHERE q.conversation_id=m.conversation_id "
             f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, q.seq LIMIT 1) "
             f"AND NOT EXISTS (SELECT 1 FROM messages l WHERE l.conversation_id=m.conversation_id AND l.state IN ({','.join('?' * len(LIVE_STATES))})) "
             "ORDER BY m.created_at", LIVE_STATES)
+        return [_decode_message(r) for r in rows]
+
+    def readmittable(self) -> list[dict]:
+        """Waiting messages whose turn is re-admitted (`readmit:*`, design D-12),
+        of conversations that are not blocked (C-24.5)."""
+        rows = self.query("SELECT m.* FROM messages m JOIN conversations c USING(conversation_id) "
+                          f"WHERE m.state='waiting' AND m.state_reason LIKE 'readmit:%' AND {UNBLOCKED} "
+                          "ORDER BY m.created_at")
         return [_decode_message(r) for r in rows]
 
     def live_messages(self) -> list[dict]:

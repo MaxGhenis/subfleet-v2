@@ -63,8 +63,9 @@ LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
 ADMISSION_IDLE_LOG_S = 60
 ADMISSION_IDLE_REPEAT_S = 600
 ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
-#: C-6.11: waits that are a person's or a retry's to end, not admission's.
-NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
+#: C-6.11: waits that are a person's or a retry's to end, not admission's. A
+#: turn held for its conversation (C-24.5, C-30.4) is not admission's to place.
+NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job"})
@@ -2433,6 +2434,14 @@ class Daemon:
                 # no released lease brings it forward. It says what it met.
                 holds[job["job_id"]] = self._route_hold(job["job_id"], job["next_check_at"])
                 continue
+            if job["kind"] == "turn":
+                # C-24.5, C-30.4: a turn job whose conversation became blocked after
+                # it was created (the legacy import holds one while the daemon is
+                # down) places nothing and holds nobody back until both blocks clear.
+                hold = self.conversations.admission_hold(job)
+                if hold:
+                    holds[job["job_id"]] = hold
+                    continue
             # C-4.5, C-6.9: while a transient retry is pinned to its last pair, the
             # job can run only there, and its demand is that one model on that lane.
             previous, extra_exclusions, retry = self._retry_pin(job)
