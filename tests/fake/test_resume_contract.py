@@ -158,6 +158,9 @@ def test_c12_resume_refuses_source_without_valid_native_context(state_daemon, de
     daemon, harness = state_daemon
     source_id, attempt = finished_source(daemon, harness)
     if defect == "active":
+        # A fabricated row: a finished job is never running again, so its
+        # notice (written when it finished) cannot match it (C-15.1 check off).
+        harness.notice_check = False
         daemon.store.update_job(source_id, state="running")
     elif defect == "no-session":
         daemon.store.update_attempt(attempt["attempt_id"], native_session_id=None)
