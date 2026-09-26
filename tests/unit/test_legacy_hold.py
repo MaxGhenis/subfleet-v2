@@ -821,6 +821,9 @@ def test_why_says_what_holds_a_turn():
         "reason": "external-writer", "conversation_id": "cv-1", "native_session_id": SESSION, "pids": [41, 42]}})
     assert writer[1] == (f"Held: a Claude process outside Subfleet (pid 41, 42) holds its session {SESSION}; the "
                          "turn is placed once that process ends (C-26.3)")
+    settled = why_queue({"job_id": "j", "state": "queued", "hold": {"reason": "message-settled", "state": "cancelled"}})
+    assert settled[1] == ("Held: its message was withdrawn after the job was made; the job is cancelled, never run "
+                          "(C-24.7)")
 
 
 @pytest.mark.parametrize("op", ["message.cancel", "turn.interrupt"])
@@ -972,6 +975,29 @@ def test_admission_cancels_a_turn_job_whose_message_is_settled(core):
     assert daemon._holds[job["job_id"]]["reason"] == "message-settled"
 
 
+@pytest.mark.parametrize("manifest", ["[1, 2", '{"turn": [1, 2]}', '{"turn": "a string"}', "7"])
+def test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone(core, manifest):
+    """C-6.12 (fourth review, finding 1): a turn job whose manifest cannot be read
+    as one (not JSON, or no turn object) is held, and the pass goes on to place
+    other jobs; it never ends every pass."""
+    world, daemon = core
+    svc = daemon.conversations
+    submit(svc, world.conversation_id())
+    svc._dispatch()
+    job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
+    (world.root / "jobs" / job["job_id"] / "manifest.json").write_text(manifest, encoding="utf-8")
+    prompt = world.root / "detached.md"
+    prompt.write_text("a detached job", encoding="utf-8")
+    other = daemon.submit(protocol.SubmitArgs(request_id="detached-3", kind="dispatch", workdir=str(world.workspace),
+                                              prompt_path=str(prompt), sandbox="read-only", pinned_model="opus",
+                                              allow_tmp=True))["job_id"]
+    daemon._admit()
+    hold = daemon._holds[job["job_id"]]
+    assert (hold["reason"], hold["error"]) == ("conversation-blocked", "its turn manifest cannot be read")
+    assert daemon.store.list_attempts(job["job_id"]) == []
+    assert len(daemon.store.list_attempts(other)) == 1
+
+
 def test_a_failed_check_with_an_unreadable_manifest_still_holds_that_job_alone(core, monkeypatch):
     """C-6.12 (third review, finding C): when a turn job's check fails and its
     manifest cannot be read either, the job is held and the pass goes on."""
@@ -1020,3 +1046,51 @@ def test_a_runner_the_store_refuses_to_mark_is_still_started(world, monkeypatch)
         assert runner.started
     finally:
         svc.close()
+
+
+def _race_to_an_attempt(svc: ConversationService, daemon, message_id: str, *, adopted: bool):
+    """The dispatcher makes the message's turn job and admission reserves an
+    attempt, between a cancel's first look and its commit; `adopted`: the
+    daemon has also moved the message on to starting."""
+    raced = []
+    real = svc._turn_job
+
+    def racing(message):
+        found = real(message)
+        if not raced:
+            raced.append(True)
+            conversation = svc.store.conversation(message["conversation_id"])
+            svc._submit_turn(conversation, svc.store.message(message_id))      # the message is still queued
+            daemon._admit()
+            if adopted:
+                svc.store.set_state(message_id, STARTING, expect=("queued",))
+        return found
+    return racing
+
+
+def test_a_cancel_racing_admission_records_the_stop_first(core, monkeypatch):
+    """C-24.7, IR-2 (fourth review, finding 2): a queued message whose turn job
+    the dispatcher makes, and admission gives an attempt, between a cancel's
+    first look and its commit, is cancelled with its stop already recorded, so
+    the runner for that attempt never writes it."""
+    world, daemon = core
+    svc = daemon.conversations
+    first = submit(svc, world.conversation_id())
+    monkeypatch.setattr(svc, "_turn_job", _race_to_an_attempt(svc, daemon, first, adopted=False))
+    receipt = svc.op_message_cancel({"message_id": first}, None)
+    assert (receipt["state"], receipt["stop_requested"]) == ("cancelled", True)
+    job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
+    assert len(daemon.store.list_attempts(job["job_id"])) == 1           # too late to cancel the job: the stop holds
+
+
+def test_a_refused_cancel_leaves_no_stop_behind(core, monkeypatch):
+    """C-24.7 (fourth review, finding 6): a cancel refused as too late does not
+    leave the stop it recorded, which a restart would read and act on."""
+    world, daemon = core
+    svc = daemon.conversations
+    first = submit(svc, world.conversation_id())
+    monkeypatch.setattr(svc, "_turn_job", _race_to_an_attempt(svc, daemon, first, adopted=True))
+    with pytest.raises(ConversationError) as refused:
+        svc.op_message_cancel({"message_id": first}, None)
+    assert refused.value.reason == "too-late"
+    assert svc.store.message(first)["stop_requested_at"] is None

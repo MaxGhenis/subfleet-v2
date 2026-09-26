@@ -442,8 +442,13 @@ class ConversationService:
             message = self.store.message(message_id)
         except ConversationError:
             return self._tombstone(message_id, args.get("conversation_id"))
+        recorded = None
         if message["state"] == QUEUED and not self._turn_job(message):
+            # The dispatcher may make its turn job meanwhile: the stop is recorded
+            # first, so a runner for that job never writes the message (IR-2).
+            recorded = self._record_stop(message)
             if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED,)):
+                self._cancel_late_job(message_id)
                 return self._receipt(self.store.message(message_id))
         if self._readmit_pending(message) and self._withdraw_readmit(message):
             return self._receipt(self.store.message(message_id))
@@ -452,7 +457,26 @@ class ConversationService:
             if job and self._cancel_job_without_attempt(job["job_id"]):
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING, STARTING))
                 return self._receipt(self.store.message(message_id))
+        if recorded:
+            # Refused: a stop this cancel recorded must not outlive it (a later
+            # restart would read it and stop a turn the person was told runs on).
+            self.store.query("UPDATE messages SET stop_requested_at=NULL WHERE message_id=? AND stop_requested_at=?",
+                             (message_id, recorded))
         raise ConversationError("too-late", "the provider may already have this message", fix="use turn.interrupt")
+
+    def _record_stop(self, message: dict) -> str | None:
+        """Record a person's stop on a message that has none; the value recorded, else None."""
+        if message.get("stop_requested_at"):
+            return None
+        at = utcnow()
+        self.store.update_message(message["message_id"], stop_requested_at=at)
+        return at
+
+    def _cancel_late_job(self, message_id: str) -> None:
+        """Cancel a turn job the dispatcher made for a message just withdrawn, while it has no attempt."""
+        job = self._turn_job(self.store.message(message_id))
+        if job:
+            self._cancel_job_without_attempt(job["job_id"])
 
     def _readmit_pending(self, message: dict) -> bool:
         """A message waiting to be re-admitted with no turn job yet (IR-1, IR-23):
@@ -468,12 +492,13 @@ class ConversationService:
         cancelled is cancelled too while it has no attempt; admission cancels
         any that is left (`admission_hold`)."""
         message_id = message["message_id"]
-        self.store.update_message(message_id, stop_requested_at=message.get("stop_requested_at") or utcnow())
+        recorded = self._record_stop(message)
         if not self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,)):
+            if recorded:
+                self.store.query("UPDATE messages SET stop_requested_at=NULL WHERE message_id=? "
+                                 "AND stop_requested_at=?", (message_id, recorded))
             return False
-        job = self._turn_job(self.store.message(message_id))
-        if job:
-            self._cancel_job_without_attempt(job["job_id"])
+        self._cancel_late_job(message_id)
         return True
 
     def _tombstone(self, message_id: str, conversation_id: str | None) -> dict:
@@ -638,9 +663,21 @@ class ConversationService:
         daemon is stopped, with its turn job already queued. The job then waits
         here, placing nothing, until both blocks are clear.
         """
-        manifest = _read_json(self.root / "jobs" / job["job_id"] / "manifest.json")
+        path = self.root / "jobs" / job["job_id"] / "manifest.json"
+        try:
+            manifest = json.loads(path.read_bytes())
+        except FileNotFoundError:
+            return None                      # no turn block: its launch refuses it (`launch`)
+        except (OSError, ValueError) as exc:
+            manifest, error = None, type(exc).__name__
+        else:
+            error = None
         turn = manifest.get(TURN_MANIFEST_KEY) if isinstance(manifest, dict) else None
-        turn = turn if isinstance(turn, dict) else {}
+        if not isinstance(turn, dict):
+            # C-6.12: a turn job whose manifest cannot be read as one is this
+            # job's problem, held here, never the pass's (admission reads it again).
+            return {"reason": "conversation-blocked", "conversation_id": None,
+                    "error_type": error or "manifest", "error": "its turn manifest cannot be read"}
         conversation_id = turn.get("conversation_id")
         message = (self.store.one("SELECT state FROM messages WHERE message_id=?", (turn["message_id"],))
                    if isinstance(turn.get("message_id"), str) else None)

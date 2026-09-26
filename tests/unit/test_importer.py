@@ -2292,3 +2292,44 @@ def test_a_dangling_manifest_entry_still_marks_a_v1_state(v1):
     report = import_legacy_cockpit(v1["root"], v1_state=lonely, claude_projects=v1["claude"] / "projects",
                                    write_report=False)
     assert report.stores["outbox"].reasons == {"absent": 1}
+
+
+def test_retirement_with_no_store_is_recorded_and_later_passes_read_nothing(v1):
+    """C-30.4 (fourth review, findings 3 and 4): retiring before any conversation
+    store exists creates it to record the retirement. Every later pass reads
+    nothing from the cockpit, its journal included, and a legacy pass is not
+    refused once the v1 state is gone."""
+    assert importer.main(["--legacy-cockpit", "--cockpit-retired", "--state-root", str(v1["root"]),
+                          "--v1-state", str(v1["state"])]) == 0
+    write_json(v1["state"] / legacy.JOURNAL, {f"claude:{LEGACY_SESSION}": {"request": {
+        "message_id": LEGACY[5], "session_id": f"claude:{LEGACY_SESSION}"}}})
+    report = run_legacy(v1)
+    assert report.stores["outbox"].reasons == {"cockpit-retired": 1}
+    assert report.stores["cockpit"].reasons == {"cockpit-retired": 1} and report.stores["cockpit"].items == []
+    assert _recorded(v1) == {} and not conversations(v1["root"], "SELECT * FROM conversations")
+    report = import_legacy_cockpit(v1["root"], v1_state=v1["state"].parent / "gone",
+                                   claude_projects=v1["claude"] / "projects")
+    assert report.stores["outbox"].reasons == {"cockpit-retired": 1}
+
+
+def test_a_retirement_that_dies_midway_retires_nothing(v1, monkeypatch):
+    """C-30.4 (fourth review, finding 5): the retirement is recorded last, so a
+    run that dies while lifting the holds leaves the cockpit read as before, and
+    the next pass still fences and releases."""
+    cid = _bind(v1)
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "dispatched", "the cockpit again", at=50)])
+    run_legacy(v1)
+    assert _hold_of(v1, cid)
+    real = ConversationStore.set_legacy_hold
+
+    def dying(self, conversation_id, reason):
+        raise OSError("the disk went away")
+    monkeypatch.setattr(ConversationStore, "set_legacy_hold", dying)
+    with pytest.raises(OSError):
+        import_legacy_cockpit(v1["root"], v1_state=v1["state"], cockpit_retired=True)
+    monkeypatch.setattr(ConversationStore, "set_legacy_hold", real)
+    write_outbox(v1["state"], fixture_rows())                          # the cockpit's message settles
+    report = run_legacy(v1)
+    assert "cockpit-retired" not in report.stores["outbox"].reasons
+    assert fences(report) == [bound(cid, "bound-session-released", None)]

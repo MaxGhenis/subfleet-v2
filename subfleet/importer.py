@@ -1637,7 +1637,7 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     (default `projects`' parent, else `~/.claude`). A `v1_state` that holds none
     of the manifest's entries is read as nothing, and changes no hold.
     """
-    retired = conversations.get().legacy_retired_at() if conversations.exists() else None
+    retired = _retired_at(conversations)
     if retired:
         report.skip("cockpit-retired")
         report.note(f"the legacy cockpit was retired at {retired} (--cockpit-retired): nothing under the v1 state "
@@ -1741,9 +1741,7 @@ def retire_legacy_cockpit(conversations: _Conversations, report: StoreReport) ->
     """`--cockpit-retired`: the operator says the legacy cockpit will never run
     again, so every legacy hold is lifted and no session stays recorded as held
     (C-30.4). Nothing under the v1 state is read."""
-    if not conversations.exists():
-        report.note("no conversation store: there is no legacy hold to lift")
-        return
+    # The store is created if there is none, so the retirement is recorded.
     result = legacy.retire(conversations.get())
     for item in result.items:
         report.count(item["disposition"])
@@ -1752,7 +1750,13 @@ def retire_legacy_cockpit(conversations: _Conversations, report: StoreReport) ->
                 "session stays recorded as held (C-30.4)")
 
 
-def import_cockpit_client(report: StoreReport, *, v1_state: Path) -> None:
+def _retired_at(conversations: _Conversations | None) -> str | None:
+    """When `--cockpit-retired` was recorded, if it was (C-30.4)."""
+    return conversations.get().legacy_retired_at() if conversations and conversations.exists() else None
+
+
+def import_cockpit_client(report: StoreReport, *, v1_state: Path,
+                          conversations: _Conversations | None = None) -> None:
     """Manifest row `S/cockpit-client/`: the cockpit app's pending-send journal.
 
     Every entry is an unacknowledged send the cockpit app would retry itself, so
@@ -1760,6 +1764,11 @@ def import_cockpit_client(report: StoreReport, *, v1_state: Path) -> None:
     id, if the broker took it; nothing is sent (C-30.4). The image snapshot
     folders beside the journal stay where they are.
     """
+    retired = _retired_at(conversations)
+    if retired:
+        report.skip("cockpit-retired")
+        report.note(f"the legacy cockpit was retired at {retired}: its journal is not read")
+        return None
     directory = v1_state / "cockpit-client"
     if not directory.is_dir():
         report.skip("absent")
@@ -2088,7 +2097,7 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
             writer, entry, v1_state=v1_state, cursor=cursors.get("notices", {})))
         row("outbox", lambda entry: import_outbox(
             conversations, entry, v1_state=v1_state, projects=projects, writer=writer))
-        row("cockpit", lambda entry: import_cockpit_client(entry, v1_state=v1_state))
+        row("cockpit", lambda entry: import_cockpit_client(entry, v1_state=v1_state, conversations=conversations))
         row("salt", lambda entry: import_salt(
             writer, entry, v1_state=v1_state, state_root=state_root))
         row("alerts", lambda entry: import_alerts(
@@ -2128,11 +2137,6 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     state_root = Path(state_root).expanduser()
     v1_state = Path(v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
-    if not cockpit_retired and not _is_v1_state(v1_state, state_root):
-        # A mistyped or moved --v1-state would otherwise read as a cockpit that
-        # holds nothing and release every hold (C-30.4).
-        raise ImportRefused(f"{v1_state} is not a v1 state directory; name it with --v1-state, or pass "
-                            "--cockpit-retired once the legacy cockpit will never run again")
     now = now or utc_now()
     report = ImportReport(str(state_root), str(v1_state), "", "", dry_run, LEGACY_MILESTONE, now)
     scratch_dir: str | None = None
@@ -2146,9 +2150,14 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     try:
         if cockpit_retired:
             retire_legacy_cockpit(conversations, report.store_report("outbox"))
-        else:
+        elif _retired_at(conversations) or _is_v1_state(v1_state, state_root):
             import_outbox(conversations, report.store_report("outbox"), v1_state=v1_state, projects=projects)
-            import_cockpit_client(report.store_report("cockpit"), v1_state=v1_state)
+            import_cockpit_client(report.store_report("cockpit"), v1_state=v1_state, conversations=conversations)
+        else:
+            # A mistyped, swapped or moved --v1-state would otherwise read as a
+            # cockpit that holds nothing and release every hold (C-30.4).
+            raise ImportRefused(f"{v1_state} is not a v1 state directory; name it with --v1-state, or pass "
+                                "--cockpit-retired once the legacy cockpit will never run again")
     finally:
         conversations.close()
         if scratch_dir is not None:
