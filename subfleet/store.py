@@ -58,7 +58,7 @@ class Store:
         self.read_only = read_only if readonly is None else readonly
         self._lock = threading.RLock()
         self._depth = 0
-        # C-3.6: the audit event each open transaction will record, innermost last.
+        # C-3.8: the audit event each open transaction will record, innermost last.
         self._audits: list[dict[str, Any]] = []
         if not self.read_only:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -175,7 +175,7 @@ class Store:
                 self._depth -= 1
 
     def retitle(self, kind: str, **refs: Any) -> None:
-        """C-3.6: name the innermost open transaction's event for what it turned out to do.
+        """C-3.8: name the innermost open transaction's event for what it turned out to do.
 
         A transaction that decides inside itself (admission either reserves an
         attempt or leaves the job waiting) is opened under the name of the

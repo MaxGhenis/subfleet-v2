@@ -1,4 +1,4 @@
-"""C-3.6: an admission pass's event is named for what it did.
+"""C-3.8: an admission pass's event is named for what it did.
 
 Incident, 2026-09-20: every pass that left a job waiting wrote an `attempt.reserved`
 event with no attempt id, 97,554 of them beside 193 real reservations, and only
@@ -41,8 +41,8 @@ def due(daemon):
         tx.execute("UPDATE jobs SET next_check_at=? WHERE state='waiting'", (after(-1),))
 
 
-def test_c3_6_a_pass_that_leaves_a_job_waiting_records_the_wait_not_a_reservation(service):
-    """C-3.6, C-3.2, C-6.3 a job with no lane records `job.capacity_waiting`, never `attempt.reserved`."""
+def test_c3_8_a_pass_that_leaves_a_job_waiting_records_the_wait_not_a_reservation(service):
+    """C-3.8, C-3.2, C-6.3 a job with no lane records `job.capacity_waiting`, never `attempt.reserved`."""
     daemon, harness = service
     daemon.store.put_closure(Closure("codex-1", "account", after(3600), ClosureReason.PROVIDER_LIMIT,
                                      ClockSource.REPORTED, "fixture"))
@@ -56,8 +56,8 @@ def test_c3_6_a_pass_that_leaves_a_job_waiting_records_the_wait_not_a_reservatio
     assert daemon.store.get_job(job)["wait_reason"] == "capacity"
 
 
-def test_c3_6_a_reservation_is_named_and_carries_its_attempt_and_lane(service):
-    """C-3.6, C-6.3 the one event that says `attempt.reserved` names the attempt it reserved and its lane."""
+def test_c3_8_a_reservation_is_named_and_carries_its_attempt_and_lane(service):
+    """C-3.8, C-6.3 the one event that says `attempt.reserved` names the attempt it reserved and its lane."""
     daemon, harness = service
     job = daemon.dispatch("submit", harness.submit_args())["job_id"]
     daemon._admit()
@@ -67,8 +67,8 @@ def test_c3_6_a_reservation_is_named_and_carries_its_attempt_and_lane(service):
     assert "job.capacity_waiting" not in [kind for kind, _aid, _lane in events(daemon, job)]
 
 
-def test_c3_6_a_full_fleet_names_the_wait_it_records(service):
-    """C-3.6, C-6.9 the job that finds the fleet full records a wait, and says so."""
+def test_c3_8_a_full_fleet_names_the_wait_it_records(service):
+    """C-3.8, C-6.9 the job that finds the fleet full records a wait, and says so."""
     daemon, harness = service
     daemon.policy["caps"]["max_active_attempts"] = 1
     daemon.dispatch("submit", harness.submit_args())
