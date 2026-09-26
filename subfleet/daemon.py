@@ -3940,7 +3940,7 @@ class Daemon:
     def _connection(self, conn: socket.socket) -> None:
         with self._connection_lock:
             if conn not in self._reading:
-                return      # refused after `submit` had queued it (`_admit`)
+                return      # refused after `submit` had queued it (`_admit_connection`)
         write_lock = threading.Lock()
         pending = []
         gone = False
@@ -4025,11 +4025,11 @@ class Daemon:
                     self._accept_trouble(exc)
                     continue
                 self._accept_failing_since = None
-                self._admit(conn)
+                self._admit_connection(conn)
         finally:
             self.close()
 
-    def _admit(self, conn: socket.socket) -> None:
+    def _admit_connection(self, conn: socket.socket) -> None:
         """Give an accepted connection a reader, or answer it busy at once."""
         with self._connection_lock:
             busy = len(self._reading) >= MAX_CONNECTIONS
