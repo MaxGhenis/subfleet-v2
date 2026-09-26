@@ -402,7 +402,7 @@ class Daemon:
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
-            "wait hub read failed: %s", type(exc).__name__))
+            "wait hub pass failed: %s: %s", type(exc).__name__, exc))
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")

@@ -122,7 +122,7 @@ There is none. No op lists ops or features, and `PROTOCOL_VERSION` is a single i
 - per-job export locks (`:3333-3337`)
 - `_connection_lock` (`:222`)
 - gate `_INIT_LOCK` and per-gate locks (`gate/service.py:121,474`)
-- `changed`: a `Condition` that `_notify` broadcasts (`daemon.py:202,554-556`). `wait` sleeps on it in 0.25 s slices (`:1679-1680`).
+- `changed`: a `Condition` that `_notify` broadcasts (`daemon.py:202,554-556`). `wait` no longer sleeps on it: since C-15.5 (2026-09-25) each waiter sleeps on its own event, set by the wait hub (`subfleet/waits.py`), which `_notify` pokes and which otherwise looks at the store's generation every 0.1 s and re-reads every 1 s.
 
 **Store:**
 - One `sqlite3` connection with `check_same_thread=False`, WAL, `synchronous=FULL`, `busy_timeout` 5000 (`store.py:64-80`).
