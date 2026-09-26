@@ -38,14 +38,30 @@ LANE_RUN = "8f2c1d90-4a7b-4f31-9c22-0d5b6e7a1234"
 ACCOUNT, ORG = "acct-aaaa", "org-aaaa"
 
 
-def until(predicate, timeout=10):
+def until(predicate, timeout=10, describe=None):
+    """Poll `predicate` until it is truthy; `describe()` says where things stood if not."""
     limit = time.monotonic() + timeout
     while time.monotonic() < limit:
         value = predicate()
         if value:
             return value
         time.sleep(.02)
-    raise AssertionError(f"condition timed out after {timeout}s")
+    raise AssertionError(f"condition timed out after {timeout}s"
+                         + (f": {describe()}" if describe else ""))
+
+
+def stage_s(service: Daemon) -> float:
+    """A wait's budget for one stage of a launched job: admission, whose probe
+    starts a guardian and the fake provider, or the attempt, which starts both
+    again and runs to its release.
+
+    A budget chosen from measurement, not a daemon deadline. It is scaled to
+    `start_grace_s`, the time the daemon lets an attempt's guardian take to
+    start before it presumes the start failed (C-4.2), and at the default of
+    10 s is twice the slowest stage seen: at a load average of 211 on 18 cores,
+    admission took 9.3 s and reservation to release 10 s.
+    """
+    return 2 * service.start_grace_s
 
 
 class Client:
@@ -511,19 +527,45 @@ def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world):
 
 def test_the_lease_is_session_scoped_and_released_with_the_job(world):
     """C-23.55 and C-6.3: the key names the session, the holder is the job, and
-    every existing holder-keyed release site frees it."""
+    every existing holder-keyed release site frees it.
+
+    The test waits for the release, not for the terminal state. A revive that
+    succeeds becomes terminal in `_finalize`'s transaction, and `_export` frees
+    its job-held leases in the next one; `finished` in `tests/fake/conftest.py`
+    waits out the same gap for `out:`. A check made when the state was first
+    seen landed between the two in a loaded full-suite run on 2026-09-24, and in
+    9 of 60 runs at a load average near 80, none of which ran out of time. Every
+    release site a revive can reach (`max_attempts` is 1) commits the terminal
+    state before or with the delete, so a lease gone while the job is not
+    terminal was released early: each poll reads the two in one statement, and
+    one that finds that fails.
+    """
     service, client, home, store_dir, root, policy, base = world
     run(service)
     repo = workdir(base)
     cold_desktop_session(home, store_dir, repo)
     result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
                                   opt_in=True, model="astra", now=fx.NOW)
-    until(lambda: service.store.one("SELECT * FROM leases WHERE lease_key=?",
-                                    (revive_lease_key(ALICE),)))
-    until(lambda: service.store.get_job(result.job_id)["state"] in
-          ("succeeded", "failed", "cancelled", "lost"), timeout=20)
-    assert service.store.one("SELECT * FROM leases WHERE lease_key=?",
-                             (revive_lease_key(ALICE),)) is None
+    assert result.admitted, result.reason
+
+    def seen():
+        return service.store.one(
+            "SELECT state, rc, (SELECT holder FROM leases WHERE lease_key=?) AS holder "
+            "FROM jobs WHERE job_id=?", (revive_lease_key(ALICE), result.job_id))
+
+    def where():
+        attempts = [a["state"] for a in service.store.list_attempts(result.job_id)]
+        return f"{seen()}, attempts {attempts}"
+
+    def released():
+        now = seen()
+        ended = now["state"] in ("succeeded", "failed", "cancelled", "lost")
+        assert now["holder"] is not None or ended, f"released before the job ended: {now}"
+        return now["holder"] is None
+
+    assert until(lambda: seen()["holder"], timeout=stage_s(service),
+                 describe=where) == result.job_id
+    until(released, timeout=stage_s(service), describe=where)
 
 
 def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world):
@@ -536,7 +578,8 @@ def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world
     cold_desktop_session(home, store_dir, repo)
     result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
                                   opt_in=True, model="astra", now=fx.NOW)
-    attempt = until(lambda: (service.store.list_attempts(result.job_id) or [None])[0])
+    attempt = until(lambda: (service.store.list_attempts(result.job_id) or [None])[0],
+                    timeout=stage_s(service))
     until(lambda: service.store.get_attempt(attempt["attempt_id"])["native_session_id"])
     assert service.store.get_attempt(
         attempt["attempt_id"])["native_session_id"] == ALICE
@@ -548,7 +591,7 @@ def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world
     assert job["in_place"] == 1
     assert job["worktree"] == str(repo), "in place: the session's own worktree"
     until(lambda: service.store.get_job(result.job_id)["state"] in
-          ("succeeded", "failed", "cancelled", "lost"), timeout=20)
+          ("succeeded", "failed", "cancelled", "lost"), timeout=stage_s(service))
 
 
 def test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job(world):
@@ -604,7 +647,7 @@ def test_handoff_dispatches_detached_through_the_normal_submit_path(world):
     assert "state: mid-flight" in prompt, "PROGRESS.md is a brief section"
 
     finished = until(lambda: service.store.get_job(result.job_id)["state"]
-                     in ("succeeded", "failed", "cancelled", "lost"), timeout=20)
+                     in ("succeeded", "failed", "cancelled", "lost"), timeout=stage_s(service))
     notices = service.store.query("SELECT * FROM notices WHERE job_id=?",
                                   (result.job_id,))
     assert [row["session_id"] for row in notices] == ["operator-1"]
