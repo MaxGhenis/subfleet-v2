@@ -118,7 +118,8 @@ holds the last synced value.
     only if its directory is unchanged since that listing. A folder that has
     changed since, or was never listed, holds every session that pass.
   - An account that fails to list keeps the org folders its last listing
-    named, but only if each of them has been listed itself. Otherwise, or if
+    named, but only if its directory is unchanged since and each of them has
+    been listed itself. Otherwise, or if
     the account has never listed, the pass holds every session. The 2 s hot
     pass follows the same rules, so it never forgets a folder it could not
     list.
@@ -178,7 +179,7 @@ re-checks right before the rename to keep it that narrow.
 | Exhaustive model check | `tests/mirror_flags_model.py`, the spec's executable twin, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 22,038 states, and every property holds; "intent wins" is exercised on 218 of 1,053 decisions. Stale saves allowed: 44,058 states, and only "intent wins" and "never undo a settled value" fail. |
 | Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | After every step, every file's flag and the merge base equal the model's. See below for the steps and coverage. |
 | Examples | `tests/unit/test_sessions_mirror_load_gap.py`, `tests/unit/test_mirror_flags_faults.py` | See the list below. |
-| Mutation | 37 hand-written mutants of `sync_flags`, its writes, its journal and its inventory, each run against the mirror's four test files | All 37 killed; see the table below. |
+| Mutation | 38 hand-written mutants of `sync_flags`, its writes, its journal and its inventory, each run against the mirror's four test files | All 38 killed; see the table below. |
 
 The example tests check:
 - the rollback leaves an app save made after the mirror's write;
@@ -242,6 +243,7 @@ One run of 100 examples reaches 535 publishes, 39 of them rolled back.
 | listings follow symlinks | one bad symlink drops a whole account | `test_a_symlink_beside_the_org_folders_does_not_drop_the_account` |
 | EISDIR holds | a directory named like a record holds for good | `test_a_directory_named_like_a_record_holds_nothing` |
 | publish hold uncounted | a session held at publish is invisible | `test_a_hold_at_publish_is_counted_and_named` |
+| account signature ignored | a folder created since a failed account's listing is left out | `test_a_folder_created_since_a_failed_accounts_listing_holds` |
 | unseen bases dropped | a session no copy of which was read loses its base | `test_a_session_no_copy_of_which_could_be_read_keeps_its_base` |
 | repair over an unreadable copy | an EMFILE read is taken for an empty record and replaced | `test_an_unreadable_copy_is_never_repaired_over` |
 | base write failure swallowed | a pass that did not write the base reports ok | `test_a_base_that_cannot_be_written_fails_the_pass` |
