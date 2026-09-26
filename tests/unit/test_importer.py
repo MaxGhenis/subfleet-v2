@@ -1250,6 +1250,7 @@ def _unreadable_journal(path: Path, kind: str) -> str:
     malformed = {"image paths that are no list": {"request": {**entry, "image_paths": 1}},
                  "a message id that is no string": {"request": {**entry, "message_id": 7}},
                  "an entry with no request": {"sourceImagePaths": []},
+                 "a lone surrogate": {"request": {**entry, "message_id": "1e9ac700\ud800"}},
                  "a request that names no session": {"request": {k: v for k, v in entry.items() if k != "session_id"}}}
     if kind in malformed:
         path.write_text(json.dumps({f"claude:{LEGACY_SESSION}": malformed[kind]}), encoding="utf-8")
@@ -1258,6 +1259,7 @@ def _unreadable_journal(path: Path, kind: str) -> str:
                 "a message id that is no string": "an entry whose request is not the cockpit's (its message_id or "
                                                   "image_paths)",
                 "an entry with no request": "an entry with no request",
+                "a lone surrogate": "not UTF-8 text (a lone surrogate)",
                 "a request that names no session": "not an object keyed by session"}[kind]
     path.mkdir()                                           # reading it raises IsADirectoryError, an OSError
     return "unreadable: IsADirectoryError"
@@ -1273,7 +1275,7 @@ def _remove(path: Path) -> None:
 @pytest.mark.parametrize("kind", ["not json", "not an object", "keyed by something else",
                                   "a request naming no session", "a directory", "image paths that are no list",
                                   "a message id that is no string", "an entry with no request",
-                                  "a request that names no session"])
+                                  "a request that names no session", "a lone surrogate"])
 def test_an_unreadable_journal_holds_every_session(v1, kind):
     """C-30.4: a journal that cannot be read could name any session, so it is
     never read as empty. No session is bound while it is unreadable, a session
@@ -1313,10 +1315,12 @@ def test_an_unreadable_journal_holds_every_session(v1, kind):
 @pytest.mark.parametrize("field, value, detail", [
     ("image_paths", 1, "the payload's image_paths is not a list"),
     ("image_paths", {"0": "/v1/image.png"}, "the payload's image_paths is not a list"),
-    ("service_tier", {"id": "priority"}, "the payload's service_tier is not a string")])
+    ("service_tier", {"id": "priority"}, "the payload's service_tier is not a string"),
+    ("prompt", "he replied \ud800", "the payload or receipt is not UTF-8 text")])
 def test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on(v1, field, value, detail):
     """C-30.4 (review of 3c1a34e, finding 6): a terminal row whose payload names
-    its images or service tier in a shape the cockpit never writes is reported
+    its images or service tier in a shape the cockpit never writes, or holds a
+    lone surrogate (a JSON escape no store can write), is reported
     `unreadable-row` before anything is written for it, and the pass goes on:
     the next row of the same session becomes history and the report is whole.
     Numeric image paths had committed the row's history and then ended the pass."""
@@ -1606,14 +1610,26 @@ def test_an_unreadable_workers_file_holds_every_session(v1):
                                     "(JSONDecodeError), so a cockpit worker may be live in any session")]
 
 
+def test_a_workers_file_naming_a_lone_surrogate_holds_every_session(v1):
+    """C-30.4 (review of 3c1a34e): a workers file whose JSON escapes make a lone
+    surrogate, which no store can record as a held session's key, holds every
+    session and the pass goes on to fence."""
+    cid = _bind(v1)
+    (v1["state"] / "native-workers.json").write_text(
+        json.dumps({f"claude:{LEGACY_SESSION}\ud800": {"pid": os.getpid()}}), encoding="utf-8")
+    report = run_legacy(v1)
+    assert fences(report) == [bound(cid, "bound-session-held", "native-workers.json is not UTF-8 text (a lone "
+                                    "surrogate), so a cockpit worker may be live in any session")]
+
+
 @pytest.mark.parametrize("subfleet", [False, True])
 def test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing(v1, subfleet):
     """C-30.4, C-26.3 (review M1 and its follow-up): a live Claude process
     registered for a session in `<claude dir>/sessions` keeps this pass from
     placing history there, unless it is Subfleet's own (its environment names
     `SUBFLEET_ATTEMPT`, as a turn that kept running across the restart does).
-    It holds no conversation: admission makes a turn there wait while the
-    process lives (`external-writer`), and a hold set now would outlast it."""
+    It holds no conversation: dispatch and launch make a turn there wait while
+    the process lives (`external-writer`), and a hold set now would outlast it."""
     cid = _bind(v1)
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "finished", "later, in the app", at=50)])

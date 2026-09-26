@@ -123,6 +123,18 @@ def _json_object(text: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _utf8(value: Any) -> bool:
+    """Whether every string in a parsed JSON value is text UTF-8 can hold. A JSON
+    escape can make a lone surrogate (`"\\ud800"`), which Python parses and no
+    store can write: each is checked before anything is recorded (review of
+    3c1a34e)."""
+    try:
+        json.dumps(value, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _number(value: Any) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
@@ -347,6 +359,9 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
         if not isinstance(message.payload.get("service_tier"), (str, type(None))):
             result.add(**_item(message, "unreadable-row", detail="the payload's service_tier is not a string"))
             continue
+        if not _utf8(message.payload) or not _utf8(message.receipt):
+            result.add(**_item(message, "unreadable-row", detail="the payload or receipt is not UTF-8 text"))
+            continue
         stored = store.one("SELECT conversation_id, origin FROM messages WHERE message_id=?", (message_id,))
         if stored is not None:
             if stored["origin"] == "legacy":
@@ -523,6 +538,8 @@ def read_journal(path: Path) -> tuple[list[dict[str, Any]], str | None]:
         return [], f"unreadable: {type(exc).__name__}"
     if not isinstance(value, dict):
         return [], "not an object keyed by session"
+    if not _utf8(value):
+        return [], "not UTF-8 text (a lone surrogate)"
     entries = []
     for key, entry in value.items():
         if not _qualified(key):
@@ -608,6 +625,10 @@ def cockpit_activity(v1_state: Path, *, claude_dir: Path | None = None,
                         "in any session")
     if workers is not None and not isinstance(workers, dict):
         problems.append(f"{WORKERS} is not an object keyed by session, so a cockpit worker may be live "
+                        "in any session")
+        workers = {}
+    elif workers is not None and not _utf8(workers):
+        problems.append(f"{WORKERS} is not UTF-8 text (a lone surrogate), so a cockpit worker may be live "
                         "in any session")
         workers = {}
     for key, entry in (workers or {}).items():
