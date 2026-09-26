@@ -130,7 +130,10 @@ def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
         sock = connect(service)
         send(sock, "wait", job_ids=[RUNNING], deadline_s=60)
         holders.append(sock)
-    until(lambda: counts(service)["connections"] >= 40)
+    # Setup, not the claim: each accept starts a reader thread, and on a machine
+    # at a load average near 140 accepting all 40 took anywhere from 0.0 to 9.6 s
+    # (2026-09-26, on this branch and on its head before main was merged in).
+    until(lambda: counts(service)["connections"] >= 40, timeout=30)
     started = time.monotonic()
     assert call(service, "ping")["result"]["pong"] is True
     assert time.monotonic() - started < 2
