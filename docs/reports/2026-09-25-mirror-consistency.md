@@ -116,22 +116,33 @@ holds the last synced value.
 - **Every copy or none.** A session is decided from every copy or not at all.
   - A folder that fails to list is read by name from its last listing, but
     only if its directory is unchanged since that listing. A folder that has
-    changed since, or was never listed, holds every session that pass. So does
-    an account that has never listed, and an account that fails to list keeps
-    the folders known under it.
+    changed since, or was never listed, holds every session that pass.
+  - An account that fails to list keeps the org folders its last listing
+    named, but only if each of them has been listed itself. Otherwise, or if
+    the account has never listed, the pass holds every session. The 2 s hot
+    pass follows the same rules, so it never forgets a folder it could not
+    list.
+  - An account excluded by name is never listed, so it cannot hold.
   - A copy that exists but cannot be read (EMFILE, on 2026-09-25) holds its
     session, and the pass writes nothing for it and keeps its base. Its
     session is the one the folder's last listing saw in it, which survives
     failed reads. It is never guessed from a same-named file elsewhere, since
     names are not unique across accounts. If it is unknown, every session is
     held.
-  - A directory or file the user may not read is in no sidebar, because the
-    app runs as the same user. It holds nothing and cannot freeze flag sync.
-    A store that fails to list fails the pass.
+  - A path the app cannot read either is in no sidebar, because the app runs
+    as the same user. That covers permission denied, a directory where a
+    record should be, and a symlink loop. It holds nothing, so it cannot
+    freeze flag sync. Listings never follow symlinks. A store that fails to
+    list fails the pass.
   - Bases of sessions a pass did not see survive it.
-  - Held sessions are counted in `flags_held`, which shows in the pass summary
-    and in `sessions mirror --status`. mirror-watch alerts when holds last 15
-    minutes.
+  - Held sessions are counted in `flags_held`, including a session held
+    because a copy changed while the pass published.
+    - The first few causes are recorded in `held_by`, each with a path and a
+      reason.
+    - Both show in the pass summary, in health's detail and in
+      `sessions mirror --status`.
+    - mirror-watch alerts when a hold lasts 15 minutes, quoting the causes,
+      and alerts again if the hold grows.
 
 | Invariant | Statement |
 |---|---|
@@ -145,8 +156,8 @@ holds the last synced value.
 | Intent wins | With a base, if the user set only one value since the last publish that converged, a pass decides that value. This is the brief's "no resurrection" for a user's change. A user who set both values since then is exempt, because the merge base cannot order them. |
 | Never undo a settled value | Once a clean publish converged every copy and no user has acted since, no pass writes any other value. This is "no resurrection" for a value every copy agreed on. It cannot fire with an honest app (a user action clears it), which is why intent wins exists. |
 
-Review rounds 5 and 6 found that passes used to decide over whichever copies
-they had read. A copy skipped because its folder did not list, or because its read
+Review rounds 5, 6 and 7 found that passes used to decide over whichever
+copies they had read. A copy skipped because its folder did not list, or because its read
 failed, then read as a user's change on the next pass. That pass undid the
 change it had just spread, in every account. "Intent wins" catches this in the
 model, and the code now decides from every copy or not at all.
@@ -165,7 +176,7 @@ re-checks right before the rename to keep it that narrow.
 | Exhaustive model check | `tests/mirror_flags_model.py`, the spec's executable twin, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 22,038 states, and every property holds; "intent wins" is exercised on 218 of 1,053 decisions. Stale saves allowed: 44,058 states, and only "intent wins" and "never undo a settled value" fail. |
 | Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | After every step, every file's flag and the merge base equal the model's. See below for the steps and coverage. |
 | Examples | `tests/unit/test_sessions_mirror_load_gap.py`, `tests/unit/test_mirror_flags_faults.py` | See the list below. |
-| Mutation | 30 hand-written mutants of `sync_flags`, its writes, its journal and its inventory, each run against the mirror's four test files | All 30 killed; see the table below. |
+| Mutation | 37 hand-written mutants of `sync_flags`, its writes, its journal and its inventory, each run against the mirror's four test files | All 37 killed; see the table below. |
 
 The example tests check:
 - the rollback leaves an app save made after the mirror's write;
@@ -222,6 +233,13 @@ One run of 100 examples reaches 535 publishes, 39 of them rolled back.
 | owner not carried | a copy that stays unreadable holds every session | `test_a_persistently_unreadable_copy_holds_only_its_own_session` |
 | permission denied holds | a folder the user may not read freezes flag sync | `test_a_folder_the_user_may_not_read_freezes_nothing` |
 | failed check after a read | a copy read successfully counts as unknown | `test_a_failed_check_after_a_good_read_still_counts_the_copy` |
+| partial account known | a failed account's never-listed folder is left out | `test_an_account_whose_folders_are_not_all_known_holds` |
+| hot pass drops kept folders | the hot pass forgets a failed account's folders | `test_a_hot_pass_keeps_the_folders_of_an_account_that_did_not_list` |
+| hot pass ignores gaps | a hot pass reads a failed store as empty | `test_a_hot_pass_that_cannot_list_the_store_forgets_nothing` |
+| excluded account listed | a failing excluded account holds every session | `test_an_excluded_account_that_does_not_list_holds_nothing` |
+| listings follow symlinks | one bad symlink drops a whole account | `test_a_symlink_beside_the_org_folders_does_not_drop_the_account` |
+| EISDIR holds | a directory named like a record holds for good | `test_a_directory_named_like_a_record_holds_nothing` |
+| publish hold uncounted | a session held at publish is invisible | `test_a_hold_at_publish_is_counted_and_named` |
 | unseen bases dropped | a session no copy of which was read loses its base | `test_a_session_no_copy_of_which_could_be_read_keeps_its_base` |
 | repair over an unreadable copy | an EMFILE read is taken for an empty record and replaced | `test_an_unreadable_copy_is_never_repaired_over` |
 | base write failure swallowed | a pass that did not write the base reports ok | `test_a_base_that_cannot_be_written_fails_the_pass` |
@@ -245,6 +263,13 @@ checker finds two shapes of counterexample.
      every account.
 
 ### What is still open
+
+A copy the app cannot read either is left out, so that it cannot freeze flag
+sync. If it later becomes readable with an old value, that value reads as a
+change, as an app's stale re-save does. It belongs to the known limit. After a
+daemon restart, an unreadable copy this process has never read has no known
+session, so it holds every session until it reads. That is transient, and it
+is visible in `held_by`.
 
 Three failures leave copies ahead of the merge base:
 - a rollback write that fails;

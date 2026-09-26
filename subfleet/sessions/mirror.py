@@ -184,6 +184,10 @@ class _Cancelled(Exception):
     pass
 
 
+#: How many causes of held flag sync a pass records.
+HELD_BY_LIMIT = 5
+
+
 class _Unlisted(Exception):
     """A folder could not be listed this pass; it is skipped, not taken as empty.
 
@@ -196,10 +200,17 @@ class _Unlisted(Exception):
         self.transient = transient
 
 
+#: Errors that deny the app too (it runs as the same user and reads the same
+#: paths): what they hide is in no sidebar and is not a voice in flag sync.
+NO_ONES_SIDEBAR = frozenset({errno.EACCES, errno.EPERM, errno.EISDIR, errno.ELOOP,
+                             errno.ENOTDIR, errno.ENXIO, errno.ENAMETOOLONG})
+
+
 def _permanent(exc: OSError) -> bool:
-    """Permission denied: the app, running as the same user, cannot read it
-    either, so what it hides is in no sidebar and is not a voice in flag sync."""
-    return exc.errno in (errno.EACCES, errno.EPERM)
+    """The app cannot read it either (see NO_ONES_SIDEBAR). If such a copy is
+    later readable again, its old value reads as a change, as an app's stale
+    re-save does: the known limit, not a hold that could never end."""
+    return exc.errno in NO_ONES_SIDEBAR
 
 
 @dataclass
@@ -458,15 +469,19 @@ class Pass:
     folders_scanned: int = 0
     swept: bool = False
     skipped: int = 0                        # writes that failed and wait for a later pass
-    #: Sessions whose flags were not synced because a copy could not be read.
+    #: Sessions whose flags were not synced this pass: a copy could not be
+    #: read, a folder's contents were unknown, or a copy changed while the
+    #: pass published.
     flags_held: int = 0
+    #: Why, for the first few: `{"path", "reason"}`.
+    held_by: list[dict[str, str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {key: getattr(self, key) for key in (
             "started_at", "finished_at", "state", "added", "repaired", "revived",
             "pruned", "flag_synced", "retitled", "transcript_retitled",
             "accounts", "sessions", "error", "dry_run", "stage", "entries_scanned",
-            "kind", "folders_scanned", "swept", "skipped", "flags_held")}
+            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by")}
 
     @property
     def changed(self) -> bool:
@@ -658,6 +673,10 @@ class Mirror:
         #: session id their last good read held ("" if none). Flag sync must
         #: not decide a session without one of its copies (C-23.28).
         self._unread: dict[str, str] = {}
+        #: Why each unread path or unknown folder holds, for the pass record.
+        self._why: dict[str, str] = {}
+        #: `<account> -> its org folders` from its last successful listing.
+        self._account_orgs: dict[Path, frozenset[Path]] = {}
         #: What the last `folders()` call could not list.
         self._store_error: OSError | None = None
         self._unlisted_accounts: list[Path] = []
@@ -721,6 +740,7 @@ class Mirror:
                 # Unknown, not absent (EMFILE on 2026-09-25): flag sync holds
                 # the session it belongs to.
                 self._unread[key] = str(known)
+                self._why[key] = f"unreadable ({errno.errorcode.get(exc.errno or 0, exc)})"
             return {}
         try:
             digest = hashlib.sha256(raw).digest()
@@ -828,8 +848,11 @@ class Mirror:
         base = store_dir()
 
         def subdirectories(where: Path) -> list[Path]:
+            # No stat per entry (a symlink would be followed, and one failed
+            # stat would fail the whole directory): the listing's own type.
             with os.scandir(where) as listing:
-                return sorted(Path(item.path) for item in listing if item.is_dir())
+                return sorted(Path(item.path) for item in listing
+                              if item.is_dir(follow_symlinks=False))
 
         try:
             accounts = subdirectories(base)
@@ -840,6 +863,8 @@ class Mirror:
                 self._store_error = exc
             return found
         for account in accounts:
+            if any(value in account.name for value in excluded):
+                continue                        # excluded whole: never a voice
             try:
                 orgs = subdirectories(account)
             except FileNotFoundError:
@@ -848,11 +873,41 @@ class Mirror:
                 if not _permanent(exc):
                     self._unlisted_accounts.append(account)
                 continue
+            self._account_orgs[account] = frozenset(orgs)
             for org in orgs:
                 if any(value in account.name or value in org.name for value in excluded):
                     continue
                 found.append((account.name, org.name, org))
         return found
+
+    def _listing_gaps(self, options: "Options") -> tuple[list[tuple[str, str, Path]],
+                                                        list[tuple[str, str]]]:
+        """After `folders()`: the known org folders of accounts that did not
+        list, and why the pass cannot know what they hold (empty if it can).
+
+        Unknown is not empty: a store that did not list raises, and a failed
+        account keeps the folders its last listing named. If it never listed,
+        or one of those folders was never listed itself, what it holds now is
+        unknown (review round 7).
+        """
+        if self._store_error is not None:
+            raise self._store_error
+        kept: list[tuple[str, str, Path]] = []
+        unknown: list[tuple[str, str]] = []
+        for account in self._unlisted_accounts:
+            orgs = self._account_orgs.get(account)
+            if orgs is None:
+                unknown.append((os.fspath(account), "account not listed, never listed"))
+                continue
+            for org in sorted(orgs):
+                if any(value and (value in account.name or value in org.name)
+                       for value in options.exclude):
+                    continue
+                if org in self._folders:
+                    kept.append((account.name, org.name, org))
+                else:
+                    unknown.append((os.fspath(org), "account not listed, folder never listed"))
+        return kept, unknown
 
     def transcript_stems(self, current: Pass | None = None, *,
                          sweep: bool = True) -> dict[str, Path]:
@@ -1522,6 +1577,8 @@ class Mirror:
                     continue
                 held.add(identity)
             for identity in held:
+                current.flags_held += 1
+                self._why.setdefault(f"session {identity}", "a copy changed while the pass published")
                 if identity in base_all:
                     fresh[identity] = base_all[identity]
                 else:
@@ -1648,17 +1705,8 @@ class Mirror:
     def _pass(self, current: Pass, options: Options) -> None:
         self._checkpoint(current, "finding accounts")
         folders = self.folders(options.exclude)
-        if self._store_error is not None:
-            raise self._store_error             # unknown is not empty: no pass
-        # An account that did not list keeps the org folders this process
-        # knows under it; one it knows none of hides which sessions it holds.
+        kept, unknown = self._listing_gaps(options)
         failed = set(self._unlisted_accounts)
-        kept = [(path.parent.name, path.name, path) for path in sorted(self._folders)
-                if path.parent in failed
-                and not any(value and (value in path.parent.name or value in path.name)
-                            for value in options.exclude)]
-        blind_accounts = any(not any(path.parent == account for path in self._folders)
-                             for account in failed)
         current.accounts = len(folders) + len(kept)
         if not folders and not kept and not failed:
             self._drop_folders(folders)
@@ -1673,7 +1721,7 @@ class Mirror:
         folder_ids: dict[Path, set[str]] = {}
         fresh_ids: set[str] = set()
         unlisted: list[Path] = []
-        self._unread = {}
+        self._unread, self._why = {}, {}
         self._checkpoint(current, "reading entries")
         for _account, _org, path in folders:
             self._checkpoint(current)
@@ -1754,7 +1802,9 @@ class Mirror:
             # are read by name from its last listing; a folder never listed
             # hides which sessions it holds, so every session waits.
             flag_files = dict(folder_files)
-            blind = blind_accounts
+            blind = bool(unknown)
+            for where, reason in unknown:
+                self._why[where] = reason
             for path in unlisted:
                 state = self._folders.get(path)
                 try:
@@ -1767,6 +1817,8 @@ class Mirror:
                     # Never listed, or changed since (the mirror's own copies
                     # change it too): what it holds now is unknown.
                     blind = True
+                    self._why[os.fspath(path)] = ("folder not listed, never listed" if state is None
+                                                  else "folder not listed, changed since its listing")
                     continue
                 owner = {name: identity for identity, names in state.ids.items()
                          for name in names}
@@ -1779,6 +1831,9 @@ class Mirror:
                 flag_files[path] = files
             self.sync_flags(flag_files, stems, options, current, unread=dict(self._unread),
                             blind=blind, complete=not unlisted and not failed and not self._unread)
+            if current.flags_held:
+                current.held_by = [{"path": where, "reason": reason}
+                                   for where, reason in list(self._why.items())[:HELD_BY_LIMIT]]
 
         if options.prune:
             self._checkpoint(current, "pruning entries")
@@ -1808,6 +1863,7 @@ class Mirror:
     def _hot(self, current: Pass, options: Options) -> None:
         self._checkpoint(current, "reading entries")
         folders = self.folders(options.exclude)
+        kept, _unknown = self._listing_gaps(options)
         current.accounts = len(folders)
         fresh: list[tuple[Path, str]] = []
         unlisted: set[Path] = set()
@@ -1819,7 +1875,7 @@ class Mirror:
                 unlisted.add(path)
                 continue
             fresh.extend((path, name) for name in names)
-        self._drop_folders(folders)
+        self._drop_folders(folders + kept)      # never forget what it could not list
         folders = [item for item in folders if item[2] not in unlisted]
 
         instant = time.monotonic()
@@ -2053,13 +2109,16 @@ class Mirror:
                     "detail": f"last pass failed: {record.get('error')}"}
         if age_min is not None and age_min <= stall:
             held = int(record.get("flags_held") or 0)
+            causes = record.get("held_by") or []
+            why = "; ".join(f"{item.get('path')}: {item.get('reason')}" for item in causes[:2])
             return {"status": "healthy", "sidecar": str(self.sidecar_path),
                     "age_min": round(age_min, 1), "run_min": None, "flags_held": held,
+                    "held_by": causes,
                     "detail": f"last pass {age_min:.1f} min ago: "
                               f"{record.get('added', 0)} added, "
                               f"{record.get('repaired', 0)} repaired"
                               + (f"; flags held for {held} session{'s' if held != 1 else ''}"
-                                 ": a copy could not be read" if held else "")}
+                                 + (f" ({why})" if why else "") if held else "")}
         return {"status": "stalled", "sidecar": str(self.sidecar_path),
                 "age_min": round(age_min, 1) if age_min is not None else None,
                 "run_min": None,
