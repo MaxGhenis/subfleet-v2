@@ -190,6 +190,10 @@ def test_the_catalog_shows_a_moved_session_where_it_opens(tmp_path):
         os.rmdir(scratch)
     old = tmp_path / "work" / "old"
     old.mkdir()
+    # Each copy left behind is not a second item: only the newest, the one opened, is listed.
+    stale = _copy(projects, old, _turn(old, "0"), 1_700_000_000)
+    (item,) = _discovered(tmp_path / "again", projects)
+    assert (item["path"], item["cwd"]) == (str(live), str(new)) and stale.exists()
     elsewhere = tmp_path / "elsewhere"
     _copy(elsewhere, new, [*_turn(old, "1"), *_turn(new, "2")], 1_800_000_000)
     (item,) = _discovered(tmp_path / "second", elsewhere)

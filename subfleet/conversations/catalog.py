@@ -181,7 +181,18 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                     continue
     except OSError:
         pass
+    # One item per session: one that moved leaves a copy under each project
+    # directory, and `conversation.open` continues the newest
+    # (`transcripts.transcript_path`), so that is the copy shown (C-30.2).
+    newest: dict[str, tuple[float, Path]] = {}
     for path in paths:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if path.stem not in newest or mtime > newest[path.stem][0]:
+            newest[path.stem] = (mtime, path)
+    for path in (path for _, path in newest.values()):
         record = _cached(cache, fresh, path, claude_record, started, wall_s, clock, version=CLAUDE_RECORD_VERSION)
         if record is None:
             complete = False

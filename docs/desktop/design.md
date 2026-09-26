@@ -941,7 +941,8 @@ or `approval_wait_s` passes (D-7).
   recent transcript inspected: 2,619 records across 25 files), else the first
   real user prompt (160 characters, scrubbed), `cwd` (the workspace the copy
   continues from, `catalog._workspace`, which `conversation.open` uses too, so
-  a moved session is shown and judged continuable as it opens; C-30.2), last
+  a moved session is shown and judged continuable as it opens, one item per
+  session, from its newest copy, the one opened; C-30.2), last
   model and permission mode; lane runs excluded; `live_elsewhere` from the pid
   registry, ignoring Subfleet-owned pids, a UUID compared in lower case.
 - Codex: rollouts under every enrolled Codex lane home and under `~/.codex`,
