@@ -140,6 +140,7 @@
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,
     "mirror_ultracode_default": true,
+    "mirror_settings_sync": true,
     "handoff_caps": {
       "recent_records": 40,
       "recent": 48000,

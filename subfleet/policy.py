@@ -57,6 +57,7 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
     "mirror_ultracode_default": True,
+    "mirror_settings_sync": True,    # C-23.28: model, effort and place converge
 }
 
 
