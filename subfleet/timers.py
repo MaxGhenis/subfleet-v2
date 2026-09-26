@@ -533,6 +533,15 @@ class Timers:
         return {'enabled': self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'),
                 'overrides': overrides}
 
+    def merge_lane(self, row):
+        """What the last probe found of a lane (`metadata`), laid over its row, as a view has it.
+
+        C-6.3's check inside a reservation merges the lane rows it reads the same
+        way. `metadata` is replaced whole per lane, never changed in place, so
+        another thread reads one probe's finding or the next's."""
+        row.update(self.metadata.get(row['lane_id'], {}))
+        return row
+
     def enrich_view(self, view, rows=None):
         rows = rows or self.view_rows()
         # Re-enrolment creates a new lane id. The previous binding stays in the
@@ -542,14 +551,14 @@ class Timers:
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
         overrides = rows['overrides']
         for row in view['lanes']:
-            row.update(self.metadata.get(row['lane_id'], {}))
+            self.merge_lane(row)
             bound = bindings.get((row['provider'], row['home'] or row['credential_ref']))
             if not row['enabled'] and bound and bound != row['lane_id']:
                 row['superseded_by'] = bound
             row['app_shadowed'] = row.get('app_shadowed', False) or row['account_key'] == getattr(self, '_app_account', None)
             row['probe'] = dict(self.metadata.get(row['lane_id'], {}), status=row.get('probe_status', 'unknown'))
             row['probe']['readings'] = row['readings']
-            if row.get('revoked_epoch') is not None or row.get('probe_status') in ('revoked', 'auth-revoked', 'expired-token', 'no-auth'):
+            if capacity.credential_latched(row):
                 view.setdefault('unavailable_lanes', {})[row['lane_id']] = 'credential-latched'
             row['reset_credits_remaining'] = (row.get('reset_credits') or {}).get('available')
             # The view's own clock, as `Daemon._pick` asks it: one view decides an

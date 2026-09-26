@@ -1,7 +1,7 @@
 """C-6.3: until `capacity.decision_horizon`, the clock alone changes no routing decision.
 
-Admission reserves on an evaluation made before its transaction only while no
-commit has landed, it is at most ROUTE_REUSE_S old, and its horizon has not
+Admission reserves on an evaluation made before its transaction only while the
+rows it rests on stand (`route_check.still_stands`) and its horizon has not
 passed. The review of f48df54 found two clocks the first horizon (reading
 freshness alone) missed, each able to close a lane inside the window with no
 row changing: a confirmed reset-credit override that ends puts back a reading

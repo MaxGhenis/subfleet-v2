@@ -545,6 +545,7 @@ def core(tmp_path, monkeypatch):
     chosen = Decision(("opus",), (), "claude-1", "opus", "test", "test")
     daemon._pick = lambda *args, **kwargs: chosen
     daemon._pin_roster = daemon.store.lane_rows
+    daemon._route_stands = lambda basis, decision: (None, 0, decision)  # C-6.3: `_pick` is fixed; nothing moves
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda *args: False)
     daemon.store.put_lane(Lane("claude-1", "claude", "claude:test", Credential("claude", "token", "keychain-token"),

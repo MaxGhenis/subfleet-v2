@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
+from . import capacity, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -89,10 +89,12 @@ READ_CONNECTIONS = 6
 #: waiting for the store lock on the general request pool.
 LOOKUP_OPS = frozenset({"list", "show", "notice.pending"})
 
-#: C-6.3, C-3.7: how old an evaluation admission made outside its reserving
-#: transaction may be and still be reserved on, when nothing has been committed
-#: since. Its view's clock (reading freshness, closure ends) is that old at most.
-ROUTE_REUSE_S = 5.0
+#: C-6.3: how many times one job's route is evaluated (off the store lock) and
+#: checked inside its reserving transaction in one pass. A check that refuses
+#: the decision rolls the transaction back and the route is evaluated again,
+#: off the lock; after this many the job keeps its place and waits for the
+#: next pass (`route-moved`). No route is ever evaluated with the lock held.
+ROUTE_TRIES = 3
 
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
@@ -105,7 +107,7 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
                            "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job"})
+                            "probe-pending", "behind-older-job", "route-moved"})
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
@@ -125,6 +127,14 @@ ROUTE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 #: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
 ROUTE_RETRY_BASE_S = 5
 ROUTE_RETRY_CEILING_S = 300
+
+
+class _RouteMoved(Exception):
+    """C-6.3: the reserving transaction's check refused its early decision; raised to roll it back."""
+
+    def __init__(self, why: str, judged: int):
+        super().__init__(why)
+        self.why, self.judged = ("old" if why == "old" else "moved"), judged
 
 
 class Unroutable(Exception):
@@ -509,9 +519,20 @@ class Daemon:
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass.
         self._holds: dict[str, dict] = {}
-        # C-6.3, C-3.7: reserving transactions that took the decision evaluated
-        # before them, and those that evaluated again inside.
-        self._route_evaluations = {"reused": 0, "again": 0, "moved": 0, "old": 0, "failed": 0}
+        # Never held while another lock is taken: a reservation counts with
+        # the store lock held (`_count_route`), and `daemon.status` reads them.
+        self._route_count_lock = threading.Lock()
+        # C-6.3: job id -> the last evaluation `_prepare_route` made for it and the
+        # rows it rests on, taken by the reservation that follows.
+        self._early_routes: dict[str, tuple[Any, dict]] = {}
+        # C-6.3: reservations whose early decision stood (`reused`) and those
+        # whose check chose again from the lanes that changed (`rechosen`); the
+        # evaluations made again off the lock after a check refused one, and why
+        # (`moved`: it took lanes never judged, a cap that began or ended
+        # included; `old`: its horizon passed); jobs left for the next pass after
+        # ROUTE_TRIES; and the lanes checks judged again.
+        self._route_evaluations = {"reused": 0, "rechosen": 0, "again": 0, "moved": 0, "old": 0, "deferred": 0,
+                                   "rejudged": 0}
         self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
                                            "idle_since_at": None, "checked_at": None, "logged_at": None,
                                            "reasons": {}}
@@ -812,8 +833,11 @@ class Daemon:
             # counts. A recovered probe keeps its lane unavailable until containment.
             leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
             records = {row["holder"]: self._probe_record(row["holder"]) for row in leases}
+            # C-6.3: the newest reading in this state. Every reading added after it
+            # has a greater id while it stands (`_route_rows`).
+            mark = self.store.one("SELECT * FROM readings ORDER BY reading_id DESC LIMIT 1")
             return {"view": rows, "probe_leases": leases, "probe_records": records,
-                    "timers": self.timers.view_rows(lanes)}
+                    "timers": self.timers.view_rows(lanes), "reading_mark": mark}
 
     def _capacity_view(self, desktop=None, rows: dict | None = None):
         rows = rows or self._capacity_rows()
@@ -928,13 +952,17 @@ class Daemon:
         return status not in (IdentityStatus.MISMATCH, IdentityStatus.UNVERIFIED)
 
     def _pick(self, job: dict, *, extra_exclusions: tuple[str, ...] = (), desktop=None,
-              horizon: dict | None = None):
-        # C-6.3, C-11: one pure evaluation uses the same transaction's attempt
-        # rows as reservation. Desktop file I/O and the desktop profile request
-        # happen before entering it (C-3.3, C-10.3). `horizon`, when given, is
-        # told the first instant this decision may change with no row changing
+              horizon: dict | None = None, basis: dict | None = None):
+        # C-6.3, C-11: one pure evaluation, on rows read in one snapshot off the
+        # store lock (C-3.7). Desktop file I/O and the desktop profile request
+        # happen before it (C-3.3, C-10.3). `horizon`, when given, is told the
+        # first instant this decision may change with no row changing
         # (`capacity.decision_horizon`: a reading's freshness, a closure's end,
-        # an override's end).
+        # an override's end). `basis`, when given, is told what the reserving
+        # transaction needs to check the decision without evaluating it again
+        # (`_route_stands`): the policy, the job as evaluated, the view, the rows
+        # it was built from, the overrides held out, the horizon and the desktop.
+        policy = self.policy
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
@@ -948,13 +976,20 @@ class Daemon:
                      if (found := self.timers.actions.confirmed_override(lane["lane_id"], now=view["now"],
                                                                          context=context))}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
-        if horizon is not None:
-            horizon["until"] = capacity.decision_horizon(
-                view, reading_ttl_s=self.policy["caps"]["reading_ttl_s"],
+        until = None
+        if horizon is not None or basis is not None:
+            until = capacity.decision_horizon(
+                view, reading_ttl_s=policy["caps"]["reading_ttl_s"],
                 ends=[found["weekly_reset_at"] for found in overrides.values()])
-        return scheduler.evaluate(self.policy, view,
-                                  {**job, "exclusions": tuple(exclusions) + extra_exclusions,
-                                   "policy_hash": self.policy_digest})
+        if horizon is not None:
+            horizon["until"] = until
+        route_job = {**job, "exclusions": tuple(exclusions) + extra_exclusions, "policy_hash": self.policy_digest}
+        decision = scheduler.evaluate(policy, view, route_job)
+        if basis is not None:
+            basis.update(policy=policy, job=route_job, view=view, rows=rows, until=until, desktop=desktop,
+                         overrides={lane_id: (found["action_id"], found["weekly_reset_at"])
+                                    for lane_id, found in overrides.items()})
+        return decision
 
     def _route(self, job: dict, **options):
         """C-6.12: `_pick` for admission. An evaluation that raises is this job's, not the pass's."""
@@ -1980,12 +2015,15 @@ class Daemon:
         return {"pending": state["pending"], "placed_at": state["placed_at"], "idle_for_s": idle,
                 "idle_since": state["idle_since_at"], "reasons": dict(state["reasons"]),
                 "open_lanes": capacity.open_lanes(view, self.policy["caps"]),
-                # C-6.3: reservations that took the evaluation made before them, and
-                # those that evaluated again inside, since the daemon started, by why:
-                # a commit since (`moved`), too old for its clock (`old`: past
-                # ROUTE_REUSE_S, or past its horizon: a reading it counted fresh
-                # has aged out, or a closure or an override has ended), or it
-                # failed (`failed`).
+                # C-6.3, since the daemon started: reservation checks that kept the
+                # early decision's lane (`reused`) or chose again from the lanes
+                # whose rows changed (`rechosen`); evaluations made again, off the
+                # lock, after a check refused one (`again`), and why: it took lanes
+                # never judged, a fleet or parent cap that began or ended included
+                # (`moved`), or its horizon passed (`old`: a reading it counted
+                # fresh aged out, or a closure or an override ended); jobs left for
+                # the next pass after ROUTE_TRIES (`deferred`); and the lanes whose
+                # rows changed that checks judged again (`rejudged`).
                 "route_evaluations": dict(self._route_evaluations)}
 
     # --- the sessions kit's store seam (C-23.33, C-23.35, C-23.55) ------------
@@ -2889,9 +2927,14 @@ class Daemon:
             current = self._job(job["job_id"])
             if current["cancel_requested_at"] or current["state"] in TERMINAL:
                 return None, desktop
-            decision = self._route(decision_job, extra_exclusions=exclusions, desktop=desktop)
+            horizon, basis = {}, {}
+            decision = self._route(decision_job, extra_exclusions=exclusions, desktop=desktop,
+                                   horizon=horizon, basis=basis)
             pair = (decision.chosen_lane, decision.chosen_model)
             if not self._needs_probe(decision, job) or pair in approved:
+                # C-6.3: this evaluation is the one the reservation checks and
+                # reserves on; the job is not evaluated a second time before it.
+                self._early_routes[job["job_id"]] = (decision, basis)
                 return approved, desktop
             token = os.urandom(12).hex()
             holder = f"probe:{token}"
@@ -2954,6 +2997,14 @@ class Daemon:
         self._admit_pass(holds, tally)
         self._holds = holds
         self._note_admission(tally, holds)
+
+    def _count_route(self, **counts: int) -> None:
+        """C-6.3: add to `daemon.status`'s `route_evaluations`."""
+        with self._route_count_lock:
+            totals = dict(self._route_evaluations)
+            for key, value in counts.items():
+                totals[key] = totals.get(key, 0) + value
+            self._route_evaluations = totals
 
     def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True) -> int:
         """C-6.10: how many times in a row this job's wait has reached this verdict.
@@ -3217,8 +3268,10 @@ class Daemon:
             try:
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:
+                self._early_routes.pop(job["job_id"], None)
                 self._unroutable(job, exc, holds)
                 continue
+            early = self._early_routes.pop(job["job_id"], None)
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
@@ -3242,163 +3295,204 @@ class Daemon:
                     holds[job["job_id"]]["next_check_at"] = current["next_check_at"]
                     self._refresh_hold(job["job_id"], holds[job["job_id"]])
                 continue
-            # C-6.3, C-3.7: the route is evaluated first, off the store lock, on
-            # rows read in one snapshot (`_capacity_rows`). The reserving
-            # transaction takes that decision only if no transaction has
-            # committed since, so it rests on the very rows the reservation
-            # reads; only if it is at most ROUTE_REUSE_S old; and only before its
-            # horizon, the first instant the clock alone could change it (a
-            # reading it counted as fresh ages out, a closure or an override
-            # ends), so a lane it saw measured is still measured and one it saw
-            # open is still open: a second attempt never lands on a lane that is
-            # unmeasured by then. Otherwise it evaluates again inside,
-            # as it always did. An early evaluation that fails is dropped: the
-            # transaction's own evaluation fails the same way and settles the
-            # job as before (C-6.12). This evaluation, a whole capacity view,
-            # was the longest planned hold of the store lock (13.5 s with the
-            # daemon held to 5% of a core).
-            seen, evaluated_at, horizon = self.store.generation, time.monotonic(), {}
-            try:
-                early = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account,
-                                    horizon=horizon)
-            except Unroutable:
-                early = None
-            # C-6.12: outside the transaction, so a route that fails here rolls it back first.
-            with self._isolated_route(job, holds) as route, \
-                    self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
-                job = self._job(job["job_id"])
-                if job["cancel_requested_at"] or job["state"] in TERMINAL:
+            # C-6.3, C-3.7: the route is evaluated off the store lock, on rows read
+            # in one snapshot (`_capacity_rows`): `_prepare_route`'s evaluation is
+            # the one reserved on. The reserving transaction never evaluates a
+            # route. It checks the decision against the rows it reads, a few by
+            # index (`_route_stands`), before its horizon, the first instant the
+            # clock alone could change it: when the lanes whose rows changed
+            # decide it alone, it goes on with exactly the decision an evaluation
+            # of those rows would make, the same lane or another. When they do
+            # not, it rolls back; the route is evaluated again, off the lock, and
+            # checked again, up to ROUTE_TRIES times in this pass. Evaluating a whole capacity
+            # view inside this transaction held the store lock for 13.5 s with the
+            # daemon held to 5% of a core, and for 7.7 to 12.6 s on 2026-09-26
+            # (load 110-170), when some commit landed between the two evaluations
+            # nearly every time.
+            if early is None:
+                # Nothing handed over (a `_prepare_route` that stops early): evaluate here, off the lock.
+                basis = {}
+                try:
+                    early = (self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account,
+                                         horizon={}, basis=basis), basis)
+                except Unroutable as exc:
+                    self._unroutable(job, exc, holds)
                     continue
-                if extra_exclusions:
-                    job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
-                    tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
-                until = horizon.get("until")
-                why = ("failed" if early is None else "moved" if self.store.generation != seen else
-                       "old" if (time.monotonic() - evaluated_at > ROUTE_REUSE_S or (
-                           until is not None and datetime.now(timezone.utc) >= until)) else None)
-                if why is None:
-                    decision = early
-                    self._route_evaluations["reused"] += 1
-                else:
-                    decision = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
-                    self._route_evaluations["again"] += 1
-                    self._route_evaluations[why] += 1
-                needs_probe = self._needs_probe(decision, job)
-                live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
-                                  "WHERE a.state IN ('reserved','starting','running','finalizing') "
-                                  "AND (j.kind = 'turn') = ?", (pool == "turn",)).fetchone()[0]
-                saturated[pool] = live >= pool_cap
-                # A job that passes an older waiting job of its tier leaves one
-                # active slot free, so the older job can start the moment its
-                # capacity appears instead of waiting out the jobs that passed it.
-                limit = pool_cap - 1 if waiters.get(tier) else pool_cap
-                if not decision.chosen_lane or live >= limit:
-                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
-                    # C-6.10: a wait that reaches the verdict it reached last time
-                    # is rechecked later each time and adds no decision row. On
-                    # 2026-09-20 three such jobs were each re-evaluated every
-                    # second for hours: 2.7 rows of 22 KB a second, 681 MB of a
-                    # 709 MB store, and a daemon at a full core doing it.
-                    if not decision.chosen_lane:
-                        label = scheduler.dominant_rejection(decision)
-                    else:
-                        # A lane would take it. Either the fleet is at its cap, or
-                        # C-6.9 keeps the last slot for an older job of this tier.
-                        label = "fleet-full" if live >= pool_cap else "slot-kept"
-                    hold = {"reason": label,
-                            **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
-                            **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
-                                "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
-                    rechecks = self._capacity_wait(
-                        job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", hold)
-                    waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
-                    if not rechecks:
-                        self.store.add_decision(job["job_id"], decision)
-                    tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
-                               (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
-                    holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
+            decision, basis = early
+            status, route = "moved", {"failed": False}
+            for tries in range(1, ROUTE_TRIES + 1):
+                try:
+                    # C-6.12: outside the transaction, so a route that fails here rolls it back first.
+                    with self._isolated_route(job, holds) as route, \
+                            self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+                        job = self._job(job["job_id"])
+                        if job["cancel_requested_at"] or job["state"] in TERMINAL:
+                            status = "gone"
+                            break
+                        why, judged, standing = self._route_stands(basis, decision)
+                        if why is not None:
+                            raise _RouteMoved(why, judged)
+                        # The decision as an evaluation now makes it, from the lanes
+                        # whose rows changed: the same lane, or the one that now
+                        # ranks first; a wait recorded on it is clocked by now's
+                        # verdict (C-6.10).
+                        same = (standing.chosen_lane, standing.chosen_model) == (decision.chosen_lane,
+                                                                                decision.chosen_model)
+                        decision = standing
+                        self._count_route(**{"reused" if same else "rechosen": 1}, rejudged=judged)
+                        if extra_exclusions:
+                            job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                            tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
+                        needs_probe = self._needs_probe(decision, job)
+                        live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
+                                          "WHERE a.state IN ('reserved','starting','running','finalizing') "
+                                          "AND (j.kind = 'turn') = ?", (pool == "turn",)).fetchone()[0]
+                        saturated[pool] = live >= pool_cap
+                        # A job that passes an older waiting job of its tier leaves one
+                        # active slot free, so the older job can start the moment its
+                        # capacity appears instead of waiting out the jobs that passed it.
+                        limit = pool_cap - 1 if waiters.get(tier) else pool_cap
+                        if not decision.chosen_lane or live >= limit:
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                            # C-6.10: a wait that reaches the verdict it reached last time
+                            # is rechecked later each time and adds no decision row. On
+                            # 2026-09-20 three such jobs were each re-evaluated every
+                            # second for hours: 2.7 rows of 22 KB a second, 681 MB of a
+                            # 709 MB store, and a daemon at a full core doing it.
+                            if not decision.chosen_lane:
+                                label = scheduler.dominant_rejection(decision)
+                            else:
+                                # A lane would take it. Either the fleet is at its cap, or
+                                # C-6.9 keeps the last slot for an older job of this tier.
+                                label = "fleet-full" if live >= pool_cap else "slot-kept"
+                            hold = {"reason": label,
+                                    **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
+                                    **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
+                                        "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            rechecks = self._capacity_wait(
+                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", hold)
+                            waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
+                            if not rechecks:
+                                self.store.add_decision(job["job_id"], decision)
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
+                                       (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
+                            holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
+                            status = "held"
+                            break
+                        if needs_probe and (decision.chosen_lane, decision.chosen_model) not in approved:
+                            # The chosen identity changed after its probe; a later pass
+                            # probes the new pair (`_prepare_route`). C-6.10: on a clock,
+                            # or a lane whose state keeps moving is probed every tick.
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                            hold = {"reason": "probe-pending"}
+                            rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
+                            next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                            holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                            status = "held"
+                            break
+                        seq = len(previous) + 1
+                        aid = ids.attempt_id(job["job_id"], seq)
+                        lane_id = decision.chosen_lane
+                        slot = 0
+                        while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane_id}:slot:{slot}",)).fetchone():
+                            slot += 1
+                        leases = [(f"lane:{lane_id}:slot:{slot}", aid)]
+                        if native_session:
+                            # C-12.3/4, C-12.6: filesystem read-only permissions do not
+                            # isolate a provider transcript. Resume and revive share
+                            # this job-held lease through retry, export and quarantine.
+                            leases.append((native_session_lease_key(lane_id, native_session), job["job_id"]))
+                            # C-26.3: one writer per native session whichever lane, so a
+                            # resume or revive and a conversation turn exclude each other.
+                            provider = self.policy["models"][decision.chosen_model]["provider"]
+                            leases.append((f"native:{provider}:{native_session}", job["job_id"]))
+                        if turn_block is not None:
+                            leases.append((f"conversation:{turn_block['conversation_id']}", job["job_id"]))
+                            if turn_block.get("native_session_id") or turn_block.get("new_session_id"):
+                                sid = turn_block.get("native_session_id") or turn_block.get("new_session_id")
+                                leases.append((f"native:{turn_block['provider']}:{sid}", job["job_id"]))
+                                held = tx.execute("SELECT lease_key FROM leases WHERE lease_key LIKE ? AND holder<>?",
+                                                  (f"native-session:%:{sid}", job["job_id"])).fetchone()
+                                if held:
+                                    leases.append((held[0], job["job_id"]))   # contested: waits for the resume/revive
+                        if job.get("round_lease"):
+                            leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
+                        if job["out_path"]:
+                            leases.append((f"out:{job['out_path']}", job["job_id"]))
+                        if job["sandbox"] == "workspace-write":
+                            # C-6.5: the hold is where the job writes. A session is not a
+                            # place, so it takes no lease; its instances are told apart
+                            # at submit.
+                            leases.append((f"worktree:{write_target}", job["job_id"]))
+                        revive_key = (revive_lease_key(job["caller_session"])
+                                      if job["kind"] == "revive" and job["caller_session"] else None)
+                        if revive_key:
+                            # C-23.55: the census the sweep skips on is the lease rows,
+                            # read inside the admitting transaction, not a snapshot taken
+                            # at the start of the pass.
+                            held = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
+                                              (revive_key,)).fetchone()
+                            if held and held[0] != job["job_id"]:
+                                # Skipped, not queued: waiting for the other revive to
+                                # end would launch the twin the moment it did.
+                                self._skip_revive(tx, job, held[0])
+                                status = "held"
+                                break
+                            leases.append((revive_key, job["job_id"]))
+                        contested = [key for key, holder in leases
+                                     if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder]
+                        if contested:
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                            hold = {"reason": "lease-held", "leases": contested}
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested)), hold)
+                            next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                            holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                            status = "held"
+                            break
+                        for key, holder in leases:
+                            tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
+                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
+                                   (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
+                                    json.dumps({"baseline_commit": head, "model_short": decision.chosen_model}), utcnow()))
+                        tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
+                                   (job["job_id"], aid, utcnow(), self.policy_digest, json.dumps(dataclasses.asdict(decision))))
+                        tx.execute("UPDATE jobs SET state='running',wait_reason=NULL,next_check_at=NULL,worktree=?,started_at=COALESCE(started_at,?) WHERE job_id=?",
+                                   (workspace if job["sandbox"] == "workspace-write" else None, utcnow(), job["job_id"]))
+                        with self._busy_lock:
+                            self._busy.add(aid)
+                        status = "placed"
+                except _RouteMoved as moved:
+                    # C-6.3: rolled back, nothing written. Evaluated again off the
+                    # lock, on a new snapshot, and checked again.
+                    self._count_route(**{moved.why: 1}, rejudged=moved.judged)
+                    if tries == ROUTE_TRIES:
+                        break
+                    self._count_route(again=1)
+                    basis = {}
+                    try:
+                        decision = self._route(decision_job, extra_exclusions=extra_exclusions,
+                                               desktop=desktop_account, horizon={}, basis=basis)
+                    except Unroutable as exc:
+                        self._unroutable(job, exc, holds)
+                        status = "settled"
+                        break
                     continue
-                if needs_probe and (decision.chosen_lane, decision.chosen_model) not in approved:
-                    # The chosen identity changed after its probe; a later pass
-                    # probes the new pair (`_prepare_route`). C-6.10: on a clock,
-                    # or a lane whose state keeps moving is probed every tick.
-                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
-                    hold = {"reason": "probe-pending"}
-                    rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
-                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
-                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
-                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
-                    continue
-                seq = len(previous) + 1
-                aid = ids.attempt_id(job["job_id"], seq)
-                lane_id = decision.chosen_lane
-                slot = 0
-                while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane_id}:slot:{slot}",)).fetchone():
-                    slot += 1
-                leases = [(f"lane:{lane_id}:slot:{slot}", aid)]
-                if native_session:
-                    # C-12.3/4, C-12.6: filesystem read-only permissions do not
-                    # isolate a provider transcript. Resume and revive share
-                    # this job-held lease through retry, export and quarantine.
-                    leases.append((native_session_lease_key(lane_id, native_session), job["job_id"]))
-                    # C-26.3: one writer per native session whichever lane, so a
-                    # resume or revive and a conversation turn exclude each other.
-                    provider = self.policy["models"][decision.chosen_model]["provider"]
-                    leases.append((f"native:{provider}:{native_session}", job["job_id"]))
-                if turn_block is not None:
-                    leases.append((f"conversation:{turn_block['conversation_id']}", job["job_id"]))
-                    if turn_block.get("native_session_id") or turn_block.get("new_session_id"):
-                        sid = turn_block.get("native_session_id") or turn_block.get("new_session_id")
-                        leases.append((f"native:{turn_block['provider']}:{sid}", job["job_id"]))
-                        held = tx.execute("SELECT lease_key FROM leases WHERE lease_key LIKE ? AND holder<>?",
-                                          (f"native-session:%:{sid}", job["job_id"])).fetchone()
-                        if held:
-                            leases.append((held[0], job["job_id"]))   # contested: waits for the resume/revive
-                if job.get("round_lease"):
-                    leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
-                if job["out_path"]:
-                    leases.append((f"out:{job['out_path']}", job["job_id"]))
-                if job["sandbox"] == "workspace-write":
-                    # C-6.5: the hold is where the job writes. A session is not a
-                    # place, so it takes no lease; its instances are told apart
-                    # at submit.
-                    leases.append((f"worktree:{write_target}", job["job_id"]))
-                revive_key = (revive_lease_key(job["caller_session"])
-                              if job["kind"] == "revive" and job["caller_session"] else None)
-                if revive_key:
-                    # C-23.55: the census the sweep skips on is the lease rows,
-                    # read inside the admitting transaction, not a snapshot taken
-                    # at the start of the pass.
-                    held = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
-                                      (revive_key,)).fetchone()
-                    if held and held[0] != job["job_id"]:
-                        # Skipped, not queued: waiting for the other revive to
-                        # end would launch the twin the moment it did.
-                        self._skip_revive(tx, job, held[0])
-                        continue
-                    leases.append((revive_key, job["job_id"]))
-                contested = [key for key, holder in leases
-                             if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder]
-                if contested:
-                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
-                    hold = {"reason": "lease-held", "leases": contested}
-                    rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested)), hold)
-                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
-                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
-                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
-                    continue
-                for key, holder in leases:
-                    tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
-                tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
-                           (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
-                            json.dumps({"baseline_commit": head, "model_short": decision.chosen_model}), utcnow()))
-                tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
-                           (job["job_id"], aid, utcnow(), self.policy_digest, json.dumps(dataclasses.asdict(decision))))
-                tx.execute("UPDATE jobs SET state='running',wait_reason=NULL,next_check_at=NULL,worktree=?,started_at=COALESCE(started_at,?) WHERE job_id=?",
-                           (workspace if job["sandbox"] == "workspace-write" else None, utcnow(), job["job_id"]))
-                with self._busy_lock:
-                    self._busy.add(aid)
+                break
             if route["failed"]:
+                continue
+            if status == "moved":
+                # C-6.3: ROUTE_TRIES evaluations in a row were overtaken by commits
+                # before they could be reserved. The job keeps its place: the later
+                # jobs it competes with wait behind it (C-6.9), and the next pass,
+                # which follows this one at once, looks at it again.
+                self._count_route(deferred=1)
+                waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
+                self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
+                continue
+            if status != "placed":
                 continue
             tally["placed"] += 1
             self._capacity_waits.pop(job["job_id"], None)
@@ -3412,6 +3506,116 @@ class Daemon:
                 with self._busy_lock:
                     self._busy.discard(aid)
             self._notify()
+
+    def _route_stands(self, basis: dict, decision) -> tuple[str | None, int, Any]:
+        """C-6.3: inside the reserving transaction, the decision as an evaluation now makes it.
+
+        (None, lanes judged again, that decision) when the lanes whose rows
+        changed since the early decision's snapshot decide it alone: it is then
+        exactly what `scheduler.evaluate` over the rows this transaction sees,
+        at this clock, would return (`route_check.still_stands`). Otherwise the
+        reason not (`moved`, `old`, `full`), and the transaction is rolled back. It reads a
+        few rows by index and judges only the lanes whose rows changed since the
+        decision's snapshot: it never builds a capacity view or evaluates a route.
+        It refuses what that comparison cannot see: a policy loaded since, a
+        clock past the decision's horizon, a reset-credit override context that
+        changed, and readings the snapshot held that are gone (`_route_rows`)."""
+        if not basis or basis.get("policy") is not self.policy:
+            return "moved", 0, None
+        now = datetime.now(timezone.utc)
+        if (basis["until"] is not None and now >= basis["until"]) or now < capacity._time(basis["view"]["now"]):
+            return "old", 0, None                  # past the horizon, or a clock that stepped back
+        try:
+            rows = self._route_rows(basis, now)
+            if rows is None:
+                return "moved", 0, None
+            return route_check.still_stands(basis["policy"], basis["job"], decision, view=basis["view"],
+                                            candidates=basis["rows"]["view"]["readings"],
+                                            overridden=set(basis["overrides"]), now=now, **rows)
+        except route_check.ROUTE_ERRORS:
+            # C-6.12: a row the check cannot read (a timestamp that does not parse)
+            # is the job's, never the pass's: the route is evaluated again off the
+            # lock, where the same row settles this one job as `Unroutable`.
+            return "moved", 0, None
+
+    def _route_rows(self, basis: dict, now: datetime) -> dict | None:
+        """C-6.3: what `route_check.still_stands` reads now, inside the reservation.
+
+        Every read is a few rows by index: the lane rows (marked and merged as a
+        view does), the attempts in flight (`attempts_live`), the probe leases,
+        the readings added since the snapshot (by id), the closures not released
+        (`closures_active`), the reset-credit override context, and the parents
+        of the jobs whose caps are counted (the lane, probe-lease and
+        reset-credit tables are small and read whole). None when a reading the
+        snapshot held was deleted, or the reset-credit overrides are not the
+        ones the decision held out: then the rows it rests on cannot be rebuilt
+        from these, and the route is evaluated again. Retention deletes readings only with a pruned job's
+        attempts, and a reading id is reused only after the newest reading is
+        deleted, so while the snapshot's newest reading stands every reading
+        added since has a greater id."""
+        store, rows = self.store, basis["rows"]
+        lane_rows = store.query("SELECT * FROM lanes ORDER BY lane_id")
+        # C-23.17: which lanes a confirmed reset-credit override covers, now, at a
+        # view's clock. Whether one covers a lane turns on the lane's own row
+        # (`Actions._belongs_to_lane`: its account key, its home), so a lane
+        # enrolled or moved since the snapshot can gain or lose one with no
+        # action changing (review of this change: a hard job was placed without
+        # its probe on a lane enrolled meanwhile, its readings not held out).
+        context = {**self.timers.actions.override_context(),
+                   "lanes": {row["lane_id"]: Store.lane_from_row(row) for row in lane_rows}}
+        clock = capacity._iso(now)
+        overrides = {row["lane_id"]: (found["action_id"], found["weekly_reset_at"]) for row in lane_rows
+                     if (found := self.timers.actions.confirmed_override(row["lane_id"], now=clock, context=context))}
+        if overrides != basis["overrides"]:
+            return None
+        mark = rows["reading_mark"]
+        if mark is not None and store.one("SELECT * FROM readings WHERE reading_id=?", (mark["reading_id"],)) != mark:
+            return None
+        held = [row["reading_id"] for row in rows["view"]["readings"]]
+        for start in range(0, len(held), 500):
+            chunk = held[start:start + 500]
+            found = store.one(f"SELECT count(*) AS n FROM readings WHERE reading_id IN ({','.join('?' * len(chunk))})",
+                              chunk)
+            if found["n"] != len(chunk):
+                return None
+        lanes = [self.timers.merge_lane(capacity.mark_desktop(dict(row), desktop=basis["desktop"]))
+                 for row in lane_rows]
+        probes = store.query("SELECT lease_key,holder FROM leases WHERE holder LIKE 'probe:%'")
+        unavailable = {row["lease_key"].split(":")[1]: row["holder"] for row in probes}
+        unavailable.update({lane["lane_id"]: "credential-latched" for lane in lanes if capacity.credential_latched(lane)})
+        attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,j.kind,j.parent_job_id "
+                               "FROM attempts a JOIN jobs j USING(job_id) "
+                               "WHERE a.state IN ('reserved','starting','running','finalizing')")
+        # C-6.9's parent cap counts the attempts under each of the job's parents:
+        # every job on those ancestries, from the snapshot or, if newer, by id.
+        known = {row["job_id"]: row for row in rows["view"]["jobs"]}
+        jobs: dict[str, dict] = {}
+        unseen = [basis["job"]["job_id"], *(row["job_id"] for row in attempts)]
+        while unseen:
+            job_id = unseen.pop()
+            if job_id is None or job_id in jobs:
+                continue
+            row = known.get(job_id) or store.one("SELECT job_id,kind,parent_job_id FROM jobs WHERE job_id=?", (job_id,))
+            if row is not None:
+                jobs[job_id] = {"job_id": row["job_id"], "kind": row["kind"], "parent_job_id": row["parent_job_id"]}
+                unseen.append(row["parent_job_id"])
+        return {"lanes": lanes, "attempts": attempts, "jobs": list(jobs.values()), "unavailable": unavailable,
+                "reserved_probes": len(probes),
+                "readings": store.query("SELECT * FROM readings WHERE reading_id>? ORDER BY reading_id",
+                                        (mark["reading_id"] if mark is not None else 0,)),
+                "closures": self._open_closures(basis)}
+
+    def _open_closures(self, basis: dict) -> list[dict]:
+        """C-6.3: the closures a view counts as open, by index: those with no
+        `released_at`, and any the snapshot's view held with an empty one (which
+        only a hand edit writes, and which a view counts as open too), by id."""
+        rows = self.store.query("SELECT * FROM closures WHERE released_at IS NULL ORDER BY closure_id")
+        odd = [row["closure_id"] for row in basis["view"].get("closures", ()) if row.get("released_at") is not None]
+        if odd:
+            rows += self.store.query(f"SELECT * FROM closures WHERE closure_id IN ({','.join('?' * len(odd))}) "
+                                     "AND released_at IS NOT NULL", odd)
+            rows.sort(key=lambda row: row["closure_id"])
+        return rows
 
     @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):

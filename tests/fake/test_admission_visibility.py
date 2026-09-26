@@ -124,6 +124,7 @@ def test_c6_11_the_full_fleet_is_named(fleet):
     ({"reason": "probe-pending"}, "its lane is being probed"),
     ({"reason": "reserve:fable:unmeasured"}, "no lane admits it (reserve:fable:unmeasured)"),
     ({"reason": "behind-older-job"}, "held behind ?"),                # a hold missing its fields still renders
+    ({"reason": "route-moved", "tries": 3}, "commits changed its route before each of 3 reservations"),
     (None, "no admission pass has reached this job yet"),
 ])
 def test_c6_11_every_hold_renders_as_a_sentence(hold, expected):
@@ -443,7 +444,7 @@ def test_c6_11_a_pass_that_raises_publishes_nothing(fleet):
     holds, snapshot = service._holds, service._admission
     real = service._admit_pass
 
-    def raising(holds, tally):
+    def raising(holds, tally, **options):
         raise OSError("no space left on device")
 
     service._admit_pass = raising
