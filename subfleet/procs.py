@@ -325,6 +325,46 @@ class Containment:
         }
 
 
+def _process_table() -> dict[int, tuple[int, int, str]]:
+    """pid -> (ppid, pgid, stat) from one `ps -axo pid=,ppid=,pgid=,stat=` snapshot."""
+    table: dict[int, tuple[int, int, str]] = {}
+    for row in _read(["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat="]).splitlines():
+        parts = row.split(None, 3)
+        if len(parts) < 4:
+            continue
+        table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3].strip())
+    return table
+
+
+def group_members(pgid: int) -> dict[int, str]:
+    """pid -> `lstart` for the live, non-zombie members of process group `pgid`,
+    from one `ps -axo pid=,pgid=,stat=,lstart=` snapshot.
+
+    This is C-5.5's first source alone. It exists for the steady-state record
+    of which group members a running attempt or probe owns, which keeps only
+    group members: the full census also reads every process's environment
+    (`ps -axEww`, megabytes on a busy machine) for markers that record never
+    uses. The start column tells a recorded pid's later incarnation from the
+    process recorded under it; it is a change detector only, and an identity is
+    still captured by `identity` (C-5.3). Containment decisions (release, kill,
+    lost, quarantine) still take the full three-source `containment`. Raises
+    `InspectionError` when `ps` fails.
+    """
+    if not pgid or pgid <= 0:
+        return {}
+    members: dict[int, str] = {}
+    try:
+        for row in _read(["/bin/ps", "-axo", "pid=,pgid=,stat=,lstart="]).splitlines():
+            parts = row.split(None, 3)
+            if len(parts) < 4:
+                continue
+            if int(parts[1]) == pgid and not parts[2].startswith("Z"):
+                members[int(parts[0])] = parts[3].strip()
+    except ValueError as exc:
+        raise InspectionError("group enumeration unavailable") from exc
+    return members
+
+
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
                 attempt_id: str, root: str | None = None) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.

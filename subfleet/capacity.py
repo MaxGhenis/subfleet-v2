@@ -13,7 +13,7 @@ import os
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -245,6 +245,53 @@ def fresh_provider(reading: Mapping[str, Any], *, now: str | datetime,
             and (not reading.get("resets_at") or _time(reading["resets_at"]) > instant))
 
 
+def fresh_until(readings: Iterable[Mapping[str, Any]], *, now: str | datetime,
+                reading_ttl_s: int = READING_TTL_S) -> datetime | None:
+    """C-6.3: the first instant after `now` at which a reading fresh at `now`
+    may no longer be (its `observed_at` plus `reading_ttl_s`, or its
+    `resets_at`, whichever comes first); None when no reading is fresh.
+
+    Until then every lane measured at `now` is still measured. A routing
+    decision also waits on other clocks: `decision_horizon`."""
+    instant = _time(now)
+    ends = []
+    for item in readings:
+        row = _row(item)
+        if fresh_provider(row, now=instant, reading_ttl_s=reading_ttl_s):
+            end = _time(row["observed_at"]) + timedelta(seconds=reading_ttl_s)
+            if row.get("resets_at"):
+                end = min(end, _time(row["resets_at"]))
+            ends.append(end)
+    return min(ends, default=None)
+
+
+def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S,
+                     ends: Iterable[str | datetime] = ()) -> datetime | None:
+    """C-6.3: the first instant after the view's `now` at which a routing decision
+    taken on the view's rows may change with no row changing; None when nothing
+    in it waits on the clock.
+
+    `scheduler.evaluate` reads the clock only through `fresh_provider` and a
+    closure's `until_at`, so its decision on these rows is the same at every
+    instant before the earliest of: a reading turning fresh (its future
+    `observed_at`) or no longer fresh (`fresh_until`), a closure ending (its
+    `until_at`), and each of `ends` (a confirmed override's `weekly_reset_at`,
+    which puts the readings it held out back). Any of them can close a lane,
+    not only open one: an override that ends shows a reading below the floor,
+    and a reported closure on a reserved model gives its lane slack behind a
+    probe (C-11.7) that turns `unmeasured` when the closure ends (review of
+    f48df54)."""
+    instant = _time(view["now"])
+    readings = [_row(item) for item in view.get("readings", ())]
+    clocks = [fresh_until(readings, now=instant, reading_ttl_s=reading_ttl_s)]
+    clocks += [observed for row in readings if (observed := _time(row["observed_at"])) > instant
+               and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s)]
+    clocks += [until for item in view.get("closures", ()) if not (row := _row(item)).get("released_at")
+               and (until := _time(row["until_at"])) > instant]
+    clocks += [_time(end) for end in ends]
+    return min((clock for clock in clocks if clock is not None), default=None)
+
+
 def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int) -> tuple:
     """C-11.3: mirror provider ordering for the account-wide status view."""
     measured = [reading for reading in lane["readings"]
@@ -346,11 +393,20 @@ def owned_lanes(view: Mapping[str, Any], owner: str = "v2") -> list[dict[str, An
     return [lane for lane in view["lanes"] if lane.get("owner") == owner]
 
 
+def store_rows(store: Any) -> dict[str, list]:
+    """The store rows `build_view` is made from, as its keyword arguments.
+
+    C-3.7: read them in one `Store.snapshot()` and build the view after it, so
+    a view build holds no read connection (review of 5841d8b, finding 2)."""
+    # Every reading that can be a key's newest, not every reading.
+    readings = getattr(store, "latest_reading_candidates", store.list_readings)()
+    return {"lanes": store.lane_rows(), "readings": readings, "closures": store.list_closures(),
+            "attempts": store.list_attempts(), "jobs": store.list_jobs()}
+
+
 def from_store(store: Any, *, now: str | datetime | None = None,
                reading_ttl_s: int = READING_TTL_S, desktop_account: str | None = None,
                desktop: DesktopIdentity | None = None) -> dict[str, Any]:
     """Read store rows; supply desktop identity read before any transaction."""
-    return build_view(store.lane_rows(), store.list_readings(), store.list_closures(),
-                      store.list_attempts(), store.list_jobs(), now=now,
-                      reading_ttl_s=reading_ttl_s, desktop_account=desktop_account,
-                      desktop=desktop)
+    return build_view(**store_rows(store), now=now, reading_ttl_s=reading_ttl_s,
+                      desktop_account=desktop_account, desktop=desktop)

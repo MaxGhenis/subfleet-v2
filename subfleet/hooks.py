@@ -431,7 +431,7 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
                     # nudge is recoverable and a blocked session is not.
     marked = True
     try:
-        client = Client(root) if client is None else client
+        client = Client(root, verify_lock=False) if client is None else client     # C-15.6
         rows = _pending(client, session)
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows, marked = _offline_pending(root, session), False
@@ -525,7 +525,7 @@ def post_tool_use(payload: dict[str, Any], root: Path, *,
         return int(Exit.OK)
     deadline = now() + (timeout_s() - HOOK_MARGIN_S if budget_s is None else budget_s)
     try:
-        client = Client(root) if client is None else client
+        client = Client(root, verify_lock=False) if client is None else client     # C-15.6
         jobs = _candidates(client, session, payload)
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         return int(Exit.OK)

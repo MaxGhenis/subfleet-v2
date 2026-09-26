@@ -129,11 +129,14 @@ class GateService:
 
     def _load(self, gate_id):
         # The committed journal wins over a partially published file projection.
-        rows = self.store.query("SELECT data_json FROM events WHERE kind='gate.state' ORDER BY event_id DESC")
-        for row in rows:
-            payload = json.loads(row["data_json"])
-            if payload.get("gate_id") == gate_id and "state" in payload:
-                return payload["state"]
+        # C-3.7: SQLite finds the newest record of this gate. Every gate.state
+        # event (6 MB on 2026-09-25) used to be fetched and parsed on each poll,
+        # four times a second per `subfleet gate` client.
+        row = self.store.one("SELECT data_json FROM events WHERE kind='gate.state' "
+                             "AND json_extract(data_json,'$.gate_id')=? AND json_type(data_json,'$.state') IS NOT NULL "
+                             "ORDER BY event_id DESC LIMIT 1", (gate_id,))
+        if row is not None:
+            return json.loads(row["data_json"])["state"]
         raise GateError(f"unknown gate: {gate_id}")
 
     def _journal(self, state, transition):

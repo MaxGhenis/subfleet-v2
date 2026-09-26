@@ -18,7 +18,9 @@ fixture's `codex-1` whose probe reported the same email.
 import json
 import logging
 import subprocess
-from datetime import datetime
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -200,17 +202,41 @@ def test_c6_12_route_waits_back_off_and_a_restart_looks_at_them_at_once(fleet, m
     assert service.store.get_job(broken)["next_check_at"] <= utcnow()
 
 
+def race(service):
+    """A commit between admission's early evaluation and its reservation (C-6.3): the
+    roster changed, so the reservation must evaluate again inside.
+
+    Made on another thread, as a concurrent commit arrives: the early evaluation
+    may run in a read snapshot, where this thread may not begin a transaction
+    (C-3.7, `SnapshotWriteError`)."""
+    failures = []
+
+    def commit():
+        try:
+            with service.store.transaction("test.race") as tx:
+                tx.execute("INSERT INTO leases VALUES ('test:race','test','t',NULL)")
+                tx.execute("DELETE FROM leases WHERE lease_key='test:race'")
+        except BaseException as exc:                                  # noqa: BLE001
+            failures.append(exc)
+    other = threading.Thread(target=commit, name="test-race")
+    other.start()
+    other.join(30)
+    assert not other.is_alive() and not failures, failures
+
+
 def test_c6_12_the_evaluation_inside_the_reservation_is_isolated_too(fleet, monkeypatch):
-    """C-6.12 `_pick` runs twice per placement; the roster can change between them."""
+    """C-6.12 `_pick` runs before the reservation and, when the store moved, inside it
+    too (C-6.3); the roster can change between them."""
     service, harness = fleet
     raced = submit(service, harness, pinned_model="astra")
     later = submit(service, harness, pinned_model="terra")
-    real, calls = service._pick, {}
+    real = service._pick
 
     def pick(job, **options):
-        calls[job["job_id"]] = calls.get(job["job_id"], 0) + 1
-        if job["job_id"] == raced and calls[raced] == 2:
-            raise scheduler.RouteError(f"pinned_lane: {EMAIL!r} names 2 lanes (claude-a, codex-1)")
+        if job["job_id"] == raced:
+            if service.store._holds_writer():                 # the evaluation inside the reservation
+                raise scheduler.RouteError(f"pinned_lane: {EMAIL!r} names 2 lanes (claude-a, codex-1)")
+            race(service)
         return real(job, **options)
     monkeypatch.setattr(service, "_pick", pick)
     service._admit()
@@ -229,16 +255,181 @@ def test_c6_12_a_refusal_inside_the_reservation_rolls_back_what_it_wrote(fleet, 
     service.store.add_attempt(attempt_id=raced + "/a1", job_id=raced, seq=1, lane_id="claude-a",
                               model_requested="gpt-6-astra", state="failed", outcome_class="limited")
     before = service.store.get_job(raced)["exclusions"]
-    real, calls = service._pick, []
+    real = service._pick
 
     def pick(job, **options):
-        calls.append(job["job_id"])
-        if len(calls) == 2:
+        if service.store._holds_writer():
             raise scheduler.RouteError("pinned_lane: fixture")
+        race(service)
         return real(job, **options)
     monkeypatch.setattr(service, "_pick", pick)
     service._admit()
     assert service.store.get_job(raced)["exclusions"] == before and service.store.get_job(raced)["state"] == "failed"
+
+
+# --- C-6.3, C-3.7: the reservation takes the evaluation made before it, when nothing moved ----------
+
+def test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_committed(fleet, monkeypatch):
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model="astra")
+    real, inside = service._pick, []
+    monkeypatch.setattr(service, "_pick", lambda job, **o: inside.append(service.store._holds_writer())
+                        or real(job, **o))
+    service._admit()
+    assert admitted(service, job_id)
+    assert True not in inside                                     # no evaluation held the store lock
+    assert service._route_evaluations == {"reused": 1, "again": 0, "moved": 0, "old": 0, "failed": 0}
+
+
+def test_c6_3_a_commit_after_the_early_evaluation_means_evaluating_again(fleet, monkeypatch):
+    """The reservation rests on the rows it reads: after a commit it decides afresh,
+    and what it decides then is what it reserves."""
+    service, harness = fleet
+    job_id = submit(service, harness, pinned_model="astra")
+    real = service._pick
+    chosen = []
+
+    def pick(job, **options):
+        decision = real(job, **options)
+        if service.store._holds_writer():
+            chosen.append(decision.chosen_lane)
+        else:
+            race(service)
+        return decision
+    monkeypatch.setattr(service, "_pick", pick)
+    service._admit()
+    assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 1, "old": 0, "failed": 0}
+    assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == chosen
+
+
+def test_c6_3_an_early_evaluation_older_than_the_bound_is_evaluated_again(fleet, monkeypatch):
+    service, harness = fleet
+    monkeypatch.setattr(daemon_module, "ROUTE_REUSE_S", -1.0)   # every early evaluation is too old
+    job_id = submit(service, harness, pinned_model="astra")
+    service._admit()
+    assert admitted(service, job_id)
+    assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 0, "old": 1, "failed": 0}
+
+
+def ageing_reading(service, fresh_for_s: float) -> datetime:
+    """A codex-1 reading that stops being fresh `fresh_for_s` from now; returns when."""
+    ttl = service.policy["caps"]["reading_ttl_s"]
+    observed = (datetime.now(timezone.utc) - timedelta(seconds=ttl - fresh_for_s)).replace(microsecond=0)
+    service.store.add_reading(Reading("codex-1", "account", "seven_day", .2, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", observed.strftime("%Y-%m-%dT%H:%M:%SZ")))
+    return observed + timedelta(seconds=ttl)
+
+
+def busy_codex(service, harness):
+    """One attempt of another job already running on codex-1: measured, the lane has
+    a second slot; unmeasured, it has none (C-6.4's `max_in_flight_unmeasured`)."""
+    running = submit(service, harness, pinned_model="astra")
+    service.store.update_job(running, state="running")
+    service.store.add_attempt(attempt_id=running + "/a1", job_id=running, seq=1, lane_id="codex-1",
+                              model_requested="gpt-6-astra", state="running")
+
+
+def test_c6_3_a_reading_that_ages_out_before_the_reservation_means_evaluating_again(routing_state, monkeypatch):  # noqa: F811
+    """Review of 5841d8b: an early evaluation made while codex-1's reading was fresh
+    was reserved on after the reading aged out, putting a second attempt on a lane
+    that was unmeasured by then. The reservation now evaluates again, and the lane,
+    unmeasured, has no second slot."""
+    service, harness = routing_state
+    busy_codex(service, harness)
+    job_id = submit(service, harness, pinned_model="astra")
+    real, early, stale = service._pick, [], []
+
+    def pick(job, **options):
+        if not stale:                                     # just before admission's first look
+            # Fresh for at most 2 s, so the wait below stays well inside
+            # ROUTE_REUSE_S whatever the clock's fraction of a second: only the
+            # horizon, not the age bound, can send the reservation back.
+            stale.append(ageing_reading(service, fresh_for_s=2))
+        decision = real(job, **options)
+        if "horizon" in options and not service.store._holds_writer():
+            early.append(decision.chosen_lane)
+            assert options["horizon"]["until"] == stale[0]
+            while datetime.now(timezone.utc) <= stale[0] + timedelta(seconds=.2):
+                time.sleep(.05)                               # the reading ages out before the reservation
+        return decision
+    monkeypatch.setattr(service, "_pick", pick)
+    started = time.monotonic()
+    service._admit()
+    assert time.monotonic() - started < daemon_module.ROUTE_REUSE_S
+    assert early == ["codex-1"]                                # measured then: a second slot
+    assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 0, "old": 1, "failed": 0}
+    assert not service.store.list_attempts(job_id)             # no second attempt on an unmeasured lane
+    assert service.store.get_job(job_id)["state"] == "waiting"
+
+
+def test_c6_3_an_override_that_ends_before_the_reservation_means_evaluating_again(routing_state, monkeypatch):  # noqa: F811
+    """Review of f48df54: a confirmed reset-credit override held codex-1's 99% reading
+    out of the early evaluation, which chose codex-1; the override ended before the
+    reservation, which reserved on that decision though its own evaluation rejects
+    the lane (below the floor). The override's end is now part of the horizon."""
+    service, harness = routing_state
+    now = datetime.now(timezone.utc)
+    service.store.add_reading(Reading("codex-1", "account", "seven_day", .99, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", now.strftime("%Y-%m-%dT%H:%M:%SZ")))
+    confirmed = (now - timedelta(days=7) + timedelta(seconds=2)).replace(microsecond=0)
+    ends = confirmed + timedelta(days=7)
+    stamp = confirmed.strftime("%Y-%m-%dT%H:%M:%SZ")
+    service.store.add_action(action_id="act-1", kind="reset-credit", op_key="codex:fake:op1", subject="codex-1",
+                             state="confirmed", request_json="{}", created_at=stamp, updated_at=stamp)
+    assert service.timers.actions.confirmed_override("codex-1") is not None
+    job_id = submit(service, harness, pinned_model="astra")
+    real, early = service._pick, []
+
+    def pick(job, **options):
+        decision = real(job, **options)
+        if "horizon" in options and not service.store._holds_writer():
+            early.append((decision.chosen_lane, options["horizon"]["until"]))
+            while datetime.now(timezone.utc) <= ends + timedelta(seconds=.2):
+                time.sleep(.05)                               # the override ends before the reservation
+        return decision
+    monkeypatch.setattr(service, "_pick", pick)
+    started = time.monotonic()
+    service._admit()
+    assert time.monotonic() - started < daemon_module.ROUTE_REUSE_S
+    assert early == [("codex-1", ends)]                       # held out, the 99% reading did not count
+    assert service._route_evaluations == {"reused": 0, "again": 1, "moved": 0, "old": 1, "failed": 0}
+    assert not service.store.list_attempts(job_id)             # the lane is below the floor now
+    assert service.store.get_job(job_id)["state"] == "waiting"
+
+
+def test_c6_3_one_view_decides_an_override_on_one_clock(routing_state):  # noqa: F811
+    """Review of 4f4edcd: `Timers.enrich_view` decided the override on its clock and
+    relabelled codex-1's 99% reading stale while it held; `_pick` decided it again
+    on the wall clock, found it over, held nothing out and put no end in the
+    horizon. The early decision (codex-1, unmeasured) was reserved on. Here the
+    timers' clock lags a second behind an override that ended 5 s ago, which puts
+    the end between the two; both now ask the view's clock, and the reading counts."""
+    service, harness = routing_state
+    now = datetime.now(timezone.utc)
+    service.store.add_reading(Reading("codex-1", "account", "seven_day", .99, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", now.strftime("%Y-%m-%dT%H:%M:%SZ")))
+    confirmed = (now - timedelta(days=7, seconds=5)).replace(microsecond=0)
+    stamp = confirmed.strftime("%Y-%m-%dT%H:%M:%SZ")
+    service.store.add_action(action_id="act-1", kind="reset-credit", op_key="codex:fake:op1", subject="codex-1",
+                             state="confirmed", request_json="{}", created_at=stamp, updated_at=stamp)
+    service.timers.now = lambda: confirmed + timedelta(days=7, seconds=-1)
+    job_id = submit(service, harness, pinned_model="astra")
+    service._admit()
+    assert not service.store.list_attempts(job_id)             # below the floor, as one clock says
+    assert service.store.get_job(job_id)["state"] == "waiting"
+    labels = [row["label"] for row in service._capacity_view()["readings"] if row["lane_id"] == "codex-1"]
+    assert labels == ["provider"]
+
+
+def test_c6_3_an_early_evaluation_whose_readings_stay_fresh_is_reserved_on(routing_state):  # noqa: F811
+    """The same fleet, with the reading fresh for minutes: the early decision is reserved on."""
+    service, harness = routing_state
+    busy_codex(service, harness)
+    ageing_reading(service, fresh_for_s=100)
+    job_id = submit(service, harness, pinned_model="astra")
+    service._admit()
+    assert service._route_evaluations == {"reused": 1, "again": 0, "moved": 0, "old": 0, "failed": 0}
+    assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == ["codex-1"]
 
 
 def test_c6_12_why_names_a_route_error_it_meets_itself(incident):
