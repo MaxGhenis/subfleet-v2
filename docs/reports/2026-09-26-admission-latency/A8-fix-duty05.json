@@ -1,0 +1,233 @@
+{
+  "code": "/Users/maxghenis/.subfleet/worktrees/20260926-112150-admission-latency-opus",
+  "root": "/private/tmp/sfr-runs/root-A8-fix-duty05",
+  "diagnostics": true,
+  "daemon_cpu_cores": 0.052,
+  "admission": {
+    "holds_s": {
+      "n": 66,
+      "p50": 0.0013,
+      "p90": 0.0044,
+      "p99": 0.2549,
+      "max": 0.2549,
+      "mean": 0.019
+    },
+    "reserve_holds_s": {
+      "n": 52,
+      "p50": 0.0014,
+      "p90": 0.0044,
+      "p99": 0.2549,
+      "max": 0.2549,
+      "mean": 0.02
+    },
+    "hold_cpu_s": {
+      "n": 66,
+      "p50": 0.0012,
+      "p90": 0.002,
+      "p99": 0.003,
+      "max": 0.003,
+      "mean": 0.0012
+    },
+    "reserve_hold_cpu_s": {
+      "n": 52,
+      "p50": 0.0013,
+      "p90": 0.002,
+      "p99": 0.003,
+      "max": 0.003,
+      "mean": 0.0014
+    },
+    "hold_cpu_s_per_s": 0.00052,
+    "store_waits_s": {
+      "n": 222,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.7275,
+      "max": 1.0784,
+      "mean": 0.017
+    },
+    "holds_over_1s": 0,
+    "held_s_per_s": 0.0084,
+    "turn_queued_to_reserved_s": {
+      "n": 13,
+      "p50": 2.9579,
+      "p90": 5.7892,
+      "p99": 7.8228,
+      "max": 7.8228,
+      "mean": 3.5886
+    },
+    "turns_submitted": 13,
+    "turns_never_reserved": 0,
+    "turn_errors": []
+  },
+  "route_evaluations": {
+    "reused": 61,
+    "rechosen": 0,
+    "again": 3,
+    "moved": 3,
+    "old": 0,
+    "deferred": 0,
+    "rejudged": 4
+  },
+  "args": {
+    "code": "/Users/maxghenis/.subfleet/worktrees/20260926-112150-admission-latency-opus",
+    "python": null,
+    "root": "/tmp/sfr-runs/root-A8-fix-duty05",
+    "lanes": 10,
+    "history": 300,
+    "events": 200000,
+    "decisions": 3000,
+    "readings": 34000,
+    "probe_events": 6500,
+    "gate_events": 980,
+    "gate_pollers": 1,
+    "duty": 0.05,
+    "running": 6,
+    "sessions": 21,
+    "short_every": 8.0,
+    "short_s": 3.0,
+    "backlog": 48,
+    "backlog_s": 30.0,
+    "backlog_tier": null,
+    "prepare_s": 0,
+    "turns_every": 10.0,
+    "spinners": 18,
+    "nice": 10,
+    "warmup": 20.0,
+    "duration": 150.0,
+    "dumps": true,
+    "sample": false,
+    "hold_s": null,
+    "report": "/tmp/sfr-runs/A8-fix-duty05.json"
+  },
+  "store": {
+    "jobs": 300,
+    "attempts": 300,
+    "events": 207501,
+    "decisions": 3000,
+    "notices": 300,
+    "readings": 34000
+  },
+  "measured_s": 150.2,
+  "ops": {
+    "gate.poll": {
+      "n": 107,
+      "p50": 0.3204,
+      "p90": 2.5926,
+      "p99": 7.3517,
+      "max": 7.5109,
+      "mean": 0.9991,
+      "outcomes": {
+        "ok": 107
+      },
+      "rate_per_s": 0.71
+    },
+    "list(hook)": {
+      "n": 748,
+      "p50": 0.8613,
+      "p90": 3.1988,
+      "p99": 6.2235,
+      "max": 10.0911,
+      "mean": 1.3035,
+      "outcomes": {
+        "ok": 748
+      },
+      "rate_per_s": 4.98
+    },
+    "notice.pending(prompt)": {
+      "n": 258,
+      "p50": 0.0011,
+      "p90": 2.7342,
+      "p99": 7.1457,
+      "max": 9.3088,
+      "mean": 0.7604,
+      "outcomes": {
+        "ok": 258
+      },
+      "rate_per_s": 1.72
+    },
+    "probe:list": {
+      "n": 59,
+      "p50": 0.8349,
+      "p90": 3.5559,
+      "p99": 6.1155,
+      "max": 6.1155,
+      "mean": 1.3181,
+      "outcomes": {
+        "ok": 59
+      },
+      "rate_per_s": 0.39
+    },
+    "probe:ping": {
+      "n": 87,
+      "p50": 0.1744,
+      "p90": 1.6682,
+      "p99": 5.5841,
+      "max": 5.5841,
+      "mean": 0.5631,
+      "outcomes": {
+        "ok": 87
+      },
+      "rate_per_s": 0.58
+    },
+    "probe:show": {
+      "n": 55,
+      "p50": 0.9251,
+      "p90": 3.654,
+      "p99": 8.6156,
+      "max": 8.6156,
+      "mean": 1.6315,
+      "outcomes": {
+        "ok": 55
+      },
+      "rate_per_s": 0.37
+    },
+    "probe:status": {
+      "n": 50,
+      "p50": 1.1026,
+      "p90": 4.3129,
+      "p99": 10.7944,
+      "max": 10.7944,
+      "mean": 1.8643,
+      "outcomes": {
+        "ok": 50
+      },
+      "rate_per_s": 0.33
+    },
+    "submit": {
+      "n": 15,
+      "p50": 1.0042,
+      "p90": 4.0318,
+      "p99": 5.9458,
+      "max": 5.9458,
+      "mean": 1.7067,
+      "outcomes": {
+        "ok": 15
+      },
+      "rate_per_s": 0.1
+    },
+    "wait": {
+      "n": 25,
+      "p50": 61.1625,
+      "p90": 62.2018,
+      "p99": 63.5603,
+      "max": 63.5603,
+      "mean": 61.2065,
+      "outcomes": {
+        "ok": 25
+      },
+      "rate_per_s": 0.17
+    }
+  },
+  "wake_after_terminal_s": {},
+  "wakes_unmatched": 0,
+  "client_errors": {},
+  "lockwatch_lines": {},
+  "holders_innermost": [],
+  "long_holds_s": {
+    "n": 0,
+    "max": null,
+    "sum": 0
+  },
+  "stack_dumps": 2,
+  "samples": null
+}

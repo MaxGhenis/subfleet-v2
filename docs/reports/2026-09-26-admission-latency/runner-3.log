@@ -1,0 +1,8 @@
+start B5-base-trivial-backlog 14:26:28 load { 20.74 32.33 34.72 }
+end B5-base-trivial-backlog 14:29:23 exit 0 load { 38.16 36.11 35.89 }
+start A5-fix-trivial-backlog 14:29:23 load { 38.16 36.11 35.89 }
+end A5-fix-trivial-backlog 14:32:20 exit 0 load { 48.91 46.58 40.63 }
+start B6-base-duty05-cpu 14:32:20 load { 48.91 46.58 40.63 }
+end B6-base-duty05-cpu 14:35:18 exit 0 load { 34.79 41.96 39.86 }
+start A6-fix-duty05-cpu 14:35:18 load { 34.79 41.96 39.86 }
+end A6-fix-duty05-cpu 14:38:19 exit 0 load { 58.12 51.97 44.60 }

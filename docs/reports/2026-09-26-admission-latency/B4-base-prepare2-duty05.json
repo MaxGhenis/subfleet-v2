@@ -1,0 +1,217 @@
+{
+  "code": "/private/tmp/sfr-base-e053b2c",
+  "root": "/private/tmp/sfr-runs/root-B4-base-prepare2-duty05",
+  "diagnostics": true,
+  "daemon_cpu_cores": 0.055,
+  "admission": {
+    "holds_s": {
+      "n": 54,
+      "p50": 0.0011,
+      "p90": 0.1833,
+      "p99": 0.3731,
+      "max": 0.3731,
+      "mean": 0.0292
+    },
+    "reserve_holds_s": {
+      "n": 40,
+      "p50": 0.0012,
+      "p90": 0.2295,
+      "p99": 0.3731,
+      "max": 0.3731,
+      "mean": 0.0393
+    },
+    "store_waits_s": {
+      "n": 260,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.7061,
+      "max": 1.3336,
+      "mean": 0.0176
+    },
+    "holds_over_1s": 0,
+    "held_s_per_s": 0.0105,
+    "turn_queued_to_reserved_s": {
+      "n": 12,
+      "p50": 5.549,
+      "p90": 11.8906,
+      "p99": 13.3251,
+      "max": 13.3251,
+      "mean": 6.8814
+    },
+    "turns_submitted": 13,
+    "turns_never_reserved": 1,
+    "turn_errors": []
+  },
+  "route_evaluations": {
+    "reused": 39,
+    "again": 8,
+    "moved": 8,
+    "old": 0,
+    "failed": 0
+  },
+  "args": {
+    "code": "/tmp/sfr-base-e053b2c",
+    "python": null,
+    "root": "/tmp/sfr-runs/root-B4-base-prepare2-duty05",
+    "lanes": 20,
+    "history": 300,
+    "events": 200000,
+    "decisions": 3000,
+    "readings": 34000,
+    "probe_events": 6500,
+    "gate_events": 980,
+    "gate_pollers": 1,
+    "duty": 0.05,
+    "running": 6,
+    "sessions": 21,
+    "short_every": 8.0,
+    "short_s": 3.0,
+    "backlog": 48,
+    "backlog_s": 30.0,
+    "prepare_s": 2.0,
+    "turns_every": 10.0,
+    "spinners": 18,
+    "nice": 10,
+    "warmup": 20.0,
+    "duration": 150.0,
+    "dumps": true,
+    "sample": false,
+    "hold_s": null,
+    "report": "/tmp/sfr-runs/B4-base-prepare2-duty05.json"
+  },
+  "store": {
+    "jobs": 300,
+    "attempts": 300,
+    "events": 207521,
+    "decisions": 3000,
+    "notices": 300,
+    "readings": 34000
+  },
+  "measured_s": 150.2,
+  "ops": {
+    "gate.poll": {
+      "n": 99,
+      "p50": 0.5826,
+      "p90": 2.6092,
+      "p99": 6.8091,
+      "max": 6.8091,
+      "mean": 1.0773,
+      "outcomes": {
+        "ok": 99
+      },
+      "rate_per_s": 0.66
+    },
+    "list(hook)": {
+      "n": 740,
+      "p50": 0.8838,
+      "p90": 3.3089,
+      "p99": 6.5332,
+      "max": 10.5802,
+      "mean": 1.3447,
+      "outcomes": {
+        "ok": 740
+      },
+      "rate_per_s": 4.93
+    },
+    "notice.pending(prompt)": {
+      "n": 247,
+      "p50": 0.0012,
+      "p90": 2.7114,
+      "p99": 8.4082,
+      "max": 9.2875,
+      "mean": 0.8065,
+      "outcomes": {
+        "ok": 247
+      },
+      "rate_per_s": 1.64
+    },
+    "probe:list": {
+      "n": 60,
+      "p50": 0.7242,
+      "p90": 3.6139,
+      "p99": 9.02,
+      "max": 9.02,
+      "mean": 1.3108,
+      "outcomes": {
+        "ok": 60
+      },
+      "rate_per_s": 0.4
+    },
+    "probe:ping": {
+      "n": 84,
+      "p50": 0.1681,
+      "p90": 1.7002,
+      "p99": 6.0457,
+      "max": 6.0457,
+      "mean": 0.6165,
+      "outcomes": {
+        "ok": 84
+      },
+      "rate_per_s": 0.56
+    },
+    "probe:show": {
+      "n": 55,
+      "p50": 0.9841,
+      "p90": 3.6663,
+      "p99": 8.383,
+      "max": 8.383,
+      "mean": 1.563,
+      "outcomes": {
+        "ok": 55
+      },
+      "rate_per_s": 0.37
+    },
+    "probe:status": {
+      "n": 43,
+      "p50": 1.5931,
+      "p90": 5.2329,
+      "p99": 8.7442,
+      "max": 8.7442,
+      "mean": 2.2724,
+      "outcomes": {
+        "ok": 43
+      },
+      "rate_per_s": 0.29
+    },
+    "submit": {
+      "n": 16,
+      "p50": 0.728,
+      "p90": 3.7317,
+      "p99": 4.0477,
+      "max": 4.0477,
+      "mean": 1.2827,
+      "outcomes": {
+        "ok": 16
+      },
+      "rate_per_s": 0.11
+    },
+    "wait": {
+      "n": 28,
+      "p50": 61.464,
+      "p90": 65.0848,
+      "p99": 66.0844,
+      "max": 66.0844,
+      "mean": 62.1229,
+      "outcomes": {
+        "ok": 28
+      },
+      "rate_per_s": 0.19
+    }
+  },
+  "wake_after_terminal_s": {},
+  "wakes_unmatched": 0,
+  "client_errors": {
+    "probe:status:ConnectionError": 1
+  },
+  "lockwatch_lines": {
+    "hold": 1
+  },
+  "holders_innermost": [],
+  "long_holds_s": {
+    "n": 0,
+    "max": null,
+    "sum": 0
+  },
+  "stack_dumps": 2,
+  "samples": null
+}
