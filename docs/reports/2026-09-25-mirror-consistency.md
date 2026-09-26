@@ -114,13 +114,24 @@ holds the last synced value.
   written are put back, except any rewritten since then. The base is kept.
 - **Advance.** After the last write, the base takes the decided value.
 - **Every copy or none.** A session is decided from every copy or not at all.
-  - An unlisted folder's copies are read by name from its last listing.
+  - A folder that fails to list is read by name from its last listing, but
+    only if its directory is unchanged since that listing. A folder that has
+    changed since, or was never listed, holds every session that pass. So does
+    an account that has never listed, and an account that fails to list keeps
+    the folders known under it.
   - A copy that exists but cannot be read (EMFILE, on 2026-09-25) holds its
-    session, so the pass writes nothing for it and keeps its base.
-  - If the unreadable copy's session is unknown, or a folder was never listed,
-    every session is held that pass.
+    session, and the pass writes nothing for it and keeps its base. Its
+    session is the one the folder's last listing saw in it, which survives
+    failed reads. It is never guessed from a same-named file elsewhere, since
+    names are not unique across accounts. If it is unknown, every session is
+    held.
+  - A directory or file the user may not read is in no sidebar, because the
+    app runs as the same user. It holds nothing and cannot freeze flag sync.
+    A store that fails to list fails the pass.
   - Bases of sessions a pass did not see survive it.
-  - The pass counts held sessions in `flags_held`.
+  - Held sessions are counted in `flags_held`, which shows in the pass summary
+    and in `sessions mirror --status`. mirror-watch alerts when holds last 15
+    minutes.
 
 | Invariant | Statement |
 |---|---|
@@ -131,11 +142,11 @@ holds the last synced value.
 | No lost update | The mirror writes only a copy that nobody has rewritten since it last checked or wrote it. |
 | All or nothing | A held session writes nothing and keeps its base. A write that fails puts back every copy the publish wrote, except one rewritten since, and keeps the base. |
 | Base agreement | After a publish that went through, the base is the decided value. Every copy the pass read differently holds that value, unless the app or the user rewrote it since. |
-| Intent wins | With a base, a pass decides what the user last set since the last publish that converged. This is the brief's "no resurrection" for a user's change. |
+| Intent wins | With a base, if the user set only one value since the last publish that converged, a pass decides that value. This is the brief's "no resurrection" for a user's change. A user who set both values since then is exempt, because the merge base cannot order them. |
 | Never undo a settled value | Once a clean publish converged every copy and no user has acted since, no pass writes any other value. This is "no resurrection" for a value every copy agreed on. It cannot fire with an honest app (a user action clears it), which is why intent wins exists. |
 
-Review round 5 found that passes used to decide over whichever copies they
-had read. A copy skipped because its folder did not list, or because its read
+Review rounds 5 and 6 found that passes used to decide over whichever copies
+they had read. A copy skipped because its folder did not list, or because its read
 failed, then read as a user's change on the next pass. That pass undid the
 change it had just spread, in every account. "Intent wins" catches this in the
 model, and the code now decides from every copy or not at all.
@@ -154,15 +165,21 @@ re-checks right before the rename to keep it that narrow.
 | Exhaustive model check | `tests/mirror_flags_model.py`, the spec's executable twin, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 22,038 states, and every property holds; "intent wins" is exercised on 218 of 1,053 decisions. Stale saves allowed: 44,058 states, and only "intent wins" and "never undo a settled value" fail. |
 | Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | After every step, every file's flag and the merge base equal the model's. See below for the steps and coverage. |
 | Examples | `tests/unit/test_sessions_mirror_load_gap.py`, `tests/unit/test_mirror_flags_faults.py` | See the list below. |
-| Mutation | 22 hand-written mutants of `sync_flags`, its writes, its journal and its inventory, each run against the mirror's four test files | All 22 killed; see the table below. |
+| Mutation | 30 hand-written mutants of `sync_flags`, its writes, its journal and its inventory, each run against the mirror's four test files | All 30 killed; see the table below. |
 
 The example tests check:
 - the rollback leaves an app save made after the mirror's write;
 - a rolled-back copy still counts in the load-gap report;
 - the journal guards against misreading the app's saves;
 - the no-base star rule;
-- the partial-inventory cases (an unlisted folder, an unreadable copy, a pass
-  that reads nothing, a folder never listed);
+- the partial-inventory cases:
+  - an unlisted folder, unchanged or changed since its listing;
+  - an account that does not list, or never listed;
+  - an unreadable copy, once or for good, and one sharing a name with another
+    session's;
+  - a pass that reads nothing;
+  - permission denied on a folder or a record;
+  - a store that does not list;
 - no repair over an unreadable copy;
 - a base that cannot be written fails the pass.
 
@@ -174,7 +191,9 @@ The differential test's steps are:
 - full passes;
 - passes with writes between the read and the check;
 - passes with writes between two of the publish's writes;
-- passes that cannot list a folder or read a copy;
+- passes that cannot list a folder or read a copy, with a second, untouched
+  session that such a hold must not take unless the folder's contents are
+  unknown;
 - cancelled passes.
 
 One run of 100 examples reaches 535 publishes, 39 of them rolled back.
@@ -193,9 +212,16 @@ One run of 100 examples reaches 535 publishes, 39 of them rolled back.
 | base not synced | the merge base can be lost to a crash | `test_the_mirror_syncs_what_it_writes_before_the_rename` |
 | rollback not journaled | the load-gap report reads a rollback as the app's rewrite | `test_a_rolled_back_copy_still_waits_for_the_load` |
 | five journal and rollback guards | the report misreads the app's saves; a rollback overwrites a save made right after the rename | one example test each |
-| no hold for an unread copy | a pass decides without a copy it could not read | the stateful differential test |
-| unlisted folder not read by name | a pass decides without an unlisted folder's copies | the stateful differential test |
-| never-listed folder proceeds | a pass decides without a folder it never saw | the stateful differential test |
+| no hold for an unread copy | a pass decides without a copy it could not read | `test_an_unreadable_copy_holds_its_session_and_the_users_unarchive_stands` |
+| unlisted folder not read by name | a pass decides without an unlisted folder's copies | `test_a_pass_that_lists_nothing_holds_and_keeps_every_base` |
+| never-listed or changed folder proceeds | a pass decides without a folder whose contents it does not know | `test_an_unlisted_folder_that_changed_since_its_listing_holds_every_session` |
+| stale listing trusted | a by-name read misses a copy the mirror spread since the listing | `test_an_unlisted_folder_that_changed_since_its_listing_holds_every_session` |
+| account failure dropped | an account that did not list drops its folders from the decision | `test_an_account_that_does_not_list_keeps_its_folders` |
+| failed account ignored | an account never listed does not hold | `test_an_account_never_listed_holds_every_session` |
+| store error taken as empty | a store that did not list reads as empty and is forgotten | `test_a_store_that_does_not_list_fails_the_pass_and_writes_nothing` |
+| owner not carried | a copy that stays unreadable holds every session | `test_a_persistently_unreadable_copy_holds_only_its_own_session` |
+| permission denied holds | a folder the user may not read freezes flag sync | `test_a_folder_the_user_may_not_read_freezes_nothing` |
+| failed check after a read | a copy read successfully counts as unknown | `test_a_failed_check_after_a_good_read_still_counts_the_copy` |
 | unseen bases dropped | a session no copy of which was read loses its base | `test_a_session_no_copy_of_which_could_be_read_keeps_its_base` |
 | repair over an unreadable copy | an EMFILE read is taken for an empty record and replaced | `test_an_unreadable_copy_is_never_repaired_over` |
 | base write failure swallowed | a pass that did not write the base reports ok | `test_a_base_that_cannot_be_written_fails_the_pass` |

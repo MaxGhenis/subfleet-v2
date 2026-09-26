@@ -35,6 +35,9 @@ from tests import mirror_flags_model as model
 from tests import sessions_fixtures as fx
 
 SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
+#: A second session, converged and never touched: a hold that should be
+#: SESSION's alone must not take it too.
+BYSTANDER = "7e7e7e7e-0000-4000-8000-000000000002"
 FOLDERS = (("acct-a", "org-a"), ("acct-b", "org-b"), ("acct-c", "org-c"))
 ENVIRONMENT = ("user_set_true", "user_set_false", "load_0", "load_1", "load_2",
                "focus_0", "focus_1", "focus_2", "stale_0", "stale_1", "stale_2")
@@ -114,6 +117,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         for account, org in FOLDERS:
             fx.index_entry(self.store, account, org, SESSION, archived=value,
                            settings={"ultracode": True})
+            fx.index_entry(self.store, account, org, BYSTANDER, settings={"ultracode": True})
         self.state = model.initial(len(FOLDERS), value)
 
     @rule(action=st.sampled_from(ENVIRONMENT))
@@ -193,17 +197,23 @@ class MirrorAgainstModel(RuleBasedStateMachine):
           mode=st.sampled_from(("unlisted", "unreadable", "both")))
     def pass_that_cannot_read_a_copy(self, account, mode):
         """A folder that cannot be listed, a copy that cannot be read (EMFILE),
-        or both (review round 5). The code reads an unlisted folder's copies by
-        name from its last listing; a copy it cannot read holds the session,
-        which the model sees as a cancelled pass."""
+        or both (review rounds 5 and 6). An unlisted folder unchanged since
+        its last listing is read by name; one that changed, or was never
+        listed, holds every session; an unreadable copy holds its own. The
+        model sees a held session as a cancelled pass."""
         target = self.path(account)
+        folder = target.parent
         if mode != "unlisted":
             self.apply(f"focus_{account}")          # so the pass must read it again
+        known = self.running._folders.get(folder)
+        info = os.stat(folder)
+        unchanged = known is not None and known.signature == (
+            info.st_dev, info.st_ino, info.st_mtime_ns)
         scandir, read = os.scandir, mirror._read_entry
 
         def unlisting(where="."):
-            if str(where) == str(target.parent):
-                raise PermissionError(1, "Operation not permitted", str(where))
+            if str(where) == str(folder):
+                raise OSError(24, "Too many open files", str(where))
             return scandir(where)
 
         def unreadable(where):
@@ -218,12 +228,15 @@ class MirrorAgainstModel(RuleBasedStateMachine):
                 patch.setattr(mirror, "_read_entry", unreadable)
             result = self.running.run_once()
         assert result.state == "ok"
-        if mode == "unlisted" and account in self.listed:
+        if mode == "unlisted" and unchanged:
             self.state = model.pass_publish(model.pass_decide(self.state))
             assert result.flags_held == 0
         else:
             self.state = model.cancel(model.pass_decide(self.state))
-            assert result.flags_held == 1
+            # A folder whose contents are unknown, or a copy never read before
+            # (whose session nobody can name), holds both sessions.
+            everything = mode != "unreadable" or account not in self.listed
+            assert result.flags_held == (2 if everything else 1)
         self.listed.update(a for a in range(len(FOLDERS)) if a != account or mode == "unreadable")
 
     @rule()

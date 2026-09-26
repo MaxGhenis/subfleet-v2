@@ -15,9 +15,10 @@ the invariants the 2026-09-25 consistency brief asks for:
 * all or nothing: a held session writes nothing, and a failed write puts back
   every copy the publish wrote (except one rewritten since), keeping the base;
 * base agreement: after a publish that went through, the base is the value decided;
-* intent wins: with a base, a pass decides what the user last set since the
-  last publish that converged (the brief's "no resurrection" for a user's
-  change);
+* intent wins: with a base, if the user set only one value since the last
+  publish that converged, a pass decides that value (the brief's "no
+  resurrection" for a user's change; a user who set both values since is
+  exempt, because the merge base cannot order them);
 * never undo a settled value (the same, for a value every copy agreed on).
 
 With an app whose saves never change the flag, all of them hold in every

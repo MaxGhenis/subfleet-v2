@@ -1,11 +1,18 @@
-"""Flag sync when a copy cannot be read: C-23.28, review round 5.
+"""Flag sync when a copy cannot be read: C-23.28, review rounds 5 and 6.
 
 A pass that decides a session without one of its copies, and advances the
 merge base, leaves that copy's old value to read as a user's change on the
 next pass, which then undoes the change it just spread. So a session is
-decided from every copy or not at all: an unlisted folder's copies are read by
-name from its last listing, a copy that exists and cannot be read holds its
-session, and bases of sessions a pass did not see survive it.
+decided from every copy or not at all:
+
+* an unlisted folder unchanged since its last listing is read by name from
+  that listing; one that changed, or was never listed, holds every session;
+* an account that did not list keeps the org folders known under it;
+* a copy that exists and cannot be read holds the session its last listing
+  saw in it, never one guessed from a same-named file elsewhere;
+* a directory or file the user may not read is in no sidebar (the app runs as
+  the same user), so it holds nothing and cannot freeze flag sync;
+* bases of sessions a pass did not see survive it.
 """
 
 from __future__ import annotations
@@ -62,11 +69,12 @@ def base(running):
 
 
 def unlisting(patch, *folders: str) -> None:
+    """The listing fails as it did on 2026-09-25: too many open files."""
     real = os.scandir
 
     def scandir(where="."):
         if any(str(where).endswith(folder) for folder in folders):
-            raise PermissionError(1, "Operation not permitted", str(where))
+            raise OSError(24, "Too many open files", str(where))
         return real(where)
 
     patch.setattr(mirror.os, "scandir", scandir)
@@ -83,19 +91,34 @@ def unreadable(patch, target) -> None:
     patch.setattr(mirror, "_read_entry", read)
 
 
-def test_an_unlisted_folder_is_read_by_name_and_the_users_archive_stands(world, monkeypatch):
+def test_an_unlisted_folder_unchanged_since_its_listing_is_read_by_name(world, monkeypatch):
     running, store = world
     seed(store, False)
     assert running.run_once().state == "ok" and base(running) is False
     rewrite(store, 0, isArchived=True)                   # the user archives in A
     with monkeypatch.context() as patch:
-        rewrite(store, 2, lastFocusedAt=7)               # the app saves C
         unlisting(patch, "acct-c/org-c")                  # C cannot be listed
         result = running.run_once()
     assert result.state == "ok" and result.flags_held == 0
     assert flags(store) == (True,) * 3, "C was read and written by name"
     assert running.run_once().state == "ok"
     assert flags(store) == (True,) * 3 and base(running) is True
+
+
+def test_an_unlisted_folder_that_changed_since_its_listing_holds_every_session(
+        world, monkeypatch):
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok" and base(running) is False
+    rewrite(store, 0, isArchived=True)                   # the user archives in A
+    rewrite(store, 2, lastFocusedAt=7)                   # the app saves C
+    with monkeypatch.context() as patch:
+        unlisting(patch, "acct-c/org-c")
+        result = running.run_once()
+    assert result.state == "ok" and result.flags_held == 1
+    assert flags(store) == (True, False, False) and base(running) is False
+    assert running.run_once().state == "ok"
+    assert flags(store) == (True,) * 3
 
 
 def test_an_unreadable_copy_holds_its_session_and_the_users_unarchive_stands(world, monkeypatch):
@@ -113,7 +136,7 @@ def test_an_unreadable_copy_holds_its_session_and_the_users_unarchive_stands(wor
     assert flags(store) == (False,) * 3 and base(running) is False
 
 
-def test_a_pass_that_lists_nothing_still_decides_by_name(world, monkeypatch):
+def test_a_pass_that_lists_nothing_holds_and_keeps_every_base(world, monkeypatch):
     running, store = world
     seed(store, True)
     assert running.run_once().state == "ok" and base(running) is True
@@ -121,7 +144,10 @@ def test_a_pass_that_lists_nothing_still_decides_by_name(world, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(mirror.Mirror, "_sweep_due", lambda self: True)
         unlisting(patch, *(f"{account}/{org}" for account, org in FOLDERS))
-        assert running.run_once().state == "ok"
+        result = running.run_once()
+    assert result.state == "ok" and result.flags_held == 1, "A changed since its listing"
+    assert flags(store) == (False, True, True) and base(running) is True
+    assert running.run_once().state == "ok"
     assert flags(store) == (False,) * 3 and base(running) is False
 
 
@@ -180,10 +206,11 @@ def test_a_base_that_cannot_be_written_fails_the_pass(world, monkeypatch):
 
 def test_an_unreadable_copy_is_never_repaired_over(world, monkeypatch):
     """C-23.28: the spread's repair of a stale empty record must not take a
-    record it could not read for an empty one and replace the app's save."""
+    record it could not read for an empty one and replace the app's save.
+    On a process's first pass nothing names the unreadable copy's session, so
+    the repair's own re-check is what stands in the way."""
     running, store = world
     seed(store, False)
-    assert running.run_once().state == "ok"
     rewrite(store, 2, title="the app's newest", lastFocusedAt=7)
     load = mirror._load
 
@@ -222,3 +249,208 @@ def test_a_session_no_copy_of_which_could_be_read_keeps_its_base(world, monkeypa
     rewrite(store, 0, isArchived=False)                  # the user unarchives in A
     assert running.run_once().state == "ok"
     assert flags(store) == (False,) * 3, "the change wins; the bootstrap rule would archive"
+
+
+OTHER = "7e7e7e7e-0000-4000-8000-000000000002"
+
+
+def test_an_account_that_does_not_list_keeps_its_folders(world, monkeypatch):
+    """Review round 6: an account whose listing fails must not drop its org
+    folders from the decision (it would undo the user's archive next pass)."""
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok" and base(running) is False
+    rewrite(store, 0, isArchived=True)                   # the user archives in A
+    real = os.scandir
+
+    def scandir(where="."):
+        if str(where).endswith("acct-c"):
+            raise OSError(24, "Too many open files", str(where))
+        return real(where)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.os, "scandir", scandir)
+        assert running.run_once().state == "ok"
+    assert running.run_once().state == "ok"
+    assert flags(store) == (True,) * 3 and base(running) is True
+
+
+def test_a_copy_the_mirror_spread_after_the_listing_is_not_missed(world, monkeypatch):
+    """Review round 6: the mirror's own copy into a folder makes its last
+    listing stale; a by-name read of that listing would miss the copy."""
+    running, store = world
+    fx.index_entry(store, *FOLDERS[0], SESSION, archived=False, settings={"ultracode": True})
+    for account, org in FOLDERS[1:]:
+        (store / account / org).mkdir(parents=True)
+    assert running.run_once().state == "ok"               # spreads to B and C
+    assert flags(store) == (False,) * 3
+    rewrite(store, 0, isArchived=True)                   # the user archives in A
+    with monkeypatch.context() as patch:
+        unlisting(patch, "acct-c/org-c")
+        result = running.run_once()
+    assert result.flags_held == 1
+    assert running.run_once().state == "ok"
+    assert flags(store) == (True,) * 3
+
+
+def test_a_folder_the_user_may_not_read_freezes_nothing(world):
+    """Review round 6: permission denied is no one's sidebar, not a hold."""
+    running, store = world
+    seed(store, False)
+    closed = store / "acct-d" / "org-d"
+    closed.mkdir(parents=True)
+    os.chmod(closed, 0)
+    try:
+        rewrite(store, 0, isArchived=True)
+        result = running.run_once()
+        assert result.state == "ok" and result.flags_held == 0
+        assert flags(store) == (True,) * 3
+    finally:
+        os.chmod(closed, 0o700)
+
+
+def test_a_record_the_user_may_not_read_freezes_nothing(world):
+    running, store = world
+    seed(store, False)
+    dead = fx.index_entry(store, "acct-b", "org-b", OTHER)   # a dead, unspread session
+    assert running.run_once().state == "ok"
+    os.chmod(dead, 0)
+    try:
+        rewrite(store, 0, isArchived=True)
+        for _ in range(2):
+            result = running.run_once()
+            assert result.state == "ok" and result.flags_held == 0
+        assert flags(store) == (True,) * 3
+    finally:
+        os.chmod(dead, 0o600)
+
+
+def test_a_persistently_unreadable_copy_holds_only_its_own_session(world, monkeypatch):
+    """Review round 6: the owner of an unreadable copy survives its failed
+    reads (through the folder's listing), so other sessions keep syncing."""
+    running, store = world
+    seed(store, False)
+    for account, org in FOLDERS:
+        fx.index_entry(store, account, org, OTHER, settings={"ultracode": True})
+    assert running.run_once().state == "ok"
+    other_c = store / "acct-c" / "org-c" / f"local_{OTHER}.json"
+    temporary = other_c.with_name(other_c.name + ".tmp")
+    temporary.write_text(json.dumps({**json.loads(other_c.read_text()), "lastFocusedAt": 3}))
+    temporary.replace(other_c)
+    with monkeypatch.context() as patch:
+        unreadable(patch, other_c)
+        for _ in range(3):
+            rewrite(store, 0, isArchived=not flags(store)[0])   # the user toggles SESSION
+            result = running.run_once()
+            assert result.state == "ok" and result.flags_held == 1
+            assert len(set(flags(store))) == 1, "SESSION still syncs"
+
+
+def test_a_same_named_copy_elsewhere_never_takes_the_hold(world, monkeypatch):
+    """Review round 6: names are not unique across accounts. An unreadable
+    copy holds the session its folder's listing saw, not the session another
+    folder keeps under the same name."""
+    running, store = world
+    name = "local_shared.json"
+    for account, org in FOLDERS[:2]:
+        fx.index_entry(store, account, org, OTHER, name=name, settings={"ultracode": True})
+        fx.index_entry(store, account, org, SESSION, settings={"ultracode": True})
+    fx.index_entry(store, *FOLDERS[2], SESSION, name=name, settings={"ultracode": True})
+    c_copy = store / "acct-c" / "org-c" / name
+    assert running.run_once().state == "ok"
+    rewrite(store, 0, isStarred=True)                    # the user stars SESSION in A
+    assert running.run_once().state == "ok"               # the mirror writes C's copy
+    assert json.loads(c_copy.read_text())["isStarred"] is True
+    rewrite(store, 0, isArchived=True)                   # then archives it in A
+    with monkeypatch.context() as patch:
+        unreadable(patch, c_copy)
+        result = running.run_once()
+    assert result.flags_held == 1
+    assert running.run_once().state == "ok"
+    assert json.loads(path(store, 0).read_text())["isArchived"] is True
+    assert json.loads(c_copy.read_text())["isArchived"] is True
+
+
+def test_a_failed_check_after_a_good_read_still_counts_the_copy(world, monkeypatch):
+    """Review round 6: a stat that fails after the read succeeded leaves the
+    copy read (uncached), not unknown."""
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    rewrite(store, 0, isArchived=True)
+    rewrite(store, 2, lastFocusedAt=9)
+    target = path(store, 2)
+    real = mirror.Mirror._signature
+    calls = {"n": 0}
+
+    def signature(where):
+        if str(where) == str(target):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError(24, "Too many open files")
+        return real(where)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.Mirror, "_signature", staticmethod(signature))
+        result = running.run_once()
+    assert result.flags_held == 0
+    assert flags(store) == (True,) * 3
+
+
+def test_a_store_that_does_not_list_fails_the_pass_and_writes_nothing(world, monkeypatch):
+    """Review round 6: unknown is not empty. A store listing that fails is not
+    an empty store (which would forget every folder); the pass fails."""
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    rewrite(store, 0, isArchived=True)
+    real = os.scandir
+
+    def scandir(where="."):
+        if str(where) == str(store):
+            raise OSError(24, "Too many open files", str(where))
+        return real(where)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.os, "scandir", scandir)
+        result = running.run_once()
+    assert result.state == "error" and "Too many open files" in (result.error or "")
+    assert flags(store) == (True, False, False)
+    assert running.run_once().state == "ok"
+    assert flags(store) == (True,) * 3
+
+
+def test_an_account_never_listed_holds_every_session(world, monkeypatch):
+    """Review round 6: an account that fails to list on the process's first
+    pass hides which sessions its folders hold."""
+    running, store = world
+    seed(store, False)
+    rewrite(store, 0, isArchived=True)
+    real = os.scandir
+
+    def scandir(where="."):
+        if str(where).endswith("acct-c"):
+            raise OSError(24, "Too many open files", str(where))
+        return real(where)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.os, "scandir", scandir)
+        result = running.run_once()
+    assert result.state == "ok" and result.flags_held == 1
+    assert flags(store) == (True, False, False)
+    assert running.run_once().state == "ok"
+    assert flags(store) == (True,) * 3
+
+
+def test_health_names_the_sessions_a_pass_held(world, monkeypatch):
+    """Review round 6: a hold is visible, not only in the sidecar's counters."""
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    rewrite(store, 2, lastFocusedAt=7)
+    with monkeypatch.context() as patch:
+        unreadable(patch, path(store, 2))
+        assert running.run_once().flags_held == 1
+    health = running.health()
+    assert health["status"] == "healthy" and health["flags_held"] == 1
+    assert "flags held for 1 session: a copy could not be read" in health["detail"]
