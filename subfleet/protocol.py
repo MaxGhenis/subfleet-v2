@@ -173,6 +173,10 @@ class ListArgs:
     # `capabilities` lists JOBS_KIND_CAPABILITY (C-25.1; `cli.cmd_runs`).
     kind: str | None = None
     include_turns: bool = False
+    # C-16.3: only the job carrying this request id, for a client settling a
+    # submit whose answer was lost. A daemon older than the field lists every
+    # job (C-16.2), so the client filters the rows as well.
+    request_id: str | None = None
 
 
 @dataclass

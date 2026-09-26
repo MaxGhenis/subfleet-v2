@@ -667,3 +667,21 @@ def test_a_credential_given_as_a_flag_or_with_an_escaped_quote_is_scrubbed(line,
 def test_a_flag_without_a_value_on_its_line_is_left_alone(line):
     from subfleet.sessions.handoff import scrub_secrets
     assert scrub_secrets(line) == (line, 0)
+
+
+@pytest.mark.parametrize("request_id,given,minted", [
+    (None, None, True), ("operator-rid", None, False),
+    ("cli-minted", True, True),            # what `handoff` without --request-id passes
+    ("operator-rid", False, False)])
+def test_c16_3_handoff_says_whether_it_minted_the_request_id(home, repo, policy, tmp_path,
+                                                              request_id, given, minted):
+    """C-16.3: a handoff without --request-id mints its id, and says so to the kit; an
+    explicit `minted` from the CLI reaches the kit unchanged."""
+    fx.transcript(home, SESSION, conversation())
+    staged = tmp_path / "prompt.md"
+    daemon = fx.FakeSessions()
+    extra = {} if given is None else {"minted": given}
+    handoff.handoff(daemon, policy, session_id=SESSION, last=False, model="astra",
+                    stage_prompt=lambda text: (staged.write_text(text, encoding="utf-8"), staged)[1],
+                    workdir=repo, request_id=request_id, **extra)
+    assert daemon.minted == [minted]

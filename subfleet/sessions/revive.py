@@ -324,12 +324,16 @@ def revive(sessions, policy: dict[str, Any], session_id: str, *,
            model: str | None = None, workdir: str | None = None,
            dry_run: bool = False, transcript: str | Path | None = None,
            task: str | None = None, tier: str | None = None,
-           request_id: str | None = None,
+           request_id: str | None = None, minted: bool | None = None,
            now: datetime | None = None) -> Attempted:
     """Admit one session and submit its revive job, or say why not.
 
     `stage_prompt(text) -> path` writes the prompt where the daemon can read it;
     the CLI supplies `cli.stage_prompt` so a revive stages exactly as `run` does.
+    `minted` says the caller made `request_id` up for this call rather than
+    taking it from the operator (C-16.3); the CLI mints one before calling,
+    because the staged prompt's name needs it, so it must say so. Left None,
+    an id is minted here exactly when none was given.
     """
     facts = sessions.state([session_id])
     lane_ids = set(facts.get("lane_sessions") or [])
@@ -356,7 +360,7 @@ def revive(sessions, policy: dict[str, Any], session_id: str, *,
                        request_id=request_id or str(uuid.uuid4()),
                        prompt_path=str(prompt_path), workdir=workdir,
                        task=task, tier=tier)
-    result = sessions.submit(args)
+    result = sessions.submit(args, minted=request_id is None if minted is None else minted)
     job_id = result.get("job_id")
     # Record only accepted submissions; refused requests did not change models.
     sessions.record_revive(

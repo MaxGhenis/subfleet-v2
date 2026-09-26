@@ -543,6 +543,9 @@ def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, 
     (projects / "0f0e0d0c-1111-2222-3333-444455556666.jsonl").write_text(json.dumps(
         {"type": "user", "cwd": str(tmp_path), "message": {"role": "user", "content": "index me"}}) + "\n")
     monkeypatch.setenv("HOME", str(home))
+    # conftest points SUBFLEET_CLAUDE_DIR away from the operator's ~/.claude
+    # (C-23.28); this test says where its own is.
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(home / ".claude"))
     svc._catalog_tick()
     assert svc._catalog_proc is not None
     deadline = time.monotonic() + 90

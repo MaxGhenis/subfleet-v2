@@ -645,8 +645,9 @@ def test_runs_renders_the_table_and_json_lines(daemon, capsys):
     table = capsys.readouterr().out
     assert "RUNNING" in table and JOB in table and "astra" in table
     # C-26.12: no turns unless asked; C-25.1: the fields only because `jobs.kind.v1` was advertised.
+    # `request_id` is C-16.3's settling filter; `runs` never sets it.
     assert server.args("list") == {"mine": None, "running": True, "last": 5,
-                                   "kind": None, "include_turns": False}
+                                   "kind": None, "include_turns": False, "request_id": None}
     assert run_cli(["jobs", "--json"]) == 0
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert len(lines) == 2 and json.loads(lines[0])["job_id"] == JOB
@@ -1504,7 +1505,9 @@ def test_wait_busy_backoff_and_deadline_without_a_listener(
             raise DaemonError(69, "busy", "try again shortly")
         return terminal("cancelled" if command == "kill" else "succeeded", rc=0)
 
-    monkeypatch.setattr(cli, "_client", lambda *args, **kwargs: SimpleNamespace(call=call))
+    # `kill` goes through `call_settled` (C-16.3); its answer here is never lost.
+    monkeypatch.setattr(cli, "_client", lambda *args, **kwargs: SimpleNamespace(
+        call=call, call_settled=lambda op, args, **kwargs: call(op, args, **kwargs)))
     monkeypatch.setattr(cli, "time", unmanaged.time)
     argv = [command, JOB, "--timeout", str(timeout)]
     if command == "kill":
@@ -1587,3 +1590,19 @@ def test_daemon_status_shows_the_connections(daemon, capsys):
     assert run_cli(["daemon", "status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["busy"] is False and status["connections"]["refused_busy"] == 7
+
+
+def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):
+    """C-16.3, C-17.5: `runs --request-id` answers from the store when no daemon is up,
+    whatever `--last` would have cut off."""
+    import sqlite3
+    from test_offline import build_store
+    build_store(root)
+    with sqlite3.connect(root / "state.sqlite3") as db:
+        job_id, request_id = db.execute(
+            "SELECT job_id, request_id FROM jobs ORDER BY created_at LIMIT 1").fetchone()
+    assert run_cli(["runs", "--request-id", request_id, "--last", "1", "--json"]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [row["job_id"] for row in rows] == [job_id]
+    assert run_cli(["runs", "--request-id", "no-such-request", "--json"]) == 0
+    assert capsys.readouterr().out == ""

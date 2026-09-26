@@ -288,6 +288,11 @@ class E2E:
                         os.kill(pid, signal.SIGKILL)
         for log in self.logs:
             log.close()
+        # C-15.1: every notice's header is its job row's state and rc (2026-09-24).
+        if (self.root / "state.sqlite3").exists():
+            from tests.fake.notice_invariant import notice_mismatches
+            problems = notice_mismatches(self.rows)
+            assert not problems, "C-15.1 notice headers disagree with job rows:\n" + "\n".join(problems)
 
 
 @pytest.fixture(scope="session")

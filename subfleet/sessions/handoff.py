@@ -791,6 +791,7 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
             sandbox: str | None = None, caller_session: str | None = None,
             caller_pid: int | None = None, out_path: str | None = None,
             current_session: str | None = None, request_id: str | None = None,
+            minted: bool | None = None,
             lane_ids: Any = None, conversation_ids: Any = None,
             dry_run: bool = False) -> Dispatched:
     """Build one brief and submit it through the ordinary path (C-23.54).
@@ -838,7 +839,9 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
         caller_session=caller_session,
         caller_pid=caller_pid,
     )
-    result = sessions.submit(args)
+    # C-16.3: whose request id this is. The CLI mints one before calling (the
+    # staged prompt is named after it), so it says so; None infers from `request_id`.
+    result = sessions.submit(args, minted=not request_id if minted is None else minted)
     return Dispatched(brief=brief, job_id=result.get("job_id"), request_id=identity,
                       model=model, task=task, tier=tier, sandbox=chosen,
                       caller_session=caller_session, prompt_path=prompt_path)

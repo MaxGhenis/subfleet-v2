@@ -79,9 +79,18 @@ def _cli():
     return cli
 
 
+def _verb(args: argparse.Namespace) -> str:
+    """The verb as the operator spelled it; the top-level `handoff` has no sub-verb."""
+    if not hasattr(args, "sessions_command"):
+        return "handoff"
+    return f"sessions {args.sessions_command or 'list'}"
+
+
 def _sessions(args: argparse.Namespace) -> Sessions:
     cli = _cli()
-    return Sessions(cli._client(args))
+    return Sessions(cli._client(args), on_lost=cli._asking_again(
+        _verb(args), "sending the same submission again under the same request id, "
+                     "which never creates a second job (C-6.2)"))
 
 
 def _policy(args: argparse.Namespace) -> dict[str, Any]:
@@ -113,10 +122,27 @@ def _guard(handler):
     """The error block every daemon-touching verb repeats (C-17.3)."""
     def wrapped(args: argparse.Namespace) -> int:
         cli = _cli()
-        from ..client import DaemonError, DaemonUnavailable
+        from ..client import DaemonError, DaemonUnavailable, OutcomeUnknown
         from ..protocol import ProtocolError
         try:
             return handler(args)
+        except OutcomeUnknown as exc:
+            # C-16.3: a submission sent twice and answered neither time may
+            # exist. Only `handoff` takes --request-id; the rest mint one.
+            if getattr(args, "json", False):
+                emit({"job_id": None, "request_id": exc.request_id, "outcome": "unknown",
+                      "error": str(exc)})
+            if hasattr(args, "request_id"):
+                # Only `handoff` takes --request-id, and its brief is rebuilt
+                # from a transcript that may have grown since (C-16.3).
+                return cli._submit_unknown(_verb(args), exc, exc.request_id,
+                                           supplied=bool(args.request_id), rebuilds=True)
+            note(f"subfleet {_verb(args)}: outcome unknown: the daemon may have created "
+                 f"the job, and no answer says whether it did ({'; then '.join(exc.reasons)})")
+            note(f"  request id: {exc.request_id}")
+            note(f"  look before running it again: {cli._look_command(exc.request_id)}   "
+                 f"(a revive's job belongs to the session it continues)")
+            return int(Exit.OPERATIONAL)
         except DaemonUnavailable as exc:
             return cli._daemon_down(exc)
         except SessionsUnsupported as exc:
@@ -160,6 +186,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     if not rows:
         out("no live Claude Code sessions are registered")
+        _sidebar_note(args)
         return int(Exit.OK)
     out(f"{'session':<10}{'pid':>8}  {'inbox':<6}{'state':<12}{'name'}")
     for row in rows:
@@ -169,7 +196,22 @@ def cmd_list(args: argparse.Namespace) -> int:
             f"{row['state']:<12}{(row['name'] or '-')[:44]}{mark}")
     for line in registry.duplicate_report(listing):
         note(f"subfleet sessions: duplicate {line}")
+    _sidebar_note(args)
     return int(Exit.OK)
+
+
+def _sidebar_note(args: argparse.Namespace) -> None:
+    """One stderr line when the running desktop app cannot list mirrored sessions.
+
+    Advisory: the listing above is the answer, so any failure here is silent.
+    """
+    try:
+        gap = mirror_module.load_gap(_cli()._root(args), _policy(args))
+    except Exception:                                   # noqa: BLE001 - advisory only
+        return
+    if gap.get("status") == "relaunch":
+        note(f"subfleet sessions: sidebar: {gap['detail']}")
+        note(f"  fix: {RELAUNCH_FIX}")
 
 
 # --- sessions continue / tickle / muster / revive ------------------------------
@@ -317,7 +359,7 @@ def _continue_cold(args: argparse.Namespace) -> int:
             force=bool(getattr(args, "force", False)),
             model=getattr(args, "model", None),
             dry_run=bool(getattr(args, "dry_run", False)),
-            request_id=request_id)
+            request_id=request_id, minted=True)
         attempts.append(attempt)
         launched += int(attempt.admitted)
     # C-26.13 (and C-23.31): naming only sessions the kit never continues is
@@ -392,7 +434,7 @@ def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
                 model=args.target, stage_prompt=_stage(args, request_id),
                 workdir=candidate.cwd, task=getattr(args, "task", None),
                 tier=getattr(args, "tier", None), caller_session=cli.session_id(),
-                caller_pid=cli.caller_pid(), request_id=request_id,
+                caller_pid=cli.caller_pid(), request_id=request_id, minted=True,
                 lane_ids=lane_ids, conversation_ids=conversation_ids,
                 dry_run=bool(getattr(args, "dry_run", False)))
         except handoff_module.HandoffError as exc:
@@ -440,7 +482,7 @@ def cmd_revive(args: argparse.Namespace) -> int:
         model=getattr(args, "model", None),
         workdir=getattr(args, "C", None),
         dry_run=bool(getattr(args, "dry_run", False)),
-        request_id=request_id)
+        request_id=request_id, minted=True)            # C-16.3: minted just above
     # C-26.13, C-23.31: a lane run or a conversation's session is refused even
     # under --dry-run, as `handoff --dry-run` refuses one; any other hold under
     # --dry-run is the answer the dry run was asked for.
@@ -490,6 +532,26 @@ def cmd_unretire(args: argparse.Namespace) -> int:
 
 # --- sessions mirror (C-23.28) ------------------------------------------------
 
+#: What lists a mirrored session the running app has not: the app reads its
+#: session folder only when it loads it (`sessions/desktop.py`).
+RELAUNCH_FIX = "quit and reopen the Claude app (⌘Q + reopen) to list them"
+
+
+def _sidebar_lines(gap: dict[str, Any]) -> list[str]:
+    """`--status` lines for the load gap: the sessions the running app cannot list."""
+    status = gap.get("status")
+    if status == "relaunch":
+        lines = [f"sidebar relaunch needed: {gap['detail']}"]
+        for item in gap.get("sessions") or []:
+            lines.append(f"  {item['name']}  {item.get('title') or '-'}")
+        hidden = gap.get("pending", 0) - len(gap.get("sessions") or [])
+        if hidden > 0:
+            lines.append(f"  ... and {hidden} more")
+        lines.append(f"  fix: {RELAUNCH_FIX}")
+        return lines
+    return [f"sidebar {status}: {gap.get('detail')}"]
+
+
 def cmd_mirror(args: argparse.Namespace) -> int:
     """One sidebar pass, or the sidecar's health. Never calls a provider."""
     cli = _cli()
@@ -499,10 +561,13 @@ def cmd_mirror(args: argparse.Namespace) -> int:
         return _mirror_list(args, engine)
     if getattr(args, "status", False):
         health = engine.health()
+        gap = engine.load_gap()
         if args.json:
-            emit(health)
+            emit({**health, "load_gap": gap})
         else:
             out(f"mirror {health['status']}: {health['detail']}")
+            for line in _sidebar_lines(gap):
+                out(line)
         return int(Exit.OK if health["status"] in ("healthy", "running", "absent")
                    else Exit.OPERATIONAL)
     options = mirror_module.options_from(
@@ -518,8 +583,7 @@ def cmd_mirror(args: argparse.Namespace) -> int:
     if args.json:
         emit(result.to_dict())
         return int(Exit.OK)
-    changed = any((result.added, result.repaired, result.revived, result.pruned,
-                   result.flag_synced, result.retitled, result.transcript_retitled))
+    changed = result.changed
     if getattr(args, "quiet", False):
         # v1's launchd cadence: silent on a no-op pass, which is exactly why
         # C-23.28 judges health from the sidecar and never from log recency.
@@ -532,7 +596,16 @@ def cmd_mirror(args: argparse.Namespace) -> int:
     if result.error:
         note(f"subfleet sessions mirror: {result.error}")
     if (result.added or result.repaired) and not options.dry_run:
-        note("  restart the Claude app (⌘Q + reopen) to refresh the sidebar")
+        gap = engine.load_gap()
+        if gap.get("status") == "relaunch":
+            note(f"  sidebar: {gap['detail']}")
+            note(f"  fix: {RELAUNCH_FIX}")
+        elif gap.get("status") == "unknown":
+            # Without the app's log the mirror cannot tell whether a copy landed
+            # in the folder the running app has loaded, so it says what it can.
+            note("  sidebar: the app's log does not say which folder it loaded; a "
+                 "running app lists copies only when it next loads a folder")
+            note(f"  fix: {RELAUNCH_FIX}")
     return int(Exit.OK if result.state != "error" else Exit.OPERATIONAL)
 
 
@@ -586,7 +659,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
         out_path=(str(Path(args.o).expanduser().absolute())
                   if getattr(args, "o", None) else None),
         current_session=os.environ.get("CLAUDE_CODE_SESSION_ID"),
-        request_id=request_id,
+        request_id=request_id, minted=not getattr(args, "request_id", None),   # C-16.3
         lane_ids=facts.get("lane_sessions") or [],
         conversation_ids=registry.conversation_ids_of(facts),
         dry_run=bool(getattr(args, "dry_run", False)))
@@ -716,7 +789,8 @@ def add_verbs(sub, *, nested: bool = True) -> None:
     p_mirror.add_argument("--once", action="store_true",
                           help="run one pass now (the default)")
     p_mirror.add_argument("--status", action="store_true",
-                          help="print the sidecar's health instead of running")
+                          help="print the sidecar's health and what the running "
+                               "app cannot list yet, instead of running")
     p_mirror.add_argument("--list", dest="list_accounts", action="store_true",
                           help="per-account openable/dead counts; change nothing")
     p_mirror.add_argument("--quiet", action="store_true",

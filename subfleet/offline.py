@@ -205,11 +205,15 @@ class Offline:
     """
 
     def list_jobs(self, *, session: str | None = None, running: bool = False,
-                  last: int = 20, kind: str | None = None,
-                  include_turns: bool = False) -> list[dict[str, Any]]:
-        """The ledger as the daemon's `list` op answers it (C-17.5, C-26.12):
-        turn jobs only when `kind` names them or `include_turns` is set."""
+                  last: int = 20, kind: str | None = None, include_turns: bool = False,
+                  request_id: str | None = None) -> list[dict[str, Any]]:
+        """The ledger as the daemon's `list` op answers it (C-17.5, C-26.12, C-16.3):
+        turn jobs only when `kind` names them or `include_turns` is set; with
+        `request_id`, only the job carrying it."""
         where, params = [], []
+        if request_id is not None:                      # C-16.3's lookup
+            where.append("j.request_id = ?")
+            params.append(request_id)
         if session:
             where.append("j.caller_session = ?")
             params.append(session)
