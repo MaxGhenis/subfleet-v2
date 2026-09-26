@@ -32,7 +32,7 @@ On 2026-09-20 the laptop's closed-lid thermal guard SIGSTOPped the daemon from 1
 
 `tools/measure_idle_cost.py` runs a real `Daemon` with the production tick on a temp state root holding 300 accepted terminal jobs, with the timers switched off. It measures three states: idle; four running attempts (real sleeping processes as guardians) with twelve queued jobs; then every lane closed with the attempts ended. It takes 20-second windows and uses `getrusage` for the daemon and for the children it reaped. It was run from a checkout of each revision on 2026-09-24, with this Mac at a load average between 40 and 55, so the small numbers are upper bounds.
 
-| | `origin/main` (3f155e5) | this change |
+| | `origin/main` (3f155e5) | this change, as first written (845d663) |
 |---|---:|---:|
 | Idle: daemon | 7.8% | 0.5% |
 | Four running, twelve waiting: daemon | 46.5% | 3.9% |
@@ -40,6 +40,17 @@ On 2026-09-20 the laptop's closed-lid thermal guard SIGSTOPped the daemon from 1
 | Every lane closed, twelve waiting: daemon | 9.0% | 1.6% |
 
 The measuring process is small (a fork from it is cheap), so the baseline column understates what a daemon at 1 GB paid.
+
+Measured again on 2026-09-26, after the review's fixes, at a load average near 7, with the tool as it now is: each window starts once admission has settled, and the closed phase closes the lane before it ends the attempts. Twenty-second windows, one run of each revision:
+
+| | `origin/main` (3f155e5) | as first written (845d663) | after the review |
+|---|---:|---:|---:|
+| Idle: daemon | 3.0% | 0.2% | 0.2% |
+| Four running, twelve waiting: daemon | 29.0% | 1.6% | 1.9% |
+| Four running, twelve waiting: its `ps` children | 49.3% | 1.8% | 2.1% |
+| Every lane closed, twelve waiting: daemon | 3.8% | 0.7% | 0.7% |
+
+After the review the table is read once a second, where the first version read it about every two seconds; the last two columns differ by 0.3 points of a core in each of the running rows.
 
 `tests/fake/test_idle_cost.py` counts processes at the one seam every `subprocess` call goes through: four healthy attempts ticked twenty times cost one `ps` and one `sysctl`, and a guardian that dies is still found by a fresh read. Its smoke run of the measuring tool starts each window only once admission has settled: while the fleet is full a pass looks at one new job at most, so under load the first looks at a new queue, a decision row each, took seconds and landed in windows that began after a fixed pause (CI run 36016193771).
 
