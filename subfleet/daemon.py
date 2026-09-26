@@ -3016,7 +3016,8 @@ class Daemon:
         shared = self._process_table(due)
         if shared is None:
             # Another attempt's `ps` is running: ask again next tick, still due
-            # from now, so that a new attempt may be given that read.
+            # from when it fell due (a new attempt, from now), so that it may be
+            # given that read.
             self._inspect_next.setdefault(aid, due)
             return
         table, self._inspect_next[aid] = shared
