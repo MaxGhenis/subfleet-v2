@@ -885,8 +885,12 @@ class Daemon:
         rows = self._capacity_rows()
         view = self._capacity_view(desktop, rows)
         context = rows["timers"]["overrides"]          # read once, in the view's snapshot (C-3.7)
+        # At the view's clock, as `enrich_view` decided them: two clocks could put
+        # an override's end between them, its readings relabelled stale there and
+        # not held out here, with no end in the horizon (review of 4f4edcd).
         overrides = {lane["lane_id"]: found for lane in view["lanes"]
-                     if (found := self.timers.actions.confirmed_override(lane["lane_id"], context=context))}
+                     if (found := self.timers.actions.confirmed_override(lane["lane_id"], now=view["now"],
+                                                                         context=context))}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
         if horizon is not None:
             horizon["until"] = capacity.decision_horizon(

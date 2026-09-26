@@ -397,6 +397,30 @@ def test_c6_3_an_override_that_ends_before_the_reservation_means_evaluating_agai
     assert service.store.get_job(job_id)["state"] == "waiting"
 
 
+def test_c6_3_one_view_decides_an_override_on_one_clock(routing_state):  # noqa: F811
+    """Review of 4f4edcd: `Timers.enrich_view` decided the override on its clock and
+    relabelled codex-1's 99% reading stale while it held; `_pick` decided it again
+    on the wall clock, found it over, held nothing out and put no end in the
+    horizon. The early decision (codex-1, unmeasured) was reserved on. Here the
+    timers' clock lags a second behind an override that ended 5 s ago, which puts
+    the end between the two; both now ask the view's clock, and the reading counts."""
+    service, harness = routing_state
+    now = datetime.now(timezone.utc)
+    service.store.add_reading(Reading("codex-1", "account", "seven_day", .99, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", now.strftime("%Y-%m-%dT%H:%M:%SZ")))
+    confirmed = (now - timedelta(days=7, seconds=5)).replace(microsecond=0)
+    stamp = confirmed.strftime("%Y-%m-%dT%H:%M:%SZ")
+    service.store.add_action(action_id="act-1", kind="reset-credit", op_key="codex:fake:op1", subject="codex-1",
+                             state="confirmed", request_json="{}", created_at=stamp, updated_at=stamp)
+    service.timers.now = lambda: confirmed + timedelta(days=7, seconds=-1)
+    job_id = submit(service, harness, pinned_model="astra")
+    service._admit()
+    assert not service.store.list_attempts(job_id)             # below the floor, as one clock says
+    assert service.store.get_job(job_id)["state"] == "waiting"
+    labels = [row["label"] for row in service._capacity_view()["readings"] if row["lane_id"] == "codex-1"]
+    assert labels == ["provider"]
+
+
 def test_c6_3_an_early_evaluation_whose_readings_stay_fresh_is_reserved_on(routing_state):  # noqa: F811
     """The same fleet, with the reading fresh for minutes: the early decision is reserved on."""
     service, harness = routing_state

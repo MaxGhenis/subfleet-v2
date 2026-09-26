@@ -525,7 +525,11 @@ class Timers:
             if row.get('revoked_epoch') is not None or row.get('probe_status') in ('revoked', 'auth-revoked', 'expired-token', 'no-auth'):
                 view.setdefault('unavailable_lanes', {})[row['lane_id']] = 'credential-latched'
             row['reset_credits_remaining'] = (row.get('reset_credits') or {}).get('available')
-            override = self.actions.confirmed_override(row['lane_id'], now=self.now(), context=overrides)
+            # The view's own clock, as `Daemon._pick` asks it: one view decides an
+            # override once, so its readings are not relabelled here on one side of
+            # the override's end and kept there on the other (C-6.3).
+            override = self.actions.confirmed_override(row['lane_id'], now=view.get('now') or self.now(),
+                                                       context=overrides)
             if override:
                 balance = self.balances.get(row['lane_id'], {})
                 if balance.get('action_id') == override['action_id']:
