@@ -9,14 +9,18 @@ exactly the shapes that code writes:
 * `outbox.sqlite3` is the desktop cockpit's message outbox, not a notice
   outbox. One row per message the cockpit's composer sent into a native
   session: `messages(sequence, message_id UNIQUE, session_id "claude:<uuid>" or
-  "codex:<id>", request_digest, payload_digest, payload, status, created_at,
-  updated_at REAL, receipt)`. The row's `status` column is the message's state:
-  the cockpit's `Outbox._receipt` overlays it on the stored receipt, whose own
-  `status` stays the dispatch-time `"dispatched"` (`outbox.py:151-169`).
+  "codex:<app|lane-name>:<id>", request_digest, payload_digest, payload, status,
+  created_at, updated_at REAL, receipt)`. The row's `status` column is the
+  message's state: the cockpit's `Outbox._receipt` overlays it on the stored
+  receipt (`outbox.py:151-169`), whose own `status` is what the dispatch
+  returned: `"dispatched"` for a streamed dispatch (`native_dispatch.py:778`),
+  `"dispatched"` or `"delivery-unknown"` when delivery was unconfirmed (`:796`),
+  `"delivered-live"` for a message handed to a live session
+  (`session_catalog.py:2241`).
 * The cockpit's terminal statuses are `finished`, `error` and `cancelled`
-  (`TERMINAL`, `outbox.py:31`); `queued`, `starting`, `dispatched`,
-  `failover-dispatched`, `delivered-live` and `delivery-unknown` are not
-  (`BLOCKING`, `outbox.py:33-34`). `finished` is written when the provider run
+  (`TERMINAL`, `outbox.py:31`). `starting`, `dispatched`, `failover-dispatched`,
+  `delivered-live` and `delivery-unknown` are `BLOCKING` (`outbox.py:34-35`),
+  and `STATUSES` adds `queued` (`:36`); none of them is terminal. `finished` is written when the provider run
   finished with rc 0 and `error` when it did not (`broker.py:63-64`, applied by
   `Outbox.update_active`, `outbox.py:365-381`); `cancelled` is either a queued
   message withdrawn before dispatch (`Outbox.cancel`, receipt "Cancelled before
@@ -24,8 +28,9 @@ exactly the shapes that code writes:
   handled (`Outbox.resolve_handled`, receipt `resolution: "handled"`,
   `outbox.py:312-327`).
 * A Claude message went to the provider as a user record whose `uuid` is the
-  message id (`claude_transport.py:86`), and the dispatch receipt names it as
-  `native_message_id` (`native_dispatch.py:780`).
+  message id (`claude_transport.py:86`). Only a streamed dispatch's receipt
+  names it, as `native_message_id` (`native_dispatch.py:780`); a
+  `delivered-live` receipt has none, so its history row's `turn_ref` is null.
 * `cockpit-client/pending-messages.json` is the app's journal of sends whose
   broker acknowledgement it had not seen: `{session id: {"request": {"op":
   "enqueue", "message_id", "session_id", "prompt", "image_paths",
@@ -70,7 +75,8 @@ from .turn import CANCELLED, COMPLETE, FAILED, TERMINAL_STATES
 
 #: The cockpit's own terminal set (`outbox.py:31`).
 TERMINAL = frozenset({"finished", "error", "cancelled"})
-#: The cockpit's other statuses (`outbox.py:33-35`): the legacy writer still owns these.
+#: The cockpit's other statuses (`BLOCKING`, `outbox.py:34-35`, and `queued` from
+#: `STATUSES`, `:36`): the legacy writer still owns these.
 NON_TERMINAL = frozenset({"queued", "starting", "dispatched", "failover-dispatched", "delivered-live",
                           "delivery-unknown"})
 
