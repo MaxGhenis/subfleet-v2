@@ -422,3 +422,24 @@ def test_c5_12_no_inspection_is_given_a_table_read_more_than_one_interval_before
     assert max(gaps) <= daemon.inspect_interval_s + tick_s + 1e-9
     assert attempt(daemon)["state"] == "lost"
     assert seen_at - died_at <= daemon.inspect_interval_s + tick_s + read_s + 1e-9
+
+
+def test_c5_12_a_failed_shared_read_is_all_that_an_outage_costs_an_interval(daemon, monkeypatch):
+    """C-5.12, C-4.2 when this interval's table could not be read, no attempt asks about its guardian singly,
+    and nothing is decided until a read works."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
+    attempts = [ATTEMPT, add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
+    reads, asked = [], []
+
+    def failing():
+        reads.append(1)
+        raise daemon_module.procs.InspectionError("ps timed out")
+    monkeypatch.setattr(daemon_module.procs, "snapshot", failing)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: asked.append(args) or "unknown")
+    daemon._contain = never_census
+    for aid in attempts:
+        daemon._process_attempt(aid)
+    assert reads == [1] and asked == []
+    assert [daemon.store.get_attempt(aid)["state"] for aid in attempts] == ["running"] * 3
+    assert all(daemon._inspect_next[aid] == daemon._table_next for aid in attempts)

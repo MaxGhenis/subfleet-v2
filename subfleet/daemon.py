@@ -3005,7 +3005,14 @@ class Daemon:
         if now < self._inspect_next.get(aid, 0):
             return
         table, self._inspect_next[aid] = self._process_table(now)
-        if table is not None and table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+        if table is None:
+            # This interval's read failed. Asking about the guardian singly would
+            # cost a capped read per running attempt, which is the outage cost
+            # the shared read exists to ration, and a guardian that cannot be
+            # inspected decides nothing anyway (C-4.2, C-5.5).
+            self.log.debug("process table unreadable; %s not inspected this interval", aid)
+            return
+        if table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
             self._record_owned(a, table)
             return  # Re-adopted solely by receipt identity, not parentage.
         # A shared table can say "alive" and nothing else: a guardian it does
