@@ -93,14 +93,14 @@ class FakeJobStore:
             return self.jobs.get(params[0])
         if "a.state='quarantined'" in sql:
             return {"1": 1} if self.quarantined else None
-        if sql.startswith("SELECT count(DISTINCT j.job_id) AS n FROM jobs j JOIN attempts a"):
-            # `_provider_tries`: this message's turn jobs a provider reached (C-24.6).
-            reached = {attempt["job_id"] for attempt in self.attempts}
-            return {"n": sum(1 for job in self.jobs.values()
-                             if params[0] <= job["request_id"] < params[1] and job["job_id"] in reached)}
         return None                                           # no lease is held
 
     def query(self, sql, params=()):
+        if sql.startswith("SELECT DISTINCT j.job_id, a.seq FROM jobs j JOIN attempts a"):
+            # `_provider_tries`: this message's turn jobs a provider reached, with their attempts (C-24.6).
+            jobs = {job["job_id"] for job in self.jobs.values() if params[0] <= job["request_id"] < params[1]}
+            return [{"job_id": attempt["job_id"], "seq": attempt.get("seq", 1)} for attempt in self.attempts
+                    if attempt["job_id"] in jobs]
         if sql.startswith("SELECT job_id, state FROM jobs WHERE kind='turn' AND name=?"):
             return [{"job_id": job["job_id"], "state": job["state"]} for job in self.jobs.values()
                     if job["name"] == params[0] and job["job_id"] != params[1]]
@@ -175,6 +175,60 @@ def outcome(svc: ConversationService, tmp: Path, message_id: str, cid: str, **tu
 
 def dispatchable(svc: ConversationService) -> list[str]:
     return [message["message_id"] for message in svc.store.next_dispatchable()]
+
+
+def settled_in_its_job(svc: ConversationService, world: World, daemon: "FakeDaemon", message_id: str, cid: str,
+                       job_id: str, **turn) -> dict:
+    """A turn job of the message that reached the provider and ended as `turn`
+    says, its `turn.json` where its runner writes it (`jobs/<job>/a1`), settled
+    as the runner's outcome settles it; the message afterwards."""
+    daemon.store.jobs[job_id] = {"job_id": job_id, "request_id": f"turn:{message_id}:{len(daemon.store.jobs)}",
+                                 "name": f"turn-{cid}", "state": "failed"}
+    daemon.store.attempts.append({"job_id": job_id, "seq": 1})
+    adir = world.root / "jobs" / job_id / "a1"
+    adir.mkdir(parents=True)
+    (adir / "turn.json").write_text(json.dumps({"ended_by": "driver", "user_frame_written": False, **turn}))
+    svc.store.set_state(message_id, STARTING, job_id=job_id)
+    runner = types.SimpleNamespace(adir=adir, message_id=message_id, conversation_id=cid, attempt={"lane_id": None},
+                                   attempt_id=f"{job_id}/a1", offset=0, next_seq=1)
+    real = service_mod.reconcile.gather
+    service_mod.reconcile.gather = lambda *a, **k: service_mod.reconcile.Evidence(
+        acknowledged=False, frame="absent", process_gone=True, native="absent", session_exists=True)
+    try:
+        svc._on_outcome(runner)
+    finally:
+        service_mod.reconcile.gather = real
+    return svc.store.message(message_id)
+
+
+WAITS = {"legacy-owner": {"state": "interrupted", "reason": "stopped-before-send", "stop_reason": "legacy-owner"},
+         "external-writer": {"state": "failed", "reason": "external-writer"}}
+
+
+@pytest.mark.parametrize("wait", sorted(WAITS))
+def test_waits_for_the_session_s_other_writer_use_up_no_readmission(world, wait):
+    """C-24.6, D-17 (review of 3c1a34e, finding 4): three turns withheld for the
+    legacy cockpit (or stopped for another Claude process) before their message
+    was written are each re-admitted, and they leave the three re-admissions a
+    failing provider gets untouched: the next three provider failures are
+    re-admitted too, and only the fourth fails the message."""
+    world.run_pass()
+    svc, daemon = service(world)
+    cid = world.conversation_id()
+    mid = submit(svc, cid)
+    try:
+        for n in range(3):
+            message = settled_in_its_job(svc, world, daemon, mid, cid, f"wait-{n}", **WAITS[wait])
+            assert (message["state"], message["state_reason"]) == (WAITING, f"readmit:{wait}")
+        for n in range(3):
+            message = settled_in_its_job(svc, world, daemon, mid, cid, f"init-{n}", state="failed",
+                                         reason="provider-init-failed")
+            assert (message["state"], message["state_reason"]) == (WAITING, "readmit:provider-init-failed")
+        message = settled_in_its_job(svc, world, daemon, mid, cid, "init-3", state="failed",
+                                     reason="provider-init-failed")
+        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: provider-init-failed")
+    finally:
+        svc.close()
 
 
 def test_a_readmitted_turn_waits_while_the_conversation_is_held(world, tmp_path):

@@ -1869,6 +1869,77 @@ def test_another_writer_at_launch_is_decided_once_and_never_uses_up_readmissions
     assert message["turn_seq"] == service_module.MAX_READMITS + 3
 
 
+#: How a turn that reached the provider may end before its message was written:
+#: the waits for the session's other writer, and failures another admission may pass.
+ENDINGS = {"legacy-owner": {"state": "interrupted", "reason": "stopped-before-send", "stop_reason": "legacy-owner"},
+           "external-writer": {"state": "failed", "reason": "external-writer"},
+           "provider-init-failed": {"state": "failed", "reason": "provider-init-failed"},
+           "fast-unavailable": {"state": "failed", "reason": "fast-unavailable"},
+           "guard-refused": {"state": "failed", "reason": "guard-refused"}}
+WAIT_ENDINGS = ("legacy-owner", "external-writer")
+
+
+@hypothesis.settings(max_examples=60, deadline=None)
+@hypothesis.given(endings=hypothesis.strategies.lists(hypothesis.strategies.sampled_from(sorted(ENDINGS)),
+                                                      min_size=1, max_size=9),
+                  unread=hypothesis.strategies.sets(hypothesis.strategies.integers(0, 8)))
+def test_only_chargeable_failures_use_up_readmissions(endings, unread):
+    """C-24.6, D-17 (review of 3c1a34e, finding 4), over any sequence of turns of
+    one message that each reached the provider and ended before its message was
+    written: a wait for the session's other writer is always re-admitted and
+    counts for nothing; a failure another admission may pass is re-admitted
+    while fewer than MAX_READMITS such failures came before it, and otherwise
+    fails the message. A turn whose outcome cannot be read afterwards (in
+    `unread`) counts as a failure, whatever it was."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="readmits-", dir=Path(__file__).parent) as directory:
+        root = Path(directory) / "state"
+        root.mkdir()
+        workspace = Path(directory) / "work"
+        workspace.mkdir()
+        daemon = FakeDaemon(root)
+        service = ConversationService(daemon)
+        real = service_module.reconcile.gather
+        service_module.reconcile.gather = lambda *a, **k: service_module.reconcile.Evidence(
+            acknowledged=False, frame="absent", process_gone=True, native="absent", session_exists=True)
+        try:
+            service.test_workspace = str(workspace)
+            cid = conversation(service)
+            mid = submit(service, cid)
+            charged = 0
+            for n, ending in enumerate(endings):
+                job_id = f"job-{n}"
+                daemon.store.add_job(job_id=job_id, request_id=f"turn:{mid}:{n}", payload_digest="d", kind="turn",
+                                     workdir=str(workspace), prompt_path="p", sandbox="workspace-write",
+                                     name=f"turn-{cid}", in_place=1, max_attempts=1, state="failed")
+                daemon.store.add_attempt(attempt_id=f"{job_id}/a1", job_id=job_id, seq=1, lane_id="claude-1",
+                                         model_requested="claude-opus-5-5", state="failed")
+                adir = root / "jobs" / job_id / "a1"
+                adir.mkdir(parents=True)
+                (adir / "turn.json").write_text(json.dumps({"ended_by": "driver", "user_frame_written": False,
+                                                            **ENDINGS[ending]}))
+                service.store.set_state(mid, "starting", job_id=job_id)
+                runner = EndedRunner(adir, mid, cid)
+                runner.attempt_id = f"{job_id}/a1"
+                service._on_outcome(runner)
+                message = service.store.message(mid)
+                waits = ending in WAIT_ENDINGS
+                if waits or charged < service_module.MAX_READMITS:
+                    assert (message["state"], message["state_reason"]) == ("waiting", f"readmit:{ending}")
+                else:
+                    assert (message["state"], message["state_reason"]) == ("failed", f"not-delivered: {ending}")
+                    break
+                if n in unread:
+                    (adir / "turn.json").unlink()        # its outcome is lost before the next settles
+                    charged += 1
+                elif not waits:
+                    charged += 1
+        finally:
+            service_module.reconcile.gather = real
+            service.close()
+            daemon.store.close()
+
+
 def test_a_limited_turns_continuation_exists_before_the_failure_is_visible(svc, tmp_path, monkeypatch):
     """C-26.7, D-6: whoever sees the limited message failed also sees its continuation,
     and settling the same outcome again (a replay) adds no second one."""

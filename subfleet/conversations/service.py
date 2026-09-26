@@ -1646,15 +1646,25 @@ class ConversationService:
                            (utcnow(), job["job_id"]))
             self.daemon._notify()
 
-    def _provider_tries(self, message: dict) -> int:
-        """How many of this message's turn jobs reached a provider (have an attempt).
-        This, not `turn_seq`, counts readmissions (C-24.6): a handoff that rolled back
-        cancelled its job before any attempt and so adds nothing, though it moved the
-        message to a new turn sequence (review of 6290a51, finding 3)."""
+    def _provider_tries(self, message: dict, *, besides: str | None = None) -> int:
+        """How many of this message's turn jobs, other than `besides`, used up a
+        re-admission (C-24.6): each that reached a provider (has an attempt), less
+        those whose attempt ended as a wait for the session's other writer
+        (`reconcile.ownership_wait`, read from its `turn.json`), which use up none
+        (design D-17; review of 3c1a34e, finding 4). This, not `turn_seq`, counts
+        them: a handoff that rolled back cancelled its job before any attempt and
+        so adds nothing, though it moved the message to a new turn sequence (review
+        of 6290a51, finding 3). An attempt with no readable outcome counts."""
         prefix = f"turn:{message['message_id']}:"
-        return self.daemon.store.one(
-            "SELECT count(DISTINCT j.job_id) AS n FROM jobs j JOIN attempts a ON a.job_id=j.job_id "
-            "WHERE j.request_id>=? AND j.request_id<?", (prefix, prefix[:-1] + ";"))["n"]
+        reached: dict[str, bool] = {}
+        for row in self.daemon.store.query(
+                "SELECT DISTINCT j.job_id, a.seq FROM jobs j JOIN attempts a ON a.job_id=j.job_id "
+                "WHERE j.request_id>=? AND j.request_id<?", (prefix, prefix[:-1] + ";")):
+            if row["job_id"] == besides:
+                continue
+            waited = reconcile.ownership_wait(read_turn(self.root / "jobs" / row["job_id"] / f"a{row['seq']}"))
+            reached[row["job_id"]] = reached.get(row["job_id"], False) or not waited
+        return sum(reached.values())
 
     def _hold_for_writer(self, message: dict, holders: list[int]) -> None:
         """C-26.3, D-17: a Claude process outside Subfleet holds the session, so a
@@ -1878,10 +1888,12 @@ class ConversationService:
         message = self.store.message(runner.message_id)
         conversation = self.store.conversation(runner.conversation_id)
         provider = conversation["provider"]
-        # The readmissions so far: this message's turn jobs a provider reached,
-        # less the one settling now (review of 6290a51, finding 3).
+        # The readmissions used up so far: this message's other turn jobs a provider
+        # reached, less its waits for another writer (reviews of 6290a51, finding 3,
+        # and of 3c1a34e, finding 4).
+        used = self._provider_tries(message, besides=runner.attempt_id.rsplit("/", 1)[0])
         settlement = reconcile.settle(
-            turn, provider=provider, turn_seq=max(0, self._provider_tries(message) - 1),
+            turn, provider=provider, turn_seq=used,
             gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn),
             person_stopped=bool(message.get("stop_requested_at")))
         served = {**(message.get("served") or {}), **(turn.get("served") or {}),

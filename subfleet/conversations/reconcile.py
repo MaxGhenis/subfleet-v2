@@ -66,7 +66,8 @@ USER_FRAME = "user-message"
 # Refusals before the message was sent that another admission may get past (review
 # IR-23: Fast on another account; an external writer that has gone; a provider or
 # guard that failed to start). The same message is carried by a new turn job, at
-# most MAX_READMITS times.
+# most MAX_READMITS times for the chargeable ones; a wait for the session's other
+# writer is re-admitted however often it happens and never counted (`ownership_wait`).
 READMIT = frozenset({"external-writer", "fast-unavailable", "provider-init-failed", "guard-refused"})
 MAX_READMITS = 3
 
@@ -181,6 +182,21 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
         state, reason = FAILED, stop or reason or "ended-without-result"
     # C-24.8: the next --resume could continue a Claude turn left mid-way.
     return result(state, reason, "unfinished-turn" if provider == "claude" else None)
+
+
+def ownership_wait(turn: Any) -> bool:
+    """Whether a turn ended, before its message was written, as a wait for the
+    session's other writer: another process (`external-writer`, C-26.3) or the
+    legacy cockpit (`stopped-before-send` by `legacy-owner`, `TurnRunner.withhold`,
+    C-30.4). Such a turn is re-admitted however often it happens and uses up none
+    of the re-admissions a failing provider gets (C-24.6, design D-17), so the
+    service does not count it among them (`ConversationService._provider_tries`)."""
+    if not isinstance(turn, dict):
+        return False
+    reason = turn.get("reason")
+    ended_by = turn.get("ended_by") or _legacy_ended_by(turn)
+    return ended_by == "driver" and (reason == "external-writer" or (
+        reason == "stopped-before-send" and turn.get("stop_reason") == LEGACY_OWNER))
 
 
 def _legacy_ended_by(turn: dict) -> str:

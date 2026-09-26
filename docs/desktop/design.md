@@ -372,7 +372,9 @@ takes the session: `_writer_check` records the answer in the attempt's
 `held_by.json` before anything is written (a replay reads it back), and a held
 attempt ends before `initialize` as `external-writer`, which re-admits the
 message. That re-admission never counts toward the three a failing provider
-gets; a Codex one (seen only by starting a provider) waits 30 s between tries.
+gets, then or when a later failure is counted (`reconcile.ownership_wait`
+reads each earlier attempt's `turn.json`); a Codex one (seen only by starting a
+provider) waits 30 s between tries.
 A registry row holds its session only while its pid's start time equals the
 row's `procStart` (a reused pid holds nothing), and when `ps` cannot answer.
 A conversation the legacy import holds (`legacy_hold`, C-30.4) gets no
