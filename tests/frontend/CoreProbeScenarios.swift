@@ -7,6 +7,40 @@ final class ProbeClock {
     var now = Date(timeIntervalSince1970: 1_790_000_000)
 }
 
+/// Daemon-produced response lines without a listening socket, for restricted
+/// test environments. The real client still encodes and decodes every exchange.
+final class ScriptedProbeTransport: DaemonTransport {
+    var exchanges: [[String: Any]]
+
+    init(_ data: Data) throws {
+        guard let exchanges = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            throw DaemonClientError.malformed("expected scripted exchanges")
+        }
+        self.exchanges = exchanges
+    }
+
+    func exchange(_ line: Data, timeout: TimeInterval) throws -> Data {
+        guard !exchanges.isEmpty,
+              let request = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+            throw DaemonClientError.malformed("no scripted exchange remains")
+        }
+        let next = exchanges.removeFirst()
+        guard next["op"] as? String == request["op"] as? String,
+              var answer = next["answer"] as? [String: Any] else {
+            throw DaemonClientError.malformed("unexpected scripted operation")
+        }
+        if answer["ok"] as? Bool == true { answer["id"] = request["id"] }
+        return try JSONSerialization.data(withJSONObject: answer)
+    }
+}
+
+func probeTransport(_ address: String) throws -> DaemonTransport {
+    if address.hasPrefix("script:") {
+        return try ScriptedProbeTransport(readFile(String(address.dropFirst(7))))
+    }
+    return UnixSocketTransport(path: address)
+}
+
 func fileMode(_ path: String) -> String {
     var info = stat()
     guard stat(path, &info) == 0 else { return "missing" }
@@ -45,7 +79,7 @@ func project(_ outcome: OutboxSender.WithdrawOutcome) -> [String: Any] {
 /// `outbox <socket> <journal> <steps.json>`: run outbox steps against a daemon socket.
 /// `@conv:<request id>` names the conversation that create made; `@draft:<request id>` its draft key.
 func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [String: Any] {
-    let client = DaemonClient(transport: UnixSocketTransport(path: socket))
+    let client = DaemonClient(transport: try probeTransport(socket))
     client.baseTimeout = 3
     var calls: [String] = []
     client.onExchange = { op, request, response in
@@ -292,7 +326,7 @@ func project(_ availability: DaemonAvailability) -> [String: Any] {
 /// `watch-loop <socket> <journal> <turns>`: the app's feed loop for `turns` watches,
 /// checking availability where the app does (UIModel `lostDaemon`, `regainedDaemon`).
 func runWatchLoop(socket: String, journal: String, turns: Int) throws -> [String: Any] {
-    let client = DaemonClient(transport: UnixSocketTransport(path: socket))
+    let client = DaemonClient(transport: try probeTransport(socket))
     client.baseTimeout = 3
     let engine = ConversationEngine(client: client, outbox: try Outbox(url: URL(fileURLWithPath: journal)))
     engine.pollWait = 0
@@ -376,7 +410,7 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         }
     case "check":
         // check <socket>: `capabilities` as the app asks it at launch and on reconnect
-        let client = DaemonClient(transport: UnixSocketTransport(path: arguments[2]))
+        let client = DaemonClient(transport: try probeTransport(arguments[2]))
         client.baseTimeout = 3
         return project(DaemonAvailability.check(client))
     case "watch-loop":

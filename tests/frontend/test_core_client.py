@@ -256,3 +256,34 @@ def test_c29_2_the_first_watch_after_a_failure_checks_again(core_probe, tmp_path
     assert out["availability"]["state"] == "ready"
     assert [r["op"] for r in server.requests] == ["conversation.watch", "capabilities", "conversation.watch",
                                                   "capabilities", "conversation.watch"]
+
+
+def test_c29_2_scripted_busy_availability(core_probe, tmp_path):
+    """The busy classification also runs where the OS denies socket listeners."""
+    script = write_json(tmp_path / "answers.json", [
+        {"op": "capabilities", "answer": json.loads(busy_answer("the daemon is serving 512 connections"))},
+    ])
+    checked = run_probe(core_probe, "check", f"script:{script}")
+    assert checked["state"] == "busy"
+    assert checked["banner"] == "The Subfleet daemon is busy"
+
+
+def test_c29_2_scripted_watch_recovery_rechecks_availability(core_probe, tmp_path):
+    """Real watch and availability models, with daemon-produced responses."""
+    harness = ServiceHarness(tmp_path / "service")
+    try:
+        page = json.loads(protocol.encode(protocol.ok("", harness.call("conversation.watch", after=0, wait_s=0))))
+        ready = json.loads(protocol.encode(protocol.ok("", harness.call("capabilities"))))
+    finally:
+        harness.close()
+    busy = json.loads(busy_answer("the daemon is serving 512 connections"))
+    script = write_json(tmp_path / "answers.json", [
+        {"op": "conversation.watch", "answer": busy},
+        {"op": "capabilities", "answer": busy},
+        {"op": "conversation.watch", "answer": page},
+        {"op": "capabilities", "answer": ready},
+        {"op": "conversation.watch", "answer": page},
+    ])
+    out = run_probe(core_probe, "watch-loop", f"script:{script}", tmp_path / "outbox.json", 3)
+    assert out["log"] == ["lost:69", "check:busy", "pause:2.0", "page", "regained", "check:ready", "page"]
+    assert out["availability"]["state"] == "ready"

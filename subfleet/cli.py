@@ -1017,7 +1017,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
             # `--timeout` is a wall-clock bound: a wedged daemon must still end
             # in exit 124, not in a socket error (C-15.4, C-17.3).
             budget = deadline + 15 if remaining is None else min(
-                deadline + 15, max(1.0, remaining + 1.0))
+                deadline + 15, remaining)
             try:
                 result = client.call("wait", _asdict(poll), timeout=budget)
             except ProtocolError:

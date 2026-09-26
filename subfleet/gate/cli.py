@@ -73,15 +73,19 @@ def _poll(client, gate_id: str) -> dict:
     descriptor hotfix, F8: one busy answer ended the loop with exit 1 while the
     gate carried on in the daemon)."""
     started, streak = time.monotonic(), 0
+    remaining = POLL_TIMEOUT_S
     while True:
         try:
-            return client.call("gate.poll", {"gate_id": gate_id}, timeout=POLL_TIMEOUT_S)
+            return client.call("gate.poll", {"gate_id": gate_id}, timeout=remaining)
         except DaemonError as exc:
             left = POLL_TIMEOUT_S - (time.monotonic() - started)
             if not exc.busy or left <= 0:
                 raise
             streak += 1
             time.sleep(min(busy_pause(streak), left))
+            remaining = POLL_TIMEOUT_S - (time.monotonic() - started)
+            if remaining <= 0:
+                raise
 
 
 def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,

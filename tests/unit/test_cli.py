@@ -1466,6 +1466,105 @@ def test_gate_gives_up_on_a_daemon_busy_past_the_poll_timeout(unmanaged, tmp_pat
     assert "serving 512 connections" in capsys.readouterr().err
 
 
+@pytest.fixture
+def poll_clock(monkeypatch):
+    """A poll-only clock: advancing it never affects sockets or fixture threads."""
+    from types import SimpleNamespace
+    from subfleet.gate import cli as gate_cli
+
+    clock = SimpleNamespace(now=0.0, sleeps=[])
+
+    def sleep(seconds):
+        clock.sleeps.append(seconds)
+        clock.now += seconds
+
+    monkeypatch.setattr(gate_cli, "time", SimpleNamespace(
+        monotonic=lambda: clock.now, sleep=sleep))
+    return clock
+
+
+@pytest.mark.parametrize("command,timeout,expected", [
+    ("wait", 60, 0), ("kill", 60, 130),
+    ("wait", 1, 124), ("kill", 1, 124),
+])
+def test_wait_busy_backoff_and_deadline_without_a_listener(
+        root, unmanaged, monkeypatch, poll_clock, capsys, command, timeout, expected):
+    """C-16.1/F8: both wait entry points back off within their original deadline."""
+    from types import SimpleNamespace
+    from subfleet.client import DaemonError
+
+    calls = []
+
+    def call(op, args, **kwargs):
+        calls.append(op)
+        if op == "kill":
+            return {"status": "cancel requested"}
+        assert kwargs["timeout"] <= timeout - poll_clock.now
+        if calls.count("wait") <= 3:
+            raise DaemonError(69, "busy", "try again shortly")
+        return terminal("cancelled" if command == "kill" else "succeeded", rc=0)
+
+    monkeypatch.setattr(cli, "_client", lambda *args, **kwargs: SimpleNamespace(call=call))
+    monkeypatch.setattr(cli, "time", unmanaged.time)
+    argv = [command, JOB, "--timeout", str(timeout)]
+    if command == "kill":
+        argv.append("--wait")
+    assert run_cli(argv) == expected
+    assert calls.count("kill") == (1 if command == "kill" else 0)
+    assert calls.count("wait") == (3 if timeout == 1 else 4)
+    assert poll_clock.sleeps == [0.25, 0.5, 0.25 if timeout == 1 else 1.0]
+    assert poll_clock.now <= timeout
+    capsys.readouterr()
+
+
+def test_daemon_busy_status_without_a_listener(root, monkeypatch, capsys):
+    """C-16.1/F9: a refusal proves reachability in both text and JSON output."""
+    from subfleet.client import DaemonError
+
+    def call(self, op, args, **kwargs):
+        assert op == "daemon.status"
+        raise DaemonError(69, "the daemon is busy", "try again shortly")
+
+    monkeypatch.setattr(cli.Client, "call", call)
+    assert run_cli(["daemon", "status"]) == 0
+    captured = capsys.readouterr()
+    assert "ping        busy" in captured.out
+    assert "try again shortly" in captured.err
+    assert run_cli(["daemon", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["ping"] is True and status["busy"] is True
+
+
+def test_gate_busy_retries_share_one_poll_budget(unmanaged, monkeypatch, poll_clock):
+    """C-16.1/F8: backoff uses time from this poll, not a fresh transport timeout."""
+    monkeypatch.setattr(unmanaged, "POLL_TIMEOUT_S", 2.0)
+    client = GateClient(busy=2)
+    call = client.call
+    budgets = []
+
+    def record(op, args, *, timeout):
+        budgets.append(timeout)
+        return call(op, args, timeout=timeout)
+
+    client.call = record
+    assert unmanaged._poll(client, "gate-1")["code"] == 0
+    assert budgets == [2.0, 1.75, 1.25]
+    assert poll_clock.sleeps == [0.25, 0.5]
+
+
+def test_gate_busy_deadline_prevents_an_extra_poll(unmanaged, monkeypatch, poll_clock):
+    """C-16.1/F8: a sleep reaching the deadline cannot start another request."""
+    from subfleet.client import DaemonError
+
+    monkeypatch.setattr(unmanaged, "POLL_TIMEOUT_S", 1.0)
+    client = GateClient(busy=10**6)
+    with pytest.raises(DaemonError, match="serving 512 connections"):
+        unmanaged._poll(client, "gate-1")
+    assert client.polls == 3
+    assert poll_clock.now == 1.0
+    assert poll_clock.sleeps == [0.25, 0.5, 0.25]
+
+
 def test_daemon_status_reads_a_busy_answer_as_running(daemon, capsys):
     """Review of the descriptor hotfix, F9: a daemon that answers busy is running;
     `daemon status` said "ping unreachable" and exited 69."""

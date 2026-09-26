@@ -4031,27 +4031,29 @@ class Daemon:
 
     def _admit_connection(self, conn: socket.socket) -> None:
         """Give an accepted connection a reader, or answer it busy at once."""
+        reader_error = None
         with self._connection_lock:
             busy = len(self._reading) >= MAX_CONNECTIONS
             if not busy:
                 self._reading.add(conn)
                 self._connections.add(conn)
+                # submit queues work before starting a thread, and can then
+                # raise. Keep the reader behind its admission check until that
+                # outcome is known: a busy answer must mean nothing was read.
+                try:
+                    self.readers.submit(self._connection, conn)
+                except RuntimeError as exc:
+                    self._reading.discard(conn)
+                    self._connections.discard(conn)
+                    reader_error = exc
         if busy:
             self._refuse_busy(conn, f"the daemon is serving {MAX_CONNECTIONS} connections")
             return
-        try:
-            self.readers.submit(self._connection, conn)
-        except RuntimeError as exc:
-            # No thread could start for it (`can't start new thread`: short of
-            # memory or threads). `submit` may have queued it anyway, so the
-            # reader it gets later finds it no longer admitted (F6).
-            with self._connection_lock:
-                self._reading.discard(conn)
-                self._connections.discard(conn)
+        if reader_error is not None:
             now = time.monotonic()
             if now - self._reader_trouble_logged >= 60:
                 self._reader_trouble_logged = now
-                self.log.warning("cannot start a reader (%s): telling new clients the daemon is busy", exc)
+                self.log.warning("cannot start a reader (%s): telling new clients the daemon is busy", reader_error)
             self._refuse_busy(conn, "the daemon cannot start a reader for this connection")
 
     def connection_status(self) -> dict:
