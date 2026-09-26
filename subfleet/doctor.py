@@ -256,13 +256,13 @@ def _quoted(stopped: DaemonStopped) -> str:
     The client writes its fixes for `fail()`, which prints them bare
     (subfleet/cli.py); every row here backticks the command it tells the
     operator to run. `DaemonStopped.command` is that command, and it is a
-    substring of the fix by construction (C-5.11).
+    substring of the fix by construction (C-5.13).
     """
     return stopped.fix.replace(stopped.command, f"`{stopped.command}`")
 
 
 def check_daemon_lock(root: Path) -> dict[str, Any]:
-    """Does `daemon.lock` name a process that is actually alive (C-5.8, C-5.11)?
+    """Does `daemon.lock` name a process that is actually alive (C-5.8, C-5.13)?
 
     Alive is not enough: a holder that is stopped answers nothing, and this row
     passing while the fleet was frozen is what let `doctor` exit 0 through the

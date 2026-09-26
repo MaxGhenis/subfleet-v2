@@ -35,7 +35,7 @@ def test_guardian_identity_handles_new_and_legacy_records(monkeypatch, recorded,
 def test_legacy_drift_does_not_block_socket_or_authorize_signal(monkeypatch, tmp_path):
     monkeypatch.setattr(client, "boot_id", lambda: SESSION)
     monkeypatch.setattr(client, "_boot_read", lambda argv: "{ sec = 1789915544 }")
-    # The identity check reads state and start from one `ps` (C-5.11), so that is the seam.
+    # The identity check reads state and start from one `ps` (C-5.13), so that is the seam.
     monkeypatch.setattr(client, "proc_status", lambda pid: ("S", START))
     monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, SESSION, START))
     monkeypatch.setattr(procs, "_read", lambda argv: "{ sec = 1789915544 }")

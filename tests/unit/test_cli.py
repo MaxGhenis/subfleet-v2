@@ -750,7 +750,7 @@ def test_the_identity_check_runs_once_per_client(root, monkeypatch):
     (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
     calls: list[int] = []
     # The `ps` itself is counted: it is the same read that answers the
-    # stopped-holder question of C-5.11, and neither may run twice.
+    # stopped-holder question of C-5.13, and neither may run twice.
     monkeypatch.setattr(client_module, "proc_status",
                         lambda *a, **k: calls.append(1) or (None, None))
     probe = client_module.Client(root)

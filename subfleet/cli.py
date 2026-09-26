@@ -420,7 +420,7 @@ def _daemon_down(exc: Exception, because: Exception | None = None) -> int:
 
     `because` is the daemon-side exception when `exc` is the offline reader's:
     "no daemon and no store" is still fixed at the daemon, and for a stopped
-    one that is not `subfleet daemon start` (C-5.11).
+    one that is not `subfleet daemon start` (C-5.13).
     """
     fix = because.fix if isinstance(because, DaemonStopped) else None
     return fail(Exit.DAEMON_UNAVAILABLE, str(exc),
@@ -431,13 +431,13 @@ def _protocol_failure(exc: ProtocolError) -> int:
     """A malformed or unanswered response, with whatever fix it carries.
 
     `ProtocolError` has always had a `fix` slot; a daemon that holds the lock
-    and answers nothing is the case that needed it (C-5.11).
+    and answers nothing is the case that needed it (C-5.13).
     """
     return fail(exc.code, str(exc), getattr(exc, "fix", None))
 
 
 def _note_offline_reason(exc: Exception) -> None:
-    """Say why the offline read is happening when the daemon is there (C-5.11).
+    """Say why the offline read is happening when the daemon is there (C-5.13).
 
     An absent daemon is what offline mode is for and needs no prose; a daemon
     that holds the lock and is stopped is a condition the caller has to clear,
@@ -1597,7 +1597,7 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
         out(f"{orphan['job_id']} {orphan['state']} {orphan['verdict']}"
             + (f" (pid {orphan['pid']})" if orphan["pid"] else ""))
     if orphans:
-        # A stopped daemon is continued, not started beside (C-5.11); its fix
+        # A stopped daemon is continued, not started beside (C-5.13); its fix
         # was already printed with the offline banner above.
         restart = (f"continue it: {down.fix}" if isinstance(down, DaemonStopped)
                    else f"start it with `{START_DAEMON}`")
@@ -2182,7 +2182,7 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
     if stopped is not None:
         # A stopped daemon does not answer, but it still holds the flock, so a
         # second one would exit 69 on `another daemon holds daemon.lock`
-        # (subfleet/daemon.py). Continue this one instead (C-5.11).
+        # (subfleet/daemon.py). Continue this one instead (C-5.13).
         return fail(Exit.DAEMON_UNAVAILABLE, f"daemon start: {stopped}", stopped.fix)
     try:
         root.mkdir(parents=True, exist_ok=True)
@@ -2247,7 +2247,7 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
         return fail(Exit.OPERATIONAL,
                     f"daemon stop: cannot verify that pid {pid} is the recorded "
                     f"daemon (C-5.3); refusing to signal it")
-    # C-5.11: a stopped process only queues SIGTERM; it runs no handler until it
+    # C-5.13: a stopped process only queues SIGTERM; it runs no handler until it
     # is continued. Asked to stop, it is continued so that it can.
     state, _started = proc_status(pid)
     stopped = is_stopped(state)
@@ -2273,7 +2273,7 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
 
 
 def _holder_word(alive: bool | None, stopped: bool) -> str:
-    """How `daemon status` names the lock holder's condition (C-5.8, C-5.11)."""
+    """How `daemon status` names the lock holder's condition (C-5.8, C-5.13)."""
     if stopped:
         return "stopped"
     if alive is None:
@@ -2292,7 +2292,7 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     if stopped is not None:
         # The socket call is skipped, not attempted and timed out: a stopped
         # daemon accepts the connection and answers nothing, so the wait would
-        # only spend the budget to learn what `ps` has already said (C-5.11).
+        # only spend the budget to learn what `ps` has already said (C-5.13).
         detail = str(stopped)
     else:
         try:

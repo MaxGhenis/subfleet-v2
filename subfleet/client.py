@@ -27,7 +27,7 @@ support for older wall-clock boot timestamps. Process inspection is pinned to
 whoever recorded the value rendered it in theirs. It is kept small and local here
 so the CLI does not import the daemon-side `procs` module.
 
-That one `ps` reads the state column as well, so the third condition of C-5.11
+That one `ps` reads the state column as well, so the third condition of C-5.13
 costs nothing to notice: a holder that is alive but stopped holds the lock and
 answers nothing until it is continued. It is refused before the socket is
 touched, as `DaemonStopped`, and asked again whenever the socket fails. A
@@ -81,7 +81,7 @@ def silent_daemon_fix(pid: int) -> str:
     that is what makes "not a second daemon" true, because the flock of C-5.8 is
     held by a process that exists. A lock that is absent, unreadable, or whose
     holder cannot be verified says nothing about a second daemon, and the fix
-    there is the ordinary `subfleet daemon start` (C-5.11).
+    there is the ordinary `subfleet daemon start` (C-5.13).
     """
     return (f"`subfleet daemon logs -n 40`, then `subfleet daemon stop` if it is "
             f"wedged; pid {pid} holds {LOCK_NAME}, so starting a second daemon "
@@ -110,7 +110,7 @@ class DaemonUnavailable(Exception):
 
 
 class DaemonStopped(DaemonUnavailable):
-    """The lock holder is alive but stopped, so it will never answer (C-5.11).
+    """The lock holder is alive but stopped, so it will never answer (C-5.13).
 
     Unavailable in exactly the sense C-17.5 means: the read verbs fall back to
     the store. The fix is the signal that continues this daemon, never a second
@@ -266,7 +266,7 @@ def identity_status(pid: int | None, recorded_boot: str | None,
     """`identity_report`, and the raw `ps` state the verdict was read from.
 
     The state is None whenever no `ps` was run or it could not answer; it is
-    reported even for a verdict that did not depend on it, because C-5.11 asks
+    reported even for a verdict that did not depend on it, because C-5.13 asks
     a second question of the same process and this is the read that answers it.
     """
     if not pid:
@@ -318,7 +318,7 @@ def same_process(pid: int | None, recorded_boot: str | None,
     return identity_report(pid, recorded_boot, recorded_start)[0]
 
 
-# --- Who stopped it (C-5.11) --------------------------------------------------
+# --- Who stopped it (C-5.13) --------------------------------------------------
 
 #: Programs that stop other processes on purpose, each with the file it writes
 #: the pids it paused into, one per line. A SIGSTOP leaves nothing on its target
@@ -345,7 +345,7 @@ def paused_by(pid: int) -> dict[str, str] | None:
     A marker file belongs to another program and is not validated by anything
     here, so a file that cannot be read *or decoded* is simply no evidence;
     `read_text` decodes, and a `UnicodeDecodeError` is a `ValueError`. Nothing
-    a pauser writes may turn the diagnosis into a traceback (C-5.11).
+    a pauser writes may turn the diagnosis into a traceback (C-5.13).
     """
     for pauser in KNOWN_PAUSERS:
         try:
@@ -359,7 +359,7 @@ def paused_by(pid: int) -> dict[str, str] | None:
 
 def stopped_report(pid: int, state: str | None,
                    socket_path: Path | str | None = None) -> tuple[str, str, str]:
-    """Message, fix, and the command the fix names, for a stopped holder (C-5.11).
+    """Message, fix, and the command the fix names, for a stopped holder (C-5.13).
 
     The socket is named only when it is there: a holder that is stopped keeps
     whatever it had, and a daemon killed before it ever bound one leaves the
@@ -448,7 +448,7 @@ class Client:
         """The recorded holder's pid, liveness, reason, and `ps` state (C-5.8).
 
         One `ps` per call, the same one the identity check makes, so the
-        stopped-holder question of C-5.11 is answered at no extra cost.
+        stopped-holder question of C-5.13 is answered at no extra cost.
         """
         info = self.lock_info()
         if info is None:
@@ -471,7 +471,7 @@ class Client:
         return self.holder_report()[1]
 
     def stopped_holder(self) -> DaemonStopped | None:
-        """`DaemonStopped` when the verified lock holder is stopped (C-5.11).
+        """`DaemonStopped` when the verified lock holder is stopped (C-5.13).
 
         Only a holder whose identity checks out is diagnosed: a state read for
         a pid that is not provably the recorded daemon says nothing about it.
@@ -479,7 +479,7 @@ class Client:
         return self.silence_report()[0]
 
     def silence_report(self) -> tuple[DaemonStopped | None, int | None]:
-        """Why a daemon that did not answer did not, from one `ps` (C-5.11).
+        """Why a daemon that did not answer did not, from one `ps` (C-5.13).
 
         `DaemonStopped` for a verified holder that is stopped; otherwise the pid
         of a holder this check verified as running, or None when the lock is
@@ -494,7 +494,7 @@ class Client:
         return None, pid if alive else None
 
     def unreachable(self, why: str) -> DaemonUnavailable:
-        """The exception for a socket that could not be reached (C-5.11).
+        """The exception for a socket that could not be reached (C-5.13).
 
         A refused connect is not only "nobody is listening". A stopped daemon
         accepts connections into its listen backlog, which the daemon sets to 64
@@ -515,7 +515,7 @@ class Client:
             f"be reached: {why}", silent_daemon_fix(holder))
 
     def silent(self, why: str, *, op: str = "", request_id: str = "") -> ResponseLost:
-        """The exception for a request that was sent and not answered (C-5.11, C-16.3).
+        """The exception for a request that was sent and not answered (C-5.13, C-16.3).
 
         It is `ResponseLost` whatever the holder is doing, because the request
         was sent: a daemon stopped mid-call still has it in its buffer and acts
@@ -543,7 +543,7 @@ class Client:
         anyway, which is the stronger signal. A stopped holder is caught here
         rather than on the wire, because it accepts the connection into its
         backlog and then answers nothing, so the whole timeout would be spent
-        learning what this `ps` already said (C-5.11).
+        learning what this `ps` already said (C-5.13).
         """
         if self._checked:
             return
@@ -574,7 +574,7 @@ class Client:
             except OSError as exc:
                 # Every way a connect can fail asks the holder, refused as well
                 # as timed out: a full backlog is refused, and a backlog fills
-                # precisely because nobody is accepting from it (C-5.11).
+                # precisely because nobody is accepting from it (C-5.13).
                 raise self.unreachable(str(exc)) from exc
             # From here on the daemon may have the request (C-16.3).
             try:
