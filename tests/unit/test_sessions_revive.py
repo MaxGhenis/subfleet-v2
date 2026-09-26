@@ -381,3 +381,18 @@ def test_old_claude_cli_reported_as_host_fault_not_no_lane(world, policy, tmp_pa
     result = attempt(daemon, policy, COLD, tmp_path, opt_in=True)
     every_reason = " ".join(filter(None, (result.reason, result.fix)))
     assert "no lane serves" not in every_reason
+
+
+def test_a_conversation_bound_session_is_never_revived(world, policy, tmp_path):
+    """C-26.3, design D-17 (review M3): a session a Subfleet conversation is bound
+    to is continued by that conversation alone, one turn at a time. Revive
+    refuses it first, even opted in and forced, and a cold sweep holds it."""
+    cold_session(world, desktop_owned=False)
+    daemon = fx.FakeSessions(conversation_sessions=[COLD])
+    result = attempt(daemon, policy, COLD, tmp_path, opt_in=True, force=True)
+    assert result.admitted is False and daemon.submits == []
+    assert result.reason == "bound to a Subfleet conversation — continued there, never revived"
+    assert result.fix == "send the next message in its conversation"
+    (candidate,) = revive.cold_candidates(daemon, policy, only=[COLD], now=fx.NOW)
+    assert candidate.conversation_bound
+    assert revive.admits(candidate, policy=policy, opt_in=True, force=True)[0] is False

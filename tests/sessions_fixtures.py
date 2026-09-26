@@ -250,12 +250,14 @@ class FakeSessions:
                  revives: dict[str, dict] | None = None,
                  lane_sessions: Iterable[str] = (),
                  revive_holders: dict[str, str] | None = None,
+                 conversation_sessions: Iterable[str] = (),
                  now: datetime = NOW):
         self.retired = dict(retired or {})
         self.nudges = dict(nudges or {})
         self.revives = dict(revives or {})
         self.lane_sessions = list(lane_sessions)
         self.revive_holders = dict(revive_holders or {})
+        self.conversation_sessions = list(conversation_sessions)
         self.now = now
         self.pings: list[tuple[str, str]] = []
         self.submits: list[Any] = []
@@ -274,7 +276,8 @@ class FakeSessions:
                                    "last_revive": self.revives.get(key),
                                    "revive_holder": self.revive_holders.get(key)}
                              for key in keys},
-                "lane_sessions": list(self.lane_sessions)}
+                "lane_sessions": list(self.lane_sessions),
+                "conversation_sessions": list(self.conversation_sessions)}
 
     def record_nudge(self, session_id: str, *, dedupe_key: str | None,
                      cooldown_s: float | None, kind: str = "nudge",

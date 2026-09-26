@@ -53,6 +53,9 @@ NOT_DELIVERED = frozenset({"stopped-before-send", "identity", "guard-refused", "
                            "external-writer", "fast-unavailable", "model-mismatch-before-send"})
 READMIT = frozenset({"external-writer", "fast-unavailable", "provider-init-failed", "guard-refused"})
 MAX_READMITS = 3
+#: How long one read of Claude Code's session registry answers the external-writer
+#: question for admission (C-26.3); the registry is a directory of small files.
+EXTERNAL_WRITER_TTL_S = 2.0
 CONTINUATION_TEXT = ("Continue from where you left off; the previous turn stopped at a usage limit "
                      "on another account.")
 CODEX_WRITABLE_FLAG = "codex-writable-verified.json"
@@ -68,6 +71,7 @@ class ConversationService:
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
         self._poll_slots: dict[tuple, threading.Event] = {}
+        self._registry: tuple[float, list, dict[int, bool]] | None = None
         self.log = daemon.log
 
     def close(self) -> None:
@@ -609,11 +613,62 @@ class ConversationService:
         here, placing nothing, until both blocks are clear.
         """
         manifest = _read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
-        conversation_id = (manifest.get(TURN_MANIFEST_KEY) or {}).get("conversation_id")
+        turn = manifest.get(TURN_MANIFEST_KEY) or {}
+        conversation_id = turn.get("conversation_id")
         hold = self.store.turn_hold(conversation_id) if conversation_id else None
         if hold:
             return {"reason": "conversation-blocked", "conversation_id": conversation_id, **hold}
+        if turn.get("provider") == "claude" and turn.get("native_session_id") and turn.get("message_id"):
+            # C-26.3, D-17: a live Claude process outside Subfleet holding the
+            # session (the Claude app, a terminal) is a wait, shown on the
+            # message, not a refusal; it ends when that process does.
+            pids = self._external_writers(turn["native_session_id"])
+            self._note_waiting(turn["message_id"], "external-writer" if pids else None)
+            if pids:
+                return {"reason": "external-writer", "conversation_id": conversation_id,
+                        "native_session_id": turn["native_session_id"], "pids": pids}
         return None
+
+    def _external_writers(self, session_id: str) -> list[int]:
+        """Live pids registered for `session_id` in `~/.claude/sessions` whose
+        environment carries no `SUBFLEET_ATTEMPT` (catalog's IR-16 rule). One read
+        of the registry, and one `ps` per pid, serves admission for a few seconds."""
+        from ..sessions import registry
+        from .catalog import _subfleet_owned
+        now = time.monotonic()
+        with self._lock:
+            if self._registry is None or now - self._registry[0] > EXTERNAL_WRITER_TTL_S:
+                self._registry = (now, registry.rows(), {})
+            _, rows, owned = self._registry
+            wanted = canonical_native(session_id)
+            pids = set()
+            for row in rows:
+                if not row.alive or row.pid is None or canonical_native(row.session_id) != wanted:
+                    continue
+                if row.pid not in owned:
+                    owned[row.pid] = _subfleet_owned(row.pid)
+                if not owned[row.pid]:
+                    pids.add(row.pid)
+        return sorted(pids)
+
+    def _note_waiting(self, message_id: str, reason: str | None) -> None:
+        """Show an admission wait on the waiting message, and clear one that ended."""
+        row = self.store.one("SELECT state, state_reason FROM messages WHERE message_id=?", (message_id,))
+        if not row or row["state"] != WAITING or row["state_reason"] == reason:
+            return
+        if reason or row["state_reason"] == "external-writer":
+            self.store.set_state(message_id, WAITING, reason=reason, expect=(WAITING,))
+
+    def bound_session(self, session_id: str | None) -> dict | None:
+        """C-26.3: the conversation a native session is bound to, of either provider."""
+        if not session_id:
+            return None
+        return self.store.by_native("claude", session_id) or self.store.by_native("codex", session_id)
+
+    def bound_sessions(self) -> list[str]:
+        """Every native session a conversation is bound to (C-26.3, design D-17)."""
+        return sorted({canonical_native(row["native_session_id"]) for row in self.store.query(
+            "SELECT native_session_id FROM conversations WHERE native_session_id IS NOT NULL")})
 
     def _turn_job(self, message: dict) -> dict | None:
         """The main store decides which job carries a message (IR-1)."""

@@ -1,4 +1,6 @@
-"""The legacy hold keeps every turn off a conversation (C-30.4, C-24.5, design D-17).
+"""One writer per native session: the legacy hold keeps every turn off a
+conversation (C-30.4, C-24.5), and nothing else writes in a conversation's
+session beside it (C-26.3, design D-17).
 
 Each case runs a real `--legacy-cockpit` pass, as an operator does with the
 daemon stopped, over a synthetic v1 state (`tests/legacy_fixtures.py`), and then
@@ -12,7 +14,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
+import subprocess
+import sys
 import threading
 import types
 import uuid
@@ -21,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import daemon as daemon_module, importer, protocol
+from subfleet.adapters.base import AdapterError
 from subfleet.conversations import service as service_mod
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError, ConversationStore
@@ -487,3 +493,126 @@ def test_a_store_written_before_the_hold_had_its_column_moves_it_there(tmp_path)
         store.close()
     assert found == [("0", None, "held legacy-owner by an earlier import"), ("1", "unfinished-turn", None),
                      ("2", None, None)]
+
+
+# --- one writer per native session (C-26.3, design D-17; review M3, L1) --------
+
+
+def resume_daemon(world: World, svc: ConversationService, kind: str, attempt: dict):
+    """What `Daemon._resume_submission` reads, for a terminal source job of `kind`."""
+    source = {"job_id": "src", "kind": kind, "state": "succeeded", "isolated_review": 0,
+              "accepted_attempt_id": "src/a1", "worktree": None, "workdir": str(world.workspace),
+              "sandbox": "read-only", "task": None, "tier": None, "allow_desktop": 0, "exclusions": "[]"}
+    return types.SimpleNamespace(
+        _job=lambda job_id: source, root=world.root, conversations=svc,
+        store=types.SimpleNamespace(one=lambda sql, params=(): None, get_attempt=lambda aid: attempt),
+        _legacy_resume_identity=lambda attempt: None)
+
+
+def test_resume_refuses_a_turn_source_and_a_conversation_bound_session(world):
+    """C-26.3, D-17 (review M3): `resume` of a turn job would run `claude --resume`
+    on its conversation's session beside the conversation; it is refused, as is
+    resuming any job whose session a conversation is bound to. A session no
+    conversation binds resumes as before."""
+    world.run_pass()
+    svc, _ = service(world)
+    args = protocol.SubmitArgs(request_id="resume-1", kind="resume", workdir=str(world.workspace),
+                               prompt_path=str(world.root / "prompt.md"), sandbox="read-only", parent_job_id="src")
+    attempt = {"attempt_id": "src/a1", "native_session_id": SESSION.upper(), "lane_id": "claude-1",
+               "model_requested": "claude-opus-5-5", "evidence_json": "{}"}
+    try:
+        with pytest.raises(AdapterError) as turn:
+            Daemon._resume_submission(resume_daemon(world, svc, "turn", attempt), args)
+        assert turn.value.code == 7 and "a conversation turn is not resumed" in str(turn.value)
+        with pytest.raises(AdapterError) as bound:
+            Daemon._resume_submission(resume_daemon(world, svc, "dispatch", attempt), args)
+        assert bound.value.code == 7 and "bound to a Subfleet conversation" in str(bound.value)
+        attempt["native_session_id"] = "5e551011-0000-4000-8000-0000000000ff"
+        _, resume = Daemon._resume_submission(resume_daemon(world, svc, "dispatch", attempt), args)
+        assert resume["native_session_id"] == attempt["native_session_id"]
+    finally:
+        svc.close()
+
+
+def test_the_daemon_never_revives_or_nudges_a_conversation_bound_session(core):
+    """C-26.3, D-17 (review M3): `sessions state` names the conversation-bound
+    sessions, so the kit skips them; and the daemon itself refuses to record a
+    nudge of one or to accept a revive job for one, whoever asks."""
+    world, daemon = core
+    state = daemon.sessions(protocol.SessionsArgs(action="state", session_ids=[SESSION]))
+    assert state["conversation_sessions"] == [SESSION]
+    nudged = daemon.sessions(protocol.SessionsArgs(action="nudged", session_id=SESSION.upper(), dedupe_key="k",
+                                                   force=True))
+    assert nudged["recorded"] is False and "bound to a Subfleet conversation" in nudged["reason"]
+    prompt = world.root / "revive.md"
+    prompt.write_text("continue", encoding="utf-8")
+    with pytest.raises(AdapterError) as refused:
+        daemon.submit(protocol.SubmitArgs(request_id="revive-1", kind="revive", workdir=str(world.workspace),
+                                          prompt_path=str(prompt), sandbox="read-only", pinned_model="opus",
+                                          caller_session=SESSION, in_place=True, allow_tmp=True))
+    assert refused.value.code == 7
+    assert daemon.store.query("SELECT * FROM jobs WHERE kind='revive'") == []
+
+
+def _registered(world: World, *, subfleet: bool) -> subprocess.Popen:
+    """A live process registered for SESSION in `<claude>/sessions`, as the Claude app or a terminal is."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **({"SUBFLEET_ATTEMPT": "turn-x/a1"} if subfleet else {})}
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], env=env)
+    (world.claude / "sessions").mkdir(exist_ok=True)
+    (world.claude / "sessions" / f"{process.pid}.json").write_text(
+        json.dumps({"sessionId": SESSION, "pid": process.pid, "cwd": str(world.workspace)}), encoding="utf-8")
+    return process
+
+
+@pytest.mark.parametrize("subfleet", [False, True])
+def test_a_live_claude_process_outside_subfleet_is_an_admission_wait(core, monkeypatch, subfleet):
+    """C-26.3, D-17 (review M3): a Claude turn whose session a live process
+    outside Subfleet holds (a pid in `~/.claude/sessions` without
+    `SUBFLEET_ATTEMPT`) waits at admission, `external-writer`, shown on its
+    message, and is placed once that process is gone. A Subfleet process (a
+    turn that kept running across a restart) is not an external writer."""
+    world, daemon = core
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(world.claude))
+    monkeypatch.setattr(service_mod, "EXTERNAL_WRITER_TTL_S", -1.0, raising=False)
+    svc = daemon.conversations
+    first = submit(svc, world.conversation_id())
+    svc._dispatch()
+    job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
+    process = _registered(world, subfleet=subfleet)
+    try:
+        daemon._admit()
+        if subfleet:
+            assert len(daemon.store.list_attempts(job["job_id"])) == 1
+            return
+        assert daemon.store.list_attempts(job["job_id"]) == []
+        hold = daemon._holds[job["job_id"]]
+        assert (hold["reason"], hold["pids"], hold["native_session_id"]) == ("external-writer", [process.pid], SESSION)
+        assert svc.store.message(first)["state_reason"] == "external-writer"
+        assert daemon._admission["pending"] == 0             # the person's to end: close it there
+    finally:
+        process.kill()
+        process.wait()
+    daemon._admit()
+    assert len(daemon.store.list_attempts(job["job_id"])) == 1
+    assert svc.store.message(first)["state_reason"] is None
+
+
+def test_conversation_open_binds_one_spelling_of_a_session(world, monkeypatch):
+    """C-24.1 (review L1): `conversation.open` of a session named in upper case
+    finds the conversation bound to it in lower case, and a new one binds the
+    lower-case id Claude Code names its transcript by."""
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(world.claude))
+    world.run_pass()
+    cid = world.conversation_id()
+    other = "5e551011-0000-4000-8000-0000000000c9"
+    write_transcript(world.claude, other, world.workspace)
+    svc, _ = service(world)
+    try:
+        opened = svc._open_native({"provider": "claude", "session_id": SESSION.upper()})
+        assert [row["conversation_id"] for row in svc.store.query("SELECT * FROM conversations")] == [cid]
+        assert opened["conversation_id"] == cid
+        opened = svc._open_native({"provider": "claude", "session_id": other.upper()})
+        assert opened["native_session_id"] == other
+        assert len(svc.store.query("SELECT * FROM conversations")) == 2
+    finally:
+        svc.close()

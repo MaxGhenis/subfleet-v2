@@ -315,18 +315,24 @@ detached job.
 or quarantine. The next message's turn job is submitted only when the
 previous one is terminal and has released them (review F9, F-06). Resume,
 revive and handoff reservations also check `native:*` and `conversation:*`
-(symmetric; review F-08); `_resume_submission` refuses a `turn` source.
-Conversation-bound sessions are listed by the sessions kit but never nudged,
-revived or cold-swept (`sessions state` returns them). A conversation the
+(symmetric; review F-08); `_resume_submission` refuses a `turn` source and
+any source whose session a conversation is bound to. Conversation-bound
+sessions are listed by the sessions kit but never nudged, revived or
+cold-swept: `sessions state` returns them as `conversation_sessions`, the kit
+skips them whether swept or named, and the daemon refuses to record a nudge of
+one or to accept a revive job for one. A conversation the
 legacy import holds (`legacy_hold`, C-30.4) gets no turn: nothing is
 dispatched or re-admitted, its queued turn job waits at admission
 (`conversation-blocked`), and a turn that kept running across the restart is
 stopped when the daemon adopts it; one stopped before its message was written
-is re-admitted once the hold lifts. An external writer (a
-live pid in `~/.claude/sessions/*.json` naming the session that carries no
-Subfleet markers and is not a recorded owned identity) is an admission wait
-`external-writer` shown in the app ("open in the Claude app; close it there
-to continue here"), not a refusal.
+is re-admitted once the hold lifts. An external Claude writer (a live pid
+registered for the session in `~/.claude/sessions/*.json` whose environment
+carries no `SUBFLEET_ATTEMPT`) is an admission wait `external-writer`, not a
+refusal: the turn job places nothing, and the waiting message's reason says
+so for the app to show ("open in the Claude app; close it there to continue
+here") until the process is gone. The registry is read at most every 2 s. A
+Codex thread with an active turn is found when the turn starts and the
+message is re-admitted.
 
 **D-18. Handoffs are labelled.** Moving a conversation to the other provider,
 or out of a Codex home it cannot run in, creates a new conversation whose

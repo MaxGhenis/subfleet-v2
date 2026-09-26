@@ -457,3 +457,17 @@ def test_the_sweep_asks_the_daemon_for_state_once(home, policy):
     sweep(daemon, policy, scope="interrupted", manual=False)
     assert len(daemon.state_calls) == 1
     assert {session for session, _text in daemon.pings} == {ALICE, BOB}
+
+
+def test_a_conversation_bound_session_is_never_nudged(home, policy):
+    """C-26.3, design D-17 (review M3): a session a Subfleet conversation is bound
+    to is continued by that conversation alone; no sweep, and no person naming
+    it, nudges it, and nothing is recorded or sent."""
+    live(home, ALICE, entries=fx.interrupted(age_s=1800))
+    daemon = fx.FakeSessions(conversation_sessions=[ALICE.upper()])
+    for kwargs in ({"scope": "interrupted", "manual": False},
+                   {"scope": "interrupted", "manual": True, "only": [ALICE], "force": True}):
+        report = sweep(daemon, policy, **kwargs)
+        assert [item.reason for item in report.outcomes] == [
+            "bound to a Subfleet conversation — never nudged (C-26.3)"]
+    assert daemon.pings == [] and daemon.records == []

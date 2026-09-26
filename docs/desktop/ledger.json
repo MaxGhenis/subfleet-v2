@@ -379,8 +379,10 @@
         "C-26.3"
       ],
       "status": "open",
-      "evidence": [],
-      "notes": ""
+      "evidence": [
+        "tests/unit/test_legacy_hold.py: a blocked conversation gets no turn by any path; resume refuses a turn source and a conversation-bound session; the daemon and the sessions kit never revive or nudge one; a live Claude process outside Subfleet is an admission wait"
+      ],
+      "notes": "Open: concurrent independent conversations and the lease waits of resume, revive and handoff reservations have no evidence here yet."
     },
     {
       "id": "R-3",
@@ -464,9 +466,9 @@
         "tests/unit/test_importer.py, legacy cockpit section: per-message classification, repeated import creates nothing, held sessions (a message or journal entry, a live cockpit worker or Claude process, and every session while the journal, outbox or workers file cannot be read or the broker runs), every conversation of a held session fenced before anything is placed whatever its origin, one spelling per session, no session or row ends a pass, client journal, dry run, daemon.lock",
         "tests/unit/test_conversation_store.py: legacy history is terminal, idempotent by id, written first, never dispatched",
         "tests/e2e/test_legacy_cockpit.py: imported history reopens through the daemon by its native session, and a new message resumes that session while no history row is sent",
-        "tests/unit/test_legacy_hold.py: the import's hold keeps every turn off its conversation (no dispatch, no re-admission, no admission of a queued turn job, a running turn stopped on adoption), and no outcome, unblock or resolve replaces or lifts it"
+        "tests/unit/test_legacy_hold.py: the import's hold keeps every turn off its conversation (no dispatch, no re-admission, no admission of a queued turn job, a running turn stopped on adoption), and no outcome, unblock or resolve replaces or lifts it; resume refuses a turn source and a conversation-bound session, the daemon and the sessions kit never revive or nudge one, and a live Claude process outside Subfleet is an admission wait"
       ],
-      "notes": "Not run against the real v1 state yet. A dry run over a private copy of the real outbox (2026-09-24, scratch state root) placed all 6 finished messages as history in 3 legacy conversations. A real pass needs the daemon stopped (docs/migration.md, 'The legacy cockpit, milestone 9')."
+      "notes": "The hold rests on C-24.5 and C-26.3 (R-2), which stay open: the tests above cover the paths the hold and the one-writer rule close, not all of R-2. Not run against the real v1 state yet. A dry run over a private copy of the real outbox (2026-09-24, scratch state root) placed all 6 finished messages as history in 3 legacy conversations. A real pass needs the daemon stopped (docs/migration.md, 'The legacy cockpit, milestone 9')."
     },
     {
       "id": "R-10",

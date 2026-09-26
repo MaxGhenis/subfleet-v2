@@ -100,6 +100,7 @@ class Candidate:
     retired: dict | None = None
     last_revive: dict | None = None
     live_pids: tuple[int, ...] = ()
+    conversation_bound: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {"session_id": self.session_id, "transcript": self.transcript,
@@ -107,7 +108,8 @@ class Candidate:
                 "model": self.model, "desktop_owned": self.desktop_owned,
                 "lane": self.lane, "retired": self.retired,
                 "last_revive": self.last_revive,
-                "live_pids": list(self.live_pids), "state": self.state.to_dict()}
+                "live_pids": list(self.live_pids), "conversation_bound": self.conversation_bound,
+                "state": self.state.to_dict()}
 
 
 @dataclass
@@ -173,8 +175,9 @@ def store_metadata(session_id: str) -> dict[str, Any]:
 
 def inspect(session_id: str, *, lane_ids: set[str], facts: dict[str, Any],
             transcript: str | Path | None = None,
-            now: datetime | None = None) -> Candidate:
-    """Everything the revive decision needs, read once."""
+            now: datetime | None = None, bound: set[str] = frozenset()) -> Candidate:
+    """Everything the revive decision needs, read once. `bound` is the daemon's
+    `conversation_sessions` (C-26.3)."""
     path = Path(transcript) if transcript else transcripts.transcript_path(session_id)
     state = transcripts.turn_state(path, now=now or datetime.now(timezone.utc))
     meta = store_metadata(session_id)
@@ -195,6 +198,7 @@ def inspect(session_id: str, *, lane_ids: set[str], facts: dict[str, Any],
         retired=(facts.get("retired") if facts else None),
         last_revive=(facts.get("last_revive") if facts else None),
         live_pids=live.live_pids if live else (),
+        conversation_bound=session_id.lower() in bound,
     )
 
 
@@ -206,6 +210,11 @@ def admits(candidate: Candidate, *, policy: dict[str, Any], opt_in: bool,
     something the operator can act on come before the ones that do not.
     """
     settings = policy.get("sessions", {})
+    if candidate.conversation_bound:
+        # C-26.3, design D-17: its conversation continues it, one turn at a time;
+        # a headless revive beside it would be a second writer.
+        return False, "bound to a Subfleet conversation — continued there, never revived", \
+            "send the next message in its conversation"
     if candidate.lane:
         # C-23.31: 2026-09-04, the sweep revived five dead `claude -p` lane runs
         # as untracked continuations on lane tokens — a lane's continuation has
@@ -320,7 +329,7 @@ def revive(sessions, policy: dict[str, Any], session_id: str, *,
     lane_ids = set(facts.get("lane_sessions") or [])
     candidate = inspect(session_id, lane_ids=lane_ids,
                         facts=(facts.get("sessions") or {}).get(session_id) or {},
-                        transcript=transcript, now=now)
+                        transcript=transcript, now=now, bound=bound_ids(facts))
     admitted, reason, fix = admits(candidate, policy=policy, opt_in=opt_in, force=force)
     if not admitted:
         return Attempted(session_id=session_id, reason=reason, fix=fix,
@@ -366,10 +375,11 @@ def cold_candidates(sessions, policy: dict[str, Any], *,
     instant = now or datetime.now(timezone.utc)
     facts = sessions.state(sorted(only) if only else None)
     lane_ids = set(facts.get("lane_sessions") or [])
+    bound = bound_ids(facts)
     by_id = facts.get("sessions") or {}
     if only:
         return [inspect(session_id, lane_ids=lane_ids,
-                        facts=by_id.get(session_id) or {}, now=instant)
+                        facts=by_id.get(session_id) or {}, now=instant, bound=bound)
                 for session_id in only]
     live_ids = {item.session_id for item in
                 registry.sessions(lane_ids=lane_ids, include_lanes=True, live_only=True)}
@@ -378,7 +388,13 @@ def cold_candidates(sessions, policy: dict[str, Any], *,
                                      max_age_s=window, now=instant)
     return [inspect(row.session_id, lane_ids=lane_ids,
                     facts=by_id.get(row.session_id) or {},
-                    transcript=row.transcript, now=instant) for row in rows]
+                    transcript=row.transcript, now=instant, bound=bound) for row in rows]
+
+
+def bound_ids(facts: dict[str, Any]) -> set[str]:
+    """C-26.3: the sessions the daemon's conversations are bound to, in lower case
+    (a daemon that predates the answer binds none)."""
+    return {str(value).lower() for value in facts.get("conversation_sessions") or []}
 
 
 def render(attempts: Sequence[Attempted]) -> str:
@@ -395,6 +411,6 @@ def render(attempts: Sequence[Attempted]) -> str:
 
 
 __all__ = ["Attempted", "Candidate", "OPT_IN_FIX", "PROBE_PROMPT", "REQUIRED_MODE",
-           "REVIVE_MESSAGE", "ReviveRefused", "admits", "cold_candidates", "inspect",
+           "REVIVE_MESSAGE", "ReviveRefused", "admits", "bound_ids", "cold_candidates", "inspect",
            "model_for", "render", "revive", "session_store_dir",
            "store_metadata", "submit_args"]

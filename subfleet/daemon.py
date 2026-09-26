@@ -65,7 +65,8 @@ ADMISSION_IDLE_REPEAT_S = 600
 ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 #: C-6.11: waits that are a person's or a retry's to end, not admission's. A
 #: turn held for its conversation (C-24.5, C-30.4) is not admission's to place.
-NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked")
+NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked",
+                           "external-writer")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job"})
@@ -831,6 +832,10 @@ class Daemon:
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
             raise AdapterError("a turn job needs its conversation's turn block", code=7)
+        if args.kind == "revive" and self.conversations.bound_session(args.caller_session):
+            # C-26.3, D-17: a conversation-bound session is never revived.
+            raise AdapterError("this session is bound to a Subfleet conversation, which continues it", code=7,
+                               fix="send the next message in its conversation")
         with self._submit_lock:
             reason = args.unmeasured_reserve_reason
             if reason is not None:
@@ -1054,6 +1059,11 @@ class Daemon:
         if not args.parent_job_id:
             raise protocol.ProtocolError("resume requires its source parent_job_id")
         source = self._job(args.parent_job_id)
+        if source["kind"] == "turn":
+            # C-26.3, D-17: a turn's session belongs to its conversation, which
+            # alone continues it, one turn at a time.
+            raise AdapterError("a conversation turn is not resumed; its conversation continues it", code=7,
+                               fix="send the next message in its conversation (message.submit)")
         if source["state"] not in TERMINAL or self.store.one(
                 "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
                 "('reserved','starting','running','finalizing','quarantined')", (source["job_id"],)):
@@ -1070,6 +1080,9 @@ class Daemon:
         native = attempt["native_session_id"] or self._legacy_resume_identity(attempt)
         if not native:
             raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job")
+        if self.conversations.bound_session(native):
+            raise AdapterError("the source's session is bound to a Subfleet conversation, which continues it",
+                               code=7, fix="send the next message in its conversation")
         # A continuation belongs to the source execution workspace, even when
         # that was an allocated worktree containing uncommitted provider work.
         # Independent allows continuing a cancelled source without reviving its
@@ -1628,7 +1641,9 @@ class Daemon:
                     "last_revive": latest.get(f"{REVIVE_EVENT}:{session}"),
                     "revive_holder": leases.get(revive_lease_key(session)),
                 }
-            return {"sessions": state, "lane_sessions": self._lane_session_ids()}
+            # C-26.3, D-17: listed, never nudged, revived or cold-swept.
+            return {"sessions": state, "lane_sessions": self._lane_session_ids(),
+                    "conversation_sessions": self.conversations.bound_sessions()}
         if action == "revived":
             if not args.session_id:
                 raise protocol.ProtocolError("sessions revived: session_id is required")
@@ -1652,6 +1667,10 @@ class Daemon:
         if action == "nudged":
             if not args.session_id:
                 raise protocol.ProtocolError("sessions nudged: session_id is required")
+            if self.conversations.bound_session(args.session_id):
+                # C-26.3, D-17: a nudge would be a second writer in the conversation's session.
+                return {"recorded": False, "session_id": args.session_id,
+                        "reason": "bound to a Subfleet conversation, which continues it (C-26.3)"}
             # C-23.33's dedupe and cooldown are re-checked HERE, inside the
             # transaction that records the nudge, so two sweeps racing over one
             # session cannot both reserve it. The worker has already decided

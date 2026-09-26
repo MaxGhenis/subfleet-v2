@@ -292,6 +292,7 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
     # the set that can be skipped — a session with no record has nothing to say.
     facts = sessions.state(sorted(wanted) if wanted else None)
     lane_ids = lane_ids_of(facts)
+    bound = {str(value).lower() for value in facts.get("conversation_sessions") or []}
     state_by_id = facts.get("sessions") or {}
     # A caller who names a session gets an answer about it even when it is a
     # lane run, so the refusal can name the reason (C-23.31).
@@ -322,6 +323,13 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
             report.outcomes.append(Outcome(
                 session_id=item.session_id, scope=scope, name=item.row.name,
                 pid=item.pid, reason="this session (a sweep never nudges itself)"))
+            continue
+        if item.session_id.lower() in bound:
+            # C-26.3, design D-17: its conversation continues it; a nudge would be
+            # a second writer in the session, whoever asked for it.
+            report.outcomes.append(Outcome(
+                session_id=item.session_id, scope=scope, name=item.row.name, pid=item.pid,
+                reason="bound to a Subfleet conversation — never nudged (C-26.3)"))
             continue
         if item.lane:
             # C-23.31: a headless lane run is never a notice target; its
