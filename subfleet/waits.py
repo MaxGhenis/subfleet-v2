@@ -31,9 +31,12 @@ each takes what SQLite takes, plus up to `READ_WAIT_S` for a read connection.
 The hub never leaves a waiter asleep. A pass that raises wakes every waiter to
 read for itself, and the hub goes on; if its thread ends anyway, it wakes every
 waiter as it goes, and the next registration or the next wait starts another.
-A thread that ended less than `recheck_s` after it started is not restarted
-at once: until it is, each wait lasts at most `recheck_s` and its waiter reads
-again, so a hub that cannot stay up turns its waiters into slow pollers.
+A thread is not started less than `recheck_s` after the last start was tried,
+and one that cannot be started (the process is out of threads) is reported and
+tried again after `recheck_s`: until one runs, each wait lasts at most
+`recheck_s` and its waiter reads again, so a hub that cannot stay up, or
+cannot start, turns its waiters into slow pollers, and a registration is
+always withdrawn when its wait ends.
 """
 
 from __future__ import annotations
@@ -87,12 +90,15 @@ class WaitHub:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._started_at: float | None = None
-        #: Passes that read the store (for tests and `daemon.status`).
+        self._tried_at: float | None = None    # the last start tried
+        self._started = False
+        #: Passes that read the store (tests and `daemon.status` `wait_hub`).
         self.reads = 0
-        #: Times the hub's thread ended other than by `stop`, and was started again.
+        #: Times the hub's thread ended other than by `stop`, was started again,
+        #: and could not be started (no thread to be had).
         self.deaths = 0
         self.restarts = 0
+        self.start_failures = 0
 
     # --- waiters --------------------------------------------------------------
 
@@ -106,9 +112,11 @@ class WaitHub:
             self._dirty = True
             if self._stop.is_set():
                 waiter.event.set()
-        self.ensure_running()
-        self._wake.set()
         try:
+            # Inside the try: a thread that cannot be started (the process is
+            # out of threads) must not leave this waiter registered for good.
+            self.ensure_running()
+            self._wake.set()
             yield waiter.event
         finally:
             with self._lock:
@@ -116,20 +124,30 @@ class WaitHub:
 
     def ensure_running(self) -> bool:
         """Start the hub's thread unless it runs, or the hub is stopped. False when
-        it is down and ended too soon after its last start to be started again
-        yet (the caller's wait is then cut to `recheck_s`)."""
+        it is down and cannot be started yet: its last start was less than
+        `recheck_s` ago, or no thread could be had (the caller's wait is then
+        cut to `recheck_s`, and the next one tries again)."""
+        failed = None
         with self._lock:
             if self._stop.is_set() or (self._thread is not None and self._thread.is_alive()):
                 return True
             now = self.clock()
-            if self._started_at is not None and now - self._started_at < self.recheck_s:
+            if self._tried_at is not None and now - self._tried_at < self.recheck_s:
                 return False
-            if self._started_at is not None:
-                self.restarts += 1
-            self._started_at, self._dirty = now, True
-            self._thread = threading.Thread(target=self._run, name="subfleet-waits", daemon=True)
-            self._thread.start()
-            return True
+            self._tried_at = now
+            thread = threading.Thread(target=self._run, name="subfleet-waits", daemon=True)
+            try:
+                thread.start()
+            except RuntimeError as exc:         # out of threads: nothing is recorded as running
+                failed = exc
+                self.start_failures += 1
+            else:
+                if self._started:
+                    self.restarts += 1
+                self._started, self._dirty, self._thread = True, True, thread
+                return True
+        self._report(failed)
+        return False
 
     def poke(self) -> None:
         """Something may have changed: look now rather than at the next poll."""
@@ -151,6 +169,13 @@ class WaitHub:
     def watched(self) -> int:
         with self._lock:
             return len(self._waiters)
+
+    def status(self) -> dict[str, Any]:
+        """For `daemon.status` (C-15.5): waiters, whether a thread runs, and the counts."""
+        with self._lock:
+            running = self._thread is not None and self._thread.is_alive()
+            return {"waiters": len(self._waiters), "running": running, "reads": self.reads,
+                    "deaths": self.deaths, "restarts": self.restarts, "start_failures": self.start_failures}
 
     # --- the hub --------------------------------------------------------------
 

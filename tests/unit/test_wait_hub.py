@@ -2,9 +2,10 @@
 
 Invariants pinned here:
 
-- a wait returns within `WAIT_POLL_S` (0.1 s) plus the hub's and its own reads
-  after the commit that ends its last job, even when nothing pokes the hub;
-  with a poke, at once;
+- a wait returns within `WAIT_POLL_S` (0.1 s) plus three reads (the hub's read
+  in progress when the commit landed, the hub's read that sees it, and its
+  own) after the commit that ends its last job, even when nothing pokes the
+  hub; with a poke, without the poll;
 - the store reads that waiting costs do not grow with the number of waiters:
   one hub read per commit for all of them, and each waiter reads only when it
   starts and when its jobs are done;
@@ -14,8 +15,9 @@ Invariants pinned here:
 - no wake-up is lost, however commits and registrations interleave;
 - a waiter is always woken or times out: a hub pass that raises wakes every
   waiter, a hub thread that dies wakes them all and is started again, and a
-  hub that cannot stay up leaves its waiters polling every `recheck_s`
-  (property over generated schedules with injected failures and deaths);
+  hub that cannot stay up, or cannot start a thread, leaves its waiters
+  polling every `recheck_s` (property over generated schedules with injected
+  failures and deaths), and no registration outlives its wait;
 - a stopping daemon answers every waiter at once.
 """
 
@@ -103,7 +105,8 @@ def test_an_unpoked_wait_returns_within_the_poll(daemon):
     committed = end(daemon, job, notify=False)
     waiter.join(5)
     assert waiter.result["timeout"] is False
-    # The contract is WAIT_POLL_S plus the hub's and the waiter's reads; the margin is for a loaded machine.
+    # The contract is WAIT_POLL_S plus three reads (C-15.5). The hub is idle when the commit
+    # lands, so here it is the hub's read and the waiter's; the margin is for a loaded machine.
     assert waiter.returned - committed < WAIT_POLL_S + .5
 
 
@@ -374,6 +377,44 @@ def test_a_hub_whose_thread_dies_wakes_everyone_and_is_started_again():
             assert hub.restarts == 1 and hub._thread is not None and hub._thread.is_alive()
     finally:
         hub.stop()
+
+
+def test_a_hub_that_cannot_start_leaves_its_waiters_polling_and_no_registration_behind(monkeypatch):
+    """Review of 139409b: `watching` started the hub after registering and outside
+    its try, so a thread that could not be started (RuntimeError: can't start new
+    thread) raised out of it with the waiter still registered, its jobs read on
+    every later pass; and `ensure_running` had already recorded the thread it
+    could not start, so `stop` raised trying to join it. A start that fails is
+    now reported and recorded as nothing running: the wait polls every
+    `recheck_s` meanwhile, and a later start is tried after `recheck_s`."""
+    store, errors = FakeStore(), []
+    hub = WaitHub(store, poll_s=.01, recheck_s=.1, on_error=errors.append)
+    store.add("j")
+    start = threading.Thread.start
+
+    def cannot(self):
+        if self.name == "subfleet-waits":
+            raise RuntimeError("can't start new thread")
+        return start(self)
+    monkeypatch.setattr(threading.Thread, "start", cannot)
+    try:
+        with hub.watching(["j"]) as event:
+            assert hub.watched == 1 and hub.status()["running"] is False
+            began = time.monotonic()
+            assert event.wait(30) is False                  # cut to recheck_s: its waiter reads again
+            assert time.monotonic() - began < 5
+        assert hub.watched == 0
+        assert hub.start_failures >= 1 and isinstance(errors[0], RuntimeError)
+        monkeypatch.setattr(threading.Thread, "start", start)
+        time.sleep(.15)                                     # past recheck_s since the last try
+        with hub.watching(["j"]) as event:
+            assert hub.status()["running"] is True
+            store.end("j")
+            hub.poke()
+            assert event.wait(2)
+        assert hub.watched == 0 and hub.restarts == 0       # its first thread, not a restart
+    finally:
+        hub.stop()                                          # no unstarted thread to join
 
 
 def test_a_hub_that_cannot_stay_up_turns_its_waiters_into_slow_pollers():

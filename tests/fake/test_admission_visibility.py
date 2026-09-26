@@ -261,6 +261,16 @@ def test_c6_11_status_reports_admission_and_counts_only_live_jobs(fleet):
     assert "admission: 1 pending, none placed for 37" in text and "no-lanes x1" in text
 
 
+def test_c3_7_c15_5_status_reports_the_read_pool_and_the_wait_hub(fleet):
+    """An operator can see a starved read pool and a wait hub that keeps dying."""
+    service, _ = fleet
+    data = service.dispatch("daemon.status", {})
+    assert data["read_pool"]["size"] == daemon_module.READ_CONNECTIONS
+    assert {"snapshot_share", "in_use", "waits", "own_connections", "longest_wait_s"} <= set(data["read_pool"])
+    assert data["wait_hub"] == {"waiters": 0, "running": False, "reads": 0, "deaths": 0, "restarts": 0,
+                                "start_failures": 0}
+
+
 # --- a worker that raises (C-5.10) --------------------------------------------------------------
 
 def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(fleet, monkeypatch):
