@@ -534,3 +534,17 @@ def test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census(daemon
         assert a["outcome_detail"] == detail
     else:
         assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
+
+
+def test_c5_12_the_control_loop_forgets_the_inspection_clock_of_an_attempt_that_is_not_live(daemon):
+    """C-5.12 `_inspect_next` keeps an entry only for a live attempt: each control tick drops the rest."""
+    ended = add_running(daemon, JOB + "-b", 5252)
+    daemon.store.update_attempt(ended, state="failed")
+    daemon._inspect_next = {ATTEMPT: 5.0, ended: 5.0, "20260905-090000-gone/a1": 5.0}
+    scheduled, ticks = [], []
+    daemon._schedule = lambda key, *args, **kwargs: scheduled.append(key)
+    daemon._recovery_complete, daemon._last_maintenance, daemon.tick_s = threading.Event(), time.monotonic(), .05
+    daemon.stopping = SimpleNamespace(is_set=lambda: ticks.append(1) or len(ticks) > 1, wait=lambda timeout: False)
+    daemon._control()                                          # one tick
+    assert daemon._inspect_next == {ATTEMPT: 5.0}
+    assert ATTEMPT in scheduled and ended not in scheduled
