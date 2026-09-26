@@ -23,6 +23,7 @@ from subfleet.actions import ResetCredits
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
 from subfleet.gate.service import GateError, GateService
+from subfleet.capacity import _iso, _time
 from subfleet.store import Store, _json
 
 SEEDS = range(40)
@@ -291,25 +292,74 @@ def test_batches_and_submissions_are_found_by_job_id(tmp_path):
 
 # --- reset-credit overrides -----------------------------------------------------------
 
+def old_belongs_to_lane(store, action, lane_id):
+    """`ResetCredits._belongs_to_lane` before 88fb6d5: a lane row read per question."""
+    lane = store.get_lane(lane_id)
+    if lane is None:
+        return action["subject"] == lane_id
+    request = json.loads(action.get("request_json") or "{}")
+    account = request.get("account_key")
+    if account is not None and account != lane.account_key:
+        return False
+    if request.get("lane_id") == lane_id or account == lane.account_key:
+        return True
+    if action["subject"] in (lane_id, lane.account_key):
+        return True
+    return (action["subject"] == lane.home and
+            action["op_key"].startswith(lane.account_key + ":"))
+
+
+def old_confirmed_override(store, lane_id, *, now):
+    """`ResetCredits.confirmed_override` before 88fb6d5, kept as the independent
+    reference: it read the reconciliations, the whole reset-credit history and a
+    lane row per action itself, on every question (review of 5841d8b: the test
+    used to compare the new code with itself)."""
+    instant = _time(now)
+    reconciled = {json.loads(row["data_json"]).get("action_id") for row in store.query(
+        "SELECT data_json FROM events WHERE kind='action.reconciled'")}
+    history = store.query("SELECT * FROM actions WHERE kind='reset-credit' ORDER BY created_at,action_id")
+    for action in reversed(history):
+        if (not old_belongs_to_lane(store, action, lane_id) or action["state"] != "confirmed"
+                or action["action_id"] in reconciled):
+            continue
+        confirmed = _time(action["updated_at"])
+        if confirmed + timedelta(days=7) <= instant:
+            return None
+        return {"action_id": action["action_id"], "confirmed_at": _iso(confirmed),
+                "weekly_reset_at": _iso(confirmed + timedelta(days=7)), "clock_source": "guessed"}
+    return None
+
+
 @pytest.mark.parametrize("seed", SEEDS)
-def test_a_shared_override_context_answers_as_a_fresh_read(store, seed):
+def test_a_shared_override_context_answers_as_a_fresh_read(store, tmp_path, seed):
+    """The new context-sharing forms, each against the pre-88fb6d5 reference: a
+    context shared across lanes, a fresh read per question, and the context a
+    view reads in its snapshot, with lane lookups answered from its lane rows."""
+    from subfleet.timers import Timers
     rng = random.Random(seed)
     credits = ResetCredits(store, {})
+    homes = {lane: str(tmp_path / f"home{lane}") for lane in range(1, 4)}
     for n in range(rng.randrange(0, 25)):
         lane = rng.randrange(1, 5)                                   # codex-4 has no lane row
         state = rng.choice(("confirmed", "confirmed", "unknown", "failed", "pending"))
         updated = (BASE - timedelta(days=rng.choice((0, 1, 6, 8)))).strftime("%Y-%m-%dT%H:%M:%SZ")
         request = rng.choice(({}, {"lane_id": f"codex-{lane}"}, {"account_key": f"codex:acct{lane}"},
                               {"account_key": "codex:other"}))
+        subject = rng.choice((f"codex-{lane}", f"codex:acct{lane}", homes.get(lane, "/nowhere")))
+        account = rng.choice((f"codex:acct{lane}", f"codex:acct{lane}", "codex:other"))  # a rebound home
         store.add_action(action_id=f"act-{n}", kind=rng.choice(("reset-credit", "reset-credit", "other")),
-                         op_key=f"codex:acct{lane}:op{n}", subject=rng.choice((f"codex-{lane}", f"codex:acct{lane}")),
+                         op_key=f"{account}:op{n}", subject=subject,
                          state=state, request_json=json.dumps(request), created_at=updated, updated_at=updated)
         if rng.random() < .2:
             event(store, "action.reconciled", {"action_id": f"act-{n}"})
     context = credits.override_context()
+    viewed = Timers(store, tmp_path / "timers", {}).view_rows(store.lane_rows())["overrides"]
     for lane in ("codex-1", "codex-2", "codex-3", "codex-4"):
-        assert (credits.confirmed_override(lane, now=BASE, context=context)
-                == credits.confirmed_override(lane, now=BASE))
+        expected = old_confirmed_override(store, lane, now=BASE)
+        assert credits.confirmed_override(lane, now=BASE, context=context) == expected, lane
+        assert credits.confirmed_override(lane, now=BASE) == expected, lane
+        assert Timers(store, tmp_path / "timers", {}).actions.confirmed_override(
+            lane, now=BASE, context=viewed) == expected, lane
 
 
 # --- session events -------------------------------------------------------------------
