@@ -2998,10 +2998,13 @@ class Daemon:
         # C-5.12: everything above is files and rows and runs every tick. What
         # follows asks the operating system, so a healthy attempt is inspected
         # once per interval, from one process table shared by every attempt.
-        if time.monotonic() < self._inspect_next.get(aid, 0):
+        # It is next inspected when the table it was given expires, which is
+        # when a new one may be read: timed from before the read, the next
+        # inspection fell just short of that and took the same table again.
+        now = time.monotonic()
+        if now < self._inspect_next.get(aid, 0):
             return
-        self._inspect_next[aid] = time.monotonic() + self.inspect_interval_s
-        table = self._process_table()
+        table, self._inspect_next[aid] = self._process_table(now)
         if table is not None and table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
             self._record_owned(a, table)
             return  # Re-adopted solely by receipt identity, not parentage.
@@ -3036,21 +3039,28 @@ class Daemon:
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
-    def _process_table(self) -> procs.ProcessTable | None:
-        """C-5.12: one `ps` per `inspect_interval_s`, whoever asks; None if it failed.
+    def _process_table(self, asked: float) -> tuple[procs.ProcessTable | None, float]:
+        """C-5.12: the table for an inspection asked for at `asked` (None if its
+        read failed), and when that table expires.
 
-        A read that failed is rationed like one that worked. `ps` can take its
-        whole 10 s cap to fail, under this lock, and every attempt asks: retried
-        per caller, an outage would hold a worker per running attempt in turn.
+        A table serves the inspections asked for within `inspect_interval_s` of
+        the moment its read began, so none is given a table whose read began
+        longer ago than that, and `ps` starts at most once per interval however
+        many attempts ask and however long it takes: an inspection that waited
+        on the lock while a read ran is given that read. A read that failed is
+        rationed like one that worked. `ps` can take its whole 10 s cap to fail,
+        under this lock, and every attempt asks: retried per caller, an outage
+        would hold a worker per running attempt in turn.
         """
         with self._table_lock:
-            if time.monotonic() >= self._table_next:
+            if asked >= self._table_next:
+                began = time.monotonic()
                 try:
                     self._table = procs.snapshot()
                 except procs.InspectionError:
                     self._table = None
-                self._table_next = time.monotonic() + self.inspect_interval_s
-            return self._table
+                self._table_next = began + self.inspect_interval_s
+            return self._table, self._table_next
 
     def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
         """C-5.6: remember the group's members while the recorded guardian leads it.

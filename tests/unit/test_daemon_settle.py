@@ -49,8 +49,9 @@ def daemon(tmp_path, monkeypatch):
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s = .05, .3, .3
     core._exit_settle = {}
     core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
-    # C-5.12: no shared process table here, so every verdict is the injected `liveness`.
-    core._inspect_next, core.inspect_interval_s, core._process_table = {}, .5, lambda: None
+    # C-5.12: a shared process table that shows no process, so every verdict is the injected `liveness`.
+    core._inspect_next, core.inspect_interval_s = {}, .5
+    core._process_table = shared(ProcessTable({}, "boot"))
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
     core._salvage = lambda job, a: ([], None)
@@ -281,11 +282,20 @@ def table_showing(*rows) -> ProcessTable:
     return ProcessTable({pid: (ppid, pgid, stat, STARTED) for pid, ppid, pgid, stat in rows}, "boot")
 
 
+def shared(table: ProcessTable | None, reads: list | None = None):
+    """A stand-in for `Daemon._process_table` that gives every inspection `table`, due again .5 s after it asked."""
+    def process_table(asked):
+        if reads is not None:
+            reads.append(1)
+        return table, asked + .5
+    return process_table
+
+
 def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_table(daemon, monkeypatch):
     """C-5.12, C-5.6 the shared table answers "alive" and lists the group; nothing else is asked until the interval ends."""
     reads = []
-    daemon._process_table = lambda: reads.append(1) or table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"),
-                                                                     (4300, 1, 4300, "S"))
+    daemon._process_table = shared(table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"), (4300, 1, 4300, "S")),
+                                   reads)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("the table already answered"))
     monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("no second table"))
     daemon._contain = never_census
@@ -305,7 +315,7 @@ def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_
 
 def test_c5_12_the_receipt_is_read_every_tick_whatever_the_inspection_interval(daemon, monkeypatch):
     """C-4.2, C-5.12 rate-limiting inspection never delays a normal end: exit.json is files, not `ps`."""
-    daemon._process_table = lambda: table_showing((4242, 1, 4242, "Ss"))
+    daemon._process_table = shared(table_showing((4242, 1, 4242, "Ss")))
     daemon._process_attempt(ATTEMPT)
     assert daemon._inspect_next[ATTEMPT] > time.monotonic()   # inside the interval now
     publish_receipt(daemon, rc=0)
@@ -316,7 +326,7 @@ def test_c5_12_the_receipt_is_read_every_tick_whatever_the_inspection_interval(d
 def test_c5_12_a_shared_table_never_pronounces_death(daemon, monkeypatch):
     """C-5.12, C-4.2 a guardian the table does not show is asked about afresh; alive there, it stays running."""
     with_launch(daemon, monkeypatch)
-    daemon._process_table = lambda: table_showing((9999, 1, 9999, "S"))
+    daemon._process_table = shared(table_showing((9999, 1, 9999, "S")))
     asked = []
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: asked.append(args) or "alive")
     monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table_showing((4242, 1, 4242, "Ss")))
@@ -351,8 +361,64 @@ def test_c5_12_a_failed_process_table_read_is_rationed_like_a_good_one(daemon, m
         raise procs.InspectionError("ps timed out")
     monkeypatch.setattr(daemon_module.procs, "snapshot", failing)
     daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
-    assert [Daemon._process_table(daemon) for _ in range(6)] == [None] * 6
+    assert [Daemon._process_table(daemon, time.monotonic())[0] for _ in range(6)] == [None] * 6
     assert reads == [1]
     daemon._table_next = 0.0                                      # the interval ends
     monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table_showing((4242, 1, 4242, "Ss")))
-    assert Daemon._process_table(daemon).is_process(4242, "boot", STARTED)
+    assert Daemon._process_table(daemon, time.monotonic())[0].is_process(4242, "boot", STARTED)
+
+
+def add_running(core, job_id: str, guardian: int) -> str:
+    """Another running attempt beside the fixture's, led by `guardian`."""
+    core.store.add_job(job_id=job_id, request_id=job_id, payload_digest="digest", kind="run", state="running",
+                       workdir=str(core.root), prompt_path=str(core.root / "prompt.md"), sandbox="read-only")
+    core.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="codex-1",
+                           model_requested="astra", state="running", guardian_pid=guardian,
+                           child_pid=guardian + 1, pgid=guardian, boot_id="boot", proc_start=STARTED,
+                           started_at="2026-09-05T14:00:00Z", evidence_json="{}")
+    attempt_dir(core.root, job_id, 1).mkdir(parents=True)
+    return job_id + "/a1"
+
+
+@pytest.mark.parametrize("died_at", [103.37, 104.99])
+@pytest.mark.parametrize("read_s", [.02, .3, .72])
+def test_c5_12_no_inspection_is_given_a_table_read_more_than_one_interval_before_it(daemon, monkeypatch,
+                                                                                   read_s, died_at):
+    """C-5.12 on a fake clock: a table serves the inspections asked for within one interval of its read's start,
+    `ps` starts at most once per interval and at least once per interval and tick, and a guardian that dies is
+    seen within one interval, one tick and one read. `ps` taking 0.72 s is what it took here at load 43."""
+    with_launch(daemon, monkeypatch)
+    clock, tick_s = [100.0], .05
+    monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
+    daemon.inspect_interval_s = 1.0
+    attempts = [ATTEMPT, add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
+    reads: list[tuple[ProcessTable, float]] = []               # each table read, and when its read began
+
+    def snapshot():
+        started = clock[0]
+        clock[0] += read_s                                     # the kernel is read as `ps` starts
+        table = table_showing(*[(pid, 1, pid, "Ss") for pid in (4242, 5252, 6262) if pid != 4242 or started < died_at])
+        reads.append((table, started))
+        return table
+    monkeypatch.setattr(daemon_module.procs, "snapshot", snapshot)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")   # asked once the table stops showing it
+    uses, asking = [], [0.0]
+    daemon._record_owned = lambda a, table: uses.append((asking[0], next(t for read, t in reads if read is table)))
+    daemon._contain = lambda a: EMPTY
+    seen_at = None
+    while clock[0] < died_at + 3:
+        for aid in attempts:
+            asking[0] = clock[0]
+            daemon._process_attempt(aid)
+        if seen_at is None and attempt(daemon)["state"] != "running":
+            seen_at = clock[0]
+        clock[0] += tick_s
+    gaps = [later - earlier for (_, earlier), (_, later) in zip(reads, reads[1:])]
+    assert len(uses) > 3 * len(reads) / 2                      # the table was shared
+    assert max(asked - read for asked, read in uses) < daemon.inspect_interval_s
+    assert min(gaps) >= daemon.inspect_interval_s - 1e-9
+    assert max(gaps) <= daemon.inspect_interval_s + tick_s + 1e-9
+    assert attempt(daemon)["state"] == "lost"
+    assert seen_at - died_at <= daemon.inspect_interval_s + tick_s + read_s + 1e-9

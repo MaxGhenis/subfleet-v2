@@ -17,6 +17,7 @@ On 2026-09-20 the laptop's closed-lid thermal guard SIGSTOPped the daemon from 1
 ## What changed (C-5.12)
 
 - A healthy running attempt's processes are inspected once per `inspect_interval_s` (1 s), from one process table that every running attempt shares. The receipt, a cancel request and the wall clock are still read on every tick.
+- A table serves the inspections asked for within 1 s of the moment its read began, and an attempt is next inspected when the table it was given expires, so each inspection is given a new table. As first written, the next inspection was timed from before the read and fell just short of the table's expiry, so every other inspection reused a table: tables were read about every 2 s, and a death was seen up to about 2.5 s after it (found in review, 2026-09-25; `test_c5_12_no_inspection_is_given_a_table_read_more_than_one_interval_before_it` pins the bounds on a fake clock).
 - The table is C-5.5's snapshot with `lstart` added. It answers the C-5.3 identity question for any number of pids, so a census is two `ps` reads instead of `2 + 3N`.
 - The shared table can only say "alive", and only on an exact match. Anything else goes to a fresh `liveness`, and every census that decides anything is still read fresh.
 - One boot-identity read is reused for 5 s, if it is the boot session UUID. The `kern.boottime` seconds that a failed UUID read falls back to are not kept: for as long as they were, every process recorded with the UUID would compare as unknown, and the kill protocol could not signal it (found in review, 2026-09-25). A boot mismatch is read again before it counts. A table read that fails is rationed like one that works.
@@ -40,5 +41,5 @@ The measuring process is small (a fork from it is cheap), so the baseline column
 
 ## What this does not change
 
-- How soon an abnormal guardian death is noticed is now up to 1 s, not 50 ms. A normal end is unaffected, because it is read from `exit.json` on every tick. A new group member is recorded as owned within 1 s, not 0.5 s; one that escapes before then is quarantined, never signalled (C-5.4).
+- An abnormal guardian death is now noticed by the next table read, which begins within 1 s and one 50 ms tick of the death, once that `ps` and one fresh `liveness` read have run; it was the next tick and those reads. Under the 2026-09-24 load one `ps` took up to 0.72 s, so the worst case is about 2 s. A normal end is unaffected, because it is read from `exit.json` on every tick. A new group member is recorded as owned by the next table read, not within 0.5 s; one that escapes the group before then is quarantined, never signalled individually (C-5.4).
 - The daemon's resident size (1.0 GB after fifteen hours on 2026-09-21) was not investigated.
