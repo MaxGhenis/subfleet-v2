@@ -68,8 +68,7 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
     digest = hashlib.sha256(data).hexdigest()
     if expected_sha256 is not None and expected_sha256 != digest:
         raise ConversationError("hash-mismatch", "the file does not match the hash the app sent")
-    directory = store.root / "attachments"
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    directory = store.subdirectory("attachments")         # never the state root itself
     target = directory / f"{digest}.{ext}"
     if not target.exists():
         tmp = directory / f".{digest}.{os.getpid()}.tmp"

@@ -18,6 +18,7 @@ FIFO, and the test lets go only after the run has read from it.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import select
@@ -163,34 +164,36 @@ def test_a_run_writes_the_catalog_while_its_owner_is_open(runs, root, fence):
 
 def test_a_run_whose_owner_closes_mid_run_writes_nothing(runs, root, fence):
     """C-30.1: the service closes (its fence's write end with it) while the run
-    reads; the run finishes reading and publishes nothing."""
+    reads; the run finishes reading, publishes nothing and exits OWNER_GONE (after
+    close() no service tracks it, so nothing logs that)."""
     process = runs.spawn(root, fence[0])
     runs.hold()
     close_write_end(fence)
-    assert runs.let_go(process) == 0
+    assert runs.let_go(process) == catalog_module.OWNER_GONE
     assert sorted(os.listdir(root)) == ["catalog.lock"]
 
 
 def test_a_run_started_after_its_owner_closed_touches_nothing(runs, root, fence):
     """C-30.1: a run whose owner had already closed ends at once, before it takes the
     lock, opens `state.sqlite3` or reads a session: it cannot write into the root, not
-    even its lock file. (Started directly: `spawn_refresh`'s own probe makes the lock.)"""
+    even its lock file, and exits OWNER_GONE. (Started directly: `spawn_refresh`'s own
+    probe makes the lock.)"""
     close_write_end(fence)
     process = runs.track(subprocess.Popen(
         [sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(root),
          "--fence-fd", str(fence[0])], cwd=REPO, pass_fds=(fence[0],), start_new_session=True,
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    assert process.wait(30) == 0
+    assert process.wait(30) == catalog_module.OWNER_GONE
     assert os.listdir(root) == [] and runs.unread()           # it read no session
 
 
 def test_a_run_whose_root_is_removed_never_brings_it_back(runs, root):
     """2026-09-25: a run that outlived its owner recreated the removed root. Now it
-    finds its lock gone, writes nothing, and never makes a directory."""
+    finds its lock gone, writes nothing, never makes a directory, and exits OWNER_GONE."""
     process = runs.spawn(root)
     runs.hold()
     shutil.rmtree(root)
-    assert runs.let_go(process) == 0
+    assert runs.let_go(process) == catalog_module.OWNER_GONE
     assert not root.exists()
 
 
@@ -202,7 +205,7 @@ def test_a_run_whose_root_is_replaced_writes_nothing_into_the_new_one(runs, root
     shutil.rmtree(root)
     root.mkdir()
     assert catalog_module.refresh_running(root) is False     # the old run holds only the old lock
-    assert runs.let_go(process) == 0
+    assert runs.let_go(process) == catalog_module.OWNER_GONE
     assert os.listdir(root) == ["catalog.lock"]
 
 
@@ -230,8 +233,92 @@ def test_a_run_without_a_state_root_makes_none(home, tmp_path):
     absent = tmp_path / "absent"
     done = subprocess.run([sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(absent)],
                           capture_output=True, text=True, timeout=60, cwd=REPO)
-    assert done.returncode == 0, done.stderr
+    assert done.returncode == catalog_module.OWNER_GONE, done.stderr
     assert not absent.exists()
+
+
+@pytest.mark.parametrize("how", ["replaced by the run's stdin", "never passed"])
+def test_a_run_that_cannot_read_its_fence_writes_nothing_and_says_so(runs, root, fence, how):
+    """Review of #47: a run whose `--fence-fd` is not the pipe its owner made cannot
+    tell whether that owner is open. It writes nothing, not even its lock, reads no
+    session, and exits FENCE_BROKEN rather than 0, so the service logs it. (A fence at
+    fd 0 was replaced by the run's stdin redirect; the run read end-of-file and exited
+    0, and the catalog went stale without a word.)"""
+    number = "0" if how == "replaced by the run's stdin" else str(fence[0])
+    process = runs.track(subprocess.Popen(
+        [sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(root), "--fence-fd", number],
+        cwd=REPO, pass_fds=(), start_new_session=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    assert process.wait(30) == catalog_module.FENCE_BROKEN
+    assert os.listdir(root) == [] and runs.unread()
+
+
+def test_spawning_refuses_a_fence_the_runs_standard_streams_would_replace(root):
+    """The run's stdin, stdout and stderr are /dev/null: a fence at 0, 1 or 2 would be
+    replaced by that redirect, so `spawn_refresh` refuses one before it touches the root."""
+    for fd in (0, 1, 2):
+        with pytest.raises(ValueError):
+            catalog_module.spawn_refresh(root, fence_fd=fd)
+    assert os.listdir(root) == []
+
+
+# The service's process with some of fds 0, 1 and 2 closed (argv[3]) starts its run and
+# reports its fence and the run's exit status in argv[2], a file opened while all three
+# were still open. It writes nothing to stdout or stderr, which may be closed or the fence.
+FENCE_CHILD = r"""
+import json, logging, os, sys, traceback, types
+from pathlib import Path
+root, closed = Path(sys.argv[1]), [int(n) for n in sys.argv[3].split(",") if n]
+report, result = open(sys.argv[2], "w"), {"log": []}
+log = logging.getLogger("fence-child")
+log.propagate = False
+log.addHandler(type("Keep", (logging.Handler,), {"emit": lambda self, r: result["log"].append(r.getMessage())})())
+try:
+    from subfleet.conversations.service import ConversationService
+    service = ConversationService(types.SimpleNamespace(root=root, log=log))
+    for fd in closed:
+        os.close(fd)
+    result["started"] = service._start_catalog()
+    result["fence"] = list(service._catalog_fence or ())
+    process = service._catalog_proc
+    result["rc"] = None if process is None else process.wait(60)
+    service.close()
+except BaseException:
+    result["error"] = traceback.format_exc()
+report.write(json.dumps(result))
+report.close()
+"""
+
+
+@pytest.fixture
+def plain_home(tmp_path, monkeypatch):
+    """An isolated HOME with nothing to index, so a run finishes at once."""
+    home = tmp_path / "plain-home"
+    (home / ".claude" / "projects").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(home / ".claude"))
+    return home
+
+
+@pytest.mark.parametrize("closed", [(), (0,), (1,), (2,), (0, 1), (0, 2), (1, 2), (0, 1, 2)],
+                         ids=lambda closed: "closed-" + ("".join(map(str, closed)) or "none"))
+def test_the_fence_stays_above_the_standard_streams_whatever_the_service_has_closed(plain_home, root, tmp_path,
+                                                                                    closed):
+    """Review of #47: `os.pipe()` returns the lowest free descriptors. In a daemon with
+    fd 0 closed the fence's read end was 0; the run's stdin redirect replaced it there,
+    and the run read end-of-file, wrote nothing and exited as if its owner had closed.
+    A write end at 1 or 2 would also take the daemon's own output. For every set of
+    0, 1 and 2 the service's process may have closed, both ends sit above 2 and the
+    real run writes the catalog."""
+    out = tmp_path / "fence.json"
+    done = subprocess.run([sys.executable, "-c", FENCE_CHILD, str(root), str(out), ",".join(map(str, closed))],
+                          cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)}, stdin=subprocess.DEVNULL,
+                          capture_output=True, text=True, timeout=120)
+    result = json.loads(out.read_text()) if out.exists() else {}
+    assert done.returncode == 0 and result and "error" not in result, (done.returncode, done.stderr, result)
+    assert result["started"] == {"requested": True, "running": True}, result
+    assert len(result["fence"]) == 2 and min(result["fence"]) > 2, result
+    assert result["rc"] == 0 and (root / "catalog.json").is_file(), (result, sorted(os.listdir(root)))
 
 
 # --- the daemon ------------------------------------------------------------------
@@ -315,7 +402,7 @@ def test_a_run_that_survives_close_still_writes_nothing(runs, identity, tmp_path
             patch.setattr(service_module.os, "killpg", lambda pid, sig: None)
             daemon.close()
         assert process.poll() is None, "the signals were meant to miss"
-        assert runs.let_go(process) == 0
+        assert runs.let_go(process) == catalog_module.OWNER_GONE
         assert not (root / "catalog.json").exists() and not (root / "catalog-cache.json").exists()
     finally:
         daemon.close()
