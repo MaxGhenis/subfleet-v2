@@ -220,7 +220,8 @@ def message_digest(conversation_id: str, text: str, attachments: list[str], sett
 
 
 def _publish(path: Path, data: bytes) -> None:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    """Write `path` by temp, fsync, rename, directory fsync (C-8.1). Its directory
+    must exist: `ConversationStore._publish` makes it, and never the state root."""
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -242,6 +243,10 @@ class ConversationStore:
         self.path = self.root / "conversations.sqlite3"
         self.dir = self.root / "conversations"
         self._lock = threading.RLock()
+        # Held by a file write under the state root (`writing`) and by close(), taken
+        # before `_lock`: close() waits for a write under way, and none starts after it.
+        self._writes = threading.Lock()
+        self._closed = False
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         fresh = not self.path.exists()
         self._db = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None, timeout=5)
@@ -293,25 +298,57 @@ class ConversationStore:
         self._db.execute("COMMIT")
 
     def close(self) -> None:
-        with self._lock:
+        """A file write under way (`writing`) finishes first. Every read, write and
+        file write after this is refused (`store-closed`): a turn runner still going
+        when its service closed wrote into the state root after its owner had removed
+        it, and made the root again (C-25.3)."""
+        with self._writes, self._lock:
+            self._closed = True
             self._db.close()
 
-    def subdirectory(self, name: str) -> Path:
-        """`<root>/<name>`, made if missing, for the files an op writes there. Never the
-        root itself: a write that outlived its owner's close() made the removed state
-        root again (review of #47)."""
-        path = self.root / name
-        try:
-            path.mkdir(mode=0o700, exist_ok=True)
-        except FileNotFoundError:
-            raise ConversationError("state-root-gone", f"the state root {self.root} is gone", code=1) from None
+    def _open(self) -> None:
+        if self._closed:
+            raise ConversationError("store-closed", "the conversation store is closed", code=1)
+
+    @contextlib.contextmanager
+    def writing(self) -> Iterator[None]:
+        """Hold the store open across a write of files under the state root: close()
+        waits for one under way and none starts after it, so none lands in a root its
+        owner removes once close() has returned. The write makes its directories with
+        `subdirectory`, never the root itself."""
+        with self._writes:
+            self._open()
+            yield
+
+    def subdirectory(self, name: str | Path) -> Path:
+        """`<root>/<name>`, each missing level made in turn, for the files an op writes
+        there. Never the root itself: a write that outlived its owner's close() made
+        the removed state root again (review of #47)."""
+        parts = Path(name).parts
+        if not parts or Path(name).is_absolute() or ".." in parts:
+            raise ValueError(f"{name!r} is not a directory below the state root")
+        path = self.root
+        for part in parts:
+            path = path / part
+            try:
+                path.mkdir(mode=0o700, exist_ok=True)
+            except FileNotFoundError:
+                raise ConversationError("state-root-gone", f"the state root {self.root} is gone", code=1) from None
         return path
+
+    def _publish(self, path: Path, data: bytes) -> None:
+        """Publish one of the store's files (a message's text, an approval's request)
+        while the store is open (`writing`), making its directory below the root."""
+        with self.writing():
+            self.subdirectory(path.parent.relative_to(self.root))
+            _publish(path, data)
 
     # --- plumbing --------------------------------------------------------------
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
+            self._open()
             self._db.execute("BEGIN IMMEDIATE")
             try:
                 yield self._db
@@ -328,6 +365,7 @@ class ConversationStore:
 
     def query(self, sql: str, params: tuple = ()) -> list[dict]:
         with self._lock:
+            self._open()
             return [dict(r) for r in self._db.execute(sql, params).fetchall()]
 
     def one(self, sql: str, params: tuple = ()) -> dict | None:
@@ -452,7 +490,7 @@ class ConversationStore:
                     raise ConversationError("bad-text", "a handed-off message must be text of at most 1 MiB")
                 digest = message_digest(cid, text, list(item["attachments"]), settings)
                 path = self.dir / cid / "messages" / f"{message_id}.{digest[:16]}.md"
-                _publish(path, text.encode("utf-8"))          # C-24.3: text before the row
+                self._publish(path, text.encode("utf-8"))     # C-24.3: text before the row
                 prepared["published"].append(path)
                 prepared["rows"].append((message_id, cid, index + 1, after if item["origin"] == "person" else None,
                                          item["origin"], digest, str(path), json.dumps(list(item["attachments"])),
@@ -676,7 +714,7 @@ class ConversationStore:
             if existing["digest"] != digest or existing["conversation_id"] != conversation_id:
                 raise ConversationError("message-id-conflict", "message id already used with different content")
             return _decode_message(existing), False
-        _publish(text_path, text.encode("utf-8"))           # C-24.3: text before the row
+        self._publish(text_path, text.encode("utf-8"))      # C-24.3: text before the row
         with self.transaction() as tx:
             again = tx.execute("SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone()
             if again:
@@ -746,7 +784,7 @@ class ConversationStore:
             raise ConversationError("history-after-messages",
                                     "the conversation already has messages of its own; history goes first")
         text_path = self.dir / conversation_id / "messages" / f"{message_id}.{digest[:16]}.md"
-        _publish(text_path, text.encode("utf-8"))           # C-24.3: text before the row
+        self._publish(text_path, text.encode("utf-8"))      # C-24.3: text before the row
         with self.transaction() as tx:
             again = tx.execute("SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone()
             if again:
@@ -856,7 +894,7 @@ class ConversationStore:
         approval_id = new_id("ap")
         raw = json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
         path = self.dir / conversation_id / "approvals" / f"{approval_id}.json"
-        _publish(path, raw)
+        self._publish(path, raw)
         with self.transaction() as tx:
             tx.execute(
                 "INSERT OR IGNORE INTO approvals(approval_id,message_id,conversation_id,attempt_id,provider_request_id,kind,"
