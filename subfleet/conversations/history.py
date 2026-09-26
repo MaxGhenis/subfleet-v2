@@ -85,7 +85,7 @@ def _earlier(path: Path, start: int) -> int | None:
     if start > BLANK_PROBE:
         return start
     try:
-        with path.open("rb") as handle:
+        with transcripts.open_regular(path) as handle:
             return start if handle.read(start).strip() else None
     except OSError:
         return start

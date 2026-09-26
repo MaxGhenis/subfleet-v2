@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import functools
 import json
 import os
 import re
@@ -60,11 +61,11 @@ def map_permission(mode: str | None) -> str:
     return PERMISSION_MAP.get(mode or "", "ask")
 
 
-def _claude_record(path: Path) -> dict:
+def _claude_record(path: Path, opener=transcripts.open_regular) -> dict:
     title, first, cwd, model = None, None, None, None
     try:
         size = path.stat().st_size
-        with open(path, "rb") as stream:
+        with opener(path, "rb") as stream:
             head = stream.read(HEAD)
             stream.seek(max(0, size - TAIL))
             tail = stream.read(TAIL)
@@ -108,9 +109,9 @@ def _object(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _codex_record(path: Path) -> dict:
+def _codex_record(path: Path, opener=transcripts.open_regular) -> dict:
     try:
-        with open(path, "rb") as stream:
+        with opener(path, "rb") as stream:
             head = stream.read(HEAD)
     except OSError:
         return {}
@@ -149,6 +150,11 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
         cache = {}
     started, complete, fresh = clock(), True, {}
     items: list[dict] = []
+    # The run is its own process, capped at `wall_s` and stopped by its service after
+    # 60 s (C-30.1), so it opens sessions plainly: a FIFO among them holds this run,
+    # never the daemon. Readers in the daemon default to `transcripts.open_regular`.
+    claude_record = functools.partial(_claude_record, opener=open)
+    codex_record = functools.partial(_codex_record, opener=open)
     projects = claude_projects or transcripts.projects_dir()
     known_attempts = set(_attempt_native_ids(root))
     # Claude
@@ -163,7 +169,7 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     except OSError:
         pass
     for path in paths:
-        record = _cached(cache, fresh, path, _claude_record, started, wall_s, clock)
+        record = _cached(cache, fresh, path, claude_record, started, wall_s, clock)
         if record is None:
             complete = False
             continue
@@ -178,7 +184,7 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                       "mtime": fresh[str(path)]["mtime"], "continuable": blocker is None,
                       "continue_blocker": blocker, "archived": False})
     # Codex
-    names = _codex_names(codex_app_home or Path.home() / ".codex")
+    names = _codex_names(codex_app_home or Path.home() / ".codex", opener=open)
     homes = [(Path(row["home"]), row["lane_id"]) for row in lanes if row.get("provider") == "codex" and row.get("home")]
     homes.append((codex_app_home or Path.home() / ".codex", None))
     for home, lane_id in homes:
@@ -187,7 +193,7 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
             if not base.is_dir():
                 continue
             for path in base.rglob("rollout-*.jsonl"):
-                record = _cached(cache, fresh, path, _codex_record, started, wall_s, clock)
+                record = _cached(cache, fresh, path, codex_record, started, wall_s, clock)
                 if record is None:
                     complete = False
                     continue
@@ -231,10 +237,12 @@ def _cached(cache: dict, fresh: dict, path: Path, reader, started: float, wall_s
     return record
 
 
-def _codex_names(home: Path) -> dict[str, str]:
+def _codex_names(home: Path, opener=transcripts.open_regular) -> dict[str, str]:
     names: dict[str, str] = {}
     try:
-        for raw in (home / "session_index.jsonl").read_text().splitlines():
+        with opener(home / "session_index.jsonl", "r") as stream:
+            index = stream.read()
+        for raw in index.splitlines():
             try:
                 row = json.loads(raw)
             except ValueError:

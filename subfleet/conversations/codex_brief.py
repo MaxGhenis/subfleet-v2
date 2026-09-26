@@ -101,7 +101,7 @@ def find_rollout(thread_id: str, homes: Iterable[Path | str]) -> Path | None:
 def session_meta(path: Path) -> dict[str, Any]:
     """The rollout's `session_meta` payload (its first record), or {}."""
     try:
-        with open(path, "rb") as stream:
+        with transcripts.open_regular(path) as stream:
             head = stream.read(META_BYTES)
     except OSError as exc:
         raise HandoffError(f"cannot read rollout {path}: {exc}") from exc
@@ -128,7 +128,7 @@ def headless_run(path: Path) -> bool:
 def _records(path: Path) -> Iterator[tuple[str, dict[str, Any]]]:
     """(raw line, record) in file order; unreadable or oversized lines are skipped."""
     try:
-        stream = path.open("r", encoding="utf-8", errors="replace")
+        stream = transcripts.open_regular(path, "r", encoding="utf-8", errors="replace")
     except OSError as exc:
         raise HandoffError(f"cannot read rollout {path}: {exc}") from exc
     with stream:
