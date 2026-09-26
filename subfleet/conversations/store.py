@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..lockwatch import WatchedLock
-from .turn import LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
+from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
@@ -967,6 +967,24 @@ class ConversationStore:
             if cur.rowcount:
                 row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
                 self._change(tx, row["conversation_id"], message_id, state, reason=reason)
+            return bool(cur.rowcount)
+
+    def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False) -> bool:
+        """A person's withdrawal of a message (C-24.7): `cancelled`, reason
+        `withdrawn`, only from `expect` and, with `unbound`, only while no job is
+        bound to it, with the person's stop recorded in the same statement (an
+        earlier one kept). Returns whether it moved; when it did not, nothing
+        changed, so no stop was recorded that a runner could act on."""
+        where, params = f"message_id=? AND state IN ({','.join('?' * len(expect))})", [message_id, *expect]
+        if unbound:
+            where += " AND job_id IS NULL"
+        with self.transaction() as tx:
+            cur = tx.execute(f"UPDATE messages SET state=?, state_reason=?, updated_at=?, "
+                             f"stop_requested_at=COALESCE(stop_requested_at, ?) WHERE {where}",
+                             (CANCELLED, "withdrawn", utcnow(), stop_at, *params))
+            if cur.rowcount:
+                row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
+                self._change(tx, row["conversation_id"], message_id, CANCELLED, reason="withdrawn")
             return bool(cur.rowcount)
 
     def update_message(self, message_id: str, **fields: Any) -> None:

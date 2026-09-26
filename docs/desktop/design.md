@@ -384,8 +384,11 @@ so the message is never written (`TurnRunner.withhold`), and it is re-admitted
 (`readmit:legacy-owner`, which uses up no re-admission) once the hold lifts,
 unless a person had asked to stop it; until then a person may still withdraw
 it (`message.cancel`, `turn.interrupt`) as any waiting message with no job
-bound (C-24.7). A withdrawal records the person's stop first, so a runner
-admission started for a job made meanwhile never writes the message. Admission also cancels a turn job whose message has settled
+bound (C-24.7). A withdrawal records the person's stop in the transaction
+that withdraws the message (`ConversationStore.withdraw`), so a runner
+admission started for a job made meanwhile never writes it, and a withdrawal
+that loses to the job's binding records none, so the refused cancel stops
+nothing. Admission also cancels a turn job whose message has settled
 meanwhile (`message-settled`), and holds one whose manifest cannot be read on
 its own (`conversation-blocked`), never failing the pass. To a client the hold
 is a block: a view's `blocked_by` is `legacy-owner` while only the hold is set.

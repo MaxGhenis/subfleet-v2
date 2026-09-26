@@ -125,8 +125,7 @@ class ConversationService:
         self._lock = threading.RLock()
         self._handing_off: set[str] = set()          # source conversations mid-handoff (IR-28)
         self._poll_slots: dict[tuple, threading.Event] = {}
-        # A person's cancel and stop of messages never interleave: each records,
-        # and a cancel may clear, a stop the other must not lose (C-24.7).
+        # A person's cancel and stop of messages are taken one at a time (C-24.7).
         self._stops = threading.Lock()
         # C-24.7: a person's stop is recorded, and a runner hands its message frame
         # to the relay, under the message's lock, so whichever comes first is seen
@@ -636,32 +635,31 @@ class ConversationService:
             message = self.store.message(message_id)
         except ConversationError:
             return self._tombstone(message_id, args.get("conversation_id"))
-        recorded = None
         if message["state"] in (QUEUED, WAITING) and not message["job_id"] and not self._turn_job(message):
             # No job carries it (queued, or waiting to be submitted again): the
-            # conversation store decides. A job the dispatcher submits meanwhile
-            # finds the message cancelled and is cancelled in turn (_dispatch_one);
-            # one admission launched first finds the stop recorded here before the
-            # withdrawal, so its runner never writes the message (IR-2).
-            recorded = self._record_stop(message_id)
-            if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING),
-                                    unbound=True):
+            # conversation store decides, in one transaction that also records the
+            # person's stop. A job the dispatcher submits meanwhile finds the
+            # message cancelled and is cancelled in turn (_dispatch_one); a runner
+            # admission launched for it first reads that stop and never writes the
+            # message (IR-2). A withdrawal that loses to the job's binding (the
+            # daemon adopting it) records nothing: the refused cancel leaves no stop
+            # that a runner starting meanwhile could act on (review of 3c1a34e,
+            # finding 3).
+            if self._withdraw(message_id, expect=(QUEUED, WAITING), unbound=True):
                 self._cancel_late_job(message_id)
                 return self._receipt(self.store.message(message_id))
             message = self.store.message(message_id)
         if message["state"] in (QUEUED, WAITING):
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"]):
-                self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING, STARTING))
+                self._withdraw(message_id, expect=(QUEUED, WAITING, STARTING))
                 return self._receipt(self.store.message(message_id))
             if job is None and self.store.message(message_id)["state"] == WAITING:
                 # Claimed by the dispatcher, whose job for it is being created (C-24.7).
-                self._clear_stop(message_id, recorded)
                 raise ConversationError("dispatching", "the message is being handed to its turn job",
                                         fix="send the cancel again in a moment")
-        # Refused: a stop this cancel recorded must not outlive it (a later
-        # restart would read it and stop a turn the person was told runs on).
-        self._clear_stop(message_id, recorded)
+        # Refused, with no stop recorded: a stop would outlive the refusal (a runner
+        # or a later restart would read it and stop a turn the person was told runs on).
         raise ConversationError("too-late", "the provider may already have this message", fix="use turn.interrupt")
 
     def _handover(self, message_id: str) -> threading.Lock:
@@ -669,21 +667,11 @@ class ConversationService:
         the message frame over under (`TurnRunner._handover_verdict`, C-24.7)."""
         return self._handovers[hash(message_id) % len(self._handovers)]
 
-    def _record_stop(self, message_id: str) -> str | None:
-        """Record a person's stop on a message that has none, in the store itself
-        (never from a copy read earlier); the value recorded, else None."""
-        at = utcnow()
-        with self._handover(message_id), self.store.transaction() as tx:
-            changed = tx.execute("UPDATE messages SET stop_requested_at=?, updated_at=? WHERE message_id=? "
-                                 "AND stop_requested_at IS NULL", (at, at, message_id)).rowcount
-        return at if changed else None
-
-    def _clear_stop(self, message_id: str, recorded: str | None) -> None:
-        """Clear the stop `_record_stop` recorded, and no other."""
-        if recorded:
-            with self.store.transaction() as tx:
-                tx.execute("UPDATE messages SET stop_requested_at=NULL WHERE message_id=? AND stop_requested_at=?",
-                           (message_id, recorded))
+    def _withdraw(self, message_id: str, *, expect: tuple[str, ...], unbound: bool = False) -> bool:
+        """Withdraw a message with the person's stop, in one conversation-store
+        transaction (`ConversationStore.withdraw`), under its handover lock."""
+        with self._handover(message_id):
+            return self.store.withdraw(message_id, expect=expect, stop_at=utcnow(), unbound=unbound)
 
     def _cancel_late_job(self, message_id: str) -> None:
         """Cancel a turn job the dispatcher made for a message just withdrawn, while it has no attempt."""
