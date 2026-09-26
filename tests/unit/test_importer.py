@@ -1632,7 +1632,7 @@ def test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_not
         items = {item["message_id"]: item for item in report.stores["outbox"].items if item["source"] == "outbox"}
         assert (items[LEGACY[3]]["disposition"], items[LEGACY[3]]["detail"]) == (
             "session-held-by-legacy-owner", f"a live Claude process outside Subfleet (pid {process.pid}) holds it")
-        assert any("waits at admission while it lives" in note for note in report.stores["outbox"].notes)
+        assert any("waits at dispatch and launch while it lives" in note for note in report.stores["outbox"].notes)
         assert dispositions(run_legacy(v1))[LEGACY[3]] == "history"      # it has ended
 
 

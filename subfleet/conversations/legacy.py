@@ -210,9 +210,9 @@ class Activity:
     #: Session key to why the cockpit is using it now: held, and every conversation of it fenced.
     sessions: dict[str, str] = field(default_factory=dict)
     #: Session key to why a live Claude process outside Subfleet is in it: no history is
-    #: placed there this pass, but nothing is fenced, since admission already makes a
-    #: turn there wait while the process lives (`external-writer`, C-26.3) and a hold
-    #: set now would outlast it.
+    #: placed there this pass, but nothing is fenced, since dispatch and launch already
+    #: make a turn there wait while the process lives (`external-writer`, C-26.3) and a
+    #: hold set now would outlast it.
     live: dict[str, str] = field(default_factory=dict)
     #: Why any session may be in use (a running broker, a signal that could not be read).
     problem: str | None = None
@@ -580,9 +580,9 @@ def cockpit_activity(v1_state: Path, *, claude_dir: Path | None = None,
       `<claude dir>/sessions` (`catalog._live_claude_sessions`'s rule: a live
       pid without `SUBFLEET_ATTEMPT` in its environment, so a Subfleet turn that
       kept running across the restart is not one) keeps history out of that
-      session this pass (`Activity.live`). It fences nothing: admission makes a
-      turn there wait while the process lives (C-26.3), and a hold would outlast
-      it.
+      session this pass (`Activity.live`). It fences nothing: dispatch and launch
+      make a turn there wait while the process lives (C-26.3), and a hold would
+      outlast it.
 
     A signal that exists and cannot be read holds every session, as an
     unreadable journal does.

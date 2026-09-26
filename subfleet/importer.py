@@ -1694,7 +1694,7 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
         report.note(f"{len(activity.sessions)} sessions have a live cockpit worker in them and are held (C-30.4)")
     if activity.live:
         report.note(f"{len(activity.live)} sessions have a live Claude process outside Subfleet in them: no history "
-                    "is placed there this pass, and a turn there waits at admission while it lives (C-26.3)")
+                    "is placed there this pass, and a turn there waits at dispatch and launch while it lives (C-26.3)")
     held = [item for item in result.items if item["disposition"] == "bound-session-held"]
     if held:
         report.note(f"{len(held)} conversations an earlier pass bound are held while the legacy writer may be "

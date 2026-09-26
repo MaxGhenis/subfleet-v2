@@ -266,7 +266,7 @@ acknowledgement and turn completion are separate:
 | State | Meaning |
 |---|---|
 | `queued` | Durably accepted; waiting behind the conversation's current turn |
-| `waiting` | Its turn job waits for admission (capacity, lease, external writer, workspace, route) |
+| `waiting` | Its turn job waits for admission (capacity, lease, workspace, route), or the message waits to be dispatched or re-admitted (an external writer, a deferral) |
 | `starting` | An attempt is reserved or starting; the provider has not acknowledged the message |
 | `running` | Acknowledged: Claude `command_lifecycle {command_uuid:<id>, state:"started"}` when `system/init.capabilities` has `msg_lifecycle_v1`, else the replayed user message with our uuid (both verified in a `shouldQuery:false` probe); Codex `turn/start` response with a turn id |
 | `approval-needed` | Running with an unanswered approval |
@@ -363,12 +363,13 @@ of work the conversation dispatched reaches its next turn, and a `ping` or a
 nudge does not (C-26.13). An
 external writer (a live pid in `~/.claude/sessions/*.json` naming the session,
 its UUID compared in lower case on both sides, that carries no Subfleet markers
-and is not a recorded owned identity) is an
-admission wait `external-writer` shown in the app ("open in the Claude app;
-close it there to continue here"), not a refusal. Claude's is checked when a
-message is dispatched (`ConversationService._hold_for_writer`) and again when
-its attempt starts, since a job can wait in admission while the Claude app
-takes the session: `_writer_check` records the answer in the attempt's
+and is not a recorded owned identity) makes a turn wait `external-writer`,
+shown in the app ("open in the Claude app; close it there to continue here"),
+not a refusal. It is a dispatch wait, not an admission one: Claude's is checked
+when a message is dispatched (`ConversationService._hold_for_writer`; no job is
+made while it lives) and again when its attempt starts, since a job can wait in
+admission while the Claude app takes the session, and admission holds nothing
+for it: `_writer_check` records the answer in the attempt's
 `held_by.json` before anything is written (a replay reads it back), and a held
 attempt ends before `initialize` as `external-writer`, which re-admits the
 message. That re-admission never counts toward the three a failing provider
@@ -376,7 +377,9 @@ gets, then or when a later failure is counted (`reconcile.ownership_wait`
 reads each earlier attempt's `turn.json`); a Codex one (seen only by starting a
 provider) waits 30 s between tries.
 A registry row holds its session only while its pid's start time equals the
-row's `procStart` (a reused pid holds nothing), and when `ps` cannot answer.
+row's `procStart` (a reused pid holds nothing), and when `ps` cannot answer; a
+row without `procStart` (older Claude Code) holds it while its pid runs a Claude
+executable (`catalog._outside_claude`).
 A conversation the legacy import holds (`legacy_hold`, C-30.4) gets no
 turn: nothing is dispatched, bound or re-admitted, a queued turn job waits at
 admission (`conversation-blocked`), and a turn that kept running across the
@@ -1153,7 +1156,8 @@ it holds in `legacy_sessions` (`*` when it holds every one), creating the store
 if it must, and `create_conversation` binds a conversation to one of them
 held, so a session opened after the pass gets no turn either. A live Claude
 process outside Subfleet in a session keeps history out of it that pass but
-holds no conversation: while it lives, admission makes a new turn there wait
+holds no conversation: while it lives, dispatch makes a new turn there wait,
+and an attempt that finds it at launch ends unwritten and is re-admitted
 (`external-writer`, D-17); a turn already running there is not stopped for it.
 A `--v1-state` that holds none of the manifest's entries, or a v2 root's
 files, is never read as a cockpit that holds nothing: `--legacy-cockpit`
