@@ -453,4 +453,131 @@ def test_health_names_the_sessions_a_pass_held(world, monkeypatch):
         assert running.run_once().flags_held == 1
     health = running.health()
     assert health["status"] == "healthy" and health["flags_held"] == 1
-    assert "flags held for 1 session: a copy could not be read" in health["detail"]
+    assert "flags held for 1 session (" in health["detail"]
+    assert "unreadable (EMFILE)" in health["detail"]
+    assert health["held_by"][0]["path"].endswith(f"acct-c/org-c/local_{SESSION}.json")
+
+
+
+def failing_scandir(patch, *suffixes: str) -> None:
+    real = os.scandir
+
+    def scandir(where="."):
+        if any(str(where).endswith(suffix) for suffix in suffixes):
+            raise OSError(24, "Too many open files", str(where))
+        return real(where)
+
+    patch.setattr(mirror.os, "scandir", scandir)
+
+
+def test_an_account_whose_folders_are_not_all_known_holds(world, monkeypatch):
+    """Review round 7: a failed account counts as known only if every org
+    folder its last listing named has been listed itself."""
+    running, store = world
+    seed(store, False)
+    fx.index_entry(store, "acct-c", "org-c2", SESSION, archived=False,
+                   settings={"ultracode": True})
+    second = store / "acct-c" / "org-c2" / f"local_{SESSION}.json"
+    with monkeypatch.context() as patch:
+        failing_scandir(patch, "acct-c/org-c2")             # first pass: org-c2 not listed
+        result = running.run_once()
+    assert result.flags_held == 1
+    rewrite(store, 0, isArchived=True)                   # the user archives in A
+    with monkeypatch.context() as patch:
+        failing_scandir(patch, "/acct-c")                  # the account does not list
+        result = running.run_once()
+    assert result.flags_held == 1, "org-c2 was never listed: what it holds is unknown"
+    assert any("never listed" in item["reason"] for item in result.held_by)
+    assert running.run_once().state == "ok"
+    assert flags(store) == (True,) * 3
+    assert json.loads(second.read_text())["isArchived"] is True
+
+
+def test_a_hot_pass_that_cannot_list_the_store_forgets_nothing(world, monkeypatch):
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    known = set(running._folders)
+    with monkeypatch.context() as patch:
+        failing_scandir(patch, str(store))
+        result = running.run_hot()
+    assert result.state == "error"
+    assert set(running._folders) == known
+
+
+def test_a_hot_pass_keeps_the_folders_of_an_account_that_did_not_list(world, monkeypatch):
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    rewrite(store, 0, isArchived=True)
+    with monkeypatch.context() as patch:
+        failing_scandir(patch, "/acct-c")
+        assert running.run_hot().state == "ok"
+        assert store / "acct-c" / "org-c" in running._folders
+        result = running.run_once()                      # still failing: read by name
+    assert result.flags_held == 0
+    assert flags(store) == (True,) * 3
+
+
+def test_an_excluded_account_that_does_not_list_holds_nothing(world, monkeypatch):
+    running, store = world
+    seed(store, False)
+    (store / "acct-x" / "org-x").mkdir(parents=True)
+    rewrite(store, 0, isArchived=True)
+    with monkeypatch.context() as patch:
+        failing_scandir(patch, "/acct-x")
+        result = running.run_once(mirror.Options(exclude=("acct-x",)))
+    assert result.flags_held == 0
+    assert flags(store) == (True,) * 3
+
+
+def test_a_directory_named_like_a_record_holds_nothing(world):
+    """Review round 7: what the app cannot read either (EISDIR here) is no
+    one's sidebar, so it cannot hold flag sync for good."""
+    running, store = world
+    seed(store, False)
+    (store / "acct-b" / "org-b" / "local_odd.json").mkdir()
+    rewrite(store, 0, isArchived=True)
+    for _ in range(2):
+        result = running.run_once()
+        assert result.state == "ok" and result.flags_held == 0
+    assert flags(store) == (True,) * 3
+
+
+def test_a_symlink_beside_the_org_folders_does_not_drop_the_account(world):
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    closed = store.parent / "closed"
+    closed.mkdir()
+    os.chmod(closed, 0)
+    (store / "acct-c" / "zz-link").symlink_to(closed / "inside")
+    try:
+        rewrite(store, 0, isArchived=True)
+        result = running.run_once()
+        assert result.flags_held == 0
+        assert flags(store) == (True,) * 3
+    finally:
+        os.chmod(closed, 0o700)
+
+
+def test_a_hold_at_publish_is_counted_and_named(world, monkeypatch):
+    running, store = world
+    seed(store, False)
+    assert running.run_once().state == "ok"
+    rewrite(store, 0, isStarred=True)
+    install = mirror._install
+    raced = {"once": True}
+
+    def racing(temporary, destination, **kwargs):
+        if raced["once"] and destination == path(store, 2) and kwargs.get("expect") is not None:
+            raced["once"] = False
+            temporary.unlink()
+            return False
+        return install(temporary, destination, **kwargs)
+
+    monkeypatch.setattr(mirror, "_install", racing)
+    result = running.run_once()
+    assert result.flags_held == 1
+    assert result.held_by == [{"path": f"session {SESSION}",
+                               "reason": "a copy changed while the pass published"}]
