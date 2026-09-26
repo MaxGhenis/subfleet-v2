@@ -303,14 +303,27 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
     return reason.strip()
 
 
-def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> Decision:
-    """C-11.2–C-11.6: walk upward, applying every rejection before comparison."""
+#: C-6.3: every field of a lane row that `evaluate` reads (`prepare` and
+#: `judge_lane`): its identities for pins and exclusions, its binding, and what
+#: can reject it. A lane whose values of these, readings, closures, attempts in
+#: flight and slot block are what they were is judged as it was.
+LANE_FACTS = ("lane_id", "provider", "account_key", "credential_ref", "credential_kind", "home", "owner",
+              "enabled", "desktop", "identity_status", "label", "email")
+
+
+def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any]:
+    """C-11.2, C-26.9: what `evaluate` settles before it looks at any lane.
+
+    The job's chain and the lane its pin names, the clock, the caps, the job's
+    exclusions, the attempts in flight in the job's pool, and the capacity
+    blocks (the fleet's or a parent's cap) that refuse every lane alike. It
+    reads the view's `now`, `lanes`, `in_flight` or `in_flight_turns`,
+    `reserved_probes`, `attempts` and `jobs`, and no reading or closure, so
+    C-6.3's check inside the reservation builds it from a few rows."""
     job = _row(job)
     authorization_reason = _unmeasured_reserve_reason(job)
     now = _time(view["now"]) if view.get("now") else datetime.now(timezone.utc)
     lanes = sorted((_row(lane) for lane in view.get("lanes", ())), key=lambda lane: lane["lane_id"])
-    readings = [_row(item) for item in view.get("readings", ())]
-    closures = [_row(item) for item in view.get("closures", ())]
     caps = {**DEFAULT_CAPS, "reading_ttl_s": 120, **policy.get("caps", {})}
     floor = policy.get("headroom_floor", HEADROOM_FLOOR)
     excluded = job.get("exclusions") or ()
@@ -372,124 +385,194 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
             capacity_blocks.append("fleet")
     elif sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
         capacity_blocks.append("fleet")
+    return {"policy": policy, "job": job, "authorization_reason": authorization_reason, "now": now,
+            "lanes": lanes, "caps": caps, "floor": floor, "excluded": excluded, "pin": pin,
+            "selected": selected, "chain": chain, "is_turn": is_turn, "conversation_caps": conversation_caps,
+            "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {}}
+
+
+def model_lanes(setup: Mapping[str, Any], short: str) -> list[dict[str, Any]]:
+    """The lanes `evaluate` looks at for one model: its provider's, or the pinned lane."""
+    model, pin, selected = setup["policy"]["models"][short], setup["pin"], setup["selected"]
+    return [lane for lane in setup["lanes"] if lane["provider"] == model["provider"]
+            and (not pin or selected and lane["lane_id"] == selected["lane_id"])]
+
+
+def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
+               readings: Iterable[Mapping[str, Any]], closures: Iterable[Mapping[str, Any]], *,
+               in_flight: int, unavailable: Mapping[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """C-11.3–C-11.7, C-26.2, C-26.9: one lane for one model of the chain.
+
+    The reasons the lane is refused (none: it is a candidate) and the detail
+    its ranking reads. `readings` and `closures` are the view's rows of this
+    lane (every scope and window), in the view's order; `in_flight` is the
+    lane's attempts in the job's pool; `unavailable` is the view's
+    `unavailable_lanes`. Nothing else about other lanes is read: the fleet and
+    parent caps come in `setup` as capacity blocks."""
+    policy, job, now, caps = setup["policy"], setup["job"], setup["now"], setup["caps"]
+    model = policy["models"][short]
+    higher_scopes = setup["higher"].get(short)
+    if higher_scopes is None:
+        higher_scopes = setup["higher"][short] = _higher_model_scopes(policy, short)
+    readings, closures = list(readings), list(closures)
+    identity = lane["lane_id"]
+    reasons = []
+    lane_readings = [row for row in readings if row["scope"] in ("account", model["id"])]
+    measured_readings = [row for row in lane_readings
+                         if fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"])]
+    measured = bool(measured_readings)
+    headroom = min((1 - row["utilization"] for row in measured_readings), default=None)
+    resets = [_time(row["resets_at"]) for row in measured_readings
+              if row["window"] == "seven_day" and row.get("resets_at")]
+    detail = {"measured": measured, "headroom": headroom, "in_flight": in_flight,
+              "seven_day_reset": _iso(min(resets)) if resets else None,
+              "status": "eligible" if measured else "eligible but unmeasured"}
+    if model["provider"] == "claude":
+        detail["stranded_scopes"] = sorted({row["scope"] for row in closures
+            if row["scope"] in higher_scopes and _future_closure(row, now)})
+    if _identities(lane) & setup["excluded"]:
+        reasons.append("excluded")
+    if lane.get("desktop") and not job.get("allow_desktop"):
+        reasons.append("desktop")
+    if (job.get("kind") == "turn" and model["provider"] == "claude"
+            and lane.get("credential_kind") == "home"):
+        # C-26.2: a home lane has its own config directory; the
+        # conversation's transcript is not there.
+        reasons.append("config-dir")
+    if lane.get("owner") != "v2":
+        reasons.append("owner-v1")
+    if not lane.get("enabled", True):
+        reasons.append("disabled")
+    if identity_blocked(lane):
+        # C-10.6: the profile endpoint said this credential holds another
+        # account. Its usage is not this lane's, so neither is its capacity.
+        reasons.append("identity-mismatch")
+    reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in closures
+                   if row["scope"] in ("account", model["id"]) and _future_closure(row, now))
+    lane_measured = any(fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
+    slot_cap = (int(setup["conversation_caps"].get("turn_slots_per_lane", 1)) if setup["is_turn"] else
+                caps["max_in_flight_per_lane"] if lane_measured else
+                min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
+    if identity in unavailable:
+        detail["slot_block"] = unavailable[identity]
+    if setup["capacity_blocks"] or in_flight >= slot_cap or detail.get("slot_block"):
+        reasons.append("no-slot")
+    if any(row["utilization"] >= 1 - setup["floor"] for row in measured_readings):
+        reasons.append("below-floor")
+    # C-11.7: a model that is not reserved may only spend a lane's slack above
+    # what the reserved model could still use of the shared weekly window.
+    for reserved in (policy.get("reserve") or {}).get("models", ()):
+        r_model = policy["models"].get(reserved)
+        if not r_model or r_model["provider"] != model["provider"] or r_model["id"] == model["id"]:
+            continue
+        verdict = reserve_verdict(identity, r_model["id"], readings, now=now,
+                                  reading_ttl_s=caps["reading_ttl_s"],
+                                  reserve=policy.get("reserve") or {}, closures=closures)
+        detail["reserve"] = {"model": reserved, **verdict}
+        if verdict["state"] == "unmeasured" and setup["authorization_reason"]:
+            # This authorizes uncertainty on the explicit pinned pair;
+            # it supplies no usage evidence and releases no other guard.
+            detail["reserve"]["authorization"] = {
+                "reason": setup["authorization_reason"], "lane_id": identity, "model_id": model["id"]}
+        elif verdict["state"] != "slack":
+            reasons.append(f"reserve:{reserved}:{verdict['state']}")
+        elif job.get("kind") == "turn" and verdict.get("requires_probe"):
+            # C-26.9: a turn never waits on a probe; a lane that needs one
+            # is not a candidate for it.
+            reasons.append(f"reserve:{reserved}:probe-required")
+    return reasons, detail
+
+
+def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mapping[str, Any]) -> tuple:
+    """C-11.3, C-11.7, C-26.2: where a candidate lane stands; the least is chosen.
+
+    Every key ends with the lane id, so no two candidates tie."""
+    job, provider = setup["job"], setup["policy"]["models"][short]["provider"]
+    if provider == "codex":
+        base = (not detail["measured"], detail["seven_day_reset"] or "9999", identity)
+    else:
+        reserve = detail.get("reserve") or {}
+        stranded = bool(detail.get("stranded_scopes"))
+        if reserve.get("slack") is not None:
+            # C-11.7: non-reserved work lands where the reserved bucket is most spent.
+            base = (not stranded, not detail["measured"], -reserve["slack"], detail["in_flight"], identity)
+        else:
+            base = (not stranded, not detail["measured"], -(detail["headroom"] or 0), detail["in_flight"], identity)
+    affinity = job.get("affinity_lane") if job.get("kind") == "turn" else None
+    if affinity is not None:
+        # C-26.2: a conversation keeps the account that served its last
+        # turn while that account stays a candidate (prompt cache).
+        return (identity != affinity, *base)
+    return base
+
+
+def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: list[str],
+                 details: Mapping[str, Mapping[str, Any]]) -> str:
+    """C-11.5: what one model of the chain came to, in words (`candidates` ranked)."""
+    if candidates:
+        return f"{short}: chose {candidates[0]}; {details[candidates[0]]['status']}"
+    suffix = "; promoted" if index + 1 < len(setup["chain"]) else ""
+    reason = f"{short}: no candidate lanes after exclusions{suffix}"
+    if setup["pin"] and setup["selected"] is None:
+        reason += f"; pinned lane {setup['pin']!r} is unknown"
+    return reason
+
+
+def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str | None, now: datetime) -> str:
+    """C-11.5: a decision's reason: each model's, then, with no lane, the earliest reset."""
+    evaluations = list(evaluations)
+    messages = [row["reason"] for row in evaluations]
+    if chosen_lane is None:
+        messages.append("earliest reset: " + (_earliest_reset(evaluations, now) or "unknown"))
+    return "; ".join(messages)
+
+
+def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> Decision:
+    """C-11.2–C-11.6: walk upward, applying every rejection before comparison.
+
+    `prepare` settles the chain, the pin and the capacity blocks; each lane of
+    each model is judged alone (`judge_lane`) and the candidates ranked by
+    `rank_key`, so a lane can be judged again without the rest (C-6.3)."""
+    setup = prepare(policy, view, job)
+    job, now, pin, selected = setup["job"], setup["now"], setup["pin"], setup["selected"]
+    readings = [_row(item) for item in view.get("readings", ())]
+    closures = [_row(item) for item in view.get("closures", ())]
+    unavailable = view.get("unavailable_lanes", {})
+    by_lane_readings: dict[str, list[dict[str, Any]]] = {}
+    for row in readings:
+        by_lane_readings.setdefault(row["lane_id"], []).append(row)
+    by_lane_closures: dict[str, list[dict[str, Any]]] = {}
+    for row in closures:
+        by_lane_closures.setdefault(row["lane_id"], []).append(row)
+    chain, capacity_blocks = setup["chain"], setup["capacity_blocks"]
     evaluations: list[dict[str, Any]] = []
-    messages: list[str] = []
     chosen_lane = chosen_model = None
     for index, short in enumerate(chain):
         model = policy["models"][short]
-        higher_scopes = _higher_model_scopes(policy, short)
-        model_lanes = [lane for lane in lanes if lane["provider"] == model["provider"]
-                       and (not pin or selected and lane["lane_id"] == selected["lane_id"])]
-        lane_ids = {lane["lane_id"] for lane in model_lanes}
+        higher_scopes = setup["higher"].get(short)
+        if higher_scopes is None:
+            higher_scopes = setup["higher"][short] = _higher_model_scopes(policy, short)
+        lanes_here = model_lanes(setup, short)
+        lane_ids = {lane["lane_id"] for lane in lanes_here}
         scoped_readings = [row for row in readings if row["lane_id"] in lane_ids
                            and row["scope"] in ("account", model["id"])]
         scoped_closures = [row for row in closures if row["lane_id"] in lane_ids
                           and row["scope"] in ("account", model["id"]) and _future_closure(row, now)]
         candidates, rejections, details = [], [], {}
-        for lane in model_lanes:
+        for lane in lanes_here:
             identity = lane["lane_id"]
-            reasons = []
-            lane_readings = [row for row in scoped_readings if row["lane_id"] == identity]
-            measured_readings = [row for row in lane_readings
-                                 if fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"])]
-            measured = bool(measured_readings)
-            headroom = min((1 - row["utilization"] for row in measured_readings), default=None)
-            resets = [_time(row["resets_at"]) for row in measured_readings
-                      if row["window"] == "seven_day" and row.get("resets_at")]
-            detail = {"measured": measured, "headroom": headroom,
-                      "in_flight": in_flight.get(identity, 0),
-                      "seven_day_reset": _iso(min(resets)) if resets else None,
-                      "status": "eligible" if measured else "eligible but unmeasured"}
-            if model["provider"] == "claude":
-                detail["stranded_scopes"] = sorted({row["scope"] for row in closures
-                    if row["lane_id"] == identity and row["scope"] in higher_scopes
-                    and _future_closure(row, now)})
-            if _identities(lane) & excluded:
-                reasons.append("excluded")
-            if lane.get("desktop") and not job.get("allow_desktop"):
-                reasons.append("desktop")
-            if (job.get("kind") == "turn" and model["provider"] == "claude"
-                    and lane.get("credential_kind") == "home"):
-                # C-26.2: a home lane has its own config directory; the
-                # conversation's transcript is not there.
-                reasons.append("config-dir")
-            if lane.get("owner") != "v2":
-                reasons.append("owner-v1")
-            if not lane.get("enabled", True):
-                reasons.append("disabled")
-            if identity_blocked(lane):
-                # C-10.6: the profile endpoint said this credential holds another
-                # account. Its usage is not this lane's, so neither is its capacity.
-                reasons.append("identity-mismatch")
-            reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in scoped_closures
-                           if row["lane_id"] == identity)
-            lane_measured = any(row["lane_id"] == identity and fresh_provider(
-                row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
-            slot_cap = (int(conversation_caps.get("turn_slots_per_lane", 1)) if is_turn else
-                        caps["max_in_flight_per_lane"] if lane_measured else
-                        min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
-            if identity in view.get("unavailable_lanes", {}):
-                detail["slot_block"] = view["unavailable_lanes"][identity]
-            if capacity_blocks or in_flight.get(identity, 0) >= slot_cap or detail.get("slot_block"):
-                reasons.append("no-slot")
-            if any(row["utilization"] >= 1 - floor for row in measured_readings):
-                reasons.append("below-floor")
-            # C-11.7: a model that is not reserved may only spend a lane's slack above
-            # what the reserved model could still use of the shared weekly window.
-            for reserved in (policy.get("reserve") or {}).get("models", ()):
-                r_model = policy["models"].get(reserved)
-                if not r_model or r_model["provider"] != model["provider"] or r_model["id"] == model["id"]:
-                    continue
-                verdict = reserve_verdict(identity, r_model["id"], readings, now=now,
-                                          reading_ttl_s=caps["reading_ttl_s"],
-                                          reserve=policy.get("reserve") or {}, closures=closures)
-                detail["reserve"] = {"model": reserved, **verdict}
-                if verdict["state"] == "unmeasured" and authorization_reason:
-                    # This authorizes uncertainty on the explicit pinned pair;
-                    # it supplies no usage evidence and releases no other guard.
-                    detail["reserve"]["authorization"] = {
-                        "reason": authorization_reason, "lane_id": identity, "model_id": model["id"]}
-                elif verdict["state"] != "slack":
-                    reasons.append(f"reserve:{reserved}:{verdict['state']}")
-                elif job.get("kind") == "turn" and verdict.get("requires_probe"):
-                    # C-26.9: a turn never waits on a probe; a lane that needs one
-                    # is not a candidate for it.
-                    reasons.append(f"reserve:{reserved}:probe-required")
+            reasons, detail = judge_lane(setup, short, lane, by_lane_readings.get(identity, ()),
+                                         by_lane_closures.get(identity, ()),
+                                         in_flight=setup["in_flight"].get(identity, 0), unavailable=unavailable)
             if reasons:
                 rejections.append({"lane_id": identity, "reason": reasons[0], "reasons": reasons, **detail})
             else:
                 candidates.append(identity)
                 details[identity] = detail
-
-        affinity = job.get("affinity_lane") if job.get("kind") == "turn" else None
-
-        def comparator(identity: str) -> tuple:
-            row = details[identity]
-            if affinity is not None:
-                # C-26.2: a conversation keeps the account that served its last
-                # turn while that account stays a candidate (prompt cache).
-                return (identity != affinity, *base_comparator(identity, row))
-            return base_comparator(identity, row)
-
-        def base_comparator(identity: str, row: dict) -> tuple:
-            if model["provider"] == "codex":
-                return (not row["measured"], row["seven_day_reset"] or "9999", identity)
-            reserve = row.get("reserve") or {}
-            stranded = bool(row.get("stranded_scopes"))
-            if reserve.get("slack") is not None:
-                # C-11.7: non-reserved work lands where the reserved bucket is most spent.
-                return (not stranded, not row["measured"], -reserve["slack"], row["in_flight"], identity)
-            return (not stranded, not row["measured"], -(row["headroom"] or 0), row["in_flight"], identity)
-
-        candidates.sort(key=comparator)
+        candidates.sort(key=lambda identity: rank_key(setup, short, identity, details[identity]))
         if candidates:
             chosen_lane, chosen_model = candidates[0], short
-            reason = f"{short}: chose {chosen_lane}; {details[chosen_lane]['status']}"
-        else:
-            suffix = "; promoted" if index + 1 < len(chain) else ""
-            reason = f"{short}: no candidate lanes after exclusions{suffix}"
-            if pin and selected is None:
-                reason += f"; pinned lane {pin!r} is unknown"
+        reason = model_reason(setup, index, short, candidates, details)
         evaluations.append({"model": short, "model_id": model["id"], "provider": model["provider"],
                             "candidates": candidates, "candidate_details": details,
                             "rejections": rejections, "rejected": rejections,
@@ -499,14 +582,11 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                             "stranding_closures": [row for row in closures if row["lane_id"] in lane_ids
                                 and row["scope"] in higher_scopes and _future_closure(row, now)],
                             "reason": reason, "evaluated_at": _iso(now)})
-        messages.append(reason)
         if candidates:
             break
-    if chosen_lane is None:
-        messages.append("earliest reset: " + (_earliest_reset(evaluations, now) or "unknown"))
     digest = job.get("policy_hash") or policy.get("_policy_hash", "")
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations),
-                    chosen_lane, chosen_model, "; ".join(messages), digest)
+                    chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now), digest)
 
 
 def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[str, Any]], *,
