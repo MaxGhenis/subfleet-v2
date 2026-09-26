@@ -53,6 +53,7 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "revive_max_batch": 8,
     "auto_revive_desktop_owned": False,
     "mirror_interval_s": 60,         # C-23.28, plan decision 8
+    "mirror_hot_interval_s": 2,      # C-23.28: spread before the app's next load
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
     "mirror_ultracode_default": True,

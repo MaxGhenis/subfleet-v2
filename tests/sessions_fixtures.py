@@ -259,6 +259,7 @@ class FakeSessions:
         self.now = now
         self.pings: list[tuple[str, str]] = []
         self.submits: list[Any] = []
+        self.minted: list[bool] = []
         self.records: list[dict[str, Any]] = []
         self.state_calls: list[Any] = []
         self.notice_id = 0
@@ -318,8 +319,9 @@ class FakeSessions:
         self.notice_id -= 1
         return {"pong": True, "session_id": session_id, "notice_id": self.notice_id}
 
-    def submit(self, args: Any) -> dict[str, Any]:
+    def submit(self, args: Any, *, minted: bool = False) -> dict[str, Any]:
         self.submits.append(args)
+        self.minted.append(minted)                  # C-16.3: whose request id it is
         return {"job_id": f"job-{len(self.submits)}", "created": True}
 
 
