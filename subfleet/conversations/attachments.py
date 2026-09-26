@@ -4,12 +4,15 @@
 before any message names it: a regular file owned by the daemon's user,
 opened without following symlinks, at most 20 MiB, PNG, JPEG, GIF or WebP by
 magic bytes, re-hashed after the copy. The daemon's copy is what a provider
-sees; the original can be deleted the moment the receipt arrives.
+sees; the original can be deleted the moment the receipt arrives. Retention
+(C-28.2, `subfleet/retention.py`) deletes a copy once no message needs it and
+it has gone 30 days unused; it and `add` each hold the hash's guard.
 """
 
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import os
 import secrets
@@ -25,6 +28,8 @@ TYPES = (
     (b"GIF87a", "image/gif", "gif"),
     (b"GIF89a", "image/gif", "gif"),
 )
+#: A stored copy's extension by media type: `attachments/<sha256>.<ext>`.
+EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
 
 
 def sniff(head: bytes) -> tuple[str, str] | None:
@@ -95,12 +100,39 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
         raise ConversationError("hash-mismatch", "the file does not match the hash the app sent")
     directory = store.subdirectory("attachments")         # never the state root itself
     target = directory / f"{digest}.{ext}"
-    if not target.exists():
-        _copy(data, target)
-    if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-        raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
-    store.add_attachment(digest, media, len(data), str(target))
+    # C-28.2: from the first look at the stored copy to its row, under the guard
+    # retention holds from its delete to its unlink. Retention cannot unlink a copy
+    # this add has checked, nor this add record a row for a copy about to go, so a
+    # receipt always names a stored copy that hashes right.
+    with store.attachment_guard(digest):
+        if not _stored(target, digest):
+            _copy(data, target)                          # missing or damaged: a whole copy replaces it
+            if not _stored(target, digest):
+                raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
+        store.add_attachment(digest, media, len(data), str(target))
     return {"sha256": digest, "media_type": media, "bytes": len(data)}
+
+
+def _stored(target: Path, digest: str) -> bool:
+    """Whether `target` is a regular file (not followed if a link) whose bytes hash
+    to `digest`."""
+    try:
+        fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:                      # a symlink where the copy belongs
+            return False
+        raise
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return False
+        hasher = hashlib.sha256()
+        while chunk := os.read(fd, 1 << 20):
+            hasher.update(chunk)
+        return hasher.hexdigest() == digest
+    finally:
+        os.close(fd)
 
 
 def check(store: ConversationStore, sha256: str) -> tuple[str, str]:
