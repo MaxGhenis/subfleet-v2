@@ -103,7 +103,7 @@ def test_an_unpoked_wait_returns_within_the_poll(daemon):
     committed = end(daemon, job, notify=False)
     waiter.join(5)
     assert waiter.result["timeout"] is False
-    # The contract is WAIT_POLL_S plus one read; the margin is for a loaded machine.
+    # The contract is WAIT_POLL_S plus the hub's and the waiter's reads; the margin is for a loaded machine.
     assert waiter.returned - committed < WAIT_POLL_S + .5
 
 
