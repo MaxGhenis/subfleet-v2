@@ -168,8 +168,21 @@ struct UnixSocketTransport: DaemonTransport {
         let deadline = Date().addingTimeInterval(timeout)
         let fd = try connectSocket(deadline: deadline, timeout: timeout)
         defer { close(fd) }
-        try writeAll(fd, line, deadline: deadline, timeout: timeout)
+        do {
+            try writeAll(fd, line, deadline: deadline, timeout: timeout)
+        } catch let closed as PeerClosed {
+            // The daemon may answer and close before it reads the request: a
+            // connection past its cap is told it is busy (C-16.1). That answer is
+            // still there to read, as the CLI's client reads it (client.py `call`).
+            if let answer = try? readLine(fd, deadline: deadline, timeout: timeout) { return answer }
+            throw DaemonClientError.transport("write failed: \(String(cString: strerror(closed.code)))")
+        }
         return try readLine(fd, deadline: deadline, timeout: timeout)
+    }
+
+    /// The daemon closed the connection while the request was being written.
+    private struct PeerClosed: Error {
+        let code: Int32
     }
 
     private func remainingMillis(_ deadline: Date) -> Int32 {
@@ -250,12 +263,15 @@ struct UnixSocketTransport: DaemonTransport {
             guard let base = raw.baseAddress else { return }
             while offset < raw.count {
                 let written = write(fd, base + offset, raw.count - offset)
+                let code = errno
                 if written > 0 {
                     offset += written
-                } else if written < 0 && (errno == EAGAIN || errno == EINTR) {
+                } else if written < 0 && (code == EAGAIN || code == EINTR) {
                     try wait(fd, for: Int16(POLLOUT), deadline: deadline, timeout: timeout)
+                } else if written < 0 && (code == EPIPE || code == ECONNRESET || code == ENOTCONN) {
+                    throw PeerClosed(code: code)
                 } else {
-                    throw DaemonClientError.transport("write failed: \(String(cString: strerror(errno)))")
+                    throw DaemonClientError.transport("write failed: \(String(cString: strerror(code)))")
                 }
             }
         }
@@ -399,6 +415,9 @@ enum DaemonAvailability: Equatable {
     case ready(Capabilities)
     /// Not running, or not answering.
     case down(String)
+    /// Running, but answering "busy" (exit 69, at its connection cap, C-16.1): a
+    /// moment's state, checked again, never a protocol mismatch.
+    case busy(String)
     /// Running, but without the conversation ops, or another protocol or schema.
     case incompatible(String)
     /// The development build was pointed at `~/.subfleet`.
@@ -417,6 +436,8 @@ enum DaemonAvailability: Equatable {
         case .unknown, .ready: return nil
         case .down(let detail):
             return ("The Subfleet daemon is not reachable", detail + " Start it with `subfleet daemon start`; drafts and queued messages are kept.")
+        case .busy(let detail):
+            return ("The Subfleet daemon is busy", "It says \(detail). The app asks again shortly; drafts and queued messages are kept.")
         case .incompatible(let detail):
             return ("This daemon does not speak the conversation protocol", detail)
         case .refused(let detail):
@@ -445,6 +466,7 @@ enum DaemonAvailability: Equatable {
         } catch let error as DaemonClientError {
             switch error {
             case .endpointRefused(let reason): return .refused(reason)
+            case .daemon(let refusal) where refusal.isBusy: return .busy(refusal.message)
             case .daemon(let refusal) where refusal.isUnknownOp:
                 return .incompatible("The daemon (\(refusal.message)) predates the conversation protocol; update Subfleet.")
             case .daemon(let refusal): return .incompatible(refusal.message)

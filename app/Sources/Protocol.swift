@@ -62,8 +62,12 @@ struct DaemonError: Error, Codable, Equatable {
     var isUnknownOp: Bool { message.hasPrefix("unknown op") }
     /// Exit 7: refused; person-only refusals carry reason `person-only`.
     var isPersonOnly: Bool { code == 7 && reason == "person-only" }
-    /// Exit 1: an operational failure; nothing says the request changed anything.
-    var isTransient: Bool { code == 1 }
+    /// Exit 69: the daemon is busy (at its connection cap) and answered before it
+    /// read the request (daemon.py `busy_answer`, C-16.1): nothing was done.
+    var isBusy: Bool { code == 69 }
+    /// Exit 1, an operational failure, or 69, busy: nothing says the request
+    /// changed anything, so it may be sent again as it is.
+    var isTransient: Bool { code == 1 || isBusy }
 }
 
 // MARK: - Operations

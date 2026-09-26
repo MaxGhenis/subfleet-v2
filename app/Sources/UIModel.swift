@@ -40,6 +40,11 @@ final class UIModel: ObservableObject {
     private var eventsGeneration = 0
     private var pumpTimer: Timer?
     private var listTimer: Timer?
+    /// Moves on with every availability check, so only the newest one's answer is
+    /// kept: a slow check begun when the feed failed never overwrites a later one.
+    private var availabilityChecks = 0
+    /// What `lostDaemon` put in the status line, cleared when the daemon is back.
+    private var lostProblem: String?
 
     init() {
         paths = AppPaths.standard()
@@ -75,8 +80,8 @@ final class UIModel: ObservableObject {
     /// `capabilities`, then models, the list and the watch baseline; then the feed.
     func connect() async {
         guard let engine else { return }
-        let availability = await onOutbox { engine.checkAvailability() }
-        state.availability = availability
+        // A check another began meanwhile answers for itself; this one asks again.
+        let availability = await checkAvailability() ?? .unknown
         guard availability.isReady else {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             if !Task.isCancelled { await connect() }
@@ -115,19 +120,11 @@ final class UIModel: ObservableObject {
     private func startWatchLoop() {
         guard let engine else { return }
         Thread.detachNewThread { [weak self] in
-            var failures = 0
-            while true {
-                guard let cursor = DispatchQueue.main.sync(execute: { self?.state.watchCursor }) else { return }
-                do {
-                    let page = try engine.watch(after: cursor)
-                    failures = 0
-                    DispatchQueue.main.async { self?.fold(watch: page) }
-                } catch {
-                    failures += 1
-                    DispatchQueue.main.async { self?.lostDaemon(error) }
-                    Thread.sleep(forTimeInterval: min(30, Double(failures) * 2))
-                }
-            }
+            WatchLoop(engine: engine,
+                      cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
+                      deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+                      lost: { error in DispatchQueue.main.async { self?.lostDaemon(error) } },
+                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } }).run()
         }
     }
 
@@ -142,12 +139,36 @@ final class UIModel: ObservableObject {
     }
 
     private func lostDaemon(_ error: Error) {
-        guard let engine else { return }
         Task {
-            let availability = await onOutbox { engine.checkAvailability() }
-            state.availability = availability
-            if !availability.isReady { problem = describe(error) }
+            guard let availability = await checkAvailability(), !availability.isReady else { return }
+            problem = describe(error)
+            lostProblem = problem
         }
+    }
+
+    /// The feed answers again after failing: check again, and once the daemon is
+    /// ready resume what waits on it (C-29.2).
+    private func regainedDaemon() {
+        Task {
+            let wasReady = state.availability.isReady
+            guard let availability = await checkAvailability(), availability.isReady, !wasReady else { return }
+            if problem != nil && problem == lostProblem { problem = nil }
+            lostProblem = nil
+            await refreshList()
+            pump()
+        }
+    }
+
+    /// `capabilities` now; the answer becomes `state.availability` unless a later
+    /// check began meanwhile (then nil).
+    private func checkAvailability() async -> DaemonAvailability? {
+        guard let engine else { return nil }
+        availabilityChecks += 1
+        let check = availabilityChecks
+        let availability = await onOutbox { engine.checkAvailability() }
+        guard check == availabilityChecks else { return nil }
+        state.availability = availability
+        return availability
     }
 
     /// One events loop, for the focused conversation only (C-29.9); a new focus

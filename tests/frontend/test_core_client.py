@@ -18,15 +18,18 @@ import time
 import pytest
 
 from subfleet import protocol
+from subfleet.daemon import busy_answer
 from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.daemon_harness import ServiceHarness, ServiceServer
 
 pytestmark = needs_swift
 
 
 class RawServer:
     """Accepts connections; per connection reads one line and then `answer`s,
-    stays `silent`, or `close`s. Records every line and whether the client
-    closed its side after the answer."""
+    stays `silent`, or `close`s; or, `busy`, answers as the daemon does past its
+    connection cap, before reading anything, and closes. Records every line and
+    whether the client closed its side after the answer."""
 
     def __init__(self, path: Path, behaviour: str = "answer"):
         self.path = path
@@ -52,6 +55,10 @@ class RawServer:
             threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
 
     def handle(self, conn: socket.socket) -> None:
+        if self.behaviour == "busy":
+            conn.sendall(busy_answer("the daemon is serving 512 connections"))
+            conn.close()
+            return
         reader = conn.makefile("rb")
         line = reader.readline()
         if not line:
@@ -195,3 +202,57 @@ def test_c29_4_the_refused_development_build_never_connects(core_probe, tmp_path
         for path in sorted(home.rglob("*"), reverse=True):
             path.unlink() if not path.is_dir() else path.rmdir()
         home.rmdir()
+
+
+# --- a daemon at its connection cap (C-16.1) ----------------------------------
+
+def test_c16_1_a_busy_answer_sent_before_the_request_is_read_still_arrives(core_probe, tmp_path, short_dir):
+    """Past its cap the daemon answers before it reads the request, and closes. A
+    request larger than the socket's buffers therefore always fails to write
+    (EPIPE); the app still reads the answer, exit 69, where it reported "write
+    failed: Broken pipe" (as the CLI's client does since the hotfix's review)."""
+    server = RawServer(short_dir / "daemon.sock", behaviour="busy")
+    try:
+        large = write_json(tmp_path / "large.json", {"query": "x" * 262_144})
+        answers = [run_probe(core_probe, "call", server.path, "conversation.list", large) for _ in range(3)]
+    finally:
+        server.close()
+    for answer in answers:
+        assert answer["error"]["kind"] == "daemon", answer
+        assert answer["error"]["code"] == 69 and answer["error"]["fix"] == "try again shortly"
+
+
+def test_c29_2_a_busy_daemon_is_busy_not_incompatible(core_probe, tmp_path, short_dir):
+    """Review of the descriptor hotfix, F7: `capabilities` refused busy showed "This
+    daemon does not speak the conversation protocol". Busy is its own state."""
+    server = RawServer(short_dir / "daemon.sock", behaviour="busy")
+    try:
+        checked = run_probe(core_probe, "check", server.path)
+    finally:
+        server.close()
+    assert checked["state"] == "busy" and checked["banner"] == "The Subfleet daemon is busy"
+    assert "serving 512 connections" in checked["detail"] and "drafts and queued messages are kept" in checked["detail"]
+
+
+@pytest.fixture
+def service():
+    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-wl-", dir="/tmp")))
+    server = ServiceServer(harness)
+    yield harness, server
+    server.close()
+    harness.close()
+
+
+def test_c29_2_the_first_watch_after_a_failure_checks_again(core_probe, tmp_path, service):
+    """F7: a failed watch makes the app check availability; if the daemon is busy
+    then, the app is left not ready. Nothing checked again once the feed answered,
+    so the banner stayed and nothing was sent. The first answer after a failure
+    checks again; later answers do not."""
+    _, server = service
+    server.faults[("conversation.watch", None)] = "busy"
+    server.faults[("capabilities", None)] = "busy"
+    out = run_probe(core_probe, "watch-loop", server.path, tmp_path / "outbox.json", 3)
+    assert out["log"] == ["lost:69", "check:busy", "pause:2.0", "page", "regained", "check:ready", "page"]
+    assert out["availability"]["state"] == "ready"
+    assert [r["op"] for r in server.requests] == ["conversation.watch", "capabilities", "conversation.watch",
+                                                  "capabilities", "conversation.watch"]

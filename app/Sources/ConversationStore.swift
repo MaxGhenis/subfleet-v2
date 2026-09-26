@@ -810,3 +810,41 @@ final class ConversationEngine {
         }
     }
 }
+
+/// The app's `conversation.watch` loop (UIModel.startWatchLoop), apart from its
+/// threads: each page is delivered; a failure is reported (the app then checks
+/// availability) and paused on; and the first page after a failure asks for
+/// availability to be checked again. The check made when the feed failed may have
+/// been answered while the daemon was busy or restarting, and nothing else checks
+/// once the feed answers again, so the app kept its banner and stopped sending
+/// (review of the descriptor hotfix, F7).
+struct WatchLoop {
+    let engine: ConversationEngine
+    /// Where to watch from; nil ends the loop.
+    var cursor: () -> Int?
+    var deliver: (WatchPage) -> Void
+    /// A watch failed.
+    var lost: (Error) -> Void
+    /// A watch answered after one or more failed.
+    var regained: () -> Void
+    var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+
+    /// The pause after the `failures`th failure in a row: 2 s more each time, at most 30 s.
+    static func backoff(failures: Int) -> TimeInterval { min(30, Double(failures) * 2) }
+
+    func run() {
+        var failures = 0
+        while let after = cursor() {
+            do {
+                let page = try engine.watch(after: after)
+                deliver(page)
+                if failures > 0 { regained() }
+                failures = 0
+            } catch {
+                failures += 1
+                lost(error)
+                pause(WatchLoop.backoff(failures: failures))
+            }
+        }
+    }
+}
