@@ -104,12 +104,104 @@ def sampler():
 if os.environ.get("SFR_SAMPLE"):
     threading.Thread(target=sampler, daemon=True).start()
     signal.signal(signal.SIGUSR2, lambda *_: gathering.set())
+
+# Admission (2026-09-26): every outermost store-lock hold made by an admission
+# pass, those of the `attempt.reserved` transaction apart; every thread's wait
+# for the store lock; and each turn job's time from being queued to being
+# reserved. Holds and waits are counted once SIGUSR2 has said measuring began.
+import contextlib
+from subfleet import protocol
+from subfleet.adapters.base import AdapterError
+admission = {"holds": [], "reserve_holds": [], "waits": [], "turns": {}}
+local, measuring = threading.local(), threading.Event()
+lock = daemon.store._lock
+real_acquire, real_release = lock.acquire, lock.release
+def acquire(blocking=True, timeout=-1):
+    started = time.monotonic()
+    ok = real_acquire(blocking, timeout)
+    if ok and lock._depth == 1:
+        local.since = time.monotonic()
+        if measuring.is_set():
+            admission["waits"].append(local.since - started)
+    return ok
+def release():
+    outer, since = lock._depth == 1, getattr(local, "since", None)
+    real_release()
+    if outer and since is not None and measuring.is_set() and getattr(local, "admitting", False):
+        held = time.monotonic() - since
+        admission["holds"].append(held)
+        if getattr(local, "reserving", False):
+            admission["reserve_holds"].append(held)
+lock.acquire, lock.release = acquire, release
+real_pass = daemon._admit_pass
+def admit_pass(*a, **k):
+    local.admitting = True
+    try:
+        return real_pass(*a, **k)
+    finally:
+        local.admitting = False
+daemon._admit_pass = admit_pass
+real_tx = daemon.store.transaction
+@contextlib.contextmanager
+def transaction(kind="state.changed", **options):
+    mark = kind == "attempt.reserved"
+    if mark:
+        local.reserving = True
+    try:
+        with real_tx(kind, **options) as tx:
+            yield tx
+    finally:
+        if mark:
+            local.reserving = False
+daemon.store.transaction = transaction
+real_boundary = daemon._boundary
+def boundary(name, job_id, attempt_id=None):
+    real_boundary(name, job_id, attempt_id)
+    if name != "reserved":
+        return
+    # Keyed by the job's name, which exists before `submit` returns its id.
+    record = admission["turns"].get((daemon.store.get_job(job_id) or {}).get("name") or "")
+    if record is not None:
+        record["reserved"] = time.monotonic()
+        # A turn is measured to its reservation and never launched: this rig
+        # has no conversation for it, and no provider may be started for one.
+        daemon.kill(protocol.KillArgs(job_id))
+daemon._boundary = boundary
+def no_turn_launch(*a, **k):
+    raise AdapterError("store_contention_repro: turns are reserved, never launched", code=7)
+daemon.conversations.launch = no_turn_launch
+def turns(every):
+    root, n = Path(sys.argv[1]), 0
+    while not daemon.stopping.wait(every):
+        n += 1
+        prompt = root / f"turn-{n}.md"
+        prompt.write_text("turn")
+        cid, mid = f"harness-conversation-{n}", f"harness-message-{n}"
+        args = protocol.SubmitArgs(request_id=f"turn:{mid}:0", kind="turn", workdir=str(root / "work"),
+                                   prompt_path=str(prompt), sandbox="read-only", pinned_model="astra",
+                                   name=f"turn-{cid}", in_place=True, independent=True, no_preamble=True,
+                                   max_attempts=1, allow_tmp=True)
+        turn = {"conversation_id": cid, "message_id": mid, "provider": "codex", "digest": f"harness-{n}"}
+        record = admission["turns"][f"turn-{cid}"] = {"queued": time.monotonic(), "measured": measuring.is_set()}
+        try:
+            daemon.submit(args, turn=turn)
+        except Exception as exc:                       # noqa: BLE001 - counted, and the rig goes on
+            admission["turns"].pop(f"turn-{cid}", None)
+            admission.setdefault("turn_errors", []).append(type(exc).__name__)
+            continue
+        record["submitted"] = time.monotonic()
+if os.environ.get("SFR_TURNS_EVERY"):
+    threading.Thread(target=turns, args=(float(os.environ["SFR_TURNS_EVERY"]),), daemon=True,
+                     name="harness-turns").start()
+signal.signal(signal.SIGUSR2, lambda *_: (gathering.set(), measuring.set()))
 try:
     daemon.serve_forever()
 finally:
     if os.environ.get("SFR_SAMPLE"):
         Path(os.environ["SFR_SAMPLE"]).write_text(json.dumps(
             [[k, n] for k, n in samples.most_common(80)], indent=1))
+    if os.environ.get("SFR_ADMISSION"):
+        Path(os.environ["SFR_ADMISSION"]).write_text(json.dumps(admission))
     daemon.close()
 """
 
@@ -142,6 +234,9 @@ class Rig:
                     "SUBFLEET_SESSION_STORE": str(self.root / "session-store")}
         if args.sample:
             self.env["SFR_SAMPLE"] = str(self.root / "samples.json")
+        self.env["SFR_ADMISSION"] = str(self.root / "admission.json")
+        if args.turns_every:
+            self.env["SFR_TURNS_EVERY"] = str(args.turns_every)
         if args.hold_s is not None:
             self.env.update(SFR_HOLD_S=str(args.hold_s), SFR_WAIT_S=str(args.hold_s), SFR_EVERY_S="0")
         self.python = args.python or sys.executable
@@ -428,6 +523,10 @@ class Rig:
                 job_id = self.submit(f"sess-{i % a.sessions}", a.warmup + a.duration + 120)
                 if job_id:
                     self.arm(f"sess-{i % a.sessions}", job_id)
+            # A detached backlog longer than the fleet can hold: admission
+            # evaluates it on every pass that frees a lease (C-6.10).
+            for i in range(a.backlog):
+                self.submit(f"backlog-{i % a.sessions}", a.backlog_s)
             self.start_spinners()
             for i in range(a.sessions):
                 threads.append(threading.Thread(target=self.hook, args=(f"sess-{i}",), daemon=True))
@@ -448,8 +547,7 @@ class Rig:
             for thread in threads:
                 thread.start()
             time.sleep(a.warmup)
-            if a.sample:
-                self.daemon.send_signal(signal.SIGUSR2)      # the sampler starts counting
+            self.daemon.send_signal(signal.SIGUSR2)          # the sampler and admission counts start
             self.measuring.set()
             measured_from, cpu_from = time.monotonic(), self.cpu_seconds()
             time.sleep(a.duration)
@@ -475,6 +573,21 @@ class Rig:
                 pass
 
     # --- the report ---------------------------------------------------------
+
+    def admission_report(self, stats, measured_s: float) -> dict:
+        """Admission's store-lock holds and each turn's wait, from the daemon's own record."""
+        path = self.root / "admission.json"
+        if not path.exists():
+            return {}
+        record = json.loads(path.read_text())
+        turns = [t for t in record["turns"].values() if t.get("measured")]
+        placed = [t["reserved"] - t["queued"] for t in turns if "reserved" in t]
+        return {"holds_s": stats(record["holds"]), "reserve_holds_s": stats(record["reserve_holds"]),
+                "store_waits_s": stats(record["waits"]),
+                "holds_over_1s": sum(1 for held in record["holds"] if held > 1),
+                "held_s_per_s": round(sum(record["holds"]) / measured_s, 4),
+                "turn_queued_to_reserved_s": stats(placed), "turns_submitted": len(turns),
+                "turns_never_reserved": len(turns) - len(placed), "turn_errors": record.get("turn_errors", [])}
 
     def report(self, sizes: dict, measured_s: float, log_start: int, diagnostics: bool) -> dict:
         def stats(values):
@@ -509,8 +622,9 @@ class Rig:
                 if frames:
                     path, line, func = frames[-1]
                     holders[f"{path}:{line} {func}"] += 1
+        admission = self.admission_report(stats, measured_s)
         return {"code": str(self.code), "root": str(self.root), "diagnostics": diagnostics,
-                "daemon_cpu_cores": getattr(self, "daemon_cpu", None),
+                "daemon_cpu_cores": getattr(self, "daemon_cpu", None), "admission": admission,
                 "route_evaluations": getattr(self, "admission", {}).get("route_evaluations"),
                 "args": vars(self.args), "store": sizes, "measured_s": round(measured_s, 1),
                 "ops": ops, "wake_after_terminal_s": stats(wakes), "wakes_unmatched":
@@ -544,6 +658,12 @@ def main() -> int:
     parser.add_argument("--sessions", type=int, default=21)
     parser.add_argument("--short-every", type=float, default=8.0)
     parser.add_argument("--short-s", type=float, default=3.0)
+    parser.add_argument("--backlog", type=int, default=0,
+                        help="detached jobs submitted at the start, more than the fleet holds")
+    parser.add_argument("--backlog-s", type=float, default=30.0, help="how long each backlog job runs")
+    parser.add_argument("--turns-every", type=float, default=0,
+                        help="submit a conversation turn job every this many seconds (0: none); "
+                             "each is measured from queued to reserved and never launched")
     parser.add_argument("--spinners", type=int, default=os.cpu_count() or 8)
     parser.add_argument("--nice", type=int, default=10)
     parser.add_argument("--warmup", type=float, default=20.0)
@@ -569,6 +689,8 @@ def main() -> int:
     print(f"  wait returned after terminal commit: {report['wake_after_terminal_s']}")
     print(f"  client errors: {report['client_errors']}")
     print(f"  lock-watch lines: {report['lockwatch_lines']}  long holds: {report['long_holds_s']}")
+    for key, value in (report.get("admission") or {}).items():
+        print(f"  admission {key}: {value}")
     for holder, count in report["holders_innermost"]:
         print(f"    {count:4d}  {holder}")
     if report.get("samples"):
