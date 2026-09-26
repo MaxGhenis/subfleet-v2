@@ -250,8 +250,10 @@ class ProcessTable:
 
         With `legacy`, a recorded `kern.boottime` timestamp that C-5.3 matches to
         this boot counts as well, at the cost of one `sysctl`. Raises
-        `InspectionError` when the boot identity is needed and cannot be read;
-        a pid that is absent, a zombie or another process needs none."""
+        `InspectionError` when the boot identity is needed and cannot be read,
+        which includes a UUID record against a table whose UUID read fell back
+        to seconds; a pid that is absent, a zombie or another process needs no
+        boot identity."""
         if not pid or pid <= 0 or not boot_id or not proc_start:
             return False
         if not self.live(pid) or self.rows[pid][3] != proc_start:
@@ -259,6 +261,11 @@ class ProcessTable:
         current = self.boot()
         if current == str(boot_id):
             return True
+        if boot_identity.session_uuid(str(boot_id)) and not boot_identity.session_uuid(current):
+            # This table's UUID read fell back to `kern.boottime` seconds, against
+            # which a UUID record can only be unknown (C-5.3): a failed read of the
+            # boot identity, not an answer about the process.
+            raise InspectionError("macOS boot session identity is unavailable")
         return legacy and boot_identity.matches(str(boot_id), current,
                                                 lambda: boot_identity.boot_seconds(_read)) is True
 

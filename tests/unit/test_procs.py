@@ -341,6 +341,19 @@ def test_c5_12_a_table_matches_a_legacy_boot_record_only_when_asked_and_c5_3_agr
     assert not table.is_process(42, "100", "Sun Sep  6 11:00:00 2026", legacy=True)
 
 
+def test_c5_12_a_table_whose_uuid_read_fell_back_cannot_answer_for_a_uuid_record(monkeypatch):
+    """C-5.3, C-5.12 a table that holds `kern.boottime` seconds because its UUID read failed can only call a
+    UUID-recorded process unknown, which is a failed read; a legacy record it still answers."""
+    table = procs.ProcessTable({42: (1, 42, "Ss", START), 43: (1, 43, "S", "Sun Sep  6 11:00:00 2026")}, "1726000000")
+    for legacy in (False, True):
+        with pytest.raises(procs.InspectionError):
+            table.is_process(42, BOOT_A, START, legacy=legacy)
+    assert not table.is_process(43, BOOT_A, START)          # another process: no boot identity needed
+    assert not table.is_process(44, BOOT_A, START)          # gone
+    assert table.is_process(42, "1726000000", START)
+    assert not table.is_process(42, "99", START, legacy=True)
+
+
 def test_c5_12_an_unreadable_process_table_is_an_inspection_failure(monkeypatch):
     """C-5.5 a table that cannot be read or parsed proves nothing."""
     census(monkeypatch, fail="ps")

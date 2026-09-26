@@ -518,6 +518,31 @@ def test_c5_12_a_boot_identity_the_table_cannot_read_is_read_once_and_decides_no
     assert [daemon.store.get_attempt(aid)["state"] for aid in attempts] == ["running"] * 3
 
 
+def test_c5_12_a_table_whose_uuid_read_fell_back_decides_nothing_for_uuid_records(daemon, monkeypatch):
+    """C-5.3, C-5.12 one failed UUID read inside the shared table's boot read is a failed read: no attempt
+    recorded with the UUID asks singly or reads a table of its own, and nothing is decided."""
+    session = "11111111-1111-4111-8111-111111111111"
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
+    daemon._table_next = 0.0                                   # (845d663's name for the expiry)
+    attempts = [ATTEMPT, add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
+    for aid in attempts:
+        daemon.store.update_attempt(aid, boot_id=session)
+    reads, asked = [], []
+
+    def snapshot():
+        reads.append(1)
+        return ProcessTable({pid: (1, pid, "Ss", STARTED) for pid in (4242, 5252, 6262)}, "1726000000")
+    monkeypatch.setattr(daemon_module.procs, "snapshot", snapshot)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: asked.append(args) or "alive")
+    daemon._contain = never_census
+    for aid in attempts:
+        daemon._process_attempt(aid)
+    assert reads == [1] and asked == []
+    assert [daemon.store.get_attempt(aid)["state"] for aid in attempts] == ["running"] * 3
+    assert all("owned_identities" not in json.loads(daemon.store.get_attempt(aid)["evidence_json"]) for aid in attempts)
+
+
 def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_group_owned(daemon, monkeypatch):
     """C-5.3, C-5.6, C-5.12 the shared table cannot say "alive" for a `kern.boottime` record, so the fresh reads
     do; once they have, its group's members are recorded as owned, as `same_process` would allow."""
