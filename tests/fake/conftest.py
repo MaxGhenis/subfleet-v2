@@ -43,7 +43,7 @@ class Harness:
         (root / "home").mkdir()
 
     def start(self, *options: str, open_files: int | None = None) -> Harness:
-        """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.5)."""
+        """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.6)."""
         log = (self.root / f"harness-{len(self.logs)}.log").open("wb")
         self.logs.append(log)
         env = {**os.environ, "PYTHONPATH": str(REPO), "SUBFLEET_HOME": str(self.root)}

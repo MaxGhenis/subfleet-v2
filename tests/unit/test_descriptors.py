@@ -1,4 +1,4 @@
-"""C-16.5, C-16.6: the descriptor budget's pure parts, with their invariants as properties.
+"""C-16.6, C-16.7: the descriptor budget's pure parts, with their invariants as properties.
 
 The properties run over seeded random inputs (the repository is standard library
 only, so no Hypothesis): the same seeds give the same cases on every run, and a
@@ -23,7 +23,7 @@ from subfleet.descriptors import OVERSIZED, LineFramer
 INF = resource.RLIM_INFINITY
 
 
-# --- raise_open_file_limit (C-16.5) -------------------------------------------
+# --- raise_open_file_limit (C-16.6) -------------------------------------------
 
 class FakeKernel:
     """getrlimit/setrlimit where values above `ceiling` are refused, as setrlimit's
@@ -68,30 +68,30 @@ def expected_after(soft, hard, ceiling, wanted):
     return soft
 
 
-def test_c16_5_the_launchd_default_is_raised_to_65536(monkeypatch):
-    """C-16.5 the incident's numbers: launchd's 256 under an unlimited hard limit becomes 65536."""
+def test_c16_6_the_launchd_default_is_raised_to_65536(monkeypatch):
+    """C-16.6 the incident's numbers: launchd's 256 under an unlimited hard limit becomes 65536."""
     kernel = FakeKernel(256, INF, 245760)
     install(monkeypatch, kernel)
     assert descriptors.raise_open_file_limit() == (256, 65536, INF)
     assert kernel.calls == [(65536, INF)]
 
 
-def test_c16_5_a_hard_limit_below_the_target_is_the_ceiling(monkeypatch):
+def test_c16_6_a_hard_limit_below_the_target_is_the_ceiling(monkeypatch):
     kernel = FakeKernel(256, 1000, 245760)
     install(monkeypatch, kernel)
     assert descriptors.raise_open_file_limit() == (256, 1000, 1000)
     assert kernel.calls == [(1000, 1000)]
 
 
-def test_c16_5_a_refused_value_falls_back_to_the_next_lower(monkeypatch):
-    """C-16.5 where setrlimit refuses the target, the next lower of the fallbacks is taken."""
+def test_c16_6_a_refused_value_falls_back_to_the_next_lower(monkeypatch):
+    """C-16.6 where setrlimit refuses the target, the next lower of the fallbacks is taken."""
     kernel = FakeKernel(256, INF, 10240)
     install(monkeypatch, kernel)
     assert descriptors.raise_open_file_limit() == (256, 8192, INF)
     assert [soft for soft, _ in kernel.calls] == [65536, 32768, 16384, 8192]
 
 
-def test_c16_5_enough_already_is_left_alone(monkeypatch):
+def test_c16_6_enough_already_is_left_alone(monkeypatch):
     for soft in (65536, 1048576, INF):
         kernel = FakeKernel(soft, INF, 245760)
         install(monkeypatch, kernel)
@@ -99,8 +99,8 @@ def test_c16_5_enough_already_is_left_alone(monkeypatch):
         assert kernel.calls == []
 
 
-def test_c16_5_property_the_raise_never_lowers_never_exceeds_and_takes_the_best_allowed(monkeypatch):
-    """C-16.5 invariants, for every (soft, hard, kernel ceiling, wanted) drawn:
+def test_c16_6_property_the_raise_never_lowers_never_exceeds_and_takes_the_best_allowed(monkeypatch):
+    """C-16.6 invariants, for every (soft, hard, kernel ceiling, wanted) drawn:
 
     - the soft limit is never lowered, and setrlimit is never asked to lower it;
     - it never exceeds the hard limit, nor a refusal ceiling unless it already did;
@@ -130,17 +130,17 @@ def test_c16_5_property_the_raise_never_lowers_never_exceeds_and_takes_the_best_
         assert all(value[0] > soft for value in kernel.calls), where
 
 
-def test_c16_5_the_real_limit_can_be_raised_in_this_process():
-    """C-16.5 on this machine the call succeeds and leaves at least what it found."""
+def test_c16_6_the_real_limit_can_be_raised_in_this_process():
+    """C-16.6 on this machine the call succeeds and leaves at least what it found."""
     before, after, hard = descriptors.raise_open_file_limit()
     soft_now, hard_now = resource.getrlimit(resource.RLIMIT_NOFILE)
     assert after >= before and soft_now == after and hard_now == hard
 
 
-# --- max_connections (C-16.6) -------------------------------------------------
+# --- max_connections (C-16.7) -------------------------------------------------
 
-def test_c16_6_property_the_connection_cap_leaves_the_reserve_and_is_monotone():
-    """C-16.6 invariants over every soft limit from 0 to 70000 (exhaustive):
+def test_c16_7_property_the_connection_cap_leaves_the_reserve_and_is_monotone():
+    """C-16.7 invariants over every soft limit from 0 to 70000 (exhaustive):
 
     - the cap is within [CONNECTIONS_FLOOR, CONNECTIONS_CEILING];
     - it never decreases as the limit grows;
@@ -160,7 +160,7 @@ def test_c16_6_property_the_connection_cap_leaves_the_reserve_and_is_monotone():
     assert descriptors.max_connections(65536) == descriptors.CONNECTIONS_CEILING
 
 
-# --- LineFramer (C-16.1, C-16.6) ----------------------------------------------
+# --- LineFramer (C-16.1, C-16.7) ----------------------------------------------
 
 def reference(stream: bytes, limit: int) -> list:
     """What framing must produce: each line, or OVERSIZED for one longer than the limit."""
@@ -194,8 +194,8 @@ def random_stream(rng: random.Random, limit: int, oversized: bool) -> bytes:
     return stream
 
 
-def test_c16_6_property_framing_does_not_depend_on_how_recv_chunks_the_stream():
-    """C-16.6 invariant: for any stream and any chunking, the lines equal the reference.
+def test_c16_7_property_framing_does_not_depend_on_how_recv_chunks_the_stream():
+    """C-16.7 invariant: for any stream and any chunking, the lines equal the reference.
 
     A line of at most `limit` bytes with its newline is returned whole; a longer
     one is one OVERSIZED and its tail is never mistaken for a request.
@@ -208,8 +208,8 @@ def test_c16_6_property_framing_does_not_depend_on_how_recv_chunks_the_stream():
         assert framed(stream, cuts, limit) == reference(stream, limit), (case, limit, stream, cuts)
 
 
-def test_c16_6_differential_framing_matches_readline_for_every_line_within_the_limit():
-    """C-16.6 the old reader was `makefile().readline(limit + 1)`; for requests within
+def test_c16_7_differential_framing_matches_readline_for_every_line_within_the_limit():
+    """C-16.7 the old reader was `makefile().readline(limit + 1)`; for requests within
     the limit the new framing returns exactly what it did, however the bytes arrive."""
     rng = random.Random(1616)
     for case in range(3000):
@@ -222,7 +222,7 @@ def test_c16_6_differential_framing_matches_readline_for_every_line_within_the_l
         assert framed(stream, cuts, limit) == old, (case, limit, stream, cuts)
 
 
-def test_c16_6_an_oversized_request_is_reported_once_and_the_next_one_still_parses():
+def test_c16_7_an_oversized_request_is_reported_once_and_the_next_one_still_parses():
     framer = LineFramer(limit=10)
     assert framer.feed(b"x" * 25) == [OVERSIZED]
     assert framer.feed(b"yyyy\n{}\n") == [b"{}\n"]
@@ -230,9 +230,9 @@ def test_c16_6_an_oversized_request_is_reported_once_and_the_next_one_still_pars
     assert framer.finish() == []
 
 
-# --- read_only and client_gone (C-16.6) ---------------------------------------
+# --- read_only and client_gone (C-16.7) ---------------------------------------
 
-def test_c16_6_only_reads_are_dropped_for_a_departed_client():
+def test_c16_7_only_reads_are_dropped_for_a_departed_client():
     for op in ("list", "show", "wait", "readings", "why", "pick", "daemon.status", "notice.pending"):
         assert descriptors.read_only(op, {}), op
     assert descriptors.read_only("ping", {}) and not descriptors.read_only("ping", {"text": "hello"})
@@ -258,9 +258,9 @@ def listener():
         server.close()
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="C-16.6 tells a closed peer apart with macOS getpeername")
-def test_c16_6_a_client_is_gone_only_once_it_has_closed_its_whole_socket(listener):
-    """C-16.6 an open or half-closed client is still there; a closed one is gone,
+@pytest.mark.skipif(sys.platform != "darwin", reason="C-16.7 tells a closed peer apart with macOS getpeername")
+def test_c16_7_a_client_is_gone_only_once_it_has_closed_its_whole_socket(listener):
+    """C-16.7 an open or half-closed client is still there; a closed one is gone,
     even while the request it sent before closing is still unread."""
     server, path = listener
     verdicts = {}
@@ -284,16 +284,16 @@ def test_c16_6_a_client_is_gone_only_once_it_has_closed_its_whole_socket(listene
     assert descriptors.client_gone(conn) is True          # a socket this side closed has no client
 
 
-# --- launchd (C-16.5) ---------------------------------------------------------
+# --- launchd (C-16.6) ---------------------------------------------------------
 
-def test_c16_5_the_plist_limit_stays_within_the_kernel_ceiling():
+def test_c16_6_the_plist_limit_stays_within_the_kernel_ceiling():
     assert descriptors.launchd_open_files(245760) == 65536
     assert descriptors.launchd_open_files(10240) == 10240
     assert descriptors.launchd_open_files(0) == 65536       # unreadable: the target
 
 
-def test_c16_5_daemon_install_writes_the_open_file_limit_into_the_plist(tmp_path, monkeypatch):
-    """C-16.5 the generated plist sets SoftResourceLimits.NumberOfFiles, and it reads back."""
+def test_c16_6_daemon_install_writes_the_open_file_limit_into_the_plist(tmp_path, monkeypatch):
+    """C-16.6 the generated plist sets SoftResourceLimits.NumberOfFiles, and it reads back."""
     from subfleet import cli
     monkeypatch.setattr(descriptors, "kernel_open_files_ceiling", lambda: 245760)
     data = plistlib.loads(cli._plist(tmp_path))
@@ -308,12 +308,12 @@ def test_c16_5_daemon_install_writes_the_open_file_limit_into_the_plist(tmp_path
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="kern.maxfilesperproc is macOS")
-def test_c16_5_the_kernel_ceiling_is_read_on_macos():
+def test_c16_6_the_kernel_ceiling_is_read_on_macos():
     ceiling = descriptors.kernel_open_files_ceiling()
     assert isinstance(ceiling, int) and ceiling > 0
 
 
-def test_c16_5_open_descriptors_counts_this_process():
+def test_c16_6_open_descriptors_counts_this_process():
     before = descriptors.open_descriptors()
     handle = open(os.devnull)
     try:

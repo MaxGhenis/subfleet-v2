@@ -2153,7 +2153,7 @@ def _plist(root: Path) -> bytes:
         "StandardErrorPath": str(root / LOG_NAME),
         # Dispatch serves user requests, so use standard service resource limits.
         "ProcessType": "Standard",
-        # C-16.5: launchd would start the daemon at 256 descriptors; every client
+        # C-16.6: launchd would start the daemon at 256 descriptors; every client
         # connection and every pipe to a child holds one. The daemon raises its
         # own limit too, and this covers a start where it cannot.
         "SoftResourceLimits": {"NumberOfFiles": descriptors.launchd_open_files()},

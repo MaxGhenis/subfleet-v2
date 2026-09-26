@@ -485,16 +485,16 @@ def check_live(root: Path) -> dict[str, Any]:
                "`subfleet daemon status` for the rest")
 
 
-#: C-16.5: below this the daemon runs short of descriptors under ordinary load.
+#: C-16.6: below this the daemon runs short of descriptors under ordinary load.
 OPEN_FILES_MINIMUM = 1024
-#: C-16.5, C-16.6: `--live` fails when this share of the soft limit is open.
+#: C-16.6, C-16.7: `--live` fails when this share of the soft limit is open.
 OPEN_FILES_ALARM = .8
 RESTART_CAUTION = ("it unloads and reloads the launchd job, which can restart the daemon: "
                    "check `subfleet runs --running` first")
 
 
 def check_launchd_limit(plist: Path | None = None) -> dict[str, Any]:
-    """C-16.5: does the launchd plist give the daemon room for descriptors?
+    """C-16.6: does the launchd plist give the daemon room for descriptors?
 
     The daemon raises its own soft limit at start, so a plist without
     `NumberOfFiles` is not a failure, only a missing second line of defence;
@@ -521,7 +521,7 @@ def check_launchd_limit(plist: Path | None = None) -> dict[str, Any]:
 
 
 def check_descriptors_live(root: Path) -> dict[str, Any]:
-    """`--live`, C-16.5 and C-16.6: the running daemon's limit, open descriptors and connections."""
+    """`--live`, C-16.6 and C-16.7: the running daemon's limit, open descriptors and connections."""
     check = "daemon descriptors"
     try:
         status = Client(root, timeout=5).call("daemon.status")
@@ -531,7 +531,7 @@ def check_descriptors_live(root: Path) -> dict[str, Any]:
         return row(check, FAIL, f"{exc.__class__.__name__}: {exc}", "`subfleet daemon logs -n 40`")
     budget = status.get("descriptors")
     if not isinstance(budget, dict):
-        return row(check, UNKNOWN, "the daemon does not report descriptors (it predates C-16.5)",
+        return row(check, UNKNOWN, "the daemon does not report descriptors (it predates C-16.6)",
                    "restart it on this release when no jobs are running (`subfleet runs --running`)")
     soft, hard, open_now = budget.get("soft_limit"), budget.get("hard_limit"), budget.get("open")
     detail = (f"{'unknown' if open_now is None else open_now} open of soft limit "

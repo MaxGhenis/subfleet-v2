@@ -1,4 +1,4 @@
-"""C-16.5: a failed `accept` for want of a resource is waited out, and the daemon asks for room at start.
+"""C-16.6: a failed `accept` for want of a resource is waited out, and the daemon asks for room at start.
 
 Incident, 2026-09-24: with the machine at a load average near 72, sessions retried
 `status` every 15 s against replies that took minutes. Each open connection held a
@@ -78,8 +78,8 @@ def started(service, thread):
         time.sleep(.01)
 
 
-def test_c16_5_emfile_on_accept_is_waited_out_and_the_daemon_keeps_serving(serving):
-    """C-16.5 the incident: EMFILE from `accept` no longer ends `serve_forever`."""
+def test_c16_6_emfile_on_accept_is_waited_out_and_the_daemon_keeps_serving(serving):
+    """C-16.6 the incident: EMFILE from `accept` no longer ends `serve_forever`."""
     service, thread, failures = serving
     failures.extend([errno.EMFILE] * 5 + [errno.ENFILE, errno.ECONNABORTED])
     started(service, thread)
@@ -97,8 +97,8 @@ def test_c16_5_emfile_on_accept_is_waited_out_and_the_daemon_keeps_serving(servi
     assert "accept failed: EMFILE" in log and "accept recovered after 7 failures" in log
 
 
-def test_c16_5_any_other_accept_error_still_ends_serve_forever(serving):
-    """C-16.5 only a shortage is waited out; a socket that is gone is not retried for ever."""
+def test_c16_6_any_other_accept_error_still_ends_serve_forever(serving):
+    """C-16.6 only a shortage is waited out; a socket that is gone is not retried for ever."""
     service, thread, failures = serving
     failures.append(errno.EBADF)
     thread.start()                     # it ends at once and removes its socket on the way out
@@ -107,8 +107,8 @@ def test_c16_5_any_other_accept_error_still_ends_serve_forever(serving):
     assert [getattr(exc, "errno", None) for exc in thread.raised] == [errno.EBADF]
 
 
-def test_c16_5_main_raises_the_limit_before_the_daemon_sizes_its_connection_cap(monkeypatch):
-    """C-16.5 `main` lifts the open-file limit first, so C-16.6's cap comes from the raised value."""
+def test_c16_6_main_raises_the_limit_before_the_daemon_sizes_its_connection_cap(monkeypatch):
+    """C-16.6 `main` lifts the open-file limit first, so C-16.7's cap comes from the raised value."""
     order = []
     monkeypatch.setattr(daemon_module.descriptors, "raise_open_file_limit",
                         lambda: order.append("raise") or (256, 65536, resource.RLIM_INFINITY))
@@ -125,8 +125,8 @@ def test_c16_5_main_raises_the_limit_before_the_daemon_sizes_its_connection_cap(
     assert order == ["raise", "daemon"]
 
 
-def test_c16_5_the_start_log_says_what_the_raise_achieved():
-    """C-16.5 raised: an info line with both values; stuck below the target: a warning naming the hard limit."""
+def test_c16_6_the_start_log_says_what_the_raise_achieved():
+    """C-16.6 raised: an info line with both values; stuck below the target: a warning naming the hard limit."""
     import logging
     records = []
 

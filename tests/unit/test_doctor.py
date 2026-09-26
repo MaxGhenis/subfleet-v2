@@ -504,10 +504,10 @@ def test_guard_preflight_settings_row_fails_on_a_cache_override_outside_the_root
     assert item["status"] == doctor.FAIL and guard.CACHE_ENV in item["detail"] and guard.CACHE_ENV in item["fix"]
 
 
-# --- descriptors (C-16.5, C-16.6) ---------------------------------------------
+# --- descriptors (C-16.6, C-16.7) ---------------------------------------------
 
-def test_c16_5_the_plist_row_reads_number_of_files(tmp_path):
-    """C-16.5 absent plist and absent key are unknown (the daemon raises its own
+def test_c16_6_the_plist_row_reads_number_of_files(tmp_path):
+    """C-16.6 absent plist and absent key are unknown (the daemon raises its own
     limit); a low value fails; a written value passes."""
     import plistlib
     plist = tmp_path / "com.subfleet.daemon.plist"
@@ -522,8 +522,8 @@ def test_c16_5_the_plist_row_reads_number_of_files(tmp_path):
     assert doctor.check_launchd_limit(plist)["status"] == doctor.PASS
 
 
-def test_c16_5_live_reports_the_daemons_descriptors(daemon, root):
-    """C-16.5, C-16.6 `--live` reads `descriptors` from daemon.status and judges it."""
+def test_c16_6_live_reports_the_daemons_descriptors(daemon, root):
+    """C-16.6, C-16.7 `--live` reads `descriptors` from daemon.status and judges it."""
     budget = {"soft_limit": 65536, "hard_limit": None, "open": 37, "connections": 2,
               "max_connections": 512, "refused": 0, "idle_closed": 1, "abandoned": 3,
               "accept_failures": 0}
@@ -539,12 +539,12 @@ def test_c16_5_live_reports_the_daemons_descriptors(daemon, root):
     assert doctor.check_descriptors_live(root)["status"] == doctor.FAIL
 
 
-def test_c16_5_live_descriptors_is_unknown_for_an_older_daemon(daemon, root):
+def test_c16_6_live_descriptors_is_unknown_for_an_older_daemon(daemon, root):
     daemon({"daemon.status": lambda request: {"pid": 1}})
     assert doctor.check_descriptors_live(root)["status"] == doctor.UNKNOWN
 
 
-def test_c16_5_the_descriptor_rows_are_in_the_tables(daemon, root, stub_probes):
+def test_c16_6_the_descriptor_rows_are_in_the_tables(daemon, root, stub_probes):
     """C-17.5 the plist row is offline (a file read); the daemon's own numbers are `--live` only."""
     daemon({"ping": lambda request: {"pong": True, "version": "t"},
             "daemon.status": lambda request: {"descriptors": {"soft_limit": 65536, "open": 9}}})

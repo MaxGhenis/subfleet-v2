@@ -91,7 +91,7 @@ def main() -> int:
                 os.kill(guardian, signal.SIGKILL)
             os.kill(os.getpid(), signal.SIGKILL)
 
-    # As `subfleet.daemon.main` does (C-16.5): raise the open-file limit first,
+    # As `subfleet.daemon.main` does (C-16.6): raise the open-file limit first,
     # so the connection cap is derived from what the process can really open.
     limits = descriptors.raise_open_file_limit()
     connections = {key: value for key, value in (

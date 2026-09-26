@@ -1,4 +1,4 @@
-"""C-16.5, C-16.6: a daemon with few descriptors, and more clients than it has, stays up and answers.
+"""C-16.6, C-16.7: a daemon with few descriptors, and more clients than it has, stays up and answers.
 
 The incident (2026-09-24 and 2026-09-25): launchd started the daemon with a soft
 limit of 256 descriptors; clients piled up behind 32 busy readers, `accept` raised
@@ -109,8 +109,8 @@ def storm(root: Path, *, clients: int, kinds: dict, timeout: float) -> list[str]
     return outcomes
 
 
-def test_c16_6_more_clients_than_descriptors_get_answers_and_the_daemon_stays_up(harness):
-    """C-16.5, C-16.6: with 128 descriptors and 300 concurrent clients, every client that
+def test_c16_7_more_clients_than_descriptors_get_answers_and_the_daemon_stays_up(harness):
+    """C-16.6, C-16.7: with 128 descriptors and 300 concurrent clients, every client that
     connects is answered or refused at once, the job still runs, and the daemon recovers."""
     h = harness.start("--connection-idle-s", "2", open_files=128)
     pid = h.process.pid
@@ -150,7 +150,7 @@ def test_c16_6_more_clients_than_descriptors_get_answers_and_the_daemon_stays_up
     assert tally.get("ping:busy", 0) + tally.get("wait:busy", 0) + tally.get("idle:busy", 0) > 0, tally
     assert tally.get("wait:answered", 0) > 0 and tally.get("ping:answered", 0) > 0, tally
     # Within its own budget, not merely under the kernel's limit (which cannot be passed):
-    # the connections it held plus the reserve for its own work (C-16.6).
+    # the connections it held plus the reserve for its own work (C-16.7).
     budget = descriptors.max_connections(128) + descriptors.DESCRIPTOR_RESERVE
     assert max(peak, default=0) <= budget, (peak, budget)
     # The job ran to success beside the storm: the reserve kept descriptors for the daemon's own work.
@@ -158,18 +158,18 @@ def test_c16_6_more_clients_than_descriptors_get_answers_and_the_daemon_stays_up
     counts = h.call("daemon.status")["descriptors"]
     assert counts["refused"] > 0 and counts["idle_closed"] > 0 and counts["accept_failures"] == 0, counts
     assert h.call("ping")["pong"] is True
-    # Back to where it started: no descriptor outlived the storm (C-16.6).
+    # Back to where it started: no descriptor outlived the storm (C-16.7).
     h.until(lambda: h.call("daemon.status")["descriptors"]["open"] <= baseline + 4, timeout=10)
     assert "Traceback" not in logs(h)
 
 
-def test_c16_5_emfile_from_accept_is_waited_out_under_a_real_kernel_limit(harness):
-    """C-16.5: with the cap set above what 64 descriptors allow, `accept` really fails
+def test_c16_6_emfile_from_accept_is_waited_out_under_a_real_kernel_limit(harness):
+    """C-16.6: with the cap set above what 64 descriptors allow, `accept` really fails
     with EMFILE; the daemon waits it out, closes the idle connections, and answers again.
 
     On macOS the kernel drops the connection whose `accept` failed, so that client
     reads end of stream: surviving EMFILE protects the process and the next client,
-    and C-16.6's cap is what keeps a client from meeting it at all."""
+    and C-16.7's cap is what keeps a client from meeting it at all."""
     h = harness.start("--connection-idle-s", "3", "--max-connections", "500", open_files=64)
     pid = h.process.pid
     held = []

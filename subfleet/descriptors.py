@@ -1,4 +1,4 @@
-"""The daemon's descriptor budget (C-16.5, C-16.6).
+"""The daemon's descriptor budget (C-16.6, C-16.7).
 
 Every client connection holds a descriptor from `accept` until its reply is
 written, and so does every pipe to a child, the store and its WAL, and the log.
@@ -26,28 +26,28 @@ import subprocess
 import sys
 from pathlib import Path
 
-#: C-16.5: the soft open-file limit the daemon asks for at start, and the value
+#: C-16.6: the soft open-file limit the daemon asks for at start, and the value
 #: `daemon install` writes into the launchd plist. The hard limit bounds it.
 OPEN_FILES_WANTED = 65536
-#: C-16.5: lower soft limits tried in turn when `setrlimit` refuses a higher one
+#: C-16.6: lower soft limits tried in turn when `setrlimit` refuses a higher one
 #: (EINVAL or EPERM; macOS documents both for RLIMIT_NOFILE).
 OPEN_FILES_FALLBACKS = (32768, 16384, 8192, 4096, 2048, 1024)
 
-#: C-16.6: descriptors kept back from client connections for the daemon's own
+#: C-16.7: descriptors kept back from client connections for the daemon's own
 #: work: the store with its WAL and shared memory, the log, the lock, the
 #: listening socket, and the pipes and files of the children it starts.
 DESCRIPTOR_RESERVE = 64
-#: C-16.6: client connections held at once never exceed half of what the
+#: C-16.7: client connections held at once never exceed half of what the
 #: reserve leaves, and never this many; each one has a reader thread waiting.
 CONNECTIONS_CEILING = 512
 CONNECTIONS_FLOOR = 4
-#: C-16.6: a connection with no request outstanding that sends nothing for this
+#: C-16.7: a connection with no request outstanding that sends nothing for this
 #: long is closed. The CLI sends its request as soon as it connects.
 CONNECTION_IDLE_S = 60.0
 #: C-16.1: one request line, newline included, is at most this many bytes.
 MAX_REQUEST_BYTES = 1024 * 1024
 
-#: C-16.6: ops whose only effect is their reply (and the observation caches a
+#: C-16.7: ops whose only effect is their reply (and the observation caches a
 #: read refreshes in passing). One whose client has hung up is not run.
 READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
                            "daemon.status", "notice.pending"})
@@ -60,7 +60,7 @@ def open_file_limits() -> tuple[int, int]:
 
 
 def raise_open_file_limit(wanted: int = OPEN_FILES_WANTED) -> tuple[int, int, int]:
-    """C-16.5: lift the soft open-file limit toward `wanted`; returns (before, after, hard).
+    """C-16.6: lift the soft open-file limit toward `wanted`; returns (before, after, hard).
 
     The soft limit is never lowered and never set above the hard limit. When
     `setrlimit` refuses a value, the next lower of `OPEN_FILES_FALLBACKS` is
@@ -85,7 +85,7 @@ def raise_open_file_limit(wanted: int = OPEN_FILES_WANTED) -> tuple[int, int, in
 
 
 def max_connections(soft_limit: int) -> int:
-    """C-16.6: how many client connections the daemon holds at once for this limit."""
+    """C-16.7: how many client connections the daemon holds at once for this limit."""
     if soft_limit == resource.RLIM_INFINITY:
         return CONNECTIONS_CEILING
     return max(CONNECTIONS_FLOOR,
@@ -110,7 +110,7 @@ def open_descriptors() -> int | None:
 
 
 def read_only(op: str, args: dict) -> bool:
-    """C-16.6: whether a request's only effect is its reply."""
+    """C-16.7: whether a request's only effect is its reply."""
     if op in READ_ONLY_OPS:
         return True
     if op == "ping":
@@ -121,7 +121,7 @@ def read_only(op: str, args: dict) -> bool:
 
 
 def client_gone(conn: socket.socket) -> bool:
-    """C-16.6: True only once the client has closed its whole socket.
+    """C-16.7: True only once the client has closed its whole socket.
 
     A client that shut down just its write half is still reading its reply and
     is not gone. On macOS `getpeername` tells the two apart: it fails with
@@ -204,7 +204,7 @@ def kernel_open_files_ceiling() -> int | None:
 
 
 def launchd_open_files(ceiling: int | None = None) -> int:
-    """C-16.5: the `NumberOfFiles` soft limit `daemon install` writes into the plist.
+    """C-16.6: the `NumberOfFiles` soft limit `daemon install` writes into the plist.
 
     launchd applies it before the daemon runs, so a daemon that could not raise
     its own limit still starts with room. It is never above the kernel's

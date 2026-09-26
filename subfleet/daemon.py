@@ -61,7 +61,7 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
 
-#: C-16.5: `accept` failures that say the process or the system is short of
+#: C-16.6: `accept` failures that say the process or the system is short of
 #: something for now, not that the socket is gone. The daemon waits and accepts
 #: again; any other error still ends `serve_forever`.
 ACCEPT_TRANSIENT = frozenset({errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM,
@@ -251,7 +251,7 @@ class Daemon:
         self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
-        # C-16.6: the most client connections held at once, from the open-file
+        # C-16.7: the most client connections held at once, from the open-file
         # limit this process has now (main raises it first), and how long one
         # with nothing outstanding may stay silent. Counts are for daemon.status.
         self.max_connections = max(1, int(max_connections if max_connections is not None
@@ -300,7 +300,7 @@ class Daemon:
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
-        # C-16.6: one reader per connection the daemon will hold, so an accepted
+        # C-16.7: one reader per connection the daemon will hold, so an accepted
         # connection never waits in this pool's queue with its descriptor open.
         self.readers = ThreadPoolExecutor(max_workers=self.max_connections, thread_name_prefix="subfleet-socket")
         self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
@@ -1423,7 +1423,7 @@ class Daemon:
 
     def dispatch(self, op: str, args: dict, *,
                  client_gone: Callable[[], bool] | None = None) -> dict:
-        """One protocol op (C-16.2). `client_gone`, from the socket, lets a long read stop early (C-16.6)."""
+        """One protocol op (C-16.2). `client_gone`, from the socket, lets a long read stop early (C-16.7)."""
         if op == "pick":
             from . import picker
             a = protocol.coerce_args(protocol.PickArgs, args)
@@ -1752,7 +1752,7 @@ class Daemon:
             if remaining <= 0 or self.stopping.is_set():
                 return {"timeout": True}
             if client_gone is not None and client_gone():
-                # C-16.6: no one is left to read the answer. Stop now, not at
+                # C-16.7: no one is left to read the answer. Stop now, not at
                 # the deadline, and free this thread and the client's descriptor.
                 self._count_connection("abandoned", "wait")
                 return {"timeout": True}
@@ -3497,7 +3497,7 @@ class Daemon:
         def gone() -> bool:
             return descriptors.client_gone(conn)
         if descriptors.read_only(req.op, req.args) and gone():
-            # C-16.6: its client timed out and hung up while this waited for a
+            # C-16.7: its client timed out and hung up while this waited for a
             # thread. A read has no one to answer; a write still runs, because a
             # client disconnect cannot cancel its durable job.
             self._count_connection("abandoned", req.op)
@@ -3516,7 +3516,7 @@ class Daemon:
                 conn.sendall(protocol.encode(response))
         except OSError:
             # A client disconnect cannot cancel its durable job. A reply that
-            # failed part way (the client stopped reading, C-16.6) leaves a
+            # failed part way (the client stopped reading, C-16.7) leaves a
             # broken line, so nothing more may follow it on this connection.
             with contextlib.suppress(OSError):
                 conn.shutdown(socket.SHUT_RDWR)
@@ -3542,7 +3542,7 @@ class Daemon:
         def note_reply(_future) -> None:
             replied[0] = time.monotonic()
         try:
-            # C-16.6: reads time out instead of blocking, so a client that says
+            # C-16.7: reads time out instead of blocking, so a client that says
             # nothing cannot hold this reader and its descriptor for ever. The
             # same timeout bounds sending a reply to a client that stops reading.
             conn.settimeout(self.connection_idle_s)
@@ -3582,7 +3582,7 @@ class Daemon:
             finish()
 
     def _hold_connection(self, conn: socket.socket) -> None:
-        """C-16.6: hold a new connection only while a reader is free for it.
+        """C-16.7: hold a new connection only while a reader is free for it.
 
         The reader pool has a thread for every connection the cap allows, so an
         admitted connection is read at once. One over the cap is answered at
@@ -3623,7 +3623,7 @@ class Daemon:
         finally:
             conn.close()
 
-    #: C-16.6: what `_count_connection` logs, at the 1st, 2nd, 4th, 8th, ... time.
+    #: C-16.7: what `_count_connection` logs, at the 1st, 2nd, 4th, 8th, ... time.
     _CONNECTION_EVENTS = {"refused": "connections refused at the cap",
                           "idle_closed": "idle connections closed",
                           "abandoned": "requests dropped because their client hung up"}
@@ -3640,7 +3640,7 @@ class Daemon:
         return count
 
     def _descriptor_status(self) -> dict:
-        """C-16.5, C-16.6: the open-file limit, what is open, and what the connection cap has done."""
+        """C-16.6, C-16.7: the open-file limit, what is open, and what the connection cap has done."""
         soft, hard = descriptors.open_file_limits()
         with self._connection_lock:
             held = len(self._connections)
@@ -3657,7 +3657,7 @@ class Daemon:
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.bind(str(sock_path))
         os.chmod(sock_path, 0o600)
-        # C-16.6: socket.SOMAXCONN, 128, which is also macOS's default
+        # C-16.7: socket.SOMAXCONN, 128, which is also macOS's default
         # kern.ipc.somaxconn cap. A burst past a full backlog is refused at
         # connect, which the CLI reports as no daemon at all.
         self._socket.listen(max(64, socket.SOMAXCONN))
@@ -3676,7 +3676,7 @@ class Daemon:
                         break
                     if exc.errno not in ACCEPT_TRANSIENT:
                         raise
-                    # C-16.5: out of descriptors or buffers is a condition to
+                    # C-16.6: out of descriptors or buffers is a condition to
                     # wait out, not a reason to exit. On 2026-09-24 one EMFILE
                     # here ended the daemon while its clients waited on replies.
                     failures += 1
@@ -3717,7 +3717,7 @@ class Daemon:
             pool.shutdown(wait=True, cancel_futures=True)
         with self._connection_lock:
             # A connection whose reader or request was cancelled above has no
-            # one left to close it (C-16.6); an embedded daemon would keep it.
+            # one left to close it (C-16.7); an embedded daemon would keep it.
             for conn in self._connections:
                 conn.close()
             self._connections.clear()
@@ -3730,7 +3730,7 @@ class Daemon:
 
 
 def log_open_file_limit(log: logging.Logger, before: int, after: int, hard: int) -> None:
-    """C-16.5: say what raising the open-file limit at start achieved."""
+    """C-16.6: say what raising the open-file limit at start achieved."""
     if after != before:
         log.info("open-file limit raised from %s to %s at start", before, after)
     elif after != resource.RLIM_INFINITY and after < descriptors.OPEN_FILES_WANTED:

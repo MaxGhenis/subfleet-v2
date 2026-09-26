@@ -1,4 +1,4 @@
-"""C-16.6: client connections are bounded, never wait for a reader, and die with their client.
+"""C-16.7: client connections are bounded, never wait for a reader, and die with their client.
 
 Incident, 2026-09-24 and 2026-09-25: every connection held one of 32 reader
 threads for its whole life, so a 33rd waited in the pool's queue with its
@@ -92,7 +92,7 @@ def connect(service) -> socket.socket:
 
 def send(sock, op, **args):
     # A connection over the cap may be answered and closed before the request is
-    # sent (C-16.6); the answer is still there to read.
+    # sent (C-16.7); the answer is still there to read.
     with suppress(BrokenPipeError, ConnectionResetError):
         sock.sendall((json.dumps({"v": 1, "id": op, "op": op, "args": args}) + "\n").encode())
 
@@ -117,8 +117,8 @@ def counts(service) -> dict:
     return service._descriptor_status()
 
 
-def test_c16_6_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answered(serve):
-    """C-16.6 the incident: 40 clients in `wait` held all 32 readers and no ping was answered."""
+def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answered(serve):
+    """C-16.7 the incident: 40 clients in `wait` held all 32 readers and no ping was answered."""
     service = serve()
     assert service.max_connections >= 64            # this test process has a generous limit
     holders = []
@@ -137,8 +137,8 @@ def test_c16_6_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
     assert counts(service)["abandoned"] >= 40
 
 
-def test_c16_6_over_the_cap_a_client_is_answered_busy_at_once_and_served_after(serve):
-    """C-16.6 the connection past the cap gets a one-line refusal now, not a 15 s silence."""
+def test_c16_7_over_the_cap_a_client_is_answered_busy_at_once_and_served_after(serve):
+    """C-16.7 the connection past the cap gets a one-line refusal now, not a 15 s silence."""
     service = serve(max_connections=3)
     idle = [connect(service) for _ in range(3)]
     until(lambda: counts(service)["connections"] == 3)
@@ -161,8 +161,8 @@ def test_c16_6_over_the_cap_a_client_is_answered_busy_at_once_and_served_after(s
         sock.close()
 
 
-def test_c16_6_an_idle_client_is_closed_but_one_awaiting_its_reply_is_not(serve):
-    """C-16.6 silence with nothing outstanding ends a connection; a pending reply keeps it."""
+def test_c16_7_an_idle_client_is_closed_but_one_awaiting_its_reply_is_not(serve):
+    """C-16.7 silence with nothing outstanding ends a connection; a pending reply keeps it."""
     service = serve(connection_idle_s=.3)
     idle = connect(service)
     waiting = connect(service)
@@ -176,8 +176,8 @@ def test_c16_6_an_idle_client_is_closed_but_one_awaiting_its_reply_is_not(serve)
     waiting.close()
 
 
-def test_c16_6_a_departed_clients_read_is_not_run_but_its_write_still_is(serve):
-    """C-16.6 a read queued for a client that hung up is dropped; a write still commits (C-16.4)."""
+def test_c16_7_a_departed_clients_read_is_not_run_but_its_write_still_is(serve):
+    """C-16.7 a read queued for a client that hung up is dropped; a write still commits (C-16.4)."""
     service = serve()
     service.requests.shutdown(wait=True)
     service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
@@ -216,8 +216,8 @@ def test_c16_6_a_departed_clients_read_is_not_run_but_its_write_still_is(serve):
     live.close()
 
 
-def test_c16_6_a_half_closed_client_still_gets_its_reply(serve):
-    """C-16.6 shutting down only the write half is not leaving: the reply is still sent."""
+def test_c16_7_a_half_closed_client_still_gets_its_reply(serve):
+    """C-16.7 shutting down only the write half is not leaving: the reply is still sent."""
     service = serve()
     real = service.dispatch
     service.dispatch = lambda op, args, **kw: (time.sleep(.3), real(op, args, **kw))[1]
@@ -228,7 +228,7 @@ def test_c16_6_a_half_closed_client_still_gets_its_reply(serve):
     assert counts(service)["abandoned"] == 0
 
 
-def test_c16_6_an_oversized_request_is_refused_and_the_connection_goes_on(serve):
+def test_c16_7_an_oversized_request_is_refused_and_the_connection_goes_on(serve):
     """C-16.1 a request over 1 MiB is answered once, and its tail is not read as a request."""
     service = serve()
     with connect(service) as sock:
@@ -250,8 +250,8 @@ def reply_lines(sock, n):
     return [json.loads(line) for line in data.splitlines()[:n]]
 
 
-def test_c16_5_daemon_status_reports_the_descriptor_budget(serve):
-    """C-16.5, C-16.6 `daemon.status` says the limit, what is open, and what the cap has done."""
+def test_c16_6_daemon_status_reports_the_descriptor_budget(serve):
+    """C-16.6, C-16.7 `daemon.status` says the limit, what is open, and what the cap has done."""
     service = serve(max_connections=7, connection_idle_s=9)
     result = call(service, "daemon.status")["result"]["descriptors"]
     assert result["max_connections"] == 7 and result["idle_s"] == 9
@@ -261,16 +261,16 @@ def test_c16_5_daemon_status_reports_the_descriptor_budget(serve):
     assert {"accepted", "refused", "idle_closed", "abandoned", "accept_failures"} <= set(result)
 
 
-def test_c16_6_the_cap_follows_the_open_file_limit(serve, monkeypatch):
-    """C-16.6 with launchd's 256 the daemon holds at most 96 connections, and has a reader for each."""
+def test_c16_7_the_cap_follows_the_open_file_limit(serve, monkeypatch):
+    """C-16.7 with launchd's 256 the daemon holds at most 96 connections, and has a reader for each."""
     monkeypatch.setattr(daemon_module.descriptors, "open_file_limits", lambda: (256, 1 << 63))
     service = serve()
     assert service.max_connections == 96
     assert service.readers._max_workers == 96
 
 
-def test_c16_6_a_client_that_stops_reading_cannot_hold_a_thread_for_ever(serve):
-    """C-16.6 the idle timeout also bounds sending a reply, so a stopped client
+def test_c16_7_a_client_that_stops_reading_cannot_hold_a_thread_for_ever(serve):
+    """C-16.7 the idle timeout also bounds sending a reply, so a stopped client
     (Ctrl-Z on `subfleet list`) frees its pool thread and its descriptor."""
     service = serve(connection_idle_s=.5)
     real = service.dispatch
@@ -293,8 +293,8 @@ def test_c16_6_a_client_that_stops_reading_cannot_hold_a_thread_for_ever(serve):
     stuck.close()
 
 
-def test_c16_6_shutdown_leaves_no_client_connection_open(serve):
-    """C-16.6 close() closes every connection it accepted, including any whose reader it cancelled."""
+def test_c16_7_shutdown_leaves_no_client_connection_open(serve):
+    """C-16.7 close() closes every connection it accepted, including any whose reader it cancelled."""
     service = serve()
     service.readers.shutdown(wait=True)
     # One reader, so nine connections wait in its queue and close() cancels them.
@@ -309,8 +309,8 @@ def test_c16_6_shutdown_leaves_no_client_connection_open(serve):
         sock.close()
 
 
-def test_c16_6_idle_is_counted_from_the_last_reply_not_the_last_read(serve):
-    """C-16.6 a request that ran almost the whole idle period, followed by another
+def test_c16_7_idle_is_counted_from_the_last_reply_not_the_last_read(serve):
+    """C-16.7 a request that ran almost the whole idle period, followed by another
     shortly after its reply, is served: silence is measured from the reply."""
     service = serve(connection_idle_s=1.0)
     real = service.dispatch
@@ -324,8 +324,8 @@ def test_c16_6_idle_is_counted_from_the_last_reply_not_the_last_read(serve):
         assert reply(sock)["result"]["pong"] is True
 
 
-def test_c16_6_nothing_follows_a_reply_that_failed_part_way(serve):
-    """C-16.6 once a reply's send times out part way, the connection carries nothing
+def test_c16_7_nothing_follows_a_reply_that_failed_part_way(serve):
+    """C-16.7 once a reply's send times out part way, the connection carries nothing
     more: a later reply would be appended to a broken line."""
     service = serve(connection_idle_s=.5)
     real = service.dispatch
