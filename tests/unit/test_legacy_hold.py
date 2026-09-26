@@ -1410,6 +1410,55 @@ def test_a_refused_cancel_leaves_no_stop_behind(core, monkeypatch):
     assert svc.store.message(first)["stop_requested_at"] is None
 
 
+def test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop(world, monkeypatch):
+    """C-24.7 (review of 3c1a34e's fixes): a person's stop of a message whose
+    runner is handing its frame to a relay that does not answer waits for that
+    handover, but a cancel of another message does not wait behind it."""
+    world.run_pass()
+    svc, daemon = service(world)
+    cid = world.conversation_id()
+    first = submit(svc, cid)
+    svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    aid = running_attempt(world, daemon, cid, first)
+    (world.root / "jobs" / "turn-cv-held-20260925" / "a1" / "stdout").write_text(json.dumps(_init_answer()) + "\n")
+    other = next(m for m in (str(uuid.uuid4()) for _ in range(1000)) if svc._handover(m) is not svc._handover(first))
+    svc.store.submit_message(conversation_id=cid, message_id=other, after_message_id=first, text="and then",
+                             attachments=[], settings=svc.store.conversation(cid)["settings"])
+    handing, release = threading.Event(), threading.Event()
+
+    class Relay(RecordingRelay):
+        def send(self, seq, op, line=None, tag=None, sig=None):
+            from subfleet.relay import Ack
+            if tag == "user-message":
+                handing.set()
+                release.wait(10)                          # the relay does not answer yet
+            return Ack(seq=seq, ok=True)
+
+    monkeypatch.setattr(runner_mod, "RelayClient", Relay)
+    try:
+        svc._adopt_runners()
+        runner = svc.runners[aid]
+        assert handing.wait(10)
+        stopping = threading.Thread(target=svc.op_turn_interrupt, args=({"message_id": first}, None), daemon=True)
+        stopping.start()
+        stopping.join(0.3)
+        assert stopping.is_alive()                        # it waits for the handover
+        cancelled = []
+        cancel = threading.Thread(target=lambda: cancelled.append(svc.op_message_cancel({"message_id": other}, None)),
+                                  daemon=True)
+        cancel.start()
+        cancel.join(5)
+        assert cancelled and cancelled[0]["state"] == "cancelled"
+        release.set()
+        stopping.join(10)
+        assert not stopping.is_alive() and svc.store.message(first)["stop_requested_at"]
+        runner.stop()
+        assert runner.finished.wait(5)
+    finally:
+        release.set()
+        svc.close()
+
+
 class _Race:
     """A cancel at whose first conversation-store commit a registered runner
     starts on its own thread (`run_at_commit`), and the message's stop as the

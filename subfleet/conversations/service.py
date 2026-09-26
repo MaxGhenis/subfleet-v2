@@ -125,8 +125,10 @@ class ConversationService:
         self._lock = threading.RLock()
         self._handing_off: set[str] = set()          # source conversations mid-handoff (IR-28)
         self._poll_slots: dict[tuple, threading.Event] = {}
-        # A person's cancel and stop of messages are taken one at a time (C-24.7).
-        self._stops = threading.Lock()
+        # A person's cancels and stops of one message are taken one at a time (C-24.7),
+        # striped by message id as the handover locks are, so a relay slow to take
+        # one message's frame holds up the stops of few others.
+        self._stops = tuple(threading.Lock() for _ in range(HANDOVER_STRIPES))
         # C-24.7: a person's stop is recorded, and a runner hands its message frame
         # to the relay, under the message's lock, so whichever comes first is seen
         # by the other: a stop recorded first means the message is never written.
@@ -626,7 +628,7 @@ class ConversationService:
 
     def op_message_cancel(self, args, peer) -> dict:
         """IR-2, IR-7: withdraw only before the provider could have seen it."""
-        with self._stops:
+        with self._stop_lock(canonical_uuid(args["message_id"])):
             return self._cancel(args)
 
     def _cancel(self, args) -> dict:
@@ -661,6 +663,11 @@ class ConversationService:
         # Refused, with no stop recorded: a stop would outlive the refusal (a runner
         # or a later restart would read it and stop a turn the person was told runs on).
         raise ConversationError("too-late", "the provider may already have this message", fix="use turn.interrupt")
+
+    def _stop_lock(self, message_id: str) -> threading.Lock:
+        """The lock a person's cancel or stop of `message_id` is taken under (C-24.7),
+        before its handover lock (`_handover`)."""
+        return self._stops[hash(message_id) % len(self._stops)]
 
     def _handover(self, message_id: str) -> threading.Lock:
         """The lock a stop of `message_id` is recorded under, and its runner hands
@@ -713,7 +720,7 @@ class ConversationService:
         return bool(changed)
 
     def op_turn_interrupt(self, args, peer) -> dict:
-        with self._stops:
+        with self._stop_lock(canonical_uuid(args["message_id"])):
             return self._interrupt(args)
 
     def _interrupt(self, args) -> dict:
