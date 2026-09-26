@@ -20,9 +20,9 @@ from pathlib import Path
 import pytest
 
 from subfleet import cli, client as client_module, doctor
-from subfleet.client import Client, DaemonStopped, DaemonUnavailable, boot_id, proc_start
+from subfleet.client import (Client, DaemonStopped, DaemonUnavailable, OutcomeUnknown,
+                             ResponseLost, boot_id, proc_start)
 from subfleet.contracts import Exit
-from subfleet.protocol import ProtocolError
 
 
 @pytest.fixture(autouse=True)
@@ -115,19 +115,81 @@ def test_a_live_socket_does_not_override_the_stopped_lock(stopped_holder, daemon
         Client(root).call("daemon.status", {})
 
 
-def test_a_stop_during_the_call_is_re_diagnosed_after_the_timeout(stopped_holder, root):
-    """C-5.11 a daemon stopped mid-call is named, not reported as silence."""
+@contextlib.contextmanager
+def backlog(root):
+    """A socket that accepts into its listen backlog and answers nothing.
+
+    Yields a function that counts the connections queued so far, which is how a
+    test tells whether a call wrote anything into the paused daemon's buffer.
+    """
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(root / "daemon.sock"))
-    listener.listen(8)                   # accepts into the backlog, answers nothing
-    probe = Client(root, timeout=0.2)
-    probe._checked = True                # the holder was running when it was checked
+    listener.listen(8)
+
+    def queued() -> int:
+        listener.setblocking(False)
+        count = 0
+        while True:
+            try:
+                conn, _ = listener.accept()
+            except BlockingIOError:
+                return count
+            conn.close()
+            count += 1
+
     try:
-        with pytest.raises(DaemonStopped) as caught:
-            probe.call("daemon.status", {})
+        yield queued
     finally:
         listener.close()
-    assert str(stopped_holder.pid) in str(caught.value)
+
+
+def test_a_stop_during_the_call_is_named_and_its_outcome_stays_unknown(stopped_holder, root):
+    """C-5.11, C-16.3 a daemon stopped after the request was sent is named, not
+    reported as silence, but the request is in its buffer, so the answer is lost
+    rather than "not sent"; the next call asks the lock before it sends."""
+    probe = Client(root, timeout=0.2)
+    probe._checked = True                # the holder was running when it was checked
+    with backlog(root) as queued:
+        with pytest.raises(ResponseLost) as caught:
+            probe.call("daemon.status", {})
+        assert not isinstance(caught.value, DaemonUnavailable), "the request was sent"
+        assert caught.value.code == Exit.OPERATIONAL
+        assert "no response from the daemon within 0.2s" in str(caught.value)
+        assert "is stopped" in str(caught.value) and str(stopped_holder.pid) in str(caught.value)
+        assert caught.value.fix == f"kill -CONT {stopped_holder.pid}"
+        with pytest.raises(DaemonStopped):
+            probe.call("daemon.status", {})
+        assert queued() == 1, "the second call wrote into the paused buffer"
+
+
+def test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer(stopped_holder, root):
+    """C-5.11, C-16.3 the re-send asks the lock first: the stopped holder refuses
+    it before it is written, so the outcome is unknown at once, not after the
+    re-send's own deadline."""
+    probe = Client(root, timeout=0.2)
+    probe._checked = True
+    lost: list[ResponseLost] = []
+    with backlog(root) as queued:
+        with pytest.raises(OutcomeUnknown) as caught:
+            probe.call_settled("submit", {}, request_id="req-stopped", minted=True,
+                               requery_timeout=2.0, on_lost=lost.append)
+        assert queued() == 1, "the re-send was written into the paused buffer"
+    assert len(lost) == 1 and "is stopped" in str(lost[0])
+    assert caught.value.request_id == "req-stopped"
+    assert len(caught.value.reasons) == 2
+    assert all("is stopped" in reason for reason in caught.value.reasons)
+
+
+def test_a_kill_lost_to_a_stop_goes_to_offline_mode(stopped_holder, root):
+    """C-5.11, C-16.3, C-17.5 a daemon gone before the re-send sends a kill to
+    offline mode, and a stopped one is gone in exactly that sense."""
+    probe = Client(root, timeout=0.2)
+    probe._checked = True
+    with backlog(root) as queued:
+        with pytest.raises(DaemonStopped) as caught:
+            probe.call_settled("kill", {"job_id": "job-1"})
+        assert queued() == 1
+    assert caught.value.fix == f"kill -CONT {stopped_holder.pid}"
 
 
 def test_a_connect_that_times_out_is_re_diagnosed_too(stopped_holder, root, monkeypatch):
@@ -145,14 +207,9 @@ def test_a_connect_that_times_out_is_re_diagnosed_too(stopped_holder, root, monk
 
 
 def silent_call(root):
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(root / "daemon.sock"))
-    listener.listen(8)                   # accepts into the backlog, answers nothing
-    try:
-        with pytest.raises(ProtocolError) as caught:
+    with backlog(root):
+        with pytest.raises(ResponseLost) as caught:
             Client(root, timeout=0.2).call("daemon.status", {})
-    finally:
-        listener.close()
     return caught.value
 
 

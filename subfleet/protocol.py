@@ -140,6 +140,10 @@ class ListArgs:
     mine: str | None = None        # caller session id; None lists all
     running: bool = False
     last: int | None = None
+    # C-16.3: only the job carrying this request id, for a client settling a
+    # submit whose answer was lost. A daemon older than the field lists every
+    # job (C-16.2), so the client filters the rows as well.
+    request_id: str | None = None
 
 
 @dataclass
