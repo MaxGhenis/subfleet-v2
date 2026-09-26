@@ -288,17 +288,30 @@ def queued_jobs(monkeypatch) -> None:
     monkeypatch.setattr(module.Daemon, "_job", lambda self, job_id: {"job_id": job_id, "state": "queued"})
 
 
+class OneWaiter(ThreadPoolExecutor):
+    """The daemon's `wait` pool with one thread, which the test holds, as when every
+    waiter is taken; it keeps what it was given, so a test knows when a request is
+    queued."""
+
+    def __init__(self, held: threading.Event):
+        super().__init__(max_workers=1, thread_name_prefix="test-wait")
+        self.queued = []
+        super().submit(held.wait, 30)
+        self.release = held.set
+
+    def submit(self, fn, *args, **kwargs):
+        future = super().submit(fn, *args, **kwargs)
+        self.queued.append(future)
+        return future
+
+
 @pytest.fixture
 def one_waiter():
-    """Put the daemon's `wait`s behind one thread the test holds, as when every
-    waiter is taken; `release()` frees it."""
     held = threading.Event()
 
-    def install(daemon):
-        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="test-wait")
-        pool.submit(held.wait, 30)
-        daemon.waiters = pool
-        return held.set
+    def install(daemon) -> OneWaiter:
+        daemon.waiters = OneWaiter(held)
+        return daemon.waiters
 
     yield install
     held.set()
@@ -325,13 +338,16 @@ def test_a_request_no_pool_has_started_is_dropped_when_its_client_leaves(serve, 
     cancelled, and its connection closed, instead of running later for no one."""
     queued_jobs(monkeypatch)
     daemon, path, _ = serve()
-    release = one_waiter(daemon)
+    pool = one_waiter(daemon)
+    client = send(path, "wait", {"job_ids": ["job-1"], "deadline_s": 30})
     try:
-        until(lambda: daemon.connection_status()["open"] == 0)
-        send(path, "wait", {"job_ids": ["job-1"], "deadline_s": 30}).close()
+        until(lambda: len(pool.queued) == 1)                        # read, and queued behind the held thread
+        client.close()
+        until(lambda: pool.queued[0].cancelled())
         until(lambda: daemon.connection_status()["open"] == 0)      # while the one waiter is still held
     finally:
-        release()
+        pool.release()
+        client.close()
 
 
 def test_a_client_that_closed_only_its_write_half_still_gets_its_answer(serve, monkeypatch, one_waiter):
@@ -340,16 +356,18 @@ def test_a_client_that_closed_only_its_write_half_still_gets_its_answer(serve, m
     request that was queued when its reader returned."""
     queued_jobs(monkeypatch)
     daemon, path, _ = serve()
-    release = one_waiter(daemon)
+    pool = one_waiter(daemon)
     client = send(path, "wait", {"job_ids": ["job-1"], "deadline_s": 0}, "half")
     try:
+        until(lambda: len(pool.queued) == 1)
         client.shutdown(socket.SHUT_WR)
         until(lambda: daemon.connection_status()["reading"] == 0)   # its reader has seen the end
-        release()
+        assert not pool.queued[0].cancelled()
+        pool.release()
         reply = answer(client)
         assert reply is not None and reply["ok"] and reply["id"] == "half" and reply["result"] == {"timeout": True}
     finally:
-        release()
+        pool.release()
         client.close()
 
 
@@ -362,17 +380,18 @@ def test_a_wait_that_starts_after_its_deadline_answers_at_once(serve, monkeypatc
     started = time.monotonic()
     assert daemon.wait(protocol.WaitArgs(job_ids=["job-1"], deadline_s=30), arrived=started - 31) == {"timeout": True}
     assert time.monotonic() - started < 1
-    release = one_waiter(daemon)
+    pool = one_waiter(daemon)
     client = send(path, "wait", {"job_ids": ["job-1"], "deadline_s": 3}, "late")
     try:
+        until(lambda: len(pool.queued) == 1)
         time.sleep(3.5)                  # past its deadline while it waits for the one thread
         released = time.monotonic()
-        release()
+        pool.release()
         reply = answer(client)
         assert reply["ok"] and reply["result"] == {"timeout": True}
         assert time.monotonic() - released < 2, time.monotonic() - released   # before: its full 3 s again
     finally:
-        release()
+        pool.release()
         client.close()
 
 
