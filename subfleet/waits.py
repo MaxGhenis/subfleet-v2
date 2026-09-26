@@ -113,8 +113,8 @@ class WaitHub:
             if self._stop.is_set():
                 waiter.event.set()
         try:
-            # Inside the try: a thread that cannot be started (the process is
-            # out of threads) must not leave this waiter registered for good.
+            # Inside the try, so nothing `ensure_running` raises leaves this waiter
+            # registered for good (a thread it cannot start, it reports itself).
             self.ensure_running()
             self._wake.set()
             yield waiter.event
