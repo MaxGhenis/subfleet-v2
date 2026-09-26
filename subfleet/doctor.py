@@ -37,6 +37,9 @@ from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
+#: Something to act on that is not subfleet failing: it prints a fix line and,
+#: like `unknown`, never decides the exit status.
+WARN = "warn"
 
 #: A resolved `subfleet` under this directory is still v1 (plan amendment 8:
 #: the shadow period runs both, and the symlink is the visible half of the flip).
@@ -574,6 +577,36 @@ def check_mirror(root: Path) -> dict[str, Any]:
                "`subfleet sessions mirror --status` for the sidecar")
 
 
+def check_sidebar_load(root: Path) -> dict[str, Any]:
+    """C-23.28: health is not reach. The app lists its session folder only when
+    it loads it, so a session the mirror copied in afterwards is missing from
+    the running app's sidebar until the next load.
+
+    Read from the mirror's journal of its own copies and the app's log. A copy
+    waiting for a relaunch is `warn`; a log that names no load is `unknown`.
+    """
+    from .sessions import mirror as mirror_module
+    try:
+        policy = load_policy(root / "policy.json")
+    except (PolicyError, OSError):
+        policy = {}
+    check = "desktop sidebar load"
+    try:
+        gap = mirror_module.load_gap(root, policy)
+    except Exception as exc:                            # noqa: BLE001 - one row, not the table
+        return row(check, UNKNOWN, f"{type(exc).__name__}: {exc}",
+                   "`subfleet sessions mirror --status`")
+    status = gap.get("status")
+    if status == "relaunch":
+        return row(check, WARN, gap["detail"],
+                   "quit and reopen the Claude app (⌘Q + reopen); "
+                   "`subfleet sessions mirror --status` lists the sessions")
+    if status == "unknown":
+        return row(check, UNKNOWN, gap["detail"],
+                   "open the Claude app once so its log records a session-folder load")
+    return row(check, PASS, gap["detail"], "`subfleet sessions mirror --status`")
+
+
 # --- the table ----------------------------------------------------------------
 
 def _with_fix(row: dict[str, Any]) -> dict[str, Any]:
@@ -608,6 +641,7 @@ def checks(root: Path, *, live: bool = False,
         check_launchd_limit(),
         check_queued_pins(root),
         check_mirror(root),
+        check_sidebar_load(root),
         *(check_module(name) for name in ("store", "procs", "compat", "hooks",
                                           "sessions.mirror")),
     ]
@@ -635,7 +669,7 @@ def render(rows: list[dict[str, Any]]) -> str:
 
 
 def exit_code(rows: list[dict[str, Any]]) -> int:
-    """1 when anything failed; an `unknown` never decides the exit status."""
+    """1 when anything failed; an `unknown` or a `warn` never decides the exit status."""
     from .contracts import Exit
     return int(Exit.OPERATIONAL if any(item["status"] == FAIL for item in rows)
                else Exit.OK)
