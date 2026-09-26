@@ -58,6 +58,16 @@ def test_c26_12_list_leaves_turn_jobs_out_unless_asked(ledger):
     assert {row["kind"] for row in rows} == {"turn"}
 
 
+def test_c16_3_a_request_id_lookup_finds_its_job_whatever_its_kind(ledger):
+    """C-16.3 with C-26.12: a request id names one job, so the lookup a client
+    settles a lost answer with finds a turn too; the turn default is for listings."""
+    assert listed(ledger, request_id="turn:t-live:0") == ["t-live"]
+    assert listed(ledger, request_id="rq-j-old") == ["j-old"]
+    assert listed(ledger, request_id="turn:t-live:0", kind="dispatch") == []   # an asked-for kind still filters
+    assert listed(ledger, request_id="no-such-id") == []
+    assert listed(ledger) == ["j-resume", "j-old"]                             # listings unchanged
+
+
 @pytest.mark.parametrize("args", [{"kind": ""}, {"kind": 7}, {"include_turns": "yes"}])
 def test_c26_12_a_malformed_kind_filter_is_invalid_input(ledger, args):
     """C-16.2, C-17.3 a filter the daemon cannot read is exit 2, never an unfiltered answer."""

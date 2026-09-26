@@ -653,7 +653,10 @@ def test_c16_3_sessions_verbs_report_an_unknown_outcome(monkeypatch, capsys, roo
     err = capsys.readouterr().err
     assert "outcome unknown" in err and "rid-7" in err and "look before running it again" in err
     monkeypatch.setattr(handoff_module, "handoff", raise_unknown)
-    monkeypatch.setattr(sessions_cli.Sessions, "state", lambda self, ids=None: {})
+    # A current daemon's `sessions state` (C-26.13): without `conversation_sessions`
+    # the kit reads an older daemon and exits 69 before it reaches the call.
+    monkeypatch.setattr(sessions_cli.Sessions, "state",
+                        lambda self, ids=None: {"conversation_sessions": []})
     assert cli.main(["handoff", "--last", "--to", "opus", "--json"]) == 1
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {"job_id": None, "request_id": "rid-7",
@@ -766,7 +769,10 @@ def test_c16_3_the_sessions_verbs_pass_whose_request_id_it_is(monkeypatch, root,
     def capture(*args, **kwargs):
         raise _Captured(kwargs)
     monkeypatch.setattr(sessions_cli, "_policy", lambda args: {})
-    monkeypatch.setattr(sessions_cli.Sessions, "state", lambda self, ids=None: {})
+    # A current daemon's `sessions state` (C-26.13): without `conversation_sessions`
+    # the kit reads an older daemon and exits 69 before it reaches the call.
+    monkeypatch.setattr(sessions_cli.Sessions, "state",
+                        lambda self, ids=None: {"conversation_sessions": []})
     monkeypatch.setattr(revive_module, "revive", capture)
     monkeypatch.setattr(handoff_module, "handoff", capture)
     with pytest.raises(_Captured) as caught:

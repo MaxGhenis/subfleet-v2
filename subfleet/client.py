@@ -502,7 +502,12 @@ class Client:
         `list` filters on `request_id`; a daemon older than that filter ignores
         the field and lists every job (C-16.2), so the rows are filtered here too.
         """
-        result = self.call("list", asdict(ListArgs(request_id=request_id)))
+        args = asdict(ListArgs(request_id=request_id))
+        # C-25.1: `kind` and `include_turns` go only to a daemon advertising
+        # `jobs.kind.v1`; a request id names one job whatever its kind, and the
+        # daemon's request-id filter ignores the turn default (C-26.12).
+        del args["kind"], args["include_turns"]
+        result = self.call("list", args)
         rows = result.get("jobs")
         for row in rows if isinstance(rows, list) else []:
             if isinstance(row, dict) and row.get("request_id") == request_id:

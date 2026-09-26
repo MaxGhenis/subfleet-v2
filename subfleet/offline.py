@@ -209,7 +209,7 @@ class Offline:
                   request_id: str | None = None) -> list[dict[str, Any]]:
         """The ledger as the daemon's `list` op answers it (C-17.5, C-26.12, C-16.3):
         turn jobs only when `kind` names them or `include_turns` is set; with
-        `request_id`, only the job carrying it."""
+        `request_id`, only the job carrying it, whatever its kind."""
         where, params = [], []
         if request_id is not None:                      # C-16.3's lookup
             where.append("j.request_id = ?")
@@ -220,7 +220,7 @@ class Offline:
         if kind is not None:
             where.append("j.kind = ?")
             params.append(kind)
-        elif not include_turns:
+        elif not include_turns and request_id is None:
             where.append("COALESCE(j.kind, '') <> 'turn'")
         if running:
             placeholders = ",".join("?" for _ in LIVE_JOB_STATES)

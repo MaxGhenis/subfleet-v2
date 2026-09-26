@@ -1703,14 +1703,16 @@ class Daemon:
                 sql += " AND request_id=?"; params.append(a.request_id)   # C-16.3
             # C-26.12: a turn job is its conversation's, not detached work; it is
             # listed only when asked for, so `runs`, `wait --mine` and `wait --last`
-            # never take one for a job this caller dispatched.
+            # never take one for a job this caller dispatched. A request id is not a
+            # listing but a lookup of the one job carrying it, whatever its kind
+            # (C-16.3), so the turn default does not apply to it.
             if a.kind is not None:
                 if not isinstance(a.kind, str) or not a.kind:
                     raise protocol.ProtocolError("kind must name a job kind")
                 sql += " AND kind=?"; params.append(a.kind)
             elif not isinstance(a.include_turns, bool):
                 raise protocol.ProtocolError("include_turns must be true or false")
-            elif not a.include_turns:
+            elif not a.include_turns and a.request_id is None:
                 sql += " AND kind<>'turn'"
             sql += " ORDER BY created_at DESC, rowid DESC"
             if a.last is not None:

@@ -205,6 +205,14 @@ def test_c17_5_offline_runs_leaves_turns_out_unless_asked(store, capsys):
     assert JOB in out and LIVE_TURN in out and TURN not in out
 
 
+def test_c16_3_offline_request_id_lookup_finds_a_turn(store):
+    """C-16.3, C-17.5: offline, as online, a request id names its job whatever its kind."""
+    offline = Offline(store)
+    assert [row["job_id"] for row in offline.list_jobs(request_id=f"turn:{TURN}:0")] == [TURN]
+    assert offline.list_jobs(request_id=f"turn:{TURN}:0", kind="dispatch") == []
+    assert TURN not in [row["job_id"] for row in offline.list_jobs()]
+
+
 def test_c17_5_offline_status_counts_turns_on_their_own_line(store, capsys):
     """C-17.5, C-26.12 (IR-19): offline `status` still says `running jobs: 1` and counts the live turn apart."""
     assert cli.main(["status"]) == 0
