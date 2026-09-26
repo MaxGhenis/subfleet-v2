@@ -63,6 +63,15 @@ class SchemaVersionError(RuntimeError):
     code = 1
 
 
+class SnapshotWriteError(RuntimeError):
+    """C-3.7: a transaction was begun inside a read snapshot on the same thread.
+
+    Its reads would go to the snapshot, which cannot see the transaction's own
+    writes, so a check-then-insert inside it (`add_artifact`, `put_closure`)
+    writes a duplicate (review of 5841d8b, finding 4). It is refused before
+    anything is written."""
+
+
 class Store:
     def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None,
                  readers: int = 0):
@@ -166,9 +175,17 @@ class Store:
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,
                     attempt_id: str | None = None, lane_id: str | None = None,
                     data: Mapping[str, Any] | None = None) -> Iterator[sqlite3.Connection]:
-        """C-3.2: serialize a mutation and its audit event; nested calls use savepoints."""
+        """C-3.2: serialize a mutation and its audit event; nested calls use savepoints.
+
+        C-3.7: never inside a `snapshot()` on the same thread (`SnapshotWriteError`);
+        another thread's transaction is how a commit reaches a snapshot's lifetime."""
         if self.read_only:
             raise sqlite3.OperationalError("store is read-only")
+        if getattr(self._local, "in_snapshot", False):
+            raise SnapshotWriteError(
+                "a transaction cannot begin inside a read snapshot on the same thread: its reads "
+                "would see the snapshot, not its own writes (C-3.7); write before or after the "
+                "snapshot")
         with self._lock:
             depth = self._depth
             savepoint = f"store_{depth}"
@@ -279,22 +296,32 @@ class Store:
         Inside a transaction, or nested in another snapshot, the block reads what
         the enclosing one reads. A store without read connections holds the
         store lock for the block instead, which gives the same one state.
+
+        No transaction may begin in the block on this thread: it raises
+        `SnapshotWriteError`, with or without read connections, so code that
+        passes on a store without them does not write duplicates on one with.
         """
         if getattr(self._local, "snapshot", None) is not None or self._holds_writer():
             yield
             return
         if not self._reads_elsewhere():
             with self._lock:
-                yield
+                self._local.in_snapshot = True
+                try:
+                    yield
+                finally:
+                    self._local.in_snapshot = False
             return
         conn = self._checkout()
         try:
             conn.execute("BEGIN")                   # deferred: the snapshot is taken at the first read
             self._local.snapshot = conn
+            self._local.in_snapshot = True
             try:
                 yield
             finally:
                 self._local.snapshot = None
+                self._local.in_snapshot = False
                 conn.execute("ROLLBACK")            # a read transaction has nothing to keep
         finally:
             self._idle.put(conn)

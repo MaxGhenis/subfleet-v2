@@ -16,7 +16,7 @@ import time
 import pytest
 
 from subfleet.daemon import READ_CONNECTIONS, Daemon
-from subfleet.store import Store
+from subfleet.store import SnapshotWriteError, Store
 
 
 def lease(tx, key: str) -> None:
@@ -189,3 +189,60 @@ def test_the_daemon_answers_reads_while_a_transaction_is_open(tmp_path):
             assert time.monotonic() - started < 5
     finally:
         daemon.close()
+
+
+# --- C-3.7: no transaction inside a snapshot on the same thread (review of 5841d8b, finding 4) ---
+
+@pytest.mark.parametrize("readers", [0, 3])
+def test_a_transaction_inside_a_snapshot_is_refused_before_it_writes(tmp_path, readers):
+    """A transaction's reads inside a snapshot went to the snapshot and missed its own
+    writes, so `add_artifact` recorded a duplicate. It is now refused, with or without
+    read connections, so code that passes on one store does not misbehave on the other."""
+    handle = Store(tmp_path / "state.sqlite3", readers=readers)
+    try:
+        with handle.snapshot():
+            with pytest.raises(SnapshotWriteError, match="inside a read snapshot"):
+                with handle.transaction("test.inside") as tx:
+                    lease(tx, "never")
+            with pytest.raises(SnapshotWriteError):
+                handle.add_artifact("a1", "output", "/x.md", "0" * 64, 1)
+            with handle.snapshot():                              # nested: the same refusal
+                with pytest.raises(SnapshotWriteError):
+                    handle.add_event("test.inside")
+        assert keys(handle) == []
+        assert handle.query("SELECT count(*) n FROM artifacts") == [{"n": 0}]
+        assert handle.query("SELECT count(*) n FROM events WHERE kind LIKE 'test.%'") == [{"n": 0}]
+        with handle.transaction("test.after") as tx:            # after the snapshot, as ever
+            lease(tx, "after")
+        assert keys(handle) == ["after"]
+    finally:
+        handle.close()
+
+
+def test_a_snapshot_inside_a_transaction_still_reads_the_transaction(store):
+    """The other nesting is allowed: the snapshot is the transaction's own state."""
+    with store.transaction("test.outer") as tx:
+        lease(tx, "outer")
+        with store.snapshot():
+            assert keys(store) == ["outer"]
+            with store.transaction("test.nested") as nested:     # a savepoint of the outer one
+                lease(nested, "nested")
+            assert keys(store) == ["nested", "outer"]
+    assert keys(store) == ["nested", "outer"]
+
+
+def test_another_threads_commit_during_a_snapshot_is_how_a_race_arrives(store):
+    """What the admission tests' `race()` now does: commit from another thread."""
+    done = []
+
+    def commit():
+        with store.transaction("test.race") as tx:
+            lease(tx, "raced")
+        done.append(True)
+    with store.snapshot():
+        assert keys(store) == []
+        other = threading.Thread(target=commit)
+        other.start()
+        other.join(5)
+        assert done == [True] and keys(store) == []
+    assert keys(store) == ["raced"]

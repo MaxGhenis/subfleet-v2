@@ -18,6 +18,7 @@ fixture's `codex-1` whose probe reported the same email.
 import json
 import logging
 import subprocess
+import threading
 from datetime import datetime
 
 import pytest
@@ -202,10 +203,24 @@ def test_c6_12_route_waits_back_off_and_a_restart_looks_at_them_at_once(fleet, m
 
 def race(service):
     """A commit between admission's early evaluation and its reservation (C-6.3): the
-    roster changed, so the reservation must evaluate again inside."""
-    with service.store.transaction("test.race") as tx:
-        tx.execute("INSERT INTO leases VALUES ('test:race','test','t',NULL)")
-        tx.execute("DELETE FROM leases WHERE lease_key='test:race'")
+    roster changed, so the reservation must evaluate again inside.
+
+    Made on another thread, as a concurrent commit arrives: the early evaluation
+    may run in a read snapshot, where this thread may not begin a transaction
+    (C-3.7, `SnapshotWriteError`)."""
+    failures = []
+
+    def commit():
+        try:
+            with service.store.transaction("test.race") as tx:
+                tx.execute("INSERT INTO leases VALUES ('test:race','test','t',NULL)")
+                tx.execute("DELETE FROM leases WHERE lease_key='test:race'")
+        except BaseException as exc:                                  # noqa: BLE001
+            failures.append(exc)
+    other = threading.Thread(target=commit, name="test-race")
+    other.start()
+    other.join(30)
+    assert not other.is_alive() and not failures, failures
 
 
 def test_c6_12_the_evaluation_inside_the_reservation_is_isolated_too(fleet, monkeypatch):
