@@ -329,7 +329,8 @@ alive `ceiling + 15 s` after `result` is stopped by the D-13 escalation
 ### Workspace, identity, settings
 
 **D-16. Workspace.** A conversation is bound to one directory for its life:
-an existing session's recorded cwd, or for a new conversation a directory the
+an existing session's recorded cwd (C-30.2: that of the transcript copy it
+continues), or for a new conversation a directory the
 person picks (default: a new git worktree when the directory is a
 repository). Turns run in place and hold `worktree:<git toplevel or
 directory>`; two conversations on one checkout take turns (a lease wait,
@@ -366,6 +367,20 @@ message. That re-admission never counts toward the three a failing provider
 gets; a Codex one (seen only by starting a provider) waits 30 s between tries.
 A registry row holds its session only while its pid's start time equals the
 row's `procStart` (a reused pid holds nothing), and when `ps` cannot answer.
+A conversation the legacy import holds (`legacy_hold`, C-30.4) gets no
+turn: nothing is dispatched, bound or re-admitted, a queued turn job waits at
+admission (`conversation-blocked`), and a turn that kept running across the
+restart is stopped when the daemon adopts it. If the relay log does not show
+its message handed over, the runner is stopped before it replays any output,
+so the message is never written (`TurnRunner.withhold`), and it is re-admitted
+(`readmit:legacy-owner`, which uses up no re-admission) once the hold lifts,
+unless a person had asked to stop it; until then a person may still withdraw
+it (`message.cancel`, `turn.interrupt`) as any waiting message with no job
+bound (C-24.7). A withdrawal records the person's stop first, so a runner
+admission started for a job made meanwhile never writes the message. Admission also cancels a turn job whose message has settled
+meanwhile (`message-settled`), and holds one whose manifest cannot be read on
+its own (`conversation-blocked`), never failing the pass. To a client the hold
+is a block: a view's `blocked_by` is `legacy-owner` while only the hold is set.
 
 **D-18. Handoffs are labelled.** Moving a conversation to the other provider,
 or out of a Codex home it cannot run in, creates a new conversation whose
@@ -608,6 +623,7 @@ CREATE TABLE conversations (
   handoff_from_json TEXT,
   worktree_json     TEXT,                     -- a worktree conversation's {path, branch, source, repository, base}
   blocked_by        TEXT,                     -- unfinished-turn | delivery-unknown | quarantined-turn
+  legacy_hold       TEXT,                     -- the legacy import's hold and its reason (C-30.4)
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
   UNIQUE (provider, native_session_id)
 );
@@ -670,6 +686,11 @@ CREATE TABLE turn_trees (                     -- schema 2 (D-25), one row per tu
   head_before TEXT, start_tree TEXT,          -- at admission: the attempt's baseline_tree
   head_after TEXT, end_tree TEXT,             -- at finalization, leases still held
   error TEXT, started_at TEXT NOT NULL, ended_at TEXT
+);
+
+CREATE TABLE legacy_sessions (              -- the sessions the last legacy pass held (C-30.4)
+  session_key TEXT PRIMARY KEY,             -- "<provider>:<native id>", or "*" for every session
+  reason TEXT NOT NULL, recorded_at TEXT NOT NULL
 );
 ```
 
@@ -1080,9 +1101,9 @@ pending-message journal is `{}`; there are no composer attachments; no broker
 runs (private recovery package, 2026-09-24). Import is read-only: each
 session whose transcript still exists becomes an `origin:"legacy"`
 conversation bound to its native id, with the 6 messages as terminal history
-references, idempotent by legacy `message_id`. The importer's mapping of
-`outbox.sqlite3` onto notices (`importer.py:1530-1545`) and the `cockpit`
-drop row (`importer.py:150`) are corrected to this classification.
+references, idempotent by legacy `message_id`. The importer's earlier mapping
+of `outbox.sqlite3` onto notices and its `cockpit` drop row (the manifest as
+it stood on 2026-09-24) are corrected to this classification.
 
 Implemented (C-30.4): `subfleet/conversations/legacy.py` classifies each row by
 the cockpit's own status set (`finished`, `error`, `cancelled` terminal) and
@@ -1091,14 +1112,42 @@ writes a history row (text file, digest, next `seq`) that is terminal, has
 origin `legacy`, no job and no predecessor, and goes ahead of every other
 message; the conversation is created from `catalog.claude_session`, the facts
 `conversation.open` uses, so a legacy conversation continues like a native
-one. A session with a non-terminal message or a journal entry (whatever the
-outbox says of that entry's id) stays with the legacy writer as a whole, so
-Subfleet never becomes a second writer in it (D-17); a journal that cannot be
-read holds every session. `fence_bound_sessions` then blocks `legacy-owner` a
-conversation an earlier pass bound whose session is held again, and the first
-pass that finds the session settled lifts that block; it never replaces or
-lifts another block. `python -m subfleet.importer --legacy-cockpit [--dry-run]` runs the
-import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").
+one. A session is keyed in one spelling (`legacy.session_key`: a UUID in lower
+case, a Codex id by its thread id), and the store binds and finds a native id
+the same way (`canonical_native`). A session stays with the legacy writer as a
+whole, so Subfleet never becomes a second writer in it (D-17), when it has a
+non-terminal message or a journal entry (whatever the outbox says of that
+entry's id), or when a live cockpit worker is in it (`cockpit_activity`: a live
+pid in `native-workers.json`).
+Every session is held when the journal, the
+outbox or the workers file exists and cannot be read, or while the broker
+holds `broker.lock`; the probe is a shared, non-blocking `flock` on a
+read-only handle, released at once, and never creates the file. A missing
+outbox or journal holds nothing, and the journal, the activity and the fence
+are read and run whether or not the outbox can be. `fence_bound_sessions`
+runs first, before any history is placed, and holds every conversation bound
+to a held session, whatever its origin or provider; the first pass that finds
+the session settled lifts the hold. The hold is the conversation's own
+`legacy_hold` column: the service's single `blocked_by` never carries it, so no
+turn outcome replaces it and neither `conversation.unblock` nor
+`message.resolve` lifts it, and the import never reads or writes `blocked_by`.
+A store written before the column existed moves a `blocked_by` of
+`legacy-owner` into it when it is opened. Each pass also records the sessions
+it holds in `legacy_sessions` (`*` when it holds every one), creating the store
+if it must, and `create_conversation` binds a conversation to one of them
+held, so a session opened after the pass gets no turn either. A live Claude
+process outside Subfleet in a session keeps history out of it that pass but
+holds no conversation: while it lives, admission makes a new turn there wait
+(`external-writer`, D-17); a turn already running there is not stopped for it.
+A `--v1-state` that holds none of the manifest's entries, or a v2 root's
+files, is never read as a cockpit that holds nothing: `--legacy-cockpit`
+refuses it and a milestone pass reads nothing from it. `--cockpit-retired`
+lifts every hold, forgets every held session and records the retirement in
+one transaction (creating the store if it must), so later passes read nothing
+from the cockpit and are not refused once the v1 state is gone. A session whose transcript raises
+while it is read, or a row whose timestamp is out of range, is reported and
+the pass goes on. `python -m subfleet.importer --legacy-cockpit [--dry-run]`
+runs the import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").
 
 ## 14. Test plan
 

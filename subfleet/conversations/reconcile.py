@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..relay import read_log
+from .store import LEGACY_OWNER
 from .turn import COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, WAITING
 
 DELIVERED = "delivered"
@@ -118,8 +119,10 @@ def decide(evidence: Evidence) -> str:
     return UNKNOWN
 
 
-def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evidence]) -> Settlement:
-    """The message's fate from its turn's outcome (`turn.json`)."""
+def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evidence],
+           person_stopped: bool = False) -> Settlement:
+    """The message's fate from its turn's outcome (`turn.json`). `person_stopped`
+    says a person asked to stop the message (its `stop_requested_at`)."""
     state, reason = turn.get("state"), turn.get("reason")
     ended_by = turn.get("ended_by") or _legacy_ended_by(turn)
     stop = turn.get("stop_reason")
@@ -152,6 +155,12 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
             # uses up the re-admissions a failing provider gets.
             if reason in READMIT and (turn_seq < MAX_READMITS or reason == "external-writer"):
                 return result(WAITING, f"readmit:{reason}", readmit=True)
+            # C-30.4: a turn the legacy hold stopped before its message was written
+            # (`TurnRunner.withhold`) waits for the hold to lift and is admitted
+            # again; like another writer, that wait uses up no re-admission. A
+            # person's stop stands: the message is not carried again.
+            if reason == "stopped-before-send" and stop == LEGACY_OWNER and not person_stopped:
+                return result(WAITING, f"readmit:{LEGACY_OWNER}", readmit=True)
             # C-26.8 names a model mismatch as such, sent or not.
             return result(FAILED, reason if reason == "model-mismatch" else f"not-delivered: {reason}")
         # Delivered, then ended by the driver (a Claude model mismatch after

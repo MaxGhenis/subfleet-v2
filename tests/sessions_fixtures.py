@@ -277,6 +277,7 @@ class FakeSessions:
         # `conversation_sessions` key at all (b739a12's `Daemon.sessions`).
         self.reports_conversations = reports_conversations
         self.revive_holders = dict(revive_holders or {})
+        self.conversation_sessions = list(conversation_sessions)
         self.now = now
         self.pings: list[tuple[str, str]] = []
         self.submits: list[Any] = []

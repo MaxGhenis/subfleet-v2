@@ -20,6 +20,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -56,38 +57,40 @@ def _claude_record(path: Path) -> dict:
         return {}
     for raw in reversed(tail.splitlines()):
         if b'"custom-title"' in raw or b'"customTitle"' in raw:
-            try:
-                row = json.loads(raw)
-            except ValueError:
-                continue
-            if row.get("type") == "custom-title" and row.get("customTitle"):
+            row = _object(raw)
+            if row.get("type") == "custom-title" and row.get("customTitle") and isinstance(row["customTitle"], str):
                 title = row["customTitle"]
                 break
     for raw in head.splitlines():
-        try:
-            row = json.loads(raw)
-        except ValueError:
-            continue
-        cwd = cwd or row.get("cwd")
+        row = _object(raw)
+        cwd = cwd or (row["cwd"] if isinstance(row.get("cwd"), str) else None)
         if row.get("type") == "user" and not row.get("isMeta") and not first:
-            content = (row.get("message") or {}).get("content")
+            content = _object(row.get("message")).get("content")
             text = content if isinstance(content, str) else transcripts.text_of(transcripts.blocks(row.get("message")))
             if text and not text.startswith("<"):
                 first = scrub(text.strip())[:PROMPT_CHARS]
     for raw in reversed(tail.splitlines()):
         if b'"assistant"' not in raw:
             continue
-        try:
-            row = json.loads(raw)
-        except ValueError:
-            continue
-        m = (row.get("message") or {}).get("model")
-        if row.get("type") == "assistant" and m and m != "<synthetic>":
+        row = _object(raw)
+        m = _object(row.get("message")).get("model")
+        if row.get("type") == "assistant" and m and isinstance(m, str) and m != "<synthetic>":
             model = m
             break
     mode = transcripts.last_permission_mode(path)
     return {"title": scrub(title)[:200] if title else None, "first_prompt": first, "cwd": cwd, "model": model,
             "permission_mode": mode, "headless": bool(transcripts.headless_transcript(path))}
+
+
+def _object(value: Any) -> dict:
+    """A transcript line (bytes) or a field of one as an object; anything else, a
+    valid JSON line that is not an object included, as an empty one (review L2)."""
+    if isinstance(value, bytes):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _codex_record(path: Path) -> dict:
@@ -491,8 +494,9 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
 
 
 def claude_session(path: Path) -> dict:
-    """One Claude transcript's facts for a conversation row: its cwd, title, model
-    value and D-9 permission, and whether it continues here (C-30.2, IR-15).
+    """One Claude transcript's facts for a conversation row: its cwd (`_workspace`),
+    title, model value and D-9 permission, and whether it continues here (C-30.2,
+    IR-15).
 
     `conversation.open` of a native session and the legacy cockpit import
     (C-30.4) create a conversation from exactly these facts.
@@ -500,7 +504,7 @@ def claude_session(path: Path) -> dict:
     record = _claude_record(path)
     if record.get("headless"):
         return {"continuable": False, "continue_blocker": "a Subfleet lane run"}
-    cwd = record.get("cwd") or transcripts.last_cwd(path)
+    cwd = _workspace(Path(path), record.get("cwd"))
     if not cwd or not os.path.isdir(cwd):
         return {"continuable": False, "continue_blocker": "its working directory no longer exists"}
     if cwd.startswith(("/tmp/", "/private/tmp/")):
@@ -509,6 +513,34 @@ def claude_session(path: Path) -> dict:
     return {"cwd": cwd, "title": record.get("title") or record.get("first_prompt"),
             "model_value": _claude_value(model), "permission": map_permission(record.get("permission_mode")),
             "permission_source": record.get("permission_mode"), "continuable": True, "lane_id": None}
+
+
+def _workspace(path: Path, first: str | None) -> str | None:
+    """The working directory a turn continues this transcript copy from.
+
+    A session that moved to another worktree leaves a copy under each project
+    directory, and `transcripts.transcript_path` picks the newest; that copy's
+    first rows keep the old cwd and its last rows the new one (review L7). The
+    directory the file is in names the cwd it belongs to, so the workspace is
+    the latest cwd in the copy that names it: a session that moved and then
+    `cd`s within its new project keeps the new project, one that `cd`s within
+    its only project keeps that. When none names the directory (a copy directly
+    under `projects/`), the first cwd, else the last, as before.
+    """
+    for line in transcripts.lines_reversed(path, chunk=TAIL):
+        cwd = _object(line.encode()).get("cwd")
+        if isinstance(cwd, str) and cwd and path.parent.name in _project_names(cwd):
+            return cwd                    # the latest cwd that names this copy's directory
+    if first and path.parent.name in _project_names(first):
+        return first
+    return first or transcripts.last_cwd(path)
+
+
+def _project_names(cwd: str) -> set[str]:
+    """The names Claude Code may give `cwd`'s project directory: the Claude
+    adapter's encoding (`adapters.claude.encode_project_dir`: `/`, `.`, `_` to
+    `-`), and every other character but letters and digits to `-` as well."""
+    return {re.sub(r"[/._]", "-", cwd), re.sub(r"[^A-Za-z0-9]", "-", cwd)}
 
 
 def _claude_value(model_id: str) -> str:

@@ -13,6 +13,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -983,9 +984,14 @@ def fences(report) -> list[dict]:
     return [item for item in report.stores["outbox"].items if item["source"] == "conversation"]
 
 
-def bound(cid: str, disposition: str, blocked_by: str | None, detail: str) -> dict:
-    return {"source": "conversation", "conversation_id": cid, "session_id": f"claude:{LEGACY_SESSION}",
-            "disposition": disposition, "blocked_by": blocked_by, "detail": detail}
+def bound(cid: str, disposition: str, legacy_hold: str | None, *, blocked_by: str | None = None,
+          unsettled: tuple = (), session: str = LEGACY_SESSION) -> dict:
+    """A fence item: the conversation's legacy hold beside its own block, and its
+    messages that are not settled (C-30.4)."""
+    return {"source": "conversation", "conversation_id": cid, "session_id": f"claude:{session}",
+            "disposition": disposition, "legacy_hold": legacy_hold, "blocked_by": blocked_by,
+            "unsettled": [{"message_id": message_id, "state": state} for message_id, state in unsettled],
+            "detail": legacy_hold or legacy.RELEASED}
 
 
 #: The fixture's own three outbox rows, as the v1 fixture writes them.
@@ -996,7 +1002,6 @@ def fixture_rows() -> list[tuple]:
 
 
 PERSON_SETTINGS = {"model": "opus", "permission": "ask"}
-RELEASED = "no message of this session is unsettled and no journal entry names it"
 
 
 def test_the_outbox_is_the_cockpits_and_never_becomes_notices(v1):
@@ -1230,6 +1235,13 @@ def _unreadable_journal(path: Path, kind: str) -> str:
     if kind == "not an object":
         path.write_text("[]", encoding="utf-8")
         return "not an object keyed by session"
+    if kind == "keyed by something else":                # review L3: holds sessions named `version` and `entries`
+        path.write_text(json.dumps({"version": 2, "entries": {f"claude:{LEGACY_SESSION}": {}}}), encoding="utf-8")
+        return "not an object keyed by session"
+    if kind == "a request naming no session":
+        path.write_text(json.dumps({f"claude:{LEGACY_SESSION}": {"request": {"session_id": "nobody"}}}),
+                        encoding="utf-8")
+        return "not an object keyed by session"
     path.mkdir()                                           # reading it raises IsADirectoryError, an OSError
     return "unreadable: IsADirectoryError"
 
@@ -1241,11 +1253,12 @@ def _remove(path: Path) -> None:
         path.unlink()
 
 
-@pytest.mark.parametrize("kind", ["not json", "not an object", "a directory"])
+@pytest.mark.parametrize("kind", ["not json", "not an object", "keyed by something else",
+                                  "a request naming no session", "a directory"])
 def test_an_unreadable_journal_holds_every_session(v1, kind):
     """C-30.4: a journal that cannot be read could name any session, so it is
     never read as empty. No session is bound while it is unreadable, a session
-    an earlier pass bound is blocked `legacy-owner`, and the first pass that can
+    an earlier pass bound is held (`legacy_hold`), and the first pass that can
     read it again imports and releases as usual."""
     journal = v1["state"] / legacy.JOURNAL
     problem = _unreadable_journal(journal, kind)
@@ -1265,22 +1278,436 @@ def test_an_unreadable_journal_holds_every_session(v1, kind):
 
     _unreadable_journal(journal, kind)                    # unreadable again: the bound session is fenced
     report = run_legacy(v1)
-    assert fences(report) == [bound(cid, "bound-session-held", "legacy-owner", held)]
-    assert conversations(v1["root"], "SELECT blocked_by FROM conversations") == [{"blocked_by": "legacy-owner"}]
+    assert fences(report) == [bound(cid, "bound-session-held", held)]
+    assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
+        {"blocked_by": None, "legacy_hold": held}]
 
     _remove(journal)
     journal.write_text("{}", encoding="utf-8")            # readable and empty: the hold lifts
     report = run_legacy(v1)
-    assert fences(report) == [bound(cid, "bound-session-released", None, RELEASED)]
+    assert fences(report) == [bound(cid, "bound-session-released", None)]
     assert report.stores["cockpit"].reasons == {}
-    assert conversations(v1["root"], "SELECT blocked_by FROM conversations") == [{"blocked_by": None}]
+    assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
+        {"blocked_by": None, "legacy_hold": None}]
+
+
+def _bind(v1) -> str:
+    """Pass 1: the fixture binds LEGACY_SESSION; its conversation's id."""
+    run_legacy(v1)
+    (cid,) = [row["conversation_id"] for row in conversations(v1["root"], "SELECT * FROM conversations")]
+    return cid
+
+
+def _hold_of(v1, cid: str) -> str | None:
+    return conversations(v1["root"], "SELECT legacy_hold FROM conversations WHERE conversation_id=?",
+                         (cid,))[0]["legacy_hold"]
+
+
+def _damage_outbox(state: Path, kind: str) -> str:
+    """Make the outbox unreadable one way; return the reason the pass reports."""
+    path = state / "outbox.sqlite3"
+    for suffix in ("", "-wal", "-shm"):
+        path.with_name(path.name + suffix).unlink(missing_ok=True)
+    if kind == "corrupt":
+        path.write_bytes(b"SQLite format 3\x00" + b"\xff" * 4000)
+        return "unreadable-database"
+    connection = sqlite3.connect(path)
+    if kind == "no messages table":
+        connection.execute("CREATE TABLE other (x)")
+    else:                                                  # the cockpit's table name, other columns
+        connection.execute("CREATE TABLE messages (sequence INTEGER PRIMARY KEY, message_id TEXT)")
+        connection.execute("INSERT INTO messages(message_id) VALUES ('x')")
+    connection.commit()
+    connection.close()
+    return "no-messages-table" if kind == "no messages table" else "unreadable-database"
+
+
+@pytest.mark.parametrize("kind", ["corrupt", "no messages table", "other columns"])
+def test_an_outbox_that_cannot_be_read_holds_every_session(v1, kind):
+    """C-30.4 (review M2): an outbox that exists and cannot be read could hold a
+    message in flight in any session, so it is never read as empty. Every bound
+    conversation is held, the journal is still read, a corrupt file is named
+    `unreadable-database`, and the first pass that reads the outbox again
+    releases the hold."""
+    cid = _bind(v1)
+    label = _damage_outbox(v1["state"], kind)
+    report = run_legacy(v1)
+    assert report.stores["outbox"].reasons == {label: 1, "bound-session-held": 1}
+    held = legacy.outbox_hold(label)
+    assert _hold_of(v1, cid) == held
+    assert fences(report) == [bound(cid, "bound-session-held", held)]
+    assert any(f"outbox.sqlite3 is {label}" in note for note in report.stores["outbox"].notes)
+
+    write_outbox(v1["state"], fixture_rows())
+    report = run_legacy(v1)
+    assert fences(report) == [bound(cid, "bound-session-released", None)]
+    assert _hold_of(v1, cid) is None
+
+
+def test_a_missing_outbox_still_reads_the_journal_and_fences(v1):
+    """C-30.4 (review M2): with no outbox the journal and the fence still run. A
+    missing outbox holds nothing by itself; an unreadable journal, or one naming
+    the session, still holds its bound conversation, and an empty one releases it."""
+    cid = _bind(v1)
+    (v1["state"] / "outbox.sqlite3").unlink()
+    journal = v1["state"] / legacy.JOURNAL
+    problem = _unreadable_journal(journal, "not json")
+    report = run_legacy(v1)
+    assert report.stores["outbox"].reasons == {"absent": 1, "bound-session-held": 1}
+    assert fences(report) == [bound(cid, "bound-session-held", legacy.journal_hold(problem))]
+    pending = "0d0d0d0d-0000-4000-8000-000000000002"
+    journal.write_text(json.dumps({f"claude:{LEGACY_SESSION}": {"request": {
+        "op": "enqueue", "message_id": pending, "session_id": f"claude:{LEGACY_SESSION}", "prompt": "x",
+        "image_paths": []}}}), encoding="utf-8")
+    report = run_legacy(v1)
+    assert fences(report) == [bound(cid, "bound-session-held",
+                                    f"the cockpit journal holds an unacknowledged send {pending}")]
+    journal.write_text("{}", encoding="utf-8")
+    report = run_legacy(v1)
+    assert fences(report) == [bound(cid, "bound-session-released", None)]
+    assert report.stores["outbox"].reasons == {"absent": 1, "bound-session-released": 1}
+
+
+def test_a_pass_with_nothing_to_import_hold_or_fence_creates_no_store(v1):
+    """C-30.4: with no outbox message, nothing held and no conversation store, a
+    pass opens no store."""
+    (v1["state"] / "outbox.sqlite3").unlink()
+    journal = v1["state"] / legacy.JOURNAL
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    journal.write_text("{}", encoding="utf-8")
+    report = run_legacy(v1)
+    assert report.stores["outbox"].reasons == {"absent": 1}
+    assert not (v1["root"] / "conversations.sqlite3").exists()
+
+
+def _recorded(v1) -> dict[str, str]:
+    return {row["session_key"]: row["reason"]
+            for row in conversations(v1["root"], "SELECT session_key, reason FROM legacy_sessions")}
+
+
+@pytest.mark.parametrize("kind", ["unreadable outbox", "journal entry", "unreadable journal", "broker",
+                                  "live worker"])
+def test_a_first_pass_that_holds_a_session_records_it(v1, kind):
+    """C-30.4 (second review, finding 1): a first pass with no outbox message and
+    no conversation store still records what it holds, so a session opened
+    afterwards is bound held."""
+    handle = None
+    if kind == "unreadable outbox":
+        _damage_outbox(v1["state"], "corrupt")
+        expected = {"*": legacy.outbox_hold("unreadable-database")}
+    elif kind == "journal entry":
+        (v1["state"] / "outbox.sqlite3").unlink()
+        write_json(v1["state"] / legacy.JOURNAL, {f"claude:{LEGACY_SESSION}": {"request": {
+            "message_id": LEGACY[5], "session_id": f"claude:{LEGACY_SESSION}"}}})
+        expected = {f"claude:{LEGACY_SESSION}": f"the cockpit journal holds an unacknowledged send {LEGACY[5]}"}
+    elif kind == "unreadable journal":
+        (v1["state"] / "outbox.sqlite3").unlink()
+        expected = {"*": legacy.journal_hold(_unreadable_journal(v1["state"] / legacy.JOURNAL, "not json"))}
+    elif kind == "broker":
+        (v1["state"] / "outbox.sqlite3").unlink()
+        handle = os.open(v1["state"] / "broker.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        expected = {"*": "the cockpit broker holds broker.lock, so it may dispatch into any session"}
+    else:
+        (v1["state"] / "outbox.sqlite3").unlink()
+        handle = _sleeper()
+        write_json(v1["state"] / "native-workers.json", {f"claude:{LEGACY_SESSION}": {"pid": handle.pid}})
+        expected = {f"claude:{LEGACY_SESSION}": f"the cockpit's worker pid {handle.pid} is live in it"}
+    try:
+        run_legacy(v1)
+    finally:
+        if isinstance(handle, subprocess.Popen):
+            handle.kill()
+            handle.wait()
+        elif handle is not None:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+            os.close(handle)
+    assert _recorded(v1) == expected
+    store = ConversationStore(v1["root"])
+    try:
+        opened, _ = store.create_conversation(provider="claude", workspace=str(v1["workspace"]),
+                                              workspace_kind="in-place", settings=PERSON_SETTINGS,
+                                              origin="native", native_session_id=LEGACY_SESSION)
+    finally:
+        store.close()
+    assert opened["legacy_hold"] == next(iter(expected.values()))
+
+
+def test_a_later_pass_forgets_the_sessions_an_earlier_one_held(v1):
+    """C-30.4: each pass replaces the held sessions it records; one that finds a
+    session settled records nothing for it, so a conversation opened on it is
+    not held. A Codex thread is recorded by its thread id."""
+    thread = "0199a5f3-0000-7000-8000-00000000c0de"
+    write_outbox(v1["state"], [*fixture_rows(), outbox_row(LEGACY[3], f"app:{thread}", "dispatched", "codex",
+                                                           provider="codex", at=50)])
+    run_legacy(v1)
+    assert _recorded(v1) == {f"claude:{QUEUED_SESSION}": f"message {LEGACY[2]} is queued",
+                             f"codex:{thread}": f"message {LEGACY[3]} is dispatched"}
+
+    def open_codex(request_id: str) -> dict:
+        store = ConversationStore(v1["root"])
+        try:
+            return store.create_conversation(provider="codex", workspace=str(v1["workspace"]),
+                                             workspace_kind="in-place",
+                                             settings={"model": "gpt-6-astra", "permission": "read-only"},
+                                             origin="native", native_session_id=thread.upper(), lane_id="codex-1",
+                                             request_id=request_id)[0]
+        finally:
+            store.close()
+    held = open_codex("r-1")
+    assert held["legacy_hold"] == f"message {LEGACY[3]} is dispatched"          # bound held, in one spelling
+    store = ConversationStore(v1["root"])
+    try:
+        store.query("UPDATE conversations SET native_session_id=NULL WHERE conversation_id=?",
+                    (held["conversation_id"],))                               # set it aside for the next open
+    finally:
+        store.close()
+    write_outbox(v1["state"], [outbox_row(LEGACY[0], LEGACY_SESSION, "finished", "he replied", at=300)])
+    run_legacy(v1)
+    assert _recorded(v1) == {}
+    assert open_codex("r-2")["legacy_hold"] is None
+
+
+def _sleeper(**env: str) -> subprocess.Popen:
+    """A live process; `env` replaces the environment, so it carries no Subfleet marker unless given one."""
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"],
+                            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **env})
+
+
+def test_a_running_cockpit_broker_holds_every_session(v1):
+    """C-30.4 (review M1): the broker holds `S/broker.lock` for its lifetime and
+    may dispatch into any session, so while another process holds it every
+    session is held, and a bound one fenced. The probe is a shared lock on a
+    read-only handle: it writes nothing, and creates no lock file."""
+    cid = _bind(v1)
+    lock = v1["state"] / "broker.lock"
+    handle = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    os.write(handle, b"broker")
+    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    before = (lock.read_bytes(), lock.stat().st_mtime_ns)
+    try:
+        report = run_legacy(v1)
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        os.close(handle)
+    held = "the cockpit broker holds broker.lock, so it may dispatch into any session"
+    assert fences(report) == [bound(cid, "bound-session-held", held)]
+    assert any(held in note for note in report.stores["outbox"].notes)
+    assert (lock.read_bytes(), lock.stat().st_mtime_ns) == before
+    report = run_legacy(v1)                                  # the broker has stopped
+    assert fences(report) == [bound(cid, "bound-session-released", None)]
+    lock.unlink()
+    run_legacy(v1)
+    assert not lock.exists()
+
+
+def test_a_live_cockpit_worker_holds_its_session(v1):
+    """C-30.4 (review M1): a worker the cockpit started by selecting a session
+    holds it while its pid in `S/native-workers.json` is alive, even with every
+    outbox message finished: no history is bound there, and a bound
+    conversation is fenced. A worker whose pid is gone holds nothing."""
+    worker = _sleeper()
+    workers = v1["state"] / "native-workers.json"
+    try:
+        write_json(workers, {f"claude:{LEGACY_SESSION}": {"pid": worker.pid, "broker_pid": DEAD_PID,
+                                                          "account": ENROLLED}})
+        report = run_legacy(v1)
+        reason = f"the cockpit's worker pid {worker.pid} is live in it"
+        items = {item["message_id"]: item for item in report.stores["outbox"].items if item["source"] == "outbox"}
+        assert {key: (item["disposition"], item.get("detail")) for key, item in items.items()} == {
+            LEGACY[0]: ("session-held-by-legacy-owner", reason), LEGACY[1]: ("session-held-by-legacy-owner", reason),
+            LEGACY[2]: ("legacy-owned", None)}
+        assert not conversations(v1["root"], "SELECT * FROM conversations")
+    finally:
+        worker.kill()
+        worker.wait()
+    assert dispositions(run_legacy(v1))[LEGACY[0]] == "history"      # the worker is gone
+    (cid,) = [row["conversation_id"] for row in conversations(v1["root"], "SELECT * FROM conversations")]
+    worker = _sleeper()
+    try:
+        write_json(workers, {f"claude:{LEGACY_SESSION.upper()}": {"pid": worker.pid}})
+        report = run_legacy(v1)
+        assert fences(report) == [bound(cid, "bound-session-held",
+                                        f"the cockpit's worker pid {worker.pid} is live in it")]
+    finally:
+        worker.kill()
+        worker.wait()
+
+
+def test_an_unreadable_workers_file_holds_every_session(v1):
+    """C-30.4 (review M1): a workers file that cannot be read could name any
+    session, so it holds every one."""
+    cid = _bind(v1)
+    (v1["state"] / "native-workers.json").write_text("{torn", encoding="utf-8")
+    report = run_legacy(v1)
+    assert fences(report) == [bound(cid, "bound-session-held", "native-workers.json could not be read "
+                                    "(JSONDecodeError), so a cockpit worker may be live in any session")]
+
+
+@pytest.mark.parametrize("subfleet", [False, True])
+def test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing(v1, subfleet):
+    """C-30.4, C-26.3 (review M1 and its follow-up): a live Claude process
+    registered for a session in `<claude dir>/sessions` keeps this pass from
+    placing history there, unless it is Subfleet's own (its environment names
+    `SUBFLEET_ATTEMPT`, as a turn that kept running across the restart does).
+    It holds no conversation: admission makes a turn there wait while the
+    process lives (`external-writer`), and a hold set now would outlast it."""
+    cid = _bind(v1)
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "finished", "later, in the app", at=50)])
+    process = _sleeper(**({"SUBFLEET_ATTEMPT": "turn-x/a1"} if subfleet else {}))
+    try:
+        write_json(v1["claude"] / "sessions" / f"{process.pid}.json",
+                   {"sessionId": LEGACY_SESSION, "pid": process.pid, "cwd": str(v1["workspace"])})
+        report = run_legacy(v1)
+    finally:
+        process.kill()
+        process.wait()
+    assert fences(report) == [] and _hold_of(v1, cid) is None
+    if subfleet:
+        assert dispositions(report)[LEGACY[3]] == "history"
+    else:
+        items = {item["message_id"]: item for item in report.stores["outbox"].items if item["source"] == "outbox"}
+        assert (items[LEGACY[3]]["disposition"], items[LEGACY[3]]["detail"]) == (
+            "session-held-by-legacy-owner", f"a live Claude process outside Subfleet (pid {process.pid}) holds it")
+        assert any("waits at admission while it lives" in note for note in report.stores["outbox"].notes)
+        assert dispositions(run_legacy(v1))[LEGACY[3]] == "history"      # it has ended
+
+
+def test_a_conversation_subfleet_started_or_a_codex_thread_is_held_too(v1):
+    """C-30.4, D-17 (review M4): every conversation bound to a held session is
+    held, whatever its origin: one a Subfleet turn bound, and a Codex
+    conversation on a thread the cockpit is continuing (`codex:<home>:<id>`)."""
+    thread = "0199a5f3-0000-7000-8000-00000000c0de"
+    v1["root"].mkdir(parents=True, exist_ok=True)
+    store = ConversationStore(v1["root"])
+    try:
+        started, _ = store.create_conversation(provider="claude", workspace=str(v1["workspace"]),
+                                               workspace_kind="in-place", settings=PERSON_SETTINGS, origin="new",
+                                               request_id="r-1")
+        store.update_conversation(started["conversation_id"], native_session_id=QUEUED_SESSION)
+        codex, _ = store.create_conversation(provider="codex", workspace=str(v1["workspace"]),
+                                             workspace_kind="in-place",
+                                             settings={"model": "gpt-6-astra", "permission": "read-only"},
+                                             origin="native", native_session_id=thread, lane_id="codex-1")
+    finally:
+        store.close()
+    write_outbox(v1["state"], [*fixture_rows(), outbox_row(LEGACY[3], f"lane-codex-1:{thread.upper()}",
+                                                           "dispatched", "a codex turn", provider="codex", at=50)])
+    report = run_legacy(v1)
+    by_id = {item["conversation_id"]: item for item in fences(report)}
+    assert by_id[started["conversation_id"]]["legacy_hold"] == f"message {LEGACY[2]} is queued"
+    assert by_id[codex["conversation_id"]]["legacy_hold"] == f"message {LEGACY[3]} is dispatched"
+    assert by_id[codex["conversation_id"]]["session_id"] == f"codex:{thread}"
+    assert dispositions(report)[LEGACY[3]] == "legacy-owned"
+
+
+def test_one_session_has_one_spelling(v1):
+    """C-24.1, C-30.4 (review L1): the v1 CLI stores a session id as typed. A
+    finished message under the upper-case spelling of a session the cockpit is
+    still using under the lower-case one is held with it, and nothing is bound;
+    once it settles, history lands in one conversation bound to the lower-case
+    id, which a lookup in either spelling finds."""
+    done, busy = "0e0e0e0e-0000-4000-8000-000000000001", "0e0e0e0e-0000-4000-8000-000000000002"
+    write_outbox(v1["state"], [outbox_row(done, LEGACY_SESSION.upper(), "finished", "via the CLI", at=600),
+                               outbox_row(busy, LEGACY_SESSION, "dispatched", "the app, still running", at=60)])
+    report = run_legacy(v1)
+    assert dispositions(report) == {done: "session-held-by-legacy-owner", busy: "legacy-owned"}
+    assert not conversations(v1["root"], "SELECT * FROM conversations")
+    write_outbox(v1["state"], [outbox_row(done, LEGACY_SESSION.upper(), "finished", "via the CLI", at=600),
+                               outbox_row(busy, LEGACY_SESSION, "finished", "the app, still running", at=60)])
+    report = run_legacy(v1)
+    assert dispositions(report) == {done: "history", busy: "history"}
+    (row,) = conversations(v1["root"], "SELECT * FROM conversations")
+    assert row["native_session_id"] == LEGACY_SESSION
+    store = ConversationStore(v1["root"])
+    try:
+        assert store.by_native("claude", LEGACY_SESSION.upper())["conversation_id"] == row["conversation_id"]
+        again, created = store.create_conversation(
+            provider="claude", workspace=str(v1["workspace"]), workspace_kind="in-place",
+            settings=PERSON_SETTINGS, origin="native", native_session_id=LEGACY_SESSION.upper())
+        assert not created and again["conversation_id"] == row["conversation_id"]
+    finally:
+        store.close()
+
+
+def test_a_session_bound_under_an_upper_case_id_before_is_still_found_and_fenced(v1):
+    """C-24.1, C-30.4 (review L1): a store written before ids were canonical may
+    bind a session under its upper-case spelling; the import still finds that
+    conversation for the session's history and fences it."""
+    v1["root"].mkdir(parents=True, exist_ok=True)
+    store = ConversationStore(v1["root"])
+    try:
+        made, _ = store.create_conversation(provider="claude", workspace=str(v1["workspace"]),
+                                            workspace_kind="in-place", settings=PERSON_SETTINGS, origin="legacy",
+                                            native_session_id=LEGACY_SESSION)
+        store.query("UPDATE conversations SET native_session_id=? WHERE conversation_id=?",
+                    (LEGACY_SESSION.upper(), made["conversation_id"]))
+    finally:
+        store.close()
+    report = run_legacy(v1)
+    assert dispositions(report)[LEGACY[0]] == "history"
+    assert len(conversations(v1["root"], "SELECT * FROM conversations")) == 1
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "starting", "the cockpit again", at=50)])
+    report = run_legacy(v1)
+    assert fences(report) == [bound(made["conversation_id"], "bound-session-held", f"message {LEGACY[3]} is starting")]
+
+
+def test_the_fence_runs_before_any_history_is_placed(v1, monkeypatch):
+    """C-30.4 (review L2): the fence needs only what the pass read, so it runs
+    first, and a failure placing a session's history cannot leave a session the
+    cockpit took up again unfenced."""
+    cid = _bind(v1)
+    other = "5e551011-0000-4000-8000-00000000000d"
+    write_transcript(v1["claude"], other, v1["workspace"])
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], other, "finished", "another session", at=250),
+                               outbox_row(LEGACY[4], LEGACY_SESSION, "queued", "the cockpit again", at=50)])
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("the disk went away")
+    monkeypatch.setattr(ConversationStore, "insert_legacy_history", broken)
+    with pytest.raises(RuntimeError):
+        run_legacy(v1)
+    assert _hold_of(v1, cid) == f"message {LEGACY[4]} is queued"
+
+
+def test_one_session_that_cannot_be_read_never_ends_the_pass(v1, monkeypatch):
+    """C-30.4 (review L2): a transcript that raises while it is read, or a row
+    whose timestamp is out of range, is reported with its disposition and the
+    pass goes on to every other message and the fence."""
+    other, third = "5e551011-0000-4000-8000-00000000000d", "5e551011-0000-4000-8000-00000000000e"
+    for session in (other, third):
+        write_transcript(v1["claude"], session, v1["workspace"])
+    far = outbox_row(LEGACY[4], third, "finished", "from the far future", at=300)
+    far = (*far[:6], 1e20, 1e20, far[8])
+    write_outbox(v1["state"], [*fixture_rows(), outbox_row(LEGACY[3], other, "finished", "unreadable", at=250),
+                               far])
+    real = legacy.claude_session
+
+    def reading(path):
+        if other in str(path):
+            raise AttributeError("'list' object has no attribute 'get'")
+        return real(path)
+    monkeypatch.setattr(legacy, "claude_session", reading)
+    report = run_legacy(v1)
+    items = {item["message_id"]: item for item in report.stores["outbox"].items if item["source"] == "outbox"}
+    assert (items[LEGACY[3]]["disposition"], items[LEGACY[3]]["detail"]) == (
+        "transcript-unreadable", "reading its transcript raised AttributeError")
+    assert (items[LEGACY[4]]["disposition"], items[LEGACY[4]]["detail"]) == (
+        "unreadable-row", "a timestamp is out of range")
+    assert items[LEGACY[0]]["disposition"] == items[LEGACY[1]]["disposition"] == "history"
+    monkeypatch.setattr(legacy, "claude_session", real)
+    assert dispositions(run_legacy(v1))[LEGACY[3]] == "history"       # a later pass places it
 
 
 def test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles(v1, capsys):
     """C-30.4, C-24.5, design D-17: a session an earlier pass bound whose outbox
-    gains a message that is not terminal is held again. Its conversation is
-    blocked `legacy-owner`, so no turn runs in it, and reported by id; a repeated
-    pass changes nothing; the pass that finds the session settled lifts the block."""
+    gains a message that is not terminal is held again. Its conversation is held
+    (`legacy_hold`), so no turn runs in it, and reported by id with its unsettled
+    messages; a repeated pass changes nothing; the pass that finds the session
+    settled lifts the hold."""
     run_legacy(v1)
     (conversation,) = conversations(v1["root"], "SELECT * FROM conversations")
     cid = conversation["conversation_id"]
@@ -1290,17 +1717,18 @@ def test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles
     assert dispositions(report) == {LEGACY[0]: "already-imported", LEGACY[1]: "already-imported",
                                     LEGACY[2]: "legacy-owned", LEGACY[3]: "legacy-owned"}
     held = f"message {LEGACY[3]} is dispatched"
-    assert fences(report) == [bound(cid, "bound-session-held", "legacy-owner", held)]
+    assert fences(report) == [bound(cid, "bound-session-held", held)]
     outbox = report.stores["outbox"]
     assert outbox.reasons["bound-session-held"] == 1
     assert outbox.seen == 4 and outbox.skipped == 4           # a conversation is not one of the messages
-    assert any("blocked while the legacy writer" in note for note in outbox.notes)
+    assert any("held while the legacy writer" in note for note in outbox.notes)
 
     # C-24.5: a person's next message waits; nothing in the session is dispatchable.
     person = "0f0f0f0f-0000-4000-8000-000000000001"
     store = ConversationStore(v1["root"])
     try:
-        assert store.conversation(cid)["blocked_by"] == "legacy-owner"
+        assert store.conversation(cid)["legacy_hold"] == held
+        assert store.conversation(cid)["blocked_by"] is None
         store.submit_message(conversation_id=cid, message_id=person, after_message_id=None,
                              text="a person's next message", attachments=[], settings=PERSON_SETTINGS)
         assert store.next_dispatchable() == []
@@ -1314,7 +1742,7 @@ def test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles
     assert importer.main(argv) == 0
     table = capsys.readouterr().out
     assert (f"outbox: conversation {cid} claude:{LEGACY_SESSION} -> bound-session-held "
-            f"(blocked_by legacy-owner) {held}") in table
+            f"{held}; unsettled: {person} queued") in table
     assert "the cockpit again" not in table and "a person's next message" not in table
     assert conversations(v1["root"], "SELECT * FROM conversations") == before
 
@@ -1323,21 +1751,21 @@ def test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles
                                outbox_row(LEGACY[3], LEGACY_SESSION, "finished", "the cockpit again", at=50)])
     report = run_legacy(v1)
     assert dispositions(report)[LEGACY[3]] == "conversation-has-own-messages"   # C-24.2: history goes first
-    assert fences(report) == [bound(cid, "bound-session-released", None, RELEASED)]
+    assert fences(report) == [bound(cid, "bound-session-released", None, unsettled=[(person, "queued")])]
     assert report.stores["outbox"].reasons["bound-session-released"] == 1
     store = ConversationStore(v1["root"])
     try:
-        assert store.conversation(cid)["blocked_by"] is None
+        assert store.conversation(cid)["legacy_hold"] is None
         assert [message["message_id"] for message in store.next_dispatchable()] == [person]
     finally:
         store.close()
 
 
-def test_a_legacy_hold_never_replaces_or_lifts_another_block(v1):
-    """C-30.4, C-24.8: a bound conversation already blocked for another reason
-    keeps that block while its session is held, is reported with it, and is not
-    released by the import once the session settles; that block waits for its
-    own resolution."""
+def test_a_legacy_hold_and_another_block_are_independent(v1):
+    """C-30.4, C-24.8: the legacy hold is its own column. A bound conversation
+    already blocked for another reason is held beside that block and reported
+    with it; the pass that finds the session settled lifts only its hold, and
+    the other block waits for its own resolution."""
     run_legacy(v1)
     (cid,) = [row["conversation_id"] for row in conversations(v1["root"], "SELECT * FROM conversations")]
     store = ConversationStore(v1["root"])
@@ -1348,24 +1776,26 @@ def test_a_legacy_hold_never_replaces_or_lifts_another_block(v1):
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "delivery-unknown", "ambiguous", at=50)])
     report = run_legacy(v1)
-    assert fences(report) == [bound(cid, "bound-session-held", "unfinished-turn",
-                                    f"message {LEGACY[3]} is delivery-unknown; it stays blocked "
-                                    "'unfinished-turn', which the legacy hold does not replace")]
+    held = f"message {LEGACY[3]} is delivery-unknown"
+    assert fences(report) == [bound(cid, "bound-session-held", held, blocked_by="unfinished-turn")]
+    assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
+        {"blocked_by": "unfinished-turn", "legacy_hold": held}]
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "cancelled", "ambiguous", at=50, receipt={
                                    "ok": True, "error": None, "message": "Marked handled by you; no replay.",
                                    "resolution": "handled"})])
     report = run_legacy(v1)
-    assert fences(report) == []
-    assert conversations(v1["root"], "SELECT blocked_by FROM conversations") == [{"blocked_by": "unfinished-turn"}]
+    assert fences(report) == [bound(cid, "bound-session-released", None, blocked_by="unfinished-turn")]
+    assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
+        {"blocked_by": "unfinished-turn", "legacy_hold": None}]
 
 
 def test_history_lands_in_the_sessions_one_conversation_whatever_its_origin(v1):
     """C-30.4, C-24.1: a session has at most one conversation, so a session that
     already has one with no message of its own gets its history there, keeping
-    that conversation's origin, and the import creates none. A conversation of a
-    held session that holds no legacy history was never bound by the import and
-    is not fenced; once it holds history, it is fenced like one the import made."""
+    that conversation's origin, and the import creates none. A held session's
+    conversation is held whatever its origin (review M4): one `conversation.open`
+    made is held as one the import made would be."""
     v1["root"].mkdir(parents=True, exist_ok=True)
     store = ConversationStore(v1["root"])
     try:
@@ -1380,11 +1810,13 @@ def test_history_lands_in_the_sessions_one_conversation_whatever_its_origin(v1):
     report = run_legacy(v1)
     assert dispositions(report) == {LEGACY[0]: "history", LEGACY[1]: "history", LEGACY[2]: "legacy-owned"}
     assert "legacy-conversations-created" not in report.stores["outbox"].reasons
-    assert fences(report) == []                  # QUEUED_SESSION is held, but its conversation holds no history
+    queued_hold = f"message {LEGACY[2]} is queued"
+    assert fences(report) == [bound(queued["conversation_id"], "bound-session-held", queued_hold,
+                                    session=QUEUED_SESSION)]
     found = {row["conversation_id"]: row for row in conversations(v1["root"], "SELECT * FROM conversations")}
     assert set(found) == {opened["conversation_id"], queued["conversation_id"]}
     assert found[opened["conversation_id"]]["origin"] == "native"
-    assert found[queued["conversation_id"]]["blocked_by"] is None
+    assert found[queued["conversation_id"]]["legacy_hold"] == queued_hold
     assert [(row["message_id"], row["origin"]) for row in conversations(
         v1["root"], "SELECT * FROM messages WHERE conversation_id=? ORDER BY seq", (opened["conversation_id"],))] == [
         (LEGACY[0], "legacy"), (LEGACY[1], "legacy")]
@@ -1392,8 +1824,10 @@ def test_history_lands_in_the_sessions_one_conversation_whatever_its_origin(v1):
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "starting", "the cockpit again", at=50)])
     report = run_legacy(v1)
-    assert fences(report) == [bound(opened["conversation_id"], "bound-session-held", "legacy-owner",
-                                    f"message {LEGACY[3]} is starting")]
+    by_id = sorted(fences(report), key=lambda item: item["conversation_id"])  # made in one millisecond
+    assert by_id == sorted([bound(opened["conversation_id"], "bound-session-held", f"message {LEGACY[3]} is starting"),
+                            bound(queued["conversation_id"], "bound-session-held", queued_hold,
+                                  session=QUEUED_SESSION)], key=lambda item: item["conversation_id"])
 
 
 def test_an_unreadable_row_is_reported_and_the_pass_goes_on(v1):
@@ -1790,3 +2224,132 @@ def test_nothing_under_the_v1_state_is_modified(v1):
     run_legacy(v1)
     import_legacy_cockpit(v1["root"], v1_state=v1["state"], claude_projects=v1["claude"] / "projects")
     assert snapshot() == before
+
+
+def test_a_v1_state_that_is_not_there_releases_nothing(v1):
+    """C-30.4 (review follow-up C): a `--v1-state` that is not a directory is
+    not a cockpit that holds nothing. The legacy pass refuses it (exit 7), and
+    a milestone pass reads nothing from it and leaves every hold as it is."""
+    cid = _bind(v1)
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "dispatched", "the cockpit again", at=50)])
+    run_legacy(v1)
+    held = f"message {LEGACY[3]} is dispatched"
+    assert _hold_of(v1, cid) == held
+    missing = v1["state"].parent / "v1-stat"                      # a typo
+    empty = v1["state"].parent / "empty"
+    empty.mkdir()
+    (v1["root"] / "gates").mkdir(exist_ok=True)                    # a v2 root can hold manifest names too
+    other_v2 = v1["state"].parent / "other-v2-root"
+    (other_v2 / "gates").mkdir(parents=True)
+    (other_v2 / "state.sqlite3").write_bytes(b"")
+    # not there, empty, the directory above, this v2 state root (--v1-state and --state-root swapped), another
+    for wrong in (missing, empty, v1["state"].parent, v1["root"], other_v2):
+        with pytest.raises(ImportRefused):
+            import_legacy_cockpit(v1["root"], v1_state=wrong, claude_projects=v1["claude"] / "projects")
+    assert importer.main(["--legacy-cockpit", "--state-root", str(v1["root"]), "--v1-state", str(missing),
+                          "--claude-dir", str(v1["claude"])]) == 7
+    report = import_v1(v1["root"], v1_state=missing, delegate_state=v1["delegate"], roster_dir=v1["roster"],
+                       home=v1["home"], milestone=importer.LEGACY_MILESTONE, claude_projects=v1["claude"] / "projects")
+    assert report.stores["outbox"].reasons == {"v1-state-missing": 1}
+    assert _hold_of(v1, cid) == held
+
+
+def test_a_retired_cockpit_lifts_every_hold(v1, capsys):
+    """C-30.4: once the legacy cockpit will never run again, `--cockpit-retired`
+    lifts every legacy hold and forgets every held session without reading the
+    v1 state; its dry run changes nothing."""
+    cid = _bind(v1)
+    _unreadable_journal(v1["state"] / legacy.JOURNAL, "not json")
+    run_legacy(v1)
+    assert _hold_of(v1, cid) and _recorded(v1)
+    gone = v1["state"].parent / "retired"
+    argv = ["--legacy-cockpit", "--cockpit-retired", "--state-root", str(v1["root"]), "--v1-state", str(gone)]
+    assert importer.main([*argv, "--dry-run"]) == 0
+    assert _hold_of(v1, cid) and _recorded(v1)
+    capsys.readouterr()
+    assert importer.main(argv) == 0
+    assert f"conversation {cid} claude:{LEGACY_SESSION} -> bound-session-released" in capsys.readouterr().out
+    assert _hold_of(v1, cid) is None and _recorded(v1) == {}
+    with pytest.raises(SystemExit):
+        importer.main(["--cockpit-retired", "--state-root", str(v1["root"])])
+    # Retirement lasts: the cockpit's unsettled rows never settle, and no later pass holds them again.
+    (v1["state"] / legacy.JOURNAL).unlink()
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "dispatched", "never settles", at=50)])
+    for report in (run_legacy(v1), import_legacy_cockpit(v1["root"], v1_state=v1["state"],
+                                                          claude_projects=v1["claude"] / "projects")):
+        assert report.stores["outbox"].reasons == {"cockpit-retired": 1}
+    assert _hold_of(v1, cid) is None and _recorded(v1) == {}
+
+
+def test_a_dangling_manifest_entry_still_marks_a_v1_state(v1):
+    """C-30.4: a v1 state whose only manifest entry is a symlink to a moved
+    file is still a v1 state, read as holding nothing in that entry."""
+    lonely = v1["state"].parent / "lonely"
+    lonely.mkdir()
+    (lonely / "outbox.sqlite3").symlink_to(lonely / "moved-away.sqlite3")
+    report = import_legacy_cockpit(v1["root"], v1_state=lonely, claude_projects=v1["claude"] / "projects",
+                                   write_report=False)
+    assert report.stores["outbox"].reasons == {"absent": 1}
+
+
+def test_retirement_with_no_store_is_recorded_and_later_passes_read_nothing(v1):
+    """C-30.4 (fourth review, findings 3 and 4): retiring before any conversation
+    store exists creates it to record the retirement. Every later pass reads
+    nothing from the cockpit, its journal included, and a legacy pass is not
+    refused once the v1 state is gone."""
+    assert importer.main(["--legacy-cockpit", "--cockpit-retired", "--state-root", str(v1["root"]),
+                          "--v1-state", str(v1["state"])]) == 0
+    write_json(v1["state"] / legacy.JOURNAL, {f"claude:{LEGACY_SESSION}": {"request": {
+        "message_id": LEGACY[5], "session_id": f"claude:{LEGACY_SESSION}"}}})
+    report = run_legacy(v1)
+    assert report.stores["outbox"].reasons == {"cockpit-retired": 1}
+    assert report.stores["cockpit"].reasons == {"cockpit-retired": 1} and report.stores["cockpit"].items == []
+    assert _recorded(v1) == {} and not conversations(v1["root"], "SELECT * FROM conversations")
+    report = import_legacy_cockpit(v1["root"], v1_state=v1["state"].parent / "gone",
+                                   claude_projects=v1["claude"] / "projects")
+    assert report.stores["outbox"].reasons == {"cockpit-retired": 1}
+
+
+def test_a_retirement_that_dies_midway_retires_nothing(v1, monkeypatch):
+    """C-30.4 (fourth and fifth reviews): lifting the holds, forgetting the held
+    sessions and recording the retirement are one transaction, so a run that
+    dies midway changes nothing, and the next pass still fences and releases."""
+    cid = _bind(v1)
+    write_outbox(v1["state"], [*fixture_rows(),
+                               outbox_row(LEGACY[3], LEGACY_SESSION, "dispatched", "the cockpit again", at=50)])
+    run_legacy(v1)
+    held, recorded = _hold_of(v1, cid), _recorded(v1)
+    assert held and recorded
+    real = ConversationStore._change
+
+    def dying(self, tx, *args, **kwargs):
+        raise OSError("the disk went away")
+    monkeypatch.setattr(ConversationStore, "_change", dying)
+    with pytest.raises(OSError):
+        import_legacy_cockpit(v1["root"], v1_state=v1["state"], cockpit_retired=True)
+    monkeypatch.setattr(ConversationStore, "_change", real)
+    assert (_hold_of(v1, cid), _recorded(v1)) == (held, recorded)
+    assert conversations(v1["root"], "SELECT * FROM legacy_retirement") == []
+    write_outbox(v1["state"], fixture_rows())                          # the cockpit's message settles
+    report = run_legacy(v1)
+    assert "cockpit-retired" not in report.stores["outbox"].reasons
+    assert fences(report) == [bound(cid, "bound-session-released", None)]
+
+
+def test_swapped_roots_touch_neither_directory(v1):
+    """C-30.4 (fifth review, finding 1): `--state-root` and `--v1-state`
+    swapped are refused before the pass takes daemon.lock, so no lock file lands
+    in the v1 state (which would make it read as a v2 root from then on), and
+    a correct pass afterwards runs."""
+    v1["root"].mkdir(parents=True, exist_ok=True)
+    before = sorted(path.name for path in v1["state"].iterdir())
+    for argv in (["--state-root", str(v1["state"]), "--v1-state", str(v1["root"])],
+                 ["--state-root", str(v1["state"]), "--v1-state", str(v1["state"])]):
+        assert importer.main(["--legacy-cockpit", *argv, "--claude-dir", str(v1["claude"])]) == 7
+    with pytest.raises(ImportRefused):                             # the milestone pass, swapped the same way
+        import_v1(v1["state"], v1_state=v1["root"], delegate_state=v1["delegate"], roster_dir=v1["roster"],
+                  home=v1["home"], milestone=importer.LEGACY_MILESTONE, claude_projects=v1["claude"] / "projects")
+    assert sorted(path.name for path in v1["state"].iterdir()) == before
+    assert dispositions(run_legacy(v1))[LEGACY[0]] == "history"

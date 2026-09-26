@@ -99,8 +99,10 @@ ROUTE_REUSE_S = 5.0
 ADMISSION_IDLE_LOG_S = 60
 ADMISSION_IDLE_REPEAT_S = 600
 ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
-#: C-6.11: waits that are a person's or a retry's to end, not admission's.
-NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
+#: C-6.11: waits that are a person's or a retry's to end, not admission's. A
+#: turn held for its conversation (C-24.5, C-30.4) is not admission's to place.
+NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked",
+                           "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job"})
@@ -501,6 +503,9 @@ class Daemon:
         # C-6.10: the leases the last pass saw that no probe holds. One that has
         # gone since is capacity that came free.
         self._leases_seen: frozenset[tuple[str, str]] = frozenset()
+        # C-6.12, C-24.5: turn job id -> the error type its conversation check last
+        # raised, so the log says so once per change rather than once a pass.
+        self._turn_check_errors: dict[str, str] = {}
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass.
         self._holds: dict[str, dict] = {}
@@ -2075,6 +2080,11 @@ class Daemon:
             "JOIN jobs j USING(job_id) "
             "WHERE a.native_session_id IS NOT NULL AND j.kind='turn'")}
         ids |= self.conversations.store.bound_sessions()
+        # Review L1: one session, one spelling. A UUID is listed in the lower
+        # case Claude Code names its transcript with, as well as as recorded, so
+        # a reader comparing either way finds it.
+        from .conversations.store import canonical_native
+        ids |= {canonical_native(item) for item in ids if item}
         return sorted(item for item in ids if item)
 
     def _conversation_binding(self, session_id: str | None) -> str | None:
@@ -2090,10 +2100,11 @@ class Daemon:
         conversation = self.conversations.store.binding(session_id)
         if conversation:
             return f"conversation {conversation}"
+        from .conversations.store import canonical_native      # review L1: either spelling
         row = self.store.one(
             "SELECT a.job_id FROM attempts a JOIN jobs j USING(job_id) "
-            "WHERE a.native_session_id=? AND j.kind='turn' ORDER BY a.reserved_at LIMIT 1",
-            (session_id,))
+            "WHERE a.native_session_id IN (?, ?) AND j.kind='turn' ORDER BY a.reserved_at LIMIT 1",
+            (session_id, canonical_native(session_id)))
         return f"turn job {row['job_id']}" if row else None
 
     def _refuse_conversation_session(self, session_id: str | None, verb: str) -> None:
@@ -2129,6 +2140,7 @@ class Daemon:
                     "last_revive": latest.get(f"{REVIVE_EVENT}:{session}"),
                     "revive_holder": leases.get(revive_lease_key(session)),
                 }
+            # C-26.3, D-17: listed, never nudged, revived or cold-swept.
             return {"sessions": state, "lane_sessions": self._lane_session_ids(),
                     "conversation_sessions": self._conversation_session_ids()}
         if action == "revived":
@@ -2154,6 +2166,10 @@ class Daemon:
         if action == "nudged":
             if not args.session_id:
                 raise protocol.ProtocolError("sessions nudged: session_id is required")
+            if self.conversations.bound_session(args.session_id):
+                # C-26.3, D-17: a nudge would be a second writer in the conversation's session.
+                return {"recorded": False, "session_id": args.session_id,
+                        "reason": "bound to a Subfleet conversation, which continues it (C-26.3)"}
             # C-23.33's dedupe and cooldown are re-checked HERE, inside the
             # transaction that records the nudge, so two sweeps racing over one
             # session cannot both reserve it. The worker has already decided
@@ -3030,6 +3046,8 @@ class Daemon:
             self._route_deferrals.pop(gone, None)
         for gone in set(self._retry_verdicts) - {job["job_id"] for job in queued}:
             self._retry_verdicts.pop(gone, None)
+        for gone in set(self._turn_check_errors) - {job["job_id"] for job in queued}:
+            self._turn_check_errors.pop(gone, None)
         # C-6.10: a lease that was held at the last pass and is not now is capacity
         # that came free (an attempt ended, a job let go of its worktree or its
         # output path), so backed-off capacity waits are looked at on this pass
@@ -3061,6 +3079,37 @@ class Daemon:
                 # no released lease brings it forward. It says what it met.
                 holds[job["job_id"]] = self._route_hold(job["job_id"], job["next_check_at"])
                 continue
+            if job["kind"] == "turn":
+                # C-24.5, C-30.4: a turn job whose conversation became blocked after
+                # it was created (the legacy import holds one while the daemon is
+                # down) places nothing and holds nobody back until both blocks clear.
+                try:
+                    hold = self.conversations.admission_hold(job)
+                    if hold and hold.get("error_type"):
+                        # A turn manifest that cannot be read: held, and said once.
+                        if self._turn_check_errors.get(job["job_id"]) != hold["error_type"]:
+                            self.log.warning("admission: job %s held: %s", job["job_id"], hold.get("error"))
+                        self._turn_check_errors[job["job_id"]] = hold["error_type"]
+                    else:
+                        self._turn_check_errors.pop(job["job_id"], None)
+                except (sqlite3.Error, OSError):
+                    raise                           # C-6.12: a store error is the pass's; C-5.10 retries it
+                except Exception as exc:            # C-6.12: anything else is this job's, never the pass's
+                    if self._turn_check_errors.get(job["job_id"]) != type(exc).__name__:
+                        self.log.warning("admission: job %s: its conversation could not be checked: %s",
+                                         job["job_id"], type(exc).__name__)
+                    self._turn_check_errors[job["job_id"]] = type(exc).__name__
+                    try:
+                        manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json")
+                    except (OSError, ValueError):
+                        manifest = None
+                    turn = manifest.get("turn") if isinstance(manifest, dict) else None
+                    hold = {"reason": "conversation-blocked",
+                            "conversation_id": turn.get("conversation_id") if isinstance(turn, dict) else None,
+                            "error_type": type(exc).__name__, "error": str(exc)[:200]}
+                if hold:
+                    holds[job["job_id"]] = hold
+                    continue
             # C-4.5, C-6.9: while a transient retry is pinned to its last pair, the
             # job can run only there, and its demand is that one model on that lane.
             previous, extra_exclusions, retry = self._retry_pin(job)
