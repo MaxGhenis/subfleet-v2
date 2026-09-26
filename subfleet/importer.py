@@ -1558,6 +1558,10 @@ class _Conversations:
         self.scratch_dir = scratch_dir
         self.store = None
 
+    def exists(self) -> bool:
+        """Whether a conversation store is there to fence, before one is created."""
+        return self.store is not None or (self.state_root / "conversations.sqlite3").is_file()
+
     def get(self) -> ConversationStore:
         if self.store is None:
             if self.scratch_dir is not None:
@@ -1576,16 +1580,14 @@ class _Conversations:
             self.store = None
 
 
-def _read_legacy_outbox(report: StoreReport | None, v1_state: Path) -> list | None:
-    """The cockpit outbox's rows, read from a copy (never v1's WAL in place)."""
-    def skip(reason: str) -> None:
-        if report is not None:
-            report.skip(reason)
-
+def _read_legacy_outbox(v1_state: Path) -> tuple[list, str | None]:
+    """The cockpit outbox's rows, read from a copy (never v1's WAL in place), and
+    why they could not be: `absent` (no outbox, so nothing in flight in it),
+    `unreadable-database` (not a database, torn, or not the cockpit's columns) or
+    `no-messages-table`. Only a missing outbox reads as empty (review M2)."""
     path = v1_state / "outbox.sqlite3"
-    if not path.is_file():
-        skip("absent")
-        return None
+    if not path.exists():
+        return [], "absent"
     scratch = tempfile.mkdtemp(prefix="subfleet-import-outbox-")
     try:
         copy = Path(scratch) / "outbox.sqlite3"
@@ -1593,13 +1595,14 @@ def _read_legacy_outbox(report: StoreReport | None, v1_state: Path) -> list | No
             _copy_sqlite(path, copy)                 # never open v1's WAL in place
             connection = sqlite3.connect(str(copy))
         except (OSError, sqlite3.Error):
-            skip("unreadable-database")
-            return None
+            return [], "unreadable-database"
         try:
-            return legacy.read_outbox(connection)
-        except sqlite3.Error:
-            skip("no-messages-table")
-            return None
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "messages" not in tables:
+                return [], "no-messages-table"
+            return legacy.read_outbox(connection), None
+        except (sqlite3.Error, IndexError):          # a corrupt file, or a messages table of other columns
+            return [], "unreadable-database"
         finally:
             connection.close()
     finally:
@@ -1607,7 +1610,8 @@ def _read_legacy_outbox(report: StoreReport | None, v1_state: Path) -> list | No
 
 
 def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_state: Path,
-                  projects: Path | None = None, writer: _Writer | None = None) -> dict[str, Any] | None:
+                  projects: Path | None = None, writer: _Writer | None = None,
+                  claude_dir: Path | None = None) -> dict[str, Any] | None:
     """Manifest row `S/outbox.sqlite3`: the legacy cockpit's message outbox (C-30.4).
 
     It is not a notice outbox. Each message is classified by itself
@@ -1622,14 +1626,43 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     message held back last time lands once it can. The cursor this row writes
     is a record of what was read. Notices an earlier version of this row made
     from the same outbox (transport `v1-socket`) are left as they are.
+
+    The journal, the cockpit's own activity and the fence are read and run
+    whatever the outbox says (review M2): an outbox that exists and cannot be
+    read holds every session, as an unreadable journal does, and a missing one
+    holds none. A pass with no outbox message, nothing held and no conversation
+    store opens none; one that holds a session creates the store to record it,
+    so a conversation opened on that session later is bound held. `claude_dir`
+    is the `~/.claude` whose `sessions/` registry names live Claude processes
+    (default `projects`' parent, else `~/.claude`). A `v1_state` that holds none
+    of the manifest's entries is read as nothing, and changes no hold.
     """
-    messages = _read_legacy_outbox(report, v1_state)
-    if messages is None:
+    retired = _retired_at(conversations)
+    if retired:
+        report.skip("cockpit-retired")
+        report.note(f"the legacy cockpit was retired at {retired} (--cockpit-retired): nothing under the v1 state "
+                    "is read and no session is held")
         return None
+    if not _is_v1_state(v1_state, conversations.state_root):
+        # Nothing about the cockpit can be read, which is not the same as the
+        # cockpit holding nothing: every hold stays as the last pass left it.
+        report.skip("v1-state-missing")
+        report.note(f"{v1_state} is not a v1 state directory (it holds none of the manifest's entries): nothing "
+                    "is read, and every legacy hold stays as it is")
+        return None
+    messages, outbox_problem = _read_legacy_outbox(v1_state)
+    if outbox_problem:
+        report.skip(outbox_problem)
+    unreadable = None if outbox_problem in (None, "absent") else outbox_problem
     # C-30.4: a journal that cannot be read holds every session; it is never read as empty.
     entries, problem = legacy.read_journal(v1_state / legacy.JOURNAL)
+    activity = legacy.cockpit_activity(
+        v1_state, claude_dir=claude_dir if claude_dir is not None else projects.parent if projects else None)
+    if not messages and not conversations.exists() and not (
+            entries or problem or unreadable or activity.problem or activity.sessions):
+        return None                                  # nothing to import, hold or fence: no store is opened
     result = legacy.import_outbox(conversations.get(), messages, projects=projects, journal=entries,
-                                  journal_problem=problem)
+                                  journal_problem=problem, outbox_problem=unreadable, activity=activity)
     report.seen += len(messages)
     report.imported += result.imported
     for item in result.items:
@@ -1649,11 +1682,27 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     if result.journal_problem:
         report.note(f"cockpit-client/pending-messages.json is {result.journal_problem}: every session is "
                     "held, as any of them may have an unacknowledged send, until a pass can read it (C-30.4)")
-    held = sum(1 for item in result.items if item["disposition"] == "bound-session-held")
+    if result.outbox_problem:
+        report.note(f"outbox.sqlite3 is {result.outbox_problem}: every session is held, as any of them may "
+                    "have a message in flight, until a pass can read it (C-30.4)")
+    if result.activity_problem:
+        report.note(f"every session is held while the cockpit may be using any of them: {result.activity_problem} "
+                    "(C-30.4)")
+    if activity.sessions:
+        report.note(f"{len(activity.sessions)} sessions have a live cockpit worker in them and are held (C-30.4)")
+    if activity.live:
+        report.note(f"{len(activity.live)} sessions have a live Claude process outside Subfleet in them: no history "
+                    "is placed there this pass, and a turn there waits at admission while it lives (C-26.3)")
+    held = [item for item in result.items if item["disposition"] == "bound-session-held"]
     if held:
-        report.note(f"{held} conversations an earlier pass bound are blocked while the legacy writer may be "
-                    f"using their sessions (blocked_by {legacy.LEGACY_HOLD!r}); the first pass that finds a "
-                    "session settled lifts its block (C-30.4)")
+        report.note(f"{len(held)} conversations an earlier pass bound are held while the legacy writer may be "
+                    f"using their sessions ({legacy.LEGACY_HOLD}, the conversation's legacy_hold): no turn runs "
+                    "in one, and the first pass that finds its session settled lifts the hold (C-30.4)")
+    unsettled = [item for item in held if item["unsettled"]]
+    if unsettled:
+        report.note(f"{len(unsettled)} held conversations have messages that are not settled (items list them): "
+                    "the daemon stops a running turn when it starts, and a queued or waiting message runs once "
+                    "the hold lifts unless it is cancelled first (message.cancel)")
     if any(item["disposition"] == "transcript-not-found" for item in result.items):
         report.note("terminal messages whose Claude transcript was not found are listed in items; "
                     "a later pass imports them if the transcript appears")
@@ -1661,11 +1710,71 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
         earlier = writer.one("SELECT COUNT(*) AS n FROM notices WHERE transport='v1-socket'")
         if earlier and earlier["n"]:
             report.note(f"{earlier['n']} notices an earlier import made from this outbox are left as they are")
+    if outbox_problem:
+        return None
     return {"mapping": "legacy-history", "rows": len(messages),
             "max_sequence": max((message.sequence for message in messages), default=0)}
 
 
-def import_cockpit_client(report: StoreReport, *, v1_state: Path) -> None:
+#: Files only a v2 state root holds: a `--v1-state` holding one is not v1's.
+V2_MARKERS = ("state.sqlite3", "conversations.sqlite3", "daemon.lock")
+
+
+def _is_v1_state(v1_state: Path, state_root: Path | None = None) -> bool:
+    """Whether `v1_state` is a v1 state directory: one holding an entry the
+    manifest names under S, and not a v2 state root (which can hold `gates/`
+    and `integration-events.salt` too). A mistyped, swapped or moved
+    `--v1-state` (missing, empty, the directory above it, the v2 root) would
+    otherwise read as a cockpit that holds nothing and release every legacy
+    hold (C-30.4)."""
+    if not v1_state.is_dir():
+        return False
+    if state_root is not None and v1_state.resolve() == Path(state_root).resolve():
+        return False
+    if any((v1_state / name).exists() for name in V2_MARKERS):
+        return False
+    names = {name for row in MANIFEST if row.root == "S" for name in row.names}
+    return any((v1_state / name).exists() or (v1_state / name).is_symlink() for name in names)
+
+
+#: Entries of S that only v1 writes: a v2 state root never holds one (it may
+#: hold `gates/` or `integration-events.salt`, which v1 and v2 share).
+V1_ONLY = ("outbox.sqlite3", "cockpit-client", "runs", "notices", "tickles", "native-workers.json", "broker.lock",
+           "capacity-live-cache.json", "claude-oauth-raw.json")
+
+
+def _looks_like_v1_root(state_root: Path) -> bool:
+    """Whether a `--state-root` is a v1 state directory: one holding an entry
+    only v1 writes and none of a v2 root's files (the two roots swapped)."""
+    return (state_root.is_dir() and not any((state_root / name).exists() for name in V2_MARKERS)
+            and any((state_root / name).exists() for name in V1_ONLY))
+
+
+def _not_v1(v1_state: Path) -> str:
+    return (f"{v1_state} is not a v1 state directory; name it with --v1-state, or pass --cockpit-retired once "
+            "the legacy cockpit will never run again")
+
+
+def retire_legacy_cockpit(conversations: _Conversations, report: StoreReport) -> None:
+    """`--cockpit-retired`: the operator says the legacy cockpit will never run
+    again, so every legacy hold is lifted and no session stays recorded as held
+    (C-30.4). Nothing under the v1 state is read."""
+    # The store is created if there is none, so the retirement is recorded.
+    result = legacy.retire(conversations.get())
+    for item in result.items:
+        report.count(item["disposition"])
+    report.items.extend(result.items)
+    report.note(f"the legacy cockpit is retired: {len(result.items)} held conversations are released and no "
+                "session stays recorded as held (C-30.4)")
+
+
+def _retired_at(conversations: _Conversations | None) -> str | None:
+    """When `--cockpit-retired` was recorded, if it was (C-30.4)."""
+    return conversations.get().legacy_retired_at() if conversations and conversations.exists() else None
+
+
+def import_cockpit_client(report: StoreReport, *, v1_state: Path,
+                          conversations: _Conversations | None = None) -> None:
     """Manifest row `S/cockpit-client/`: the cockpit app's pending-send journal.
 
     Every entry is an unacknowledged send the cockpit app would retry itself, so
@@ -1673,6 +1782,11 @@ def import_cockpit_client(report: StoreReport, *, v1_state: Path) -> None:
     id, if the broker took it; nothing is sent (C-30.4). The image snapshot
     folders beside the journal stay where they are.
     """
+    retired = _retired_at(conversations)
+    if retired:
+        report.skip("cockpit-retired")
+        report.note(f"the legacy cockpit was retired at {retired}: its journal is not read")
+        return None
     directory = v1_state / "cockpit-client"
     if not directory.is_dir():
         report.skip("absent")
@@ -1681,7 +1795,7 @@ def import_cockpit_client(report: StoreReport, *, v1_state: Path) -> None:
     if problem:
         report.skip("unreadable-journal")
         report.note(f"pending-messages.json is {problem}; it is left as it is")
-    statuses = {message.message_id: message.status for message in _read_legacy_outbox(None, v1_state) or ()}
+    statuses = {message.message_id: message.status for message in _read_legacy_outbox(v1_state)[0]}
     items = legacy.journal_items(entries, statuses)
     report.seen += len(items)
     for item in items:
@@ -1920,6 +2034,11 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
     roster_dir = Path(roster_dir).expanduser()
     home = Path(home).expanduser() if home is not None else Path.home()
     now = now or utc_now()
+    if _looks_like_v1_root(state_root):
+        # A pass would put daemon.lock, state.sqlite3 and its report in the v1
+        # state, which would then read as a v2 root (C-30.4).
+        raise ImportRefused(f"{state_root} looks like a v1 state directory; name the v2 state root with "
+                            "--state-root")
     report = ImportReport(str(state_root), str(v1_state), str(delegate_state), str(roster_dir),
                           dry_run, milestone, now)
 
@@ -2001,7 +2120,7 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
             writer, entry, v1_state=v1_state, cursor=cursors.get("notices", {})))
         row("outbox", lambda entry: import_outbox(
             conversations, entry, v1_state=v1_state, projects=projects, writer=writer))
-        row("cockpit", lambda entry: import_cockpit_client(entry, v1_state=v1_state))
+        row("cockpit", lambda entry: import_cockpit_client(entry, v1_state=v1_state, conversations=conversations))
         row("salt", lambda entry: import_salt(
             writer, entry, v1_state=v1_state, state_root=state_root))
         row("alerts", lambda entry: import_alerts(
@@ -2026,7 +2145,8 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
 
 def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
                           claude_projects: str | Path | None = None, dry_run: bool = False,
-                          write_report: bool = True, now: str | None = None) -> ImportReport:
+                          write_report: bool = True, now: str | None = None,
+                          cockpit_retired: bool = False) -> ImportReport:
     """The legacy cockpit rows alone (C-30.4): `outbox` and `cockpit`, whatever the
     milestone, and nothing else. `state.sqlite3` is not opened.
 
@@ -2040,6 +2160,15 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     state_root = Path(state_root).expanduser()
     v1_state = Path(v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
+    v1_ok = _is_v1_state(v1_state, state_root)
+    if _looks_like_v1_root(state_root):
+        # The daemon.lock this pass takes would make the v1 state read as a v2 root.
+        raise ImportRefused(f"{state_root} looks like a v1 state directory; name the v2 state root with "
+                            "--state-root")
+    if not (cockpit_retired or v1_ok or (state_root / "conversations.sqlite3").is_file()):
+        # Refused before anything is taken or opened: with no store, no
+        # retirement can have been recorded (C-30.4).
+        raise ImportRefused(_not_v1(v1_state))
     now = now or utc_now()
     report = ImportReport(str(state_root), str(v1_state), "", "", dry_run, LEGACY_MILESTONE, now)
     scratch_dir: str | None = None
@@ -2051,8 +2180,15 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
         lock = _hold_daemon_lock(state_root)
     conversations = _Conversations(state_root, scratch_dir)
     try:
-        import_outbox(conversations, report.store_report("outbox"), v1_state=v1_state, projects=projects)
-        import_cockpit_client(report.store_report("cockpit"), v1_state=v1_state)
+        if cockpit_retired:
+            retire_legacy_cockpit(conversations, report.store_report("outbox"))
+        elif v1_ok or _retired_at(conversations):
+            import_outbox(conversations, report.store_report("outbox"), v1_state=v1_state, projects=projects)
+            import_cockpit_client(report.store_report("cockpit"), v1_state=v1_state, conversations=conversations)
+        else:
+            # A mistyped, swapped or moved --v1-state would otherwise read as a
+            # cockpit that holds nothing and release every hold (C-30.4).
+            raise ImportRefused(_not_v1(v1_state))
     finally:
         conversations.close()
         if scratch_dir is not None:
@@ -2084,16 +2220,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--legacy-cockpit", action="store_true",
                         help="import only the legacy cockpit outbox and client journal into "
                              "conversations.sqlite3 (C-30.4), whatever the milestone")
+    parser.add_argument("--cockpit-retired", action="store_true",
+                        help="with --legacy-cockpit: the legacy cockpit will never run again, so lift every "
+                             "legacy hold without reading the v1 state (C-30.4)")
     parser.add_argument("--claude-dir", default=None,
                         help="the ~/.claude whose projects/ holds the Claude transcripts "
                              "(default: $SUBFLEET_CLAUDE_DIR or ~/.claude)")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     args = parser.parse_args(argv)
     projects = Path(args.claude_dir).expanduser() / "projects" if args.claude_dir else None
+    if args.cockpit_retired and not args.legacy_cockpit:
+        parser.error("--cockpit-retired goes with --legacy-cockpit")
     try:
         if args.legacy_cockpit:
             report = import_legacy_cockpit(args.state_root, v1_state=args.v1_state,
-                                           claude_projects=projects, dry_run=args.dry_run)
+                                           claude_projects=projects, dry_run=args.dry_run,
+                                           cockpit_retired=args.cockpit_retired)
         else:
             report = import_v1(args.state_root, v1_state=args.v1_state,
                                delegate_state=args.delegate_state, roster_dir=args.roster_dir,
@@ -2119,7 +2261,10 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {key}: conversation {item['conversation_id']} {item['session_id']} "
                           f"-> {item['disposition']}"
                           + (f" (blocked_by {item['blocked_by']})" if item.get("blocked_by") else "")
-                          + (f" {item['detail']}" if item.get("detail") else ""))
+                          + (f" {item['detail']}" if item.get("detail") else "")
+                          + ("; unsettled: " + ", ".join(f"{message['message_id']} {message['state']}"
+                                                         for message in item["unsettled"])
+                             if item.get("unsettled") else ""))
                     continue
                 where = item.get("conversation_id") or item.get("detail") or ""
                 print(f"  {key}: {item.get('message_id')} {item.get('session_id')} "

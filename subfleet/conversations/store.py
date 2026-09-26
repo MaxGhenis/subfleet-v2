@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   worktree_json     TEXT,
   request_id        TEXT UNIQUE,
   blocked_by        TEXT,
+  legacy_hold       TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
   UNIQUE (provider, native_session_id)
 );
@@ -115,6 +116,12 @@ CREATE TABLE IF NOT EXISTS changes (
   conversation_id TEXT NOT NULL, message_id TEXT, state TEXT, pending_approvals INTEGER NOT NULL,
   ts TEXT NOT NULL, state_reason TEXT
 );
+CREATE TABLE IF NOT EXISTS legacy_sessions (
+  session_key TEXT PRIMARY KEY,   -- "<provider>:<native id>", or "*" for every session
+  reason      TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS legacy_retirement (retired_at TEXT NOT NULL);
 """
 
 # Schema 2 (C-26.14, design D-25): a turn's working-tree snapshots, one row per
@@ -179,6 +186,18 @@ def canonical_uuid(value: Any) -> str:
     return str(parsed)
 
 
+def canonical_native(session_id: Any) -> Any:
+    """A native session id as a conversation binds it: a UUID in lower case,
+    anything else as given (review L1). Claude Code names a transcript by the
+    lower-case id, and `UNIQUE (provider, native_session_id)` and the `native:`
+    lease compare ids exactly, so one session has one spelling here."""
+    try:
+        parsed = str(uuid.UUID(session_id))
+    except (ValueError, AttributeError, TypeError):
+        return session_id
+    return parsed if parsed == session_id.lower() else session_id
+
+
 def validate_settings(provider: str, settings: Any) -> dict:
     """The shape every message's settings must have (C-24.2); catalog checks are
     `models.list`'s and the driver's (C-26.8)."""
@@ -204,6 +223,16 @@ def validate_settings(provider: str, settings: Any) -> dict:
 
 # Messages Subfleet writes to repair a session; they go ahead of queued person messages.
 REPAIR_ORIGINS = ("unblock-note", "failover")
+
+#: The legacy import's hold (C-30.4, design D-17): the legacy cockpit may be using
+#: the conversation's session. It lives in its own column, `legacy_hold`, beside
+#: the service's single `blocked_by`, so no outcome replaces it and no
+#: `conversation.unblock` or `message.resolve` lifts it; only the import sets or
+#: clears it (`set_legacy_hold`).
+LEGACY_OWNER = "legacy-owner"
+
+#: C-24.5: a conversation gets no turn while either block is set.
+UNBLOCKED = "c.blocked_by IS NULL AND c.legacy_hold IS NULL"
 
 PERMISSION_ORDER = {"read-only": 0, "ask": 1, "accept-edits": 2, "bypass": 3}
 
@@ -276,6 +305,7 @@ class ConversationStore:
                 self._db.execute("ALTER TABLE changes ADD COLUMN state_reason TEXT")
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
+            self._add_legacy_hold()
         self.changed = threading.Condition()
 
     def _migrate(self, version: int) -> None:
@@ -287,6 +317,27 @@ class ConversationStore:
                 for statement in MIGRATIONS.get(step, ()):
                     self._db.execute(statement)
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (step, utcnow()))
+        except BaseException:
+            self._db.execute("ROLLBACK")
+            raise
+        self._db.execute("COMMIT")
+
+    def _add_legacy_hold(self) -> None:
+        """A schema 1 store written before `legacy_hold` gains the column (C-30.4).
+
+        The column is nullable and additive: a build that predates it reads rows
+        by name and ignores it. A store written then kept the legacy hold in
+        `blocked_by`; that value moves to the column, since `blocked_by` is now
+        the service's alone and nothing there would ever lift it.
+        """
+        self._db.execute("BEGIN IMMEDIATE")            # checked inside, so two openers cannot both add it
+        try:
+            if "legacy_hold" in {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}:
+                self._db.execute("COMMIT")
+                return
+            self._db.execute("ALTER TABLE conversations ADD COLUMN legacy_hold TEXT")
+            self._db.execute("UPDATE conversations SET legacy_hold=?, blocked_by=NULL WHERE blocked_by=?",
+                             (f"held {LEGACY_OWNER} by an earlier import", LEGACY_OWNER))
         except BaseException:
             self._db.execute("ROLLBACK")
             raise
@@ -342,15 +393,19 @@ class ConversationStore:
                 if row["native_session_id"]}
 
     def binding(self, native_session_id: str) -> str | None:
-        """The conversation that binds `native_session_id`, if one does (C-26.13)."""
-        # `provider IN (...)` lets the (provider, native_session_id) index serve it.
+        """The conversation that binds `native_session_id`, if one does (C-26.13), in
+        whatever case its UUID was spelled when bound or asked about (review L1)."""
+        _, native, is_uuid, lowered = _native_params("claude", native_session_id)
         row = self.one("SELECT conversation_id FROM conversations WHERE provider IN ('claude','codex') "
-                       "AND native_session_id=? ORDER BY created_at LIMIT 1", (native_session_id,))
+                       "AND (native_session_id IN (?, ?) OR (? AND lower(native_session_id)=?)) "
+                       "ORDER BY created_at LIMIT 1", (native_session_id, native, is_uuid, lowered))
         return row["conversation_id"] if row else None
 
     def by_native(self, provider: str, native_session_id: str) -> dict | None:
-        row = self.one("SELECT * FROM conversations WHERE provider=? AND native_session_id=?",
-                       (provider, native_session_id))
+        """The conversation bound to a native session, in whatever case its UUID
+        was spelled when it was bound (a store written before ids were canonical)."""
+        row = self.one(f"SELECT * FROM conversations WHERE {_NATIVE_MATCH}",
+                       _native_params(provider, native_session_id))
         return _decode_conversation(row) if row else None
 
     def create_conversation(self, *, provider: str, workspace: str, workspace_kind: str, settings: dict,
@@ -360,25 +415,31 @@ class ConversationStore:
         if provider not in PROVIDERS:
             raise ConversationError("bad-provider", "provider must be claude or codex")
         settings = validate_settings(provider, settings)
+        native_session_id = canonical_native(native_session_id)
         now = utcnow()
+        held = None
         with self.transaction() as tx:
             if request_id:
                 existing = tx.execute("SELECT * FROM conversations WHERE request_id=?", (request_id,)).fetchone()
                 if existing:
                     return _decode_conversation(dict(existing)), False
             if native_session_id:
-                existing = tx.execute("SELECT * FROM conversations WHERE provider=? AND native_session_id=?",
-                                      (provider, native_session_id)).fetchone()
+                existing = tx.execute(f"SELECT * FROM conversations WHERE {_NATIVE_MATCH}",
+                                      _native_params(provider, native_session_id)).fetchone()
                 if existing:
                     return _decode_conversation(dict(existing)), False
+                # C-30.4: a session the last legacy pass found held is bound held.
+                row = tx.execute("SELECT reason FROM legacy_sessions WHERE session_key IN (?, '*') "
+                                 "ORDER BY session_key='*' LIMIT 1", (f"{provider}:{native_session_id}",)).fetchone()
+                held = row["reason"] if row else None
             cid = new_id("cv")
             tx.execute(
                 "INSERT INTO conversations(conversation_id,provider,native_session_id,title,workspace,workspace_kind,"
-                "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
+                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (cid, provider, native_session_id, title, workspace, workspace_kind, int(allow_main), lane_id,
                  json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
-                 now, now))
+                 held, now, now))
             self._change(tx, cid, None, None)
         return self.conversation(cid), True
 
@@ -603,6 +664,8 @@ class ConversationStore:
             raise ValueError("a conversation's workspace is a directory path")
         sets, params = [], []
         for key, value in fields.items():
+            if key == "native_session_id":
+                value = canonical_native(value)
             if key == "settings":
                 sets.append("settings_json=?")
                 params.append(json.dumps(value))
@@ -621,6 +684,61 @@ class ConversationStore:
             tx.execute(f"UPDATE conversations SET {','.join(sets)} WHERE conversation_id=?", (*params, conversation_id))
             self._change(tx, conversation_id, None, None)
         return self.conversation(conversation_id)
+
+    def set_legacy_hold(self, conversation_id: str, reason: str | None) -> dict:
+        """Set (a reason) or lift (None) the legacy import's hold (C-30.4).
+
+        Only `legacy.fence_bound_sessions` calls this; `update_conversation`
+        cannot name the column, so no service path can clear it.
+        """
+        with self.transaction() as tx:
+            tx.execute("UPDATE conversations SET legacy_hold=?, updated_at=? WHERE conversation_id=?",
+                       (reason, utcnow(), conversation_id))
+            self._change(tx, conversation_id, None, None)
+        return self.conversation(conversation_id)
+
+    def record_legacy_sessions(self, holds: dict[str, str]) -> None:
+        """The sessions the last legacy pass found held, by `legacy.session_key`
+        (`*`: every session), replacing what an earlier pass recorded (C-30.4).
+        A conversation bound later to one of them is bound held
+        (`create_conversation`), so opening a held session after the pass never
+        starts a turn in it."""
+        now = utcnow()
+        with self.transaction() as tx:
+            tx.execute("DELETE FROM legacy_sessions")
+            tx.executemany("INSERT INTO legacy_sessions(session_key,reason,recorded_at) VALUES (?,?,?)",
+                           [(key, reason, now) for key, reason in sorted(holds.items())])
+
+    def retire_legacy(self) -> list[dict]:
+        """The legacy cockpit will never run again (C-30.4): in one transaction,
+        lift every legacy hold, forget every held session and record the
+        retirement, so later passes read nothing from it and a run that dies
+        midway changes nothing. Returns the conversations it released, as they
+        were."""
+        now = utcnow()
+        with self.transaction() as tx:
+            released = [dict(row) for row in tx.execute(
+                "SELECT * FROM conversations WHERE legacy_hold IS NOT NULL ORDER BY created_at, conversation_id")]
+            tx.execute("UPDATE conversations SET legacy_hold=NULL, updated_at=? WHERE legacy_hold IS NOT NULL", (now,))
+            for row in released:
+                self._change(tx, row["conversation_id"], None, None)
+            tx.execute("DELETE FROM legacy_sessions")
+            if tx.execute("SELECT 1 FROM legacy_retirement").fetchone() is None:
+                tx.execute("INSERT INTO legacy_retirement(retired_at) VALUES (?)", (now,))
+        return released
+
+    def legacy_retired_at(self) -> str | None:
+        row = self.one("SELECT retired_at FROM legacy_retirement")
+        return row["retired_at"] if row else None
+
+    def turn_hold(self, conversation_id: str) -> dict | None:
+        """Why no turn may run in a conversation now (C-24.5): its `blocked_by`
+        and `legacy_hold`, or None when neither is set."""
+        row = self.one("SELECT blocked_by, legacy_hold FROM conversations WHERE conversation_id=?",
+                       (conversation_id,))
+        if row is None or (row["blocked_by"] is None and row["legacy_hold"] is None):
+            return None
+        return {"blocked_by": row["blocked_by"], "legacy_hold": row["legacy_hold"]}
 
     def list_conversations(self, *, provider: str | None = None, limit: int = 200) -> list[dict]:
         sql = "SELECT * FROM conversations WHERE archived_at IS NULL"
@@ -822,12 +940,20 @@ class ConversationStore:
         source = "AND m.conversation_id=? " if conversation_id is not None else ""
         rows = self.query(
             "SELECT m.* FROM messages m JOIN conversations c USING(conversation_id) "
-            "WHERE m.state='queued' AND c.blocked_by IS NULL AND c.archived_at IS NULL "
+            f"WHERE m.state='queued' AND {UNBLOCKED} AND c.archived_at IS NULL "
             f"{source}"
             "AND m.message_id = (SELECT q.message_id FROM messages q WHERE q.conversation_id=m.conversation_id "
             f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, q.seq LIMIT 1) "
             f"AND NOT EXISTS (SELECT 1 FROM messages l WHERE l.conversation_id=m.conversation_id AND l.state IN ({','.join('?' * len(LIVE_STATES))})) "
             "ORDER BY m.created_at", ((conversation_id,) if conversation_id is not None else ()) + LIVE_STATES)
+        return [_decode_message(r) for r in rows]
+
+    def readmittable(self) -> list[dict]:
+        """Waiting messages whose turn is re-admitted (`readmit:*`, design D-12),
+        of conversations that are not blocked (C-24.5)."""
+        rows = self.query("SELECT m.* FROM messages m JOIN conversations c USING(conversation_id) "
+                          f"WHERE m.state='waiting' AND m.state_reason LIKE 'readmit:%' AND {UNBLOCKED} "
+                          "ORDER BY m.created_at")
         return [_decode_message(r) for r in rows]
 
     def live_messages(self) -> list[dict]:
@@ -1099,7 +1225,8 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
 
     Counted over conversations not archived: `active` has a message queued or in
     a live state (C-24.4), `needs_approval` has a pending approval, `blocked`
-    has `blocked_by` set. Listed: those three kinds only, those needing
+    has `blocked_by` or the legacy import's hold set (C-30.4; listed with
+    `blocked_by` "legacy-owner" when only the hold is). Listed: those three kinds only, those needing
     approval first, then blocked, then the rest, newest update first and,
     between equal updates, the later-created conversation first (an id begins
     with its creation millisecond, `new_id`), at most `limit`. A listed
@@ -1130,21 +1257,26 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
             f" (SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id AND m.state IN ({open_marks}))),"
             "(SELECT COUNT(DISTINCT a.conversation_id) FROM approvals a JOIN conversations c "
             " USING(conversation_id) WHERE a.state='pending' AND c.archived_at IS NULL),"
-            "(SELECT COUNT(*) FROM conversations WHERE archived_at IS NULL AND blocked_by IS NOT NULL)",
+            "(SELECT COUNT(*) FROM conversations WHERE archived_at IS NULL "
+            " AND (blocked_by IS NOT NULL OR legacy_hold IS NOT NULL))",
             _OPEN_STATES).fetchone()
         counts = {"active": row[0], "needs_approval": row[1], "blocked": row[2]}
         rows = db.execute(
-            "SELECT c.conversation_id, c.provider, c.title, c.blocked_by, c.updated_at, "
+            # C-30.4: the legacy import's hold is its own column; to a reader it is a block.
+            "SELECT c.conversation_id, c.provider, c.title, "
+            f"COALESCE(c.blocked_by, CASE WHEN c.legacy_hold IS NOT NULL THEN '{LEGACY_OWNER}' END) AS blocked_by, "
+            "c.updated_at, "
             "(SELECT COUNT(*) FROM approvals a WHERE a.conversation_id=c.conversation_id "
             " AND a.state='pending') AS pending_approvals, "
             "(SELECT m.state FROM messages m WHERE m.conversation_id=c.conversation_id "
             f" AND m.state IN ({live_marks}) ORDER BY m.seq LIMIT 1) AS live_state, "
             "EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id "
             " AND m.state='queued') AS queued "
-            "FROM conversations c WHERE c.archived_at IS NULL AND (c.blocked_by IS NOT NULL "
+            "FROM conversations c WHERE c.archived_at IS NULL AND (c.blocked_by IS NOT NULL OR c.legacy_hold IS NOT NULL "
             f" OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id AND m.state IN ({open_marks})) "
             " OR EXISTS (SELECT 1 FROM approvals a WHERE a.conversation_id=c.conversation_id AND a.state='pending')) "
-            "ORDER BY CASE WHEN pending_approvals > 0 THEN 0 WHEN c.blocked_by IS NOT NULL THEN 1 ELSE 2 END, "
+            "ORDER BY CASE WHEN pending_approvals > 0 THEN 0 "
+            "WHEN c.blocked_by IS NOT NULL OR c.legacy_hold IS NOT NULL THEN 1 ELSE 2 END, "
             "c.updated_at DESC, c.conversation_id DESC LIMIT ?",
             (*LIVE_STATES, *_OPEN_STATES, max(0, int(limit)) + 1)).fetchall()
         db.execute("COMMIT")
@@ -1162,6 +1294,19 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
                       "state": state, "blocked_by": row["blocked_by"],
                       "pending_approvals": row["pending_approvals"], "updated_at": row["updated_at"]})
     return {"available": True, "counts": counts, "items": items, "truncated": len(rows) > len(items)}
+
+
+#: A binding by native id, matched without regard to the case of a UUID's hex digits.
+_NATIVE_MATCH = "provider=? AND (native_session_id=? OR (? AND lower(native_session_id)=?))"
+
+
+def _native_params(provider: str, native_session_id: str) -> tuple:
+    native = canonical_native(native_session_id)
+    try:
+        is_uuid = str(uuid.UUID(native)) == native
+    except (ValueError, AttributeError, TypeError):
+        is_uuid = False
+    return provider, native, int(is_uuid), native
 
 
 def _decode_conversation(row: dict) -> dict:

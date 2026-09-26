@@ -30,7 +30,7 @@ Paths are relative to `~/chief-of-staff/state/subfleet/` (v1 state root, "S") or
 | `S/runs/` (500 dirs, `meta.json`, `prompt.md`, `out.md`, `err.log`, `lane.log`) | The v1 ledger | import read-only | one `jobs` row and one `attempts` row per directory; `job_id` keeps the v1 id; `request_id` = `v1:<id>`; state from rc (0 `succeeded`, 4 or 5 `failed`, -9/143/killed `interrupted`, never finalized `lost`); `artifacts` rows point at the v1 paths (not copied); `imported: true`; live entries per principle 3 |
 | `S/runs-out/` (15 files: `<name>.err.log`, `<name>.MODEL_ATTESTED`) | Side files from named runs | retain read-only | not imported; referenced by the v1 rows they belong to if a run names them |
 | `S/notices/` (152 per-session JSONL files) | Parked completion notices per caller session | import | `notices` rows with `state: pending` for entries v1 marked unsurfaced, `surfaced` otherwise; `session_id` from the file name |
-| `S/outbox.sqlite3` (`messages`: 6 rows, status, receipt), `S/outbox-attachments/` | The legacy desktop cockpit's message outbox (corrected 2026-09-24; it was listed as a notice outbox) | import at milestone 9 (C-30.4) | each message by itself: a `finished`, `error` or `cancelled` message of a Claude session whose transcript is found becomes a read-only history row, under its legacy id, of that session's one `legacy` conversation in `conversations.sqlite3`; every other message keeps its legacy owner, with its whole session; each message is in the report with its disposition; image snapshots stay in v1. The six notices an earlier pass made from this row stay as they are |
+| `S/outbox.sqlite3` (`messages`: 6 rows, status, receipt), `S/outbox-attachments/` | The legacy desktop cockpit's message outbox (corrected 2026-09-24; it was listed as a notice outbox) | import at milestone 9 (C-30.4) | each message by itself: a `finished`, `error` or `cancelled` message of a Claude session whose transcript is found becomes a read-only history row, under its legacy id, of that session's one conversation in `conversations.sqlite3` (the one it has, whatever its origin, else a new `legacy` one); every other message keeps its legacy owner, with its whole session, as does a session the cockpit is using now; each message is in the report with its disposition; image snapshots stay in v1. The six notices an earlier pass made from this row stay as they are |
 | `S/gates/` (117 entries) | Gate state directories | retain read-only until milestone 7 | active gates finish in v1 by default; at milestone 7 a gate imports only if subject fingerprint, approvals, peer evidence, and action state all verify (plan A step 6); never rebuilt from a summary |
 | `S/tickles/` (5,823 files), `S/revive/` (244 logs), `S/revive-lane.json`, `S/session-locks/` (10), `S/session-continuations.lock`, `S/native-workers.json` | Sessions kit state | retain read-only until milestone 6 | tickle dedup records import as `events` of kind `tickle` with their timestamps so the sessions kit does not re-nudge; revive logs are not imported; `native-workers.json` (two claude worker ids) imports as `events` of kind `native-worker` for the twin check |
 | `S/history.jsonl` (2,400 lines), `S/lane-usage.jsonl` (1,733 lines) | Rolling token sums and burn history | drop for quota; retain file | never imported as readings or percentages; the file stays for the compare script and for `docs/reports/B-capacity.md`-style audits |
@@ -125,11 +125,47 @@ uv run python -m subfleet.importer --legacy-cockpit --v1-state ~/chief-of-staff/
 uv run python -m subfleet.importer --legacy-cockpit --v1-state ~/chief-of-staff/state/subfleet
 ```
 
-`--claude-dir` names another `~/.claude` for the transcripts, `--json` prints
-the report. The report lists every message and journal entry by id with its
-disposition: `history`, `already-imported`, `legacy-owned`,
+`--claude-dir` names another `~/.claude` for the transcripts and its
+`sessions/` registry, `--json` prints the report. A `--v1-state` that holds
+none of the manifest's entries (missing, empty, another directory), or that is
+a v2 state root, is refused, and so is a `--state-root` that looks like a v1
+state directory (the two swapped), by the milestone pass too. A refused pass
+touches neither directory, except that with a conversation store already
+there (it may record a retirement) the pass takes `daemon.lock` and opens that
+store before it refuses. Once the cockpit will never run again,
+`--legacy-cockpit --cockpit-retired` lifts every legacy hold without reading
+the v1 state and records the retirement, even before any conversation store
+exists; later passes, milestone passes included, then read nothing from the
+cockpit (neither its outbox nor its journal), and a legacy pass is not refused
+once the v1 state is gone. Before a real pass, stop the daemon and quit the
+cockpit: while its broker holds `S/broker.lock` every session is held, as it
+is while the journal, the outbox or `S/native-workers.json` exists and cannot
+be read, and a session with a live cockpit worker is held too. A session with
+a live Claude process outside Subfleet gets no history that pass. Start the
+daemon again only from this build or a later one: `legacy_hold` and
+`legacy_sessions` are additive, so an older build opens the store and ignores
+them.
+
+The report lists every message and journal entry by id with its disposition.
+`history` is written by this pass and `already-imported` by an earlier one.
+These leave the message where it is, and a later pass imports it once its
+reason is gone: `legacy-owned` (not terminal, or a journal entry),
 `session-held-by-legacy-owner`, `transcript-not-found`,
-`session-not-continuable`, `conversation-has-own-messages`,
-`message-id-conflict`, `not-a-claude-session` or `unreadable-row`. Every
-disposition but the first two leaves the message where it is, and a later pass
-imports it once its reason is gone.
+`session-not-continuable` and `transcript-unreadable`. These leave it for good,
+since no later pass changes them: `conversation-has-own-messages` and
+`history-after-messages` (the session's conversation has messages of its own,
+and history goes first), `message-id-conflict`, `unreadable-row` (a message
+id, a payload or a timestamp), `bad-text` (a prompt over 1 MiB) and
+`not-a-claude-session`. The outbox row also counts `absent`,
+`unreadable-database` or `no-messages-table`, and the journal row
+`unreadable-journal`.
+
+Conversations appear too, by id: `bound-session-held` for each conversation
+bound to a held session, whatever its origin, with the reason (its
+`legacy_hold`), its own `blocked_by`, and its messages that are not settled;
+`bound-session-released` for one whose session a pass finds settled. While a
+conversation is held no turn runs in it. When the daemon starts it stops a
+turn that kept running there, and a queued or waiting message runs once the
+hold lifts; cancel one first (`message.cancel`, with the daemon running) if it
+should not. A session held by the pass that is opened after it
+(`conversation.open`) is bound held as well.

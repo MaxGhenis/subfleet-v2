@@ -438,3 +438,17 @@ def test_c16_3_revive_says_whether_it_minted_the_request_id(world, policy, tmp_p
     extra = {} if given is None else {"minted": given}
     attempt(daemon, policy, COLD, tmp_path, opt_in=True, request_id=request_id, **extra)
     assert daemon.minted == [minted]
+
+
+def test_a_conversation_bound_session_is_never_revived_in_any_spelling(world, policy, tmp_path):
+    """C-26.13 with review L1 and M3: a session the daemon lists in another case is
+    still its conversation's. Revive refuses it, even opted in and forced, and a
+    named cold sweep holds it."""
+    cold_session(world, desktop_owned=False)
+    daemon = fx.FakeSessions(conversation_sessions=[COLD.upper()])
+    result = attempt(daemon, policy, COLD, tmp_path, opt_in=True, force=True)
+    assert result.admitted is False and daemon.submits == []
+    assert result.reason.startswith("bound to a Subfleet conversation")
+    (candidate,) = revive.cold_candidates(daemon, policy, only=[COLD], now=fx.NOW)
+    assert candidate.conversation
+    assert revive.admits(candidate, policy=policy, opt_in=True, force=True)[0] is False

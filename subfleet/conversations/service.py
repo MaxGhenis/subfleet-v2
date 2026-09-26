@@ -45,7 +45,8 @@ from .peers import APP_EXECUTABLES, judge, peer_pid
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
-    PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_uuid, validate_settings, widens,
+    LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native, canonical_uuid,
+    validate_settings, widens,
     utcnow,
 )
 from .turn import (
@@ -119,6 +120,9 @@ class ConversationService:
         self._lock = threading.RLock()
         self._handing_off: set[str] = set()          # source conversations mid-handoff (IR-28)
         self._poll_slots: dict[tuple, threading.Event] = {}
+        # A person's cancel and stop of messages never interleave: each records,
+        # and a cancel may clear, a stop the other must not lose (C-24.7).
+        self._stops = threading.Lock()
         self.log = daemon.log
         self.clock = time.monotonic
         # message id -> (refusals in a row, monotonic time of the next try)
@@ -309,8 +313,12 @@ class ConversationService:
                                  (conversation["conversation_id"],))["n"]
         return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title",
                                                     "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
-                                                    "settings", "origin", "handoff_from", "blocked_by", "created_at",
+                                                    "settings", "origin", "handoff_from", "legacy_hold", "created_at",
                                                     "updated_at")},
+                # C-30.4: the legacy import's hold is its own column, so no outcome
+                # lifts it, but to a client it is a block like any other (the app
+                # shows a conversation with `blocked_by` as needing a decision).
+                "blocked_by": conversation.get("blocked_by") or (LEGACY_OWNER if conversation.get("legacy_hold") else None),
                 "last_message": last, "pending_approvals": pending,
                 "active": bool(last and last["state"] not in TERMINAL_STATES and last["state"] != QUEUED)}
 
@@ -341,6 +349,7 @@ class ConversationService:
         provider, session_id = native.get("provider"), native.get("session_id")
         if provider not in ("claude", "codex") or not isinstance(session_id, str) or not session_id:
             raise ConversationError("bad-native", "native needs a provider and a session_id")
+        session_id = canonical_native(session_id)          # one spelling per session (review L1)
         existing = self.store.by_native(provider, session_id)
         if existing:
             return existing
@@ -471,6 +480,12 @@ class ConversationService:
         if args.get("confirm") is not True or args.get("choice") not in ("continue", "leave"):
             raise ConversationError("confirm", "unblock needs choice continue|leave and confirm: true")
         if conversation["blocked_by"] not in ("unfinished-turn", "delivery-unknown"):
+            if conversation.get("legacy_hold"):
+                # C-30.4: the import's own hold; only a pass that finds the session settled lifts it.
+                raise ConversationError(LEGACY_OWNER, f"the legacy cockpit may be using this session: "
+                                        f"{conversation['legacy_hold']}", code=7,
+                                        fix="settle it in the cockpit, then run python -m subfleet.importer "
+                                            "--legacy-cockpit")
             raise ConversationError("not-blocked", "the conversation is not blocked by an unfinished turn")
         if conversation["blocked_by"] == "delivery-unknown":
             raise ConversationError("resolve-first", "resolve the delivery-unknown message first",
@@ -585,17 +600,26 @@ class ConversationService:
 
     def op_message_cancel(self, args, peer) -> dict:
         """IR-2, IR-7: withdraw only before the provider could have seen it."""
+        with self._stops:
+            return self._cancel(args)
+
+    def _cancel(self, args) -> dict:
         message_id = canonical_uuid(args["message_id"])
         try:
             message = self.store.message(message_id)
         except ConversationError:
             return self._tombstone(message_id, args.get("conversation_id"))
+        recorded = None
         if message["state"] in (QUEUED, WAITING) and not message["job_id"] and not self._turn_job(message):
             # No job carries it (queued, or waiting to be submitted again): the
             # conversation store decides. A job the dispatcher submits meanwhile
-            # finds the message cancelled and is cancelled in turn (_dispatch_one).
+            # finds the message cancelled and is cancelled in turn (_dispatch_one);
+            # one admission launched first finds the stop recorded here before the
+            # withdrawal, so its runner never writes the message (IR-2).
+            recorded = self._record_stop(message_id)
             if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING),
                                     unbound=True):
+                self._cancel_late_job(message_id)
                 return self._receipt(self.store.message(message_id))
             message = self.store.message(message_id)
         if message["state"] in (QUEUED, WAITING):
@@ -605,9 +629,35 @@ class ConversationService:
                 return self._receipt(self.store.message(message_id))
             if job is None and self.store.message(message_id)["state"] == WAITING:
                 # Claimed by the dispatcher, whose job for it is being created (C-24.7).
+                self._clear_stop(message_id, recorded)
                 raise ConversationError("dispatching", "the message is being handed to its turn job",
                                         fix="send the cancel again in a moment")
+        # Refused: a stop this cancel recorded must not outlive it (a later
+        # restart would read it and stop a turn the person was told runs on).
+        self._clear_stop(message_id, recorded)
         raise ConversationError("too-late", "the provider may already have this message", fix="use turn.interrupt")
+
+    def _record_stop(self, message_id: str) -> str | None:
+        """Record a person's stop on a message that has none, in the store itself
+        (never from a copy read earlier); the value recorded, else None."""
+        at = utcnow()
+        with self.store.transaction() as tx:
+            changed = tx.execute("UPDATE messages SET stop_requested_at=?, updated_at=? WHERE message_id=? "
+                                 "AND stop_requested_at IS NULL", (at, at, message_id)).rowcount
+        return at if changed else None
+
+    def _clear_stop(self, message_id: str, recorded: str | None) -> None:
+        """Clear the stop `_record_stop` recorded, and no other."""
+        if recorded:
+            with self.store.transaction() as tx:
+                tx.execute("UPDATE messages SET stop_requested_at=NULL WHERE message_id=? AND stop_requested_at=?",
+                           (message_id, recorded))
+
+    def _cancel_late_job(self, message_id: str) -> None:
+        """Cancel a turn job the dispatcher made for a message just withdrawn, while it has no attempt."""
+        job = self._turn_job(self.store.message(message_id))
+        if job:
+            self._cancel_job_without_attempt(job["job_id"])
 
     def _tombstone(self, message_id: str, conversation_id: str | None) -> dict:
         if not conversation_id:
@@ -643,6 +693,10 @@ class ConversationService:
         return bool(changed)
 
     def op_turn_interrupt(self, args, peer) -> dict:
+        with self._stops:
+            return self._interrupt(args)
+
+    def _interrupt(self, args) -> dict:
         message_id = canonical_uuid(args["message_id"])
         message = self.store.message(message_id)
         if message["state"] not in (STARTING, RUNNING, APPROVAL_NEEDED, WAITING):
@@ -1396,6 +1450,50 @@ class ConversationService:
 
     # --- dispatch (design §4) ---------------------------------------------------
 
+    def admission_hold(self, job: dict) -> dict | None:
+        """Why admission must not place this turn job now (C-24.5, C-30.4), or None.
+
+        A turn job is created only for a conversation that is not blocked, but it
+        can be blocked after: the legacy import holds a conversation while the
+        daemon is stopped, with its turn job already queued. The job then waits
+        here, placing nothing, until both blocks are clear.
+        """
+        path = self.root / "jobs" / job["job_id"] / "manifest.json"
+        try:
+            manifest, error = json.loads(path.read_bytes()), None
+        except (OSError, ValueError) as exc:          # missing, unreadable, not JSON
+            manifest, error = None, type(exc).__name__
+        turn = manifest.get(TURN_MANIFEST_KEY) if isinstance(manifest, dict) else None
+        if not (isinstance(turn, dict) and isinstance(turn.get("conversation_id"), str)
+                and isinstance(turn.get("message_id"), str) and turn.get("provider") in ("claude", "codex")):
+            # C-6.12: a turn job whose manifest does not name its conversation,
+            # message and provider is this job's problem, held here, never the
+            # pass's: admission reads those fields again to reserve it.
+            return {"reason": "conversation-blocked", "conversation_id": None,
+                    "error_type": error or "manifest", "error": "its turn manifest cannot be read"}
+        conversation_id = turn["conversation_id"]
+        message = self.store.one("SELECT state FROM messages WHERE message_id=?", (turn["message_id"],))
+        if message and message["state"] in TERMINAL_STATES:
+            # IR-2: its message was withdrawn (or settled) after the job was
+            # made; the job is cancelled while it has no attempt, never run.
+            self._cancel_job_without_attempt(job["job_id"])
+            return {"reason": "message-settled", "conversation_id": conversation_id, "state": message["state"]}
+        hold = self.store.turn_hold(conversation_id)
+        if hold:
+            return {"reason": "conversation-blocked", "conversation_id": conversation_id, **hold}
+        return None
+
+    def bound_session(self, session_id: str | None) -> dict | None:
+        """C-26.3: the conversation a native session is bound to, of either provider."""
+        if not session_id:
+            return None
+        return self.store.by_native("claude", session_id) or self.store.by_native("codex", session_id)
+
+    def bound_sessions(self) -> list[str]:
+        """Every native session a conversation is bound to (C-26.3, design D-17)."""
+        return sorted({canonical_native(row["native_session_id"]) for row in self.store.query(
+            "SELECT native_session_id FROM conversations WHERE native_session_id IS NOT NULL")})
+
     def _turn_job(self, message: dict) -> dict | None:
         """The main store decides which job carries a message (IR-1)."""
         row = self.daemon.store.one("SELECT * FROM jobs WHERE request_id=? AND kind='turn'",
@@ -1421,6 +1519,11 @@ class ConversationService:
         mid = message["message_id"]
         cid = message["conversation_id"]
         conversation = self.store.conversation(cid)
+        if conversation.get("legacy_hold"):
+            # C-30.4: the legacy import holds it; nothing is submitted, bound or
+            # rewritten until a pass lifts the hold (a person may still withdraw
+            # the message: message.cancel, turn.interrupt).
+            return
         job = self._turn_job(message)
         if job is None and message.get("stop_requested_at"):
             # Stopped by a person while waiting to be submitted again: nothing was sent.
@@ -1445,8 +1548,8 @@ class ConversationService:
             if cid in self._handing_off:
                 return
             conversation = self.store.conversation(cid)
-            if conversation["blocked_by"] or conversation["archived_at"]:
-                return                          # readmissions obey the durable fence too
+            if conversation["blocked_by"] or conversation.get("legacy_hold") or conversation["archived_at"]:
+                return                          # readmissions obey the durable fence and the legacy hold too
             message = self.store.message(mid)
             if message["state"] == QUEUED:
                 # A rollback since the scan may have restored an earlier message or
@@ -1642,15 +1745,28 @@ class ConversationService:
             held = self._writer_check(turn, adir)
             if held:
                 spec = dataclasses.replace(spec, held_by=tuple(held))
+            # Read before the runner is registered: a runner registered and never
+            # started would never be adopted again (C-30.4, D-17).
+            legacy = (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
             runner = TurnRunner(store=self.store, attempt=dict(attempt), spec=spec,
                                 conversation_id=turn["conversation_id"], attempt_dir=adir,
                                 control_socket=start["control_socket"], on_outcome=self._on_outcome,
                                 on_contain=self._on_contain, log=self.log,
                                 clocks=Clocks.from_policy(self.daemon.policy),   # C-24.7, C-26.5, C-26.9
                                 on_catalog=self._on_catalog)
+            if legacy:
+                # C-30.4, D-17: a pass run while the daemon was down found the
+                # legacy cockpit may be using this session again. A turn that
+                # kept running across the restart is stopped, not left beside
+                # it: before its message is ever written if the relay log shows
+                # it was not handed over, else through D-13.
+                self.log.warning("turn %s stopped: its conversation is held %s (%s)", aid, LEGACY_OWNER, legacy)
+                runner.withhold(LEGACY_OWNER)
             self.runners[aid] = runner
-            self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
-            runner.start()
+            try:
+                self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
+            finally:
+                runner.start()
             try:
                 self._record_start(turn, dict(attempt))   # C-26.14: the turn's diff has a base
             except Exception as exc:                      # finalization records it again; a turn never waits on it
@@ -1732,7 +1848,8 @@ class ConversationService:
         # less the one settling now (review of 6290a51, finding 3).
         settlement = reconcile.settle(
             turn, provider=provider, turn_seq=max(0, self._provider_tries(message) - 1),
-            gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn))
+            gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn),
+            person_stopped=bool(message.get("stop_requested_at")))
         served = {**(message.get("served") or {}), **(turn.get("served") or {}),
                   "lane_id": runner.attempt.get("lane_id"), "model": turn.get("served_model")}
         native = turn.get("native_session_id")

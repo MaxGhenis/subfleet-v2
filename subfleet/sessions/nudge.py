@@ -307,7 +307,7 @@ def sweep(sessions, policy: dict[str, Any], *, scope: str = "interrupted",
             report.outcomes.append(Outcome(
                 session_id=session_id, scope=scope,
                 reason=(f"{registry.CONVERSATION_REASON} — never nudged (C-26.13)"
-                        if session_id in bound
+                        if session_id in bound or session_id.lower() in bound
                         else "not a live registered session (no inbox to reach)")))
     report.duplicates = registry.duplicate_report(listing)
 

@@ -500,3 +500,17 @@ def test_a_session_start_wake_for_a_conversations_session_sends_nothing(home, po
                         now=clock, sleep=lambda _s: None, delay_s=0)
     assert daemon.pings == []
     assert report.outcomes[0].reason.startswith("bound to a Subfleet conversation")
+
+
+def test_a_conversation_bound_session_is_never_nudged_in_any_spelling(home, policy):
+    """C-26.13 with review L1 and M3: a session the daemon lists in another case is
+    still its conversation's. No sweep nudges it, a person naming it (forced) is
+    refused with the reason, and nothing is recorded or sent."""
+    live(home, ALICE, entries=fx.interrupted(age_s=1800))
+    daemon = fx.FakeSessions(conversation_sessions=[ALICE.upper()])
+    report = sweep(daemon, policy, scope="interrupted", manual=False)
+    assert ALICE not in {item.session_id for item in report.outcomes}
+    report = sweep(daemon, policy, scope="interrupted", manual=True, only=[ALICE], force=True)
+    assert [item.session_id for item in report.outcomes] == [ALICE]
+    assert report.outcomes[0].reason.startswith("bound to a Subfleet conversation")
+    assert daemon.pings == [] and daemon.records == []

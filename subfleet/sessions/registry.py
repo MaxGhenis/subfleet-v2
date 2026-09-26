@@ -82,7 +82,10 @@ def conversation_ids_of(facts: dict[str, Any]) -> set[str]:
             "this daemon's `sessions state` does not report `conversation_sessions`; "
             "it is older than the sessions kit's conversation fence (C-26.13) and "
             "cannot say which sessions a conversation holds")
-    return {item for item in listed if isinstance(item, str) and item}
+    ids = {item for item in listed if isinstance(item, str) and item}
+    # Review L1: a store written before ids were canonical may list a UUID in
+    # upper case; the registry and transcripts name it in lower case.
+    return ids | {item.lower() for item in ids}
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -94,8 +97,8 @@ def _pid_alive(pid: int | None) -> bool:
         return False
     except PermissionError:
         return True                 # someone else's process, but a process
-    except OSError:
-        return False
+    except (OSError, OverflowError):
+        return False                # OverflowError: no pid is that large
     return True
 
 
@@ -149,13 +152,17 @@ def _row(path: Path) -> SessionRow | None:
     sock = data.get("messagingSocketPath")
     sock = sock if isinstance(sock, str) else None
     started = data.get("startedAt")
+    try:
+        started = float(started) if isinstance(started, (int, float)) and not isinstance(started, bool) else None
+    except OverflowError:
+        started = None
     return SessionRow(
         session_id=data["sessionId"],
         pid=pid,
         socket=sock,
         name=data.get("name") if isinstance(data.get("name"), str) else None,
         cwd=data.get("cwd") if isinstance(data.get("cwd"), str) else None,
-        started_at=float(started) if isinstance(started, (int, float)) else None,
+        started_at=started,
         alive=_pid_alive(pid),
         socket_present=_is_socket(sock),
         registry_path=str(path),
@@ -163,10 +170,14 @@ def _row(path: Path) -> SessionRow | None:
     )
 
 
-def rows() -> list[SessionRow]:
-    """Every readable registry row, oldest file first for a stable listing."""
+def rows(directory: Path | None = None) -> list[SessionRow]:
+    """Every readable registry row, oldest file first for a stable listing.
+
+    `directory` names another registry (the legacy import's `--claude-dir`); by
+    default it is `sessions_dir()`.
+    """
     try:
-        paths = sorted(sessions_dir().glob("*.json"))
+        paths = sorted((directory if directory is not None else sessions_dir()).glob("*.json"))
     except OSError:
         return []
     found = [_row(path) for path in paths]

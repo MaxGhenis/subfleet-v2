@@ -416,9 +416,10 @@ def headless_transcript(transcript: str | Path | None, *,
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                if entry.get("type") != "user" or entry.get("isMeta"):
-                    continue
-                content = (entry.get("message") or {}).get("content")
+                if not isinstance(entry, dict) or entry.get("type") != "user" or entry.get("isMeta"):
+                    continue                    # a valid line that is not an object is no prompt
+                message = entry.get("message")
+                content = message.get("content") if isinstance(message, dict) else None
                 if isinstance(content, list) and content and all(
                         isinstance(item, dict) and item.get("type") == "tool_result"
                         for item in content):
