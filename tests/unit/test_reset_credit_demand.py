@@ -574,10 +574,153 @@ def test_a_preview_that_fails_to_read_the_queue_cannot_relabel_a_timer_result(st
         timers.stop()
 
 
-# --- peer review of c5a8e99: a reset whose result was lost is still its job's --------------
+# --- peer review of c5a8e99: judged at the spend, on the lanes and the clock as they are then ---
+
+class Clock:
+    """A daemon clock a test can move while entitlements are being listed."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def __call__(self):
+        return self.value
+
+    def advance(self, seconds):
+        self.value += timedelta(seconds=seconds)
+
 
 def _iso(value):
     return value.isoformat().replace("+00:00", "Z")
+
+
+def _account(request):
+    return dict((key.lower(), value) for key, value in request.header_items())["chatgpt-account-id"]
+
+
+def _timers(store, tmp_path, clock, opener, demand):
+    return Timers(store, tmp_path, {"reset_credits": {"enabled": True, "min_interval_min": 0}}, demand=demand,
+                  now=clock, adapter_factory=lambda provider: CodexAdapter(opener=opener, now=clock))
+
+
+def _limited_probe(clock_value):
+    return {"probe_status": "limited", "limit_reached": True, "checked_at": _iso(clock_value)}
+
+
+@pytest.mark.parametrize("change", ["none", "closure-expires", "closure-released", "fresh-reading"])
+def test_a_reset_lane_that_opens_while_entitlements_are_listed_stops_the_spend(store, tmp_path, change):
+    """C-23.16 (d): room on a lane reset this week is judged again at the spend, on the lanes and clock of then.
+
+    Peer review of c5a8e99 (P1): codex-1, reset an hour earlier and limited again, reopened while
+    codex-2's entitlements were being listed for a job pinned to codex-2, and the credit on codex-2
+    was spent anyway: (d) had been judged once, on the snapshot the pass opened with. `none` is the
+    control: nothing reopens, and the job's own lane is reset.
+    """
+    limited_lane(store, tmp_path, 1, days=6)
+    limited_lane(store, tmp_path, 2, days=2)
+    clock, http = Clock(NOW - timedelta(hours=1)), HTTP()
+
+    def opener(request, timeout):
+        if request.get_method() == "GET" and _account(request) == "2":
+            clock.advance(60)                     # listing codex-2 takes a minute; meanwhile codex-1 opens
+            if change == "closure-released":      # an operator releases it, or an attempt's read does
+                with store.transaction("fixture.released") as tx:
+                    tx.execute("UPDATE closures SET released_at=? WHERE lane_id='codex-1' AND released_at IS NULL",
+                               (_iso(clock()),))
+            elif change == "fresh-reading":       # a fresh measured reading with room lands
+                store.add_reading(Reading("codex-1", "account", "seven_day", .3, "2026-09-11T12:00:00Z",
+                                          ReadingLabel.PROVIDER, "wham", _iso(clock())))
+        return http(request, timeout)
+
+    timers = _timers(store, tmp_path, clock, opener, lambda: wants(store, "codex-2", job="pinned-to-two"))
+    try:
+        timers.metadata["codex-1"] = _limited_probe(clock())
+        assert timers.evaluate_resets(timers.snapshot(), target="codex-1")["status"] == "confirmed"
+        if change == "closure-expires":
+            # An attempt came back limited on the five-hour window, which ends in 30 s.
+            store.put_closure(Closure("codex-1", "account", "2026-09-05T12:00:30Z", ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, None))
+        elif change == "fresh-reading":
+            # A usage read settled the override; the lane's fresh reading is over the floor again.
+            timers.actions.settle_by_usage("codex-1", {"status": "ok", "limit_reached": False,
+                                                       "checked_at": "2026-09-05T11:10:00Z"},
+                                           now=NOW - timedelta(minutes=50))
+        else:
+            limit_again(store, "codex-1")
+        clock.value = NOW
+        timers.metadata["codex-2"] = _limited_probe(NOW)
+        assert timers.actions.reset_lanes_open(timers.snapshot()["lanes"], now=NOW) == []    # limited at the start
+        result = timers.evaluate_resets(timers.snapshot())
+    finally:
+        timers.stop()
+    if change == "none":
+        assert result["status"] == "confirmed" and result["lane_id"] == "codex-2"
+        assert posts(http) == 2
+        return
+    assert result["status"] == "reset-lane-open" and result["reset_lanes"] == ["codex-1"], result
+    assert posts(http) == 1 and lists(http) == 2
+    assert [row["subject"] for row in store.query("SELECT subject FROM actions")] == ["codex-1"]
+
+
+def test_a_reset_lane_that_opens_after_the_last_look_is_caught_where_the_action_is_written(store, tmp_path):
+    """C-23.16 (d): the transaction that writes the action judges (d) once more, so a refusal fences no credit.
+
+    The look just before the spend comes first, then the job is judged again; codex-1 reopens in
+    between, and only the write transaction can still see it.
+    """
+    limited_lane(store, tmp_path, 1, days=6)
+    limited_lane(store, tmp_path, 2, days=2)
+    http = HTTP()
+    resets = component(store, http, min_interval_min=0)
+    assert resets.evaluate(snapshot(store), now=NOW, target_lane_id="codex-1")["status"] == "confirmed"
+    limit_again(store, "codex-1")
+    reads = []
+
+    def reader():
+        reads.append(1)
+        if len(reads) == 2:                        # the job judged again, after the last look at (d)
+            with store.transaction("fixture.released") as tx:
+                tx.execute("UPDATE closures SET released_at=? WHERE lane_id='codex-1' AND released_at IS NULL",
+                           (STAMP,))
+        return wants(store, "codex-2", job="pinned-to-two")
+
+    result = resets.evaluate(snapshot(store), now=NOW, demand=reader)
+    assert result["status"] == "reset-lane-open" and result["reset_lanes"] == ["codex-1"], result
+    assert reads == [1, 1] and posts(http) == 1
+    assert [row["subject"] for row in store.query("SELECT subject FROM actions")] == ["codex-1"]
+    # Nothing was fenced: once codex-1 is used up again, codex-2's gift is still there for the job.
+    limit_again(store, "codex-1")
+    again = resets.evaluate(snapshot(store), now=NOW, demand=lambda: wants(store, "codex-2", job="pinned-to-two"))
+    assert again["status"] == "confirmed" and again["lane_id"] == "codex-2"
+
+
+@pytest.mark.parametrize("change", ["weekly-room", "read-stale"])
+def test_the_chosen_lane_is_judged_again_at_the_spend(store, tmp_path, change):
+    """C-23.16 (c): the chosen lane's own eligibility, read from the opening snapshot, holds at the spend.
+
+    `weekly-room`: a fresh weekly reading with headroom lands while the lane is listed, so only a
+    shorter window is full and the timer spends no weekly credit on it. `read-stale`: the lane's
+    `limit_reached` read ages past the reading TTL while it is listed, so it is no longer a fresh read.
+    """
+    target = limited_lane(store, tmp_path, 1)
+    clock, http = Clock(NOW), HTTP()
+
+    def opener(request, timeout):
+        if request.get_method() == "GET":
+            clock.advance(30)
+            if change == "weekly-room":
+                store.add_reading(Reading(target.lane_id, "account", "seven_day", .3, "2026-09-08T12:00:00Z",
+                                          ReadingLabel.PROVIDER, "wham", _iso(clock())))
+        return http(request, timeout)
+
+    timers = _timers(store, tmp_path, clock, opener, lambda: wants(store))
+    try:
+        read_at = NOW - timedelta(seconds=100) if change == "read-stale" else NOW
+        timers.metadata[target.lane_id] = _limited_probe(read_at)
+        result = timers.evaluate_resets(timers.snapshot())
+    finally:
+        timers.stop()
+    assert result["status"] == "lane-changed" and result["lane_id"] == target.lane_id, result
+    assert posts(http) == 0 and not store.query("SELECT * FROM actions")
 
 
 class Crash(BaseException):

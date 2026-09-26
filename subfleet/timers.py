@@ -220,12 +220,15 @@ class Timers:
         `demand-error` with its `error_type`, so the timer's status shows it
         rather than a quiet `no-demand`. The error travels with this call, not
         on the component, so a preview on another thread cannot relabel it.
+        The daemon's clock goes with it: the lanes are judged again at the
+        spend, at the time it then reads (C-23.16 (c), (d)).
         """
         errors = []
         result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
                                        deadline=time.monotonic() + 60, target_lane_id=target,
                                        demand=None if target is not None else
-                                       (lambda: self.current_demand(errors=errors)))
+                                       (lambda: self.current_demand(errors=errors)),
+                                       clock=self.now)
         if errors and result.get('status') in ('no-demand', 'demand-changed'):
             result = {**result, 'status': 'demand-error', 'error_type': errors[-1]}
         return result

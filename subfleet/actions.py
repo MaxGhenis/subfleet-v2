@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from .adapters.codex import CodexAdapter
-from .capacity import _iso, _time, fresh_provider, identity_blocked
+from .capacity import _iso, _time, build_view, fresh_provider, identity_blocked
 from .contracts import HEADROOM_FLOOR, READING_TTL_S
 
 #: C-23.16 (f): automatic redemption is off until an operator turns it on.
@@ -131,6 +131,12 @@ def _order(row: dict) -> tuple:
 
 def _shadowed(row: Mapping[str, Any]) -> bool:
     return bool(row.get("app_shadowed") or row.get("shadowed_by_app"))
+
+
+def _redeemable(rows: Iterable[dict]) -> list[dict]:
+    """The canonical, enabled, v2-owned Codex lanes: where a credit can go, and (d) looks."""
+    return [row for row in rows if row.get("provider") == "codex" and row.get("owner") == "v2"
+            and row.get("enabled", True) and row.get("canonical") is not False and not row.get("duplicate_of")]
 
 
 def usage_open_reconciliations(store) -> dict[str, dict]:
@@ -519,7 +525,8 @@ class ResetCredits:
     def evaluate(self, snapshot: dict, *, now: str | datetime | None = None,
                  cancel: threading.Event | None = None, deadline: float | None = None,
                  target_lane_id: str | None = None, dry_run: bool = False,
-                 demand: list[dict] | Callable[[], list[dict] | None] | None = None) -> dict:
+                 demand: list[dict] | Callable[[], list[dict] | None] | None = None,
+                 clock: Callable[[], datetime] | None = None) -> dict:
         """C-18.1, C-23.16, C-23.38, C-23.46: at most one credit, on one lane, per pass.
 
         Automatic (no `target_lane_id`): spent only for a job in `demand`, the
@@ -532,6 +539,14 @@ class ResetCredits:
         After a confirmed reset the lane is kept for that job (`reservations`)
         and the job is due at once.
 
+        Listing takes seconds per lane, so what the pass opened with is judged
+        again just before the spend and once more in the transaction that
+        writes the action, on the lanes as the store then has them and the
+        time `clock` then reads (by default `now` plus the time elapsed): (d)
+        for an automatic spend (`reset-lane-open`), and the chosen lane's own
+        eligibility for either (`lane-changed`). The minimum interval stays
+        measured from `now`, the stricter of the two.
+
         Operator (`target_lane_id`, the `reset codex <lane>` verb): that one
         lane, whether or not automatic redemption is enabled or any job waits.
         Both paths keep every other guard: the no-reset marker, one unsettled
@@ -541,14 +556,18 @@ class ResetCredits:
         """
         instant = _time(now or snapshot.get("now") or datetime.now(timezone.utc))
         stamp, settings = _iso(instant), self._settings()
-        deadline = deadline if deadline is not None else time.monotonic() + 60
+        started = time.monotonic()
+        deadline = deadline if deadline is not None else started + 60
+
+        def current() -> datetime:
+            """C-23.16 (d): the time now, never before the pass's own `now`."""
+            read = clock() if clock is not None else instant + timedelta(seconds=time.monotonic() - started)
+            return max(instant, _time(read))
         if not self._lock.acquire(blocking=False):
             return {"status": "evaluation-running"}
         try:
             all_rows = [dict(row) for row in snapshot.get("lanes", ())]
-            rows = [row for row in all_rows if row.get("provider") == "codex"
-                    and row.get("owner") == "v2" and row.get("enabled", True)
-                    and row.get("canonical") is not False and not row.get("duplicate_of")]
+            rows = _redeemable(all_rows)
             manual = target_lane_id is not None
             trigger = "operator" if manual else "waiting-demand"
             result = {"status": "disabled", "trigger_reason": trigger,
@@ -621,6 +640,12 @@ class ResetCredits:
             if (cancel is not None and cancel.is_set()) or time.monotonic() >= deadline:
                 return {**result, "status": "cancelled"}
             job_id = job.get("job_id") if job else None
+            # C-23.16 (c), (d): while entitlements were listed a limit closure can
+            # have expired, or a reading or release landed. Judge the lanes again
+            # as they stand now; the job's own route is judged after.
+            refused = self._refused(all_rows, current(), lane.lane_id, manual=manual)
+            if refused:
+                return {**result, **refused, **({"job_id": job_id} if job_id else {})}
             if job_id and reader is not None:
                 # Listing can take seconds per lane. Judge the job again just
                 # before spending: a lane on its route may have opened meanwhile.
@@ -648,13 +673,18 @@ class ResetCredits:
                 if hold:
                     return {**result, "status": "inhibited", "inhibited_by": hold}
                 # A second ResetCredits component cannot cross the persisted fleet gate.
-                current = self._history()
-                if any(item["state"] in ("pending", "executing", "unknown") and item["action_id"] not in reconciled for item in current):
+                present, reconciled = self._history(), self._reconciled()
+                if any(item["state"] in ("pending", "executing", "unknown") and item["action_id"] not in reconciled for item in present):
                     return {**result, "status": "unsettled-action"}
-                current_last = max((_time(item["updated_at"]) for item in current
+                present_last = max((_time(item["updated_at"]) for item in present
                                     if item["state"] == "confirmed" or item["action_id"] in reconciled), default=None)
-                if current_last is not None and (instant - current_last).total_seconds() < settings["min_interval_min"] * 60:
+                if present_last is not None and (instant - present_last).total_seconds() < settings["min_interval_min"] * 60:
                     return {**result, "status": "interval-blocked"}
+                # C-23.16 (c), (d): once more where the action is written, so a lane
+                # that opened after the last look still stops it and fences nothing.
+                refused = self._refused(all_rows, current(), lane.lane_id, manual=manual)
+                if refused:
+                    return {**result, **refused, **({"job_id": job_id} if job_id else {})}
                 if job_id:
                     waiting = conn.execute("SELECT state,wait_reason,cancel_requested_at FROM jobs WHERE job_id=?",
                                            (job_id,)).fetchone()
@@ -708,6 +738,38 @@ class ResetCredits:
                     **({"job_id": job_id} if job_id else {})}
         finally:
             self._lock.release()
+
+    def _lanes_now(self, rows: list[dict], instant: datetime) -> list[dict]:
+        """C-23.16 (c), (d): the redeemable lanes as the store has them at `instant`.
+
+        Each Codex lane's row, readings and closures are read again, so a limit
+        closure that expired, a reading that landed, or a lane an operator
+        released is seen. What only the pass's snapshot carries (the probe's
+        verdict, the app login's shadow) is kept from `rows`.
+        """
+        known = {row["lane_id"]: row for row in rows}
+        lanes = [lane for lane in self.store.lane_rows() if lane["provider"] == "codex"]
+        view = build_view(lanes, [reading for lane in lanes for reading in self.store.list_readings(lane["lane_id"])],
+                          [closure for lane in lanes for closure in self.store.list_closures(lane["lane_id"])],
+                          now=instant, reading_ttl_s=self._ttl())
+        return _redeemable([{**known.get(row["lane_id"], {}), **row} for row in view["lanes"]])
+
+    def _refused(self, rows: list[dict], instant: datetime, lane_id: str, *, manual: bool) -> dict | None:
+        """C-23.16 (c)-(e): what, as the lanes stand at `instant`, now forbids a spend on `lane_id`.
+
+        (d) for an automatic spend; for either, the lane's own eligibility: a
+        fresh `limit_reached` read of its account, no override standing and,
+        for the timer, no fresh weekly reading with headroom.
+        """
+        rows = self._lanes_now(rows, instant)
+        if not manual:
+            opened = self.reset_lanes_open(rows, now=instant)
+            if opened:
+                return {"status": "reset-lane-open", "reset_lanes": opened}
+        row = next((row for row in rows if row["lane_id"] == lane_id), None)
+        if row is None or not self._eligible([row], instant) or (not manual and self._weekly_has_room(row, instant)):
+            return {"status": "lane-changed", "lane_id": lane_id}
+        return None
 
     def _select(self, candidates: list[dict], rows: list[dict], listed: dict,
                 cancel: threading.Event | None, deadline: float, result: dict):
