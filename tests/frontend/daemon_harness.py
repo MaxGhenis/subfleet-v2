@@ -38,6 +38,7 @@ from subfleet.conversations.codex_turn import CodexTurn
 from subfleet.conversations.peers import Verdict, peer_pid
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.turn import APPROVAL_NEEDED, RUNNING, TurnSpec
+from subfleet.daemon import busy_answer
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -229,6 +230,8 @@ class ServiceServer:
     is the request's `message_id` or `request_id` (or None for any):
     `"drop"` handles the request and closes without answering (a lost answer),
     `"refuse"` closes without handling it (the daemon never saw it),
+    `"busy"` answers as the daemon does past its connection cap, without
+    handling it (C-16.1: exit 69, request id ""),
     `"delay:<s>"` handles it and answers after a pause.
     """
 
@@ -290,6 +293,9 @@ class ServiceServer:
                 self.requests.append({"op": req.op, "id": req.id, "args": req.args, "raw": json.loads(line)})
                 fault = self._fault(req)
                 if fault == "refuse":
+                    return
+                if fault == "busy":
+                    conn.sendall(busy_answer("the daemon is serving 512 connections"))
                     return
                 if fault == "drop":
                     try:

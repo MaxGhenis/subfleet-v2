@@ -74,6 +74,18 @@ class DaemonError(Exception):
         self.code = code
         self.fix = fix
 
+    @property
+    def busy(self) -> bool:
+        """The daemon answered "busy, try again shortly": it answers so before it
+        reads a request (C-16.1), so nothing was done and asking again is safe."""
+        return self.code == Exit.DAEMON_UNAVAILABLE
+
+
+def busy_pause(streak: int) -> float:
+    """How long a polling loop waits after its `streak`th busy answer in a row
+    (C-16.1): 0.25 s, doubling to 5 s."""
+    return min(5.0, 0.25 * 2 ** min(max(streak, 1) - 1, 5))
+
 
 # --- Process identity (C-5.3), kept local to the client ----------------------
 

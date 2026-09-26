@@ -8,12 +8,15 @@ handled). What the store holds afterwards is read directly.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tempfile
 import uuid
 
 import pytest
 
+from subfleet import protocol
+from subfleet.daemon import busy_answer
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness, ServiceServer
 
@@ -302,3 +305,59 @@ def test_design_12_stop_cancels_while_queued_and_interrupts_once_it_moved(core_p
     assert second["calls"] == [f"message.cancel {moved} answered", f"turn.interrupt {moved} answered"]
     assert result["receipt"]["state"] == "starting" and result["receipt"]["stop_requested"] is True
     assert harness.store.message(moved)["stop_requested_at"]
+
+
+def test_c16_1_a_busy_answer_leaves_the_send_queued(core_probe, tmp_path, daemon):
+    """Review of the descriptor hotfix, F2: a send answered busy (exit 69, before the
+    daemon read it) was marked failed for good, which also held back every later
+    message of its conversation, and nothing in the app retries a failed entry. It
+    stays queued with a backoff and goes with its key when due."""
+    harness, server = daemon
+    m1, m2 = ids(2)
+    server.faults[("conversation.create", None)] = "busy"
+    server.faults[("message.submit", m1)] = "busy"
+    out = run_steps(core_probe, tmp_path, server, [
+        create_step(harness, "req-busy"),
+        {"do": "submit", "conversation": "@draft:req-busy", "message_id": m1, "text": "one"},
+        {"do": "submit", "conversation": "@draft:req-busy", "message_id": m2, "text": "two"},
+        {"do": "pump"}, {"do": "advance", "seconds": 1}, {"do": "pump"}, {"do": "advance", "seconds": 1}, {"do": "pump"},
+    ])
+    first, second, third = out["results"][3], out["results"][5], out["results"][7]
+    assert first["report"]["failed"] == [] and first["report"]["retrying"] == ["req-busy"]
+    assert second["report"]["acknowledged"] == ["req-busy"] and second["report"]["retrying"] == [m1]
+    assert second["report"]["failed"] == []
+    assert third["report"]["acknowledged"] == [m1, m2]
+    entry = entries(out)[m1]
+    assert entry["state"] == "acknowledged" and entry["attempts"] == 2
+    cid = entries(out)["req-busy"]["conversation_id"]
+    assert [r["message_id"] for r in person_rows(harness, cid)] == [m1, m2]
+
+
+def test_c16_1_scripted_busy_send_retries_after_backoff(core_probe, tmp_path):
+    """Run the outbox's busy retry even where socket listeners are unavailable."""
+    harness = ServiceHarness(tmp_path / "service")
+    m1, m2 = ids(2)
+    try:
+        cid = harness.create()["conversation_id"]
+        first = harness.submit(cid, "one", message_id=m1)
+        second = harness.submit(cid, "two", message_id=m2, after=m1)
+    finally:
+        harness.close()
+    script = write_json(tmp_path / "answers.json", [
+        {"op": "message.submit", "answer": json.loads(busy_answer("the daemon is serving 512 connections"))},
+        {"op": "message.submit", "answer": json.loads(protocol.encode(protocol.ok("", first)))},
+        {"op": "message.submit", "answer": json.loads(protocol.encode(protocol.ok("", second)))},
+    ])
+    steps = write_json(tmp_path / "steps.json", [
+        {"do": "know_chain", "conversation": cid, "last": None},
+        {"do": "submit", "conversation": cid, "message_id": m1, "text": "one"},
+        {"do": "submit", "conversation": cid, "message_id": m2, "text": "two"},
+        {"do": "pump"}, {"do": "sendable"}, {"do": "advance", "seconds": 1}, {"do": "pump"},
+    ])
+    out = run_probe(core_probe, "outbox", f"script:{script}", tmp_path / "outbox.json", steps)
+    first_pump, before_backoff, retried = out["results"][3], out["results"][4], out["results"][6]
+    assert first_pump["report"]["failed"] == [] and first_pump["report"]["retrying"] == [m1]
+    assert before_backoff["keys"] == []
+    assert retried["report"]["acknowledged"] == [m1, m2]
+    assert entries(out)[m1]["state"] == "acknowledged" and entries(out)[m1]["attempts"] == 2
+    assert entries(out)[m2]["last_after"] == m1
