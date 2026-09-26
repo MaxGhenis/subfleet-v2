@@ -87,6 +87,14 @@ def log_text(service):
     return (service.root / "daemon.log").read_text()
 
 
+def event_kinds(service, job_id):
+    return [row["kind"] for row in service.store.query("SELECT kind FROM events WHERE job_id=?", (job_id,))]
+
+
+#: C-3.8: what admission's transaction records if it commits, whichever arm it took.
+ADMISSION_EVENTS = {"job.capacity_waiting", "attempt.reserved"}
+
+
 # --- C-6.12: the pass survives one job it cannot route ----------------------------------------
 
 def test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass(incident):
@@ -205,6 +213,7 @@ def test_c6_12_the_evaluation_inside_the_reservation_is_isolated_too(fleet, monk
     service, harness = fleet
     raced = submit(service, harness, pinned_model="astra")
     later = submit(service, harness, pinned_model="terra")
+    before = service.store.get_job(raced)["exclusions"]
     real, calls = service._pick, {}
 
     def pick(job, **options):
@@ -218,8 +227,10 @@ def test_c6_12_the_evaluation_inside_the_reservation_is_isolated_too(fleet, monk
     assert service.store.get_job(raced)["state"] == "failed"
     assert not service.store.list_attempts(raced)
     assert not service.store.query("SELECT 1 FROM leases WHERE holder LIKE ?", (raced + "%",))
-    kinds = [row["kind"] for row in service.store.query("SELECT kind FROM events WHERE job_id=?", (raced,))]
-    assert "attempt.reserved" not in kinds and "job.route_refused" in kinds          # rolled back, then settled
+    kinds = event_kinds(service, raced)
+    # Rolled back, then settled: admission's transaction left no event under either name (C-3.8).
+    assert not ADMISSION_EVENTS & set(kinds) and "job.route_refused" in kinds
+    assert service.store.get_job(raced)["exclusions"] == before
 
 
 def test_c6_12_a_refusal_inside_the_reservation_rolls_back_what_it_wrote(fleet, monkeypatch):
@@ -239,6 +250,10 @@ def test_c6_12_a_refusal_inside_the_reservation_rolls_back_what_it_wrote(fleet, 
     monkeypatch.setattr(service, "_pick", pick)
     service._admit()
     assert service.store.get_job(raced)["exclusions"] == before and service.store.get_job(raced)["state"] == "failed"
+    # C-3.8: the exclusions write was a change, so had the transaction committed it,
+    # it would have recorded `job.capacity_waiting` (admission opens under that name).
+    kinds = event_kinds(service, raced)
+    assert not ADMISSION_EVENTS & set(kinds) and "job.route_refused" in kinds
 
 
 def test_c6_12_why_names_a_route_error_it_meets_itself(incident):
