@@ -93,7 +93,7 @@ def test_c5_12_running_attempts_share_one_ps_per_interval(service, spawns):
         guardians[0].kill()
         guardians[0].wait()
         daemon._inspect_next.clear()
-        daemon._table_next = 0.0
+        daemon._table = (None, 0.0)
         daemon._process_attempt(attempts[0])
         assert daemon.store.get_attempt(attempts[0])["state"] != "running"
     finally:

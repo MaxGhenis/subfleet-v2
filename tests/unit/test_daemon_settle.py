@@ -283,11 +283,11 @@ def table_showing(*rows) -> ProcessTable:
 
 
 def shared(table: ProcessTable | None, reads: list | None = None):
-    """A stand-in for `Daemon._process_table` that gives every inspection `table`, due again .5 s after it asked."""
-    def process_table(asked):
+    """A stand-in for `Daemon._process_table` that gives every inspection `table`, due again .5 s after it fell due."""
+    def process_table(due):
         if reads is not None:
             reads.append(1)
-        return table, asked + .5
+        return table, due + .5
     return process_table
 
 
@@ -360,10 +360,10 @@ def test_c5_12_a_failed_process_table_read_is_rationed_like_a_good_one(daemon, m
         reads.append(1)
         raise procs.InspectionError("ps timed out")
     monkeypatch.setattr(daemon_module.procs, "snapshot", failing)
-    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
     assert [Daemon._process_table(daemon, time.monotonic())[0] for _ in range(6)] == [None] * 6
     assert reads == [1]
-    daemon._table_next = 0.0                                      # the interval ends
+    daemon._table = (None, 0.0)                                   # the interval ends
     monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table_showing((4242, 1, 4242, "Ss")))
     assert Daemon._process_table(daemon, time.monotonic())[0].is_process(4242, "boot", STARTED)
 
@@ -381,19 +381,20 @@ def add_running(core, job_id: str, guardian: int) -> str:
 
 
 @pytest.mark.parametrize("died_at", [103.37, 104.99])
-@pytest.mark.parametrize("read_s", [.02, .3, .72])
-def test_c5_12_no_inspection_is_given_a_table_read_more_than_one_interval_before_it(daemon, monkeypatch,
-                                                                                   read_s, died_at):
-    """C-5.12 on a fake clock: a table serves the inspections asked for within one interval of its read's start,
-    `ps` starts at most once per interval and at least once per interval and tick, and a guardian that dies is
-    seen within one interval, one tick and one read. `ps` taking 0.72 s is what it took here at load 43."""
+@pytest.mark.parametrize("read_s", [.02, .3, .72, 1.5])
+def test_c5_12_each_inspection_is_given_a_table_read_since_its_last(daemon, monkeypatch, read_s, died_at):
+    """C-5.12 on a fake clock: each inspection is given a table read after the one it last had, and less than an
+    interval before it fell due; reads begin at least an interval apart and, while attempts run, at most an interval
+    (or one `ps`, if slower) and a tick apart; a guardian that dies is seen within that and one more read.
+    0.72 s is what one table read took in the 2026-09-25 review at load 40 to 60; 1.5 s is slower than the interval."""
     with_launch(daemon, monkeypatch)
-    clock, tick_s = [100.0], .05
+    clock, tick_s, interval = [100.0], .05, 1.0
     monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
     del daemon._process_table                                  # the daemon's own shared table
-    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
-    daemon.inspect_interval_s = 1.0
-    attempts = [ATTEMPT, add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
+    daemon._table_next = 0.0                                   # (845d663's name for the expiry)
+    daemon.inspect_interval_s = interval
+    attempts = [add_running(daemon, JOB + "-b", 5252), ATTEMPT, add_running(daemon, JOB + "-c", 6262)]
     reads: list[tuple[ProcessTable, float]] = []               # each table read, and when its read began
 
     def snapshot():
@@ -404,31 +405,81 @@ def test_c5_12_no_inspection_is_given_a_table_read_more_than_one_interval_before
         return table
     monkeypatch.setattr(daemon_module.procs, "snapshot", snapshot)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")   # asked once the table stops showing it
-    uses, asking = [], [0.0]
-    daemon._record_owned = lambda a, table: uses.append((asking[0], next(t for read, t in reads if read is table)))
+    uses, asking = [], {}
+    daemon._record_owned = lambda a, table: uses.append((a["attempt_id"], *asking[a["attempt_id"]],
+                                                         next(t for read, t in reads if read is table)))
     daemon._contain = lambda a: EMPTY
     seen_at = None
-    while clock[0] < died_at + 3:
+    while clock[0] < died_at + 3 + read_s:
         for aid in attempts:
-            asking[0] = clock[0]
+            asking[aid] = (clock[0], daemon._inspect_next.get(aid, clock[0]))   # when it asks, and when it fell due
             daemon._process_attempt(aid)
-        if seen_at is None and attempt(daemon)["state"] != "running":
-            seen_at = clock[0]
+            if seen_at is None and attempt(daemon)["state"] != "running":
+                seen_at = clock[0]                             # before a later attempt's read moves the clock
         clock[0] += tick_s
     gaps = [later - earlier for (_, earlier), (_, later) in zip(reads, reads[1:])]
+    slowest = max(interval, read_s)
     assert len(uses) > 3 * len(reads) / 2                      # the table was shared
-    assert max(asked - read for asked, read in uses) < daemon.inspect_interval_s
-    assert min(gaps) >= daemon.inspect_interval_s - 1e-9
-    assert max(gaps) <= daemon.inspect_interval_s + tick_s + 1e-9
+    for aid in attempts:
+        mine = [began for who, _, _, began in uses if who == aid]
+        assert mine == sorted(set(mine))                       # a newer table each time
+    assert all(due - began < interval for _, _, due, began in uses)
+    if read_s < interval:
+        assert max(asked - began for _, asked, _, began in uses) < interval
+    assert min(gaps) >= interval - 1e-9
+    assert max(gaps) <= slowest + tick_s + 1e-9
     assert attempt(daemon)["state"] == "lost"
-    assert seen_at - died_at <= daemon.inspect_interval_s + tick_s + read_s + 1e-9
+    assert seen_at - died_at <= slowest + tick_s + read_s + 1e-9
+
+
+def test_c5_12_only_the_inspection_that_reads_waits_for_ps(daemon, monkeypatch):
+    """C-5.12 an inspection that finds another's read running takes the last table if it is newer than the one it
+    last had, and otherwise returns and asks again next tick: a slow or hung `ps` holds one worker, not one per
+    running attempt, and the others' receipts are still read every tick."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_lock = (table_showing((4242, 1, 4242, "Ss")), 50.0), threading.Lock()
+    daemon._table_next = 0.0                                   # (845d663's name for the expiry)
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("a read is already running"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("nothing is asked singly"))
+    daemon._contain = never_census
+
+    def tick():
+        worker = threading.Thread(target=daemon._process_attempt, args=(ATTEMPT,), daemon=True)
+        worker.start()
+        worker.join(5)
+        return not worker.is_alive()
+    daemon._table_lock.acquire()                               # another attempt's `ps` is running
+    try:
+        daemon._inspect_next[ATTEMPT] = 50.0                  # its last table expired at 50: nothing newer yet
+        assert tick(), "the inspection waited for another attempt's read"
+        assert daemon._inspect_next[ATTEMPT] == 50.0
+        assert "owned_identities" not in json.loads(attempt(daemon)["evidence_json"])
+        daemon._inspect_next[ATTEMPT] = 49.5                  # it last had an older table: the last one is newer
+        assert tick() and daemon._inspect_next[ATTEMPT] == 50.0
+        assert "4242" in json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
+        other = add_running(daemon, JOB + "-b", 5252)          # a new attempt, never inspected
+        daemon._table = (table_showing((5252, 1, 5252, "Ss")), 50.0)
+        worker = threading.Thread(target=daemon._process_attempt, args=(other,), daemon=True)
+        worker.start()
+        worker.join(5)
+        assert not worker.is_alive()
+        due = daemon._inspect_next[other]                      # due from when it first asked, not from each retry
+        daemon._table = (daemon._table[0], due + .5)           # so the read that was running serves it
+        daemon._process_attempt(other)
+        assert daemon._inspect_next[other] == due + .5
+        assert "5252" in json.loads(daemon.store.get_attempt(other)["evidence_json"])["owned_identities"]
+        daemon._inspect_next[ATTEMPT] = 50.0
+        publish_receipt(daemon, rc=0)                          # its receipt is read on the next tick, read or no read
+        assert tick() and attempt(daemon)["state"] == "finalizing"
+    finally:
+        daemon._table_lock.release()
 
 
 def test_c5_12_a_failed_shared_read_is_all_that_an_outage_costs_an_interval(daemon, monkeypatch):
     """C-5.12, C-4.2 when this interval's table could not be read, no attempt asks about its guardian singly,
     and nothing is decided until a read works."""
     del daemon._process_table                                  # the daemon's own shared table
-    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
     attempts = [ATTEMPT, add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
     reads, asked = [], []
 
@@ -442,14 +493,14 @@ def test_c5_12_a_failed_shared_read_is_all_that_an_outage_costs_an_interval(daem
         daemon._process_attempt(aid)
     assert reads == [1] and asked == []
     assert [daemon.store.get_attempt(aid)["state"] for aid in attempts] == ["running"] * 3
-    assert all(daemon._inspect_next[aid] == daemon._table_next for aid in attempts)
+    assert all(daemon._inspect_next[aid] == daemon._table[1] for aid in attempts)
 
 
 def test_c5_12_a_boot_identity_the_table_cannot_read_is_read_once_and_decides_nothing(daemon, monkeypatch):
     """C-5.12, C-4.2 every attempt that asks shares the table's one boot-identity read; when it fails, no
     attempt asks singly and nothing is decided."""
     del daemon._process_table                                  # the daemon's own shared table
-    daemon._table, daemon._table_next, daemon._table_lock = None, 0.0, threading.Lock()
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
     attempts = [ATTEMPT, add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
     boot_reads, asked = [], []
 

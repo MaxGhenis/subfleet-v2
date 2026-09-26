@@ -214,8 +214,9 @@ class Daemon:
         # C-5.12: attempt id -> when its processes are next inspected, and the
         # one process table those inspections share.
         self._inspect_next: dict[str, float] = {}
-        self._table: procs.ProcessTable | None = None
-        self._table_next = 0.0                       # when `ps` may be run again, read or not
+        # The last table read (None if the read failed) and when it expires,
+        # replaced whole; the lock is held while `ps` runs.
+        self._table: tuple[procs.ProcessTable | None, float] = (None, 0.0)
         self._table_lock = threading.Lock()
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
@@ -3005,13 +3006,20 @@ class Daemon:
         # C-5.12: everything above is files and rows and runs every tick. What
         # follows asks the operating system, so a healthy attempt is inspected
         # once per interval, from one process table shared by every attempt.
-        # It is next inspected when the table it was given expires, which is
-        # when a new one may be read: timed from before the read, the next
-        # inspection fell just short of that and took the same table again.
+        # It falls due again when the table it was given expires, which is when
+        # a new one may be read: timed from before the read, the next inspection
+        # fell just short of that and took the same table again.
         now = time.monotonic()
-        if now < self._inspect_next.get(aid, 0):
+        due = self._inspect_next.get(aid, now)
+        if now < due:
             return
-        table, self._inspect_next[aid] = self._process_table(now)
+        shared = self._process_table(due)
+        if shared is None:
+            # Another attempt's `ps` is running: ask again next tick, still due
+            # from now, so that a new attempt may be given that read.
+            self._inspect_next.setdefault(aid, due)
+            return
+        table, self._inspect_next[aid] = shared
         if table is None:
             # This interval's read failed. Asking about the guardian singly would
             # cost a capped read per running attempt, which is the outage cost
@@ -3060,28 +3068,39 @@ class Daemon:
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
-    def _process_table(self, asked: float) -> tuple[procs.ProcessTable | None, float]:
-        """C-5.12: the table for an inspection asked for at `asked` (None if its
-        read failed), and when that table expires.
+    def _process_table(self, due: float) -> tuple[procs.ProcessTable | None, float] | None:
+        """C-5.12: a table for an inspection that fell due at `due`, and when that
+        table expires (the table is None if its read failed); None when another
+        inspection's read is running and no table is new enough, in which case
+        the caller asks again on its next tick.
 
-        A table serves the inspections asked for within `inspect_interval_s` of
-        the moment its read began, so none is given a table whose read began
-        longer ago than that, and `ps` starts at most once per interval however
-        many attempts ask and however long it takes: an inspection that waited
-        on the lock while a read ran is given that read. A read that failed is
-        rationed like one that worked. `ps` can take its whole 10 s cap to fail,
-        under this lock, and every attempt asks: retried per caller, an outage
-        would hold a worker per running attempt in turn.
+        An inspection is given the last table if it expires after the inspection
+        fell due: for an attempt already inspected, one read after the table it
+        was last given, and for a new attempt one read less than an interval
+        before it asked. Otherwise it reads a table, and that is the only time a
+        read begins, so reads begin at least `inspect_interval_s` apart however
+        many attempts ask and however long `ps` takes. Only the inspection that
+        reads waits for `ps`: one that finds a read running returns at once, so a
+        slow or hung `ps` holds one worker of the pool, not one per running
+        attempt, and every other attempt's receipts, cancel and clock are still
+        read each tick. A read that failed is rationed like one that worked.
         """
-        with self._table_lock:
-            if asked >= self._table_next:
-                began = time.monotonic()
-                try:
-                    self._table = procs.snapshot()
-                except procs.InspectionError:
-                    self._table = None
-                self._table_next = began + self.inspect_interval_s
-            return self._table, self._table_next
+        if due < self._table[1]:
+            return self._table
+        if not self._table_lock.acquire(blocking=False):
+            return None
+        try:
+            if due < self._table[1]:                 # another read ended while this one asked
+                return self._table
+            began = time.monotonic()
+            try:
+                table = procs.snapshot()
+            except procs.InspectionError:
+                table = None
+            self._table = (table, began + self.inspect_interval_s)
+            return self._table
+        finally:
+            self._table_lock.release()
 
     def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
         """C-5.6: remember the group's members while the recorded guardian leads it.
