@@ -783,9 +783,9 @@ pending-message journal is `{}`; there are no composer attachments; no broker
 runs (private recovery package, 2026-09-24). Import is read-only: each
 session whose transcript still exists becomes an `origin:"legacy"`
 conversation bound to its native id, with the 6 messages as terminal history
-references, idempotent by legacy `message_id`. The importer's mapping of
-`outbox.sqlite3` onto notices (`importer.py:1530-1545`) and the `cockpit`
-drop row (`importer.py:150`) are corrected to this classification.
+references, idempotent by legacy `message_id`. The importer's earlier mapping
+of `outbox.sqlite3` onto notices and its `cockpit` drop row (the manifest as
+it stood on 2026-09-24) are corrected to this classification.
 
 Implemented (C-30.4): `subfleet/conversations/legacy.py` classifies each row by
 the cockpit's own status set (`finished`, `error`, `cancelled` terminal) and
@@ -794,18 +794,30 @@ writes a history row (text file, digest, next `seq`) that is terminal, has
 origin `legacy`, no job and no predecessor, and goes ahead of every other
 message; the conversation is created from `catalog.claude_session`, the facts
 `conversation.open` uses, so a legacy conversation continues like a native
-one. A session with a non-terminal message or a journal entry (whatever the
-outbox says of that entry's id) stays with the legacy writer as a whole, so
-Subfleet never becomes a second writer in it (D-17); a journal that cannot be
-read holds every session. `fence_bound_sessions` then holds a conversation an
-earlier pass bound whose session is held again, and the first pass that finds
+one. A session is keyed in one spelling (`legacy.session_key`: a UUID in lower
+case, a Codex id by its thread id), and the store binds and finds a native id
+the same way (`canonical_native`). A session stays with the legacy writer as a
+whole, so Subfleet never becomes a second writer in it (D-17), when it has a
+non-terminal message or a journal entry (whatever the outbox says of that
+entry's id), or when the cockpit is using it now (`cockpit_activity`: a live
+worker pid in `native-workers.json`, or a live Claude process outside Subfleet
+in the `sessions/` registry). Every session is held when the journal, the
+outbox or the workers file exists and cannot be read, or while the broker
+holds `broker.lock`; the probe is a shared, non-blocking `flock` on a
+read-only handle, released at once, and never creates the file. A missing
+outbox or journal holds nothing, and the journal, the activity and the fence
+are read and run whether or not the outbox can be. `fence_bound_sessions`
+runs first, before any history is placed, and holds every conversation bound
+to a held session, whatever its origin or provider; the first pass that finds
 the session settled lifts the hold. The hold is the conversation's own
 `legacy_hold` column: the service's single `blocked_by` never carries it, so no
 turn outcome replaces it and neither `conversation.unblock` nor
 `message.resolve` lifts it, and the import never reads or writes `blocked_by`.
 A store written before the column existed moves a `blocked_by` of
-`legacy-owner` into it when it is opened. `python -m subfleet.importer --legacy-cockpit [--dry-run]` runs the
-import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").
+`legacy-owner` into it when it is opened. A session whose transcript raises
+while it is read, or a row whose timestamp is out of range, is reported and
+the pass goes on. `python -m subfleet.importer --legacy-cockpit [--dry-run]`
+runs the import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").
 
 ## 14. Test plan
 

@@ -53,38 +53,40 @@ def _claude_record(path: Path) -> dict:
         return {}
     for raw in reversed(tail.splitlines()):
         if b'"custom-title"' in raw or b'"customTitle"' in raw:
-            try:
-                row = json.loads(raw)
-            except ValueError:
-                continue
-            if row.get("type") == "custom-title" and row.get("customTitle"):
+            row = _object(raw)
+            if row.get("type") == "custom-title" and row.get("customTitle") and isinstance(row["customTitle"], str):
                 title = row["customTitle"]
                 break
     for raw in head.splitlines():
-        try:
-            row = json.loads(raw)
-        except ValueError:
-            continue
-        cwd = cwd or row.get("cwd")
+        row = _object(raw)
+        cwd = cwd or (row["cwd"] if isinstance(row.get("cwd"), str) else None)
         if row.get("type") == "user" and not row.get("isMeta") and not first:
-            content = (row.get("message") or {}).get("content")
+            content = _object(row.get("message")).get("content")
             text = content if isinstance(content, str) else transcripts.text_of(transcripts.blocks(row.get("message")))
             if text and not text.startswith("<"):
                 first = scrub(text.strip())[:PROMPT_CHARS]
     for raw in reversed(tail.splitlines()):
         if b'"assistant"' not in raw:
             continue
-        try:
-            row = json.loads(raw)
-        except ValueError:
-            continue
-        m = (row.get("message") or {}).get("model")
-        if row.get("type") == "assistant" and m and m != "<synthetic>":
+        row = _object(raw)
+        m = _object(row.get("message")).get("model")
+        if row.get("type") == "assistant" and m and isinstance(m, str) and m != "<synthetic>":
             model = m
             break
     mode = transcripts.last_permission_mode(path)
     return {"title": scrub(title)[:200] if title else None, "first_prompt": first, "cwd": cwd, "model": model,
             "permission_mode": mode, "headless": bool(transcripts.headless_transcript(path))}
+
+
+def _object(value: Any) -> dict:
+    """A transcript line (bytes) or a field of one as an object; anything else, a
+    valid JSON line that is not an object included, as an empty one (review L2)."""
+    if isinstance(value, bytes):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _codex_record(path: Path) -> dict:

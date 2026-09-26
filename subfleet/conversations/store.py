@@ -144,6 +144,18 @@ def canonical_uuid(value: Any) -> str:
     return str(parsed)
 
 
+def canonical_native(session_id: Any) -> Any:
+    """A native session id as a conversation binds it: a UUID in lower case,
+    anything else as given (review L1). Claude Code names a transcript by the
+    lower-case id, and `UNIQUE (provider, native_session_id)` and the `native:`
+    lease compare ids exactly, so one session has one spelling here."""
+    try:
+        parsed = str(uuid.UUID(session_id))
+    except (ValueError, AttributeError, TypeError):
+        return session_id
+    return parsed if parsed == session_id.lower() else session_id
+
+
 def validate_settings(provider: str, settings: Any) -> dict:
     """The shape every message's settings must have (C-24.2); catalog checks are
     `models.list`'s and the driver's (C-26.8)."""
@@ -303,8 +315,10 @@ class ConversationStore:
         return _decode_conversation(row)
 
     def by_native(self, provider: str, native_session_id: str) -> dict | None:
-        row = self.one("SELECT * FROM conversations WHERE provider=? AND native_session_id=?",
-                       (provider, native_session_id))
+        """The conversation bound to a native session, in whatever case its UUID
+        was spelled when it was bound (a store written before ids were canonical)."""
+        row = self.one(f"SELECT * FROM conversations WHERE {_NATIVE_MATCH}",
+                       _native_params(provider, native_session_id))
         return _decode_conversation(row) if row else None
 
     def create_conversation(self, *, provider: str, workspace: str, workspace_kind: str, settings: dict,
@@ -314,6 +328,7 @@ class ConversationStore:
         if provider not in PROVIDERS:
             raise ConversationError("bad-provider", "provider must be claude or codex")
         settings = validate_settings(provider, settings)
+        native_session_id = canonical_native(native_session_id)
         now = utcnow()
         with self.transaction() as tx:
             if request_id:
@@ -321,8 +336,8 @@ class ConversationStore:
                 if existing:
                     return _decode_conversation(dict(existing)), False
             if native_session_id:
-                existing = tx.execute("SELECT * FROM conversations WHERE provider=? AND native_session_id=?",
-                                      (provider, native_session_id)).fetchone()
+                existing = tx.execute(f"SELECT * FROM conversations WHERE {_NATIVE_MATCH}",
+                                      _native_params(provider, native_session_id)).fetchone()
                 if existing:
                     return _decode_conversation(dict(existing)), False
             cid = new_id("cv")
@@ -343,6 +358,8 @@ class ConversationStore:
             raise ValueError(f"unknown conversation fields {sorted(unknown)}")
         sets, params = [], []
         for key, value in fields.items():
+            if key == "native_session_id":
+                value = canonical_native(value)
             if key == "settings":
                 sets.append("settings_json=?")
                 params.append(json.dumps(value))
@@ -748,6 +765,19 @@ class ConversationStore:
                     return False
                 self.changed.wait(min(remaining, 0.5))
         return True
+
+
+#: A binding by native id, matched without regard to the case of a UUID's hex digits.
+_NATIVE_MATCH = "provider=? AND (native_session_id=? OR (? AND lower(native_session_id)=?))"
+
+
+def _native_params(provider: str, native_session_id: str) -> tuple:
+    native = canonical_native(native_session_id)
+    try:
+        is_uuid = str(uuid.UUID(native)) == native
+    except (ValueError, AttributeError, TypeError):
+        is_uuid = False
+    return provider, native, int(is_uuid), native
 
 
 def _decode_conversation(row: dict) -> dict:

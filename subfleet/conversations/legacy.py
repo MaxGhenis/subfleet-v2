@@ -40,17 +40,21 @@ from the transcript, exactly as `conversation.open` creates a native one
 (`catalog.claude_session`); a conversation the session already has keeps its
 own origin. Every other message, and every journal entry whatever the outbox
 says about its id, keeps its legacy owner and is reported with its disposition,
-and so does its whole session (`held_sessions`); a journal that cannot be read
-holds every session. A conversation an earlier pass bound whose session is held
-again is held (`legacy_hold`) until a pass finds the session settled
-(`fence_bound_sessions`). Nothing here ever queues, dispatches or sends a
-message. Nothing here writes under the v1 state directory; the caller reads the
-outbox from a copy.
+and so does its whole session (`held_sessions`), as does a session the cockpit
+is using now (`cockpit_activity`). A journal, outbox or workers file that exists
+and cannot be read, or a running broker, holds every session. Every
+conversation bound to a held session, whatever its origin, is held
+(`legacy_hold`) until a pass finds the session settled (`fence_bound_sessions`).
+Nothing here ever queues, dispatches or sends a message. Nothing here writes
+under the v1 state directory; the caller reads the outbox from a copy, and the
+broker probe takes a shared lock on a read-only handle.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import sqlite3
 import uuid
 from collections.abc import Callable, Iterable, Mapping
@@ -61,7 +65,7 @@ from typing import Any
 
 from ..sessions import transcripts
 from .catalog import claude_session
-from .store import LEGACY_OWNER, ConversationError, ConversationStore, canonical_uuid
+from .store import LEGACY_OWNER, ConversationError, ConversationStore, canonical_native, canonical_uuid
 from .turn import CANCELLED, COMPLETE, FAILED, TERMINAL_STATES
 
 #: The cockpit's own terminal set (`outbox.py:31`).
@@ -97,7 +101,11 @@ class LegacyMessage:
 
     @property
     def native_id(self) -> str:
-        return self.session_id.partition(":")[2]
+        return canonical_native(self.session_id.partition(":")[2])
+
+    @property
+    def key(self) -> str:
+        return session_key(self.session_id)
 
 
 def _json_object(text: Any) -> dict[str, Any] | None:
@@ -165,9 +173,37 @@ def _is_uuid(value: str) -> bool:
         return False
 
 
+def session_key(session_id: str) -> str:
+    """One spelling per session: `<provider>:<native id>`, a UUID in lower case.
+
+    The v1 CLI stores a session id as typed (`cli.py:1077-1080`), and the
+    cockpit resolves a Claude id in any case (`session_catalog.py:1307-1320`),
+    while Claude Code names a transcript by the lower-case id and the store's
+    unique binding compares ids exactly; so one session is always keyed by one
+    spelling (review L1). A Codex id (`codex:<app|lane-name>:<uuid>`) is keyed by
+    its thread id, the part a conversation binds. Anything that is not
+    provider-qualified is returned as it is.
+    """
+    provider, _, rest = session_id.partition(":")
+    native = rest.rpartition(":")[2] if provider == "codex" else rest
+    if provider not in ("claude", "codex") or not native:
+        return session_id
+    return f"{provider}:{canonical_native(native)}"
+
+
 def _iso(epoch: float | None) -> str:
     moment = datetime.fromtimestamp(epoch, UTC) if epoch is not None else datetime.now(UTC)
     return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+@dataclass
+class Activity:
+    """What a pass read of the legacy writer besides its outbox and journal (review M1)."""
+
+    #: Session key to why the cockpit is using it now.
+    sessions: dict[str, str] = field(default_factory=dict)
+    #: Why any session may be in use (a running broker, a signal that could not be read).
+    problem: str | None = None
 
 
 @dataclass
@@ -179,6 +215,10 @@ class Result:
     conversations_created: int = 0
     #: The reason every session is held, when the client journal could not be read.
     journal_problem: str | None = None
+    #: The reason every session is held, when the outbox could not be read.
+    outbox_problem: str | None = None
+    #: The reason every session is held, when the cockpit may be using any of them.
+    activity_problem: str | None = None
 
     def add(self, **item: Any) -> None:
         self.items.append(item)
@@ -189,25 +229,29 @@ def _item(message: LegacyMessage, disposition: str, **extra: Any) -> dict[str, A
             "session_id": message.session_id, "status": message.status, "disposition": disposition, **extra}
 
 
-def held_sessions(messages: Iterable[LegacyMessage], journal: Iterable[Mapping[str, Any]] = ()) -> dict[str, str]:
-    """Sessions the legacy writer may still be using, each with the reason.
+def held_sessions(messages: Iterable[LegacyMessage], journal: Iterable[Mapping[str, Any]] = (),
+                  activity: Activity | None = None) -> dict[str, str]:
+    """Sessions the legacy writer may still be using, by `session_key`, each with the reason.
 
-    A session with a message that is not terminal, or with any journal entry,
-    stays with its legacy owner as a whole: a legacy-history conversation is
-    continuable (C-30.2), and binding one to a session whose legacy turn may
-    still be running or undelivered would make Subfleet a second writer there
-    (C-26.3, design D-17). A journal entry holds its session whatever the outbox
-    says about its id: the entry is a send the cockpit app has not seen
-    acknowledged, and nothing read here shows what the app does with it next.
+    A session with a message that is not terminal, with any journal entry, or
+    that the cockpit is using now (`cockpit_activity`) stays with its legacy
+    owner as a whole: a legacy-history conversation is continuable (C-30.2), and
+    binding one to a session whose legacy turn may still be running or
+    undelivered would make Subfleet a second writer there (C-26.3, design D-17).
+    A journal entry holds its session whatever the outbox says about its id: the
+    entry is a send the cockpit app has not seen acknowledged, and nothing read
+    here shows what the app does with it next.
     """
-    messages = list(messages)
     held: dict[str, str] = {}
     for message in messages:
         if message.status not in TERMINAL:
-            held.setdefault(message.session_id, f"message {message.message_id} is {message.status or 'blank'}")
+            held.setdefault(message.key, f"message {message.message_id} is {message.status or 'blank'}")
     for entry in journal:
-        held.setdefault(entry["session_id"], f"the cockpit journal holds an unacknowledged send "
-                                             f"{entry.get('message_id')}")
+        reason = f"the cockpit journal holds an unacknowledged send {entry.get('message_id')}"
+        for named in (entry["session_id"], entry.get("key") or entry["session_id"]):
+            held.setdefault(session_key(named), reason)
+    for key, reason in (activity.sessions if activity else {}).items():
+        held.setdefault(key, reason)
     return held
 
 
@@ -221,25 +265,49 @@ def journal_hold(problem: str | None) -> str | None:
         if problem else None
 
 
+def outbox_hold(problem: str | None) -> str | None:
+    """Why every session is held when the outbox could not be read (C-30.4, review M2).
+
+    An outbox that exists and cannot be read could hold a message in flight in
+    any session, exactly as an unreadable journal could; a missing one holds none.
+    """
+    return f"the cockpit outbox could not be read ({problem}), so any session may have a message in flight" \
+        if problem else None
+
+
 def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *,
                   projects: Path | None = None, journal: Iterable[Mapping[str, Any]] = (),
-                  journal_problem: str | None = None) -> Result:
+                  journal_problem: str | None = None, outbox_problem: str | None = None,
+                  activity: Activity | None = None) -> Result:
     """Classify every message by itself and write terminal Claude ones as history.
 
-    Idempotent: a message already in the store is reported `already-imported`
-    and nothing is written for it. A terminal message whose session cannot be
-    placed this pass (held by the legacy writer, no transcript, a session that
-    cannot continue here, a conversation that already has messages of its own)
-    is reported with that disposition and written by a later pass once that
-    changes. A session's history is written in legacy sequence order.
-    `journal_problem` is `read_journal`'s reason the journal could not be read:
-    then every session is held (`journal_hold`). Last, `fence_bound_sessions`
-    blocks or releases the conversations earlier passes bound.
+    First, `fence_bound_sessions` holds or releases every conversation bound to
+    a session, so nothing that goes wrong placing one session's history can stop
+    it (review L2). Idempotent: a message already in the store is reported
+    `already-imported` and nothing is written for it. A terminal message whose
+    session cannot be placed this pass (held by the legacy writer, no
+    transcript, a session that cannot continue here or whose transcript could
+    not be read) is reported with that disposition and written by a later pass
+    once that changes; one whose conversation already has messages of its own,
+    whose id the store holds as its own message, whose row cannot be read, or
+    whose session is not Claude's is reported and never placed. A session's
+    history is written in legacy sequence order. `journal_problem` (the journal
+    could not be read), `outbox_problem` (the outbox could not be read; then
+    `messages` is empty) and `activity.problem` (the cockpit may be using any
+    session) each hold every session.
     """
     messages = sorted(messages, key=lambda message: message.sequence)
-    held = held_sessions(messages, journal)
-    everyone = journal_hold(journal_problem)
-    result = Result(journal_problem=journal_problem)
+    held = held_sessions(messages, journal, activity)
+    activity_problem = activity.problem if activity else None
+    everyone = "; ".join(reason for reason in (journal_hold(journal_problem), outbox_hold(outbox_problem),
+                                                activity_problem) if reason) or None
+    result = Result(journal_problem=journal_problem, outbox_problem=outbox_problem,
+                    activity_problem=activity_problem)
+
+    def hold(key: str) -> str | None:
+        return held.get(key) or everyone
+
+    fence_bound_sessions(store, hold, result)
     sessions: dict[str, dict[str, Any]] = {}
     for message in messages:
         if message.status not in TERMINAL:
@@ -270,12 +338,21 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
             result.add(**_item(message, "not-a-claude-session",
                                detail="this release places legacy history only in Claude sessions"))
             continue
-        reason = held.get(message.session_id) or everyone
+        reason = hold(message.key)
         if reason:
             result.add(**_item(message, "session-held-by-legacy-owner", state=state[0], detail=reason))
             continue
+        try:
+            created_at, updated_at = _iso(message.created_at), _iso(message.updated_at)
+        except (OverflowError, OSError, ValueError):
+            result.add(**_item(message, "unreadable-row", detail="a timestamp is out of range"))
+            continue
         if message.native_id not in sessions:
-            sessions[message.native_id] = _place(store, message.native_id, projects, result)
+            try:
+                sessions[message.native_id] = _place(store, message.native_id, projects, result)
+            except Exception as exc:          # one session's transcript never ends the pass (review L2)
+                sessions[message.native_id] = {"disposition": "transcript-unreadable",
+                                               "detail": f"reading its transcript raised {type(exc).__name__}"}
         place = sessions[message.native_id]
         if place.get("disposition"):
             result.add(**_item(message, place["disposition"], detail=place.get("detail"),
@@ -287,7 +364,7 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
             row, created = store.insert_legacy_history(
                 conversation_id=place["conversation_id"], message_id=message_id, text=message.payload["prompt"],
                 state=state[0], state_reason=state[1], settings=history_settings(message),
-                created_at=_iso(message.created_at), updated_at=_iso(message.updated_at),
+                created_at=created_at, updated_at=updated_at,
                 turn_ref=native_message if isinstance(native_message, str) and native_message else None)
         except ConversationError as exc:
             result.add(**_item(message, exc.reason, conversation_id=place["conversation_id"], detail=str(exc)))
@@ -297,7 +374,6 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
         result.add(**_item(message, "history" if created else "already-imported", state=row["state"],
                            conversation_id=row["conversation_id"], seq=row["seq"],
                            **({"images_left_in_v1": images} if images else {})))
-    fence_bound_sessions(store, lambda session_id: held.get(session_id) or everyone, result)
     return result
 
 
@@ -306,39 +382,39 @@ RELEASED = "no message of this session is unsettled and no journal entry names i
 
 
 def fence_bound_sessions(store: ConversationStore, hold: Callable[[str], str | None], result: Result) -> None:
-    """Hold each conversation the import bound whose session is held; release it once not (C-30.4).
+    """Hold every conversation whose session is held; release it once not (C-30.4).
 
-    A conversation the import bound is one that holds legacy history, or that the
-    import created (origin `legacy`); a later pass can find its session held again
-    (a new cockpit message there that is not terminal, a journal entry naming
-    it, a journal that cannot be read). Holding it sets its `legacy_hold` to the
-    reason, which keeps every turn off it (C-24.5: no dispatch, no re-admission,
-    no admission of a turn job already queued, and a running turn is stopped when
-    the daemon adopts it), and reports `bound-session-held` with the
-    conversation's own `blocked_by` and every message of it that is not settled,
-    so the operator can cancel one before the daemon starts. The first pass whose
-    `hold` names no reason lifts the hold and reports `bound-session-released`.
-    The hold is the import's alone: `blocked_by` (`unfinished-turn`,
-    `delivery-unknown`, `quarantined-turn`) is never read or written here, and
-    no outcome, `conversation.unblock` or `message.resolve` touches the hold. A
-    conversation of a held session that holds no legacy history was never bound
-    by the import and is not fenced here.
+    Every conversation bound to a native session is looked at, whatever its
+    origin (review M4): one the import made or put history in, one
+    `conversation.open` made of a session the cockpit also continues, one a
+    Subfleet turn started. `hold` takes a `session_key` and names why the legacy
+    writer may be using that session (a cockpit message there that is not
+    terminal, a journal entry naming it, a live cockpit worker or Claude process
+    in it) or, for every session, why any may be in use (a journal or outbox
+    that cannot be read, a running broker). Holding a conversation sets its
+    `legacy_hold` to the reason, which keeps every turn off it (C-24.5: no
+    dispatch, no re-admission, no admission of a turn job already queued, and a
+    running turn is stopped when the daemon adopts it), and reports
+    `bound-session-held` with the conversation's own `blocked_by` and every
+    message of it that is not settled, so the operator can cancel one before the
+    daemon starts. The first pass whose `hold` names no reason lifts the hold and
+    reports `bound-session-released`. The hold is the import's alone:
+    `blocked_by` (`unfinished-turn`, `delivery-unknown`, `quarantined-turn`) is
+    never read or written here, and no outcome, `conversation.unblock` or
+    `message.resolve` touches the hold.
     """
-    bound = store.query(
-        "SELECT * FROM conversations c WHERE provider='claude' AND native_session_id IS NOT NULL "
-        "AND (origin='legacy' OR legacy_hold IS NOT NULL OR EXISTS "
-        "(SELECT 1 FROM messages m WHERE m.conversation_id=c.conversation_id AND m.origin='legacy')) "
-        "ORDER BY created_at, conversation_id")
+    bound = store.query("SELECT * FROM conversations WHERE native_session_id IS NOT NULL "
+                        "ORDER BY created_at, conversation_id")
     for row in bound:
-        session_id = f"claude:{row['native_session_id']}"
-        reason = hold(session_id)
+        key = f"{row['provider']}:{canonical_native(row['native_session_id'])}"
+        reason = hold(key)
         if reason:
             if row["legacy_hold"] != reason:
                 store.set_legacy_hold(row["conversation_id"], reason)
-            result.add(**_conversation_item(store, row, session_id, "bound-session-held", reason))
+            result.add(**_conversation_item(store, row, key, "bound-session-held", reason))
         elif row["legacy_hold"] is not None:
             store.set_legacy_hold(row["conversation_id"], None)
-            result.add(**_conversation_item(store, row, session_id, "bound-session-released", None))
+            result.add(**_conversation_item(store, row, key, "bound-session-released", None))
 
 
 def _conversation_item(store: ConversationStore, row: Mapping[str, Any], session_id: str, disposition: str,
@@ -382,8 +458,20 @@ def _place(store: ConversationStore, native_id: str, projects: Path | None, resu
     return {"conversation_id": conversation["conversation_id"]}
 
 
+def _qualified(value: Any) -> bool:
+    """A provider-qualified session id, as the cockpit's own check has it (`outbox.py:83-88`)."""
+    return isinstance(value, str) and value.startswith(("claude:", "codex:")) and bool(value.partition(":")[2])
+
+
 def read_journal(path: Path) -> tuple[list[dict[str, Any]], str | None]:
-    """The cockpit client's pending-send journal: its entries, or why it could not be read."""
+    """The cockpit client's pending-send journal: its entries, or why it could not be read.
+
+    The journal is an object keyed by provider-qualified session id, each entry's
+    request naming the same session (`CockpitStore.swift:1031`, `:1059`). Any
+    other shape is not read as a journal (review L3): `{"version": 2, "entries":
+    {...}}` would otherwise hold sessions named `version` and `entries` and no
+    real one.
+    """
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -396,8 +484,10 @@ def read_journal(path: Path) -> tuple[list[dict[str, Any]], str | None]:
     for key, entry in value.items():
         request = entry.get("request") if isinstance(entry, dict) else None
         request = request if isinstance(request, dict) else {}
-        session_id = request.get("session_id") if isinstance(request.get("session_id"), str) else str(key)
-        entries.append({"session_id": session_id, "message_id": request.get("message_id"),
+        session_id = request.get("session_id", key)
+        if not _qualified(key) or not _qualified(session_id):
+            return [], "not an object keyed by session"
+        entries.append({"session_id": session_id, "key": key, "message_id": request.get("message_id"),
                         "images": len(request.get("image_paths") or [])})
     return entries, None
 
@@ -410,3 +500,94 @@ def journal_items(entries: Iterable[Mapping[str, Any]], outbox: Mapping[str, str
              "status": outbox.get(str(entry.get("message_id"))), "disposition": "legacy-owned",
              "detail": "an unacknowledged cockpit send; the import never sends it"}
             for entry in entries]
+
+
+# --- whether the cockpit is using a session now (review M1) ---------------------
+
+#: The broker's lock and the workers' registry, under the v1 state (manifest rows
+#: `locks` and `sessions-kit`, `importer.MANIFEST`).
+BROKER_LOCK = "broker.lock"
+WORKERS = "native-workers.json"
+
+
+def cockpit_activity(v1_state: Path, *, claude_dir: Path | None = None,
+                     owned: Callable[[int | None], bool] | None = None) -> Activity:
+    """Whether the legacy cockpit is using sessions now, read without writing anything.
+
+    Nothing pending in the outbox or the journal does not mean the cockpit is
+    not in a session: selecting one in the app starts an idle `claude -p
+    --resume` worker in it (`native_dispatch.py:161-171`), reaped only when a
+    later worker is made (`:127-135`), and the broker never kills a provider
+    process when it stops (`broker.py:339`). Three signals, each read only:
+
+    * The broker holds an exclusive `flock` on `S/broker.lock` for its lifetime
+      (`broker.py:296-305`). A shared, non-blocking `flock` on a read-only handle
+      is refused while it does; one that is granted is released at once. The
+      file is never created. A running broker may dispatch into any session, so
+      every session is held.
+    * `S/native-workers.json` names each live worker's session with its pid
+      (`native_dispatch.py:85-91`); a pid that is alive holds that session.
+    * A live Claude process outside Subfleet registered for a session in
+      `<claude dir>/sessions` holds it (`catalog._live_claude_sessions`'s rule:
+      a live pid without `SUBFLEET_ATTEMPT` in its environment, so a Subfleet
+      turn that kept running across the restart is not the cockpit).
+
+    A signal that exists and cannot be read holds every session, as an
+    unreadable journal does.
+    """
+    from ..sessions import registry
+    from .catalog import _subfleet_owned
+    owned = owned or _subfleet_owned
+    activity = Activity()
+    problems: list[str] = []
+    broker = _broker_running(Path(v1_state) / BROKER_LOCK)
+    if broker is True:
+        problems.append(f"the cockpit broker holds {BROKER_LOCK}, so it may dispatch into any session")
+    elif broker is not False:
+        problems.append(f"{BROKER_LOCK} could not be probed ({broker}), so the cockpit broker may be running")
+    path = Path(v1_state) / WORKERS
+    try:
+        workers = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        workers = {}
+    except (OSError, ValueError) as exc:
+        workers = None
+        problems.append(f"{WORKERS} could not be read ({type(exc).__name__}), so a cockpit worker may be live "
+                        "in any session")
+    if workers is not None and not isinstance(workers, dict):
+        problems.append(f"{WORKERS} is not an object keyed by session, so a cockpit worker may be live "
+                        "in any session")
+        workers = {}
+    for key, entry in (workers or {}).items():
+        pid = entry.get("pid") if isinstance(entry, dict) else None
+        if isinstance(pid, int) and not isinstance(pid, bool) and registry._pid_alive(pid):
+            activity.sessions.setdefault(session_key(str(key)), f"the cockpit's worker pid {pid} is live in it")
+    sessions = (Path(claude_dir) if claude_dir is not None else transcripts.claude_dir()) / "sessions"
+    for row in registry.rows(sessions):
+        if row.alive and not owned(row.pid):
+            activity.sessions.setdefault(session_key(f"claude:{row.session_id}"),
+                                         f"a live Claude process outside Subfleet (pid {row.pid}) holds it")
+    activity.problem = "; ".join(problems) or None
+    return activity
+
+
+def _broker_running(lock: Path) -> bool | str:
+    """True while another process holds `lock` exclusively, False when none does
+    or it does not exist, otherwise why it could not be told."""
+    try:
+        handle = os.open(lock, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        return type(exc).__name__
+    try:
+        fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError as exc:
+        return type(exc).__name__
+    else:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(handle)

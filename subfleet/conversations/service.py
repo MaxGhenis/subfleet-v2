@@ -29,7 +29,8 @@ from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, 
 from .peers import APP_EXECUTABLES, judge, peer_pid
 from .runner import TurnRunner
 from .store import (
-    LEGACY_OWNER, ConversationError, ConversationStore, canonical_uuid, validate_settings, widens, utcnow,
+    LEGACY_OWNER, ConversationError, ConversationStore, canonical_native, canonical_uuid, validate_settings, widens,
+    utcnow,
 )
 from .turn import (
     APPROVAL_NEEDED, CANCELLED, COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, QUEUED, RUNNING,
@@ -232,6 +233,7 @@ class ConversationService:
         provider, session_id = native.get("provider"), native.get("session_id")
         if provider not in ("claude", "codex") or not isinstance(session_id, str) or not session_id:
             raise ConversationError("bad-native", "native needs a provider and a session_id")
+        session_id = canonical_native(session_id)          # one spelling per session (review L1)
         existing = self.store.by_native(provider, session_id)
         if existing:
             return existing

@@ -78,3 +78,19 @@ def test_a_transcript_is_found_under_a_named_projects_directory(tmp_path, monkey
     path = write_transcript(tmp_path / "projects", SESSION, str(work))
     assert transcripts.transcript_path(SESSION) is None
     assert transcripts.transcript_path(SESSION, tmp_path / "projects") == path
+
+
+def test_a_line_that_is_not_an_object_is_not_an_entry(tmp_path):
+    """C-30.2, C-30.4 (review L2): a valid JSON line that is not an object, and an
+    entry whose message or cwd has another shape, are skipped; reading such a
+    transcript never raises, for `conversation.open` or the legacy import."""
+    work = tmp_path / "work"
+    work.mkdir()
+    path = write_transcript(tmp_path / "projects", SESSION, str(work), title="Importer fix")
+    odd = ["[]", '"text"', json.dumps({"type": "user", "message": ["not", "an", "object"], "cwd": 7})]
+    path.write_text("\n".join([*odd, *path.read_text().splitlines(), "[1]",
+                               json.dumps({"type": "assistant", "message": "x"})]) + "\n", encoding="utf-8")
+    facts = catalog.claude_session(path)
+    assert (facts["continuable"], facts["cwd"], facts["title"], facts["model_value"]) == (
+        True, str(work), "Importer fix", "claude-opus-5-5")
+    assert transcripts.headless_transcript(path) is False

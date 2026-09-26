@@ -1558,6 +1558,10 @@ class _Conversations:
         self.scratch_dir = scratch_dir
         self.store = None
 
+    def exists(self) -> bool:
+        """Whether a conversation store is there to fence, before one is created."""
+        return self.store is not None or (self.state_root / "conversations.sqlite3").is_file()
+
     def get(self) -> ConversationStore:
         if self.store is None:
             if self.scratch_dir is not None:
@@ -1576,16 +1580,14 @@ class _Conversations:
             self.store = None
 
 
-def _read_legacy_outbox(report: StoreReport | None, v1_state: Path) -> list | None:
-    """The cockpit outbox's rows, read from a copy (never v1's WAL in place)."""
-    def skip(reason: str) -> None:
-        if report is not None:
-            report.skip(reason)
-
+def _read_legacy_outbox(v1_state: Path) -> tuple[list, str | None]:
+    """The cockpit outbox's rows, read from a copy (never v1's WAL in place), and
+    why they could not be: `absent` (no outbox, so nothing in flight in it),
+    `unreadable-database` (not a database, torn, or not the cockpit's columns) or
+    `no-messages-table`. Only a missing outbox reads as empty (review M2)."""
     path = v1_state / "outbox.sqlite3"
-    if not path.is_file():
-        skip("absent")
-        return None
+    if not path.exists():
+        return [], "absent"
     scratch = tempfile.mkdtemp(prefix="subfleet-import-outbox-")
     try:
         copy = Path(scratch) / "outbox.sqlite3"
@@ -1593,13 +1595,14 @@ def _read_legacy_outbox(report: StoreReport | None, v1_state: Path) -> list | No
             _copy_sqlite(path, copy)                 # never open v1's WAL in place
             connection = sqlite3.connect(str(copy))
         except (OSError, sqlite3.Error):
-            skip("unreadable-database")
-            return None
+            return [], "unreadable-database"
         try:
-            return legacy.read_outbox(connection)
-        except sqlite3.Error:
-            skip("no-messages-table")
-            return None
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "messages" not in tables:
+                return [], "no-messages-table"
+            return legacy.read_outbox(connection), None
+        except (sqlite3.Error, IndexError):          # a corrupt file, or a messages table of other columns
+            return [], "unreadable-database"
         finally:
             connection.close()
     finally:
@@ -1607,7 +1610,8 @@ def _read_legacy_outbox(report: StoreReport | None, v1_state: Path) -> list | No
 
 
 def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_state: Path,
-                  projects: Path | None = None, writer: _Writer | None = None) -> dict[str, Any] | None:
+                  projects: Path | None = None, writer: _Writer | None = None,
+                  claude_dir: Path | None = None) -> dict[str, Any] | None:
     """Manifest row `S/outbox.sqlite3`: the legacy cockpit's message outbox (C-30.4).
 
     It is not a notice outbox. Each message is classified by itself
@@ -1622,14 +1626,28 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     message held back last time lands once it can. The cursor this row writes
     is a record of what was read. Notices an earlier version of this row made
     from the same outbox (transport `v1-socket`) are left as they are.
+
+    The journal, the cockpit's own activity and the fence are read and run
+    whatever the outbox says (review M2): an outbox that exists and cannot be
+    read holds every session, as an unreadable journal does, and a missing one
+    holds none. A pass with no outbox message and no conversation store opens
+    none. `claude_dir` is the `~/.claude` whose `sessions/` registry names live
+    Claude processes (default `projects`' parent, else `~/.claude`).
     """
-    messages = _read_legacy_outbox(report, v1_state)
-    if messages is None:
-        return None
+    messages, outbox_problem = _read_legacy_outbox(v1_state)
+    if outbox_problem:
+        report.skip(outbox_problem)
+    unreadable = None if outbox_problem in (None, "absent") else outbox_problem
     # C-30.4: a journal that cannot be read holds every session; it is never read as empty.
     entries, problem = legacy.read_journal(v1_state / legacy.JOURNAL)
+    activity = legacy.cockpit_activity(
+        v1_state, claude_dir=claude_dir if claude_dir is not None else projects.parent if projects else None)
+    if not messages and not conversations.exists():
+        if unreadable or problem or activity.problem or activity.sessions:
+            report.note("no conversation is bound yet, so the legacy writer's hold has nothing to fence")
+        return None
     result = legacy.import_outbox(conversations.get(), messages, projects=projects, journal=entries,
-                                  journal_problem=problem)
+                                  journal_problem=problem, outbox_problem=unreadable, activity=activity)
     report.seen += len(messages)
     report.imported += result.imported
     for item in result.items:
@@ -1649,6 +1667,15 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
     if result.journal_problem:
         report.note(f"cockpit-client/pending-messages.json is {result.journal_problem}: every session is "
                     "held, as any of them may have an unacknowledged send, until a pass can read it (C-30.4)")
+    if result.outbox_problem:
+        report.note(f"outbox.sqlite3 is {result.outbox_problem}: every session is held, as any of them may "
+                    "have a message in flight, until a pass can read it (C-30.4)")
+    if result.activity_problem:
+        report.note(f"every session is held while the cockpit may be using any of them: {result.activity_problem} "
+                    "(C-30.4)")
+    if activity.sessions:
+        report.note(f"{len(activity.sessions)} sessions are in use now by a cockpit worker or a Claude process "
+                    "outside Subfleet, and are held (C-30.4)")
     held = [item for item in result.items if item["disposition"] == "bound-session-held"]
     if held:
         report.note(f"{len(held)} conversations an earlier pass bound are held while the legacy writer may be "
@@ -1666,6 +1693,8 @@ def import_outbox(conversations: _Conversations, report: StoreReport, *, v1_stat
         earlier = writer.one("SELECT COUNT(*) AS n FROM notices WHERE transport='v1-socket'")
         if earlier and earlier["n"]:
             report.note(f"{earlier['n']} notices an earlier import made from this outbox are left as they are")
+    if outbox_problem:
+        return None
     return {"mapping": "legacy-history", "rows": len(messages),
             "max_sequence": max((message.sequence for message in messages), default=0)}
 
@@ -1686,7 +1715,7 @@ def import_cockpit_client(report: StoreReport, *, v1_state: Path) -> None:
     if problem:
         report.skip("unreadable-journal")
         report.note(f"pending-messages.json is {problem}; it is left as it is")
-    statuses = {message.message_id: message.status for message in _read_legacy_outbox(None, v1_state) or ()}
+    statuses = {message.message_id: message.status for message in _read_legacy_outbox(v1_state)[0]}
     items = legacy.journal_items(entries, statuses)
     report.seen += len(items)
     for item in items:

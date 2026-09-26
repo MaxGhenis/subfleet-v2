@@ -121,10 +121,14 @@ def _row(path: Path) -> SessionRow | None:
     )
 
 
-def rows() -> list[SessionRow]:
-    """Every readable registry row, oldest file first for a stable listing."""
+def rows(directory: Path | None = None) -> list[SessionRow]:
+    """Every readable registry row, oldest file first for a stable listing.
+
+    `directory` names another registry (the legacy import's `--claude-dir`); by
+    default it is `sessions_dir()`.
+    """
     try:
-        paths = sorted(sessions_dir().glob("*.json"))
+        paths = sorted((directory if directory is not None else sessions_dir()).glob("*.json"))
     except OSError:
         return []
     found = [_row(path) for path in paths]
