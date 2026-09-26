@@ -344,11 +344,30 @@ def test_a_connection_past_the_cap_is_told_the_daemon_is_busy_at_once(serve, mon
     served again once a connection closes."""
     monkeypatch.setattr(module, "MAX_CONNECTIONS", 2)
     daemon, path, _ = serve()
-    idle = [socket.socket(socket.AF_UNIX) for _ in range(2)]
+    idle = []
     try:
-        for client in idle:
+        # Under load the fixture's readiness probe can still be in the listen
+        # backlog, and be admitted after the first idle client: then the second
+        # is the one refused. So each idle client proves it was admitted (its own
+        # ping answered) and stays open; a refused one connects again.
+        limit = time.monotonic() + 10
+        while len(idle) < 2:
+            client = socket.socket(socket.AF_UNIX)
+            client.settimeout(5)
             client.connect(str(path))
-        until(lambda: len(daemon._connections) == 2)       # the readiness probes have closed
+            try:
+                client.sendall(b'{"v":1,"id":"idle","op":"ping","args":{}}\n')
+                with client.makefile("rb") as stream:
+                    reply = json.loads(stream.readline())
+            except OSError:
+                reply = {"ok": False}
+            if reply.get("ok"):
+                idle.append(client)
+                continue
+            client.close()
+            assert time.monotonic() < limit, reply
+            time.sleep(.05)
+        until(lambda: len(daemon._connections) == 2)
         started = time.monotonic()
         refused = ping(path)
         assert time.monotonic() - started < 2

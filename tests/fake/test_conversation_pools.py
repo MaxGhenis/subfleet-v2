@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from subfleet import protocol
-from tests.fake.test_state_contract import state_daemon  # noqa: F401 (fixture)
+from tests.fake.test_state_contract import admitted_reader, state_daemon  # noqa: F401 (fixture)
 
 SETTINGS = {"model": "opus[1m]", "effort": None, "fast": False, "permission": "ask", "auto_continue": True}
 
@@ -45,7 +45,7 @@ def test_c25_3_the_diffs_run_on_the_file_pool_and_never_hold_up_other_ops(state_
     server, client = socket.socketpair()
     server.settimeout(5)
     client.settimeout(5)
-    thread = threading.Thread(target=daemon._connection, args=(server,))
+    thread = admitted_reader(daemon, server)
     thread.start()
     try:
         with client.makefile("rb") as stream:
@@ -108,7 +108,7 @@ def test_c25_3_a_worktree_create_cuts_its_worktree_on_the_file_pool(state_daemon
     server, client = socket.socketpair()
     server.settimeout(5)
     client.settimeout(5)
-    thread = threading.Thread(target=daemon._connection, args=(server,))
+    thread = admitted_reader(daemon, server)
     thread.start()
     try:
         with client.makefile("rb") as stream:
