@@ -324,6 +324,31 @@ def test_c5_12_boot_id_is_read_once_per_window_and_never_cached_on_failure(monke
     assert procs.boot_id() == BOOT_B
 
 
+def test_c5_12_a_boot_identity_that_fell_back_to_boottime_is_not_remembered(monkeypatch):
+    """C-5.3, C-5.12 one failed UUID read returns `kern.boottime` seconds once; kept, they would make
+    every UUID-recorded process unknown, and so unsignallable, for BOOT_ID_TTL_S."""
+    uuid_reads = []
+
+    def read(argv, *, empty_ok=False):
+        if argv[-1] == "kern.bootsessionuuid":
+            uuid_reads.append(1)
+            if len(uuid_reads) == 1:
+                raise procs.InspectionError("sysctl inspection unavailable")     # one transient failure
+            return BOOT_A + "\n"
+        if argv[-1] == "kern.boottime":
+            return "{ sec = 1726000000, usec = 0 } Sat Sep 10 10:00:00 2024\n"
+        if argv[-1] == "lstart=":
+            return START + "\n"
+        if argv[-1] == "stat=":
+            return "S\n"
+        raise AssertionError(argv)
+    monkeypatch.setattr(procs, "_read", read)
+    assert procs.boot_id() == "1726000000"                  # the fallback, this once
+    assert [procs.liveness(42, BOOT_A, START) for _ in range(3)] == ["alive"] * 3
+    assert procs.same_process(42, BOOT_A, START) is True
+    assert procs.boot_id() == BOOT_A and len(uuid_reads) == 2   # read again, and that one is kept
+
+
 def test_c5_12_a_boot_mismatch_is_read_again_before_a_process_is_called_dead(monkeypatch):
     """C-5.3, C-5.12 a cached boot identity may be stale: only a fresh read may say "another boot"."""
     census(monkeypatch, session=BOOT_A)

@@ -19,7 +19,7 @@ On 2026-09-20 the laptop's closed-lid thermal guard SIGSTOPped the daemon from 1
 - A healthy running attempt's processes are inspected once per `inspect_interval_s` (1 s), from one process table that every running attempt shares. The receipt, a cancel request and the wall clock are still read on every tick.
 - The table is C-5.5's snapshot with `lstart` added. It answers the C-5.3 identity question for any number of pids, so a census is two `ps` reads instead of `2 + 3N`.
 - The shared table can only say "alive", and only on an exact match. Anything else goes to a fresh `liveness`, and every census that decides anything is still read fresh.
-- One boot-identity read is reused for 5 s. A boot mismatch is read again before it counts. A table read that fails is rationed like one that works.
+- One boot-identity read is reused for 5 s, if it is the boot session UUID. The `kern.boottime` seconds that a failed UUID read falls back to are not kept: for as long as they were, every process recorded with the UUID would compare as unknown, and the kill protocol could not signal it (found in review, 2026-09-25). A boot mismatch is read again before it counts. A table read that fails is rationed like one that works.
 - `ps` and `sysctl` are started with `posix_spawn`.
 - The export check is one join driven from `leases`. `~/.claude.json` is parsed only when `stat` says it changed.
 

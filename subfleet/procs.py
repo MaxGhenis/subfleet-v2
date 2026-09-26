@@ -19,10 +19,11 @@ from typing import Any
 
 from . import boot_identity
 
-#: C-5.12: how long one boot-identity read is reused. `kern.bootsessionuuid`
-#: is fixed for a boot; the legacy `kern.boottime` fallback can move with a
-#: clock correction, which `boot_identity.matches` already treats as uncertain.
-#: A mismatch is read again before `liveness` calls a process dead.
+#: C-5.12: how long one boot-identity read is reused. Only a boot session UUID
+#: is: `kern.bootsessionuuid` is fixed for a boot, while the `kern.boottime`
+#: seconds that a failed UUID read falls back to would make every process
+#: recorded with the UUID compare as unknown (C-5.3) for as long as they were
+#: kept. A mismatch is read again before `liveness` calls a process dead.
 BOOT_ID_TTL_S = 5.0
 
 
@@ -64,7 +65,8 @@ _boot_cache: tuple[float, str] | None = None     # (monotonic read time, boot id
 def boot_id() -> str:
     """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
 
-    One read serves `BOOT_ID_TTL_S` (C-5.12); a failed read is never cached.
+    One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+    not a failed read, and not the boottime seconds returned in its place.
     """
     global _boot_cache
     with _boot_lock:
@@ -80,8 +82,9 @@ def boot_id() -> str:
     value = boot_identity.read_identity(optional_read)
     if not value:
         raise InspectionError("macOS boot identity is unavailable")
-    with _boot_lock:
-        _boot_cache = (time.monotonic(), value)
+    if boot_identity.session_uuid(value):
+        with _boot_lock:
+            _boot_cache = (time.monotonic(), value)
     return value
 
 
