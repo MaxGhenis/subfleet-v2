@@ -94,6 +94,9 @@ DEFER_MAX_S = 300.0
 CATALOG_KILL_AFTER_S = 60.0
 # How long close() waits for a catalog run to end after SIGTERM, and again after SIGKILL.
 CATALOG_STOP_WAIT_S = 2.0
+# How long close() waits, in all, for the turn runners to finish the iteration they are
+# in. The conversation store refuses what a runner still going after it writes (C-25.3).
+RUNNER_STOP_WAIT_S = 5.0
 # Attempt states that have ended; `quarantined` has not (its processes may live).
 ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 # The dispatcher's claim on a queued message while it creates the message's turn job
@@ -136,9 +139,12 @@ class ConversationService:
         self._closed = False
 
     def close(self) -> None:
-        self._stop_catalog()
-        for runner in list(self.runners.values()):
+        self._stop_catalog()                    # from here `_closed`: no runner is adopted after
+        with self._lock:
+            runners = list(self.runners.values())
+        for runner in runners:
             runner.stop()
+        deadline = time.monotonic() + RUNNER_STOP_WAIT_S
         self.polls.shutdown(wait=False, cancel_futures=True)
         # File ops write into the state root: an attachment's copy, a worktree. One
         # still running when close() returned finished after its owner had removed
@@ -147,6 +153,14 @@ class ConversationService:
         # the pool takes none after. Each is bounded (a capped file read, git under
         # its caps), as the ops the daemon's own pools wait for are.
         self.files.shutdown(wait=True, cancel_futures=True)
+        # A turn runner writes into the state root too: the store, an approval's request,
+        # `conversations/models.json`, `turn.json`. One still in its iteration when close()
+        # returned made the removed root again. Each finishes that iteration here, within
+        # a bound; the store refuses what one still going writes after it closes (`writing`).
+        late = [runner.attempt_id for runner in runners if not runner.join(deadline - time.monotonic())]
+        if late:
+            self.log.warning("turn runners still going %g s after close(); the conversation store refuses "
+                             "what they write now: %s", RUNNER_STOP_WAIT_S, ", ".join(late))
         self.store.close()
 
     # --- the socket seam -------------------------------------------------------
@@ -282,9 +296,9 @@ class ConversationService:
             for model_id, model in models.items():
                 lanes = {**(section.get(model_id) or {}).get("lanes", {}), **({lane_id: now} if lane_id else {})}
                 section[model_id] = {**model, "observed_at": now, "lanes": lanes}
-            path = self.root / "conversations" / "models.json"
-            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            atomic_publish(path, (json.dumps(data, sort_keys=True, indent=1) + "\n").encode())
+            with self.store.writing():          # open, and never making the state root (C-25.3)
+                path = self.store.subdirectory("conversations") / "models.json"
+                atomic_publish(path, (json.dumps(data, sort_keys=True, indent=1) + "\n").encode())
 
     # --- ops: conversations ----------------------------------------------------
 
@@ -1774,11 +1788,14 @@ class ConversationService:
                 # it was not handed over, else through D-13.
                 self.log.warning("turn %s stopped: its conversation is held %s (%s)", aid, LEGACY_OWNER, legacy)
                 runner.withhold(LEGACY_OWNER)
-            self.runners[aid] = runner
-            try:
-                self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
-            finally:
-                runner.start()
+            with self._lock:
+                if self._closed:
+                    return                  # close() overtook: nothing would stop a runner started now
+                self.runners[aid] = runner
+                try:
+                    self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
+                finally:
+                    runner.start()
             try:
                 self._record_start(turn, dict(attempt))   # C-26.14: the turn's diff has a base
             except Exception as exc:                      # finalization records it again; a turn never waits on it

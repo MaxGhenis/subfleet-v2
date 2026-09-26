@@ -111,6 +111,51 @@ def test_an_unanswered_approval_stops_the_turn_after_the_configured_wait(make_ru
     assert runner.commands.get_nowait() == ("interrupt",) and runner.stop_reason == "approval-timeout"
 
 
+# --- ending after its service closed (C-25.3, C-26.6) ------------------------------------
+
+
+def test_a_runner_ends_and_closes_its_relay_even_when_its_last_writes_are_refused(make_runner, caplog):
+    """C-25.3, C-26.6: a runner whose service closed while it was still going finds the
+    store refusing its last events (`store-closed`). It still closes its relay and sets
+    `finished`, which close() and retention read, and logs at info that its service
+    closed: a runner a later daemon adopts for the attempt replays those events from
+    stdout. The refused flush had raised out of the thread, skipping both."""
+    import logging
+    runner, clock, contained = make_runner(Clocks())
+    runner.log = logging.getLogger("test-runner")
+    closed: list[bool] = []
+    real_close = runner.relay.close
+    runner.relay.close = lambda: (closed.append(True), real_close())[1]
+    runner.batch.append(("command", "cmd:start", 0, "status", {"phase": "starting-provider"}))
+    runner.store.close()
+    runner.stop()
+    with caplog.at_level(logging.INFO, logger="test-runner"):
+        runner._run()
+    assert runner.finished.is_set() and closed == [True]
+    assert [(r.levelno, r.getMessage()) for r in caplog.records] == [
+        (logging.INFO, "turn runner job/a1 stopped: its service closed")] * 2   # the message read, the flush
+    assert runner.join(0)                   # never started: nothing to wait for
+
+
+def test_a_runner_writes_no_outcome_after_its_service_closed(make_runner, tmp_path):
+    """C-25.3, C-26.6: `turn.json` is written only while the store is open, so a runner
+    still going after close() adds nothing to an attempt directory its owner may be
+    removing; a runner a later daemon adopts for the attempt writes it again."""
+    from subfleet.conversations.store import ConversationError
+    from subfleet.conversations.turn import Outcome
+    runner, clock, contained = make_runner(Clocks())
+    (tmp_path / "a1").mkdir()
+    runner.driver.outcome = Outcome("complete", ended_by="provider")
+    runner._write_outcome()
+    assert (tmp_path / "a1" / "turn.json").exists()
+    (tmp_path / "a1" / "turn.json").unlink()
+    runner.store.close()
+    with pytest.raises(ConversationError) as err:
+        runner._write_outcome()
+    assert err.value.reason == "store-closed"
+    assert list((tmp_path / "a1").iterdir()) == []
+
+
 # --- the relay handshake (review IR-27) ------------------------------------------------
 
 import json

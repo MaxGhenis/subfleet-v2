@@ -144,7 +144,16 @@ class TurnRunner:
         self._thread.start()
 
     def stop(self) -> None:
+        """End the loop after the iteration under way (the service's close())."""
         self._stopping.set()
+
+    def join(self, timeout: float) -> bool:
+        """Wait up to `timeout` s for the runner's thread; whether it has ended (or never started)."""
+        thread = self._thread
+        if thread is None:
+            return True
+        thread.join(max(0.0, timeout))
+        return not thread.is_alive()
 
     def interrupt(self, reason: str = "stopped") -> None:
         self.stop_reason = self.stop_reason or reason
@@ -199,12 +208,26 @@ class TurnRunner:
                 if not progressed:
                     time.sleep(POLL_S)
         except Exception as exc:          # a runner defect must not take the daemon down
-            if self.log:
-                self.log.error("turn runner %s failed: %s: %s", self.attempt_id, type(exc).__name__, exc)
+            self._failed(exc)
         finally:
-            self._flush()
-            self.relay.close()
-            self.finished.set()
+            try:
+                self._flush()
+            except Exception as exc:
+                self._failed(exc)
+            try:
+                self.relay.close()
+            finally:
+                self.finished.set()
+
+    def _failed(self, exc: Exception) -> None:
+        if not self.log:
+            return
+        if isinstance(exc, ConversationError) and exc.reason == "store-closed":
+            # Its service closed while it was still going: what it did not record, a
+            # runner a later daemon adopts for the attempt replays from stdout (C-26.6).
+            self.log.info("turn runner %s stopped: its service closed", self.attempt_id)
+        else:
+            self.log.error("turn runner %s failed: %s: %s", self.attempt_id, type(exc).__name__, exc)
 
     def _process_gone(self) -> bool:
         return (self.adir / "exit.json").exists()
@@ -494,7 +517,8 @@ class TurnRunner:
                 "frame_refused": self.frame_refused, "relay_version": self.relay_version,
                 "terminal_after_end": bool(getattr(self.driver, "terminal_after_end", False))}
         from ..guardian import atomic_publish
-        atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
+        with self.store.writing():          # never after its service closed (C-25.3)
+            atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
 
     def _report(self) -> None:
         if not self.outcome_reported:
