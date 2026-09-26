@@ -46,6 +46,7 @@ def state_daemon(tmp_path, monkeypatch):
         yield daemon, harness
     finally:
         daemon.close()
+    harness.check_notices()                 # C-15.1, after every in-process test too
 
 
 def test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts(state_daemon):
@@ -304,7 +305,8 @@ def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):
 
 @pytest.mark.parametrize("cancel_first", [False, True])
 def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cancel_first):
-    """C-4.3, C-7.2, C-15.1 cancel before acceptance interrupts rc-0 evidence; acceptance first wins."""
+    """C-4.3, C-7.2, C-15.1 cancel before acceptance interrupts rc-0 evidence; acceptance first wins;
+    either way the notice header is the job's terminal state and rc."""
     daemon, harness = state_daemon
     job_id, attempt, adir = reserve(daemon, harness)
     finalizing = receipt_fixture(daemon, attempt, adir)
@@ -319,7 +321,17 @@ def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cance
     assert bool(job["accepted_attempt_id"]) is not cancel_first
     assert len([row for row in daemon.store.list_artifacts(attempt["attempt_id"])
                 if row["role"] == "deliverable"]) == 1
-    assert len(daemon.store.list_notices()) == 1
+    notice, = daemon.store.list_notices()
+    # C-15.1: the header is the job's state and rc, not the attempt's `ok; rc=0`
+    # (incident: 2026-09-24); the summary names the attempt's class and rc.
+    header, summary, *kept = notice["text"].splitlines()
+    if cancel_first:
+        assert header == f"{job_id}: cancelled; rc=130; deliverable=-; out=-"
+        assert kept == [f"output kept, not accepted: {adir / 'deliverable.md'}"]
+    else:
+        assert header == f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; out=-"
+        assert kept == []
+    assert summary.startswith("attempt a1: ok, rc=0: ")
     if not cancel_first:
         result = daemon.dispatch("kill", {"job_id": job_id})
         assert result["status"] == "already finished"
