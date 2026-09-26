@@ -228,3 +228,27 @@ def test_c26_13_a_workspace_git_cannot_open_is_gone_for_both_diffs(state_daemon)
     back = service.op_turn_diff({"message_id": mid}, None)
     assert back["available"] and back["root"] == str(harness.workdir.resolve())
     assert service.op_conversation_diff({"conversation_id": cid}, None)["available"]
+
+
+@pytest.mark.parametrize("turn_state,ok", [("complete", True), ("interrupted", False)])
+def test_c24_4_a_signal_after_a_complete_turn_does_not_undo_it(state_daemon, turn_state, ok):
+    """C-24.4 with C-9.2 (merge review 2026-09-25, finding 2): a turn's `ok` is the driver's
+    recorded `complete`, so the daemon's signal after it (a stop that came too late, or
+    containment of a process that lingered) leaves the turn succeeded; main's killed_by
+    rule had made it `unknown` and the job `cancelled`, rc 130, while its message was
+    complete. A turn the driver did not record complete stays not ok."""
+    from subfleet.daemon import utcnow
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, head, start = writable_turn(daemon, harness)
+    (adir / "turn.json").write_text(json.dumps({"state": turn_state, "reason": None if ok else "stopped",
+                                                "final_text": "done"}))
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE attempts SET killed_by='operator' WHERE attempt_id=?", (attempt["attempt_id"],))
+        tx.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=?", (utcnow(), job_id))
+    daemon._finalize(receipt_fixture(daemon, daemon.store.get_attempt(attempt["attempt_id"]), adir, rc=-15))
+    job, finished = daemon._job(job_id), daemon.store.get_attempt(attempt["attempt_id"])
+    if ok:
+        assert (job["state"], finished["state"], finished["outcome_class"]) == ("succeeded", "succeeded", "ok")
+        assert "provider_verdict" not in json.loads(finished["evidence_json"])
+    else:
+        assert job["state"] == "cancelled" and finished["outcome_class"] != "ok"

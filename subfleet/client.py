@@ -433,12 +433,16 @@ class Client:
         earlier one) created the job. Answered neither time, it raises
         `OutcomeUnknown`.
 
-        Two edges of the re-send:
+        Three edges of the re-send:
 
         * The daemon is gone (`DaemonUnavailable`). The first request may have
           committed, so a `submit` is `OutcomeUnknown`. Anything else (`kill`)
           re-raises, and the CLI falls back to offline mode (C-17.5), which is
           what the operator asked for.
+        * The daemon answers the re-send "busy" (C-16.1). It read nothing, so
+          that says nothing about the first request: the re-send is repeated,
+          with `busy_pause` between tries, until the re-send's deadline, and a
+          daemon still busy then leaves the outcome unknown.
         * The re-sent `submit` is refused. That alone does not prove the first
           created nothing: `submit` validates before it looks up the request id,
           and a checkout whose HEAD moved between the two is "a different
@@ -460,20 +464,36 @@ class Client:
             on_lost(first)
         deadline = (max(REQUERY_TIMEOUT_S, self.timeout) if requery_timeout is None
                     else requery_timeout)
-        try:
-            result = self.call(op, args, request_id=request_id, timeout=deadline)
-        except ResponseLost as exc:
-            raise OutcomeUnknown(op, request_id, (str(first), str(exc))) from exc
-        except DaemonUnavailable as exc:
-            if op != "submit":
-                raise
-            raise OutcomeUnknown(op, request_id, (
-                str(first), f"the daemon went away before the re-sent request: {exc}")) from exc
-        except DaemonError as exc:
-            if op != "submit" or not request_id:
-                raise
-            return self._settle_refused_submit(exc, request_id, minted=minted, first=first)
-        return {**result, "requeried": True}
+        give_up, streak = time.monotonic() + deadline, 0
+        while True:
+            try:
+                result = self.call(op, args, request_id=request_id, timeout=(
+                    deadline if not streak else max(0.1, give_up - time.monotonic())))
+            except ResponseLost as exc:
+                raise OutcomeUnknown(op, request_id, (str(first), str(exc))) from exc
+            except DaemonUnavailable as exc:
+                if op != "submit":
+                    raise
+                raise OutcomeUnknown(op, request_id, (
+                    str(first), f"the daemon went away before the re-sent request: {exc}")) from exc
+            except DaemonError as exc:
+                if exc.busy:
+                    # C-16.1: "busy" is answered before anything is read, so it
+                    # says nothing about the first request, which may have
+                    # committed. Ask again within the re-send's deadline; busy to
+                    # the end, the outcome is unknown, never refused.
+                    streak += 1
+                    pause = busy_pause(streak)
+                    if time.monotonic() + pause >= give_up:
+                        raise OutcomeUnknown(op, request_id, (
+                            str(first), f"the daemon answered busy to {streak} re-send(s) "
+                                        f"within {deadline:.0f} s: {exc}")) from exc
+                    time.sleep(pause)
+                    continue
+                if op != "submit" or not request_id:
+                    raise
+                return self._settle_refused_submit(exc, request_id, minted=minted, first=first)
+            return {**result, "requeried": True}
 
     def _settle_refused_submit(self, refusal: DaemonError, request_id: str, *,
                                minted: bool, first: ResponseLost) -> dict[str, Any]:

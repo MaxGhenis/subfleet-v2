@@ -3837,7 +3837,7 @@ class Daemon:
         # reaches the same class (C-4.3), and the adapter's verdict is kept in
         # the attempt's evidence beside the class that decided.
         provider_verdict = {"class": outcome.cls.value, "detail": outcome.detail}
-        if outcome.cls == OutcomeClass.OK and actual.get("killed_by"):
+        if outcome.cls == OutcomeClass.OK and actual.get("killed_by") and job["kind"] != "turn":
             # C-9.2: an attempt the daemon signalled (an operator's kill, the
             # wall limit, recovery) did not finish, whatever its rc and its
             # deliverable say. Codex exits 0 on SIGTERM and leaves its last
@@ -3845,6 +3845,11 @@ class Daemon:
             # turn (incident: 2026-09-24, three cancelled Codex jobs recorded
             # `ok` with rc 0 and deliverables of 32 to 61 words such as "I am
             # checking the newer validation code before finalizing").
+            # A conversation turn is exempt: its `ok` is the driver's recorded
+            # `complete` (turn.json, the provider's own end-of-turn event), never
+            # an exit status or a last message, so a signal after it (a stop
+            # that came too late, or containment of a process that lingered)
+            # does not undo it (C-24.4, merge review 2026-09-25).
             outcome = dataclasses.replace(
                 outcome, cls=OutcomeClass.UNKNOWN,
                 detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "

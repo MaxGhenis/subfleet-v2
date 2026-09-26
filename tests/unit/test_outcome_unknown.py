@@ -205,6 +205,40 @@ def test_c16_3_an_answered_request_is_never_sent_twice(root):
     assert len(refused.sent) == len(down.sent) == 1
 
 
+def busy():
+    return DaemonError(69, "the daemon is serving 512 connections", "try again shortly")
+
+
+@pytest.mark.parametrize("op", ["submit", "kill"])
+def test_c16_3_a_busy_re_send_is_asked_again_then_answered(root, monkeypatch, op):
+    """C-16.3 with C-16.1 (merge review 1): "busy" is answered before anything is read,
+    so it says nothing about the first request; the re-send is repeated with the busy
+    backoff, and the answer that comes is the outcome."""
+    slept = []
+    monkeypatch.setattr(client_module.time, "sleep", slept.append)
+    client = Scripted(root, lost(), busy(), busy(), {"job_id": JOB, "created": False})
+    result = client.call_settled(op, {"job_id": JOB}, request_id="rid")
+    assert result == {"job_id": JOB, "created": False, "requeried": True}
+    assert len(client.sent) == 4 and slept == [0.25, 0.5]
+    assert all(0 < step[3] <= client_module.REQUERY_TIMEOUT_S for step in client.sent[1:])
+
+
+@pytest.mark.parametrize("op", ["submit", "kill"])
+def test_c16_3_busy_to_the_end_is_an_unknown_outcome_never_refused(root, monkeypatch, op):
+    """C-16.3, C-17.3 (merge review 1): a daemon busy through the whole re-send deadline
+    leaves the first request's outcome unknown. Before, a busy `submit` was looked up,
+    found nowhere (the first had not committed yet) and reported "NOT submitted"."""
+    clock = [0.0]
+    monkeypatch.setattr(client_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(client_module.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+    client = Scripted(root, lost(), *[busy() for _ in range(40)])
+    with pytest.raises(OutcomeUnknown) as unknown:
+        client.call_settled(op, {"job_id": JOB}, request_id="rid", minted=True)
+    assert unknown.value.request_id == "rid" and "busy" in unknown.value.reasons[-1]
+    assert not any(step[0] == "list" for step in client.sent)       # no lookup settles it
+    assert clock[0] < client_module.REQUERY_TIMEOUT_S
+
+
 def test_c16_3_lost_twice_is_an_unknown_outcome(root):
     """C-16.3, C-17.3 answered neither time: OutcomeUnknown, exit 1, both reasons, the id."""
     client = Scripted(root, lost(), lost("the daemon closed the connection without a response"))
