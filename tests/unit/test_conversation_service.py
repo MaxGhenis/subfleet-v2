@@ -41,6 +41,8 @@ from subfleet.conversations.launch import TURN_MANIFEST_KEY
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
 from subfleet.store import Store
+from tests.unit.test_conversation_handoff import handoff, world  # noqa: F401 (a fixture)
+from tests.unit.test_conversation_handoff import source as handoff_source
 
 SETTINGS = {"model": "opus", "effort": None, "fast": False, "permission": "ask", "auto_continue": True}
 POLICY = {"models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
@@ -1301,6 +1303,11 @@ def test_close_waits_for_a_runner_to_finish_its_iteration_and_the_removed_root_s
     last flush raised out of its thread, which then never set `finished`. close() now
     returns once each runner has finished the iteration it was in, while the root and
     the store are still there; what it was writing is there when close() returns."""
+    monkeypatch.setattr(service_module, "RUNNER_STOP_WAIT_S", 30.0)   # this test is about waiting, not the bound
+    joining = threading.Event()
+    real_join = service_module.TurnRunner.join
+    monkeypatch.setattr(service_module.TurnRunner, "join", lambda self, timeout: (joining.set(),
+                                                                                  real_join(self, timeout))[1])
     root = svc.root
     runner, hold, landed = held_runner(svc, monkeypatch, tmp_path, where)
     errors = thread_errors(monkeypatch)
@@ -1316,9 +1323,10 @@ def test_close_waits_for_a_runner_to_finish_its_iteration_and_the_removed_root_s
     closer = threading.Thread(target=owner)
     closer.start()
     assert hold.entered.wait(30), f"the runner never reached its {where}"
-    closer.join(1.0)                        # a close() that does not wait for its runners has returned by now
+    # close() is now waiting for the runner, or has returned without waiting: no timing guess either way.
+    until_true(lambda: joining.is_set() or not closer.is_alive(), "close() to wait for the runner or return")
     hold.go.set()
-    closer.join(30)
+    closer.join(60)
     assert not closer.is_alive(), "close() did not return once the runner had finished"
     runner.join(30)
     problems = []
@@ -1484,12 +1492,16 @@ def test_close_waits_for_a_store_file_write_under_way(svc, monkeypatch):
     def texts():
         return [p.name for p in svc.root.glob("conversations/*/messages/*.md")]
 
+    closing = threading.Event()
+    real_close = svc.store.close
+    monkeypatch.setattr(svc.store, "close", lambda: (closing.set(), real_close())[1])
     sender = threading.Thread(target=send)
     sender.start()
     assert hold.entered.wait(30), "the text was never published"
     closer = threading.Thread(target=lambda: (svc.close(), at_return.append(texts())))
     closer.start()
-    closer.join(0.5)                        # a close() that does not wait for the write has returned by now
+    assert closing.wait(30), "close() never reached the store"
+    closer.join(0.5)                        # a store close() that does not wait for the write returns at once
     waited = closer.is_alive()
     hold.go.set()
     closer.join(30)
@@ -1522,6 +1534,19 @@ def test_no_conversation_file_write_makes_the_state_root(svc, write):
             svc._on_catalog("claude", "claude-1", [{"model": "claude-opus-5-5", "value": "opus"}])
     assert (err.value.reason, err.value.code) == ("state-root-gone", 1)
     assert not svc.root.exists()
+
+
+def test_a_handoff_never_makes_the_state_root(world):
+    """C-25.3, C-30.3 (both reviews of 39223c9, finding 2): a `conversation.handoff`,
+    a file op, publishes its brief and the moved texts through the store. With the
+    root gone it fails `state-root-gone` (exit 1) and makes nothing; the store's
+    `mkdir(parents=True)` had made the root again and the handoff had succeeded."""
+    cid, _ = handoff_source(world)          # no queued message: its text would go with the root
+    shutil.rmtree(world.daemon.root)
+    with pytest.raises(ConversationError) as err:
+        handoff(world, cid)
+    assert (err.value.reason, err.value.code) == ("state-root-gone", 1)
+    assert not world.daemon.root.exists()
 
 
 def test_the_store_makes_every_level_below_the_root_private(svc):
