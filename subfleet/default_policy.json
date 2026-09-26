@@ -143,6 +143,7 @@
     "revive_max_batch": 8,
     "auto_revive_desktop_owned": false,
     "mirror_interval_s": 60,
+    "mirror_hot_interval_s": 2,
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,
     "mirror_ultracode_default": true,

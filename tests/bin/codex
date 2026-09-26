@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -90,6 +91,37 @@ def meter_clock(directory: Path) -> None:
         marker.write_text(datetime.now(timezone.utc).isoformat())
 
 
+#: What Codex left in `last.md` when the daemon stopped it on 2026-09-24.
+SIGTERM_INTERIM = "I am checking the newer validation code before finalizing the review.\n"
+
+
+def sigterm_exit_0(argv: list[str]) -> int:
+    """The `sigterm-exit-0` scenario: Codex stopped by the daemon (C-9.2, C-15.1).
+
+    Observed 2026-09-24: on SIGTERM the real CLI exits 0 and leaves its last
+    interim progress message in the `--output-last-message` file, so the exit
+    looks like a finished turn. This fake starts a turn, and on SIGTERM writes
+    such a message there and exits 0. Unsignalled it gives up after 30 s with
+    rc 1 and no message, so a test that never stops it fails instead of passing.
+    """
+    destination = output_path(argv)
+
+    def stopped(signum, frame):
+        if destination is not None:
+            destination.write_text(SIGTERM_INTERIM)
+        os._exit(0)
+
+    signal.signal(signal.SIGTERM, stopped)
+    sys.stdin.buffer.read()
+    print(json.dumps({"type": "thread.started",
+                      "thread_id": "01991c18-2680-7000-8000-00000000f00d"}), flush=True)
+    diagnostics_path = os.environ.get("SUBFLEET_FAKE_DIAGNOSTICS_PATH")
+    if diagnostics_path:
+        Path(diagnostics_path).write_text(json.dumps({"argv": argv, "cwd": os.getcwd()}) + "\n")
+    time.sleep(30)
+    return 1
+
+
 def main() -> int:
     # Metadata requests made by the real guard preflight, before any exec.
     if sys.argv[1:] == ["--version"]:
@@ -120,6 +152,8 @@ def main() -> int:
         scenario = "success"
         os.environ["SUBFLEET_FAKE_DELAY_S"] = "0"
         os.environ.pop("SUBFLEET_FAKE_DIRTY", None)
+    if scenario == "sigterm-exit-0":
+        return sigterm_exit_0(sys.argv[1:])
     fixture_name = "success" if scenario in {"slow", "nested-setsid"} else scenario
     fixture_root = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
     fixture = fixture_root / fixture_name
