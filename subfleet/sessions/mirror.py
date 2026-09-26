@@ -206,6 +206,15 @@ NO_ONES_SIDEBAR = frozenset({errno.EACCES, errno.EPERM, errno.EISDIR, errno.ELOO
                              errno.ENOTDIR, errno.ENXIO, errno.ENAMETOOLONG})
 
 
+def _directory_signature(path: Path) -> tuple[int, ...] | None:
+    """`(st_dev, st_ino, st_mtime_ns)` of a directory: what its listing can change."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return (info.st_dev, info.st_ino, info.st_mtime_ns)
+
+
 def _permanent(exc: OSError) -> bool:
     """The app cannot read it either (see NO_ONES_SIDEBAR). If such a copy is
     later readable again, its old value reads as a change, as an app's stale
@@ -675,8 +684,9 @@ class Mirror:
         self._unread: dict[str, str] = {}
         #: Why each unread path or unknown folder holds, for the pass record.
         self._why: dict[str, str] = {}
-        #: `<account> -> its org folders` from its last successful listing.
-        self._account_orgs: dict[Path, frozenset[Path]] = {}
+        #: `<account> -> (its directory's signature, its org folders)` from its
+        #: last successful listing.
+        self._account_orgs: dict[Path, tuple[tuple[int, ...] | None, frozenset[Path]]] = {}
         #: What the last `folders()` call could not list.
         self._store_error: OSError | None = None
         self._unlisted_accounts: list[Path] = []
@@ -865,6 +875,7 @@ class Mirror:
         for account in accounts:
             if any(value in account.name for value in excluded):
                 continue                        # excluded whole: never a voice
+            signature = _directory_signature(account)
             try:
                 orgs = subdirectories(account)
             except FileNotFoundError:
@@ -873,7 +884,7 @@ class Mirror:
                 if not _permanent(exc):
                     self._unlisted_accounts.append(account)
                 continue
-            self._account_orgs[account] = frozenset(orgs)
+            self._account_orgs[account] = (signature, frozenset(orgs))
             for org in orgs:
                 if any(value in account.name or value in org.name for value in excluded):
                     continue
@@ -895,9 +906,15 @@ class Mirror:
         kept: list[tuple[str, str, Path]] = []
         unknown: list[tuple[str, str]] = []
         for account in self._unlisted_accounts:
-            orgs = self._account_orgs.get(account)
-            if orgs is None:
+            last = self._account_orgs.get(account)
+            if last is None:
                 unknown.append((os.fspath(account), "account not listed, never listed"))
+                continue
+            signature, orgs = last
+            if signature is None or _directory_signature(account) != signature:
+                # A folder created since (another process may have filled it)
+                # is in no listing this pass has.
+                unknown.append((os.fspath(account), "account not listed, changed since its listing"))
                 continue
             for org in sorted(orgs):
                 if any(value and (value in account.name or value in org.name)
