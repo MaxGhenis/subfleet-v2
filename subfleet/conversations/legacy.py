@@ -338,6 +338,15 @@ def import_outbox(store: ConversationStore, messages: Iterable[LegacyMessage], *
         if message.payload is None or not isinstance(message.payload.get("prompt"), str):
             result.add(**_item(message, "unreadable-row", detail="the payload has no prompt"))
             continue
+        # Every field the row's history uses is checked here, before anything is
+        # written for it: one malformed row is reported and the pass goes on
+        # (review of 3c1a34e, finding 6).
+        if not isinstance(message.payload.get("image_paths"), (list, type(None))):
+            result.add(**_item(message, "unreadable-row", detail="the payload's image_paths is not a list"))
+            continue
+        if not isinstance(message.payload.get("service_tier"), (str, type(None))):
+            result.add(**_item(message, "unreadable-row", detail="the payload's service_tier is not a string"))
+            continue
         stored = store.one("SELECT conversation_id, origin FROM messages WHERE message_id=?", (message_id,))
         if stored is not None:
             if stored["origin"] == "legacy":
@@ -501,7 +510,10 @@ def read_journal(path: Path) -> tuple[list[dict[str, Any]], str | None]:
     request naming the same session (`CockpitStore.swift:1031`, `:1059`). Any
     other shape is not read as a journal (review L3): `{"version": 2, "entries":
     {...}}` would otherwise hold sessions named `version` and `entries` and no
-    real one.
+    real one. Nor is an entry with no request, or a request whose message id is
+    not a string or whose image paths are not a list: each is checked before
+    anything is counted, so the caller holds every session for it rather than
+    the pass ending on it (review of 3c1a34e, finding 6).
     """
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -513,13 +525,19 @@ def read_journal(path: Path) -> tuple[list[dict[str, Any]], str | None]:
         return [], "not an object keyed by session"
     entries = []
     for key, entry in value.items():
-        request = entry.get("request") if isinstance(entry, dict) else None
-        request = request if isinstance(request, dict) else {}
-        session_id = request.get("session_id", key)
-        if not _qualified(key) or not _qualified(session_id):
+        if not _qualified(key):
             return [], "not an object keyed by session"
-        entries.append({"session_id": session_id, "key": key, "message_id": request.get("message_id"),
-                        "images": len(request.get("image_paths") or [])})
+        request = entry.get("request") if isinstance(entry, dict) else None
+        if not isinstance(request, dict):
+            return [], "an entry with no request"
+        session_id = request.get("session_id")
+        if not _qualified(session_id):
+            return [], "not an object keyed by session"
+        message_id, images = request.get("message_id"), request.get("image_paths")
+        if not isinstance(message_id, (str, type(None))) or not isinstance(images, (list, type(None))):
+            return [], "an entry whose request is not the cockpit's (its message_id or image_paths)"
+        entries.append({"session_id": session_id, "key": key, "message_id": message_id,
+                        "images": len(images or [])})
     return entries, None
 
 

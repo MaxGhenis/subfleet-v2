@@ -24,6 +24,7 @@ from subfleet.conversations import legacy
 from subfleet.conversations.store import ConversationStore
 from subfleet.importer import ImportRefused, import_legacy_cockpit, import_v1
 from subfleet.store import Store
+from tests import legacy_fixtures
 from tests.legacy_fixtures import (
     LEGACY, LEGACY_SESSION, QUEUED_SESSION, outbox_row, write_outbox, write_transcript,
 )
@@ -1242,6 +1243,22 @@ def _unreadable_journal(path: Path, kind: str) -> str:
         path.write_text(json.dumps({f"claude:{LEGACY_SESSION}": {"request": {"session_id": "nobody"}}}),
                         encoding="utf-8")
         return "not an object keyed by session"
+    # Review of 3c1a34e, finding 6: each of these had ended the pass before the fence
+    # (numeric image paths), or held its one session only (no request).
+    entry = {"op": "enqueue", "message_id": LEGACY[1], "session_id": f"claude:{LEGACY_SESSION}",
+             "prompt": "a pending send", "image_paths": []}
+    malformed = {"image paths that are no list": {"request": {**entry, "image_paths": 1}},
+                 "a message id that is no string": {"request": {**entry, "message_id": 7}},
+                 "an entry with no request": {"sourceImagePaths": []},
+                 "a request that names no session": {"request": {k: v for k, v in entry.items() if k != "session_id"}}}
+    if kind in malformed:
+        path.write_text(json.dumps({f"claude:{LEGACY_SESSION}": malformed[kind]}), encoding="utf-8")
+        return {"image paths that are no list": "an entry whose request is not the cockpit's (its message_id or "
+                                                "image_paths)",
+                "a message id that is no string": "an entry whose request is not the cockpit's (its message_id or "
+                                                  "image_paths)",
+                "an entry with no request": "an entry with no request",
+                "a request that names no session": "not an object keyed by session"}[kind]
     path.mkdir()                                           # reading it raises IsADirectoryError, an OSError
     return "unreadable: IsADirectoryError"
 
@@ -1254,7 +1271,9 @@ def _remove(path: Path) -> None:
 
 
 @pytest.mark.parametrize("kind", ["not json", "not an object", "keyed by something else",
-                                  "a request naming no session", "a directory"])
+                                  "a request naming no session", "a directory", "image paths that are no list",
+                                  "a message id that is no string", "an entry with no request",
+                                  "a request that names no session"])
 def test_an_unreadable_journal_holds_every_session(v1, kind):
     """C-30.4: a journal that cannot be read could name any session, so it is
     never read as empty. No session is bound while it is unreadable, a session
@@ -1289,6 +1308,49 @@ def test_an_unreadable_journal_holds_every_session(v1, kind):
     assert report.stores["cockpit"].reasons == {}
     assert conversations(v1["root"], "SELECT blocked_by, legacy_hold FROM conversations") == [
         {"blocked_by": None, "legacy_hold": None}]
+
+
+@pytest.mark.parametrize("field, value, detail", [
+    ("image_paths", 1, "the payload's image_paths is not a list"),
+    ("image_paths", {"0": "/v1/image.png"}, "the payload's image_paths is not a list"),
+    ("service_tier", {"id": "priority"}, "the payload's service_tier is not a string")])
+def test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on(v1, field, value, detail):
+    """C-30.4 (review of 3c1a34e, finding 6): a terminal row whose payload names
+    its images or service tier in a shape the cockpit never writes is reported
+    `unreadable-row` before anything is written for it, and the pass goes on:
+    the next row of the same session becomes history and the report is whole.
+    Numeric image paths had committed the row's history and then ended the pass."""
+    bad = list(fixture_rows()[0])
+    payload = json.loads(bad[4])
+    payload[field] = value
+    bad[4] = json.dumps(payload)
+    write_outbox(v1["state"], [tuple(bad), *fixture_rows()[1:]])
+    report = run_legacy(v1)
+    items = {item["message_id"]: item for item in report.stores["outbox"].items if item["source"] == "outbox"}
+    assert (items[LEGACY[0]]["disposition"], items[LEGACY[0]]["detail"]) == ("unreadable-row", detail)
+    assert dispositions(report) == {LEGACY[0]: "unreadable-row", LEGACY[1]: "history", LEGACY[2]: "legacy-owned"}
+    assert [row["message_id"] for row in conversations(v1["root"], "SELECT message_id FROM messages")] == [LEGACY[1]]
+    assert dispositions(run_legacy(v1))[LEGACY[0]] == "unreadable-row"        # and so it stays
+
+
+def test_an_outbox_whose_sequence_is_not_the_cockpit_s_is_unreadable(v1):
+    """C-30.4 (review of 3c1a34e, finding 6): a `messages` table with the
+    cockpit's columns but a `sequence` that is no integer (the cockpit's is an
+    INTEGER PRIMARY KEY) is not the cockpit's outbox: every session is held and
+    the pass goes on, rather than ending on the row."""
+    path = v1["state"] / "outbox.sqlite3"
+    path.unlink()
+    connection = sqlite3.connect(path)
+    connection.executescript(legacy_fixtures.OUTBOX_SCHEMA.replace("sequence INTEGER PRIMARY KEY AUTOINCREMENT",
+                                                                   "sequence TEXT"))
+    row = fixture_rows()[0]
+    connection.execute("INSERT INTO messages(sequence,message_id,session_id,request_digest,payload_digest,payload,"
+                       "status,created_at,updated_at,receipt) VALUES ('first',?,?,?,?,?,?,?,?,?)", row)
+    connection.commit()
+    connection.close()
+    report = run_legacy(v1)
+    assert report.stores["outbox"].reasons.get("unreadable-database") == 1
+    assert any("every session is held" in note for note in report.stores["outbox"].notes)
 
 
 def _bind(v1) -> str:

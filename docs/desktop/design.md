@@ -1158,8 +1158,12 @@ refuses it and a milestone pass reads nothing from it. `--cockpit-retired`
 lifts every hold, forgets every held session and records the retirement in
 one transaction (creating the store if it must), so later passes read nothing
 from the cockpit and are not refused once the v1 state is gone. A session whose transcript raises
-while it is read, or a row whose timestamp is out of range, is reported and
-the pass goes on. `python -m subfleet.importer --legacy-cockpit [--dry-run]`
+while it is read, or a row whose timestamp is out of range or whose payload
+names its images or service tier in a shape the cockpit never writes, is
+reported and the pass goes on; every field is checked before anything is
+written for the row. A journal entry with no request, or with a message id or
+image paths of another shape, makes the journal unreadable, which holds every
+session. `python -m subfleet.importer --legacy-cockpit [--dry-run]`
 runs the import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").
 
 ## 14. Test plan

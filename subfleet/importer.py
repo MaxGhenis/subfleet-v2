@@ -1601,7 +1601,9 @@ def _read_legacy_outbox(v1_state: Path) -> tuple[list, str | None]:
             if "messages" not in tables:
                 return [], "no-messages-table"
             return legacy.read_outbox(connection), None
-        except (sqlite3.Error, IndexError):          # a corrupt file, or a messages table of other columns
+        except (sqlite3.Error, IndexError, ValueError, TypeError):
+            # A corrupt file, or a messages table of other columns (a `sequence`
+            # that is no integer, as the cockpit's INTEGER PRIMARY KEY always is).
             return [], "unreadable-database"
         finally:
             connection.close()
