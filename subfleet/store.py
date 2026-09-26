@@ -155,8 +155,9 @@ class Store:
             audit = {"kind": kind, "job_id": job_id, "attempt_id": attempt_id,
                      "lane_id": lane_id, "data": data}
             self._audits.append(audit)
-            # Changes a nested transaction made and then rolled back: `total_changes`
-            # still counts them, but they changed nothing this transaction keeps.
+            # Changes a nested transaction, at any depth below this one, made and then
+            # rolled back: `total_changes` still counts them, but they changed nothing
+            # this transaction keeps.
             self._undone.append(0)
             before = self.connection.total_changes
             try:
@@ -167,6 +168,11 @@ class Store:
                         (utc_now(), audit["kind"], audit["job_id"], audit["attempt_id"],
                          audit["lane_id"], _json(audit["data"] or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
+                if depth:
+                    # The parent's count includes everything this one counted, so it
+                    # also includes what this one's children rolled back: hand that on,
+                    # or a grandchild's undone write makes the parent record an event.
+                    self._undone[-2] += self._undone[-1]
             except BaseException:
                 if depth == 0:
                     self.connection.rollback()
