@@ -177,7 +177,9 @@ def test_a_probe_payload_with_a_repeated_key_is_never_another_holders(tmp_path):
     json_valid accepts the payload), Python its last. No writer makes such a payload;
     if one were there, the lookup must not return it as another holder's record,
     as the index's hit alone did. It is found under its first value only, so the
-    last value's holder gets its previous record (the old walk returned this one)."""
+    last value's holder gets its previous record (the old walk returned this one).
+    Being the newest indexed row under its first value, it also hides that
+    holder's older records (C-3.7 names both differences; review of 0e43105)."""
     daemon = Daemon(tmp_path / "state")
     try:
         event(daemon.store, "probe.state", {"holder": "probe:a", "state": "older"})
@@ -188,6 +190,15 @@ def test_a_probe_payload_with_a_repeated_key_is_never_another_holders(tmp_path):
                                 "FROM events WHERE data_json LIKE '%twice%'") == {"ok": 1, "first": "probe:b"}
         assert daemon._probe_record("probe:b") is None and old_probe_record(daemon.store, "probe:b") is None
         assert daemon._probe_record("probe:a") == {"holder": "probe:a", "state": "older"}
+        # probe:b's own older record, written before the repeated-key payload, is hidden.
+        with daemon.store.transaction("test.seed") as tx:
+            tx.execute("DELETE FROM events WHERE kind='probe.state'")
+        event(daemon.store, "probe.state", {"holder": "probe:b", "state": "genuine-older"})
+        with daemon.store.transaction("test.seed") as tx:
+            tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                       ("2026-09-25T00:00:00Z", "probe.state", '{"holder":"probe:b","holder":"probe:a","state":"twice"}'))
+        assert old_probe_record(daemon.store, "probe:b") == {"holder": "probe:b", "state": "genuine-older"}
+        assert daemon._probe_record("probe:b") is None
     finally:
         daemon.close()
 

@@ -2528,7 +2528,9 @@ class Daemon:
         # The holder is checked in Python for the index's hit too: a payload
         # with the key twice, which no writer makes (every one is json.dumps of
         # a dict), is indexed under SQLite's first value and read by Python
-        # under the last, and must never be returned as another holder's.
+        # under the last, and must never be returned as another holder's. Being
+        # the newest indexed row under that first value, it also hides that
+        # holder's older records (the hit is LIMIT 1); C-3.7 names this.
         for row in self.store.query(PROBE_RECORD, (holder,)):
             try:
                 record = json.loads(row["data_json"])
