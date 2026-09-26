@@ -135,6 +135,8 @@ holds the last synced value.
     freeze flag sync. Listings never follow symlinks. A store that fails to
     list fails the pass.
   - Bases of sessions a pass did not see survive it.
+  - A failed account's known folders are still listed one by one. Only a
+    folder that does not list itself is read by name or holds.
   - Held sessions are counted in `flags_held`, including a session held
     because a copy changed while the pass published.
     - The first few causes are recorded in `held_by`, each with a path and a
@@ -268,8 +270,9 @@ A copy the app cannot read either is left out, so that it cannot freeze flag
 sync. If it later becomes readable with an old value, that value reads as a
 change, as an app's stale re-save does. It belongs to the known limit. After a
 daemon restart, an unreadable copy this process has never read has no known
-session, so it holds every session until it reads. That is transient, and it
-is visible in `held_by`.
+session, so it holds every session until it can be read. For a copy that keeps
+failing (EIO, say), that lasts until someone acts. It is visible in `held_by`
+and `sessions mirror --status`, and mirror-watch alerts after 15 minutes.
 
 Three failures leave copies ahead of the merge base:
 - a rollback write that fails;

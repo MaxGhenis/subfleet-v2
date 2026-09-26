@@ -1707,7 +1707,10 @@ class Mirror:
         folders = self.folders(options.exclude)
         kept, unknown = self._listing_gaps(options)
         failed = set(self._unlisted_accounts)
-        current.accounts = len(folders) + len(kept)
+        # A failed account's known folders are listed directly, like any other;
+        # only one that does not list either is read by name or holds.
+        folders = folders + kept
+        current.accounts = len(folders)
         if not folders and not kept and not failed:
             self._drop_folders(folders)
             self._inventoried = True            # an empty store is a complete inventory
@@ -1738,11 +1741,10 @@ class Mirror:
                 if identity and self._recent(path / name):
                     fresh_ids.add(identity)
 
-        unlisted.extend(path for _account, _org, path in kept)
         # Remove deleted files and excluded folders only after a full inventory.
         # A cancelled scan must not evict entries it simply did not reach yet,
         # nor this pass forget folders it could not look into.
-        self._drop_folders(folders + kept)
+        self._drop_folders(folders)
         folders = [item for item in folders if item[2] in folder_files]
         self._inventoried = True
         by_name: dict[str, dict[Path, dict]] = {}
@@ -1863,7 +1865,15 @@ class Mirror:
     def _hot(self, current: Pass, options: Options) -> None:
         self._checkpoint(current, "reading entries")
         folders = self.folders(options.exclude)
-        kept, _unknown = self._listing_gaps(options)
+        try:
+            kept, _unknown = self._listing_gaps(options)
+        except OSError as exc:
+            # Nothing to spread from a store it cannot list, and nothing to
+            # forget. The full pass records the failure; a hot pass every 2 s
+            # would only repeat it.
+            current.error = f"store not listed: {exc}"
+            return
+        folders = folders + kept
         current.accounts = len(folders)
         fresh: list[tuple[Path, str]] = []
         unlisted: set[Path] = set()
@@ -1875,7 +1885,7 @@ class Mirror:
                 unlisted.add(path)
                 continue
             fresh.extend((path, name) for name in names)
-        self._drop_folders(folders + kept)      # never forget what it could not list
+        self._drop_folders(folders)             # never forget what it could not list
         folders = [item for item in folders if item[2] not in unlisted]
 
         instant = time.monotonic()
