@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
+import faulthandler
 import fcntl
 import hashlib
 import json
@@ -35,7 +36,7 @@ from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
-    START_GRACE_S, TERM_GRACE_S,
+    START_GRACE_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
@@ -180,6 +181,7 @@ class Daemon:
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
                  guardian_start_delay_s: float = 0,
+                 stop_grace_s: float = STOP_GRACE_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
                  desktop_prober: Callable[[], Any] | None = None):
@@ -192,6 +194,11 @@ class Daemon:
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
+        # C-5.8a: how long `watch_stop` lets a stopping process live, and what
+        # `close()` calls first, on its own thread, to start that bound. Only
+        # `main` sets it: a daemon built in a test process ends nothing.
+        self.stop_grace_s = stop_grace_s
+        self.on_stop: Callable[[], None] | None = None
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
         # C-10.3: who asks the desktop app's own credential who it is. `None`
         # means the Claude adapter's keychain reader; a harness that must not
@@ -3500,6 +3507,8 @@ class Daemon:
         if self._closed:
             return
         self._closed = True
+        if self.on_stop:
+            self.on_stop()            # C-5.8a, before anything can wait
         self.stopping.set()
         self.timers.cancel.set()
         self._notify()
@@ -3524,6 +3533,58 @@ class Daemon:
         self._log_handler.stream.close()
 
 
+def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Callable[[], None]:
+    """C-5.8a: once the daemon is stopping, end this process within `grace_s` seconds.
+
+    `close()` releases `daemon.lock` only after every pool has drained, so the
+    store has one writer. But `close()` shuts the listening socket first, and
+    it waits for the pools without a deadline. A worker that never returns
+    therefore kept a deaf process holding the lock. Clients were refused, and
+    every replacement daemon exited 69 on the lock. On 2026-09-25, pid 93697 was
+    sampled at 19:25:58Z with its main thread joining pool threads that were
+    parked on a lock (docs/reports/2026-09-25-daemon-stop-wedge.md). Ending the
+    process frees the lock in the kernel. No guardian is signalled, so the next
+    daemon adopts the attempts that are still running (C-4.2), as it does after
+    a SIGKILL.
+
+    Returns `arm`, which starts the bound. Whoever begins the stop calls it on
+    its own thread, before it sets `stopping`: the signal handler, `close()`
+    through `Daemon.on_stop`, and `main` once serving ends. So arming never
+    waits for another thread to be scheduled, which a thread holding the GIL
+    could prevent. A thread started here also arms when `stopping` is set by
+    anything else; it needs the GIL once to do so. Only the first call arms.
+
+    The timer is faulthandler's, which runs in C, so once armed it fires even
+    while another thread holds the GIL. When it fires it writes every thread's
+    Python stack to `daemon.log`, naming the stuck thread, then calls
+    `_exit(1)`. The descriptor is opened here, at start, because a daemon
+    stopping after it ran out of descriptors could not open one then; it stays
+    open for the life of the process. A stop that finishes in time ends the
+    process first, and interpreter shutdown cancels the timer.
+    """
+    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    once = threading.Lock()   # taken by the first arm, never released
+
+    def arm() -> None:
+        # Non-blocking: a signal handler may run this on a thread already inside it.
+        if not once.acquire(blocking=False):
+            return
+        # The timer first: the write below gives up the GIL, and a line that
+        # cannot be written must not undo a stop (it may run in a signal handler).
+        faulthandler.dump_traceback_later(grace_s, exit=True, file=fd)
+        with contextlib.suppress(OSError):
+            os.write(fd, (f"{utcnow()} stopping: this process ends within {grace_s:g} s; if it "
+                          "is still stopping then, every thread's stack follows and it exits 1 "
+                          "(C-5.8a)\n").encode())
+
+    def watch() -> None:
+        stopping.wait()
+        arm()
+
+    threading.Thread(target=watch, name="subfleet-stop-watch", daemon=True).start()
+    return arm
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="subfleet supervised daemon")
     parser.add_argument("--foreground", action="store_true")
@@ -3534,9 +3595,21 @@ def main(argv: list[str] | None = None) -> int:
     except DaemonUnavailable as exc:
         print(str(exc), file=sys.stderr)
         return 69
+    arm = watch_stop(daemon.stopping, daemon.stop_grace_s, daemon.root / "daemon.log")
+    daemon.on_stop = arm
+
+    def stop(*_: object) -> None:
+        arm()
+        daemon.stopping.set()
+
     for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: daemon.stopping.set())
-    daemon.serve_forever()
+        signal.signal(sig, stop)
+    try:
+        daemon.serve_forever()
+    finally:
+        # However `serve_forever` ended, the process is on its way out, so the
+        # C-5.8a bound starts here if nothing started it before.
+        stop()
     return 0
 
 
