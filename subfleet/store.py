@@ -60,6 +60,7 @@ class Store:
         self._depth = 0
         # C-3.8: the audit event each open transaction will record, innermost last.
         self._audits: list[dict[str, Any]] = []
+        self._undone: list[int] = []
         if not self.read_only:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
@@ -154,10 +155,13 @@ class Store:
             audit = {"kind": kind, "job_id": job_id, "attempt_id": attempt_id,
                      "lane_id": lane_id, "data": data}
             self._audits.append(audit)
+            # Changes a nested transaction made and then rolled back: `total_changes`
+            # still counts them, but they changed nothing this transaction keeps.
+            self._undone.append(0)
             before = self.connection.total_changes
             try:
                 yield self.connection
-                if self.connection.total_changes != before:
+                if self.connection.total_changes - before != self._undone[-1]:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), audit["kind"], audit["job_id"], audit["attempt_id"],
@@ -169,9 +173,11 @@ class Store:
                 else:
                     self.connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
                     self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    self._undone[-2] += self.connection.total_changes - before
                 raise
             finally:
                 self._audits.pop()
+                self._undone.pop()
                 self._depth -= 1
 
     def retitle(self, kind: str, **refs: Any) -> None:

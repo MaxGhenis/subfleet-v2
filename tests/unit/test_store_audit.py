@@ -70,3 +70,27 @@ def test_c3_8_a_rolled_back_transaction_leaves_no_name_behind(store):
     with store.transaction("second") as tx:
         change(tx)
     assert [kind for kind, *_ in events(store)] == ["second"]
+
+
+def test_c3_8_a_transaction_whose_only_change_was_rolled_back_writes_no_event(store):
+    """C-3.2, C-3.8 a nested failure caught inside its parent leaves the parent with nothing to record.
+
+    `total_changes` still counts the rolled-back child's writes; before this was
+    discounted, the parent wrote an event for a transaction that changed nothing.
+    """
+    with store.transaction("outer") as tx:
+        try:
+            with store.transaction("inner") as nested:
+                change(nested)
+                raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+    with store.transaction("kept") as tx:
+        try:
+            with store.transaction("undone") as nested:
+                change(nested)
+                raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+        change(tx)
+    assert [kind for kind, *_ in events(store)] == ["kept"]
