@@ -1,7 +1,8 @@
 """The conversation service's control-loop work, driven with a fake daemon object:
 the catalog timer (C-30.1, D-23), compaction (C-25.4, IR-6), dispatch refusals and
-backoff (C-26.1, C-24.3), worktree conversations (D-16, C-24.1), and the turn jobs
-retention must keep (C-26.12, IR-17).
+backoff (C-26.1, C-24.3), worktree conversations (D-16, C-24.1), the turn jobs
+retention must keep (C-26.12, IR-17), and what close() leaves running: file ops and
+turn runners (C-25.3, C-26.6).
 
 The fake daemon has a real job store (`state.sqlite3`) and a `submit` the test
 controls; everything else is the real service and conversation store.
@@ -10,12 +11,15 @@ controls; everything else is the real service and conversation store.
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import random
 import shutil
+import sqlite3
+import stat
 import subprocess
 import sys
 import threading
@@ -31,6 +35,9 @@ from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.conversations import attachments as attachment_module
 from subfleet.conversations import catalog as catalog_module
 from subfleet.conversations import service as service_module
+from subfleet.conversations import store as store_module
+from subfleet.conversations.claude_turn import INIT_REQUEST_ID
+from subfleet.conversations.launch import TURN_MANIFEST_KEY
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
 from subfleet.store import Store
@@ -74,7 +81,10 @@ class FakeDaemon:
 
 
 class FakeRunner:
-    """What the service reads of a runner: whether it has finished."""
+    """What the service reads of a runner: whether it has finished. It has no thread,
+    so close() has nothing to wait for."""
+
+    attempt_id = "fake/a1"
 
     def __init__(self, finished=False):
         self.finished = threading.Event()
@@ -83,6 +93,9 @@ class FakeRunner:
 
     def stop(self):
         pass
+
+    def join(self, timeout):
+        return True
 
 
 class Clock:
@@ -1184,6 +1197,448 @@ def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(svc, tmp_path, mo
             closer.join(30)
         requests.shutdown(wait=True)
     assert outcome is not None
+# --- close() and the turn runners (C-25.3, C-26.6) ---------------------------------------
+
+INIT_OK = json.dumps({"type": "control_response", "response": {
+    "subtype": "success", "request_id": INIT_REQUEST_ID, "response": {
+        "account": {"email": "max@example.org"}, "fast_mode_state": "off",
+        "models": [{"value": "opus", "resolvedModel": "claude-opus-5-5", "supportsEffort": True,
+                    "supportedEffortLevels": ["high"]}]}}})
+ASK = json.dumps({"type": "control_request", "request_id": "req-1", "request": {
+    "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "ls"}, "tool_use_id": "tu1"}})
+PAD = json.dumps({"type": "system", "subtype": "padding", "text": "x" * 200})
+
+
+def adopted_runner(svc, tmp_path, stdout=(), *, n=0):
+    """The runner the control loop adopts for `launched_turn`."""
+    attempt_id = launched_turn(svc, tmp_path, stdout, n=n)
+    svc._adopt_runners()
+    return svc.runners[attempt_id]
+
+
+def launched_turn(svc, tmp_path, stdout=(), *, n=0) -> str:
+    """A turn as its launch leaves it for the control loop to adopt (C-26.6): its job and
+    attempt in the job store, the attempt's start record and manifest, and its stdout
+    so far. No relay listens, so nothing is sent (the runner retries its handshake)."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "waiting")
+    attempt_id = turn_attempt(svc, mid, state="running", n=n)
+    job = svc.root / "jobs" / attempt_id.split("/")[0]
+    adir = job / "a1"
+    adir.mkdir(parents=True)
+    (adir / "start.json").write_text(json.dumps({"control_socket": str(tmp_path / f"relay-{n}.sock")}))
+    (adir / "stdout").write_bytes(b"".join(line.encode() + b"\n" for line in stdout))
+    turn = {"provider": "claude", "conversation_id": cid, "message_id": mid, "text": "hello", "settings": SETTINGS,
+            "cwd": svc.test_workspace, "new_session_id": str(uuid.uuid4())}
+    (job / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
+    return attempt_id
+
+
+class Hold:
+    """A point a runner waits at until `go` is set; `entered` once it is there."""
+
+    def __init__(self):
+        self.entered, self.go = threading.Event(), threading.Event()
+
+    def __call__(self):
+        self.entered.set()
+        assert self.go.wait(30), "the test never let the runner go on"
+
+
+def held_runner(svc, monkeypatch, tmp_path, where):
+    """An adopted runner that stops at `where` until the hold lets it go, before any
+    check a fix may add there, and a probe for what it was about to write:
+    - `catalog`: reporting the model catalog from the provider's initialize answer;
+    - `approval`: recording a permission request, after the store read that precedes
+      publishing the request's file;
+    - `final flush`: writing its last events, after its loop ended (close() stopped it).
+    """
+    hold = Hold()
+    if where == "catalog":
+        real = svc._on_catalog
+        monkeypatch.setattr(svc, "_on_catalog", lambda *args: (hold(), real(*args))[1])
+        runner = adopted_runner(svc, tmp_path, [INIT_OK])
+        return runner, hold, lambda: (svc.root / "conversations" / "models.json").exists()
+    if where == "approval":
+        real_id = store_module.new_id
+        monkeypatch.setattr(store_module, "new_id", lambda prefix: (hold() if prefix == "ap" else None,
+                                                                    real_id(prefix))[1])
+        runner = adopted_runner(svc, tmp_path, [INIT_OK, ASK])
+        return runner, hold, lambda: bool(list(svc.root.glob("conversations/*/approvals/*.json")))
+    monkeypatch.setattr(service_module.TurnRunner, "_flush_due", lambda self: False)   # its first events wait
+    runner = adopted_runner(svc, tmp_path)                                            # for the final flush
+    until_true(lambda: runner.batch, "the runner's first events")
+    real_append = svc.store.append_events
+
+    def append(**kwargs):
+        if runner._stopping.is_set():
+            hold()
+        return real_append(**kwargs)
+
+    monkeypatch.setattr(svc.store, "append_events", append)
+
+    def stored() -> bool:
+        with contextlib.closing(sqlite3.connect(svc.root / "conversations.sqlite3")) as db:
+            return db.execute("SELECT COUNT(*) FROM events WHERE attempt_id=?", (runner.attempt_id,)).fetchone()[0] > 0
+    return runner, hold, stored
+
+
+def thread_errors(monkeypatch) -> list[str]:
+    errors: list[str] = []
+    monkeypatch.setattr(threading, "excepthook",
+                        lambda a: errors.append(f"{a.thread.name}: {a.exc_type.__name__}: {a.exc_value}"))
+    return errors
+
+
+@pytest.mark.parametrize("where", ["catalog", "approval", "final flush"])
+def test_close_waits_for_a_runner_to_finish_its_iteration_and_the_removed_root_stays_gone(
+        svc, monkeypatch, tmp_path, where):
+    """C-25.3, C-26.6: close() only asked the turn runners to stop, and returned. A
+    runner still in its iteration went on after its owner had removed the state root:
+    the model catalog it reported made the root again (`conversations/models.json`),
+    so did a permission request it recorded (`conversations/<id>/approvals/`), and its
+    last flush raised out of its thread, which then never set `finished`. close() now
+    returns once each runner has finished the iteration it was in, while the root and
+    the store are still there; what it was writing is there when close() returns."""
+    root = svc.root
+    runner, hold, landed = held_runner(svc, monkeypatch, tmp_path, where)
+    errors = thread_errors(monkeypatch)
+    if where != "final flush":
+        assert hold.entered.wait(30), f"the runner never reached its {where}"
+    seen: dict[str, bool] = {}
+
+    def owner():                            # as a daemon's owner does: close it, then remove its root
+        svc.close()
+        seen["ended"], seen["landed"] = runner.finished.is_set(), landed()
+        shutil.rmtree(root)
+
+    closer = threading.Thread(target=owner)
+    closer.start()
+    assert hold.entered.wait(30), f"the runner never reached its {where}"
+    closer.join(1.0)                        # a close() that does not wait for its runners has returned by now
+    hold.go.set()
+    closer.join(30)
+    assert not closer.is_alive(), "close() did not return once the runner had finished"
+    runner.join(30)
+    problems = []
+    if not seen.get("ended"):
+        problems.append("close() returned while the runner was still going")
+    if not seen.get("landed"):
+        problems.append(f"the runner's {where} was not written by the time close() returned")
+    if not runner.finished.is_set():
+        problems.append("the runner never set `finished`")
+    if errors:
+        problems.append(f"the runner's thread raised: {errors}")
+    if root.exists():
+        problems.append(f"the removed state root came back holding {tree(root)}")
+    assert problems == [], "\n".join(problems)
+
+
+@pytest.mark.parametrize("where", ["catalog", "approval", "final flush"])
+def test_a_runner_still_going_when_close_stops_waiting_writes_nothing_more(
+        svc, monkeypatch, tmp_path, caplog, where):
+    """C-25.3: close()'s wait is bounded (a relay that does not answer can hold a runner
+    for its 30 s timeout). A runner still in its iteration when the bound runs out is
+    named in the log, and every write it would make after that is refused (the store
+    has closed: `store-closed`), so the removed root stays gone; the runner still ends
+    and sets `finished`."""
+    monkeypatch.setattr(service_module, "RUNNER_STOP_WAIT_S", 0.3)
+    root = svc.root
+    runner, hold, _ = held_runner(svc, monkeypatch, tmp_path, where)
+    errors = thread_errors(monkeypatch)
+    closer = threading.Thread(target=svc.close)
+    with caplog.at_level(logging.INFO, logger="test-conversations"):
+        closer.start()
+        assert hold.entered.wait(30), f"the runner never reached its {where}"
+        closer.join(30)
+        assert not closer.is_alive(), "close() waited past its bound"
+        held_at_return = not runner.finished.is_set()
+        shutil.rmtree(root)
+        hold.go.set()
+        assert runner.join(30), "the runner never ended"
+    problems = []
+    if not held_at_return:
+        problems.append("the runner ended before close() returned: the test held nothing")
+    if not any(r.levelno == logging.WARNING and "still going" in r.getMessage() and runner.attempt_id in r.getMessage()
+               for r in caplog.records):
+        problems.append("close() did not name the runner it stopped waiting for")
+    if not runner.finished.is_set():
+        problems.append("the runner never set `finished`")
+    if errors:
+        problems.append(f"the runner's thread raised: {errors}")
+    if root.exists():
+        problems.append(f"the removed state root came back holding {tree(root)}")
+    assert problems == [], "\n".join(problems)
+
+
+@pytest.mark.parametrize("when", ["as close() begins", "while close() waits for the file pool"])
+def test_a_runner_adopted_while_close_runs_is_stopped_or_never_started(svc, monkeypatch, tmp_path, when):
+    """C-25.3: the control loop's `_adopt_runners` can be building a runner when close()
+    runs (the daemon waits for its control-loop pool only after the service closed).
+    close() stopped the runners it found, and a runner registered after that started
+    and ran on with nobody to stop it. Now a runner is registered and started only
+    while the service is open, in one step close() cannot interleave with taking its
+    list of runners, which it does once the service is closed: close() stops the
+    runner and waits for it, or it never starts."""
+    entered, go = threading.Event(), threading.Event()
+
+    class HeldRunner(service_module.TurnRunner):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            entered.set()
+            assert go.wait(30)
+
+    monkeypatch.setattr(service_module, "TurnRunner", HeldRunner)
+    closing = Hold()                        # where close() waits while the control loop goes on
+    file_op = None
+    if when == "as close() begins":
+        real_stop = svc._stop_catalog
+        monkeypatch.setattr(svc, "_stop_catalog", lambda: (closing(), real_stop())[1])
+    else:
+        file_op, closing.go = held_file_op(svc, monkeypatch, tmp_path, None, "attachment.add")
+        real_shutdown = svc.files.shutdown
+        monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (closing.entered.set(), real_shutdown(**kw))[1])
+    launched_turn(svc, tmp_path, [INIT_OK])
+    adopter = threading.Thread(target=svc._adopt_runners)
+    adopter.start()
+    assert entered.wait(30), "the control loop never built the runner"
+    closer = threading.Thread(target=svc.close)
+    closer.start()
+    assert closing.entered.wait(30), f"close() never got {when}"
+    go.set()                                # the control loop registers the runner, or finds the service closed
+    adopter.join(30)
+    closing.go.set()
+    closer.join(30)
+    assert not closer.is_alive() and (file_op is None or file_op.result(30)["sha256"])
+    try:
+        unstopped = [aid for aid, runner in svc.runners.items() if not runner._stopping.is_set()]
+        assert unstopped == [], f"close() returned with runners it never stopped: {unstopped}"
+        assert all(runner.finished.is_set() for runner in svc.runners.values())
+        assert list(svc.runners) == ([] if when != "as close() begins" else ["turn-job-0/a1"])
+    finally:
+        for runner in svc.runners.values():
+            runner.stop()
+            runner.join(30)
+
+
+def test_a_closed_store_refuses_every_read_and_write_and_writes_no_file(svc):
+    """C-25.3: after close() the conversation store answers `store-closed` (exit 1) to
+    every read, write and file write, where a runner still going had reached a closed
+    SQLite handle only after publishing its file (an approval's request, a message's
+    text), and the store's own files stay as close() left them."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.close()
+    before = tree(svc.root)
+
+    def file_write():
+        with svc.store.writing():
+            (svc.root / "stray").write_text("x")
+
+    calls = {
+        "read": lambda: svc.store.conversation(cid),
+        "message": lambda: submit(svc, cid, after=mid),
+        "approval": lambda: svc.store.add_approval(message_id=mid, conversation_id=cid, attempt_id="j/a1",
+                                                   provider_request_id="r1", kind="tool", request={"x": 1},
+                                                   display={}, options=("allow",)),
+        "events": lambda: svc.store.append_events(conversation_id=cid, message_id=mid, attempt_id="j/a1",
+                                                  events=[("stdout", "1", 0, "text", {"text": "a"})],
+                                                  stdout_offset=1, stdin_seq=0),
+        "text": lambda: svc.store._publish(svc.store.dir / cid / "messages" / "late.md", b"late"),
+        "file": file_write,
+    }
+    refused = {}
+    for name, call in calls.items():
+        try:
+            call()
+        except ConversationError as exc:
+            refused[name] = (exc.reason, exc.code)
+        except Exception as exc:
+            refused[name] = type(exc).__name__
+        else:
+            refused[name] = None
+    assert refused == {name: ("store-closed", 1) for name in calls}
+    assert tree(svc.root) == before
+
+
+def test_close_waits_for_a_store_file_write_under_way(svc, monkeypatch):
+    """C-24.3, C-25.3: close() takes the store's write guard, so a message's text being
+    published when it runs has landed by the time close() returns, and nothing lands
+    after. The message's row is committed before the store closes (its receipt may
+    still be refused, as a lost response is: a resend of the same id gets it, C-24.2),
+    or refused (`store-closed`) and its text left with no row, as a crash between the
+    two would leave it."""
+    cid = conversation(svc)
+    hold = Hold()
+    real = store_module._publish
+    monkeypatch.setattr(store_module, "_publish", lambda path, data: (hold(), real(path, data))[1])
+    refused, at_return = [], []
+
+    def send():
+        try:
+            submit(svc, cid)
+        except ConversationError as exc:
+            refused.append(exc.reason)
+
+    def texts():
+        return [p.name for p in svc.root.glob("conversations/*/messages/*.md")]
+
+    sender = threading.Thread(target=send)
+    sender.start()
+    assert hold.entered.wait(30), "the text was never published"
+    closer = threading.Thread(target=lambda: (svc.close(), at_return.append(texts())))
+    closer.start()
+    closer.join(0.5)                        # a close() that does not wait for the write has returned by now
+    waited = closer.is_alive()
+    hold.go.set()
+    closer.join(30)
+    sender.join(30)
+    assert waited, "close() returned while a text was being published"
+    assert len(at_return) == 1 and len(at_return[0]) == 1, at_return
+    assert texts() == at_return[0]
+    with contextlib.closing(sqlite3.connect(svc.root / "conversations.sqlite3")) as db:
+        rows = db.execute("SELECT COUNT(*) FROM messages WHERE conversation_id=?", (cid,)).fetchone()[0]
+    assert (refused, rows) in ((["store-closed"], 0), (["store-closed"], 1), ([], 1)), (refused, rows)
+
+
+@pytest.mark.parametrize("write", ["message text", "approval request", "model catalog"])
+def test_no_conversation_file_write_makes_the_state_root(svc, write):
+    """C-24.3, C-25.3: a message's text, an approval's request and the model catalog go
+    into the state root as it stands, making only the directories below it; with the
+    root gone they fail `state-root-gone` (exit 1) and make nothing. (After close()
+    every write is refused first: only something that removed the root under an open
+    service gets here.)"""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    shutil.rmtree(svc.root)
+    with pytest.raises(ConversationError) as err:
+        if write == "message text":
+            submit(svc, cid, after=mid)
+        elif write == "approval request":
+            svc.store.add_approval(message_id=mid, conversation_id=cid, attempt_id="j/a1", provider_request_id="r1",
+                                   kind="tool", request={"x": 1}, display={}, options=("allow",))
+        else:
+            svc._on_catalog("claude", "claude-1", [{"model": "claude-opus-5-5", "value": "opus"}])
+    assert (err.value.reason, err.value.code) == ("state-root-gone", 1)
+    assert not svc.root.exists()
+
+
+def test_the_store_makes_every_level_below_the_root_private(svc):
+    """C-25.5: 0700 directories. `mkdir(parents=True)` made the levels above the last
+    with the default mode (0755 under the usual umask)."""
+    cid = conversation(svc)
+    submit(svc, cid)
+    for directory in (svc.root / "conversations", svc.root / "conversations" / cid,
+                      svc.root / "conversations" / cid / "messages"):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700, directory
+    with pytest.raises(ValueError):
+        svc.store.subdirectory("../outside")
+
+
+def test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing(tmp_path, monkeypatch):
+    """C-24.3, C-25.3, on a real daemon: `Daemon.close()` waits for its requests pool,
+    but only after the conversation service has closed. A `message.submit` that had
+    read the store and not yet published its text then published it into the root
+    after close() (a text no row names), and failed on the closed database. Its text
+    is now refused (`store-closed`). Nothing it does outlives `Daemon.close()`, so the
+    removed root stays gone either way."""
+    from subfleet.daemon import Daemon
+    root = tmp_path / "state"
+    daemon = Daemon(root, tick_s=.05)
+    svc = daemon.conversations
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    cid = svc.store.create_conversation(provider="claude", workspace=str(workspace), workspace_kind="in-place",
+                                        settings=SETTINGS, origin="new")[0]["conversation_id"]
+    hold = Hold()
+    real_one = svc.store.one
+
+    def one(sql, params=()):
+        row = real_one(sql, params)
+        if sql == "SELECT * FROM messages WHERE message_id=?" and not hold.entered.is_set():
+            hold()                          # submit_message has read the store and not published its text
+        return row
+
+    monkeypatch.setattr(svc.store, "one", one)
+    message_id = str(uuid.uuid4())
+    future = daemon.requests.submit(svc.handle, "message.submit",
+                                    {"conversation_id": cid, "message_id": message_id, "text": "hello"}, None)
+    seen = {}
+
+    def owner():
+        daemon.close()
+        seen["done"], seen["texts"] = future.done(), [p.name for p in root.glob("conversations/*/messages/*")]
+        shutil.rmtree(root)
+
+    try:
+        assert hold.entered.wait(30), "message.submit never read the store"
+        closer = threading.Thread(target=owner)
+        closer.start()
+        until_true(lambda: svc.store._closed, "the conversation store to close")
+        hold.go.set()
+        closer.join(30)
+        assert not closer.is_alive()
+    finally:
+        hold.go.set()
+        daemon.close()
+    with pytest.raises(ConversationError) as err:
+        future.result(30)
+    assert err.value.reason == "store-closed"
+    assert seen == {"done": True, "texts": []}
+    assert not root.exists()
+
+
+RUNNER_TRIALS = 20
+
+
+def test_runner_close_invariants_hold_for_random_timings(tmp_path, monkeypatch):
+    """C-25.3, C-26.6, over 20 seeded trials of one to three adopted turns, each with a
+    random stdout (padding, the initialize answer with its catalog, sometimes a
+    permission request, more padding: up to four 1 MiB reads), closed after a random
+    pause:
+    - close() returns only once every runner has ended;
+    - nothing under the state root changes after close() returns;
+    - no runner thread raises, and every runner sets `finished`;
+    - once the owner removes the root, it stays gone."""
+    errors = thread_errors(monkeypatch)
+    for seed in range(RUNNER_TRIALS):
+        rng = random.Random(seed)
+        root = tmp_path / f"s{seed}"
+        root.mkdir()
+        daemon = FakeDaemon(root)
+        svc = ConversationService(daemon)
+        svc.clock = Clock()
+        svc.test_workspace = str(tmp_path)
+        runners = []
+        for n in range(rng.randint(1, 3)):
+            stdout = [PAD] * rng.randint(0, 8_000) + [INIT_OK] + ([ASK] if rng.random() < .5 else [])
+            runners.append(adopted_runner(svc, tmp_path, stdout + [PAD] * rng.randint(0, 8_000), n=n))
+        time.sleep(rng.uniform(0, .08))
+        where = f"seed {seed}, {len(runners)} runners"
+        try:
+            svc.close()
+            ended = [r.finished.is_set() for r in runners]
+            files = snapshot(root)
+            for runner in runners:
+                runner.join(30)
+            assert ended == [True] * len(runners), f"{where}: close() returned with runners going: {ended}"
+            assert snapshot(root) == files, f"{where}: the root changed after close() returned"
+            assert errors == [], f"{where}: {errors}"
+            shutil.rmtree(root)
+            time.sleep(.01)
+            assert not root.exists(), f"{where}: the removed root came back holding {tree(root)}"
+        finally:
+            for runner in runners:
+                runner.stop()
+                runner.join(30)
+            daemon.store.close()
+
+
+def snapshot(root: Path) -> dict[str, tuple[int, int]]:
+    return {str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns)
+            for p in root.rglob("*") if p.is_file()}
+
 
 def until_true(predicate, what: str, timeout: float = 30.0) -> None:
     deadline = time.monotonic() + timeout
