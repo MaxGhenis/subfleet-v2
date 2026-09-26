@@ -1431,18 +1431,29 @@ def test_a_later_pass_forgets_the_sessions_an_earlier_one_held(v1):
     run_legacy(v1)
     assert _recorded(v1) == {f"claude:{QUEUED_SESSION}": f"message {LEGACY[2]} is queued",
                              f"codex:{thread}": f"message {LEGACY[3]} is dispatched"}
+
+    def open_codex(request_id: str) -> dict:
+        store = ConversationStore(v1["root"])
+        try:
+            return store.create_conversation(provider="codex", workspace=str(v1["workspace"]),
+                                             workspace_kind="in-place",
+                                             settings={"model": "gpt-6-astra", "permission": "read-only"},
+                                             origin="native", native_session_id=thread.upper(), lane_id="codex-1",
+                                             request_id=request_id)[0]
+        finally:
+            store.close()
+    held = open_codex("r-1")
+    assert held["legacy_hold"] == f"message {LEGACY[3]} is dispatched"          # bound held, in one spelling
+    store = ConversationStore(v1["root"])
+    try:
+        store.query("UPDATE conversations SET native_session_id=NULL WHERE conversation_id=?",
+                    (held["conversation_id"],))                               # set it aside for the next open
+    finally:
+        store.close()
     write_outbox(v1["state"], [outbox_row(LEGACY[0], LEGACY_SESSION, "finished", "he replied", at=300)])
     run_legacy(v1)
     assert _recorded(v1) == {}
-    store = ConversationStore(v1["root"])
-    try:
-        opened, _ = store.create_conversation(provider="codex", workspace=str(v1["workspace"]),
-                                              workspace_kind="in-place",
-                                              settings={"model": "gpt-6-astra", "permission": "read-only"},
-                                              origin="native", native_session_id=thread, lane_id="codex-1")
-    finally:
-        store.close()
-    assert opened["legacy_hold"] is None
+    assert open_codex("r-2")["legacy_hold"] is None
 
 
 def _sleeper(**env: str) -> subprocess.Popen:
