@@ -636,19 +636,19 @@ class ConversationService:
         from ..sessions import registry
         from .catalog import _subfleet_owned
         now = time.monotonic()
-        with self._lock:
-            if self._registry is None or now - self._registry[0] > EXTERNAL_WRITER_TTL_S:
-                self._registry = (now, registry.rows(), {})
-            _, rows, owned = self._registry
-            wanted = canonical_native(session_id)
-            pids = set()
-            for row in rows:
-                if not row.alive or row.pid is None or canonical_native(row.session_id) != wanted:
-                    continue
-                if row.pid not in owned:
-                    owned[row.pid] = _subfleet_owned(row.pid)
-                if not owned[row.pid]:
-                    pids.add(row.pid)
+        snapshot = self._registry
+        if snapshot is None or now - snapshot[0] > EXTERNAL_WRITER_TTL_S:
+            snapshot = self._registry = (now, registry.rows(), {})   # replaced whole; read on one thread
+        _, rows, owned = snapshot
+        wanted = canonical_native(session_id)
+        pids = set()
+        for row in rows:
+            if not row.alive or row.pid is None or canonical_native(row.session_id) != wanted:
+                continue
+            if row.pid not in owned:
+                owned[row.pid] = _subfleet_owned(row.pid)
+            if not owned[row.pid]:
+                pids.add(row.pid)
         return sorted(pids)
 
     def _note_waiting(self, message_id: str, reason: str | None) -> None:
@@ -794,7 +794,11 @@ class ConversationService:
             if held:
                 # C-30.4, D-17: a pass run while the daemon was down found the
                 # legacy cockpit may be using this session again. A turn that was
-                # already running is stopped (D-13), not left beside it.
+                # already running is stopped (D-13), not left beside it. The
+                # runner replays the attempt's stdout before it takes a command,
+                # and the lines that carry a driver past sending its message are
+                # the first the provider writes, so the stop meets the turn where
+                # it is: stopped before its message only if it was never sent.
                 self.log.warning("turn %s stopped: its conversation is held %s (%s)", aid, LEGACY_OWNER, held)
                 runner.interrupt(LEGACY_OWNER)
 
