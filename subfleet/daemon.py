@@ -64,6 +64,17 @@ LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
+#: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
+#: naming it (`hit`, one step of `events_probe_holder`), and every probe.state
+#: payload SQLite does not read as JSON (`events_not_json`, normally none),
+#: which `_probe_record` parses as the old walk did. A NaN or an Infinity is one
+#: such payload: json.dumps writes it, json.loads reads it, json_valid refuses it.
+PROBE_RECORD = (
+    "SELECT event_id,hit,data_json FROM (SELECT event_id,1 AS hit,data_json FROM events "
+    "WHERE kind='probe.state' AND json_valid(data_json) AND json_extract(data_json,'$.holder')=? "
+    "ORDER BY event_id DESC LIMIT 1) "
+    "UNION ALL SELECT event_id,0,data_json FROM events WHERE kind='probe.state' AND NOT json_valid(data_json) "
+    "ORDER BY event_id DESC")
 
 #: C-3.7: read connections the daemon's store keeps beside its one writer. A
 #: read holds one for a single statement (or a `snapshot` block), so a few serve
@@ -1895,20 +1906,27 @@ class Daemon:
         # C-3.7: SQLite picks the rows. Every event of these kinds used to be
         # fetched and parsed in Python, once inside the `nudged` transaction.
         # For named sessions, only theirs; for all, only the newest per kind and
-        # session. The loop below still applies every rule it always did.
-        session = "CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.session_id') END"
+        # session. The loop below still applies every rule it always did. A
+        # payload json_valid refuses (a NaN or an Infinity, which json.dumps
+        # writes and json.loads reads, or no JSON at all) cannot be filtered in
+        # SQL, so every such row of these kinds rides along (`events_not_json`,
+        # normally none) and the loop decides it, as the old walk did.
+        session = "json_extract(data_json,'$.session_id')"
+        unread = (f"UNION ALL SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
+                  "AND NOT json_valid(data_json) ")
         if session_ids is not None:
             if not session_ids:
                 return latest
             wanted = sorted(session_ids)
             sql = (f"SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
-                   f"AND {session} IN ({','.join('?' for _ in wanted)}) ORDER BY event_id DESC")
-            params = (*kinds, *wanted)
+                   f"AND json_valid(data_json) AND {session} IN ({','.join('?' for _ in wanted)}) "
+                   + unread + "ORDER BY event_id DESC")
+            params = (*kinds, *wanted, *kinds)
         else:
             sql = (f"SELECT event_id,kind,ts,data_json FROM events WHERE event_id IN "
-                   f"(SELECT max(event_id) FROM events WHERE kind IN ({marks}) GROUP BY kind,{session}) "
-                   "ORDER BY event_id DESC")
-            params = kinds
+                   f"(SELECT max(event_id) FROM events WHERE kind IN ({marks}) AND json_valid(data_json) "
+                   f"GROUP BY kind,{session}) " + unread + "ORDER BY event_id DESC")
+            params = (*kinds, *kinds)
         for row in self.store.query(sql, params):
             try:
                 data = json.loads(row["data_json"])
@@ -2466,9 +2484,14 @@ class Daemon:
         # C-3.7: the newest record for this holder, found by SQLite; every
         # probe.state event (thousands, never pruned) used to be fetched and
         # parsed in Python, once per probe lease per capacity view.
-        row = self.store.one("SELECT data_json FROM events WHERE kind='probe.state' "
-                             "AND json_extract(data_json,'$.holder')=? ORDER BY event_id DESC LIMIT 1", (holder,))
-        return json.loads(row["data_json"]) if row else None
+        for row in self.store.query(PROBE_RECORD, (holder,)):
+            try:
+                record = json.loads(row["data_json"])
+            except (TypeError, ValueError):
+                continue        # not JSON at all; no writer makes one (the old walk raised here)
+            if row["hit"] or (isinstance(record, dict) and record.get("holder") == holder):
+                return record
+        return None
 
     def _save_probe(self, record: dict) -> None:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)

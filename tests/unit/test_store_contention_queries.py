@@ -111,6 +111,16 @@ def old_probe_record(store, holder):
     return None
 
 
+def same(a, b) -> bool:
+    """Equal as JSON text: a NaN is not equal to itself as a float."""
+    return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+
+
+#: Numbers json.dumps writes and json.loads reads that SQLite's json_valid refuses
+#: (review of 5841d8b: the rewritten reads dropped such payloads).
+NOT_FINITE = (float("nan"), float("inf"), float("-inf"))
+
+
 @pytest.mark.parametrize("seed", SEEDS)
 def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
     rng = random.Random(seed)
@@ -122,11 +132,108 @@ def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
             holder = rng.choice(holders)
             if holder is not None:
                 record["holder"] = holder
+            if rng.random() < .2:
+                record["utilization"] = rng.choice(NOT_FINITE)
             event(daemon.store, rng.choice(("probe.state", "probe.state", "timer.run")), record)
         for asked in ("probe:a", "probe:b", "probe:c", "probe:none", "7"):
-            assert daemon._probe_record(asked) == old_probe_record(daemon.store, asked)
+            assert same(daemon._probe_record(asked), old_probe_record(daemon.store, asked)), asked
     finally:
         daemon.close()
+
+
+def test_a_probe_record_with_a_nan_is_still_the_newest(tmp_path):
+    """The json_valid guard alone would have skipped it and returned the older one."""
+    daemon = Daemon(tmp_path / "state")
+    try:
+        event(daemon.store, "probe.state", {"holder": "probe:a", "state": "reserved"})
+        event(daemon.store, "probe.state", {"holder": "probe:a", "state": "running", "utilization": float("nan")})
+        event(daemon.store, "probe.state", {"holder": "probe:b", "state": "running", "x": float("inf")})
+        assert daemon._probe_record("probe:a")["state"] == "running"
+        assert daemon._probe_record("probe:b")["state"] == "running"
+    finally:
+        daemon.close()
+
+
+def test_a_probe_payload_that_is_not_json_is_passed_over(tmp_path):
+    """No writer makes one (every payload is json.dumps of a dict). The old walk raised
+    on reaching it, for every holder older than it; the lookup now passes over it."""
+    daemon = Daemon(tmp_path / "state")
+    try:
+        event(daemon.store, "probe.state", {"holder": "probe:a", "state": "reserved"})
+        with daemon.store.transaction("test.seed") as tx:
+            tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                       ("2026-09-25T00:00:00Z", "probe.state", '{"holder":"probe:a",'))
+        with pytest.raises(json.JSONDecodeError):
+            old_probe_record(daemon.store, "probe:a")
+        assert daemon._probe_record("probe:a")["state"] == "reserved"
+        assert daemon._probe_record("probe:none") is None
+    finally:
+        daemon.close()
+
+
+def test_the_probe_record_lookup_uses_its_indexes(tmp_path):
+    """Review of 5841d8b, finding 3: 8.20 ms a lookup over 6.5k events, 0.08 ms with the index."""
+    from subfleet.daemon import PROBE_RECORD
+    daemon = Daemon(tmp_path / "state")
+    try:
+        plan = " | ".join(row["detail"] for row in daemon.store.query("EXPLAIN QUERY PLAN " + PROBE_RECORD, ("x",)))
+        assert "USING INDEX events_probe_holder" in plan, plan
+        assert "USING INDEX events_not_json" in plan, plan
+        assert "SCAN events" not in plan, plan
+    finally:
+        daemon.close()
+
+
+def test_the_probe_record_lookup_does_not_grow_with_history(tmp_path):
+    """Thousands of other holders' records, and a lookup for one with none (as each
+    Timers `probe:timer:*` lease is): SQLite reads a handful of rows, not every one."""
+    daemon = Daemon(tmp_path / "state")
+    try:
+        with daemon.store.transaction("test.seed") as tx:
+            tx.executemany("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           [("2026-09-25T00:00:00Z", "probe.state", _json({"holder": f"probe:{n}", "state": "done"}))
+                            for n in range(6500)])
+        from subfleet.daemon import PROBE_RECORD
+        conn = daemon.store.connection
+        steps = []
+        conn.set_progress_handler(lambda: steps.append(1), 100)
+        try:
+            with daemon.store.transaction("test.count") as tx:
+                assert tx.execute(PROBE_RECORD, ("probe:timer:none",)).fetchall() == []
+        finally:
+            conn.set_progress_handler(None, 0)
+        assert len(steps) < 20, len(steps)            # a scan of 6.5k rows is thousands of steps
+    finally:
+        daemon.close()
+
+
+def test_an_existing_store_gains_the_indexes_at_start_whatever_its_payloads(tmp_path):
+    """C-3.1: the schema file is applied at every start, so a store written before
+    these indexes gets them when the daemon next opens it, even with a payload in it
+    that is not JSON; the unguarded index the review proposed fails there."""
+    path = tmp_path / "state.sqlite3"
+    Store(path).close()
+    import sqlite3
+    raw = sqlite3.connect(path)
+    raw.execute("DROP INDEX events_probe_holder")
+    raw.execute("DROP INDEX events_not_json")
+    for text in ('{"holder":"probe:a","state":"reserved"}', "not json", '{"holder":"probe:a","state":"running","u":NaN}'):
+        raw.execute("INSERT INTO events(ts,kind,data_json) VALUES ('2026-09-25T00:00:00Z','probe.state',?)", (text,))
+    raw.commit()
+    with pytest.raises(sqlite3.OperationalError, match="malformed JSON"):
+        raw.execute("CREATE INDEX unguarded ON events(json_extract(data_json,'$.holder')) WHERE kind='probe.state'")
+    raw.close()
+    store = Store(path, readers=2)
+    try:
+        names = {row["name"] for row in store.query("SELECT name FROM sqlite_master WHERE type='index'")}
+        assert {"events_probe_holder", "events_not_json"} <= names
+        with store.transaction("test.after") as tx:                  # a row that is not JSON still writes
+            tx.execute("INSERT INTO events(ts,kind,data_json) VALUES ('2026-09-25T00:00:01Z','probe.state','{')")
+        assert [row["data_json"] for row in store.query(
+            "SELECT data_json FROM events WHERE kind='probe.state' AND NOT json_valid(data_json) ORDER BY event_id")] == [
+            "not json", '{"holder":"probe:a","state":"running","u":NaN}', "{"]
+    finally:
+        store.close()
 
 
 # --- gates ------------------------------------------------------------------------
@@ -241,11 +348,40 @@ def test_session_events_are_the_newest_per_kind_and_session(tmp_path, seed):
                     session = rng.choice(("s-1", "s-2", "s-3", 5, None, "missing"))
                     if session != "missing":
                         data["session_id"] = session
+                    if rng.random() < .15:
+                        data["weight"] = rng.choice(NOT_FINITE)     # json.loads reads it; json_valid does not
                     text = json.dumps(data)
                 tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                            (f"2026-09-25T00:00:{n % 60:02d}Z", kind, text))
         for kinds in (SESSION_KINDS, ("session.nudged",), ("session.retired", "session.unretired")):
             for wanted in (None, set(), {"s-1"}, {"s-2", "s-3", "s-9"}, {"5"}):
-                assert daemon._session_events(kinds, wanted) == old_session_events(daemon.store, kinds, wanted)
+                assert same(daemon._session_events(kinds, wanted), old_session_events(daemon.store, kinds, wanted))
+    finally:
+        daemon.close()
+
+
+def test_a_session_event_with_a_nan_is_still_the_newest(tmp_path):
+    daemon = Daemon(tmp_path / "state")
+    try:
+        event(daemon.store, "session.nudged", {"session_id": "s-1", "n": 1})
+        event(daemon.store, "session.nudged", {"session_id": "s-1", "n": 2, "weight": float("nan")})
+        for wanted in (None, {"s-1"}):
+            assert daemon._session_events(("session.nudged",), wanted)["session.nudged:s-1"]["n"] == 2
+    finally:
+        daemon.close()
+
+
+def test_the_session_events_read_their_unparsed_rows_by_index(tmp_path):
+    daemon = Daemon(tmp_path / "state")
+    try:
+        seen = []
+        query = daemon.store.query
+        daemon.store.query = lambda sql, params=(): seen.append((sql, params)) or query(sql, params)
+        daemon._session_events(SESSION_KINDS, None)
+        daemon._session_events(SESSION_KINDS, {"s-1"})
+        del daemon.store.query
+        for sql, params in seen:
+            plan = " | ".join(row["detail"] for row in daemon.store.query("EXPLAIN QUERY PLAN " + sql, params))
+            assert "USING INDEX events_not_json" in plan, plan
     finally:
         daemon.close()
