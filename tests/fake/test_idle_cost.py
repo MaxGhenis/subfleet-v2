@@ -104,11 +104,17 @@ def test_c5_12_running_attempts_share_one_ps_per_interval(service, spawns):
 
 
 def test_c5_12_the_idle_cost_measurement_runs(process_inspection_available):
-    """C-5.12, C-6.10 `tools/measure_idle_cost.py` drives a real control loop; a repeated wait stores no decision row."""
+    """C-5.12, C-6.10 `tools/measure_idle_cost.py` drives a real control loop; a repeated wait stores no decision row.
+
+    Each window starts once admission has settled: its first look at a new queue
+    writes a decision row per job it evaluates, and under load that look can land
+    inside a window that follows a fixed pause (2026-09-25, CI run 36016193771).
+    """
     spec = importlib.util.spec_from_file_location(
         "measure_idle_cost", Path(__file__).resolve().parents[2] / "tools" / "measure_idle_cost.py")
     tool = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tool)
-    result = tool.measure(window_s=.5, history=20, waiting=6, settle_s=.3, closed_settle_s=.3)
-    assert result["decisions_written"] == 0 and result["closed_decisions_written"] == 0
+    result = tool.measure(window_s=.5, history=20, waiting=6, settle_s=.5, closed_settle_s=.3, deadline_s=60)
+    assert result["settled"] == {"idle": True, "saturated": True, "closed": True}, result
+    assert result["decisions_written"] == 0 and result["closed_decisions_written"] == 0, result
     assert all(0 <= value for pair in (result["idle"], result["saturated"]) for value in pair)

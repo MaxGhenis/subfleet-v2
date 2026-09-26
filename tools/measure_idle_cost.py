@@ -15,6 +15,9 @@ process, and reports CPU as a share of one core over fixed windows:
 rows the daemon wrote while the fleet stayed full. No guardian is launched, no
 provider runs, and the timers (probe, keepalive, sessions mirror) are switched off.
 
+Each window starts once the daemon has settled after what was just set up (`settle`),
+so it measures the steady state and not admission's first look at a new queue.
+
 Usage: uv run python tools/measure_idle_cost.py [--window 10] [--history 300] [--waiting 12]
 Needs /bin/ps and /usr/sbin/sysctl reachable (not a sandboxed shell). Nothing here
 touches ~/.subfleet; everything lives under a temp root in /tmp. To compare two
@@ -59,8 +62,51 @@ def share(window_s: float) -> tuple[float, float]:
     return 100 * (after_[0] - before[0]) / elapsed, 100 * (after_[1] - before[1]) / elapsed
 
 
+def looked_at_every_job(daemon: Daemon) -> bool:
+    """C-6.10, C-6.11: the last whole admission pass left no job waiting for its first look.
+
+    A look at a job sets its clock, and the pass records the clock with the hold.
+    A pass that finds the fleet full looks at no job after that one and holds them
+    as `fleet-full` without a clock, so while the fleet is full a new queue gets
+    its first looks one job a pass, spread over seconds under load. A job held
+    behind an older one of its tier (C-6.9) is not looked at at all.
+    """
+    return all("next_check_at" in hold or hold["reason"] == "behind-older-job"
+               for hold in daemon._holds.values())
+
+
+def settle(daemon: Daemon, quiet_s: float, deadline_s: float) -> bool:
+    """Wait until the daemon has finished reacting to what was just set up; False at the deadline.
+
+    Settled means that two admission passes have ended since the call, so the
+    latest began after it; that the latest left no job waiting for its first look
+    (`looked_at_every_job`); and that the decision count has then not changed for
+    `quiet_s`. The event count is not waited on: every look at a waiting job
+    writes one event, because the look moves its `next_check_at`, and C-6.10
+    spaces those looks out without ever stopping them. What a look leaves out is
+    a decision row, unless its verdict changed.
+    """
+    decisions = lambda: daemon.store.one("SELECT count(*) n FROM decisions")["n"]   # noqa: E731
+    deadline = time.monotonic() + deadline_s
+    seen, passes = daemon._admission, 0          # replaced whole at the end of every pass (C-6.11)
+    last, since = decisions(), time.monotonic()
+    while time.monotonic() < deadline:
+        time.sleep(.05)
+        if daemon._admission is not seen:
+            seen, passes = daemon._admission, passes + 1
+        count = decisions()
+        if count != last or passes < 2 or not looked_at_every_job(daemon):
+            last, since = count, time.monotonic()
+        elif time.monotonic() - since >= quiet_s:
+            return True
+    return False
+
+
 def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_s: float = 1,
-            closed_settle_s: float = 40) -> dict:
+            closed_settle_s: float = 40, deadline_s: float = 60) -> dict:
+    """`settle_s` is how long the decision count must stay unchanged before a window
+    starts, and `deadline_s` how long to wait for that before measuring anyway;
+    `settled` in the result says which windows had it."""
     with tempfile.TemporaryDirectory(prefix="sfm-", dir="/tmp") as directory:
         root = Path(directory)
         harness = Harness(root)
@@ -84,8 +130,9 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
         server = threading.Thread(target=daemon.serve_forever, daemon=True)
         server.start()
         guardians: list[subprocess.Popen] = []
+        settled = {}
         try:
-            time.sleep(settle_s)
+            settled["idle"] = settle(daemon, settle_s, deadline_s)
             idle = share(window_s)
             for index in range(RUNNING):
                 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3600)"],
@@ -112,26 +159,37 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
                 daemon.dispatch("submit", harness.submit_args(
                     name=f"waiting-{index}", tier=("easy", "standard", "hard")[index % 3],
                     pinned_model=("astra", "terra")[index % 2]))
-            time.sleep(settle_s)
+            # Admission's first look at the new queue writes a decision row per job it
+            # evaluates; the window is for the looks after that.
+            settled["saturated"] = settle(daemon, settle_s, deadline_s)
             rows = lambda: (daemon.store.one("SELECT count(*) n FROM events")["n"],      # noqa: E731
                             daemon.store.one("SELECT count(*) n FROM decisions")["n"])
             before = rows()
             saturated = share(window_s)
             written = tuple(now - then for now, then in zip(rows(), before))
-            # The rows first, so the daemon never sees a running attempt whose guardian is gone.
+            # The closure first: were the lane still open when the fleet empties, the
+            # next pass would place waiting jobs, which stay reserved (nothing is
+            # launched) and fill the fleet again.
+            daemon.store.put_closure(Closure("codex-1", "account", after(86400), ClosureReason.PROVIDER_LIMIT,
+                                             ClockSource.REPORTED, "fixture"))
+            # The rows next, so the daemon never sees a running attempt whose guardian is gone.
+            # Every capacity wait is made due, as recovery makes it (C-6.10): these attempts
+            # held no lease, so their end brings no wait forward, and each job would see the
+            # change only when its own clock, up to 16 s out by now, came due.
             with daemon.store.transaction("measure.attempts_ended") as tx:
                 tx.execute("UPDATE jobs SET state='failed',rc=1 WHERE job_id IN "
                            "(SELECT job_id FROM attempts WHERE state='running')")
                 tx.execute("DELETE FROM leases WHERE holder IN (SELECT attempt_id FROM attempts WHERE state='running')")
                 tx.execute("UPDATE attempts SET state='failed' WHERE state='running'")
+                tx.execute("UPDATE jobs SET next_check_at=? WHERE state='waiting' AND wait_reason='capacity'",
+                           (utcnow(),))
             for child in guardians:
                 child.kill()
                 child.wait()
-            daemon.store.put_closure(Closure("codex-1", "account", after(86400), ClosureReason.PROVIDER_LIMIT,
-                                             ClockSource.REPORTED, "fixture"))
             # C-6.10's recheck clock takes 31 s (1, 2, 4, 8, 16) to reach its 30 s ceiling;
             # what is measured is the wait once it has, not the ramp.
             time.sleep(closed_settle_s)
+            settled["closed"] = settle(daemon, settle_s, deadline_s)
             before = rows()
             closed = share(window_s)
             closed_written = tuple(now - then for now, then in zip(rows(), before))
@@ -141,7 +199,7 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
                 child.wait()
             daemon.stopping.set()
             server.join(timeout=10)
-    return {"window_s": window_s, "idle": idle, "saturated": saturated, "closed": closed,
+    return {"window_s": window_s, "idle": idle, "saturated": saturated, "closed": closed, "settled": settled,
             "events_written": written[0], "decisions_written": written[1],
             "closed_events_written": closed_written[0], "closed_decisions_written": closed_written[1]}
 
@@ -161,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
           f"{result['events_written']} events, {result['decisions_written']} decisions")
     print(f"rows written in {args.window:g} s with every lane closed: "
           f"{result['closed_events_written']} events, {result['closed_decisions_written']} decisions")
+    unsettled = [name for name, done in result["settled"].items() if not done]
+    if unsettled:
+        print(f"not settled by the deadline, measured anyway: {', '.join(unsettled)}")
     return 0
 
 
