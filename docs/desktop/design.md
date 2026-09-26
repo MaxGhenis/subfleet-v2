@@ -841,9 +841,9 @@ holds no conversation: while it lives, admission makes a new turn there wait
 A `--v1-state` that holds none of the manifest's entries, or a v2 root's
 files, is never read as a cockpit that holds nothing: `--legacy-cockpit`
 refuses it and a milestone pass reads nothing from it. `--cockpit-retired`
-lifts every hold once the cockpit will never run again and then records that
-(creating the store if it must), so later passes read nothing from it and are
-not refused once the v1 state is gone. A session whose transcript raises
+lifts every hold, forgets every held session and records the retirement in
+one transaction (creating the store if it must), so later passes read nothing
+from the cockpit and are not refused once the v1 state is gone. A session whose transcript raises
 while it is read, or a row whose timestamp is out of range, is reported and
 the pass goes on. `python -m subfleet.importer --legacy-cockpit [--dry-run]`
 runs the import alone (`docs/migration.md`, "The legacy cockpit, milestone 9").

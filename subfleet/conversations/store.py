@@ -411,14 +411,23 @@ class ConversationStore:
             tx.executemany("INSERT INTO legacy_sessions(session_key,reason,recorded_at) VALUES (?,?,?)",
                            [(key, reason, now) for key, reason in sorted(holds.items())])
 
-    def retire_legacy(self) -> str:
-        """Record that the legacy cockpit will never run again (C-30.4); later
-        passes read nothing from it. Returns when it was first recorded."""
+    def retire_legacy(self) -> list[dict]:
+        """The legacy cockpit will never run again (C-30.4): in one transaction,
+        lift every legacy hold, forget every held session and record the
+        retirement, so later passes read nothing from it and a run that dies
+        midway changes nothing. Returns the conversations it released, as they
+        were."""
+        now = utcnow()
         with self.transaction() as tx:
-            row = tx.execute("SELECT retired_at FROM legacy_retirement").fetchone()
-            if row is None:
-                tx.execute("INSERT INTO legacy_retirement(retired_at) VALUES (?)", (utcnow(),))
-        return self.legacy_retired_at()
+            released = [dict(row) for row in tx.execute(
+                "SELECT * FROM conversations WHERE legacy_hold IS NOT NULL ORDER BY created_at, conversation_id")]
+            tx.execute("UPDATE conversations SET legacy_hold=NULL, updated_at=? WHERE legacy_hold IS NOT NULL", (now,))
+            for row in released:
+                self._change(tx, row["conversation_id"], None, None)
+            tx.execute("DELETE FROM legacy_sessions")
+            if tx.execute("SELECT 1 FROM legacy_retirement").fetchone() is None:
+                tx.execute("INSERT INTO legacy_retirement(retired_at) VALUES (?)", (now,))
+        return released
 
     def legacy_retired_at(self) -> str | None:
         row = self.one("SELECT retired_at FROM legacy_retirement")

@@ -128,7 +128,8 @@ _HOLD_TEXT = {
                             "that clears and holds no other job back (C-24.5)",
     "external-writer": "a Claude process outside Subfleet (pid {pids}) holds its session {native_session_id}; "
                        "the turn is placed once that process ends (C-26.3)",
-    "message-settled": "its message was withdrawn after the job was made; the job is cancelled, never run (C-24.7)",
+    "message-settled": "its message was withdrawn after the job was made; the job is cancelled while it has no "
+                       "attempt, never run (C-24.7)",
 }
 
 

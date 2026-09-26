@@ -822,8 +822,8 @@ def test_why_says_what_holds_a_turn():
     assert writer[1] == (f"Held: a Claude process outside Subfleet (pid 41, 42) holds its session {SESSION}; the "
                          "turn is placed once that process ends (C-26.3)")
     settled = why_queue({"job_id": "j", "state": "queued", "hold": {"reason": "message-settled", "state": "cancelled"}})
-    assert settled[1] == ("Held: its message was withdrawn after the job was made; the job is cancelled, never run "
-                          "(C-24.7)")
+    assert settled[1] == ("Held: its message was withdrawn after the job was made; the job is cancelled while it "
+                          "has no attempt, never run (C-24.7)")
 
 
 @pytest.mark.parametrize("op", ["message.cancel", "turn.interrupt"])
@@ -975,7 +975,8 @@ def test_admission_cancels_a_turn_job_whose_message_is_settled(core):
     assert daemon._holds[job["job_id"]]["reason"] == "message-settled"
 
 
-@pytest.mark.parametrize("manifest", ["[1, 2", '{"turn": [1, 2]}', '{"turn": "a string"}', "7"])
+@pytest.mark.parametrize("manifest", [None, "[1, 2", '{"turn": [1, 2]}', '{"turn": "a string"}', "7", '{"turn": {}}',
+                                      '{"turn": {"conversation_id": [1], "message_id": "m", "provider": "claude"}}'])
 def test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone(core, manifest):
     """C-6.12 (fourth review, finding 1): a turn job whose manifest cannot be read
     as one (not JSON, or no turn object) is held, and the pass goes on to place
@@ -985,7 +986,11 @@ def test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone(core, manifest
     submit(svc, world.conversation_id())
     svc._dispatch()
     job = daemon.store.one("SELECT * FROM jobs WHERE kind='turn'")
-    (world.root / "jobs" / job["job_id"] / "manifest.json").write_text(manifest, encoding="utf-8")
+    path = world.root / "jobs" / job["job_id"] / "manifest.json"
+    if manifest is None:
+        path.unlink()                                    # deleted from under the daemon
+    else:
+        path.write_text(manifest, encoding="utf-8")
     prompt = world.root / "detached.md"
     prompt.write_text("a detached job", encoding="utf-8")
     other = daemon.submit(protocol.SubmitArgs(request_id="detached-3", kind="dispatch", workdir=str(world.workspace),
@@ -1094,3 +1099,44 @@ def test_a_refused_cancel_leaves_no_stop_behind(core, monkeypatch):
         svc.op_message_cancel({"message_id": first}, None)
     assert refused.value.reason == "too-late"
     assert svc.store.message(first)["stop_requested_at"] is None
+
+
+def test_a_stop_is_never_lost_to_a_withdrawal_that_loses_its_race(core, tmp_path, monkeypatch):
+    """C-24.7 (fifth review, finding 2): a person's `turn.interrupt` of a message
+    waiting to be re-admitted records the stop; if the withdrawal then loses to
+    the daemon adopting the message, the stop stays, so the runner never writes
+    it. A cancel refused as too late never clears a stop it did not record."""
+    world, daemon = core
+    svc = daemon.conversations
+    cid = world.conversation_id()
+    first = submit(svc, cid)
+    svc.store.set_state(first, STARTING, expect=("queued",), job_id="job-0")
+    outcome(svc, tmp_path, first, cid, state=None, reason="provider-init-failed", user_frame_written=False)
+    real = svc._turn_job
+    moved = []
+
+    def adopted_meanwhile(message):
+        found = real(message)
+        if not moved:                                   # the daemon adopts it right after the check
+            moved.append(True)
+            svc.store.set_state(first, STARTING, expect=(WAITING,))
+        return found
+    monkeypatch.setattr(svc, "_turn_job", adopted_meanwhile)
+    receipt = svc.op_turn_interrupt({"message_id": first}, None)
+    monkeypatch.setattr(svc, "_turn_job", real)
+    assert receipt["state"] == STARTING and receipt["stop_requested"] is True
+
+    second = submit(svc, cid, after=first)
+    interrupted = []
+
+    def interrupted_meanwhile(message):
+        found = real(message)
+        if not interrupted:                             # a stop lands, and the message moves on, meanwhile
+            interrupted.append(True)
+            svc.store.update_message(second, stop_requested_at="2026-09-26T00:00:00.000Z")
+            svc.store.set_state(second, STARTING, expect=("queued",))
+        return found
+    monkeypatch.setattr(svc, "_turn_job", interrupted_meanwhile)
+    with pytest.raises(ConversationError):
+        svc.op_message_cancel({"message_id": second}, None)
+    assert svc.store.message(second)["stop_requested_at"] == "2026-09-26T00:00:00.000Z"

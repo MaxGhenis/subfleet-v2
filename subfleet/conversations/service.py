@@ -72,6 +72,9 @@ class ConversationService:
         self._lock = threading.RLock()
         self._poll_slots: dict[tuple, threading.Event] = {}
         self._registry: tuple[float, list, dict[int, bool]] | None = None
+        # A person's cancel and stop of messages never interleave: each records,
+        # and may clear, a stop the other must not lose (C-24.7).
+        self._stops = threading.Lock()
         self.log = daemon.log
 
     def close(self) -> None:
@@ -437,6 +440,10 @@ class ConversationService:
 
     def op_message_cancel(self, args, peer) -> dict:
         """IR-2, IR-7: withdraw only before the provider could have seen it."""
+        with self._stops:
+            return self._cancel(args)
+
+    def _cancel(self, args) -> dict:
         message_id = canonical_uuid(args["message_id"])
         try:
             message = self.store.message(message_id)
@@ -446,7 +453,7 @@ class ConversationService:
         if message["state"] == QUEUED and not self._turn_job(message):
             # The dispatcher may make its turn job meanwhile: the stop is recorded
             # first, so a runner for that job never writes the message (IR-2).
-            recorded = self._record_stop(message)
+            recorded = self._record_stop(message_id)
             if self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED,)):
                 self._cancel_late_job(message_id)
                 return self._receipt(self.store.message(message_id))
@@ -457,20 +464,26 @@ class ConversationService:
             if job and self._cancel_job_without_attempt(job["job_id"]):
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(QUEUED, WAITING, STARTING))
                 return self._receipt(self.store.message(message_id))
-        if recorded:
-            # Refused: a stop this cancel recorded must not outlive it (a later
-            # restart would read it and stop a turn the person was told runs on).
-            self.store.query("UPDATE messages SET stop_requested_at=NULL WHERE message_id=? AND stop_requested_at=?",
-                             (message_id, recorded))
+        # Refused: a stop this cancel recorded must not outlive it (a later
+        # restart would read it and stop a turn the person was told runs on).
+        self._clear_stop(message_id, recorded)
         raise ConversationError("too-late", "the provider may already have this message", fix="use turn.interrupt")
 
-    def _record_stop(self, message: dict) -> str | None:
-        """Record a person's stop on a message that has none; the value recorded, else None."""
-        if message.get("stop_requested_at"):
-            return None
+    def _record_stop(self, message_id: str) -> str | None:
+        """Record a person's stop on a message that has none, in the store itself
+        (never from a copy read earlier); the value recorded, else None."""
         at = utcnow()
-        self.store.update_message(message["message_id"], stop_requested_at=at)
-        return at
+        with self.store.transaction() as tx:
+            changed = tx.execute("UPDATE messages SET stop_requested_at=?, updated_at=? WHERE message_id=? "
+                                 "AND stop_requested_at IS NULL", (at, at, message_id)).rowcount
+        return at if changed else None
+
+    def _clear_stop(self, message_id: str, recorded: str | None) -> None:
+        """Clear the stop `_record_stop` recorded, and no other."""
+        if recorded:
+            with self.store.transaction() as tx:
+                tx.execute("UPDATE messages SET stop_requested_at=NULL WHERE message_id=? AND stop_requested_at=?",
+                           (message_id, recorded))
 
     def _cancel_late_job(self, message_id: str) -> None:
         """Cancel a turn job the dispatcher made for a message just withdrawn, while it has no attempt."""
@@ -492,11 +505,9 @@ class ConversationService:
         cancelled is cancelled too while it has no attempt; admission cancels
         any that is left (`admission_hold`)."""
         message_id = message["message_id"]
-        recorded = self._record_stop(message)
+        recorded = self._record_stop(message_id)
         if not self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,)):
-            if recorded:
-                self.store.query("UPDATE messages SET stop_requested_at=NULL WHERE message_id=? "
-                                 "AND stop_requested_at=?", (message_id, recorded))
+            self._clear_stop(message_id, recorded)
             return False
         self._cancel_late_job(message_id)
         return True
@@ -528,6 +539,10 @@ class ConversationService:
         return bool(changed)
 
     def op_turn_interrupt(self, args, peer) -> dict:
+        with self._stops:
+            return self._interrupt(args)
+
+    def _interrupt(self, args) -> dict:
         message_id = canonical_uuid(args["message_id"])
         message = self.store.message(message_id)
         if message["state"] not in (STARTING, RUNNING, APPROVAL_NEEDED, WAITING):
@@ -665,31 +680,28 @@ class ConversationService:
         """
         path = self.root / "jobs" / job["job_id"] / "manifest.json"
         try:
-            manifest = json.loads(path.read_bytes())
-        except FileNotFoundError:
-            return None                      # no turn block: its launch refuses it (`launch`)
-        except (OSError, ValueError) as exc:
+            manifest, error = json.loads(path.read_bytes()), None
+        except (OSError, ValueError) as exc:          # missing, unreadable, not JSON
             manifest, error = None, type(exc).__name__
-        else:
-            error = None
         turn = manifest.get(TURN_MANIFEST_KEY) if isinstance(manifest, dict) else None
-        if not isinstance(turn, dict):
-            # C-6.12: a turn job whose manifest cannot be read as one is this
-            # job's problem, held here, never the pass's (admission reads it again).
+        if not (isinstance(turn, dict) and isinstance(turn.get("conversation_id"), str)
+                and isinstance(turn.get("message_id"), str) and turn.get("provider") in ("claude", "codex")):
+            # C-6.12: a turn job whose manifest does not name its conversation,
+            # message and provider is this job's problem, held here, never the
+            # pass's: admission reads those fields again to reserve it.
             return {"reason": "conversation-blocked", "conversation_id": None,
                     "error_type": error or "manifest", "error": "its turn manifest cannot be read"}
-        conversation_id = turn.get("conversation_id")
-        message = (self.store.one("SELECT state FROM messages WHERE message_id=?", (turn["message_id"],))
-                   if isinstance(turn.get("message_id"), str) else None)
+        conversation_id = turn["conversation_id"]
+        message = self.store.one("SELECT state FROM messages WHERE message_id=?", (turn["message_id"],))
         if message and message["state"] in TERMINAL_STATES:
             # IR-2: its message was withdrawn (or settled) after the job was
             # made; the job is cancelled while it has no attempt, never run.
             self._cancel_job_without_attempt(job["job_id"])
             return {"reason": "message-settled", "conversation_id": conversation_id, "state": message["state"]}
-        hold = self.store.turn_hold(conversation_id) if conversation_id else None
+        hold = self.store.turn_hold(conversation_id)
         if hold:
             return {"reason": "conversation-blocked", "conversation_id": conversation_id, **hold}
-        if turn.get("provider") == "claude" and turn.get("native_session_id") and turn.get("message_id"):
+        if turn["provider"] == "claude" and isinstance(turn.get("native_session_id"), str):
             # C-26.3, D-17: a live Claude process outside Subfleet holding the
             # session (the Claude app, a terminal) is a wait, shown on the
             # message, not a refusal; it ends when that process does.

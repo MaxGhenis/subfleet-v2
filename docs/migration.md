@@ -128,7 +128,8 @@ uv run python -m subfleet.importer --legacy-cockpit --v1-state ~/chief-of-staff/
 `--claude-dir` names another `~/.claude` for the transcripts and its
 `sessions/` registry, `--json` prints the report. A `--v1-state` that holds
 none of the manifest's entries (missing, empty, another directory), or that is
-a v2 state root, is refused. Once the cockpit will never run again,
+a v2 state root, is refused, and so is a `--state-root` that looks like a v1
+state directory (the two swapped); a refused pass touches neither. Once the cockpit will never run again,
 `--legacy-cockpit --cockpit-retired` lifts every legacy hold without reading
 the v1 state and records the retirement, even before any conversation store
 exists; later passes, milestone passes included, then read nothing from the

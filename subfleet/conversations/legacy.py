@@ -442,13 +442,9 @@ def retire(store: ConversationStore) -> Result:
     retirement so no later pass reads the cockpit again: the operator says it
     will never run again (C-30.4)."""
     result = Result()
-    store.record_legacy_sessions({})
-    for row in store.query("SELECT * FROM conversations WHERE legacy_hold IS NOT NULL "
-                           "ORDER BY created_at, conversation_id"):
-        store.set_legacy_hold(row["conversation_id"], None)
+    for row in store.retire_legacy():                     # one transaction: all of it, or nothing
         key = f"{row['provider']}:{canonical_native(row['native_session_id'])}"
         result.add(**{**_conversation_item(store, row, key, "bound-session-released", None), "detail": RETIRED})
-    store.retire_legacy()          # last: a run that dies before this leaves nothing half-retired
     return result
 
 

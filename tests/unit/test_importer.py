@@ -2313,23 +2313,40 @@ def test_retirement_with_no_store_is_recorded_and_later_passes_read_nothing(v1):
 
 
 def test_a_retirement_that_dies_midway_retires_nothing(v1, monkeypatch):
-    """C-30.4 (fourth review, finding 5): the retirement is recorded last, so a
-    run that dies while lifting the holds leaves the cockpit read as before, and
-    the next pass still fences and releases."""
+    """C-30.4 (fourth and fifth reviews): lifting the holds, forgetting the held
+    sessions and recording the retirement are one transaction, so a run that
+    dies midway changes nothing, and the next pass still fences and releases."""
     cid = _bind(v1)
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "dispatched", "the cockpit again", at=50)])
     run_legacy(v1)
-    assert _hold_of(v1, cid)
-    real = ConversationStore.set_legacy_hold
+    held, recorded = _hold_of(v1, cid), _recorded(v1)
+    assert held and recorded
+    real = ConversationStore._change
 
-    def dying(self, conversation_id, reason):
+    def dying(self, tx, *args, **kwargs):
         raise OSError("the disk went away")
-    monkeypatch.setattr(ConversationStore, "set_legacy_hold", dying)
+    monkeypatch.setattr(ConversationStore, "_change", dying)
     with pytest.raises(OSError):
         import_legacy_cockpit(v1["root"], v1_state=v1["state"], cockpit_retired=True)
-    monkeypatch.setattr(ConversationStore, "set_legacy_hold", real)
+    monkeypatch.setattr(ConversationStore, "_change", real)
+    assert (_hold_of(v1, cid), _recorded(v1)) == (held, recorded)
+    assert conversations(v1["root"], "SELECT * FROM legacy_retirement") == []
     write_outbox(v1["state"], fixture_rows())                          # the cockpit's message settles
     report = run_legacy(v1)
     assert "cockpit-retired" not in report.stores["outbox"].reasons
     assert fences(report) == [bound(cid, "bound-session-released", None)]
+
+
+def test_swapped_roots_touch_neither_directory(v1):
+    """C-30.4 (fifth review, finding 1): `--state-root` and `--v1-state`
+    swapped are refused before the pass takes daemon.lock, so no lock file lands
+    in the v1 state (which would make it read as a v2 root from then on), and
+    a correct pass afterwards runs."""
+    v1["root"].mkdir(parents=True, exist_ok=True)
+    before = sorted(path.name for path in v1["state"].iterdir())
+    for argv in (["--state-root", str(v1["state"]), "--v1-state", str(v1["root"])],
+                 ["--state-root", str(v1["state"]), "--v1-state", str(v1["state"])]):
+        assert importer.main(["--legacy-cockpit", *argv, "--claude-dir", str(v1["claude"])]) == 7
+    assert sorted(path.name for path in v1["state"].iterdir()) == before
+    assert dispositions(run_legacy(v1))[LEGACY[0]] == "history"

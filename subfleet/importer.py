@@ -1737,6 +1737,11 @@ def _is_v1_state(v1_state: Path, state_root: Path | None = None) -> bool:
     return any((v1_state / name).exists() or (v1_state / name).is_symlink() for name in names)
 
 
+def _not_v1(v1_state: Path) -> str:
+    return (f"{v1_state} is not a v1 state directory; name it with --v1-state, or pass --cockpit-retired once "
+            "the legacy cockpit will never run again")
+
+
 def retire_legacy_cockpit(conversations: _Conversations, report: StoreReport) -> None:
     """`--cockpit-retired`: the operator says the legacy cockpit will never run
     again, so every legacy hold is lifted and no session stays recorded as held
@@ -2137,6 +2142,15 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     state_root = Path(state_root).expanduser()
     v1_state = Path(v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
+    v1_ok = _is_v1_state(v1_state, state_root)
+    if _is_v1_state(state_root):
+        # The daemon.lock this pass takes would make the v1 state read as a v2 root.
+        raise ImportRefused(f"{state_root} looks like a v1 state directory; name the v2 state root with "
+                            "--state-root")
+    if not (cockpit_retired or v1_ok or (state_root / "conversations.sqlite3").is_file()):
+        # Refused before anything is taken or opened: with no store, no
+        # retirement can have been recorded (C-30.4).
+        raise ImportRefused(_not_v1(v1_state))
     now = now or utc_now()
     report = ImportReport(str(state_root), str(v1_state), "", "", dry_run, LEGACY_MILESTONE, now)
     scratch_dir: str | None = None
@@ -2150,14 +2164,13 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     try:
         if cockpit_retired:
             retire_legacy_cockpit(conversations, report.store_report("outbox"))
-        elif _retired_at(conversations) or _is_v1_state(v1_state, state_root):
+        elif v1_ok or _retired_at(conversations):
             import_outbox(conversations, report.store_report("outbox"), v1_state=v1_state, projects=projects)
             import_cockpit_client(report.store_report("cockpit"), v1_state=v1_state, conversations=conversations)
         else:
             # A mistyped, swapped or moved --v1-state would otherwise read as a
             # cockpit that holds nothing and release every hold (C-30.4).
-            raise ImportRefused(f"{v1_state} is not a v1 state directory; name it with --v1-state, or pass "
-                                "--cockpit-retired once the legacy cockpit will never run again")
+            raise ImportRefused(_not_v1(v1_state))
     finally:
         conversations.close()
         if scratch_dir is not None:
