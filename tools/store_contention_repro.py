@@ -112,7 +112,7 @@ if os.environ.get("SFR_SAMPLE"):
 import contextlib
 from subfleet import protocol
 from subfleet.adapters.base import AdapterError
-admission = {"holds": [], "reserve_holds": [], "waits": [], "turns": {}}
+admission = {"holds": [], "reserve_holds": [], "hold_cpu": [], "reserve_hold_cpu": [], "waits": [], "turns": {}}
 local, measuring = threading.local(), threading.Event()
 lock = daemon.store._lock
 real_acquire, real_release = lock.acquire, lock.release
@@ -120,18 +120,23 @@ def acquire(blocking=True, timeout=-1):
     started = time.monotonic()
     ok = real_acquire(blocking, timeout)
     if ok and lock._depth == 1:
-        local.since = time.monotonic()
+        local.since, local.cpu = time.monotonic(), time.thread_time()
         if measuring.is_set():
             admission["waits"].append(local.since - started)
     return ok
 def release():
     outer, since = lock._depth == 1, getattr(local, "since", None)
+    cpu = time.thread_time() - getattr(local, "cpu", 0.0) if outer else 0.0
     real_release()
     if outer and since is not None and measuring.is_set() and getattr(local, "admitting", False):
+        # Wall time held, and the holder's own CPU time in it: at a low duty or a
+        # high load the first is mostly waiting for the CPU or the GIL.
         held = time.monotonic() - since
         admission["holds"].append(held)
+        admission["hold_cpu"].append(cpu)
         if getattr(local, "reserving", False):
             admission["reserve_holds"].append(held)
+            admission["reserve_hold_cpu"].append(cpu)
 lock.acquire, lock.release = acquire, release
 real_pass = daemon._admit_pass
 def admit_pass(*a, **k):
@@ -167,6 +172,14 @@ def boundary(name, job_id, attempt_id=None):
         # has no conversation for it, and no provider may be started for one.
         daemon.kill(protocol.KillArgs(job_id))
 daemon._boundary = boundary
+# `--prepare-s`: each detached job's workspace takes this long to prepare, as
+# git did on the live machine at load 110-170. A turn's is not slowed.
+real_workspace = daemon._workspace
+def workspace(job):
+    if job.get("kind") != "turn":
+        time.sleep(float(os.environ.get("SFR_PREPARE_S", "0")))
+    return real_workspace(job)
+daemon._workspace = workspace
 def no_turn_launch(*a, **k):
     raise AdapterError("store_contention_repro: turns are reserved, never launched", code=7)
 daemon.conversations.launch = no_turn_launch
@@ -237,6 +250,8 @@ class Rig:
         self.env["SFR_ADMISSION"] = str(self.root / "admission.json")
         if args.turns_every:
             self.env["SFR_TURNS_EVERY"] = str(args.turns_every)
+        if args.prepare_s:
+            self.env["SFR_PREPARE_S"] = str(args.prepare_s)
         if args.hold_s is not None:
             self.env.update(SFR_HOLD_S=str(args.hold_s), SFR_WAIT_S=str(args.hold_s), SFR_EVERY_S="0")
         self.python = args.python or sys.executable
@@ -388,13 +403,13 @@ class Rig:
 
     # --- the load -----------------------------------------------------------
 
-    def submit(self, session: str, delay_s: float) -> str | None:
+    def submit(self, session: str, delay_s: float, tier: str | None = None) -> str | None:
         prompt = self.root / f"prompt-{uuid.uuid4().hex}.md"
         prompt.write_text(json.dumps({"scenario": "ok", "delay_s": delay_s}))
         response = self.timed("submit", {
             "request_id": str(uuid.uuid4()), "kind": "dispatch", "workdir": str(self.root / "work"),
             "prompt_path": str(prompt), "sandbox": "read-only", "pinned_model": "astra",
-            "allow_tmp": True, "caller_session": session})
+            "allow_tmp": True, "caller_session": session, **({"tier": tier} if tier else {})})
         if response and response.get("ok"):
             return response["result"]["job_id"]
         return None
@@ -526,7 +541,7 @@ class Rig:
             # A detached backlog longer than the fleet can hold: admission
             # evaluates it on every pass that frees a lease (C-6.10).
             for i in range(a.backlog):
-                self.submit(f"backlog-{i % a.sessions}", a.backlog_s)
+                self.submit(f"backlog-{i % a.sessions}", a.backlog_s, a.backlog_tier)
             self.start_spinners()
             for i in range(a.sessions):
                 threads.append(threading.Thread(target=self.hook, args=(f"sess-{i}",), daemon=True))
@@ -583,6 +598,9 @@ class Rig:
         turns = [t for t in record["turns"].values() if t.get("measured")]
         placed = [t["reserved"] - t["queued"] for t in turns if "reserved" in t]
         return {"holds_s": stats(record["holds"]), "reserve_holds_s": stats(record["reserve_holds"]),
+                "hold_cpu_s": stats(record.get("hold_cpu", [])),
+                "reserve_hold_cpu_s": stats(record.get("reserve_hold_cpu", [])),
+                "hold_cpu_s_per_s": round(sum(record.get("hold_cpu", [])) / measured_s, 5),
                 "store_waits_s": stats(record["waits"]),
                 "holds_over_1s": sum(1 for held in record["holds"] if held > 1),
                 "held_s_per_s": round(sum(record["holds"]) / measured_s, 4),
@@ -661,6 +679,9 @@ def main() -> int:
     parser.add_argument("--backlog", type=int, default=0,
                         help="detached jobs submitted at the start, more than the fleet holds")
     parser.add_argument("--backlog-s", type=float, default=30.0, help="how long each backlog job runs")
+    parser.add_argument("--backlog-tier", help="the backlog jobs' tier (default: none, which is `standard`)")
+    parser.add_argument("--prepare-s", type=float, default=0,
+                        help="each detached job's workspace takes this long to prepare (git at high load)")
     parser.add_argument("--turns-every", type=float, default=0,
                         help="submit a conversation turn job every this many seconds (0: none); "
                              "each is measured from queued to reserved and never launched")
