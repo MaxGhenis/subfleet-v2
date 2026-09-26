@@ -213,11 +213,14 @@ TERM_GRACE_S = 15
 # census; neither widens what counts as contained.
 KILL_SETTLE_S = 3
 EXIT_SETTLE_S = 3
-# C-5.8a: from the moment the daemon starts stopping, its process ends within
-# this long. It is under launchd's default ExitTimeOut (20 s), so a stop that
-# cannot drain leaves the daemon's own stack dump in daemon.log, not only a
-# SIGKILL from launchd.
-STOP_GRACE_S = 15
+# C-5.8a: a stopping daemon that has not ended this long after its stop began
+# dumps every thread's stack and ends. Longer than probe containment during a
+# stop (TERM_GRACE_S, then SIGKILL and KILL_SETTLE_S), so that finishes first.
+STOP_GRACE_S = 30
+# C-5.8a: how much longer launchd (the plist's ExitTimeOut) and `subfleet daemon
+# stop` wait before SIGKILL: time for the dump, and the backstop for a stop that
+# could not arm because a thread held the GIL through the signal.
+STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300

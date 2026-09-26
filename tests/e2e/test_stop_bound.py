@@ -25,7 +25,7 @@ SLACK_S = 8.0
 def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     """C-5.8a, C-5.8, C-4.2, C-15.1: SIGTERM with a worker held forever.
 
-    The process ends within its grace, exit 1, with the held worker's stack in
+    The process is ended at its grace, exit 1, with the held worker's stack in
     the log. The lock is free, the guardian was not signalled, and the next
     daemon adopts the attempt and accepts it once.
     """
@@ -55,7 +55,7 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     old.send_signal(signal.SIGTERM)
     # Single writer (C-5.8): while the old daemon is still stopping, its lock
     # is still held; only the end of the process releases it.
-    e2e.until(lambda: "stopping: this process ends within" in
+    e2e.until(lambda: "stopping: if this process is still running in" in
               (e2e.root / "daemon.log").read_text())
     fd = os.open(e2e.root / "daemon.lock", os.O_RDWR)
     try:
@@ -81,7 +81,8 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     assert GRACE_S <= elapsed <= GRACE_S + SLACK_S, elapsed
     assert old.returncode == 1
     log = (e2e.root / "daemon.log").read_text()
-    assert f"stopping: this process ends within {GRACE_S:g} s" in log
+    assert (f"stopping: if this process is still running in {GRACE_S:g} s, "
+            "every thread's stack follows and it exits 1") in log
     dump = log[log.index("Timeout ("):]
     # The dump names the thread that would not return: the held worker, in
     # the harness's hold, under the daemon's boundary.

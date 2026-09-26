@@ -1,4 +1,4 @@
-"""C-5.8a: a stopping daemon's process ends within its grace, whatever is stuck.
+"""C-5.8a: a stopping daemon's process is ended at its grace, whatever is stuck.
 
 On 2026-09-25 pid 93697 kept `daemon.lock` with its socket shut, because
 `close()` waited without a deadline for pool threads parked on a lock
@@ -7,10 +7,12 @@ Each case runs the real `watch_stop` in a child process, since the bound ends
 the process it runs in.
 
 Invariants, for every way a stop can fail to finish (`STUCK`):
-- bounded: the process ends no earlier than the grace after the stop, and
-  within the grace plus scheduling slack;
-- named: `daemon.log` gets the stopping line, then every thread's stack,
+- bounded: the process ends no earlier than the grace after the stop was
+  armed, and no later than the grace plus scheduling slack;
+- named: `daemon.log` gets one stopping line, then every thread's stack,
   including the stuck thread's own frame;
+- robust: if faulthandler cannot arm, a plain timer still ends the process
+  at the grace, and `close()` still drains and unlocks;
 - the timer is armed only by a stop. A process that is never stopped is
   never ended, and a stop that finishes in time exits with its own status.
 """
@@ -45,6 +47,13 @@ from subfleet.daemon import watch_stop
 kind, grace, log, delay = sys.argv[1], float(sys.argv[2]), Path(sys.argv[3]), float(sys.argv[4])
 stopping = threading.Event()
 arm = watch_stop(stopping, grace, log)
+if kind == "arm-fails":
+    import faulthandler
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError("unable to start watchdog thread")
+
+    faulthandler.dump_traceback_later = refuse
 
 
 def report(**fields):
@@ -98,7 +107,7 @@ if kind == "clean":
     sys.exit(0)
 
 held = threading.Lock()
-if kind in ("lock", "descriptors", "set-only"):
+if kind in ("lock", "descriptors", "set-only", "arm-fails"):
     held.acquire()                     # and never released
     worker = threading.Thread(target=stuck_behind_lock, args=(held,), name="subfleet-api_11")
 elif kind == "gil":
@@ -150,10 +159,16 @@ def run_child(tmp_path: Path, kind: str, grace: float, delay: float = 0.0,
     return proc.returncode, lines, ended - stopped, text
 
 
+def stopping_line(grace: float) -> str:
+    return f"stopping: if this process is still running in {grace:g} s, "
+
+
 def assert_bounded(rc: int, elapsed: float, text: str, grace: float, frame: str) -> None:
     assert rc == 1, text
     assert grace - 0.05 <= elapsed <= grace + SLACK_S, (elapsed, text)
-    assert f"stopping: this process ends within {grace:g} s" in text
+    # The stop path and the watching thread both call `arm`; one line, one timer.
+    assert text.count("stopping:") == 1, text
+    assert stopping_line(grace) + "every thread's stack follows and it exits 1" in text
     assert text.index("stopping:") < text.index("Timeout (")
     assert f" in {frame}\n" in text, text
 
@@ -185,7 +200,18 @@ def test_c5_8a_a_stop_that_finishes_in_time_exits_with_its_own_status(tmp_path):
     rc, _lines, elapsed, text = run_child(tmp_path, "clean", grace=2.0)
     assert rc == 0
     assert elapsed < 2.0
-    assert "stopping: this process ends within 2 s" in text
+    assert stopping_line(2.0) in text
+    assert "Timeout (" not in text
+
+
+def test_c5_8a_a_stop_still_ends_when_faulthandler_cannot_arm(tmp_path):
+    """C-5.8a: faulthandler failing to start its watchdog does not disable the
+    bound; a plain timer ends the process at the same moment, without a dump."""
+    rc, _lines, elapsed, text = run_child(tmp_path, "arm-fails", grace=1.0)
+    assert rc == 1, text
+    assert 1.0 - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
+    assert text.count("stopping:") == 1, text
+    assert stopping_line(1.0) + "it exits 1 with no stack dump (faulthandler: RuntimeError)" in text
     assert "Timeout (" not in text
 
 
@@ -254,10 +280,36 @@ def test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything(tmp_pat
     assert calls == [(threading.current_thread(), False), "timers.stop"]
 
 
-def test_c5_8a_the_default_grace_is_under_launchds_exit_timeout():
-    """C-5.8a: the daemon's own dump comes before launchd's SIGKILL (20 s)."""
-    from subfleet.contracts import STOP_GRACE_S
+def test_c5_8a_a_failed_arm_never_stops_close_from_draining_and_unlocking(tmp_path):
+    """C-5.8a: whatever `on_stop` does, `close()` still sets `stopping`, drains
+    and releases `daemon.lock`."""
+    import fcntl
+    import os
+    from subfleet.daemon import Daemon
+    daemon = Daemon(tmp_path / "root", desktop_prober=lambda: None)
+
+    def refuse():
+        raise RuntimeError("unable to start watchdog thread")
+
+    daemon.on_stop = refuse
+    daemon.close()
+    assert daemon.stopping.is_set()
+    fd = os.open(tmp_path / "root" / "daemon.lock", os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)    # free: close() finished
+    finally:
+        os.close(fd)
+
+
+def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_the_grace():
+    """C-5.8a: a stop's probe containment (SIGTERM, TERM_GRACE_S, SIGKILL, settle)
+    finishes before the bound; launchd and `daemon stop` wait past the bound
+    before their own SIGKILL, so the daemon's dump comes first."""
     import inspect
-    assert 0 < STOP_GRACE_S < 20
+    from subfleet import cli
+    from subfleet.contracts import KILL_SETTLE_S, STOP_BACKSTOP_S, STOP_GRACE_S, TERM_GRACE_S
+    assert TERM_GRACE_S + KILL_SETTLE_S + 5 <= STOP_GRACE_S
+    assert STOP_BACKSTOP_S >= 5
+    assert cli.DAEMON_STOP_WAIT_S == STOP_GRACE_S + STOP_BACKSTOP_S
     default = inspect.signature(daemon_module.Daemon).parameters["stop_grace_s"].default
     assert default == STOP_GRACE_S

@@ -1,12 +1,13 @@
 # The daemon that kept its lock after it stopped serving, 2026-09-25
 
 From at least 19:15Z until a restart at 19:26Z on 2026-09-25, every client of
-the live daemon was refused, and no replacement daemon could start. The daemon, pid 93697, had
-begun to stop. It had shut its listening socket, but it held `daemon.lock`
-while it waited, with no deadline, for threads that never finished. C-5.8a
-bounds that wait. The process now ends within 15 s of the start of any stop.
-It dumps every thread's stack before it ends, so the next occurrence names the
-stuck thread.
+the live daemon was refused, and no replacement daemon could start. The daemon,
+pid 93697, had begun to stop. It had shut its listening socket, but it held
+`daemon.lock` while it waited, with no deadline, for threads that never
+finished. C-5.8a bounds that wait. A stop that has not finished 30 s after it
+was armed ends the process. Before it ends, it dumps every thread's stack, so
+the next occurrence names the stuck thread. launchd and `subfleet daemon stop`
+stand behind it with a SIGKILL at 40 s.
 
 ## What was seen
 
@@ -64,18 +65,27 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
 
 ## The fix: C-5.8a
 
-- **`watch_stop`.** `main` calls it once. It opens a descriptor on `daemon.log` at start, because a daemon stopping after running out of descriptors could not open one later. It returns `arm`. `arm` starts `faulthandler.dump_traceback_later(stop_grace_s, exit=True)`, then writes one `stopping:` line.
-- **Who arms.** Whoever begins the stop arms on its own thread, before `stopping` is set:
-  - the SIGTERM and SIGINT handler;
+- **`watch_stop`.** `main` calls it once. It opens a descriptor on `daemon.log` at start, because a daemon stopping after running out of descriptors could not open one later. It returns `arm`. `arm` starts `faulthandler.dump_traceback_later(stop_grace_s, exit=True)` and writes one `stopping:` line. If faulthandler cannot start its timer, a plain timer thread ends the process at the same moment, with no dump. Only the first successful call arms, and `arm` never raises. `close()` goes on draining even if arming fails.
+- **Who arms.** The thread that begins the stop arms, before `stopping` is set:
   - `close()`, through `Daemon.on_stop`;
-  - `main`, once `serve_forever` ends for any reason.
+  - `main`, once `serve_forever` ends for any reason;
+  - the SIGTERM and SIGINT handler.
 
-  A watching thread also arms when anything else sets `stopping`, and only the first call arms. A daemon built in a test process has no `on_stop` and ends nothing.
-- **Why a C timer.** faulthandler's timer runs in C, so once armed it fires even while another thread holds the GIL. A watchdog written in Python would need the GIL to run. Arming on the stopping thread means no other thread has to be scheduled first. A test caught the first version of this fix, which armed from a watching thread, never firing behind a thread that took the GIL right after the stop.
+  A watching thread also arms when anything else sets `stopping`. A daemon built in a test process has no `on_stop` and ends nothing.
+- **Why a C timer.** faulthandler's timer runs in C, so once armed it fires even while another thread holds the GIL, which a watchdog written in Python could not do. `close()` and the end of serving arm at once, because they are already running Python. A signal handler runs only when the main thread next holds the GIL. So a thread that keeps the GIL through the signal delays arming until it lets go, and never arms if it never lets go.
+- **The backstops.** A signal that never gets handled, and a timer that never fires, are covered by launchd and the CLI:
+  - **launchd.** With no `ExitTimeOut` in the plist, `launchctl print` reports an exit timeout of 5 s. That SIGKILLed a launchd stop before any dump. `daemon install` now writes `ExitTimeOut` as `stop_grace_s` + 10 s, which is 40 s. The new value takes effect when the plist is rewritten.
+  - **`subfleet daemon stop`.** It waited 15 s flat, so it reported failure in exactly the case the bound ends. It now waits 40 s. If the process it signalled is still running, it verifies the identity again (C-5.4) and sends SIGKILL.
 - **What firing does.** It writes every thread's Python stack to `daemon.log`, then calls `_exit(1)`. The kernel releases the flock, and launchd's `KeepAlive` starts a fresh daemon.
-- **Guardians are untouched.** They are session leaders of their own process groups, so ending the daemon signals none of them. The next daemon adopts their running attempts (C-4.2), as after a SIGKILL.
-- **The grace.** `stop_grace_s` is 15 s, under launchd's default 20 s `ExitTimeOut`, so on a slow `launchctl` stop the daemon's own dump comes before launchd's SIGKILL.
+- **Guardians are untouched.** A guardian calls `os.setsid()` (`guardian.py`), so it leads its own session and process group, and ending the daemon signals none of them. The next daemon adopts their running attempts (C-4.2), as after a SIGKILL.
+- **The grace is 30 s.** That outlasts probe containment during a stop. A stop ends probe waits, and containment sends SIGTERM, waits `term_grace_s` (15 s), then sends SIGKILL and settles for `kill_settle_s` (3 s). With a 15 s bound, containment's SIGKILL could never run.
 - **One writer is kept.** `close()` still releases the lock only after every pool has drained. The bound never releases it early, it only ends the process.
+- **What the bound can cut.** It can end a stop that is slow but healthy, and that includes the session mirror's flag publish. Once that publish starts, it does not check for cancellation, and it is not crash-safe (`2026-09-25-mirror-consistency.md`, open items). Before this change:
+  - a stop that did not come from launchd waited for the publish without a deadline;
+  - a launchd stop cut it at 5 s;
+  - a crash, an OOM kill or an operator's SIGKILL cut it at any moment.
+
+  Now every stop gets 30 s. Making the publish crash-safe is the mirror's own open item.
 
 ## Tests
 
@@ -92,21 +102,52 @@ With `main`'s arming removed, the test fails with "the stopping daemon still hol
 `tests/unit/test_stop_watchdog.py` runs the real `watch_stop` in child processes. It covers four stuck shapes:
 
 - threads parked on a lock whose holder never lets go, which is 93697's shape;
-- a thread that holds the GIL in a C loop;
+- a thread that holds the GIL in a C loop, started after the stop was armed;
 - interpreter shutdown joining a thread that never ends;
 - a stop that follows descriptor exhaustion, where EMFILE is confirmed first.
 
-It also covers `stopping` set by something other than the daemon's own stop paths. The tests are exhaustive over those shapes, and a Hypothesis property varies the grace and the moment of the stop. The invariants are:
+It also covers `stopping` set by something other than the daemon's own stop paths, and faulthandler failing to start its timer. The tests are exhaustive over those shapes, and a Hypothesis property varies the grace and the moment of the stop. The invariants are:
 
-- the process ends no earlier than the grace and within the grace plus 5 s;
-- the `stopping:` line precedes a dump that names the stuck frame;
+- the process ends no earlier than the grace and no later than the grace plus 5 s;
+- one `stopping:` line precedes a dump that names the stuck frame;
 - a stop that finishes in time exits with its own status;
 - a daemon that is never stopped is never ended.
 
-Two more tests pin the wiring:
+Further tests pin the rest:
 
-- `main` arms with the daemon's own grace, from the signal handler and at the end of serving, even when `serve_forever` raises.
-- `close()` arms first, on its own thread, before `stopping` is set and before it waits on anything.
+- **Wiring.** `main` arms with the daemon's own grace, from the signal handler and at the end of serving, even when `serve_forever` raises. `close()` arms first, on its own thread, before it waits on anything, and still drains and unlocks when arming raises.
+- **Ordering.** The grace outlasts probe containment, and launchd's `ExitTimeOut` and `daemon stop`'s wait outlast the grace.
+- **`daemon stop` against real stub processes.** One ends itself late, like a daemon at its bound, and is reported stopped, not failed, and never killed. One ignores SIGTERM, like a daemon whose handler never ran, and gets SIGKILL. An identity that can no longer be verified is never killed.
+
+Each of 12 mutations was caught by at least one of these tests. The mutations were:
+
+- skip the arm in `close()`;
+- set `stopping` before arming;
+- drop the watching thread;
+- drop the arm when serving ends;
+- open the log lazily;
+- `exit=False`;
+- drop the plain-timer fallback;
+- let an arming failure abort `close()`;
+- a flat 15 s wait in `daemon stop`;
+- no SIGKILL escalation;
+- no `ExitTimeOut`;
+- a 15 s grace.
+
+## Review
+
+Two independent reviewers finished before a usage limit stopped the rest; the review is not complete.
+
+- **Concurrency reviewer.** It showed with probes that:
+  - `daemon stop` reported failure whenever the bound was what ended the daemon;
+  - a SIGTERM that arrives while a thread holds the GIL arms nothing, so the first draft's claim that arming "never waits on a thread that holds the GIL" was false for signals;
+  - a failure inside faulthandler could disable the bound and abort `close()`.
+- **Safety reviewer.** It found that:
+  - launchd's effective exit timeout here is 5 s, not the 20 s the first draft assumed;
+  - probe containment's SIGKILL could never run under a 15 s bound;
+  - the bound can cut the mirror's publish.
+
+Every item above was fixed or documented in this revision.
 
 ## Restoring service
 

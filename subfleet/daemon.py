@@ -3508,7 +3508,10 @@ class Daemon:
             return
         self._closed = True
         if self.on_stop:
-            self.on_stop()            # C-5.8a, before anything can wait
+            try:
+                self.on_stop()        # C-5.8a, before anything can wait
+            except Exception as exc:  # noqa: BLE001 - the drain below must still run
+                self.log.error("stop bound not armed: %s", type(exc).__name__)
         self.stopping.set()
         self.timers.cancel.set()
         self._notify()
@@ -3547,35 +3550,57 @@ def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Cal
     daemon adopts the attempts that are still running (C-4.2), as it does after
     a SIGKILL.
 
-    Returns `arm`, which starts the bound. Whoever begins the stop calls it on
-    its own thread, before it sets `stopping`: the signal handler, `close()`
-    through `Daemon.on_stop`, and `main` once serving ends. So arming never
-    waits for another thread to be scheduled, which a thread holding the GIL
-    could prevent. A thread started here also arms when `stopping` is set by
-    anything else; it needs the GIL once to do so. Only the first call arms.
+    Returns `arm`, which starts the bound. The daemon's stop paths call it on
+    the thread that begins the stop, before `stopping` is set: `close()` through
+    `Daemon.on_stop`, `main` once serving ends, and the SIGTERM and SIGINT
+    handler. The first two are already running Python, so they arm at once and
+    no other thread has to be scheduled. A signal handler runs only when the
+    main thread next holds the GIL, so a thread that keeps the GIL through the
+    signal delays arming until it lets go. launchd's `ExitTimeOut` and
+    `subfleet daemon stop` end such a process `STOP_BACKSTOP_S` after the grace.
+    A thread started here also arms when anything else sets `stopping`. Only
+    the first successful call arms, and `arm` never raises.
 
     The timer is faulthandler's, which runs in C, so once armed it fires even
     while another thread holds the GIL. When it fires it writes every thread's
     Python stack to `daemon.log`, naming the stuck thread, then calls
-    `_exit(1)`. The descriptor is opened here, at start, because a daemon
-    stopping after it ran out of descriptors could not open one then; it stays
-    open for the life of the process. A stop that finishes in time ends the
-    process first, and interpreter shutdown cancels the timer.
+    `_exit(1)`. If faulthandler cannot start its timer, a plain timer thread
+    ends the process at the same moment, without a dump. The descriptor is
+    opened here, at start, because a daemon stopping after it ran out of
+    descriptors could not open one then; it stays open for the life of the
+    process. A stop that finishes in time ends the process first, and
+    interpreter shutdown cancels the timer.
     """
     fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
-    once = threading.Lock()   # taken by the first arm, never released
+    busy = threading.Lock()
+    armed = False
 
     def arm() -> None:
-        # Non-blocking: a signal handler may run this on a thread already inside it.
-        if not once.acquire(blocking=False):
+        nonlocal armed
+        # Non-blocking: a signal handler may run this on a thread already
+        # inside it, and that call finishes the job.
+        if not busy.acquire(blocking=False):
             return
-        # The timer first: the write below gives up the GIL, and a line that
-        # cannot be written must not undo a stop (it may run in a signal handler).
-        faulthandler.dump_traceback_later(grace_s, exit=True, file=fd)
-        with contextlib.suppress(OSError):
-            os.write(fd, (f"{utcnow()} stopping: this process ends within {grace_s:g} s; if it "
-                          "is still stopping then, every thread's stack follows and it exits 1 "
-                          "(C-5.8a)\n").encode())
+        try:
+            if armed:
+                return
+            # The timer first: the write below gives up the GIL.
+            try:
+                faulthandler.dump_traceback_later(grace_s, exit=True, file=fd)
+                then = "every thread's stack follows and it exits 1"
+            except Exception as exc:  # noqa: BLE001 - e.g. no thread for the watchdog
+                backstop = threading.Timer(grace_s, os._exit, (1,))
+                backstop.daemon = True
+                backstop.start()
+                then = f"it exits 1 with no stack dump (faulthandler: {type(exc).__name__})"
+            armed = True
+            with contextlib.suppress(OSError):
+                os.write(fd, (f"{utcnow()} stopping: if this process is still running in "
+                              f"{grace_s:g} s, {then} (C-5.8a)\n").encode())
+        except Exception:  # noqa: BLE001 - never undo a stop; a later call tries again
+            pass
+        finally:
+            busy.release()
 
     def watch() -> None:
         stopping.wait()
