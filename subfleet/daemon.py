@@ -29,7 +29,7 @@ import threading
 import time
 import weakref
 from uuid import uuid4
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -72,6 +72,8 @@ ACCEPT_TRANSIENT = frozenset({errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.E
                               errno.ECONNABORTED, errno.EINTR, errno.EAGAIN})
 ACCEPT_RETRY_BASE_S = .05
 ACCEPT_RETRY_CEILING_S = 2.0
+#: C-16.7: how long `close()` waits, in all, for connection readers to return.
+READER_JOIN_S = 2.0
 
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
@@ -314,9 +316,9 @@ class Daemon:
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
-        # C-16.7: one reader per connection the daemon will hold, so an accepted
-        # connection never waits in this pool's queue with its descriptor open.
-        self.readers = ThreadPoolExecutor(max_workers=self.max_connections, thread_name_prefix="subfleet-socket")
+        # C-16.7: each connection the daemon holds has a reader thread of its own
+        # (`_hold_connection`), so none waits for one; `close()` joins them.
+        self._readers: set[threading.Thread] = set()
         self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
@@ -338,7 +340,7 @@ class Daemon:
                 handler.stream.close()
         steps = [closing_log]
         steps += [functools.partial(executor.shutdown, wait=False)
-                  for executor in (self.__dict__.get(name) for name in ("workers", "requests", "readers", "waiters"))
+                  for executor in (self.__dict__.get(name) for name in ("workers", "requests", "waiters"))
                   if executor is not None]
         if (store := self.__dict__.get("store")) is not None:
             steps.append(store.close)
@@ -3662,13 +3664,20 @@ class Daemon:
                 raise protocol.ProtocolError("request exceeds 1 MiB")
             return protocol.decode_request(line)
         except (protocol.ProtocolError, UnicodeDecodeError) as exc:
-            with write_lock:
-                conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
+            try:
+                with write_lock:
+                    conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
+            except OSError:
+                # C-16.7: as in `_respond`, nothing may follow a reply that failed part way.
+                with contextlib.suppress(OSError):
+                    conn.shutdown(socket.SHUT_RDWR)
+                raise
             return None
 
     def _connection(self, conn: socket.socket) -> None:
         write_lock = threading.Lock()
-        pending = []
+        pending: list[Future] = []
+        reads: set[Future] = set()              # pending futures whose request only reads
         framer = descriptors.LineFramer()
         replied = [0.0]                         # when a reply last finished (monotonic)
 
@@ -3684,6 +3693,7 @@ class Daemon:
                     chunk = conn.recv(65536)
                 except TimeoutError:
                     pending = [f for f in pending if not f.done()]
+                    reads.intersection_update(pending)
                     if pending or time.monotonic() - replied[0] < self.connection_idle_s:
                         continue           # a reply is being worked on, or went out recently
                     self._count_connection("idle_closed")
@@ -3696,9 +3706,21 @@ class Daemon:
                     # pools; ordinary read/cancel operations stay responsive.
                     pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
                     pending = [f for f in pending if not f.done()]
-                    pending.append(pool.submit(self._respond, conn, write_lock, req))
-                    pending[-1].add_done_callback(note_reply)
+                    reads.intersection_update(pending)
+                    future = pool.submit(self._respond, conn, write_lock, req)
+                    future.add_done_callback(note_reply)
+                    pending.append(future)
+                    if descriptors.read_only(req.op, req.args):
+                        reads.add(future)
                 if not chunk:
+                    if descriptors.client_gone(conn):
+                        # C-16.7: the client closed its whole socket. Its reads that
+                        # no thread has reached yet are cancelled now, so the
+                        # connection and its place under the cap go at once instead
+                        # of when a busy pool gets to them; its writes still run.
+                        for future in pending:
+                            if future in reads and future.cancel():
+                                self._count_connection("abandoned", "queued read")
                     break
         except OSError:
             pass
@@ -3715,12 +3737,13 @@ class Daemon:
             finish()
 
     def _hold_connection(self, conn: socket.socket) -> None:
-        """C-16.7: hold a new connection only while a reader is free for it.
+        """C-16.7: hold a new connection, with a reader of its own, up to the cap.
 
-        The reader pool has a thread for every connection the cap allows, so an
-        admitted connection is read at once. One over the cap is answered at
-        once and closed, instead of waiting in a queue with its descriptor open
-        while its client times out and retries.
+        Each admitted connection gets its own reader thread, so it is read at
+        once; a pool's idle-thread count is a heuristic and could leave one
+        queued behind the others (review of #43, F1). One over the cap is
+        answered at once and closed, instead of waiting with its descriptor
+        open while its client times out.
         """
         with self._connection_lock:
             held = len(self._connections)
@@ -3731,13 +3754,25 @@ class Daemon:
         if not admitted:
             self._refuse(conn, held)
             return
+        reader = threading.Thread(target=self._read_connection, args=(conn,),
+                                  name="subfleet-socket", daemon=True)
+        with self._connection_lock:
+            self._readers.add(reader)
         try:
-            self.readers.submit(self._connection, conn)
-        except RuntimeError as exc:               # no thread could start, or shutting down
+            reader.start()
+        except RuntimeError as exc:               # no thread could start
             with self._connection_lock:
+                self._readers.discard(reader)
                 self._connections.discard(conn)
             conn.close()
             self.log.error("client connection dropped: no reader (%s)", exc)
+
+    def _read_connection(self, conn: socket.socket) -> None:
+        try:
+            self._connection(conn)
+        finally:
+            with self._connection_lock:
+                self._readers.discard(threading.current_thread())
 
     def _refuse(self, conn: socket.socket, held: int) -> None:
         if self.stopping.is_set():
@@ -3747,10 +3782,9 @@ class Daemon:
         try:
             conn.setblocking(False)            # a fresh socket's buffer takes one line
             conn.send(protocol.encode(protocol.fail(
-                "", int(Exit.OPERATIONAL),
-                f"the daemon is busy: it holds {held} client connections, its limit; "
-                f"try again in a moment",
-                "`subfleet doctor` reports the daemon's open connections and descriptors")))
+                "", int(Exit.DAEMON_UNAVAILABLE),
+                f"the daemon is busy: it holds {held} client connections, its limit",
+                "try again shortly; `subfleet doctor --live` reports its connections and descriptors")))
         except OSError:
             pass
         finally:
@@ -3851,11 +3885,18 @@ class Daemon:
                 except OSError:
                     pass
         self.timers.stop()
-        for pool in (self.readers, self.requests, self.waiters, self.workers):
+        # C-16.7: a reader returns as soon as its socket is shut down. The wait
+        # is bounded all the same; the C-5.8a bound covers the rest of the stop.
+        with self._connection_lock:
+            readers = list(self._readers)
+        joined_by = time.monotonic() + READER_JOIN_S
+        for reader in readers:
+            reader.join(max(0.0, joined_by - time.monotonic()))
+        for pool in (self.requests, self.waiters, self.workers):
             pool.shutdown(wait=True, cancel_futures=True)
         with self._connection_lock:
-            # A connection whose reader or request was cancelled above has no
-            # one left to close it (C-16.7); an embedded daemon would keep it.
+            # A reader that has not returned by now closes nothing, so its
+            # connection is closed here (C-16.7); an embedded daemon would keep it.
             for conn in self._connections:
                 conn.close()
             self._connections.clear()

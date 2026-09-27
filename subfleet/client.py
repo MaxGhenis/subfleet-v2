@@ -33,6 +33,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import random
 import re
 import socket
 import subprocess
@@ -70,6 +71,8 @@ DEFAULT_STATE_ROOT = "~/.subfleet"
 SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESET,
                                    errno.ENOTCONN})
 START_DAEMON_FIX = "subfleet daemon start"
+#: C-16.7: the first pause before a busy answer's request is sent again.
+BUSY_PAUSE_S = .05
 
 
 def state_root(env: dict[str, str] | None = None) -> Path:
@@ -100,6 +103,19 @@ class DaemonError(Exception):
         super().__init__(message)
         self.code = code
         self.fix = fix
+
+    @property
+    def busy(self) -> bool:
+        """C-16.7: the daemon was at its connection cap and answered before
+        reading the request. It sends 69 over the socket for nothing else, so
+        the request did nothing and may be sent again as it is."""
+        return self.code == Exit.DAEMON_UNAVAILABLE
+
+
+def busy_pause(streak: int) -> float:
+    """C-16.7: the wait after the `streak`th busy answer in a row: 50 ms doubling
+    to 1 s, less up to half at random so refused clients do not return together."""
+    return min(1.0, BUSY_PAUSE_S * 2 ** min(streak - 1, 10)) * (1 - random.random() / 2)
 
 
 class ResponseLost(ProtocolError):
@@ -346,9 +362,30 @@ class Client:
 
         `DaemonUnavailable` before the request is sent, `ResponseLost` after it
         was sent and before a complete, decodable answer was read (C-16.3).
+        A busy answer (C-16.7) is not an outcome: the daemon read nothing, so the
+        same request is sent again after `busy_pause`, within the same deadline,
+        and only a daemon still busy when the deadline is spent is reported.
         """
-        self.check_available()
         deadline = self.timeout if timeout is None else timeout
+        give_up_at = time.monotonic() + deadline
+        streak = 0
+        while True:
+            try:
+                return self._call_once(op, args, request_id=request_id,
+                                       timeout=max(give_up_at - time.monotonic(), .05))
+            except DaemonError as exc:
+                if not exc.busy:
+                    raise
+                streak += 1
+                pause = busy_pause(streak)
+                if time.monotonic() + pause >= give_up_at:
+                    raise
+                time.sleep(pause)
+
+    def _call_once(self, op: str, args: dict[str, Any] | None, *,
+                   request_id: str, timeout: float) -> dict[str, Any]:
+        self.check_available()
+        deadline = timeout
         request = Request(op=op, args=args or {}, id=request_id)
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(deadline)

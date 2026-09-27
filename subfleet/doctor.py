@@ -502,7 +502,7 @@ def check_launchd_limit(plist: Path | None = None) -> dict[str, Any]:
     """
     from . import descriptors
     if plist is None:
-        from .cli import PLIST_PATH            # cli imports doctor at load: defer
+        from .cli import PLIST_PATH            # deferred: doctor does not load the CLI at import
         plist = Path(PLIST_PATH).expanduser()
     check = "launchd open-file limit"
     if not plist.exists():

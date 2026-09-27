@@ -134,6 +134,8 @@ def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
     # at a load average near 140 accepting all 40 took anywhere from 0.0 to 9.6 s
     # (2026-09-26, on this branch and on its head before main was merged in).
     until(lambda: counts(service)["connections"] >= 40, timeout=30)
+    # Every held connection has a reader thread of its own (review of #43, F1).
+    assert len(service._readers) == counts(service)["connections"] >= 40
     started = time.monotonic()
     assert call(service, "ping")["result"]["pong"] is True
     assert time.monotonic() - started < 2
@@ -152,15 +154,19 @@ def test_c16_7_over_the_cap_a_client_is_answered_busy_at_once_and_served_after(s
     started = time.monotonic()
     refused = call(service, "ping")
     assert time.monotonic() - started < 1
-    assert refused["ok"] is False and refused["error"]["code"] == 1
+    assert refused["ok"] is False and refused["error"]["code"] == 69
     assert "busy" in refused["error"]["message"] and "3 client connections" in refused["error"]["message"]
-    # The CLI's client reads the refusal even when its request met a closed socket.
-    client = Client(service.root, timeout=5)
+    assert "try again shortly" in refused["error"]["fix"]
+    # The CLI's client reads the refusal even when its request met a closed socket,
+    # sends the request again while the deadline lasts, and reports busy after it.
+    client = Client(service.root, timeout=.6)
     client._checked = True                  # the lock records this fixture's fake boot identity
+    started = time.monotonic()
     with pytest.raises(DaemonError) as caught:
         client.call("ping")
-    assert caught.value.code == 1 and "busy" in str(caught.value)
-    assert counts(service)["refused"] >= 2
+    assert caught.value.busy and caught.value.code == 69 and "busy" in str(caught.value)
+    assert .3 < time.monotonic() - started < 1.5
+    assert counts(service)["refused"] >= 3
     idle[0].close()
     until(lambda: counts(service)["connections"] == 2)
     assert call(service, "ping")["result"]["pong"] is True
@@ -189,11 +195,12 @@ def test_c16_7_the_client_reads_busy_whichever_errno_its_send_met(serve, monkeyp
         return real_sendall(sock, data, *flags)
     client = Client(service.root, timeout=5)
     client._checked = True                  # the lock records this fixture's fake boot identity
+    client.timeout = .2                     # the busy retries end with the deadline
     with monkeypatch.context() as patch:
         patch.setattr(socket.socket, "sendall", sendall)
         with pytest.raises(DaemonError) as caught:
             client.call("ping")
-    assert caught.value.code == 1 and "busy" in str(caught.value)
+    assert caught.value.busy and "busy" in str(caught.value)
     idle.close()
 
 
@@ -316,11 +323,60 @@ def test_c16_6_daemon_status_reports_the_descriptor_budget(serve):
 
 
 def test_c16_7_the_cap_follows_the_open_file_limit(serve, monkeypatch):
-    """C-16.7 with launchd's 256 the daemon holds at most 96 connections, and has a reader for each."""
+    """C-16.7 with launchd's 256 the daemon holds at most 96 connections."""
     monkeypatch.setattr(daemon_module.descriptors, "open_file_limits", lambda: (256, 1 << 63))
     service = serve()
     assert service.max_connections == 96
-    assert service.readers._max_workers == 96
+
+
+def test_c16_7_a_busy_answer_is_retried_until_the_daemon_has_room(serve):
+    """C-16.7 `busy` is not an outcome: the client sends the same request again,
+    and it is answered once a place under the cap comes free within the deadline."""
+    service = serve(max_connections=1)
+    idle = connect(service)
+    until(lambda: counts(service)["connections"] == 1)
+    threading.Timer(.4, idle.close).start()
+    client = Client(service.root, timeout=5)
+    client._checked = True
+    started = time.monotonic()
+    assert client.call("ping")["pong"] is True
+    assert .3 < time.monotonic() - started < 3
+    assert counts(service)["refused"] >= 1
+
+
+def test_c16_7_a_departed_clients_queued_reads_give_up_their_place_at_once(serve):
+    """C-16.7 when a client hangs up, its reads still waiting for a pool thread are
+    cancelled, so its connection and its place under the cap go now, not when a
+    stalled pool reaches them (review of #43, R1)."""
+    service = serve()
+    service.requests.shutdown(wait=True)
+    service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
+    release = threading.Event()
+    real = service.dispatch
+    ran = []
+
+    def dispatch(op, args, **kwargs):
+        ran.append(op)
+        if op == "readings":
+            release.wait(10)
+            return {"held": True}
+        return real(op, args, **kwargs)
+    service.dispatch = dispatch
+    blocker = connect(service)
+    send(blocker, "readings")
+    until(lambda: ran == ["readings"])
+    gone = [connect(service) for _ in range(3)]
+    for sock in gone:
+        send(sock, "daemon.status")
+    until(lambda: service.requests._work_queue.qsize() == 3)
+    for sock in gone:
+        sock.close()
+    # Freed while the only request thread is still stalled.
+    until(lambda: counts(service)["connections"] == 1, timeout=5)
+    assert counts(service)["abandoned"] == 3 and ran == ["readings"]
+    release.set()
+    assert reply(blocker)["result"] == {"held": True}
+    blocker.close()
 
 
 def test_c16_7_a_client_that_stops_reading_cannot_hold_a_thread_for_ever(serve):
@@ -347,20 +403,30 @@ def test_c16_7_a_client_that_stops_reading_cannot_hold_a_thread_for_ever(serve):
     stuck.close()
 
 
-def test_c16_7_shutdown_leaves_no_client_connection_open(serve):
-    """C-16.7 close() closes every connection it accepted, including any whose reader it cancelled."""
+def test_c16_7_shutdown_leaves_no_client_connection_open(serve, monkeypatch):
+    """C-16.7 close() waits a bounded time for readers, then closes every connection
+    it accepted, including those of a reader that has not returned."""
+    monkeypatch.setattr(daemon_module, "READER_JOIN_S", .5)
     service = serve()
-    service.readers.shutdown(wait=True)
-    # One reader, so nine connections wait in its queue and close() cancels them.
-    service.readers = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-socket")
+    wedged = threading.Event()
+    real = service._connection
+
+    def connection(conn):
+        if len(service._readers) > 5:           # the last five readers never return
+            wedged.wait(10)
+            return
+        real(conn)
+    service._connection = connection
     held = [connect(service) for _ in range(10)]
     until(lambda: counts(service)["connections"] == 10)
-    assert service.readers._work_queue.qsize() == 9
+    started = time.monotonic()
     service.stopping.set()
-    until(lambda: service._closed and not service._connections)
+    until(lambda: service._closed and not service._connections, timeout=5)
+    assert time.monotonic() - started < 3                # the join was bounded
     for sock in held:
         assert sock.recv(1) == b""                       # closed by the daemon, not left open
         sock.close()
+    wedged.set()
 
 
 def test_c16_7_idle_is_counted_from_the_last_reply_not_the_last_read(serve):

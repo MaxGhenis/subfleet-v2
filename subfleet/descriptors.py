@@ -30,7 +30,7 @@ from pathlib import Path
 #: `daemon install` writes into the launchd plist. The hard limit bounds it.
 OPEN_FILES_WANTED = 65536
 #: C-16.6: lower soft limits tried in turn when `setrlimit` refuses a higher one
-#: (EINVAL or EPERM; macOS documents both for RLIMIT_NOFILE).
+#: (its EINVAL, on a kernel that will not take the value).
 OPEN_FILES_FALLBACKS = (32768, 16384, 8192, 4096, 2048, 1024)
 
 #: C-16.7: descriptors kept back from client connections for the daemon's own
@@ -38,17 +38,19 @@ OPEN_FILES_FALLBACKS = (32768, 16384, 8192, 4096, 2048, 1024)
 #: listening socket, and the pipes and files of the children it starts.
 DESCRIPTOR_RESERVE = 64
 #: C-16.7: client connections held at once never exceed half of what the
-#: reserve leaves, and never this many; each one has a reader thread waiting.
+#: reserve leaves, and never this many; each one has a reader thread of its own.
 CONNECTIONS_CEILING = 512
 CONNECTIONS_FLOOR = 4
-#: C-16.7: a connection with no request outstanding that sends nothing for this
-#: long is closed. The CLI sends its request as soon as it connects.
+#: C-16.7: a connection with nothing outstanding that has neither sent a byte nor
+#: been sent a reply for this long is closed at its next read timeout (each read
+#: waits this long). The CLI sends its request as soon as it connects.
 CONNECTION_IDLE_S = 60.0
 #: C-16.1: one request line, newline included, is at most this many bytes.
 MAX_REQUEST_BYTES = 1024 * 1024
 
-#: C-16.7: ops whose only effect is their reply (and the observation caches a
-#: read refreshes in passing). One whose client has hung up is not run.
+#: C-16.7: ops a caller relies on only for their reply; they may record an
+#: observation in passing (the desktop identity). One whose client has hung up
+#: is not run.
 READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
                            "daemon.status", "notice.pending"})
 
@@ -65,9 +67,9 @@ def raise_open_file_limit(wanted: int = OPEN_FILES_WANTED) -> tuple[int, int, in
     The soft limit is never lowered and never set above the hard limit. When
     `setrlimit` refuses a value, the next lower of `OPEN_FILES_FALLBACKS` is
     tried; a limit that cannot be raised at all is left as it was. `after` is
-    what `getrlimit` reports once this returns. On macOS 26 a value above
-    `kern.maxfilesperproc` is accepted, and that ceiling is enforced instead
-    when descriptors are opened; 65536 is below it on the machines this runs on.
+    what `getrlimit` reports once this returns. On macOS 26.6 `setrlimit`
+    accepted values above `kern.maxfilesperproc` (245760 there; observed
+    2026-09-25), so the fallbacks are for other kernels; 65536 is below it.
     """
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     target = wanted if hard == resource.RLIM_INFINITY else min(wanted, hard)
@@ -79,7 +81,7 @@ def raise_open_file_limit(wanted: int = OPEN_FILES_WANTED) -> tuple[int, int, in
         try:
             resource.setrlimit(resource.RLIMIT_NOFILE, (candidate, hard))
         except (ValueError, OSError):
-            continue          # refused (EINVAL or EPERM); try lower
+            continue          # refused; try lower
         break
     return soft, resource.getrlimit(resource.RLIMIT_NOFILE)[0], hard
 
@@ -110,7 +112,7 @@ def open_descriptors() -> int | None:
 
 
 def read_only(op: str, args: dict) -> bool:
-    """C-16.7: whether a request's only effect is its reply."""
+    """C-16.7: whether a request is one a caller relies on only for its reply."""
     if op in READ_ONLY_OPS:
         return True
     if op == "ping":
