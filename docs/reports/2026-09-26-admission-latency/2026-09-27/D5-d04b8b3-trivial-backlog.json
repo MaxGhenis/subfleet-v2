@@ -1,0 +1,253 @@
+{
+  "code": "/Users/maxghenis/.subfleet/worktrees/20260927-005138-admission-latency-fix2-opus/.scratch/base-d04b8b3",
+  "root": "/private/tmp/sfr-alsgj3lm",
+  "diagnostics": true,
+  "daemon_cpu_cores": 0.113,
+  "admission": {
+    "holds_s": {
+      "n": 79,
+      "p50": 0.0017,
+      "p90": 0.0025,
+      "p99": 0.0045,
+      "max": 0.0045,
+      "mean": 0.0017
+    },
+    "reserve_holds_s": {
+      "n": 65,
+      "p50": 0.0018,
+      "p90": 0.0025,
+      "p99": 0.0045,
+      "max": 0.0045,
+      "mean": 0.0019
+    },
+    "hold_cpu_s": {
+      "n": 79,
+      "p50": 0.0016,
+      "p90": 0.0021,
+      "p99": 0.0031,
+      "max": 0.0031,
+      "mean": 0.0015
+    },
+    "reserve_hold_cpu_s": {
+      "n": 65,
+      "p50": 0.0017,
+      "p90": 0.0023,
+      "p99": 0.0031,
+      "max": 0.0031,
+      "mean": 0.0018
+    },
+    "hold_cpu_s_per_s": 0.00081,
+    "store_waits_s": {
+      "n": 354,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0129,
+      "max": 0.0704,
+      "mean": 0.0004
+    },
+    "holds_over_1s": 0,
+    "held_s_per_s": 0.0009,
+    "turn_queued_to_reserved_s": {
+      "n": 14,
+      "p50": 0.2758,
+      "p90": 0.9637,
+      "p99": 1.2,
+      "max": 1.2,
+      "mean": 0.4128
+    },
+    "turns_submitted": 14,
+    "turns_never_reserved": 0,
+    "turn_errors": []
+  },
+  "route_evaluations": {
+    "reused": 76,
+    "rechosen": 0,
+    "again": 0,
+    "moved": 0,
+    "old": 0,
+    "error": 0,
+    "deferred": 0,
+    "rejudged": 0
+  },
+  "args": {
+    "code": "/Users/maxghenis/.subfleet/worktrees/20260927-005138-admission-latency-fix2-opus/.scratch/base-d04b8b3",
+    "python": null,
+    "root": null,
+    "lanes": 20,
+    "history": 300,
+    "events": 200000,
+    "decisions": 3000,
+    "readings": 34000,
+    "probe_events": 6500,
+    "gate_events": 980,
+    "gate_pollers": 1,
+    "duty": 1.0,
+    "running": 6,
+    "sessions": 21,
+    "short_every": 8.0,
+    "short_s": 3.0,
+    "backlog": 48,
+    "backlog_s": 30.0,
+    "backlog_tier": "trivial",
+    "prepare_s": 2.0,
+    "turns_every": 10.0,
+    "spinners": 18,
+    "nice": 10,
+    "warmup": 20.0,
+    "duration": 150.0,
+    "dumps": true,
+    "sample": false,
+    "hold_s": null,
+    "report": "/Users/maxghenis/.subfleet/worktrees/20260927-005138-admission-latency-fix2-opus/.scratch/runs/D5-d04b8b3-trivial-backlog.json"
+  },
+  "store": {
+    "jobs": 300,
+    "attempts": 300,
+    "events": 207521,
+    "decisions": 3000,
+    "notices": 300,
+    "readings": 34000
+  },
+  "measured_s": 150.2,
+  "ops": {
+    "gate.poll": {
+      "n": 313,
+      "p50": 0.0073,
+      "p90": 0.1462,
+      "p99": 0.6309,
+      "max": 0.7118,
+      "mean": 0.0479,
+      "outcomes": {
+        "ok": 313
+      },
+      "rate_per_s": 2.08
+    },
+    "list(hook)": {
+      "n": 1149,
+      "p50": 0.0007,
+      "p90": 0.2065,
+      "p99": 0.7183,
+      "max": 0.9289,
+      "mean": 0.0572,
+      "outcomes": {
+        "ok": 1149
+      },
+      "rate_per_s": 7.65
+    },
+    "notice.pending(deliver)": {
+      "n": 4,
+      "p50": 0.0005,
+      "p90": 0.1196,
+      "p99": 0.1196,
+      "max": 0.1196,
+      "mean": 0.0302,
+      "outcomes": {
+        "ok": 4
+      },
+      "rate_per_s": 0.03
+    },
+    "notice.pending(prompt)": {
+      "n": 361,
+      "p50": 0.0004,
+      "p90": 0.0008,
+      "p99": 0.4884,
+      "max": 0.6133,
+      "mean": 0.0135,
+      "outcomes": {
+        "ok": 361
+      },
+      "rate_per_s": 2.4
+    },
+    "probe:list": {
+      "n": 122,
+      "p50": 0.0008,
+      "p90": 0.1959,
+      "p99": 0.7093,
+      "max": 1.05,
+      "mean": 0.0559,
+      "outcomes": {
+        "ok": 122
+      },
+      "rate_per_s": 0.81
+    },
+    "probe:ping": {
+      "n": 127,
+      "p50": 0.0004,
+      "p90": 0.0008,
+      "p99": 0.177,
+      "max": 0.2305,
+      "mean": 0.0043,
+      "outcomes": {
+        "ok": 127
+      },
+      "rate_per_s": 0.85
+    },
+    "probe:show": {
+      "n": 122,
+      "p50": 0.0034,
+      "p90": 0.1778,
+      "p99": 0.6372,
+      "max": 1.2841,
+      "mean": 0.0604,
+      "outcomes": {
+        "ok": 122
+      },
+      "rate_per_s": 0.81
+    },
+    "probe:status": {
+      "n": 117,
+      "p50": 0.044,
+      "p90": 0.2864,
+      "p99": 0.6038,
+      "max": 0.7648,
+      "mean": 0.1014,
+      "outcomes": {
+        "ok": 117
+      },
+      "rate_per_s": 0.78
+    },
+    "submit": {
+      "n": 18,
+      "p50": 0.032,
+      "p90": 0.2427,
+      "p99": 0.3982,
+      "max": 0.3982,
+      "mean": 0.0637,
+      "outcomes": {
+        "ok": 18
+      },
+      "rate_per_s": 0.12
+    },
+    "wait": {
+      "n": 27,
+      "p50": 60.1545,
+      "p90": 60.261,
+      "p99": 60.46,
+      "max": 60.46,
+      "mean": 56.272,
+      "outcomes": {
+        "ok": 27
+      },
+      "rate_per_s": 0.18
+    }
+  },
+  "wake_after_terminal_s": {
+    "n": 4,
+    "p50": -0.0272,
+    "p90": -0.0101,
+    "p99": -0.0101,
+    "max": -0.0101,
+    "mean": -0.0279
+  },
+  "wakes_unmatched": 0,
+  "client_errors": {},
+  "lockwatch_lines": {},
+  "holders_innermost": [],
+  "long_holds_s": {
+    "n": 0,
+    "max": null,
+    "sum": 0
+  },
+  "stack_dumps": 2,
+  "samples": null
+}

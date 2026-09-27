@@ -182,7 +182,7 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 CREATE INDEX IF NOT EXISTS decisions_job ON decisions(job_id, evaluated_at DESC);
 
--- C-6.3 leases: lane:<lane id>:slot:<n> | out:<path> | worktree:<realpath> | session:<id>
+-- C-6.3 leases: lane:<lane id>:slot:<n> (a turn's: slot:turn-<n>, C-26.9) | out:<path> | worktree:<realpath> | session:<id>
 CREATE TABLE IF NOT EXISTS leases (
   lease_key TEXT PRIMARY KEY,
   holder TEXT NOT NULL,              -- attempt id or job id

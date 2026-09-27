@@ -34,7 +34,7 @@ from subfleet.daemon import Daemon, after, utcnow
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
-from tests.routing_strategies import comparable, event, walked_no_further
+from tests.routing_strategies import event, exact
 
 ACTIVE = ("reserved", "starting", "running", "finalizing")
 
@@ -359,51 +359,68 @@ def test_c6_3_admission_never_exceeds_a_cap_or_double_books_across_commits(tmp_p
         admission_under_commits(data, service, harness, patch)
 
 
+class Frozen(datetime):
+    """The daemon's wall clock, held at one instant while a check and its oracle both read it."""
+    at: datetime | None = None
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.at if cls.at is not None else datetime.now(tz)
+
+
 @PROPERTY
 @given(st.data())
 def test_c6_3_a_check_lets_a_decision_stand_exactly_when_a_full_evaluation_there_agrees(tmp_path_factory, data):
     """The same runs, with a full evaluation made at every check, inside the reservation
-    (in this test only): the check gives a decision exactly when the lanes whose rows
-    changed decide it (the capacity blocks are the early decision's, and the walk goes no
-    further), and that decision is the full evaluation's: lane, model, verdict, details
-    and evidence. A refusal for the clock (`old`) is the caller's own."""
+    and at the check's own clock (in this test only): the check always gives a decision
+    (no job here is pinned to a lane, and none raises; caps that begin and end, lanes
+    disabled and probes all land in between), and that decision is the full
+    evaluation's, all of it, in its order: lane, model, verdict, details, evidence (each
+    reading's label and age) and `evaluated_at` (review of d04b8b3: the comparison kept
+    only the evidence's ids; review of 5d14f98: a cap that began or ended refused)."""
 
     def checked(stands, pick):
         def check(basis, decision):
-            why, judged, standing = stands(basis, decision)
-            if why in (None, "moved", "full"):
+            Frozen.at = datetime.now(timezone.utc)
+            try:
+                why, judged, standing = stands(basis, decision)
                 full = pick(basis["job"], desktop=basis["desktop"])
-                assert (why is None) == walked_no_further(decision, full), (why, decision.chosen_lane, full.chosen_lane)
-                if why is None:
-                    assert comparable(standing) == comparable(full)
-                    kept = (standing.chosen_lane, standing.chosen_model) == (decision.chosen_lane, decision.chosen_model)
-                    why_label = "kept" if kept else "chose again"
-                else:
-                    why_label = why
-            else:
-                why_label = why
-            event(f"check: {why_label}{' (no lane before)' if not decision.chosen_lane else ''}"
-                  f"{', lanes judged again' if judged else ''}")
+            finally:
+                Frozen.at = None
+            assert why is None, (why, decision.chosen_lane, full.chosen_lane)
+            assert exact(standing) == exact(full)
+            kept = (standing.chosen_lane, standing.chosen_model) == (decision.chosen_lane, decision.chosen_model)
+            blocks = standing.evaluations[0]["capacity_blocks"] != decision.evaluations[0]["capacity_blocks"]
+            event(f"check: {'kept' if kept else 'chose again'}{' (no lane before)' if not decision.chosen_lane else ''}"
+                  f"{', lanes judged again' if judged else ''}{', a cap began or ended' if blocks else ''}")
             return why, judged, standing
         return check
     with fleet_daemon(tmp_path_factory.mktemp("admission") / "state") as (service, harness, patch):
+        patch.setattr(daemon_module, "datetime", Frozen)
         admission_under_commits(data, service, harness, patch, checked=checked)
 
 
 # --- a job whose decision keeps moving keeps its place -----------------------------------------
 
 def test_c6_3_a_job_whose_decision_keeps_moving_keeps_its_place(routing_state, monkeypatch):  # noqa: F811
-    """Before each of ROUTE_TRIES reservations, another reservation fills the fleet or an
-    attempt ends and frees it: a cap that begins or ends takes every lane's rows, so each
-    check refuses and the route is evaluated again off the lock. After the last, the job
-    is left for the next pass (`route-moved`, `deferred`), holding back the later job it
-    competes with (C-6.9); the next pass places it."""
+    """Before each of ROUTE_TRIES reservations, codex-2, the lane the job is pinned to, is
+    re-enrolled one way or back: the binding the pin follows (C-11.2) moves between codex-2
+    and its successor codex-9, on the same credential. A pin that names another lane now is
+    the one thing the check cannot decide from the lanes it looked at, so each check
+    refuses and the route is evaluated again off the lock. After the last, the job is left
+    for the next pass (`route-moved`, `deferred`), holding back the later job it competes
+    with (C-6.9); the next pass places it. (A cap that began or ended used to do this; the
+    check now judges every lane again then: review of 5d14f98.)"""
     service, harness = routing_state
-    service.policy["caps"].update(max_active_attempts=2, reading_ttl_s=3600)
+    service.policy["caps"].update(max_active_attempts=4, reading_ttl_s=3600)
     add_codex_lanes(service, "codex-2")
+    ref = str(service.root / "home-codex-2")
+    service.store.put_lane(Lane("codex-9", "codex", "codex:codex-2", Credential("codex", ref, "home"), ref,
+                                LaneOwner.V2, False, False))
     measure(service, "codex-1")
     measure(service, "codex-2")
-    first = submit(service, harness, pinned_model="astra")
+    measure(service, "codex-9")
+    first = submit(service, harness, pinned_model="astra", pinned_lane="codex-2")
     second = submit(service, harness, pinned_model="astra")
     pick, moves = service._pick, [0]
 
@@ -411,10 +428,12 @@ def test_c6_3_a_job_whose_decision_keeps_moving_keeps_its_place(routing_state, m
         decision = pick(job, **options)
         if job["job_id"] == first and moves[0] < daemon_module.ROUTE_TRIES:
             moves[0] += 1
-            elsewhere(lambda: commit(service, "end" if moves[0] % 2 == 0 else "reserve-elsewhere",
-                                     "codex-2", moves[0]))
-            if moves[0] % 2:
-                elsewhere(lambda: commit(service, "reserve-elsewhere", "codex-2", 100 + moves[0]))
+            back = moves[0] % 2 == 0                               # codex-2 enabled again, codex-9 not
+
+            def reenrol():
+                service.store.update_lane("codex-2", enabled=int(back))
+                service.store.update_lane("codex-9", enabled=int(not back))
+            elsewhere(reenrol)
         return decision
     monkeypatch.setattr(service, "_pick", pick_then_move)
     service._admit()
@@ -423,10 +442,8 @@ def test_c6_3_a_job_whose_decision_keeps_moving_keeps_its_place(routing_state, m
     assert not service.store.list_attempts(first) and not service.store.list_attempts(second)
     assert service._route_evaluations["deferred"] == 1 and service._route_evaluations["moved"] == daemon_module.ROUTE_TRIES
     assert service._route_evaluations["again"] == daemon_module.ROUTE_TRIES - 1
-    for row in service.store.query("SELECT * FROM attempts WHERE state IN ('reserved','running')"):
-        commit(service, "end", row["lane_id"], 0)
     service._admit()
-    assert reserved(service, first) and reserved(service, second)
+    assert reserved(service, first) == ["codex-9"] and reserved(service, second)
 
 
 # --- C-26.9: a turn does not wait for detached jobs ------------------------------------------------
@@ -500,8 +517,10 @@ def test_c6_3_a_lane_enrolled_under_a_reset_credit_override_is_never_reserved_as
     `hard` job's early decision, under an account with a confirmed override, and codex-1 is
     disabled: an evaluation now holds codex-3's fresh reading out, so the lane is unmeasured
     and the job needs its probe first (C-11.4). The check used the early decision's override
-    set and reserved codex-3 as measured, with no probe. It now refuses; the route is
-    evaluated again off the lock, and the job waits for its probe."""
+    set and reserved codex-3 as measured, with no probe. It now decides every lane's override
+    at its own clock and judges codex-3 with its reading held out, as an evaluation now does
+    (it refused, and evaluated the whole route again, until the review of d04b8b3): codex-3
+    is unmeasured, and the job waits for its probe."""
     service, harness = routing_state
     service.policy["caps"].update(reading_ttl_s=3600)
     measure(service, "codex-1")
@@ -528,7 +547,8 @@ def test_c6_3_a_lane_enrolled_under_a_reset_credit_override_is_never_reserved_as
     assert early == ["codex-1"]
     assert not service.store.list_attempts(job_id)             # never placed as measured, without its probe
     assert service._holds[job_id]["reason"] == "probe-pending"
-    assert service._route_evaluations["moved"] == 1 and service._route_evaluations["again"] == 1
+    counts = service._route_evaluations
+    assert counts["rechosen"] == 1 and counts["rejudged"] == 2 and counts["again"] == 0   # codex-1 and codex-3
 
 
 def test_c6_12_a_row_the_check_cannot_read_settles_its_job_not_the_pass(routing_state, monkeypatch):  # noqa: F811
@@ -597,14 +617,18 @@ def test_c6_11_a_detached_pass_that_is_placing_never_reads_as_idle(routing_state
 
 
 def test_c6_11_a_job_left_for_the_next_pass_reports_that_look(routing_state, monkeypatch):  # noqa: F811
-    """`recheck` describes the last look: a waiting job whose look ends `route-moved`
-    reports that, not the verdict its wait had before."""
+    """`recheck` describes the last look: a waiting job whose look ends `route-moved` (the
+    lane it is pinned to is re-enrolled one way or back before each check, so its pin
+    names another lane each time) reports that, not the verdict its wait had before."""
     service, harness = routing_state
-    service.policy["caps"].update(max_active_attempts=2, reading_ttl_s=3600)
+    service.policy["caps"].update(max_active_attempts=4, reading_ttl_s=3600)
     add_codex_lanes(service, "codex-2")
-    measure(service, "codex-1")
-    measure(service, "codex-2")
-    job_id = submit(service, harness, pinned_model="astra")
+    ref = str(service.root / "home-codex-2")
+    service.store.put_lane(Lane("codex-9", "codex", "codex:codex-2", Credential("codex", ref, "home"), ref,
+                                LaneOwner.V2, False, False))
+    for lane_id in ("codex-1", "codex-2", "codex-9"):
+        measure(service, lane_id)
+    job_id = submit(service, harness, pinned_model="astra", pinned_lane="codex-2")
     service.store.update_job(job_id, state="waiting", wait_reason="capacity", next_check_at=utcnow())
     service._capacity_wait(job_id, "an earlier verdict", {"reason": "below-floor"})
     pick, moves = service._pick, [0]
@@ -613,9 +637,12 @@ def test_c6_11_a_job_left_for_the_next_pass_reports_that_look(routing_state, mon
         decision = pick(job, **options)
         moves[0] += 1
         if moves[0] <= daemon_module.ROUTE_TRIES:
-            elsewhere(lambda: commit(service, "end" if moves[0] % 2 == 0 else "reserve-elsewhere", "codex-2", moves[0]))
-            if moves[0] % 2:
-                elsewhere(lambda: commit(service, "reserve-elsewhere", "codex-2", 100 + moves[0]))
+            back = moves[0] % 2 == 0
+
+            def reenrol():
+                service.store.update_lane("codex-2", enabled=int(back))
+                service.store.update_lane("codex-9", enabled=int(not back))
+            elsewhere(reenrol)
         return decision
     monkeypatch.setattr(service, "_pick", pick_then_move)
     service._admit()

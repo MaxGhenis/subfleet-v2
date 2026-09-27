@@ -17,6 +17,14 @@ candidate and rejection) at every instant from the view's `now` up to the
 horizon, and just past the horizon one of the clocks has moved, so the
 horizon is not merely early. hypothesis is not a dependency here, so the cases
 are a seeded loop.
+
+C-6.3's check reads each lane's own horizon (`capacity.lane_horizons`), never the
+fleet's: the review of d04b8b3 found sixty unrelated lanes' staggered readings
+keeping the fleet-wide horizon a second or two away, so a job no lane of theirs
+could take was refused at every check. The second property: each lane is judged
+(`scheduler.judge_lane`, for every model of its provider) the same at every
+instant before its own horizon, whatever the other lanes' clocks do, and the
+fleet's horizon is the earliest of the lanes' own.
 """
 
 from __future__ import annotations
@@ -189,3 +197,55 @@ def test_a_reading_not_yet_observed_is_a_horizon_only_if_it_will_be_fresh():
     assert capacity.decision_horizon(view, reading_ttl_s=TTL) == T0 + timedelta(seconds=2)
     for inert in ({**row, "label": "unknown"}, {**row, "resets_at": iso(T0 + timedelta(seconds=1))}):
         assert capacity.decision_horizon({**view, "readings": [inert]}, reading_ttl_s=TTL) is None
+
+
+def judgements(case: dict, instant: datetime) -> dict:
+    """Every lane, judged alone for every model of its provider, at `instant`."""
+    view, _ = view_at(case, instant)
+    setup = scheduler.prepare(POLICY, view, case["job"])
+    found = {}
+    for lane_row in setup["lanes"]:
+        readings = [row for row in view["readings"] if row["lane_id"] == lane_row["lane_id"]]
+        closures = [row for row in view["closures"] if row["lane_id"] == lane_row["lane_id"]]
+        for short, model in POLICY["models"].items():
+            if model["provider"] == lane_row["provider"]:
+                found[(lane_row["lane_id"], short)] = scheduler.judge_lane(
+                    setup, short, lane_row, readings, closures,
+                    in_flight=setup["in_flight"].get(lane_row["lane_id"], 0), unavailable={})
+    return found
+
+
+def lane_clocks(case: dict, lane_id: str, instant: datetime) -> tuple:
+    """The clocks a lane's own judgement reads, at `instant`."""
+    return (tuple(capacity.fresh_provider(row, now=instant, reading_ttl_s=TTL) for row in case["readings"]
+                  if row["lane_id"] == lane_id),
+            tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant
+                  for row in case["closures"] if row["lane_id"] == lane_id))
+
+
+def test_the_clock_alone_changes_no_lane_before_its_own_horizon():
+    reached = {"lanes": 0, "moved": 0, "others-earlier": 0}
+    for seed in range(400):
+        case = fleet(random.Random(seed))
+        case["overrides"] = {}                    # an override's end is the check's own comparison, per lane
+        view, _ = view_at(case, T0)
+        horizons = capacity.lane_horizons(view, reading_ttl_s=TTL)
+        assert capacity.decision_horizon(view, reading_ttl_s=TTL) == min(horizons.values(), default=None)
+        first = judgements(case, T0)
+        for lane_id, until in horizons.items():
+            reached["lanes"] += 1
+            assert until > T0 - timedelta(seconds=1), (seed, lane_id, until)
+            mine = {key: value for key, value in first.items() if key[0] == lane_id}
+            if min(horizons.values()) < until:
+                reached["others-earlier"] += 1      # another lane's clock passes first: this one's stands
+            for step in (0, .3, .7, .999):
+                later = judgements(case, T0 + (until - T0) * step)
+                assert {key: later[key] for key in mine} == mine, (seed, lane_id, step, until)
+            # Not merely early: one of this lane's own clocks moves at its horizon or within a second of it.
+            start = lane_clocks(case, lane_id, T0)
+            assert (lane_clocks(case, lane_id, until) != start
+                    or lane_clocks(case, lane_id, until + timedelta(seconds=1)) != start), (seed, lane_id)
+            later = judgements(case, until + timedelta(seconds=1))
+            if {key: later[key] for key in mine} != mine:
+                reached["moved"] += 1
+    assert reached["lanes"] > 300 and reached["moved"] > 50 and reached["others-earlier"] > 100, reached
