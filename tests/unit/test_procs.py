@@ -1,8 +1,11 @@
 """Deterministic ownership checks; real-process acceptance lives in tests/process."""
 
+import itertools
 import json
 import signal
 import subprocess
+import threading
+from unittest import mock
 
 import pytest
 
@@ -283,7 +286,7 @@ def test_c5_12_one_table_answers_identity_for_every_recorded_process(monkeypatch
     assert table.boot() == BOOT_A
     assert table.is_process(42, BOOT_A, START)
     assert not table.is_process(42, BOOT_B, START)        # another boot: left to `liveness`
-    assert not table.is_process(42, "100", START)         # a legacy record: left to `liveness`
+    assert not table.is_process(42, "100", START)         # a legacy record, not asked with `legacy`
     assert not table.is_process(43, BOOT_A, START)        # a zombie is not live
     assert not table.is_process(44, BOOT_A, START)        # the pid was reused
     assert not table.is_process(45, BOOT_A, START)        # gone
@@ -331,7 +334,8 @@ def test_c5_12_a_table_reads_the_boot_identity_once_and_only_when_it_needs_it(mo
 
 
 def test_c5_12_a_table_matches_a_legacy_boot_record_only_when_asked_and_c5_3_agrees(monkeypatch):
-    """C-5.3, C-5.12 a `kern.boottime` record is never "alive" in the shared table, but can lead a group (C-5.6)."""
+    """C-5.3, C-5.12 a `kern.boottime` record is "alive" only when the caller asks for C-5.3's legacy match, as the
+    shared table's inspection and owned recording (C-5.6) do, and C-5.3 agrees."""
     census(monkeypatch, parents=f"42 1 42 Ss {START}\n", session=BOOT_A)   # and kern.boottime says 100
     table = procs.snapshot()
     assert not table.is_process(42, "100", START)
@@ -434,3 +438,112 @@ def test_c5_12_ps_and_sysctl_are_started_without_a_fork(monkeypatch):
     assert seen["close_fds"] is False
     # posix_spawn also needs an executable named by path, not found on PATH.
     assert os.path.isabs(procs.TABLE_ARGV[0])
+
+
+def test_c5_12_a_table_reads_kern_boottime_once_for_every_legacy_record(monkeypatch):
+    """C-5.3, C-5.12 the `kern.boottime` seconds a legacy record is matched against are read once per table, the
+    first time one needs them, and kept failed or not: every legacy attempt given the shared table shares one
+    `sysctl`, and a UUID record needs none."""
+    reads = []
+    census(monkeypatch, parents=f"42 1 42 Ss {START}\n43 1 43 Ss {START}\n", session=BOOT_A)
+    inner = procs._read
+
+    def counting(argv, **kwargs):
+        reads.append(argv[-1] if os.path.basename(argv[0]) == "sysctl" else "ps")
+        return inner(argv, **kwargs)
+    monkeypatch.setattr(procs, "_read", counting)
+    table = procs.snapshot()
+    assert table.is_process(42, BOOT_A, START, legacy=True)
+    assert reads == ["ps", "kern.bootsessionuuid"]
+    assert table.is_process(42, "100", START, legacy=True) and table.is_process(43, "100", START, legacy=True)
+    assert not table.is_process(43, "99", START, legacy=True)
+    assert reads == ["ps", "kern.bootsessionuuid", "kern.boottime"]
+
+    def no_seconds(argv, *, empty_ok=False):
+        reads.append(argv[-1])
+        raise procs.InspectionError("sysctl inspection unavailable")
+    monkeypatch.setattr(procs, "_read", no_seconds)
+    reads.clear()
+    table = procs.ProcessTable({42: (1, 42, "Ss", START), 43: (1, 43, "Ss", START)}, BOOT_A)
+    for pid in (42, 43, 42):
+        with pytest.raises(procs.InspectionError):
+            table.is_process(pid, "100", START, legacy=True)
+    assert reads == ["kern.boottime"]
+
+
+FAIL = object()
+
+
+def test_c5_12_the_legacy_match_says_alive_exactly_where_liveness_does():
+    """C-5.3, C-5.12, differential: the shared table's inspection asks `is_process(legacy=True)` where `liveness`
+    was asked before. Over every combination of recorded boot identity, `sysctl` answers, recorded start and the
+    process's state, the table says True exactly where `liveness` says "alive", raises (decides nothing) only
+    where it says "unknown", and says False only where it says "dead" or "unknown", when the daemon asks
+    `liveness` afresh. Exhaustive (2,520 cases); the final review of PR #37 compared 22 of them by hand."""
+    lettered = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    records = [BOOT_A, BOOT_B, lettered, lettered.upper(), "{" + lettered + "}", BOOT_A + "\n",
+               "100", "99", 100, "", None, "abc"]
+    uuids = [BOOT_A, BOOT_B, lettered, lettered.upper(), "", "garbage", FAIL]
+    seconds = ["{ sec = 100, usec = 0 }", "{ sec = 99, usec = 5 }", "100", "", FAIL]
+    starts = [START, "Sun Sep  6 11:00:00 2026"]
+    states = ["Ss", "Z", None]                                  # None: the pid is gone
+    seen = set()
+    for recorded, uuid, boottime, started, stat in itertools.product(records, uuids, seconds, starts, states):
+        def read(argv, *, empty_ok=False):
+            argv = [str(part) for part in argv]
+            if os.path.basename(argv[0]) == "sysctl":
+                answer = uuid if argv[-1] == "kern.bootsessionuuid" else boottime
+                if answer is FAIL:
+                    raise procs.InspectionError("sysctl inspection unavailable")
+                return answer + "\n"
+            if argv == procs.TABLE_ARGV:
+                return f"1 0 1 Ss {START}\n" + (f"42 1 42 {stat} {START}\n" if stat else "")
+            if argv[1:2] == ["-p"]:
+                return "" if stat is None else (START if argv[-1] == "lstart=" else stat) + "\n"
+            raise AssertionError(argv)
+        with mock.patch.object(procs, "_read", read):
+            procs.forget_boot_id()
+            live = procs.liveness(42, recorded, started)
+            procs.forget_boot_id()
+            try:
+                shown = procs.snapshot().is_process(42, recorded, started, legacy=True)
+            except procs.InspectionError:
+                shown = "raised"
+            procs.forget_boot_id()
+        case = (recorded, "fail" if uuid is FAIL else uuid, "fail" if boottime is FAIL else boottime, started, stat)
+        assert (shown is True) == (live == "alive"), (case, shown, live)
+        assert shown != "raised" or live == "unknown", (case, shown, live)
+        assert shown is not False or live in ("dead", "unknown"), (case, shown, live)
+        seen.add((shown, live))
+    # Every answer occurs, so the comparison is not vacuous.
+    assert {(True, "alive"), (False, "dead"), (False, "unknown"), ("raised", "unknown")} <= seen
+
+
+def test_c5_12_legacy_records_asked_about_one_table_at_once_share_one_kern_boottime(monkeypatch):
+    """C-5.12 the legacy attempts given the shared table ask about it together, on the tick after it is read: the
+    first reads `kern.boottime` and the others wait for that read rather than each running one.
+
+    Review of the fixes for the final review of PR #37, 2026-09-27: without a lock, 50 of 50 trials read it twice
+    for two legacy records."""
+    reads = []
+    together = threading.Barrier(2)
+
+    def read(argv, *, empty_ok=False):
+        assert argv[-1] == "kern.boottime", argv
+        reads.append(1)
+        try:
+            together.wait(timeout=.5)                           # both inside at once only without the lock
+        except threading.BrokenBarrierError:
+            pass
+        return "{ sec = 100, usec = 0 }\n"
+    monkeypatch.setattr(procs, "_read", read)
+    table = procs.ProcessTable({42: (1, 42, "Ss", START), 43: (1, 43, "Ss", START)}, BOOT_A)
+    found = []
+    threads = [threading.Thread(target=lambda pid=pid: found.append(table.is_process(pid, "100", START, legacy=True)),
+                                daemon=True) for pid in (42, 43)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+    assert found == [True, True]
+    assert reads == [1]

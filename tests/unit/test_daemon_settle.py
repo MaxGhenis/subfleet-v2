@@ -591,8 +591,8 @@ def test_c5_12_a_table_whose_uuid_read_fell_back_decides_nothing_for_uuid_record
 
 
 def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_group_owned(daemon, monkeypatch):
-    """C-5.3, C-5.6, C-5.12 the shared table cannot say "alive" for a `kern.boottime` record, so the fresh reads
-    do; once they have, its group's members are recorded as owned, as `same_process` would allow."""
+    """C-5.3, C-5.6, C-5.12 the shared table says "alive" for a `kern.boottime` record that C-5.3 matches, with no
+    fresh read, and its group's members are recorded as owned from that table, as `same_process` would allow."""
     session = "11111111-1111-4111-8111-111111111111"
     daemon.store.update_attempt(ATTEMPT, boot_id="1726000000")
     table = ProcessTable({4242: (1, 4242, "Ss", STARTED), 4243: (4242, 4242, "S", STARTED)}, session)
@@ -602,13 +602,62 @@ def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_gr
         return "{ sec = 1726000000, usec = 0 } Sat Sep 10 10:00:00 2024\n"
     monkeypatch.setattr(daemon_module.procs, "_read", read)
     daemon._process_table = shared(table)
-    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")   # C-5.3 matched the timestamp
-    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("the table matched it itself"))
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("no table of its own"))
     daemon._contain = never_census
     daemon._process_attempt(ATTEMPT)
     owned = json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
     assert owned == {"4242": {"pid": 4242, "boot_id": session, "proc_start": STARTED},
                      "4243": {"pid": 4243, "boot_id": session, "proc_start": STARTED}}
+
+
+def test_c5_12_a_legacy_attempt_s_interval_costs_the_table_its_boot_identity_and_one_kern_boottime(daemon,
+                                                                                                    monkeypatch):
+    """C-5.3, C-5.12 a guardian whose receipt holds `kern.boottime` seconds (its UUID `sysctl` failed once at start)
+    is shown alive by the shared table when C-5.3 matches the seconds, and its group is recorded from that table:
+    an interval costs the table, its boot identity and one `kern.boottime` read, and nothing is asked singly.
+
+    Final review of PR #37, 2026-09-26: the table was asked without the legacy match, so every interval such an
+    attempt was asked about afresh (two `ps -p` and a `kern.boottime`) and read a table of its own and
+    `kern.boottime` again to record its group: six processes against the UUID attempt's one."""
+    session = "11111111-1111-4111-8111-111111111111"
+    table_read, uuid_read = daemon_module.procs.TABLE_ARGV, ["/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"]
+    seconds_read = ["/usr/sbin/sysctl", "-n", "kern.boottime"]
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
+    daemon.inspect_interval_s = 30                             # each interval below is begun by hand
+    daemon.store.update_attempt(ATTEMPT, boot_id="1726000000")
+    calls = []
+
+    def read(argv, *, empty_ok=False):
+        argv = [str(part) for part in argv]
+        calls.append(argv)
+        if argv[0].endswith("sysctl"):
+            return session + "\n" if argv[-1] == "kern.bootsessionuuid" else "{ sec = 1726000000, usec = 0 }\n"
+        if argv == table_read:
+            return f"4242 1 4242 Ss {STARTED}\n4243 4242 4242 S {STARTED}\n"
+        if argv[1:2] == ["-p"]:                                # `liveness`, asked singly
+            return (STARTED if argv[-1] == "lstart=" else "Ss") + "\n"
+        raise AssertionError(argv)
+    monkeypatch.setattr(daemon_module.procs, "_read", read)
+    asked, liveness = [], daemon_module.procs.liveness
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: asked.append(args) or liveness(*args))
+    daemon._contain = never_census
+
+    def next_interval():
+        calls.clear()
+        daemon._inspect_next[ATTEMPT] = 0.0
+        daemon._table = (daemon._table[0], 0.0)
+        daemon._process_attempt(ATTEMPT)
+    next_interval()
+    assert asked == [] and calls == [table_read, uuid_read, seconds_read]
+    owned = json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
+    assert set(owned) == {"4242", "4243"} and attempt(daemon)["state"] == "running"
+    next_interval()                                            # the UUID is remembered; the seconds are the new table's
+    assert asked == [] and calls == [table_read, seconds_read]
+    daemon.store.update_attempt(ATTEMPT, boot_id="1725999900")       # a shifted timestamp: C-5.3 says unknown
+    next_interval()
+    assert len(asked) == 1 and attempt(daemon)["state"] == "running"
 
 
 def publish_start(core):

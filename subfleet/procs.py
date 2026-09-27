@@ -202,10 +202,10 @@ class ProcessTable:
 
     A table answers the C-5.3 identity question for any number of pids from the
     one `ps` that produced it (C-5.12). It can say that a recorded process is
-    alive and nothing else: a boot identity it cannot match exactly (a legacy
-    timestamp record) and a pid it does not show are left to `liveness`, and it
-    never grants authority to signal, which `signal_group` and `signal_process`
-    still read afresh (C-5.4).
+    alive and nothing else: a pid it does not show, and a boot identity it cannot
+    match (a legacy timestamp record, unless the caller asks for C-5.3's legacy
+    match), are left to `liveness`, and it never grants authority to signal,
+    which `signal_group` and `signal_process` still read afresh (C-5.4).
 
     Its boot identity is read the first time it builds a live pid's identity,
     and once, whatever the answer: a table that shows no live pid of interest,
@@ -218,7 +218,9 @@ class ProcessTable:
     boot_id: str | None = None                   # None: read on first need, by `boot`
     taken_at: float = field(default_factory=time.monotonic)
     _boot: list = field(default_factory=list, init=False, repr=False, compare=False)
+    _seconds: list = field(default_factory=list, init=False, repr=False, compare=False)
     _reading: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+    _reading_seconds: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
     def boot(self) -> str:
         """The boot identity of every row; `InspectionError` when it cannot be read."""
@@ -233,6 +235,26 @@ class ProcessTable:
         found = self._boot[0]
         if isinstance(found, InspectionError):
             raise InspectionError(str(found))
+        return found
+
+    def legacy_seconds(self) -> str | None:
+        """`kern.boottime` seconds for matching a legacy record (C-5.3); `InspectionError`
+        when they cannot be read.
+
+        Read the first time a legacy record needs them, once, and kept for the
+        table's life, failed or not, so every legacy record asked about the table
+        shares one `sysctl`; one that asks while it runs waits for it (C-5.12).
+        The lock is this read's own, so no one waiting for `boot()` waits for it."""
+        if not self._seconds:
+            with self._reading_seconds:
+                if not self._seconds:
+                    try:
+                        self._seconds.append(boot_identity.boot_seconds(_read))
+                    except InspectionError as exc:
+                        self._seconds.append(exc)
+        found = self._seconds[0]
+        if isinstance(found, InspectionError):
+            raise InspectionError(str(found)) from found
         return found
 
     def live(self, pid: int) -> bool:
@@ -251,7 +273,8 @@ class ProcessTable:
         """Was the recorded identity live, exactly, when the table was read (C-5.3)?
 
         With `legacy`, a recorded `kern.boottime` timestamp that C-5.3 matches to
-        this boot counts as well, at the cost of one `sysctl`. Raises
+        this boot counts as well, at the cost of one `sysctl` per table
+        (`legacy_seconds`), and says "alive" only where `liveness` would. Raises
         `InspectionError` when the boot identity is needed and cannot be read,
         which includes a UUID record against a table whose UUID read fell back
         to seconds; a pid that is absent, a zombie or another process needs no
@@ -268,8 +291,7 @@ class ProcessTable:
             # which a UUID record can only be unknown (C-5.3): a failed read of the
             # boot identity, not an answer about the process.
             raise InspectionError("macOS boot session identity is unavailable")
-        return legacy and boot_identity.matches(str(boot_id), current,
-                                                lambda: boot_identity.boot_seconds(_read)) is True
+        return legacy and boot_identity.matches(str(boot_id), current, self.legacy_seconds) is True
 
     def group(self, pgid: int | None) -> frozenset[int]:
         if not pgid or pgid <= 0:
