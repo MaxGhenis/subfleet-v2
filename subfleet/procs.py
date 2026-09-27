@@ -234,7 +234,7 @@ class ProcessTable:
                     self._boot.append(exc)
         found = self._boot[0]
         if isinstance(found, InspectionError):
-            raise InspectionError(str(found))
+            raise InspectionError(str(found)) from found
         return found
 
     def legacy_seconds(self) -> str | None:

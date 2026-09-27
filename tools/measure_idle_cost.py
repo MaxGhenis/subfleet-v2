@@ -16,7 +16,10 @@ rows the daemon wrote while the fleet stayed full. No guardian is launched, no
 provider runs, and the timers (probe, keepalive, sessions mirror) are switched off.
 
 Each window starts once the daemon has settled after what was just set up (`settle`),
-so it measures the steady state and not admission's first look at a new queue.
+so it does not measure admission's first look at a new queue. It is not quite the
+steady state either: in the saturated window the waiting jobs' recheck clocks
+(C-6.10) are still lengthening, and only the closed window waits for them to reach
+their ceiling first.
 
 Usage: uv run python tools/measure_idle_cost.py [--window 10] [--history 300] [--waiting 12]
 Needs /bin/ps and /usr/sbin/sysctl reachable (not a sandboxed shell). Nothing here
@@ -78,17 +81,19 @@ def looked_at_every_job(daemon: Daemon) -> bool:
 def settle(daemon: Daemon, quiet_s: float, deadline_s: float) -> bool:
     """Wait until the daemon has finished reacting to what was just set up; False at the deadline.
 
-    Settled means that two admission passes have ended since the call, so the
-    latest began after it; that the latest left no job waiting for its first look
-    (`looked_at_every_job`); and that the decision count has then not changed for
-    `quiet_s`. The event count is not waited on: every look at a waiting job
-    writes one event, because the look moves its `next_check_at`, and C-6.10
-    spaces those looks out without ever stopping them. What a look leaves out is
-    a decision row, unless its verdict changed.
+    Settled means that two admission passes have noted what they left since the
+    call, so the latest began after it; that the latest left no job waiting for its
+    first look (`looked_at_every_job`); and that the decision count has then not
+    changed for `quiet_s`. The event count is not waited on: every look at a
+    waiting job writes one event, because the look moves its `next_check_at`, and
+    C-6.10 spaces those looks out without ever stopping them. What a look leaves
+    out is a decision row, unless its verdict changed.
     """
     decisions = lambda: daemon.store.one("SELECT count(*) n FROM decisions")["n"]   # noqa: E731
     deadline = time.monotonic() + deadline_s
-    seen, passes = daemon._admission, 0          # replaced whole at the end of every pass (C-6.11)
+    # Replaced whole when a pass that ran to its end notes what it left (C-6.11); a
+    # pass that raises leaves it as it was.
+    seen, passes = daemon._admission, 0
     last, since = decisions(), time.monotonic()
     while time.monotonic() < deadline:
         time.sleep(.05)
@@ -172,7 +177,8 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
             # launched) and fill the fleet again.
             daemon.store.put_closure(Closure("codex-1", "account", after(86400), ClosureReason.PROVIDER_LIMIT,
                                              ClockSource.REPORTED, "fixture"))
-            # The rows next, so the daemon never sees a running attempt whose guardian is gone.
+            # The rows next, so no inspection that begins after this sees a running attempt
+            # whose guardian is gone (one already in flight can).
             # Every capacity wait is made due, as recovery makes it (C-6.10): these attempts
             # held no lease, so their end brings no wait forward, and each job would see the
             # change only when its own clock, up to 16 s out by now, came due.
