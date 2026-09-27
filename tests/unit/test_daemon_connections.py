@@ -158,15 +158,16 @@ def test_c16_7_over_the_cap_a_client_is_answered_busy_at_once_and_served_after(s
     assert "busy" in refused["error"]["message"] and "3 client connections" in refused["error"]["message"]
     assert "try again shortly" in refused["error"]["fix"]
     # The CLI's client reads the refusal even when its request met a closed socket,
-    # sends the request again while the deadline lasts, and reports busy after it.
+    # sends the request again in the first half of its deadline, then reports busy.
     client = Client(service.root, timeout=.6)
     client._checked = True                  # the lock records this fixture's fake boot identity
+    refused = counts(service)["refused"]
     started = time.monotonic()
     with pytest.raises(DaemonError) as caught:
         client.call("ping")
     assert caught.value.busy and caught.value.code == 69 and "busy" in str(caught.value)
-    assert .3 < time.monotonic() - started < 1.5
-    assert counts(service)["refused"] >= 3
+    assert time.monotonic() - started < 1.5
+    assert counts(service)["refused"] - refused >= 2     # it tried again at least once
     idle[0].close()
     until(lambda: counts(service)["connections"] == 2)
     assert call(service, "ping")["result"]["pong"] is True
@@ -469,3 +470,53 @@ def test_c16_7_nothing_follows_a_reply_that_failed_part_way(serve):
         data += chunk
     assert b'"pong"' not in data and not data.endswith(b"}\n")
     stuck.close()
+
+
+def test_c16_7_busy_retries_stay_in_the_first_half_of_the_deadline(monkeypatch):
+    """C-16.7 property, over seeded deadlines and busy streaks (a stub daemon that is
+    always busy, and a clock the test advances): no retry starts after half the
+    deadline, the first try gets the whole deadline, a retry gets what is left
+    (at least half), and a lost answer's message names the caller's deadline."""
+    import random
+    from subfleet import client as client_module
+    rng = random.Random(1607)
+    for case in range(300):
+        deadline = rng.choice([.2, 1, 5, 15, 75, rng.uniform(.05, 120)])
+        now = [1000.0]
+        tries = []
+
+        def once(self, op, args, *, request_id, timeout, stated):
+            tries.append((now[0] - 1000.0, timeout, stated))
+            now[0] += rng.uniform(0, .01)            # a busy answer comes back at once
+            raise DaemonError(69, "the daemon is busy", "try again shortly")
+        monkeypatch.setattr(client_module.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(client_module.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+        monkeypatch.setattr(Client, "_call_once", once)
+        with pytest.raises(DaemonError):
+            Client("/nonexistent", timeout=deadline).call("ping")
+        assert tries[0] == (0.0, deadline, deadline), case
+        for started_at, timeout, stated in tries[1:]:
+            assert started_at <= deadline / 2 + 1e-9, (case, deadline, tries)
+            assert timeout >= deadline / 2 - 1e-9 and stated == deadline, (case, tries)
+        monkeypatch.undo()
+
+
+def test_c16_3_a_lost_answer_names_the_callers_deadline_even_on_a_slow_machine(serve, monkeypatch):
+    """C-16.3 the message is the caller's deadline, not what was left of it when the
+    try began (a local run at load 160 read "within 0.999999s")."""
+    service = serve()
+    real = service.dispatch
+    service.dispatch = lambda op, args, **kw: (time.sleep(1.5), real(op, args, **kw))[1]
+    client = Client(service.root, timeout=1)
+    client._checked = True
+    from subfleet import client as client_module
+    clock = client_module.time.monotonic
+    calls = [0]
+
+    def slow_clock():                                    # time passes between reads of the clock
+        calls[0] += 1
+        return clock() + calls[0] * 1e-3
+    monkeypatch.setattr(client_module.time, "monotonic", slow_clock)
+    with pytest.raises(ResponseLost) as lost:
+        client.call("ping")
+    assert str(lost.value) == "no response from the daemon within 1s"
