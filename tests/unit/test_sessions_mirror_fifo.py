@@ -432,12 +432,22 @@ def test_a_revived_transcript_is_synced_before_it_is_put_in_place(world, monkeyp
     """C-23.28: a revival writes, stamps and fsyncs its copy through its one
     descriptor before the link puts it in place."""
     _entry, options = _dead_session_with_an_archive(world)
-    events = []
+    synced, placed = set(), []
     real_fsync, real_link = mirror.os.fsync, mirror.os.link
-    monkeypatch.setattr(mirror.os, "fsync", lambda fd: (events.append("fsync"), real_fsync(fd))[1])
-    monkeypatch.setattr(mirror.os, "link", lambda *a, **k: (events.append("link"), real_link(*a, **k))[1])
+
+    def fsync(fd):
+        synced.add(os.fstat(fd).st_ino)
+        return real_fsync(fd)
+
+    def link(source, destination, **kwargs):
+        if str(destination).endswith(f"{DEAD}.jsonl"):   # the revived transcript, not a spread record
+            placed.append(os.stat(source).st_ino in synced)
+        return real_link(source, destination, **kwargs)
+
+    monkeypatch.setattr(mirror.os, "fsync", fsync)
+    monkeypatch.setattr(mirror.os, "link", link)
     assert world.running.run_once(options).revived == 1
-    assert "fsync" in events and events.index("fsync") < events.index("link")
+    assert placed == [True], "the revived transcript was not synced before it was put in place"
 
 
 def test_a_sweep_removes_the_leftovers_of_the_mirrors_own_state_files(world, monkeypatch):
