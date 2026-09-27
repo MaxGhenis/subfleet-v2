@@ -2502,30 +2502,49 @@ class Daemon:
                              turn_keep_s=float(budget["turn_keep_days"]) * 86400,
                              pins=self.conversations.retention_pins,
                              cancel=self.timers.cancel, deadline=time.monotonic() + 60)
-        if result.get("interrupted"):
-            if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
-                return
-            raise TimeoutError("retention deadline reached")
-        # C-28.2: attachments no message needs, 30 days after their last use, and
-        # files under attachments/ no row names. A pass the deadline cuts short is
-        # continued by the next one.
-        pruned = prune_attachments(self.conversations.store, cancel=self.timers.cancel,
-                                   deadline=time.monotonic() + 60)
-        if pruned.get("interrupted") == "cancelled":
+        if result.get("interrupted") == "cancelled":
             self.timers.mark("retention", error="CancelledError", next_due=after(3600))
             return
+        # C-28.2: attachments, even when the job pass stopped at its deadline, so a
+        # job pass that always does never keeps attachments from being pruned.
+        attachment_error = self._prune_attachments()
+        if attachment_error == "CancelledError":
+            self.timers.mark("retention", error=attachment_error, next_due=after(3600))
+            return
+        if result.get("interrupted"):
+            raise TimeoutError("retention deadline reached")
+        with self.store.transaction("service-notice.retention") as tx:
+            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
+        # A failed attachment pass is recorded here, and the next hourly pass tries
+        # again: re-offering the whole pass at the worker's backoff would re-run
+        # the job pass every minute for as long as the failure lasts.
+        self.timers.mark("retention", error=attachment_error, next_due=after(3600))
+        # A raising pass remains due so the worker retry clock can re-offer it.
+        # Only a completed pass rearms the ordinary hourly interval.
+        self._last_maintenance = time.monotonic()
+
+    def _prune_attachments(self) -> str | None:
+        """C-28.2: attachments no message needs, 30 days after their last use, and
+        files under attachments/ no row names. Returns the error type the pass
+        ended with (`CancelledError` when cancelled), or None. A pass the deadline
+        cuts short is continued by the next one; a store error (the needed set
+        cannot be read) deletes nothing more and is logged, never raised."""
+        try:
+            pruned = prune_attachments(self.conversations.store, cancel=self.timers.cancel,
+                                       deadline=time.monotonic() + 60)
+        except Exception as exc:
+            self.log.error("attachment retention failed: %s: %s", type(exc).__name__, exc)
+            return type(exc).__name__
         if pruned["deleted"] or pruned["strays"]:
             self.log.info("retention removed %d attachment(s) (%d bytes) and %d stray file(s)",
                           len(pruned["deleted"]), pruned["bytes"], len(pruned["strays"]))
         for error in pruned["errors"]:
             self.log.warning("attachment retention: %s", error)
-        with self.store.transaction("service-notice.retention") as tx:
-            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
-        self.timers.mark("retention", next_due=after(3600))
-        # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
-        self._last_maintenance = time.monotonic()
+        if pruned.get("interrupted") == "cancelled":
+            return "CancelledError"
+        if pruned.get("interrupted") == "deadline":
+            self.log.info("attachment retention stopped at its deadline; the next pass continues")
+        return None
 
     def _recover_then_start_timers(self):
         # HTTP reservations have no provider process and can be released on restart.

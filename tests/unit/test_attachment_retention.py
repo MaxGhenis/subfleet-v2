@@ -278,6 +278,17 @@ def test_a_symlinked_attachments_directory_removes_nothing(store, tmp_path):
     assert store.attachment(sha) is not None and (elsewhere / f"{sha}.png").exists()
 
 
+def test_an_attachments_that_is_not_a_directory_removes_nothing(store, tmp_path):
+    """C-28.2 a file where the directory belongs is reported, and no row goes."""
+    sha = add(store, tmp_path)
+    shutil.rmtree(store.root / "attachments")
+    (store.root / "attachments").write_bytes(b"not a directory")
+    last_used(store, sha, 31)
+    result = retention.prune_attachments(store)
+    assert result["deleted"] == [] and "not a directory" in result["errors"][0]["error"]
+    assert store.attachment(sha) is not None
+
+
 def test_an_unlink_that_fails_leaves_a_stray_the_next_sweep_removes(store, tmp_path, monkeypatch):
     """C-28.2 the row's transaction has committed, so a copy that could not be unlinked
     is reported and becomes a stray, which a later pass removes after the grace."""
@@ -286,7 +297,7 @@ def test_an_unlink_that_fails_leaves_a_stray_the_next_sweep_removes(store, tmp_p
     real = os.unlink
 
     def refuse(path, *args, **kwargs):
-        if str(path) == str(copy_of(store, sha)):
+        if str(path) in (str(copy_of(store, sha)), copy_of(store, sha).name):
             raise OSError(errno.EPERM, "Operation not permitted")
         return real(path, *args, **kwargs)
 
@@ -309,6 +320,7 @@ def test_the_sweep_removes_old_strays_and_nothing_it_did_not_name(store, tmp_pat
     directory = store.root / "attachments"
     names = {                                                              # name: (age, removed)
         f"{stray_sha}.png": (2 * DAY, True), f".{stray_sha}.0123abcd.tmp": (2 * DAY, True),
+        f".{stray_sha}.48213.tmp": (2 * DAY, True),                        # the name before 47e360ab
         f"{young_sha}.jpg": (60, False), f".{young_sha}.89abcdef.tmp": (60, False),
         f"{stray_sha}.bmp": (2 * DAY, False), f"{stray_sha[:63]}.png": (2 * DAY, False),     # not names add makes
         "notes.txt": (2 * DAY, False), f".{stray_sha}.tmp": (2 * DAY, False),
@@ -531,24 +543,78 @@ def prepare(store, moves):
                                  brief={"message_id": str(uuid.uuid4()), "text": "brief"}, moves=moves)
 
 
-def test_a_handoff_uses_what_it_moves_so_a_withdrawn_message_keeps_it(store, tmp_path):
+def test_a_handoff_fence_keeps_what_a_withdrawn_message_moves(store, tmp_path):
     """C-28.2, C-30.3: a moved message is `cancelled` for a moment when the tick
     settles the job the handoff cancelled, before the commit re-queues it in the new
-    conversation. Preparing the handoff used its attachments, so retention keeps them
-    meanwhile and the moved message can be sent."""
+    conversation. The handoff fenced the source before that cancel, and the fence
+    keeps the message's attachments meanwhile, so the moved message can be sent."""
     cid = conversation(store)
     sha = add(store, tmp_path)
     message_id = send(store, cid, [sha])
-    last_used(store, sha, 40)
     prepared = prepare(store, [{"message_id": str(uuid.uuid4()), "text": "look", "attachments": [sha]}])
+    last_used(store, sha, 40)                      # as if the move were the last use, long ago
+    assert store.fence(cid, "handoff:h-1")
     assert store.set_state(message_id, "cancelled", reason="cancelled: by handoff")
     assert retention.prune_attachments(store)["deleted"] == []
-    target, created = store.commit_handoff(prepared, withdrawals=[{"message_id": message_id, "expect": ["cancelled"]}])
+    target, created = store.commit_handoff(prepared, withdrawals=[{"message_id": message_id, "expect": ["cancelled"]}],
+                                           fence=(cid, "handoff:h-1"))
     assert created
     moved = store.one("SELECT message_id FROM messages WHERE conversation_id=? AND origin='person'",
                       (target["conversation_id"],))
     assert store.message(moved["message_id"])["attachments"] == [sha]
     assert attachments.check(store, sha) == (str(copy_of(store, sha)), "image/png")
+
+
+def test_preparing_a_handoff_uses_what_it_moves(store, tmp_path):
+    """C-28.2: moving a message is a use of its attachments."""
+    sha = add(store, tmp_path)
+    last_used(store, sha, 40)
+    before = store.attachment(sha)["last_used_at"]
+    prepare(store, [{"message_id": str(uuid.uuid4()), "text": "look", "attachments": [sha]}])
+    assert store.attachment(sha)["last_used_at"] > before
+    assert retention.prune_attachments(store)["deleted"] == []
+
+
+def restore(store, cid, message_id, fence="handoff:h-1"):
+    message = store.message(message_id)
+    return store.restore_after_handoff(cid, fence, [{"message_id": message_id, "job_id": message["job_id"],
+                                                     "turn_seq": message["turn_seq"]}])
+
+
+def test_a_handoff_rolled_back_uses_what_it_puts_back(store, tmp_path):
+    """C-28.2, C-30.3: putting a message back in the queue uses its attachments. Being
+    queued is what keeps them from retention; the use also keeps them 30 days on."""
+    cid = conversation(store)
+    sha = add(store, tmp_path)
+    message_id = send(store, cid, [sha], "cancelled")
+    last_used(store, sha, 40)
+    before = store.attachment(sha)["last_used_at"]
+    assert restore(store, cid, message_id) == [message_id]
+    assert store.attachment(sha)["last_used_at"] > before
+    assert store.message(message_id)["state"] == QUEUED
+    assert retention.prune_attachments(store)["deleted"] == []
+    assert intact(store, sha)
+
+
+def test_a_handoff_rolled_back_leaves_a_message_whose_image_is_gone_withdrawn(store, tmp_path):
+    """C-28.2, C-30.3 (review of 9ac51ef, finding 2): a handoff an older build left
+    without a fence, retried after retention deleted a withdrawn message's image,
+    does not queue that message to fail when it is sent: it stays `cancelled` and
+    says which image is gone. Its other messages go back as before."""
+    cid = conversation(store)
+    sha = add(store, tmp_path, 0)
+    kept = add(store, tmp_path, 1)
+    lost = send(store, cid, [sha], "cancelled")
+    back = send(store, cid, [kept], "cancelled")
+    last_used(store, sha, 40)
+    assert retention.prune_attachments(store)["deleted"] == [sha]
+    assert store.restore_after_handoff(cid, "handoff:h-1", [
+        {"message_id": m, "job_id": None, "turn_seq": store.message(m)["turn_seq"]} for m in (lost, back)]) == [back]
+    message = store.message(lost)
+    assert message["state"] == "cancelled" and message["state_reason"] == f"not-restored: attachment {sha} is no longer stored"
+    assert store.message(back)["state"] == QUEUED
+    changes = store.changes_after(0)["changes"]
+    assert any(ch["message_id"] == lost and ch["state"] == "cancelled" for ch in changes)
 
 
 def test_a_handoff_naming_an_unknown_attachment_uses_nothing(store, tmp_path):
@@ -583,9 +649,13 @@ IMAGES = 4
 
 class RetentionModel(RuleBasedStateMachine):
     """Random adds, sends, settlements, handoff fences, stray files, the passing of
-    time and retention passes. After every step every row's copy is whole and every
-    message that needs its attachments has them; each pass deletes exactly what a
-    reference model says it should, and a second pass at the same moment nothing."""
+    time and retention passes. After every step every row's copy is whole, and every
+    message that could still be sent has its attachments: one that is not terminal,
+    or one a handoff fence found live and may put back. Each pass deletes exactly
+    what the reference rule says (C-28.2: last used 30 days ago, named by no message
+    that is not terminal or is in a fenced conversation), and a second pass at the
+    same moment deletes nothing. A fence pins old settled messages too, but their
+    images may already be gone: only what the fence found live is guaranteed."""
 
     def __init__(self):
         super().__init__()
@@ -595,6 +665,9 @@ class RetentionModel(RuleBasedStateMachine):
         self.sources = [image(self.tmp, k) for k in range(IMAGES)]
         self.shas = [hashlib.sha256(path.read_bytes()).hexdigest() for path in self.sources]
         self.messages: list[str] = []
+        #: Per conversation, the messages that were not terminal when its handoff
+        #: fence went up: the ones `restore_after_handoff` may put back.
+        self.withdrawable: dict[str, set[str]] = {cid: set() for cid in self.cids}
 
     def teardown(self):
         self.store.close()
@@ -604,12 +677,26 @@ class RetentionModel(RuleBasedStateMachine):
         return str(self.store.conversation(cid).get("blocked_by") or "").startswith("handoff:")
 
     def needed(self) -> set[str]:
-        """The reference: what a message still needs, from the rows, in Python."""
+        """The reference rule retention applies, from the rows, in Python."""
         out = set()
         for row in self.store.query("SELECT conversation_id, state, attachments_json FROM messages"):
             if row["state"] not in TERMINAL_STATES or self.fenced(row["conversation_id"]):
                 out.update(json.loads(row["attachments_json"]))
         return out
+
+    def sendable(self) -> set[str]:
+        """What must still be stored: the attachments of every message that is not
+        terminal, and of every message a standing fence found live."""
+        out = set()
+        for row in self.store.query("SELECT message_id, conversation_id, state, attachments_json FROM messages"):
+            if row["state"] not in TERMINAL_STATES or (
+                    self.fenced(row["conversation_id"]) and row["message_id"] in self.withdrawable[row["conversation_id"]]):
+                out.update(json.loads(row["attachments_json"]))
+        return out
+
+    def live(self, cid: str) -> set[str]:
+        return {row["message_id"] for row in self.store.query(
+            "SELECT message_id, state FROM messages WHERE conversation_id=?", (cid,)) if row["state"] not in TERMINAL_STATES}
 
     @rule(k=st.integers(0, IMAGES - 1))
     def add(self, k):
@@ -632,15 +719,24 @@ class RetentionModel(RuleBasedStateMachine):
     @rule(data=st.data(), state=st.sampled_from(MESSAGE_STATES))
     def settle(self, data, state):
         """Any move production makes: a live message goes anywhere; a settled one comes
-        back only in a fenced conversation (a handoff put back)."""
+        back only if a standing handoff fence found it live (a handoff put back)."""
         message = self.store.message(data.draw(st.sampled_from(self.messages)))
-        if message["state"] in TERMINAL_STATES and not self.fenced(message["conversation_id"]):
+        cid = message["conversation_id"]
+        if message["state"] in TERMINAL_STATES and not (
+                self.fenced(cid) and message["message_id"] in self.withdrawable[cid]):
             return
         self.store.set_state(message["message_id"], state)
 
     @rule(c=st.integers(0, 1), fence=st.sampled_from([None, "handoff:h-1", "quarantined-turn"]))
     def block(self, c, fence):
-        self.store.update_conversation(self.cids[c], blocked_by=fence)
+        cid = self.cids[c]
+        if not str(fence or "").startswith("handoff:"):
+            self.withdrawable[cid] = set()
+        elif self.fenced(cid):
+            self.withdrawable[cid] |= self.live(cid)
+        else:
+            self.withdrawable[cid] = self.live(cid)
+        self.store.update_conversation(cid, blocked_by=fence)
 
     @rule(days=st.sampled_from([1, 10, 29, 31, 90]))
     def time_passes(self, days):
@@ -649,12 +745,13 @@ class RetentionModel(RuleBasedStateMachine):
                 used = datetime.fromisoformat(row["last_used_at"].replace("Z", "+00:00")) - timedelta(days=days)
                 tx.execute("UPDATE attachments SET last_used_at=? WHERE sha256=?", (stamp(used), row["sha256"]))
 
-    @rule(k=st.integers(0, IMAGES - 1), temporary=st.booleans(), old=st.booleans())
-    def crash_leftover(self, k, temporary, old):
+    @rule(k=st.integers(0, IMAGES - 1), temporary=st.booleans(), pid_name=st.booleans(), old=st.booleans())
+    def crash_leftover(self, k, temporary, pid_name, old):
         sha = self.shas[k]
         directory = self.store.subdirectory("attachments")
         if temporary:
-            path = directory / f".{sha}.{random.Random(k).getrandbits(32):08x}.tmp"
+            tail = str(40000 + k) if pid_name else f"{random.Random(k).getrandbits(32):08x}"
+            path = directory / f".{sha}.{tail}.tmp"
             path.write_bytes(b"part of a copy")
         elif self.store.attachment(sha) is None:
             path = directory / f"{sha}.png"
@@ -688,13 +785,14 @@ class RetentionModel(RuleBasedStateMachine):
             assert intact(self.store, row["sha256"])
 
     @invariant()
-    def every_needed_attachment_is_stored(self):
-        for sha in self.needed():
+    def every_sendable_message_has_its_attachments(self):
+        for sha in self.sendable():
             assert intact(self.store, sha)
 
 
 TestRetentionModel = RetentionModel.TestCase
 TestRetentionModel.settings = settings(max_examples=60, stateful_step_count=30, deadline=None,
+                                       derandomize=True, database=None,
                                        suppress_health_check=[HealthCheck.too_slow])
 
 

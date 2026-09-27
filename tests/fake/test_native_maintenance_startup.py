@@ -110,7 +110,7 @@ def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_p
     assert seen['pins'] == service.conversations.retention_pins
 
 
-def test_retention_prunes_attachments_after_the_jobs(state_daemon, tmp_path, monkeypatch):
+def test_the_hourly_pass_prunes_attachments(state_daemon, tmp_path, monkeypatch):
     """C-28.2: the hourly pass deletes, from the conversation store, an attachment
     no message needs that was last used 30 days ago, then its copy; one used since
     stays."""
@@ -132,20 +132,67 @@ def test_retention_prunes_attachments_after_the_jobs(state_daemon, tmp_path, mon
     assert service.timers.status()['retention']['last_error_type'] is None
 
 
-def test_retention_hands_the_attachment_pass_its_cancel_and_a_deadline(state_daemon, monkeypatch):
-    """C-28.2, C-16.4: the attachment pass gets the timers' cancel and its own
-    deadline; a cancelled pass leaves the hourly pass cancelled, as a cancelled job
-    pass does."""
+def test_the_attachment_pass_follows_the_job_pass_with_its_cancel_and_deadline(state_daemon, monkeypatch):
+    """C-28.2, C-16.4: the attachment pass runs after the job pass, with the timers'
+    cancel and a deadline of its own; a cancelled attachment pass leaves the hourly
+    pass cancelled, as a cancelled job pass does."""
     import time
     service, _ = state_daemon
-    monkeypatch.setattr(daemon_module, 'maintenance', lambda store, root, **kwargs: {})
+    calls = []
+    monkeypatch.setattr(daemon_module, 'maintenance', lambda store, root, **kwargs: calls.append('jobs') or {})
     seen = {}
     def prune(store, **kwargs):
+        calls.append('attachments')
         seen.update(store=store, **kwargs)
         return {"deleted": [], "bytes": 0, "strays": [], "errors": [], "interrupted": "cancelled"}
     monkeypatch.setattr(daemon_module, 'prune_attachments', prune)
     before = time.monotonic()
     service._retention()
+    assert calls == ['jobs', 'attachments']
     assert seen['store'] is service.conversations.store
     assert seen['cancel'] is service.timers.cancel and seen['deadline'] >= before + 60
     assert service.timers.status()['retention']['last_error_type'] == 'CancelledError'
+
+
+def test_a_failed_attachment_pass_is_recorded_and_the_hourly_pass_goes_on(state_daemon, monkeypatch):
+    """C-28.2 (review of 9ac51ef, finding 3): an attachment pass that raises (here a
+    corrupt message row, which the needed set cannot be read past) deletes nothing,
+    is logged and recorded, and the hourly pass still cleans the notices and re-arms
+    in an hour, rather than re-running the job pass at the worker's backoff."""
+    import uuid
+    service, _ = state_daemon
+    store = service.conversations.store
+    settings = {"model": "opus", "effort": "high", "fast": False, "permission": "ask"}
+    cid = store.create_conversation(provider="claude", workspace="/w", workspace_kind="in-place",
+                                    settings=settings, origin="new")[0]["conversation_id"]
+    store.submit_message(conversation_id=cid, message_id=str(uuid.uuid4()), after_message_id=None, text="x",
+                         attachments=[], settings=settings)
+    with store.transaction() as tx:
+        tx.execute("UPDATE messages SET attachments_json='[broken'")
+    with service.store.transaction("test") as tx:
+        tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                   "VALUES('s','old','acknowledged','2020-01-01T00:00:00Z')")
+    monkeypatch.setattr(daemon_module, 'after', lambda seconds: f'due:{seconds:g}')
+    service._retention()
+    assert not service.store.query("SELECT 1 FROM service_notices WHERE text='old'")
+    status = service.timers.status()['retention']
+    assert status['last_error_type'] == 'OperationalError' and status['next_due'] == 'due:3600'
+
+
+def test_attachments_are_pruned_when_the_job_pass_stops_at_its_deadline(state_daemon, monkeypatch, caplog):
+    """C-28.2 (review of 9ac51ef, finding 4): a job pass that stops at its deadline
+    still raises for the worker's retry, but the attachment pass runs first, so a
+    job pass that always stops never keeps attachments from being pruned; an
+    attachment pass that stops at its own deadline says so."""
+    import logging
+    service, _ = state_daemon
+    monkeypatch.setattr(daemon_module, 'maintenance', lambda store, root, **kwargs: {'interrupted': 'deadline'})
+    calls = []
+    def prune(store, **kwargs):
+        calls.append('attachments')
+        return {"deleted": [], "bytes": 0, "strays": [], "errors": [], "interrupted": "deadline"}
+    monkeypatch.setattr(daemon_module, 'prune_attachments', prune)
+    with caplog.at_level(logging.INFO), pytest.raises(TimeoutError):
+        service._retention()
+    assert calls == ['attachments']
+    assert any("attachment retention stopped at its deadline" in record.getMessage() for record in caplog.records)

@@ -554,9 +554,10 @@ class ConversationStore:
             return {"existing": existing}
         from .attachments import check as check_attachment
         moved = [sha for item in moves for sha in item["attachments"]]
-        # A moved message is `cancelled` for a moment when the tick settles the job
-        # this handoff cancels, and nothing would then keep its attachments from
-        # retention (C-28.2): each is used now, first, so it stays for 30 days.
+        # Moving a message uses its attachments (C-28.2). While a moved message is
+        # `cancelled` for a moment (the tick settles the job this handoff cancels),
+        # the fence, set before that cancel, is what keeps them; this use also keeps
+        # them 30 days from the move.
         self.touch_attachments(moved)
         for sha in moved:
             # The stored copy must be there and hash right now, before the
@@ -707,6 +708,11 @@ class ConversationStore:
         next turn sequence (so its next turn job is a new one) and bound to no
         job, unless a handoff did move it. Then the fence is lifted. One
         transaction; returns the ids put back.
+
+        What goes back uses its attachments now (C-28.2). A `cancelled` message
+        whose attachment retention has already deleted (a handoff an older build
+        left without a fence, retried after 30 days) stays `cancelled`, saying
+        which image is gone, rather than going back to fail when it is sent.
         """
         now = utcnow()
         restored: list[str] = []
@@ -716,6 +722,18 @@ class ConversationStore:
             if source is None or source["blocked_by"] not in (None, fence):
                 return restored
             for item in restores:
+                row = tx.execute("SELECT state, attachments_json FROM messages WHERE message_id=? AND conversation_id=?",
+                                 (item["message_id"], conversation_id)).fetchone()
+                shas = json.loads(row["attachments_json"]) if row else []
+                gone = [sha for sha in shas
+                        if not tx.execute("SELECT 1 FROM attachments WHERE sha256=?", (sha,)).fetchone()]
+                if gone and row["state"] == "cancelled":
+                    reason = f"not-restored: attachment {gone[0]} is no longer stored"
+                    if tx.execute("UPDATE messages SET state_reason=?, updated_at=? WHERE message_id=? "
+                                  "AND conversation_id=? AND COALESCE(state_reason,'') NOT LIKE 'handed-off:%'",
+                                  (reason, now, item["message_id"], conversation_id)).rowcount:
+                        self._change(tx, conversation_id, item["message_id"], "cancelled", reason=reason)
+                    continue
                 done = tx.execute(
                     "UPDATE messages SET state='queued', state_reason='handoff-rolled-back', turn_seq=turn_seq+1, "
                     "job_id=NULL, updated_at=? WHERE message_id=? AND conversation_id=? AND turn_seq=? "
@@ -724,6 +742,7 @@ class ConversationStore:
                     (now, item["message_id"], conversation_id, item["turn_seq"], item["job_id"])).rowcount
                 if done:
                     restored.append(item["message_id"])
+                    tx.executemany("UPDATE attachments SET last_used_at=? WHERE sha256=?", [(now, sha) for sha in shas])
                     self._change(tx, conversation_id, item["message_id"], QUEUED)
             if tx.execute("UPDATE conversations SET blocked_by=NULL, updated_at=? WHERE conversation_id=? "
                           "AND blocked_by=?", (now, conversation_id, fence)).rowcount:

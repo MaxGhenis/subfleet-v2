@@ -921,18 +921,20 @@ or `approval_wait_s` passes (D-7).
   file of its own (a random name, created exclusively and drawn again if
   taken) renamed into place, so adds of the same bytes at once all succeed,
   and re-hashes the copy.
-  `message.submit`, `attachment.add` and a handoff's preparation update
-  `last_used_at` for each hash. The hourly retention pass deletes an
-  attachment row in one transaction that re-checks "no message needs it and
-  last use ≥ 30 days ago", then unlinks `attachments/<sha256>.<ext>` (review
-  F11). A message needs its attachments while it is not terminal and while a
-  handoff fences its conversation. The deletion and `attachment.add` hold the
-  hash's guard across their file and row steps, so an add never records a
-  copy that retention is about to unlink. Copies no row names, and temporary
-  copies, go a day after they were last written. The driver checks size
-  and hash before building frames; a missing file fails the message
-  `not-delivered` (`attachment-missing`) before any frame is sent. Copies
-  inside attempt directories follow job retention.
+  `message.submit`, `attachment.add`, a handoff's preparation and a
+  handoff's rollback update `last_used_at` for each hash. The hourly
+  retention pass deletes an attachment row in one transaction that re-checks
+  "no message needs it and last use ≥ 30 days ago", then unlinks
+  `attachments/<sha256>.<ext>` (review F11). A message needs its attachments
+  while it is not terminal and while a handoff fences its conversation; a
+  rollback leaves a message whose attachment is already gone `cancelled`,
+  with the reason. The deletion and `attachment.add` hold the hash's guard
+  across their file and row steps, so an add never records a copy that
+  retention is about to unlink. Copies no row names, and temporary copies,
+  go a day after they were last written. The driver checks size and hash
+  before building frames; a missing file fails the message `not-delivered`
+  (`attachment-missing`) before any frame is sent. Copies inside attempt
+  directories follow job retention.
 - Turn jobs have their own retention budget (default 2,000 turn jobs or
   4 GiB). A turn job is pinned while its message is non-terminal or its
   conversation is blocked, and for 14 days after it ends. Pruning copies the

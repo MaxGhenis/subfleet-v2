@@ -487,7 +487,7 @@
     },
     {
       "id": "R-11",
-      "requirement": "The state root stays bounded: pasted images are removed 30 days after their last use, never while a message that is not terminal, or a handoff in progress, still needs them",
+      "requirement": "Pasted images no message needs are removed 30 days after their last use, never while a message that is not terminal, or a handoff in progress, still needs them; a message a handoff puts back never names a removed image",
       "source": "audit of C-28.2, 2026-09-26: no code deleted attachments, so attachments/ grew without bound",
       "clauses": [
         "C-28.1",
@@ -495,10 +495,10 @@
       ],
       "status": "implemented",
       "evidence": [
-        "tests/unit/test_attachment_retention.py: what is deleted and kept, the in-transaction re-check, the handoff fence and handoff use, the stray sweep, the three forced interleavings of add and retention, a Hypothesis state machine against a reference model, and a concurrent stress run",
-        "tests/fake/test_native_maintenance_startup.py::test_retention_prunes_attachments_after_the_jobs"
+        "tests/unit/test_attachment_retention.py: what is deleted and kept, the in-transaction re-check, the handoff fence, use and rollback, the stray sweep, the three forced interleavings of add and retention, a Hypothesis state machine against a reference model, and a concurrent stress run",
+        "tests/fake/test_native_maintenance_startup.py: the hourly pass prunes attachments; a failed or cut-short attachment pass is recorded and never stops the rest", "tests/unit/test_conversation_handoff.py::test_a_retry_leaves_withdrawn_a_message_whose_image_retention_deleted"
       ],
-      "notes": "Was listed only as infrastructure in tests/unit/test_desktop_ledger.py, which hid that nothing implemented it."
+      "notes": "Was listed only as infrastructure in tests/unit/test_desktop_ledger.py, which hid that nothing implemented it. Not a bound on the state root: images a live message names are kept however long it stays live (a queued message in an archived conversation), and so is a row whose last use cannot be read."
     },
     {
       "id": "S-1",

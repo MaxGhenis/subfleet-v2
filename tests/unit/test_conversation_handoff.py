@@ -237,6 +237,38 @@ def test_a_retry_after_a_crash_still_moves_the_message_whose_job_it_cancelled(wo
     assert not world.service._cancel_job_without_attempt(job_id)
 
 
+def test_a_retry_leaves_withdrawn_a_message_whose_image_retention_deleted(world):
+    """C-28.2, C-30.3 (review of 9ac51ef, finding 2): the crash above, left by a build
+    that cancelled before fencing, with the message's image last used 40 days ago.
+    Unfenced and `cancelled`, nothing needs the image, and retention deletes it. The
+    retry does not put the message back to fail `attachment-missing` when sent: it
+    stays `cancelled`, saying which image is gone, and the handoff moves nothing."""
+    from datetime import UTC, datetime, timedelta
+    from subfleet import retention
+    from subfleet.conversations import attachments
+    cid, _ = source(world)
+    original = world.workspace / "example.png"
+    original.write_bytes(b"\x89PNG\r\n\x1a\n" + b"image payload")
+    sha = attachments.add(world.store, str(original))["sha256"]
+    mid = str(uuid.uuid4())
+    world.store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None,
+                               text="review this image", attachments=[sha], settings=ASK)
+    job_id = turn_job(world, mid, cid, state="waiting")
+    world.store.set_state(mid, "waiting", job_id=job_id)
+    old = (datetime.now(UTC) - timedelta(days=40)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    with world.store.transaction() as tx:
+        tx.execute("UPDATE attachments SET last_used_at=? WHERE sha256=?", (old, sha))
+    assert world.service._cancel_job_without_attempt(job_id, by={"by": "conversation.handoff", "request_id": "h-1"})
+    world.store.set_state(mid, "cancelled", reason="cancelled: 130")      # what the tick does
+    assert world.store.conversation(cid)["blocked_by"] is None
+    assert retention.prune_attachments(world.store)["deleted"] == [sha]
+    out = handoff(world, cid)
+    assert out["handoff_from"]["moved"] == []
+    message = world.store.message(mid)
+    assert message["state"] == "cancelled"
+    assert message["state_reason"] == f"not-restored: attachment {sha} is no longer stored"
+
+
 @pytest.mark.parametrize("failure", [
     "cancel-refused", "cancel-error", "cancelled-then-error", "commit-error",
     "commit-interrupted", "commit-sql-error", "commit-deferred-error", "discard-error",

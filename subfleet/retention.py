@@ -405,10 +405,11 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
 
 # --- attachments (C-28.2) ------------------------------------------------------
 
-#: The names `attachment.add` gives a stored copy and its temporary file (C-28.1).
+#: The names `attachment.add` gives a stored copy and its temporary file (C-28.1):
+#: `.<sha256>.<8 hex>.tmp`, or `.<sha256>.<pid>.tmp` from releases before 47e360ab.
 #: Retention removes nothing else from `attachments/`.
 _COPY = re.compile(r"([0-9a-f]{64})\.(png|jpg|gif|webp)")
-_TEMPORARY = re.compile(r"\.([0-9a-f]{64})\.[0-9a-f]{8}\.tmp")
+_TEMPORARY = re.compile(r"\.([0-9a-f]{64})\.(?:[0-9a-f]{8}|[0-9]{1,10})\.tmp")
 
 
 def prune_attachments(store, *, keep_s: float = ATTACHMENT_KEEP_DAYS * 86400,
@@ -421,13 +422,15 @@ def prune_attachments(store, *, keep_s: float = ATTACHMENT_KEEP_DAYS * 86400,
     (`store.attachment_guard`, which `attachment.add` also holds) from the
     transaction that re-checks the attachment is still unused and unneeded
     (`delete_unused_attachment`) until the unlink after that transaction commits.
-    Retention unlinks only the names `attachment.add` makes, directly under
-    `<state root>/attachments`, never a path read from a row, and nothing at all
-    when `attachments` is a symlink. A copy with no row (a crash between an add's
-    copy and its row, or between a deletion and its unlink) and a temporary copy
-    go once `stray_grace_s` has passed since they were last written. Cancellation
-    and the deadline are checked between files; the next pass finds what this one
-    left.
+    Every file operation goes through one descriptor of `<state root>/attachments`
+    opened without following a symlink, so retention unlinks only the names
+    `attachment.add` makes, directly in that directory, never a path read from a
+    row, and nothing at all when `attachments` is a symlink. A copy with no row (a
+    crash between an add's copy and its row, or between a deletion and its unlink)
+    and a temporary copy go once `stray_grace_s` has passed since they were last
+    written. Cancellation and the deadline are checked between files; the next pass
+    finds what this one left. A store error (the needed set cannot be read) raises,
+    and nothing more is deleted.
     """
     moment = now or datetime.now(UTC)
     cutoff = _store_time(moment - timedelta(seconds=keep_s))
@@ -435,51 +438,61 @@ def prune_attachments(store, *, keep_s: float = ATTACHMENT_KEEP_DAYS * 86400,
     directory = Path(store.root) / "attachments"
     try:
         _checkpoint(cancel, deadline)
-        if directory.is_symlink():
-            result["errors"].append({"path": str(directory), "error": "attachments is a symlink; nothing was removed"})
+        try:
+            dfd: int | None = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            dfd = None                                   # no copies yet: rows can still go
+        except OSError as exc:
+            result["errors"].append({"path": str(directory), "error": f"attachments is a symlink or not a directory "
+                                                                      f"({exc.strerror}); nothing was removed"})
             return result
-        needed = store.needed_attachments()
-        after = None
-        while page := store.attachments_used_by(cutoff, after=after):
-            after = (page[-1]["last_used_at"], page[-1]["sha256"])
-            for row in page:
-                _checkpoint(cancel, deadline)
-                if row["sha256"] not in needed:
-                    _delete_attachment(store, directory, row["sha256"], row["media_type"], cutoff, result)
-        _sweep_strays(store, directory, moment, stray_grace_s, cancel, deadline, result)
+        try:
+            needed = store.needed_attachments()
+            after = None
+            while page := store.attachments_used_by(cutoff, after=after):
+                after = (page[-1]["last_used_at"], page[-1]["sha256"])
+                for row in page:
+                    _checkpoint(cancel, deadline)
+                    if row["sha256"] not in needed:
+                        _delete_attachment(store, dfd, row["sha256"], cutoff, result)
+            if dfd is not None:
+                _sweep_strays(store, dfd, directory, moment, stray_grace_s, cancel, deadline, result)
+        finally:
+            if dfd is not None:
+                os.close(dfd)
     except _Interrupted as exc:
         result["interrupted"] = str(exc)
     return result
 
 
-def _delete_attachment(store, directory: Path, sha: str, media_type: str, cutoff: str, result: dict) -> None:
-    ext = EXTENSIONS.get(media_type)
+def _delete_attachment(store, dfd: int | None, sha: str, cutoff: str, result: dict) -> None:
     with store.attachment_guard(sha):
         deleted = store.delete_unused_attachment(sha, cutoff)
         if deleted is None:
             return
         result["deleted"].append(sha)
         result["bytes"] += int(deleted["bytes"] or 0)
+        ext = EXTENSIONS.get(deleted["media_type"])
         name = f"{sha}.{ext}"
         if ext is None or not _COPY.fullmatch(name):
             # Not a name retention made; a copy left behind is a stray the sweep judges.
-            result["errors"].append({"sha256": sha, "error": f"no stored copy name for {media_type!r}"})
+            result["errors"].append({"sha256": sha, "error": f"no stored copy name for {deleted['media_type']!r}"})
+            return
+        if dfd is None:
             return
         try:
-            os.unlink(directory / name)
+            os.unlink(name, dir_fd=dfd)
         except FileNotFoundError:
             pass
         except OSError as exc:
             result["errors"].append({"sha256": sha, "error": str(exc)})     # a stray now; a later sweep retries
 
 
-def _sweep_strays(store, directory: Path, moment: datetime, grace_s: float,
+def _sweep_strays(store, dfd: int, directory: Path, moment: datetime, grace_s: float,
                   cancel: threading.Event | None, deadline: float | None, result: dict) -> None:
     try:
-        with os.scandir(directory) as entries:
+        with os.scandir(dfd) as entries:
             names = sorted(entry.name for entry in entries)
-    except FileNotFoundError:
-        return
     except OSError as exc:
         result["errors"].append({"path": str(directory), "error": str(exc)})
         return
@@ -489,22 +502,24 @@ def _sweep_strays(store, directory: Path, moment: datetime, grace_s: float,
         match = copy or _TEMPORARY.fullmatch(name)
         if match is None:
             continue
-        path = directory / name
         with store.attachment_guard(match.group(1)):
             try:
-                info = path.lstat()
+                info = os.stat(name, dir_fd=dfd, follow_symlinks=False)
             except FileNotFoundError:
+                continue
+            except OSError as exc:
+                result["errors"].append({"path": str(directory / name), "error": str(exc)})
                 continue
             if stat.S_ISDIR(info.st_mode) or moment.timestamp() - info.st_mtime < grace_s:
                 continue
             if copy and store.attachment(match.group(1)) is not None:
                 continue
             try:
-                path.unlink()
+                os.unlink(name, dir_fd=dfd)
             except FileNotFoundError:
                 continue
             except OSError as exc:
-                result["errors"].append({"path": str(path), "error": str(exc)})
+                result["errors"].append({"path": str(directory / name), "error": str(exc)})
                 continue
             result["strays"].append(name)
 

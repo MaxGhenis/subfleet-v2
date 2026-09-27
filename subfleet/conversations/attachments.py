@@ -31,7 +31,7 @@ TYPES = (
     (b"GIF89a", "image/gif", "gif"),
 )
 #: A stored copy's extension by media type: `attachments/<sha256>.<ext>`.
-EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
+EXTENSIONS = {**{media: ext for _, media, ext in TYPES}, "image/webp": "webp"}
 
 
 def sniff(head: bytes) -> tuple[str, str] | None:
