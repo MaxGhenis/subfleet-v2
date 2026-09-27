@@ -367,14 +367,16 @@ def test_an_ended_attempt_is_replayed_once(ended, monkeypatch):
     assert world.message() == ("failed", "ended-without-result")
 
 
-@pytest.mark.parametrize("path", ["same-daemon", "restart-live", "restart-ended"])
+@pytest.mark.parametrize("path", ["same-daemon", "restart-live", "restart-ended",
+                                  "restart-live, hold lifted", "restart-ended, hold lifted"])
 def test_a_withheld_turn_is_readmitted_however_its_attempt_is_settled(ended, path):
     """C-26.6, C-30.4 (review of the branch): a turn the legacy hold withheld ends
     stopped before its message was sent, and its message is readmitted. A replay of
     its ended attempt had skipped the withhold and derived the outcome again from
     stdout (an initialize answer, then EOF: no result), overwriting the recorded one,
-    so the message failed and was never carried again. A replay reads the hold, and
-    keeps the outcome an earlier runner recorded."""
+    so the message failed and was never carried again; so did a live adoption once
+    an import pass had lifted the hold meanwhile (that predates the branch). A later
+    runner keeps the outcome an earlier one recorded, and a replay reads the hold."""
     world = ended([INIT_OK], logged=WRITTEN[:2])
     world.svc.store.set_legacy_hold(world.cid, "held by a test: the cockpit may be using this session")
     world.svc._adopt_runners()
@@ -387,10 +389,15 @@ def test_a_withheld_turn_is_readmitted_however_its_attempt_is_settled(ended, pat
         assert first.join(60)
     else:
         world.restart()
+        if path.endswith("hold lifted"):
+            world.svc.store.set_legacy_hold(world.cid, None)
         (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
-        if path == "restart-ended":
+        if path.startswith("restart-ended"):
             world.end_attempt()
-        world.ticks()
+        world.svc._adopt_runners()                    # settle first; with the hold lifted a tick would redispatch
+        world.svc._replay_unsettled()
+        for runner in list(world.svc.runners.values()):
+            assert runner.join(60)
     assert world.message() == ("waiting", "readmit:legacy-owner")
     final = json.loads((world.adir / "turn.json").read_text())
     assert (final["state"], final["reason"], final["stop_reason"]) == ("interrupted", "stopped-before-send",
