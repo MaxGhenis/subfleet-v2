@@ -159,11 +159,13 @@ def test_c5_7a_twenty_unchanged_passes_cost_nothing(routing_state, monkeypatch):
     quarantine(service, world)
     looks, censuses, checks = len(world.looks), len(world.censuses), len(world.identity_checks)
     rows, changes = events(service), service.store.connection.total_changes
+    generation = service.store.generation
     for _ in range(20):
         service._recover_probes()
     assert (len(world.looks), len(world.censuses), len(world.identity_checks)) == (looks, censuses, checks)
     assert events(service) == rows
-    assert service.store.connection.total_changes == changes, "not one row changed: nothing to wake on"
+    assert service.store.connection.total_changes == changes, "not one row changed"
+    assert service.store.generation == generation, "C-5.11: no commit, so no waiter wakes"
 
 
 def test_c5_7a_unchanged_passes_cost_one_census_per_backoff_interval_and_write_no_rows(routing_state, monkeypatch):
@@ -178,6 +180,7 @@ def test_c5_7a_unchanged_passes_cost_one_census_per_backoff_interval_and_write_n
     quarantine(service, world)
     first_censuses, first_checks = len(world.censuses), len(world.identity_checks)
     rows, changes = events(service), service.store.connection.total_changes
+    generation = service.store.generation
     record = service._probe_record(HOLDER)
     for tick in range(1, 20 * 300 + 1):
         world.now = tick / 20
@@ -191,6 +194,7 @@ def test_c5_7a_unchanged_passes_cost_one_census_per_backoff_interval_and_write_n
     assert gaps == [probe_recheck_delay(n) for n in range(1, len(schedule) + 1)]
     assert max(gaps) == PROBE_RECHECK_CEILING_S
     assert events(service) == rows and service.store.connection.total_changes == changes
+    assert service.store.generation == generation
     assert service._probe_record(HOLDER) == record
     assert service.store.list_leases(HOLDER)
     assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
@@ -477,20 +481,21 @@ def test_c5_7a_a_released_lease_drops_its_clock(routing_state, monkeypatch):
 
 def test_c5_7a_admission_passes_over_a_quarantined_probe_change_no_row(routing_state, monkeypatch):
     """End to end through `_admit`: a pass that finds a quarantined probe not due
-    and its job `uncertain` commits nothing (on the release line, PR #40's store
-    generation would not move, so no waiter wakes)."""
+    and its job `uncertain` commits nothing, so the store's generation does not
+    move and no waiter wakes (C-5.11)."""
     service, harness = routing_state
     job_id = submitted(service, harness)
     started_probe(service, job_id)
     world = World(service, monkeypatch, census(SURVIVOR))
     quarantine(service, world)
     service._admit()                          # settles anything the first pass does once
-    changes = service.store.connection.total_changes
+    changes, generation = service.store.connection.total_changes, service.store.generation
     looks = len(world.looks)
     for tick in range(1, 20 * 30 + 1):
         world.now = tick / 20
         service._admit()
     assert service.store.connection.total_changes == changes
+    assert service.store.generation == generation, "C-5.11: nothing for a waiter to wake on"
     assert len(world.looks) - looks == len(expected_looks(0.0, 30.0))
     assert service._holds[job_id] == {"reason": "uncertain"}
 

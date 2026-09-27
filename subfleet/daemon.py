@@ -9,13 +9,16 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
+import errno
 import faulthandler
 import fcntl
+import functools
 import hashlib
 import json
 import logging
 import os
 from pathlib import Path
+import resource
 import signal
 import shutil
 import socket
@@ -26,18 +29,19 @@ import threading
 import time
 import weakref
 from uuid import uuid4
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, procs, protocol, render, scheduler
+from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
-    START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
-    WAIT_POLL_MAX_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
+    LIVENESS_INTERVAL_S, OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S,
+    TERM_GRACE_S, WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S,
+    Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
@@ -58,6 +62,8 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
+                   "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-5.7a: a holder's newest probe record, newest first: the newest payload
 #: json_valid accepts that names it (`hit`, one step of `events_probe_holder`),
 #: and every probe.state payload json_valid refuses (`events_not_json`, normally
@@ -71,6 +77,16 @@ PROBE_RECORD = (
     "ORDER BY event_id DESC LIMIT 1) "
     "UNION ALL SELECT event_id,0,data_json FROM events WHERE kind='probe.state' AND NOT json_valid(data_json) "
     "ORDER BY event_id DESC")
+
+#: C-16.6: `accept` failures that say the process or the system is short of
+#: something for now, not that the socket is gone. The daemon waits and accepts
+#: again; any other error still ends `serve_forever`.
+ACCEPT_TRANSIENT = frozenset({errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM,
+                              errno.ECONNABORTED, errno.EINTR, errno.EAGAIN})
+ACCEPT_RETRY_BASE_S = .05
+ACCEPT_RETRY_CEILING_S = 2.0
+#: C-16.7: how long `close()` waits, in all, for connection readers to return.
+READER_JOIN_S = 2.0
 
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
@@ -218,20 +234,42 @@ class DaemonUnavailable(RuntimeError):
     code = 69
 
 
+def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
+    """Run `__init__`; if it raises, give back what it had acquired, then re-raise.
+
+    `main` exits when construction fails, but an embedded daemon (the tests)
+    would otherwise keep `daemon.log`'s descriptor, its handler on a logger
+    whose `id()`-based name a later daemon may reuse, the store and the lock.
+    """
+    @functools.wraps(init)
+    def wrapper(self, *args, **kwargs):
+        try:
+            init(self, *args, **kwargs)
+        except BaseException:
+            self._release_partial_init()
+            raise
+    return wrapper
+
+
 class Daemon:
+    @_released_on_failure
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
+                 liveness_interval_s: float = LIVENESS_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
-                 desktop_prober: Callable[[], Any] | None = None):
+                 desktop_prober: Callable[[], Any] | None = None,
+                 max_connections: int | None = None,
+                 connection_idle_s: float = descriptors.CONNECTION_IDLE_S):
         self.root = Path(state_root).expanduser().resolve()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
+        self.liveness_interval_s = liveness_interval_s
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
@@ -265,6 +303,8 @@ class Daemon:
         # thread. In memory as C-6.10's records are: a restart looks at every
         # quarantined probe once, and that look writes nothing it already said.
         self._probe_rechecks: dict[str, tuple[int, float]] = {}
+        # Attempt id -> when its guardian may next be inspected (LIVENESS_INTERVAL_S).
+        self._liveness_next: dict[str, float] = {}
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -275,6 +315,14 @@ class Daemon:
         self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
+        # C-16.7: the most client connections held at once, from the open-file
+        # limit this process has now (main raises it first), and how long one
+        # with nothing outstanding may stay silent. Counts are for daemon.status.
+        self.max_connections = max(1, int(max_connections if max_connections is not None
+                                          else descriptors.max_connections(descriptors.open_file_limits()[0])))
+        self.connection_idle_s = connection_idle_s
+        self._connection_counts = {"accepted": 0, "refused": 0, "idle_closed": 0,
+                                   "abandoned": 0, "accept_failures": 0}
         self._closed = False
         self._socket: socket.socket | None = None
         self._lock_fd = os.open(self.root / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -300,6 +348,11 @@ class Daemon:
         self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
         self.log.addHandler(self._log_handler)
         self.log.setLevel(logging.INFO)
+        soft, hard = descriptors.open_file_limits()
+        self.log.info("open-file limit %s (hard %s); up to %d client connections, idle ones closed after %g s",
+                      descriptors.limit_for_display(soft) or "unlimited",
+                      descriptors.limit_for_display(hard) or "unlimited",
+                      self.max_connections, self.connection_idle_s)
         for directory in ("jobs", "lanes", "worktrees"):
             (self.root / directory).mkdir(mode=0o700, exist_ok=True)
         policy_path = self.root / "policy.json"
@@ -311,7 +364,12 @@ class Daemon:
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
-        self.readers = ThreadPoolExecutor(max_workers=32, thread_name_prefix="subfleet-socket")
+        # C-16.7: each connection the daemon holds has a reader thread of its own
+        # (`_hold_connection`), so none waits for one; `close()` joins them.
+        self._readers: set[threading.Thread] = set()
+        # C-16.7: connections this daemon shut down after a reply failed part
+        # way; their end of stream is not a client leaving.
+        self._shut_down: set[socket.socket] = set()
         self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
@@ -320,6 +378,28 @@ class Daemon:
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
+
+    def _release_partial_init(self) -> None:
+        """Undo a construction that raised part way (see `_released_on_failure`).
+
+        Each step runs on its own: one that fails must neither stop the rest nor
+        replace the error that made construction fail.
+        """
+        def closing_log():
+            if (handler := self.__dict__.get("_log_handler")) is not None:
+                self.log.removeHandler(handler)
+                handler.stream.close()
+        steps = [closing_log]
+        steps += [functools.partial(executor.shutdown, wait=False)
+                  for executor in (self.__dict__.get(name) for name in ("workers", "requests", "waiters"))
+                  if executor is not None]
+        if (store := self.__dict__.get("store")) is not None:
+            steps.append(store.close)
+        if (finalizer := self.__dict__.get("_lock_finalizer")) is not None:
+            steps.append(finalizer)                    # closing the fd releases the flock
+        for step in steps:
+            with contextlib.suppress(Exception):
+                step()
 
     def _reset_admission_state(self) -> None:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
@@ -1408,7 +1488,9 @@ class Daemon:
                                lane.lane_id, type(exc).__name__)
         return record
 
-    def dispatch(self, op: str, args: dict) -> dict:
+    def dispatch(self, op: str, args: dict, *,
+                 client_gone: Callable[[], bool] | None = None) -> dict:
+        """One protocol op (C-16.2). `client_gone`, from the socket, lets a long read stop early (C-16.7)."""
         if op == "pick":
             from . import picker
             a = protocol.coerce_args(protocol.PickArgs, args)
@@ -1456,7 +1538,7 @@ class Daemon:
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
         if op == "wait":
-            return self.wait(protocol.coerce_args(protocol.WaitArgs, args))
+            return self.wait(protocol.coerce_args(protocol.WaitArgs, args), client_gone=client_gone)
         if op == "kill":
             return self.kill(protocol.coerce_args(protocol.KillArgs, args))
         if op == "lanes":
@@ -1537,7 +1619,7 @@ class Daemon:
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
-                    "admission": self._admission_status(view)}
+                    "admission": self._admission_status(view), "descriptors": self._descriptor_status()}
         raise protocol.ProtocolError(f"unknown op {op}")
 
     def _why_job(self, job: dict) -> dict:
@@ -1717,7 +1799,7 @@ class Daemon:
                     "dedupe_key": args.dedupe_key, "kind": args.kind}
         raise protocol.ProtocolError(f"unknown sessions action {action!r}")
 
-    def wait(self, args: protocol.WaitArgs) -> dict:
+    def wait(self, args: protocol.WaitArgs, *, client_gone: Callable[[], bool] | None = None) -> dict:
         try:
             deadline = time.monotonic() + max(0, min(float(args.deadline_s), WAIT_POLL_MAX_S))
         except (TypeError, ValueError):
@@ -1725,16 +1807,31 @@ class Daemon:
         job_ids = args.job_ids
         if not job_ids:
             job_ids = [j["job_id"] for j in self.dispatch("list", {"mine": args.mine, "last": 1 if args.last else None})["jobs"]]
+        # Everything this answer depends on is in the store, so it is read again
+        # only after a transaction has committed, or every WAIT_RECHECK_S. A
+        # waiter used to re-read every job on every wake-up, and the control
+        # loop wakes all waiters each time any worker finishes: with a few
+        # running attempts that was thousands of store reads a second behind the
+        # one store lock (2026-09-24).
+        seen, recheck_at = None, 0.0
         while True:
-            jobs = [self._job(j) for j in job_ids]
-            pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
-            if all(j["state"] in TERMINAL for j in jobs) and not pending_exports:
-                for job in jobs:
-                    job["attempt"] = self.store.one(
-                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
-                return {"jobs": jobs, "timeout": False}
+            generation = self.store.generation
+            if generation != seen or time.monotonic() >= recheck_at:
+                seen, recheck_at = generation, time.monotonic() + WAIT_RECHECK_S
+                jobs = [self._job(j) for j in job_ids]
+                pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
+                if all(j["state"] in TERMINAL for j in jobs) and not pending_exports:
+                    for job in jobs:
+                        job["attempt"] = self.store.one(
+                            "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+                    return {"jobs": jobs, "timeout": False}
             remaining = deadline - time.monotonic()
             if remaining <= 0 or self.stopping.is_set():
+                return {"timeout": True}
+            if client_gone is not None and client_gone():
+                # C-16.7: no one is left to read the answer. Stop now, not at
+                # the deadline, and free this thread and the client's descriptor.
+                self._count_connection("abandoned", "wait")
                 return {"timeout": True}
             with self.changed:
                 self.changed.wait(min(remaining, .25))
@@ -1802,6 +1899,7 @@ class Daemon:
                     or (paced and time.monotonic() < self._worker_retry_at.get(key, 0))):
                 return
             self._busy.add(key)
+        generation = self.store.generation
         future = self.workers.submit(fn, *args)
         def done(f):
             try:
@@ -1828,10 +1926,44 @@ class Daemon:
                     self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
                                    key, type(exc).__name__, count, delay)
             finally:
+                # Waiters read only the store, so a pass during which nothing
+                # was committed (a running attempt's tick, an idle admission
+                # pass) has nothing to wake them for; each used to wake every
+                # waiter, up to twenty times a second per live key (C-5.11).
+                # The generation is global, so a concurrent commit elsewhere
+                # can still wake them, which costs a waiter one cheap check.
+                # Decided before the key is released, so whoever sees the key
+                # free also sees this pass's wake-up.
+                if self.store.generation != generation:
+                    self._notify()
                 with self._busy_lock:
                     self._busy.discard(key)
-                self._notify()
         future.add_done_callback(done)
+
+    def _pending_exports(self) -> list[str]:
+        """Jobs whose accepted attempt still holds a lease: an export to finish.
+
+        One statement per tick. The sweep used to read every job that had ever
+        been accepted and ask about its leases one by one: 266 statements a
+        tick behind the store lock with 265 retained jobs (C-5.11, 2026-09-24).
+        """
+        return [row["job_id"] for row in self.store.query(PENDING_EXPORTS)]
+
+    def _forget_paced(self, live: set[str]) -> None:
+        """Drop pacing state for attempts that are no longer live (C-5.11).
+
+        An attempt usually becomes terminal inside its own worker pass, after
+        which the control loop never offers it again, so this is where its
+        entries go.
+
+        Worker threads add entries while this runs on the control loop, so it
+        walks a copy: `dict.copy()` is one C call, where walking the dict
+        itself raises "dictionary changed size during iteration" whenever a
+        worker adds an entry mid-walk. Popping is safe.
+        """
+        for pacing in (self._liveness_next, self._census_next):
+            for aid in [aid for aid in pacing.copy() if aid not in live]:
+                pacing.pop(aid, None)
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -1839,13 +1971,14 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                for a in self.store.query(LIVE_ATTEMPTS):
+                live = self.store.query(LIVE_ATTEMPTS)
+                self._forget_paced({a["attempt_id"] for a in live})
+                for a in live:
                     if imported_external(a):
                         continue                    # v1 still owns it (principle 3)
                     self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
-                for j in self.store.query("SELECT * FROM jobs WHERE accepted_attempt_id IS NOT NULL"):
-                    if self.store.one("SELECT 1 FROM leases WHERE holder=?", (j["job_id"],)):
-                        self._schedule("export:" + j["job_id"], self._export, j["job_id"], paced=True)
+                for job_id in self._pending_exports():
+                    self._schedule("export:" + job_id, self._export, job_id, paced=True)
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
@@ -2152,7 +2285,7 @@ class Daemon:
     def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | None]:
         """Re-adopt the same gated guardian, bounded by its durable deadline."""
         directory = Path(record["directory"])
-        next_census = 0.0
+        next_census = next_liveness = 0.0
         while not self.stopping.is_set():
             if child:
                 child.poll()  # Reap our own guardian when it finishes.
@@ -2167,20 +2300,27 @@ class Daemon:
                 break
             if record.get("state") in ("reserved", "quarantined", "containing", "contained"):
                 break
-            if record["deadline_at"] <= utcnow() or not procs.same_process(
-                    record["guardian_pid"], record["boot_id"], record["proc_start"]):
+            if record["deadline_at"] <= utcnow():
                 break
-            if time.monotonic() >= next_census:
-                census = self._probe_census(record)
+            # C-5.11, as for a running attempt: the receipt, the job and the
+            # deadline are read every pass; `ps` is asked about the guardian at
+            # most every liveness interval, and the owned-member record reads
+            # the group source alone. The full census decides containment.
+            if time.monotonic() >= next_liveness:
+                next_liveness = time.monotonic() + self.liveness_interval_s
                 if not procs.same_process(record["guardian_pid"], record["boot_id"], record["proc_start"]):
                     break
-                owned = dict(record.get("owned_identities", {}))
-                owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items()
-                              if pid in census.group_pids})
-                if owned != record.get("owned_identities", {}):
-                    record["owned_identities"] = owned
-                    self._save_probe(record)
-                next_census = time.monotonic() + .5
+                if time.monotonic() >= next_census:
+                    recorded = dict(record.get("owned_identities", {}))
+                    fresh = self._new_group_identities(record.get("pgid"), recorded)
+                    if fresh:
+                        if not procs.same_process(record["guardian_pid"], record["boot_id"], record["proc_start"]):
+                            break
+                        owned = {**recorded, **fresh}
+                        if owned != recorded:
+                            record["owned_identities"] = owned
+                            self._save_probe(record)
+                    next_census = time.monotonic() + OWNED_CENSUS_INTERVAL_S
             self.stopping.wait(.05)
         safe = self._contain_probe(record)
         if child:
@@ -3076,6 +3216,8 @@ class Daemon:
     def _process_attempt(self, aid: str) -> None:
         a = self.store.get_attempt(aid)
         if not a or a["state"] not in LIVE:
+            self._liveness_next.pop(aid, None)
+            self._census_next.pop(aid, None)
             return
         child = self._children.get(aid)
         if child and child.poll() is not None:
@@ -3121,11 +3263,35 @@ class Daemon:
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
+        # The receipt, the cancel request and the wall limit above are read on
+        # every tick; asking `ps` about the guardian is paced. Each question is
+        # several subprocesses from a large, many-threaded process, and asking
+        # it up to twenty times a second per running attempt stretched every
+        # store-lock hold behind the daemon's requests (C-5.11, 2026-09-24).
+        # A guardian that dies without a receipt is noticed at the first
+        # inspection due one interval after the last, once a worker takes
+        # this attempt; an `unknown` answer decides nothing (C-4.2).
+        now = time.monotonic()
+        if now < self._liveness_next.get(aid, 0):
+            return
+        self._liveness_next[aid] = now + self.liveness_interval_s
+        try:
+            self._inspect_running(a, adir)
+        except BaseException:
+            # A pass that raised must be retried in full, not skipped at the
+            # gate: a skipped pass returns normally, and C-5.10 would count it
+            # as recovery and start its backoff over.
+            self._liveness_next.pop(aid, None)
+            raise
+
+    def _inspect_running(self, a: dict, adir: Path) -> None:
+        """The paced half of `_process_attempt`: is the guardian still ours?"""
+        aid = a["attempt_id"]
         alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if alive == "alive":
             if time.monotonic() >= self._census_next.get(aid, 0):
                 self._record_owned(a)
-                self._census_next[aid] = time.monotonic() + .5
+                self._census_next[aid] = time.monotonic() + OWNED_CENSUS_INTERVAL_S
             return  # Re-adopted solely by receipt identity, not parentage.
         if alive == "unknown":
             # ps failed or timed out (load, or an inspection outage). A guardian
@@ -3149,14 +3315,54 @@ class Daemon:
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
 
+    @staticmethod
+    def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
+        """C-5.11: identities for the group members `recorded` lacks.
+
+        One group snapshot names the members and their start times. A member
+        recorded under the same start and the current boot identity is not
+        asked again. A new pid, a pid a new process now holds, and a member
+        recorded under another boot identity (legacy `kern.boottime` seconds
+        from before the boot UUID could be read, or seconds a clock correction
+        has since moved) are captured by `procs.identity` (C-5.3), as the full
+        census refreshed them. The caller re-checks the leader before recording
+        anything (C-5.4).
+        """
+        try:
+            members = procs.group_members(pgid or 0)
+            booted = procs.boot_id()
+        except procs.InspectionError:
+            return {}
+        fresh = {}
+        for pid, started in sorted(members.items()):
+            known = recorded.get(str(pid))
+            if known and known.get("proc_start") == started and known.get("boot_id") == booted:
+                continue
+            try:
+                ident = procs.identity(pid)
+            except procs.InspectionError:
+                continue
+            if ident is not None:
+                fresh[str(pid)] = dataclasses.asdict(ident)
+        return fresh
+
     def _record_owned(self, a: dict) -> None:
-        census = self._contain(a)
-        if not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
-            return
+        """Record the group members a live attempt owns (C-5.4 signal targets).
+
+        Only group members are ever recorded, so this reads C-5.5's group
+        source alone: the marker scan reads every process's environment
+        (`ps -axEww`, megabytes) and its pids were discarded here. A member
+        already recorded under the same start and the current boot identity is
+        not asked again; a pid a new process has taken, and a member recorded
+        under another boot identity, are recorded afresh, as the full census
+        did (`_new_group_identities`).
+        """
         evidence = json.loads(a["evidence_json"] or "{}")
         before = dict(evidence.get("owned_identities", {}))
-        owned = dict(before)
-        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in census.identities.items() if pid in census.group_pids})
+        fresh = self._new_group_identities(a.get("pgid"), before)
+        if not fresh or not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
+            return
+        owned = {**before, **fresh}
         if owned != before:
             evidence["owned_identities"] = owned
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
@@ -3536,8 +3742,16 @@ class Daemon:
         self._notify()
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request) -> None:
+        def gone() -> bool:
+            return descriptors.client_gone(conn)
+        if descriptors.read_only(req.op, req.args) and gone():
+            # C-16.7: its client timed out and hung up while this waited for a
+            # thread. A read has no one to answer; a write still runs, because a
+            # client disconnect cannot cancel its durable job.
+            self._count_connection("abandoned", req.op)
+            return
         try:
-            response = protocol.ok(req.id, self.dispatch(req.op, req.args))
+            response = protocol.ok(req.id, self.dispatch(req.op, req.args, client_gone=gone))
         except (protocol.ProtocolError, AdapterError) as exc:
             response = protocol.fail(req.id, exc.code, str(exc), exc.fix)
         except (ValueError, TypeError, KeyError) as exc:
@@ -3549,30 +3763,80 @@ class Daemon:
             with write_lock:
                 conn.sendall(protocol.encode(response))
         except OSError:
-            pass  # A client disconnect cannot cancel its durable job.
+            # A client disconnect cannot cancel its durable job. A reply that
+            # failed part way (the client stopped reading, C-16.7) leaves a
+            # broken line, so nothing more may follow it on this connection.
+            self._end_stream(conn)
+
+    def _decode(self, conn: socket.socket, write_lock: threading.Lock,
+                line: bytes | descriptors.Oversized) -> protocol.Request | None:
+        """One framed line as a request, or None after answering why it is not one."""
+        try:
+            if line is descriptors.OVERSIZED:
+                raise protocol.ProtocolError("request exceeds 1 MiB")
+            return protocol.decode_request(line)
+        except (protocol.ProtocolError, UnicodeDecodeError) as exc:
+            try:
+                with write_lock:
+                    conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
+            except OSError:
+                # C-16.7: as in `_respond`, nothing may follow a reply that failed part way.
+                self._end_stream(conn)
+                raise
+            return None
 
     def _connection(self, conn: socket.socket) -> None:
         write_lock = threading.Lock()
-        pending = []
+        pending: list[Future] = []
+        reads: set[Future] = set()              # pending futures whose request only reads
+        framer = descriptors.LineFramer()
+        replied = [0.0]                         # when a reply last finished (monotonic)
+
+        def note_reply(_future) -> None:
+            replied[0] = time.monotonic()
         try:
-            with conn.makefile("rb") as reader:
-                while not self.stopping.is_set():
-                    line = reader.readline(1024 * 1024 + 1)
-                    if not line:
-                        break
-                    try:
-                        if len(line) > 1024 * 1024:
-                            raise protocol.ProtocolError("request exceeds 1 MiB")
-                        req = protocol.decode_request(line)
-                    except (protocol.ProtocolError, UnicodeDecodeError) as exc:
-                        with write_lock:
-                            conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
+            # C-16.7: reads time out instead of blocking, so a client that says
+            # nothing cannot hold this reader and its descriptor for ever. The
+            # same timeout bounds sending a reply to a client that stops reading.
+            conn.settimeout(self.connection_idle_s)
+            while not self.stopping.is_set():
+                try:
+                    chunk = conn.recv(65536)
+                except TimeoutError:
+                    pending = [f for f in pending if not f.done()]
+                    reads.intersection_update(pending)
+                    if pending or time.monotonic() - replied[0] < self.connection_idle_s:
+                        continue           # a reply is being worked on, or went out recently
+                    self._count_connection("idle_closed")
+                    break
+                for line in framer.feed(chunk) if chunk else framer.finish():
+                    req = self._decode(conn, write_lock, line)
+                    if req is None:
                         continue
                     # Submission filesystem work and long polls have separate
                     # pools; ordinary read/cancel operations stay responsive.
                     pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
                     pending = [f for f in pending if not f.done()]
-                    pending.append(pool.submit(self._respond, conn, write_lock, req))
+                    reads.intersection_update(pending)
+                    future = pool.submit(self._respond, conn, write_lock, req)
+                    future.add_done_callback(note_reply)
+                    pending.append(future)
+                    if descriptors.read_only(req.op, req.args):
+                        reads.add(future)
+                if not chunk:
+                    # Not while stopping: close()'s own SHUT_RDWR also makes the
+                    # peer look gone, and close() cancels what is queued itself.
+                    with self._connection_lock:
+                        ours = conn in self._shut_down
+                    if not self.stopping.is_set() and not ours and descriptors.client_gone(conn):
+                        # C-16.7: the client closed its whole socket. Its reads that
+                        # no thread has reached yet are cancelled now, so the
+                        # connection and its place under the cap go at once instead
+                        # of when a busy pool gets to them; its writes still run.
+                        for future in pending:
+                            if future in reads and future.cancel():
+                                self._count_connection("abandoned", "queued read")
+                    break
         except OSError:
             pass
         finally:
@@ -3583,9 +3847,100 @@ class Daemon:
                     conn.close()
                     with self._connection_lock:
                         self._connections.discard(conn)
+                        self._shut_down.discard(conn)
             for f in pending:
                 f.add_done_callback(finish)
             finish()
+
+    def _hold_connection(self, conn: socket.socket) -> None:
+        """C-16.7: hold a new connection, with a reader of its own, up to the cap.
+
+        Each admitted connection gets its own reader thread, so it is read at
+        once; a pool's idle-thread count is a heuristic and could leave one
+        queued behind the others (review of #43, F1). One over the cap is
+        answered at once and closed, instead of waiting with its descriptor
+        open while its client times out.
+        """
+        with self._connection_lock:
+            held = len(self._connections)
+            admitted = held < self.max_connections and not self.stopping.is_set()
+            if admitted:
+                self._connections.add(conn)       # close() shuts down whatever is here
+                self._connection_counts["accepted"] += 1
+        if not admitted:
+            self._refuse(conn, f"the daemon is busy: it holds {held} client connections, its limit")
+            return
+        reader = threading.Thread(target=self._read_connection, args=(conn,),
+                                  name="subfleet-socket", daemon=True)
+        with self._connection_lock:
+            self._readers.add(reader)
+        try:
+            reader.start()
+        except RuntimeError as exc:               # no thread could start
+            with self._connection_lock:
+                self._readers.discard(reader)
+                self._connections.discard(conn)
+            self.log.error("client connection refused: no reader thread (%s)", exc)
+            # Nothing was read, so the answer is busy, and the client may try again.
+            self._refuse(conn, f"the daemon is busy: it could not start a thread for this connection ({exc})")
+
+    def _read_connection(self, conn: socket.socket) -> None:
+        try:
+            self._connection(conn)
+        finally:
+            with self._connection_lock:
+                self._readers.discard(threading.current_thread())
+
+    def _end_stream(self, conn: socket.socket) -> None:
+        """C-16.7: shut a connection down after a reply that failed part way."""
+        with self._connection_lock:
+            self._shut_down.add(conn)
+        with contextlib.suppress(OSError):
+            conn.shutdown(socket.SHUT_RDWR)
+
+    def _refuse(self, conn: socket.socket, message: str) -> None:
+        """C-16.7: answer busy (exit 69) before reading anything, and close."""
+        if self.stopping.is_set():
+            conn.close()                       # shutting down: not busy, just gone
+            return
+        self._count_connection("refused")
+        try:
+            conn.setblocking(False)            # a fresh socket's buffer takes one line
+            conn.send(protocol.encode(protocol.fail(
+                "", int(Exit.DAEMON_UNAVAILABLE), message,
+                "try again shortly; `subfleet doctor --live` reports its connections and descriptors")))
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+    #: C-16.7: what `_count_connection` logs, at the 1st, 2nd, 4th, 8th, ... time.
+    _CONNECTION_EVENTS = {"refused": "connections refused at the cap",
+                          "idle_closed": "idle connections closed",
+                          "abandoned": "requests dropped because their client hung up"}
+
+    def _count_connection(self, kind: str, detail: str | None = None) -> int:
+        with self._connection_lock:
+            self._connection_counts[kind] += 1
+            count = self._connection_counts[kind]
+            held = len(self._connections)
+        if kind in self._CONNECTION_EVENTS and count & (count - 1) == 0:   # the log stays bounded
+            self.log.warning("client connections: %d %s so far%s (%d of %d held)",
+                             count, self._CONNECTION_EVENTS[kind],
+                             f", the last a {detail}" if detail else "", held, self.max_connections)
+        return count
+
+    def _descriptor_status(self) -> dict:
+        """C-16.6, C-16.7: the open-file limit, what is open, and what the connection cap has done."""
+        soft, hard = descriptors.open_file_limits()
+        with self._connection_lock:
+            held = len(self._connections)
+            counts = dict(self._connection_counts)
+        return {"soft_limit": descriptors.limit_for_display(soft),
+                "hard_limit": descriptors.limit_for_display(hard),
+                "open": descriptors.open_descriptors(), "connections": held,
+                "max_connections": self.max_connections, "idle_s": self.connection_idle_s,
+                **counts}
 
     def serve_forever(self) -> None:
         sock_path = self.root / "daemon.sock"
@@ -3593,23 +3948,48 @@ class Daemon:
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.bind(str(sock_path))
         os.chmod(sock_path, 0o600)
-        self._socket.listen(64)
+        # C-16.7: socket.SOMAXCONN, 128, which is also macOS's default
+        # kern.ipc.somaxconn cap. A burst past a full backlog is refused at
+        # connect, which the CLI reports as no daemon at all.
+        self._socket.listen(max(64, socket.SOMAXCONN))
         self._socket.settimeout(.2)
         self._control_thread = threading.Thread(target=self._control, name="subfleet-control", daemon=True)
         self._control_thread.start()
+        failures = 0
         try:
             while not self.stopping.is_set():
                 try:
                     conn, _ = self._socket.accept()
                 except socket.timeout:
                     continue
-                except OSError:
+                except OSError as exc:
                     if self.stopping.is_set():
                         break
-                    raise
-                with self._connection_lock:
-                    self._connections.add(conn)
-                self.readers.submit(self._connection, conn)
+                    if exc.errno not in ACCEPT_TRANSIENT:
+                        raise
+                    # C-16.6: out of descriptors or buffers is a condition to
+                    # wait out, not a reason to exit. On 2026-09-24 one EMFILE
+                    # here ended the daemon while its clients waited on replies.
+                    failures += 1
+                    self._count_connection("accept_failures")
+                    delay = min(ACCEPT_RETRY_CEILING_S, ACCEPT_RETRY_BASE_S * 2 ** min(failures - 1, 16))
+                    if failures & (failures - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
+                        self.log.error("accept failed: %s (%d in a row, %d connections open, %s descriptors, next try in %g s)",
+                                       errno.errorcode.get(exc.errno, exc.errno), failures,
+                                       len(self._connections), descriptors.open_descriptors() or "unknown", delay)
+                    # A sleep, not `self.stopping.wait`: this is the main thread,
+                    # where the SIGTERM/SIGINT handler runs and calls
+                    # `stopping.set()`. `Event.wait` holds the event's
+                    # non-reentrant lock except while it blocks, so a signal in
+                    # that window would leave `set()` waiting on its own thread
+                    # for ever. The loop sees `stopping` on its next pass, at
+                    # most one pause (2 s) late. (Release line's hotfix review, F5.)
+                    time.sleep(delay)
+                    continue
+                if failures:
+                    self.log.info("accept recovered after %d failures", failures)
+                    failures = 0
+                self._hold_connection(conn)
         finally:
             self.close()
 
@@ -3636,14 +4016,36 @@ class Daemon:
                 except OSError:
                     pass
         self.timers.stop()
-        for pool in (self.readers, self.requests, self.waiters, self.workers):
+        # C-16.7: a reader returns as soon as its socket is shut down. The wait
+        # is bounded all the same; the C-5.8a bound covers the rest of the stop.
+        with self._connection_lock:
+            readers = list(self._readers)
+        joined_by = time.monotonic() + READER_JOIN_S
+        for reader in readers:
+            reader.join(max(0.0, joined_by - time.monotonic()))
+        for pool in (self.requests, self.waiters, self.workers):
             pool.shutdown(wait=True, cancel_futures=True)
+        with self._connection_lock:
+            # A reader that has not returned by now closes nothing, so its
+            # connection is closed here (C-16.7); an embedded daemon would keep it.
+            for conn in self._connections:
+                conn.close()
+            self._connections.clear()
         self.store.close()
         (self.root / "daemon.sock").unlink(missing_ok=True)
         fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
         self._lock_finalizer()
         self.log.removeHandler(self._log_handler)
         self._log_handler.stream.close()
+
+
+def log_open_file_limit(log: logging.Logger, before: int, after: int, hard: int) -> None:
+    """C-16.6: say what raising the open-file limit at start achieved."""
+    if after != before:
+        log.info("open-file limit raised from %s to %s at start", before, after)
+    elif after != resource.RLIM_INFINITY and after < descriptors.OPEN_FILES_WANTED:
+        log.warning("open-file limit left at %s: the hard limit (%s) or the kernel allows no more",
+                    after, descriptors.limit_for_display(hard) or "unlimited")
 
 
 def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Callable[[], bool]:
@@ -3746,11 +4148,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--foreground", action="store_true")
     parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
     args = parser.parse_args(argv)
+    limits = descriptors.raise_open_file_limit()
     try:
         daemon = Daemon(args.state_root)
     except DaemonUnavailable as exc:
         print(str(exc), file=sys.stderr)
         return 69
+    log_open_file_limit(daemon.log, *limits)
     arm = watch_stop(daemon.stopping, daemon.stop_grace_s, daemon.root / "daemon.log")
     daemon.on_stop = arm
     stop = stop_request(daemon.stopping, arm)
