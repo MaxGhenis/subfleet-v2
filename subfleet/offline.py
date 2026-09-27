@@ -21,6 +21,7 @@ from typing import Any
 
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
+from .render import probe_resolutions
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 
 STORE_NAME = "state.sqlite3"
@@ -256,6 +257,7 @@ class Offline:
                 key=lambda item: item.get("attempt_id") != accepted)
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
+            job["probes"] = self.probes(conn, job_id)
             decisions = conn.execute(
                 "SELECT decision_json FROM decisions WHERE job_id = ?"
                 " ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1",
@@ -336,6 +338,7 @@ class Offline:
                         LIVE_ATTEMPT_STATES):
                     in_flight[row["lane_id"]] = row["n"]
             version = self.schema_version(conn)
+            probes = self.probes(conn)
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
@@ -348,8 +351,51 @@ class Offline:
             "lanes": lanes,
             "readings": readings,
             "closures": closures,
+            "probes": probes,
             "running": self.list_jobs(running=True, last=50),
         }
+
+    def probes(self, conn: sqlite3.Connection, job_id: str | None = None) -> list[dict[str, Any]]:
+        """C-5.7a, C-17.5: the probes that hold a lane slot, as the daemon's `status`
+        and `runs show` list them, less what only a running daemon knows (the
+        recheck clock, a pending request). A payload `json_valid` refuses (a NaN;
+        no writer makes one) is passed over here, where the daemon parses it.
+        """
+        tables = self._tables(conn)
+        if "leases" not in tables or "events" not in tables:
+            return []
+        lanes: dict[str, list[str]] = {}
+        for row in conn.execute("SELECT lease_key, holder FROM leases WHERE holder LIKE 'probe:%'"
+                                " ORDER BY lease_key"):
+            lanes.setdefault(row["holder"], []).append(str(row["lease_key"]).split(":")[1])
+        rows = []
+        for holder, lane_ids in lanes.items():
+            found = conn.execute(
+                "SELECT ts, data_json FROM events WHERE kind = 'probe.state' AND json_valid(data_json)"
+                " AND json_extract(data_json, '$.holder') = ? ORDER BY event_id DESC LIMIT 1",
+                (holder,)).fetchone()
+            try:
+                record = json.loads(found["data_json"]) if found else {}
+            except (TypeError, ValueError):
+                record = {}
+            record = record if isinstance(record, dict) else {}
+            owner = record.get("job_id")
+            if job_id is not None and owner != job_id:
+                continue
+            state = record.get("state", "unrecorded")
+            containment = record.get("containment") if isinstance(record.get("containment"), dict) else {}
+            rows.append({
+                "holder": holder, "lane_id": lane_ids[0], "lane_ids": lane_ids, "job_id": owner,
+                "kind": record.get("timer_kind") or ("admission" if owner else "unknown"),
+                "state": state, "created_at": record.get("created_at"),
+                "recorded_at": found["ts"] if found else None,
+                "live_pids": containment.get("live_pids", []),
+                "unverifiable": containment.get("unverifiable"),
+                "errors": containment.get("errors", []),
+                "containment": containment or None,
+                "resolve": probe_resolutions(lane_ids[0], owner) if state == "quarantined" else None,
+            })
+        return rows
 
     # --- kill (C-17.5, C-5.3, C-5.4) ----------------------------------------
 

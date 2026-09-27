@@ -32,11 +32,14 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None):
+                 deliver=None, now=None, releasable=None):
         from .actions import ResetCredits
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
+        # C-5.7a: whether a turn's holder may give its lease back, asked of the
+        # durable probe record (the daemon's); None leaves it to the turn's flag.
+        self.releasable = releasable
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -302,10 +305,21 @@ class Timers:
         return holder
 
     def _release(self, holder, *, quarantined=False):
-        if not quarantined:
-            self.store.release_leases(holder)
-        with self._lock:
-            self.active_holders.discard(holder)
+        """Give a turn's lease back, unless its probe is left to contain, then let the holder go.
+
+        C-5.7a: the durable record decides as well as the turn's flag. A turn
+        that raised after its probe was quarantined returns no outcome to set
+        the flag from, and a quarantined probe's lease is released only by a
+        verified-empty census or an operator's recorded override. The lease goes
+        before the holder leaves `active_holders`, so `_recover_probes` never
+        looks at a holder whose lease is about to be released.
+        """
+        try:
+            if not quarantined and (self.releasable is None or self.releasable(holder)):
+                self.store.release_leases(holder)
+        finally:
+            with self._lock:
+                self.active_holders.discard(holder)
 
     def _turn(self, lane, purpose, holder, timeout):
         if not self.turn:
