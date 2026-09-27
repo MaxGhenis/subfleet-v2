@@ -1,0 +1,32 @@
+# test_probe_boot_wait_daemon.py (final review of PR #37, 2026-09-26), run on 2026-09-27: four attempts ask one table whose boot-identity read takes 2 s, then two attempts during a 2 s hung sysctl; per-attempt pass durations in seconds
+# base = 00a1239 (PR #37 as reviewed, with main merged); head = this branch once the final review's fixes are in; three runs of each, alternating
+## base run 1 2026-09-27T05:59:22Z load averages: { 37.35 37.26 33.46 }
+[slow sysctl 2.0s] ps reads=1 boot reads=1 per-attempt tick durations: {'20260905-100000-settle/a1': 2.14, '20260905-100000-settle-c/a1': 2.14, '20260905-100000-settle-d/a1': 2.14, '20260905-100000-settle-b/a1': 2.14}
+[slow sysctl] workers held for the whole boot read: 4 of 4
+[hung sysctl 2.0s] per-attempt tick durations: {'20260905-100000-settle/a1': 2.15, '20260905-100000-settle-b/a1': 2.15}; states: ['running', 'running']
+2 passed in 5.88s
+## head run 1 2026-09-27T05:59:28Z load averages: { 36.93 37.18 33.45 }
+[slow sysctl 2.0s] ps reads=1 boot reads=1 per-attempt tick durations: {'20260905-100000-settle-c/a1': 0.0, '20260905-100000-settle-d/a1': 0.0, '20260905-100000-settle-b/a1': 0.0, '20260905-100000-settle/a1': 2.12}
+[slow sysctl] workers held for the whole boot read: 1 of 4
+[hung sysctl 2.0s] per-attempt tick durations: {'20260905-100000-settle-b/a1': 0.0, '20260905-100000-settle/a1': 2.14}; states: ['running', 'running']
+2 passed in 4.74s
+## base run 2 2026-09-27T05:59:33Z load averages: { 36.29 37.04 33.43 }
+[slow sysctl 2.0s] ps reads=1 boot reads=1 per-attempt tick durations: {'20260905-100000-settle/a1': 2.15, '20260905-100000-settle-d/a1': 2.15, '20260905-100000-settle-c/a1': 2.15, '20260905-100000-settle-b/a1': 2.15}
+[slow sysctl] workers held for the whole boot read: 4 of 4
+[hung sysctl 2.0s] per-attempt tick durations: {'20260905-100000-settle/a1': 2.01, '20260905-100000-settle-b/a1': 2.01}; states: ['running', 'running']
+2 passed in 4.41s
+## head run 2 2026-09-27T05:59:38Z load averages: { 35.63 36.89 33.39 }
+[slow sysctl 2.0s] ps reads=1 boot reads=1 per-attempt tick durations: {'20260905-100000-settle/a1': 0.0, '20260905-100000-settle-c/a1': 0.0, '20260905-100000-settle-d/a1': 0.0, '20260905-100000-settle-b/a1': 2.03}
+[slow sysctl] workers held for the whole boot read: 1 of 4
+[hung sysctl 2.0s] per-attempt tick durations: {'20260905-100000-settle-b/a1': 0.0, '20260905-100000-settle/a1': 2.15}; states: ['running', 'running']
+2 passed in 4.36s
+## base run 3 2026-09-27T05:59:42Z load averages: { 34.78 36.69 33.34 }
+[slow sysctl 2.0s] ps reads=1 boot reads=1 per-attempt tick durations: {'20260905-100000-settle-d/a1': 2.12, '20260905-100000-settle/a1': 2.12, '20260905-100000-settle-b/a1': 2.12, '20260905-100000-settle-c/a1': 2.12}
+[slow sysctl] workers held for the whole boot read: 4 of 4
+[hung sysctl 2.0s] per-attempt tick durations: {'20260905-100000-settle/a1': 2.15, '20260905-100000-settle-b/a1': 2.15}; states: ['running', 'running']
+2 passed in 5.20s
+## head run 3 2026-09-27T05:59:48Z load averages: { 34.31 36.56 33.32 }
+[slow sysctl 2.0s] ps reads=1 boot reads=1 per-attempt tick durations: {'20260905-100000-settle-b/a1': 0.0, '20260905-100000-settle-d/a1': 0.0, '20260905-100000-settle-c/a1': 0.0, '20260905-100000-settle/a1': 2.12}
+[slow sysctl] workers held for the whole boot read: 1 of 4
+[hung sysctl 2.0s] per-attempt tick durations: {'20260905-100000-settle-b/a1': 0.0, '20260905-100000-settle/a1': 2.14}; states: ['running', 'running']
+2 passed in 7.46s
