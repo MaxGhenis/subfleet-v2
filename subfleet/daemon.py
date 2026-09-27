@@ -3537,7 +3537,7 @@ class Daemon:
 
 
 def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Callable[[], None]:
-    """C-5.8a: once the daemon is stopping, end this process within `grace_s` seconds.
+    """C-5.8a: once the daemon is stopping, end this process `grace_s` seconds later.
 
     `close()` releases `daemon.lock` only after every pool has drained, so the
     store has one writer. But `close()` shuts the listening socket first, and
@@ -3545,69 +3545,86 @@ def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Cal
     therefore kept a deaf process holding the lock. Clients were refused, and
     every replacement daemon exited 69 on the lock. On 2026-09-25, pid 93697 was
     sampled at 19:25:58Z with its main thread joining pool threads that were
-    parked on a lock (docs/reports/2026-09-25-daemon-stop-wedge.md). Ending the
-    process frees the lock in the kernel. No guardian is signalled, so the next
-    daemon adopts the attempts that are still running (C-4.2), as it does after
-    a SIGKILL.
+    parked in `RLock.acquire` (docs/reports/2026-09-25-daemon-stop-wedge.md).
+    Ending the process frees the lock in the kernel. No guardian is signalled,
+    so the next daemon adopts the attempts that are still running (C-4.2), as
+    it does after a SIGKILL.
 
     Returns `arm`, which starts the bound. The daemon's stop paths call it on
-    the thread that begins the stop, before `stopping` is set: `close()` through
-    `Daemon.on_stop`, `main` once serving ends, and the SIGTERM and SIGINT
-    handler. The first two are already running Python, so they arm at once and
-    no other thread has to be scheduled. A signal handler runs only when the
-    main thread next holds the GIL, so a thread that keeps the GIL through the
-    signal delays arming until it lets go. launchd's `ExitTimeOut` and
-    `subfleet daemon stop` end such a process `STOP_BACKSTOP_S` after the grace.
-    A thread started here also arms when anything else sets `stopping`. Only
-    the first successful call arms, and `arm` never raises.
+    the thread that begins the stop, before `stopping` is set: `close()`
+    through `Daemon.on_stop`, `main` once serving ends, and `stop_request` for
+    SIGTERM and SIGINT. The first two are already running Python, so they arm
+    at once. A signal handler runs only when the main thread next holds the
+    GIL, so a thread that keeps the GIL through the signal delays arming until
+    it lets go. launchd's `ExitTimeOut` and `subfleet daemon stop` end such a
+    process `STOP_BACKSTOP_S` after the grace. `arm` takes no lock, because a
+    signal handler can run it on a thread that is already inside it; both
+    calls then arm, microseconds apart. Once the deadline is set, a later call
+    cannot move it. `arm` never raises.
 
     The timer is faulthandler's, which runs in C, so once armed it fires even
-    while another thread holds the GIL. When it fires it writes every thread's
-    Python stack to `daemon.log`, naming the stuck thread, then calls
-    `_exit(1)`. If faulthandler cannot start its timer, a plain timer thread
-    ends the process at the same moment, without a dump. The descriptor is
-    opened here, at start, because a daemon stopping after it ran out of
-    descriptors could not open one then; it stays open for the life of the
-    process. A stop that finishes in time ends the process first, and
+    while another thread holds the GIL. When it fires it writes the Python
+    stack of up to 100 threads, newest first (faulthandler's cap), to
+    `daemon.log`, then calls `_exit(1)`. If faulthandler cannot start its
+    timer, the stop-watch thread, started here with the daemon, calls
+    `_exit(1)` at the deadline instead. It writes no dump, and it needs the GIL
+    to run. The same thread arms when anything else sets `stopping`. The log
+    descriptor is opened here, at start, because a daemon stopping after it
+    ran out of descriptors could not open one then; it stays open for the life
+    of the process. A stop that finishes in time ends the process first, and
     interpreter shutdown cancels the timer.
     """
     fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
-    busy = threading.Lock()
-    armed = False
+    deadline: float | None = None
+    fallback = False
+
+    def say(text: str) -> None:
+        with contextlib.suppress(OSError):
+            os.write(fd, f"{utcnow()} {text} (C-5.8a)\n".encode())
 
     def arm() -> None:
-        nonlocal armed
-        # Non-blocking: a signal handler may run this on a thread already
-        # inside it, and that call finishes the job.
-        if not busy.acquire(blocking=False):
+        nonlocal deadline, fallback
+        if deadline is not None:
             return
         try:
-            if armed:
-                return
             # The timer first: the write below gives up the GIL.
             try:
                 faulthandler.dump_traceback_later(grace_s, exit=True, file=fd)
-                then = "every thread's stack follows and it exits 1"
+                then = "the stacks of its threads follow and it exits 1"
             except Exception as exc:  # noqa: BLE001 - e.g. no thread for the watchdog
-                backstop = threading.Timer(grace_s, os._exit, (1,))
-                backstop.daemon = True
-                backstop.start()
-                then = f"it exits 1 with no stack dump (faulthandler: {type(exc).__name__})"
-            armed = True
-            with contextlib.suppress(OSError):
-                os.write(fd, (f"{utcnow()} stopping: if this process is still running in "
-                              f"{grace_s:g} s, {then} (C-5.8a)\n").encode())
-        except Exception:  # noqa: BLE001 - never undo a stop; a later call tries again
-            pass
-        finally:
-            busy.release()
+                fallback = True
+                then = (f"the stop-watch thread ends it with exit 1 and no stack dump "
+                        f"(faulthandler: {type(exc).__name__})")
+            deadline = time.monotonic() + grace_s
+            say(f"stopping: if this process is still running in {grace_s:g} s, {then}")
+        except Exception as exc:  # noqa: BLE001 - never undo a stop
+            say(f"stopping: the bound could not be armed ({type(exc).__name__})")
 
     def watch() -> None:
         stopping.wait()
         arm()
+        if fallback and deadline is not None:
+            time.sleep(max(0.0, deadline - time.monotonic()))
+            os._exit(1)
 
     threading.Thread(target=watch, name="subfleet-stop-watch", daemon=True).start()
     return arm
+
+
+def stop_request(stopping: threading.Event, arm: Callable[[], None]) -> Callable[..., None]:
+    """C-5.8a: the SIGTERM and SIGINT handler. It arms first, then sets `stopping`.
+
+    `Event.set` takes a lock that is not reentrant. A second signal that lands
+    while a first handler is inside `set` would block the main thread on it,
+    so the handler skips `set` once the event is set. The remaining window,
+    inside `set` before the flag flips, is bounded, because the first handler
+    armed before it entered.
+    """
+    def stop(*_: object) -> None:
+        arm()
+        if not stopping.is_set():
+            stopping.set()
+    return stop
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -3622,11 +3639,7 @@ def main(argv: list[str] | None = None) -> int:
         return 69
     arm = watch_stop(daemon.stopping, daemon.stop_grace_s, daemon.root / "daemon.log")
     daemon.on_stop = arm
-
-    def stop(*_: object) -> None:
-        arm()
-        daemon.stopping.set()
-
+    stop = stop_request(daemon.stopping, arm)
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, stop)
     try:

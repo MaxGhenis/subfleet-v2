@@ -325,7 +325,7 @@ def _stopping_stub(root: Path, tmp_path: Path, mode: str):
     path = _write_stub(tmp_path / f"stub-{mode}", STOPPING_STUB)
     proc = subprocess.Popen([str(path), "--state-root", str(root), "--mode", mode])
     try:
-        deadline = _time.monotonic() + 10
+        deadline = _time.monotonic() + 30          # a loaded machine imports slowly
         while _time.monotonic() < deadline:
             info = Client(root).lock_info() or {}
             if info.get("pid") == proc.pid and info.get("proc_start"):
@@ -357,11 +357,16 @@ def test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed(root, tmp_p
     """C-5.8a, C-5.4 still the signalled identity after the wait: SIGKILL, as
     launchd's ExitTimeOut would, and the stop succeeds."""
     monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 1.0)
+    waits: list[float] = []
+    real_wait = cli._wait_for_exit
+    monkeypatch.setattr(cli, "_wait_for_exit",
+                        lambda pid, info, seconds: waits.append(seconds) or real_wait(pid, info, seconds))
     with _stopping_stub(root, tmp_path, "deaf") as proc:
         assert cli.main(["daemon", "stop"]) == 0
         assert proc.wait(timeout=5) == -signal.SIGKILL
+    assert waits == [cli.DAEMON_STOP_WAIT_S, cli.DAEMON_KILL_WAIT_S]
     err = capsys.readouterr().err
-    assert "never armed its own stop bound" in err and "sent SIGKILL" in err
+    assert "its own stop bound (C-5.8a) did not end it" in err and "sent SIGKILL" in err
     assert "stopped" in err
 
 

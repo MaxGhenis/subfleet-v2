@@ -2074,9 +2074,10 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
     if _wait_for_exit(pid, info, DAEMON_STOP_WAIT_S):
         note(f"{PROG} daemon: stopped")
         return int(Exit.OK)
-    # Still the process we signalled, so its bound never armed: a thread held
-    # the GIL through the signal (C-5.8a). End it as launchd's ExitTimeOut
-    # would, after checking the identity again (C-5.4).
+    # Still the process we signalled, so its own bound did not end it: it never
+    # armed (a thread held the GIL through the signal), it could not run, or the
+    # daemon predates C-5.8a. End it as launchd's ExitTimeOut would, after
+    # checking the identity again (C-5.4).
     alive = same_process(pid, info.get("boot_id"), info.get("proc_start"))
     if alive is False:
         note(f"{PROG} daemon: stopped")
@@ -2089,8 +2090,8 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
         os.kill(pid, _signal.SIGKILL)
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon stop: SIGKILL to {pid} failed: {exc}")
-    note(f"{PROG} daemon: pid {pid} was still running {DAEMON_STOP_WAIT_S:g}s after SIGTERM, "
-         f"so it never armed its own stop bound (C-5.8a); sent SIGKILL")
+    note(f"{PROG} daemon: pid {pid} was still running {DAEMON_STOP_WAIT_S:g}s after SIGTERM; "
+         f"its own stop bound (C-5.8a) did not end it, so sent SIGKILL")
     if _wait_for_exit(pid, info, DAEMON_KILL_WAIT_S):
         note(f"{PROG} daemon: stopped")
         return int(Exit.OK)
