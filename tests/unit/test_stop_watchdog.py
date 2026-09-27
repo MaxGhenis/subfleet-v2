@@ -40,13 +40,31 @@ REPO = Path(__file__).resolve().parents[2]
 SLACK_S = 5.0
 
 CHILD = r'''
-import json, os, re, resource, sys, threading, time
+import json, os, re, resource, signal, sys, threading, time
 from pathlib import Path
-from subfleet.daemon import watch_stop
+from subfleet.daemon import stop_request, watch_stop
 
 kind, grace, log, delay = sys.argv[1], float(sys.argv[2]), Path(sys.argv[3]), float(sys.argv[4])
-stopping = threading.Event()
+
+
+class NestedSignalEvent(threading.Event):
+    """Astra's interleaving: a second SIGTERM lands while a handler is inside
+    `set`, holding the event's lock, which is not reentrant."""
+    sent = False
+
+    def set(self):
+        with self._cond:
+            if not NestedSignalEvent.sent:
+                NestedSignalEvent.sent = True
+                os.kill(os.getpid(), signal.SIGTERM)
+                time.sleep(0.05)       # the nested handler runs here and blocks on _cond
+            self._flag = True
+            self._cond.notify_all()
+
+
+stopping = NestedSignalEvent() if kind == "nested-signals" else threading.Event()
 arm = watch_stop(stopping, grace, log)
+signal.signal(signal.SIGTERM, stop_request(stopping, arm))
 if kind == "arm-fails":
     import faulthandler
 
@@ -54,6 +72,32 @@ if kind == "arm-fails":
         raise RuntimeError("unable to start watchdog thread")
 
     faulthandler.dump_traceback_later = refuse
+if kind == "nested-signals":
+    # The first signal lands inside `arm`, after its check and before the timer.
+    import faulthandler
+    real_later = faulthandler.dump_traceback_later
+    first = [True]
+
+    def later(*args, **kwargs):
+        if first[0]:
+            first[0] = False
+            os.kill(os.getpid(), signal.SIGTERM)
+            time.sleep(0.05)           # the handler runs here, inside the outer `arm`
+        return real_later(*args, **kwargs)
+
+    faulthandler.dump_traceback_later = later
+if kind == "hog-during-write":
+    # The stopping line's write gives up the GIL and a C loop takes it for
+    # good: only a timer started before the write can still fire.
+    real_write = os.write
+
+    def write(fd, data):
+        if b"stopping:" in data:
+            threading.Thread(target=stuck_holding_the_gil, name="subfleet-api_11", daemon=True).start()
+            time.sleep(0.05)
+        return real_write(fd, data)
+
+    os.write = write
 
 
 def report(**fields):
@@ -79,6 +123,9 @@ def stuck_holding_the_gil():
 def stop():
     time.sleep(delay)
     report(stopped_at=time.monotonic())
+    if kind == "nested-signals":
+        arm()                          # interrupted by SIGTERM, then again inside `set`
+        return
     if kind != "set-only":
         arm()                          # as the daemon's own stop paths do, first
     stopping.set()                     # anything else only sets the event
@@ -103,14 +150,14 @@ if kind == "descriptors":
 
 if kind == "clean":
     stop()
-    time.sleep(grace / 4)
+    time.sleep(0.3)
     sys.exit(0)
 
 held = threading.Lock()
-if kind in ("lock", "descriptors", "set-only", "arm-fails"):
+if kind in ("lock", "descriptors", "set-only", "arm-fails", "rearm", "nested-signals"):
     held.acquire()                     # and never released
     worker = threading.Thread(target=stuck_behind_lock, args=(held,), name="subfleet-api_11")
-elif kind == "gil":
+elif kind in ("gil", "hog-during-write"):
     worker = None
 elif kind == "exit-join":
     worker = threading.Thread(target=park_forever, name="subfleet-io_3")
@@ -124,6 +171,12 @@ if kind == "gil":
     hog = threading.Thread(target=stuck_holding_the_gil, name="subfleet-control")
     hog.start()
     hog.join()
+elif kind == "hog-during-write":
+    threading.Event().wait()
+elif kind == "rearm":
+    while True:                        # every later arm must leave the deadline alone
+        arm()
+        time.sleep(0.05)
 elif kind == "exit-join":
     sys.exit(0)                        # interpreter shutdown joins the parked thread
 else:
@@ -139,7 +192,17 @@ STUCK = {
     # Not a stop path the daemon has: `stopping` set by anything else, which
     # only the watching thread notices.
     "set-only": "stuck_behind_lock",
+    # `arm` called again and again after the stop: the deadline must not move.
+    "rearm": "stuck_behind_lock",
+    # The GIL is taken for good while the stopping line is written.
+    "hog-during-write": "stuck_holding_the_gil",
+    # A SIGTERM inside `arm`, then another inside `Event.set`: the main thread
+    # blocks for good on the event's lock, so only an armed timer ends it.
+    "nested-signals": "set",
 }
+#: The GIL is lost where the stopping line is written, so no line is: the
+#: timer, started first, must still fire.
+NO_LINE = {"hog-during-write"}
 
 
 def run_child(tmp_path: Path, kind: str, grace: float, delay: float = 0.0,
@@ -163,13 +226,16 @@ def stopping_line(grace: float) -> str:
     return f"stopping: if this process is still running in {grace:g} s, "
 
 
-def assert_bounded(rc: int, elapsed: float, text: str, grace: float, frame: str) -> None:
+def assert_bounded(rc: int, elapsed: float, text: str, grace: float, kind: str) -> None:
+    frame = STUCK[kind]
     assert rc == 1, text
     assert grace - 0.05 <= elapsed <= grace + SLACK_S, (elapsed, text)
-    # The stop path and the watching thread both call `arm`; one line, one timer.
-    assert text.count("stopping:") == 1, text
-    assert stopping_line(grace) + "every thread's stack follows and it exits 1" in text
-    assert text.index("stopping:") < text.index("Timeout (")
+    assert "Timeout (" in text, text
+    if kind not in NO_LINE:
+        # The stop path and the watching thread both call `arm`; one line, one timer.
+        assert text.count("stopping:") == 1, text
+        assert stopping_line(grace) + "the stacks of its threads follow and it exits 1" in text
+        assert text.index("stopping:") < text.index("Timeout (")
     assert f" in {frame}\n" in text, text
 
 
@@ -178,7 +244,7 @@ def test_c5_8a_a_stop_that_cannot_finish_ends_the_process_within_its_grace(tmp_p
     """C-5.8a: for each way the drain can hang, the process still ends on time
     and the dump names the stuck frame."""
     rc, lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
-    assert_bounded(rc, elapsed, text, 1.0, STUCK[kind])
+    assert_bounded(rc, elapsed, text, 1.0, kind)
     if kind == "descriptors":
         assert {"exhausted": 24} in lines, lines          # EMFILE before the stop
 
@@ -191,27 +257,29 @@ def test_c5_8a_a_stop_that_cannot_finish_ends_the_process_within_its_grace(tmp_p
 def test_c5_8a_the_bound_holds_for_any_grace_and_stop_time(tmp_path, kind, grace, delay):
     """C-5.8a property: bounded exit for every grace, stop moment and stuck kind."""
     rc, _lines, elapsed, text = run_child(tmp_path, f"{kind}", grace=grace, delay=delay)
-    assert_bounded(rc, elapsed, text, grace, STUCK[kind])
+    assert_bounded(rc, elapsed, text, grace, kind)
     (tmp_path / f"{kind}.log").unlink()
 
 
 def test_c5_8a_a_stop_that_finishes_in_time_exits_with_its_own_status(tmp_path):
     """C-5.8a: the bound never cuts a stop short or rewrites its status."""
-    rc, _lines, elapsed, text = run_child(tmp_path, "clean", grace=2.0)
+    rc, _lines, elapsed, text = run_child(tmp_path, "clean", grace=10.0)
     assert rc == 0
-    assert elapsed < 2.0
-    assert stopping_line(2.0) in text
+    assert elapsed < 10.0
+    assert stopping_line(10.0) in text
     assert "Timeout (" not in text
 
 
 def test_c5_8a_a_stop_still_ends_when_faulthandler_cannot_arm(tmp_path):
     """C-5.8a: faulthandler failing to start its watchdog does not disable the
-    bound; a plain timer ends the process at the same moment, without a dump."""
+    bound; the stop-watch thread, already running, ends the process at the
+    deadline, without a dump."""
     rc, _lines, elapsed, text = run_child(tmp_path, "arm-fails", grace=1.0)
     assert rc == 1, text
     assert 1.0 - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
     assert text.count("stopping:") == 1, text
-    assert stopping_line(1.0) + "it exits 1 with no stack dump (faulthandler: RuntimeError)" in text
+    assert stopping_line(1.0) + ("the stop-watch thread ends it with exit 1 and no stack dump "
+                                 "(faulthandler: RuntimeError)") in text
     assert "Timeout (" not in text
 
 
@@ -302,13 +370,14 @@ def test_c5_8a_a_failed_arm_never_stops_close_from_draining_and_unlocking(tmp_pa
 
 
 def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_the_grace():
-    """C-5.8a: a stop's probe containment (SIGTERM, TERM_GRACE_S, SIGKILL, settle)
-    finishes before the bound; launchd and `daemon stop` wait past the bound
-    before their own SIGKILL, so the daemon's dump comes first."""
+    """C-5.8a: a stop's probe containment (SIGTERM, up to TERM_GRACE_S of census
+    polling, SIGKILL, one census) finishes before the bound; launchd and `daemon
+    stop` wait past the bound before their own SIGKILL, so the daemon's dump
+    comes first."""
     import inspect
     from subfleet import cli
-    from subfleet.contracts import KILL_SETTLE_S, STOP_BACKSTOP_S, STOP_GRACE_S, TERM_GRACE_S
-    assert TERM_GRACE_S + KILL_SETTLE_S + 5 <= STOP_GRACE_S
+    from subfleet.contracts import STOP_BACKSTOP_S, STOP_GRACE_S, TERM_GRACE_S
+    assert TERM_GRACE_S + 10 <= STOP_GRACE_S
     assert STOP_BACKSTOP_S >= 5
     assert cli.DAEMON_STOP_WAIT_S == STOP_GRACE_S + STOP_BACKSTOP_S
     default = inspect.signature(daemon_module.Daemon).parameters["stop_grace_s"].default

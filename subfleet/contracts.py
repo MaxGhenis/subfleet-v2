@@ -226,9 +226,10 @@ OWNED_CENSUS_INTERVAL_S = 0.5
 # C-15.5: the wait hub re-reads the store when a transaction has committed since
 # its last look, and at least this often regardless.
 WAIT_RECHECK_S = 1.0
-# C-5.8a: a stopping daemon that has not ended this long after its stop began
-# dumps every thread's stack and ends. Longer than probe containment during a
-# stop (TERM_GRACE_S, then SIGKILL and KILL_SETTLE_S), so that finishes first.
+# C-5.8a: a stopping daemon that has not ended this long after its stop was armed
+# dumps its threads' stacks and ends. Longer than probe containment during a stop
+# (SIGTERM, up to TERM_GRACE_S of census polling, then SIGKILL and one census),
+# so that finishes first.
 STOP_GRACE_S = 30
 # C-5.8a: how much longer launchd (the plist's ExitTimeOut) and `subfleet daemon
 # stop` wait before SIGKILL: time for the dump, and the backstop for a stop that

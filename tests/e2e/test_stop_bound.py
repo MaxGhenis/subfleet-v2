@@ -12,14 +12,19 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 
 from subfleet.procs import same_process
 
 
-GRACE_S = 2.0
+#: Long enough that the lock check after the stopping line, and the guardian
+#: check after the exit, do not race the bound on a loaded machine.
+GRACE_S = 5.0
 #: Scheduling slack past the grace on a loaded machine.
-SLACK_S = 8.0
+SLACK_S = 10.0
+#: The provider outlives the old daemon's grace and the checks after it.
+PROVIDER_S = 30
 
 
 def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
@@ -29,7 +34,7 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     the log. The lock is free, the guardian was not signalled, and the next
     daemon adopts the attempt and accepts it once.
     """
-    e2e.start(scenario="slow", delay_s=12, env={
+    e2e.start(scenario="slow", delay_s=PROVIDER_S, env={
         # Test-only sitecustomize instrumentation around the daemon's existing
         # crash_hook: the worker that commits `attempt.running` then parks
         # until `release-hook` exists, which this test never creates.
@@ -54,9 +59,9 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     signalled = time.monotonic()
     old.send_signal(signal.SIGTERM)
     # Single writer (C-5.8): while the old daemon is still stopping, its lock
-    # is still held; only the end of the process releases it.
-    e2e.until(lambda: "stopping: if this process is still running in" in
-              (e2e.root / "daemon.log").read_text())
+    # is still held; only the end of the process releases it. The accept loop
+    # sees the stop within 0.2 s; the check comes well inside the grace.
+    time.sleep(1.0)
     fd = os.open(e2e.root / "daemon.lock", os.O_RDWR)
     try:
         try:
@@ -82,11 +87,16 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     assert old.returncode == 1
     log = (e2e.root / "daemon.log").read_text()
     assert (f"stopping: if this process is still running in {GRACE_S:g} s, "
-            "every thread's stack follows and it exits 1") in log
+            "the stacks of its threads follow and it exits 1") in log
     dump = log[log.index("Timeout ("):]
     # The dump names the thread that would not return: the held worker, in
-    # the harness's hold, under the daemon's boundary.
-    assert "subfleet-io" in dump and " in hold\n" in dump and " in _boundary\n" in dump, dump
+    # the harness's hold, under the daemon's boundary, and the main thread
+    # joining it from close(). Thread names appear in faulthandler's headers
+    # from Python 3.14.
+    for frame in (" in hold\n", " in _boundary\n", " in _process_attempt\n", " in close\n"):
+        assert frame in dump, (frame, dump)
+    if sys.version_info >= (3, 14):
+        assert "[subfleet-io_" in dump, dump
 
     # The kernel released the flock with the process: nothing else holds it.
     fd = os.open(e2e.root / "daemon.lock", os.O_RDWR)
@@ -102,7 +112,7 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     # A fresh daemon starts on the freed lock and adopts the running attempt.
     e2e.start()
     assert e2e.process.pid != old.pid
-    waited = e2e.cli("wait", job_id, "--timeout", "30")
+    waited = e2e.cli("wait", job_id, "--timeout", str(PROVIDER_S + 30), timeout=PROVIDER_S + 45)
     assert waited.rc == 0, waited.stderr
     job = e2e.job(job_id)
     assert job["state"] == "succeeded" and job["rc"] == 0

@@ -5,9 +5,9 @@ the live daemon was refused, and no replacement daemon could start. The daemon,
 pid 93697, had begun to stop. It had shut its listening socket, but it held
 `daemon.lock` while it waited, with no deadline, for threads that never
 finished. C-5.8a bounds that wait. A stop that has not finished 30 s after it
-was armed ends the process. Before it ends, it dumps every thread's stack, so
-the next occurrence names the stuck thread. launchd and `subfleet daemon stop`
-stand behind it with a SIGKILL at 40 s.
+was armed ends the process. Before it ends, it dumps its threads' Python
+stacks, so the next occurrence shows where each thread was stuck. launchd and
+`subfleet daemon stop` stand behind it with a SIGKILL at 40 s.
 
 ## What was seen
 
@@ -20,7 +20,7 @@ These observations are from the incident brief.
 The stack sample is `~/chief-of-staff/state/diag/subfleet-daemon-wedge-93697-20260925T152557.txt`. It ran for 2.3 s at 1 ms from 19:25:58Z. The process was launched at 18:27:04Z and had a physical footprint of 285 MB. In the sample:
 
 - **Main thread:** in `ThreadHandle_join`, a Python `Thread.join`, for every sample.
-- **Parked on an `RLock`:**
+- **Parked in `RLock.acquire`** (a native sample does not show whether that is one lock or several):
   - `subfleet-control`.
   - 15 of the 16 `subfleet-api` threads.
   - `subfleet-timer_0`, while entering a generator-based context manager.
@@ -53,7 +53,7 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
 
 ## What the evidence does not show
 
-- **Which thread held the `RLock`.** A native sample has no Python frames. `subfleet-api_11` was the only thread neither parked nor idle. It spent the whole sample in the collector, and the process was in state `U` (an uninterruptible wait). The machine was swapping heavily later that afternoon (`2026-09-25-mirror-consistency.md`). It may have held the store lock through a slow collection over a paged-out heap. A thread that returned to its pool without releasing the lock would look the same. The store-lock contention behind both possibilities belongs to the store-contention work (C-3.6, C-3.7). The fix here does not depend on which one it was. The next time, the C-5.8a dump carries Python frames and names the holder.
+- **Which thread held the `RLock`.** A native sample has no Python frames. `subfleet-api_11` was the only thread neither parked nor idle. It spent the whole sample in the collector, and the process was in state `U` (an uninterruptible wait). The machine was swapping heavily later that afternoon (`2026-09-25-mirror-consistency.md`). It may have held the store lock through a slow collection over a paged-out heap. A thread that returned to its pool without releasing the lock would look the same. The store-lock contention behind both possibilities belongs to the store-contention work (C-3.6, C-3.7). The fix here does not depend on which one it was. The next time, the C-5.8a dump carries Python frames. That names a holder that is itself stuck, but not a lock left held by a thread that went back to its pool.
 - **Why pid 93697 began to stop.** The other daemon exits that day that left a traceback were EMFILE at `accept()`. `2026-09-25-mirror-consistency.md` attributes this one to the same cause. This report did not verify that.
 
 ## The brief's hypotheses
@@ -65,7 +65,11 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
 
 ## The fix: C-5.8a
 
-- **`watch_stop`.** `main` calls it once. It opens a descriptor on `daemon.log` at start, because a daemon stopping after running out of descriptors could not open one later. It returns `arm`. `arm` starts `faulthandler.dump_traceback_later(stop_grace_s, exit=True)` and writes one `stopping:` line. If faulthandler cannot start its timer, a plain timer thread ends the process at the same moment, with no dump. Only the first successful call arms, and `arm` never raises. `close()` goes on draining even if arming fails.
+- **`watch_stop`.** `main` calls it once. It opens a descriptor on `daemon.log` at start, because a daemon stopping after running out of descriptors could not open one later. It also starts the stop-watch thread. It returns `arm`.
+- **`arm`.** It starts `faulthandler.dump_traceback_later(stop_grace_s, exit=True)`, then writes one `stopping:` line. The timer comes first because the write gives up the GIL.
+  - It takes no lock. A signal handler can run it on a thread that is already inside it; both calls then arm, microseconds apart. Once the deadline is set, a later call cannot move it.
+  - If faulthandler cannot start its timer, the stop-watch thread calls `_exit(1)` at the deadline instead. That fallback needs no new thread, but it writes no dump and it needs the GIL.
+  - `arm` never raises, and `close()` goes on draining even if arming fails.
 - **Who arms.** The thread that begins the stop arms, before `stopping` is set:
   - `close()`, through `Daemon.on_stop`;
   - `main`, once `serve_forever` ends for any reason;
@@ -73,12 +77,13 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
 
   A watching thread also arms when anything else sets `stopping`. A daemon built in a test process has no `on_stop` and ends nothing.
 - **Why a C timer.** faulthandler's timer runs in C, so once armed it fires even while another thread holds the GIL, which a watchdog written in Python could not do. `close()` and the end of serving arm at once, because they are already running Python. A signal handler runs only when the main thread next holds the GIL. So a thread that keeps the GIL through the signal delays arming until it lets go, and never arms if it never lets go.
+- **The signal handler (`stop_request`).** It arms, then sets `stopping`, skipping `Event.set` once the event is set. `Event.set` takes a lock that is not reentrant, so a second signal landing inside a first handler's `set` blocks the main thread. The earlier draft could deadlock that way before arming. Now the first handler has armed before it enters `set`, so that case ends at the deadline.
 - **The backstops.** A signal that never gets handled, and a timer that never fires, are covered by launchd and the CLI:
   - **launchd.** With no `ExitTimeOut` in the plist, `launchctl print` reports an exit timeout of 5 s. That SIGKILLed a launchd stop before any dump. `daemon install` now writes `ExitTimeOut` as `stop_grace_s` + 10 s, which is 40 s. The new value takes effect when the plist is rewritten.
   - **`subfleet daemon stop`.** It waited 15 s flat, so it reported failure in exactly the case the bound ends. It now waits 40 s. If the process it signalled is still running, it verifies the identity again (C-5.4) and sends SIGKILL.
-- **What firing does.** It writes every thread's Python stack to `daemon.log`, then calls `_exit(1)`. The kernel releases the flock, and launchd's `KeepAlive` starts a fresh daemon.
+- **What firing does.** It writes the Python stacks of up to 100 threads to `daemon.log`, then calls `_exit(1)`. 100 is faulthandler's cap. It lists the newest threads first, so with more than 100 the oldest, the main and control threads, are left out; the live daemon had 94 threads on 2026-09-26. The kernel releases the flock, and launchd's `KeepAlive` starts a fresh daemon.
 - **Guardians are untouched.** A guardian calls `os.setsid()` (`guardian.py`), so it leads its own session and process group, and ending the daemon signals none of them. The next daemon adopts their running attempts (C-4.2), as after a SIGKILL.
-- **The grace is 30 s.** That outlasts probe containment during a stop. A stop ends probe waits, and containment sends SIGTERM, waits `term_grace_s` (15 s), then sends SIGKILL and settles for `kill_settle_s` (3 s). With a 15 s bound, containment's SIGKILL could never run.
+- **The grace is 30 s.** That outlasts probe containment during a stop. A stop ends probe waits. Containment then sends SIGTERM, polls the census for up to `term_grace_s` (15 s), then sends SIGKILL and takes one more census (`_contain_probe`). With a 15 s bound, containment's SIGKILL could never run.
 - **One writer is kept.** `close()` still releases the lock only after every pool has drained. The bound never releases it early, it only ends the process.
 - **What the bound can cut.** It can end a stop that is slow but healthy, and that includes the session mirror's flag publish. Once that publish starts, it does not check for cancellation, and it is not crash-safe (`2026-09-25-mirror-consistency.md`, open items). Before this change:
   - a stop that did not come from launchd waited for the publish without a deadline;
@@ -93,11 +98,11 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
 
 1. A worker commits `attempt.running`, then parks forever at the `running` boundary while the guardian's provider runs.
 2. SIGTERM is sent. While the daemon is stopping, `daemon.lock` is still held.
-3. The process ends between 2 s and 10 s later with exit 1. The dump names the held `subfleet-io` thread, in `hold` under `_boundary`.
+3. The process ends between 5 s and 15 s later with exit 1. The dump names the held worker's frames, `hold` under `_boundary`, and the main thread joining it from `close()`. On Python 3.14, faulthandler also prints thread names, so the dump names the thread, `subfleet-io_*`.
 4. The flock is free, and the guardian is still alive.
 5. A fresh daemon adopts the attempt. The job succeeds with one attempt and one notice.
 
-With `main`'s arming removed, the test fails with "the stopping daemon still holds daemon.lock 10 s after SIGTERM", which is the incident.
+With `main`'s arming removed, the test fails with "the stopping daemon still holds daemon.lock 15 s after SIGTERM", which is the incident.
 
 `tests/unit/test_stop_watchdog.py` runs the real `watch_stop` in child processes. It covers four stuck shapes:
 
@@ -106,7 +111,13 @@ With `main`'s arming removed, the test fails with "the stopping daemon still hol
 - interpreter shutdown joining a thread that never ends;
 - a stop that follows descriptor exhaustion, where EMFILE is confirmed first.
 
-It also covers `stopping` set by something other than the daemon's own stop paths, and faulthandler failing to start its timer. The tests are exhaustive over those shapes, and a Hypothesis property varies the grace and the moment of the stop. The invariants are:
+It also covers:
+
+- `stopping` set by something other than the daemon's own stop paths;
+- faulthandler failing to start its timer;
+- `arm` called again and again after the stop, which must not move the deadline;
+- a C loop taking the GIL for good during the stopping line's write;
+- a SIGTERM inside `arm`, then another inside `Event.set`, through the real `stop_request`. The tests are exhaustive over those shapes, and a Hypothesis property varies the grace and the moment of the stop. The invariants are:
 
 - the process ends no earlier than the grace and no later than the grace plus 5 s;
 - one `stopping:` line precedes a dump that names the stuck frame;
@@ -119,35 +130,54 @@ Further tests pin the rest:
 - **Ordering.** The grace outlasts probe containment, and launchd's `ExitTimeOut` and `daemon stop`'s wait outlast the grace.
 - **`daemon stop` against real stub processes.** One ends itself late, like a daemon at its bound, and is reported stopped, not failed, and never killed. One ignores SIGTERM, like a daemon whose handler never ran, and gets SIGKILL. An identity that can no longer be verified is never killed.
 
-Each of 12 mutations was caught by at least one of these tests. The mutations were:
+Two mutation runs on 2026-09-26 re-introduced one defect each. Every mutant was caught by at least one of these tests:
 
-- skip the arm in `close()`;
-- set `stopping` before arming;
-- drop the watching thread;
-- drop the arm when serving ends;
-- open the log lazily;
-- `exit=False`;
-- drop the plain-timer fallback;
-- let an arming failure abort `close()`;
-- a flat 15 s wait in `daemon stop`;
-- no SIGKILL escalation;
-- no `ExitTimeOut`;
-- a 15 s grace.
+- **The first matrix (12).**
+  - skip the arm in `close()`;
+  - set `stopping` before arming;
+  - drop the watching thread;
+  - drop the arm when serving ends;
+  - open the log lazily;
+  - `exit=False`;
+  - drop the fallback;
+  - let an arming failure abort `close()`;
+  - a flat 15 s wait in `daemon stop`;
+  - no SIGKILL escalation;
+  - no `ExitTimeOut`;
+  - a 15 s grace.
+- **The second matrix (9), after the second review round.**
+  - the non-blocking lock back in `arm`, which is Astra's nested-signal wedge;
+  - write the line before starting the timer;
+  - let a later arm move the deadline;
+  - no stop-watch fallback;
+  - a literal 15 s in `daemon stop`;
+  - skip the arm in `close()`;
+  - set before arming in the handler;
+  - `exit=False`;
+  - open the log lazily.
+- **One targeted check.** A faithful write-before-timer reorder, with one line and no extra write, was caught by the GIL-during-write case alone.
 
 ## Review
 
-Two independent reviewers finished before a usage limit stopped the rest; the review is not complete.
+- **First round.** Two in-session reviewers finished before a usage limit stopped the rest.
+  - **Concurrency.** It showed with probes that `daemon stop` reported failure whenever the bound was what ended the daemon. It also showed that a SIGTERM arriving while a thread holds the GIL arms nothing, and that a failure inside faulthandler could disable the bound and abort `close()`.
+  - **Safety.** It found that launchd's effective exit timeout here is 5 s, that probe containment's SIGKILL could never run under a 15 s bound, and that the bound can cut the mirror's publish.
+- **Second round.** Independent Opus and Astra reviews ran on Subfleet lanes (`~/reviews/c58a-bounded-shutdown/`). Both requested changes.
+  - **Astra reproduced two wedges.** A SIGTERM inside `arm`, then another inside `Event.set`, left no timer. A faulthandler failure, followed by a GIL holder or thread exhaustion, left the plain `Timer` fallback unable to run.
+  - **Both flagged tests.** The e2e test's windows were tight under load. A deadline-reset mutation and a literal 15 s wait both survived.
+  - **Both flagged claims.** Containment does not use `kill_settle_s`; "every thread" meets faulthandler's 100-thread cap; a dump cannot name a lock left held by an idle thread; "one RLock" is not visible in a native sample; and the mutation note for `main`'s arming was stale.
+- **What changed.** `arm` lost its lock and cannot move a set deadline. The fallback is now the stop-watch thread. The handler is `stop_request`. The e2e grace is 5 s with a 30 s provider. Tests pin each case above, and the wording is corrected. What remains unbounded is a stop whose faulthandler timer cannot start while another thread holds the GIL for good. For signal-initiated stops, launchd's `ExitTimeOut` and `daemon stop` still end it at 40 s.
 
-- **Concurrency reviewer.** It showed with probes that:
-  - `daemon stop` reported failure whenever the bound was what ended the daemon;
-  - a SIGTERM that arrives while a thread holds the GIL arms nothing, so the first draft's claim that arming "never waits on a thread that holds the GIL" was false for signals;
-  - a failure inside faulthandler could disable the bound and abort `close()`.
-- **Safety reviewer.** It found that:
-  - launchd's effective exit timeout here is 5 s, not the 20 s the first draft assumed;
-  - probe containment's SIGKILL could never run under a 15 s bound;
-  - the bound can cut the mirror's publish.
+## How the claims here were established
 
-Every item above was fixed or documented in this revision.
+- **The sample and `close()`'s steps.** The sample file, and `git show 76018ee:subfleet/daemon.py`.
+- **The release.** `release.json` under `~/.local/share/subfleet/releases/`, plus the traceback line numbers against `76018ee` and `14f818c`.
+- **The 12 tracebacks.** A `grep` of `~/.subfleet/daemon.log`, dated by the nearest preceding timestamp.
+- **The 5 s exit timeout.** `launchctl print gui/501/com.subfleet.daemon`.
+- **The refused connect.** A local probe: a closed listener whose socket file remains gives errno 61.
+- **faulthandler.** Local probes on 3.12.14, 3.13.9 and 3.14 for thread names, the 100-thread cap, finalization, and GIL holders.
+- **Job outcomes.** A read-only query of `state.sqlite3`.
+- **Ping times.** `Client(timeout=240).call("ping")` and `subfleet daemon status --json`.
 
 ## Restoring service
 
@@ -156,4 +186,4 @@ Every item above was fixed or documented in this revision.
 - **The two guardian-supervised jobs in the brief each finished once, with no duplicate attempt.**
   - `20260925-133217-audit-s1-site`: `a1` failed `reserved-no-launch` before any launch, and `a2` succeeded with rc 0.
   - `20260925-134641-audit-s4-proposals-oaif-anthropic`: `a1` succeeded with rc 0.
-- **The daemon now.** At 04:45Z on 2026-09-26 it answered `ping` in 25 s, which is past the CLI's 15 s default. That is the store-lock contention stall, not a wedge. The daemon places jobs and answers.
+- **The daemon since.** At 04:45Z on 2026-09-26 it answered `ping` in 25 s, which is past the CLI's 15 s default. It was placing jobs, so it was slow rather than wedged; the store-contention work addressed that. Release `20260926T125212Z` (2.1.6, `e053b2c`, which includes that work) has run since 13:25Z, and it answered `ping` in 3.7 s at 15:42Z. It predates C-5.8a.
