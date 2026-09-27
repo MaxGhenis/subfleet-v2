@@ -797,6 +797,35 @@ def test_c4_2_start_grace_with_start_json_alone_is_a_running_attempt(daemon, mon
     assert "attempt.quarantined" not in kinds and "attempt.no_launch" not in kinds
 
 
+@pytest.mark.parametrize("census", [EMPTY, GUARDIAN_ONLY], ids=["guardian-gone", "guardian-exiting"])
+def test_c4_2_start_grace_takes_an_exit_receipt_that_landed_alone_during_its_census(daemon, monkeypatch, census):
+    """C-4.2 `exit.json` alone, landed while start grace ran its census, is a receipt: the top of the tick takes
+    an exit receipt with no `start.json` beside it, and the re-read after the census must count what the tick
+    counts, or the census decides against a receipt on disk: an empty census releases the attempt to run again
+    (`starting-no-receipt`), a guardian still exiting quarantines it. The guardian writes `start.json` first, so
+    no current guardian leaves `exit.json` alone; this pins the re-read to the tick's rule rather than to that
+    order.
+
+    Review of PR #37's port, 2026-09-27 (L1): re-reading only `start.json` after the census (mutant M17)
+    survived every test."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0   # start grace is over
+
+    def contain(a):
+        publish_receipt(daemon, rc=0)                          # exit.json lands; there is no start.json
+        return census
+    daemon._contain = contain
+    daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "starting"               # nothing decided from the census
+    daemon._contain = never_census
+    daemon._process_attempt(ATTEMPT)                            # the next tick takes the receipt
+    a = attempt(daemon)
+    assert a["state"] == "finalizing" and a["rc"] == 0 and a["outcome_detail"] is None
+    kinds = [row["kind"] for row in daemon.store.list_events(JOB)]
+    assert "attempt.no_launch" not in kinds and "attempt.quarantined" not in kinds
+
+
 @pytest.mark.parametrize("census", [EMPTY, GUARDIAN_ONLY], ids=["empty", "guardian-alive"])
 @pytest.mark.parametrize("empty", ["{}", "[]", "null", "0", "false", '""'])
 def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monkeypatch, census, empty):
