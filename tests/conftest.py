@@ -193,6 +193,23 @@ def no_desktop_login(monkeypatch):
                         lambda self: ProfileResult(PROFILE_UNAVAILABLE, detail="no desktop in tests"))
 
 
+@pytest.fixture(autouse=True)
+def no_desktop_store(tmp_path_factory, monkeypatch):
+    """The desktop app's session store and log, and `~/.claude`, belong to
+    whoever runs the tests.
+
+    The sidebar mirror copies into the store, reads the log, and reads
+    `~/.claude` (its saved options and the transcripts), and a daemon under test
+    runs the mirror on a 2 s timer, so no test may reach any of them by
+    accident (C-23.28). All three point at paths that do not exist; a test that
+    wants one says where it is, and its `setenv` wins.
+    """
+    base = tmp_path_factory.mktemp("desktop")
+    monkeypatch.setenv("SUBFLEET_SESSION_STORE", str(base / "claude-code-sessions"))
+    monkeypatch.setenv("SUBFLEET_DESKTOP_LOG", str(base / "logs" / "main.log"))
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(base / "claude"))
+
+
 def profile_body(email: str = LANE_EMAIL, account_uuid: str = LANE_ACCOUNT_UUID,
                  org_uuid: str = LANE_ORG_UUID) -> bytes:
     """A profile payload shaped as Claude Code's own profile loader reads it."""
