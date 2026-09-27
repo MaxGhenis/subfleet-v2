@@ -64,10 +64,10 @@ two hours after the restart.
 
 The store serializes every request on one connection and one lock
 (`Store._lock`, held across `execute` and `fetchall`), and every thread must
-retake the GIL after each SQLite step and each subprocess wait. A measured
-reproduction (`census_storm.py` and `census_storm_bigheap.py` in
-`2026-09-24-daemon-inspection-wedge/`) ran the same inspection loop in one to seven threads beside sixteen
-threads issuing a 300-row query under an `RLock`:
+retake the GIL after each SQLite step and each subprocess wait. A reproduction
+run once on 2026-09-24 against the unfixed code (`census_storm.py` and
+`census_storm_bigheap.py`) ran the same inspection loop in one to seven threads
+beside sixteen threads issuing a 300-row query under an `RLock`:
 
 | running attempts | subprocesses/s | query p50 | query p90 | queries in 12 s |
 |---|---|---|---|---|
@@ -157,11 +157,16 @@ pass, so seven. An inspection
 that finds N new or changed members also identifies each of them and re-checks
 the leader before recording them: with the boot UUID cached that is 3 + 2N + 2
 (seven for one new child); with legacy seconds only, every identity also reads
-the boot seconds, so 7 + 4N + 4 (fifteen for one). The inspection reproduction, driving the fixed loop at seven
-attempts, kept the query p50 at 0.2 ms and p90 at 0.7 ms (7,038 queries in
-12 s). The eight-waiter herd fell from 2,834 store reads a second to 386, most of
-them the measuring client's own. The combined reproduction ran at 0.5 ms p50,
-1.5 ms p90 (101 ms worst), and completed 592 requests.
+the boot seconds, so 7 + 4N + 4 (fifteen for one).
+
+The reproductions were run once each on 2026-09-24, against the first version of
+this fix (8331709). In steady state that loop asks the same questions as the
+merged one; the review fixes change only what happens for a reused pid, a
+legacy boot record, or a failing pass. Driving the fixed loop at seven attempts
+kept the query p50 at 0.2 ms and p90 at 0.7 ms (7,038 queries in 12 s). The
+eight-waiter herd fell from 2,834 store reads a second to 386, most of them the
+measuring client's own. The combined reproduction ran at 0.5 ms p50 and 1.5 ms
+p90 (101 ms worst), and completed 592 requests.
 `tests/unit/test_daemon_inspection_load.py` pins the budget. On the unfixed code,
 20 ticks of one running attempt asked about the guardian 21 times (now 2), one
 waiter re-read the store 190 times across 200 wake-ups (now 1), 20 idle
@@ -186,9 +191,11 @@ each defect fails its test.
 
 ## Related findings, not fixed here
 
-- **Retention.** `_retention` gives `maintenance()` a 60 s deadline. Sizing
-  every job directory and owned worktree walked 606,364 entries (11 GB of
-  worktrees) in 19.6 s with a warm cache and more than 43 s cold. Passes timed
+- **Retention.** `_retention` gives `maintenance()` a 60 s deadline, and every
+  pass sizes every job directory and owned worktree. `find` listed the
+  worktrees' 606,364 entries in 43.6 s with a cold cache. `retention._size`
+  sized all 36 worktrees (10.59 GB) in 19.6 s with a warm one
+  (`retention_hog.py`). The job directories held about 4,500 entries. Passes timed
   out for hours at a time (`worker retention failed: TimeoutError`, 32 in a row
   on the morning daemon), and each interrupted pass started its walk from zero.
   Retention's own `_pins`, run read-only on the store afterwards, pins 331 of
@@ -203,8 +210,11 @@ each defect fails its test.
   119 desktop account folders (153,602 `local_*.json` entries by 16:20Z) take
   longer than the 60 s interval, so they run back to back. On the restarted
   daemon that thread was busy in nearly every sample, and the process held
-  1.1 GB. A thread that runs Python continuously slowed the lock-serialized
-  query in the reproduction from 1.5 ms to 101 ms (2,000 rows).
+  1.1 GB. How much that slows requests is not established. In one run on
+  2026-09-24, a thread running Python continuously slowed a lock-serialized
+  2,000-row query from 1.5 ms to 101 ms (`gil_convoy.py`). Three reruns on
+  2026-09-27 (Python 3.14.4, load average about 170) and five by a reviewer
+  showed 0.9 to 1.9 ms.
 - **Shutdown** is bounded now: PR #48 (C-5.8a) ends a stop that cannot drain, so it can no longer hold the lock as it did here.
 - **Restart after SIGKILL.** A killed daemon leaves `daemon.sock` behind, so
   clients got `Connection refused` for the 26 s the new process spent in
@@ -215,28 +225,42 @@ each defect fails its test.
 
 ## Measurement scripts
 
-The scripts behind this report's numbers are in
-`2026-09-24-daemon-inspection-wedge/`. Each runs on its own with the installed
-subfleet (`~/.local/share/subfleet/current/venv/bin/python`) or `uv run python`
-from a checkout. They only read the live machine: they call `ps`, `sysctl` and
-`os.stat`, and they build throwaway stores and daemons in temporary
-directories.
+The reproduction figures come from the scripts in
+`2026-09-24-daemon-inspection-wedge/`. Each figure is one run on 2026-09-24 on a
+busy machine. They depend on how the OS schedules threads, and reruns vary: see
+`gil_convoy.py` below. The scripts only read the live machine (`ps`, `sysctl`,
+`os.stat`), and they build throwaway stores and daemons in temporary
+directories. Run each from a checkout of the revision it measures, with
+`uv run python`.
 
-- `gil_convoy.py`: one CPU-bound thread against lock-serialized SQLite reads
-  (1.5 ms to 101 ms for 2,000 rows; p50 2 ms to 310 ms with sixteen clients).
-- `retention_hog.py`: `retention._size` over the real worktrees (19.6 s warm,
-  10.59 GB), and its effect on a locked query.
 - `census_storm.py` and `census_storm_bigheap.py`: the unfixed per-attempt
   inspection loop at 0 to 7 simulated attempts, with a small heap and then a
-  1 GB heap (the table under Cause). Run `census_storm_bigheap.py` from its
-  own directory: it reads `census_storm.py` by relative path.
-- `census_storm_fixed.py`: the fixed loop at the same loads.
-- `waiter_herd.py`: eight waiters on the real `Daemon.wait` woken at 60 Hz
-  (2,834 store reads a second unfixed, 386 fixed). Run it from a checkout of
-  each revision.
-- `combined.py`: the combined reproduction (`list` plus `show` at 4.8 ms p50
-  and 62 ms p90 unfixed, against 0.5 ms and 1.5 ms fixed). Pass `unfixed` or
-  `fixed` to match the checkout it runs from.
+  1 GB heap (the table under Cause). Run them from a checkout from before PR
+  #40, for example 2f842d3. Their subprocess column is computed from that code's
+  per-call costs (three per liveness check; two plus three per pid per census)
+  rather than counted. `census_storm_bigheap.py` reads `census_storm.py` by
+  relative path, so run it from its own directory.
+- `census_storm_fixed.py`: the fixed loop at the same loads. It needs PR #40's
+  constants, so run it from a checkout at or after 7fd9cb5. Its 2026-09-24
+  figures were measured against 8331709.
+- `waiter_herd.py`: eight waiters on the real `Daemon.wait`, woken at 60 Hz:
+  2,834 store reads a second unfixed, 386 fixed. Run it from a checkout of each
+  revision, passing a label such as `unfixed` or `fixed`.
+- `combined.py`: the combined reproduction. Pass `unfixed` (from a checkout from
+  before PR #40) or `fixed` (from a checkout at or after 7fd9cb5). It gave 4.8 ms
+  p50 and 62 ms p90 unfixed, against 0.5 ms and 1.5 ms for 8331709.
+- `retention_hog.py`: `retention._size` over the worktrees only (19.6 s warm,
+  10.59 GB), and its effect on a locked query. The 606,364 entries and the
+  43.6 s cold time come from `find`. A directory it cannot read ends its walk
+  early, and it then prints a partial total.
+- `gil_convoy.py`: one CPU-bound thread against lock-serialized SQLite reads.
+  On 2026-09-24 it gave 1.5 ms to 101 ms for 2,000 rows. It did not reproduce
+  on 2026-09-27: 0.9 to 1.9 ms in eight runs.
+
+These figures were measured with one-off commands, and this report records how:
+the 2.3 MB and 1.45 s `ps -axEww` dump, the 59 child processes, the 266
+statements a tick, the 31,496 `readings` rows, and the 400 processes whose
+`lstart` renderings were compared.
 
 The independent reviews of PR #40 are kept outside the repository in
 `~/reviews/subfleet-daemon-wedge-2026-09-24/`.

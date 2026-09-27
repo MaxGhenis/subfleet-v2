@@ -41,6 +41,8 @@ while time.monotonic() < end:
     time.sleep(.02)
 stop.set()
 lat.sort()
-print(f"{sys.argv[1]:8s} {W} waiters x {J} jobs, woken at {R} Hz: {reads[0]/SECONDS:8.0f} store reads/s | "
+label = sys.argv[1] if len(sys.argv) > 1 else "run"
+print(f"{label:8s} {W} waiters x {J} jobs, woken at {R} Hz: {reads[0]/SECONDS:8.0f} store reads/s | "
       f"list+show p50 {1000*lat[len(lat)//2]:6.1f} ms p90 {1000*lat[int(len(lat)*.9)]:6.1f} ms max {1000*lat[-1]:6.1f} ms")
 d.stopping.set(); d._notify(); [t.join(5) for t in waiters]; d.close()
+import shutil; shutil.rmtree(root, ignore_errors=True)

@@ -36,7 +36,7 @@ def attempt_loop(i):
             procs.liveness(me.pid, me.boot_id, me.proc_start)
             if time.monotonic() >= census_next:
                 members = procs.group_members(os.getpgrp())
-                fresh = {pid: procs.identity(pid) for pid in members - owned}
+                fresh = {pid: procs.identity(pid) for pid in members.keys() - owned}   # pid -> start since PR #40's review fixes
                 if fresh:
                     procs.same_process(me.pid, me.boot_id, me.proc_start)
                     owned |= set(fresh)

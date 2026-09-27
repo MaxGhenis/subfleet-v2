@@ -42,7 +42,7 @@ def inspection(i):                     # what one running attempt costs per that
             procs.liveness(me.pid, me.boot_id, me.proc_start)
             if time.monotonic() >= census_next:
                 members = procs.group_members(os.getpgrp())
-                fresh = {pid: procs.identity(pid) for pid in members - owned}
+                fresh = {pid: procs.identity(pid) for pid in members.keys() - owned}   # pid -> start since PR #40's review fixes
                 if fresh:
                     procs.same_process(me.pid, me.boot_id, me.proc_start); owned |= set(fresh)
                 census_next = time.monotonic() + .5
@@ -78,6 +78,7 @@ while time.monotonic() < end:
     lat.append(time.perf_counter() - t)
     time.sleep(.02)
 stop.set(); d.stopping.set(); d._notify()
+import shutil; shutil.rmtree(root, ignore_errors=True)
 lat.sort()
 print(f"{sys.argv[1]:8s} A={A} W={W}x{J} notify {R} Hz + mirror stand-in + 1 GB heap: "
       f"list+show p50 {1000*lat[len(lat)//2]:7.1f} ms p90 {1000*lat[int(len(lat)*.9)]:7.1f} ms "
