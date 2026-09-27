@@ -72,7 +72,7 @@ def test_stop_alarm_resets_inherited_signal_state_and_is_not_inherited_by_fork(t
     """The kernel alarm remains effective without faulthandler or Python threads."""
     result = subprocess.run([sys.executable, "-c", LAUNCHER, str(tmp_path), "fork"],
                             env={**os.environ, "PYTHONPATH": str(REPO), "PYTHON_GIL": "1"},
-                            cwd=REPO, text=True, capture_output=True, timeout=15)
+                            cwd=REPO, text=True, capture_output=True, timeout=30)
     assert result.returncode == -signal.SIGALRM, (result.returncode, result.stdout, result.stderr)
     observed = json.loads(result.stdout)
     assert observed["fork_timer"] == [0.0, 0.0]

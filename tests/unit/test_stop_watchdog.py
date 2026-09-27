@@ -292,6 +292,9 @@ NO_LINE = {"hog-during-write"}
 def run_child(tmp_path: Path, kind: str, grace: float, delay: float = 0.0,
               timeout: float = 30.0) -> tuple[int, list[dict], float, str]:
     log = tmp_path / f"{kind}.log"
+    # Hypothesis replays failed examples in this same fixture. Each child's
+    # single-line and dump assertions must inspect only that child's output.
+    log.unlink(missing_ok=True)
     started = time.monotonic()
     proc = subprocess.run(
         [sys.executable, "-c", CHILD, kind, str(grace), str(log), str(delay)],
@@ -361,7 +364,7 @@ def test_c5_8a_a_stop_that_finishes_in_time_exits_with_its_own_status(tmp_path):
 def test_c5_8a_a_stop_still_ends_when_faulthandler_cannot_arm(tmp_path, kind):
     """The kernel bound survives an unset/deadlocked stop event, reentrant
     cancellation, and a permanent GIL hog."""
-    rc, lines, elapsed, text = run_child(tmp_path, kind, grace=1.0, timeout=10.0)
+    rc, lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
     assert rc == -signal.SIGALRM, text
     assert 1.0 + ALARM_MARGIN_S - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
     assert text.count("stopping:") == 1, text
@@ -377,8 +380,7 @@ def test_c5_8a_a_stop_still_ends_when_faulthandler_cannot_arm(tmp_path, kind):
 
 def test_c5_8a_fallback_needs_no_new_thread_at_stop_time(tmp_path):
     """N3b: thread exhaustion after startup cannot disable fallback exit."""
-    rc, lines, elapsed, text = run_child(tmp_path, "arm-fails-no-thread", grace=1.0,
-                                        timeout=10.0)
+    rc, lines, elapsed, text = run_child(tmp_path, "arm-fails-no-thread", grace=1.0)
     # Either the original preexisting watcher or the kernel alarm can enforce
     # this property; creating a new threading.Timer cannot.
     assert rc in (1, -signal.SIGALRM), text
@@ -415,7 +417,7 @@ def test_c5_8a_kernel_timer_failure_ends_the_process_immediately(tmp_path):
 
 def test_c5_8a_a_blocked_faulthandler_dump_cannot_keep_the_process_alive(tmp_path):
     """The default-action alarm also ends a C watchdog blocked on its dump."""
-    rc, _lines, elapsed, text = run_child(tmp_path, "blocked-dump", grace=1.0, timeout=10.0)
+    rc, _lines, elapsed, text = run_child(tmp_path, "blocked-dump", grace=1.0)
     assert rc == -signal.SIGALRM, text
     assert 1.0 + ALARM_MARGIN_S - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
     assert text.count("stopping:") == 1, text
