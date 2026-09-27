@@ -383,6 +383,33 @@ def test_a_stored_file_of_the_wrong_size_is_judged_without_reading_it(store, tmp
     assert oversized == [] and copy.read_bytes() == PNG
 
 
+def test_a_stored_file_that_grows_while_it_is_read_is_read_one_byte_past_its_size(store, tmp_path, monkeypatch):
+    """C-28.1 the read is capped: a file of the right size when it was looked at that
+    grows while it is read costs at most one byte past its size, and does not hold."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    out = attachments.add(store, str(src))
+    copy = store.root / "attachments" / f"{out['sha256']}.png"
+    real_fstat, real_read, read = os.fstat, os.read, []
+
+    def fstat(fd):
+        info = real_fstat(fd)
+        with open(copy, "ab") as grow:      # after the look, before the read
+            grow.write(b"\0" * (8 << 20))
+        return info
+
+    def counted(fd, n):
+        chunk = real_read(fd, n)
+        read.append(len(chunk))
+        return chunk
+
+    monkeypatch.setattr(os, "fstat", fstat)
+    monkeypatch.setattr(os, "read", counted)
+    with pytest.raises(ConversationError):
+        attachments.check(store, out["sha256"])
+    assert sum(read) == len(PNG) + 1
+
+
 def test_a_re_add_after_the_state_root_moved_names_the_copy_where_it_is(tmp_path):
     """C-28.1 (review of 1808f61): the row keeps the path of the copy it names. A re-add
     kept the old row's path, so after the state root moved every message naming the

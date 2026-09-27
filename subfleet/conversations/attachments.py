@@ -41,12 +41,14 @@ def sniff(head: bytes) -> tuple[str, str] | None:
 
 def _holds(target: Path, digest: str, size: int) -> bool:
     """Whether `target` is the daemon's own copy: a regular file of `size` bytes that
-    hash to `digest`, owned by this user, with one link and no group or other access.
+    hash to `digest`, owned by this user, with no second link and no group or other mode
+    bits (an ACL is not read).
     Anything else is not holding: an add copies over it and the driver's check refuses
     it. That is no file, other bytes (disk damage, a stray write), a file this user
     cannot read, a symlink (not followed), a FIFO (opened without waiting for a
     writer), a hard link another name can write through, or a copy others can read.
-    The size is checked before any byte is read, and no more than `size` are read."""
+    The size is checked before any byte is read, and at most one byte past it is read
+    (which shows the file grew)."""
     try:
         fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
@@ -173,6 +175,7 @@ def check(store: ConversationStore, sha256: str) -> tuple[str, str]:
     if row is None:
         raise ConversationError("attachment-missing", f"attachment {sha256} is not stored")
     if not _holds(Path(row["path"]), sha256, row["bytes"]):
-        raise ConversationError("attachment-missing", f"attachment {sha256} is gone or changed on disk",
+        raise ConversationError("attachment-missing",
+                                f"attachment {sha256} is not the daemon's own stored copy (gone, changed, or not private)",
                                 fix="add the image again; that repairs the stored copy")
     return row["path"], row["media_type"]
