@@ -294,6 +294,10 @@ def decode_request(line: bytes | str) -> Request:
         data = json.loads(line)
     except json.JSONDecodeError as exc:
         raise ProtocolError(f"malformed request: {exc}") from exc
+    except RecursionError:
+        # C-16.7: a line under 1 MiB can still nest past the parser's depth;
+        # answered as malformed, not left to end the connection's reader.
+        raise ProtocolError("malformed request: nested too deeply") from None
     if not isinstance(data, dict):
         raise ProtocolError("request must be a JSON object")
     if data.get("v") != PROTOCOL_VERSION:
