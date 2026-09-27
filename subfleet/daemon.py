@@ -62,6 +62,8 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
+                   "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-5.7a: a holder's newest probe record, newest first: the newest payload
 #: json_valid accepts that names it (`hit`, one step of `events_probe_holder`),
 #: and every probe.state payload json_valid refuses (`events_not_json`, normally
@@ -77,8 +79,6 @@ PROBE_RECORD = (
     "ORDER BY event_id DESC")
 #: C-5.7a: what an operator's resolution of a quarantined probe records.
 PROBE_RESOLUTION_KINDS = ("probe.confirmed_dead", "probe.force_released", "probe.still_live")
-PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
-                   "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 
 #: C-16.6: `accept` failures that say the process or the system is short of
 #: something for now, not that the socket is gone. The daemon waits and accepts
