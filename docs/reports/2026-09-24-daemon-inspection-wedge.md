@@ -154,8 +154,10 @@ is readable, is three subprocesses a second (`lstart` and `stat` once a second,
 one group snapshot). Where only legacy `kern.boottime` seconds are readable,
 the boot identity is not cached and each read costs two `sysctl` calls, twice a
 pass, so seven. An inspection
-that finds new or changed members adds two per member and two for the leader
-re-check that guards recording them, so finding one new child costs seven. The inspection reproduction, driving the fixed loop at seven
+that finds N new or changed members also identifies each of them and re-checks
+the leader before recording them: with the boot UUID cached that is 3 + 2N + 2
+(seven for one new child); with legacy seconds only, every identity also reads
+the boot seconds, so 7 + 4N + 4 (fifteen for one). The inspection reproduction, driving the fixed loop at seven
 attempts, kept the query p50 at 0.2 ms and p90 at 0.7 ms (7,038 queries in
 12 s). The eight-waiter herd fell from 2,834 store reads a second to 386, most of
 them the measuring client's own. The combined reproduction ran at 0.5 ms p50,

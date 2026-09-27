@@ -284,6 +284,21 @@ def test_pacing_state_is_dropped_once_an_attempt_is_no_longer_live(daemon, monke
     assert ATTEMPT not in daemon._liveness_next and ATTEMPT not in daemon._census_next
 
 
+class StepClock:
+    """`time` inside `subfleet.daemon` only: each `monotonic()` call moves it on by
+    `step`, so a count of looks depends on the loop, not on how the OS schedules."""
+
+    def __init__(self, step):
+        self.now, self.step = 0.0, step
+
+    def monotonic(self):
+        self.now += self.step
+        return self.now
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
 # --- probes -------------------------------------------------------------------
 
 def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tmp_path):
@@ -296,7 +311,9 @@ def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tm
     monkeypatch.setattr(procs, "_read", ps)
     asked = count_liveness(monkeypatch)
     monkeypatch.setattr(daemon, "_contain_probe", lambda record: True)
-    daemon.liveness_interval_s = 3600               # no pause in this test can reach the next question
+    # `time` inside subfleet.daemon stands still, so the next question is never
+    # due however the OS schedules this test; only real waits pass.
+    monkeypatch.setattr(daemon_module, "time", StepClock(0.0))
     directory = tmp_path / "probe"
     directory.mkdir()
     record = {"holder": "probe:admission:" + JOB, "job_id": JOB, "lane_id": "codex-1",
@@ -350,21 +367,6 @@ def test_the_export_sweep_is_one_statement_however_much_history_is_kept(daemon, 
 
 
 # --- waiters ------------------------------------------------------------------
-
-class StepClock:
-    """`time` inside `subfleet.daemon` only: each `monotonic()` call moves it on by
-    `step`, so a count of looks depends on the loop, not on how the OS schedules."""
-
-    def __init__(self, step):
-        self.now, self.step = 0.0, step
-
-    def monotonic(self):
-        self.now += self.step
-        return self.now
-
-    def __getattr__(self, name):
-        return getattr(time, name)
-
 
 def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
     """C-5.11: a waiter woken without a committed change reads nothing. Before the fix
