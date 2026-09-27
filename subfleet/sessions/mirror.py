@@ -76,6 +76,15 @@ intact:
   on mere focus.
 * The transcript's last `custom-title` record is the newest intended name,
   account-agnostic and append-only, so it survives an index write the app skipped.
+* A resumed session runs on its copy's `model` and `effort`, in its
+  `worktreePath` or `cwd` (bundle 2.9939.2), so those converge too, unit by
+  unit (`SETTING_UNITS`, `decide_setting`), in the flags' all-or-nothing
+  publish. A pick never raises `lastActivityAt`, so the most active copy
+  alone is not the newest setting; and the app re-saves its whole record from
+  memory, so any change from a merge base is not a user's change either. A
+  value no pass has seen wins, then new activity, else the decided value
+  stands (the 2026-09-26 report). A session file whose copies hold different
+  conversation ids (a `/clear` in one account) is reported, never rewritten.
 
 What v2 changes is only where state lives and how health is judged.
 

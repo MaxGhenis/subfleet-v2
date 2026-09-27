@@ -577,6 +577,13 @@ P-23.40 under provenance/attestation.
 > all, and reports, from a journal of its own writes and the app's log, how many of its copies into
 > the loaded folder postdate that load and still wait for a relaunch (`sessions mirror --status`,
 > `sessions list`, `doctor`).
+>
+> The mirror also brings every copy of a session to one model, effort and place, each unit whole
+> from one copy, in the same all-or-nothing publish: the most active copy at a session's first
+> decision (a model or effort picked after the last activity excepted), then a value no pass has
+> seen, then activity since the last decision, and otherwise the decided value, so a stale
+> re-save never spreads without new activity. Session files whose copies hold different
+> conversation ids are reported, never rewritten.
 
 - **Ledger rows:** 159 (`keep`, ops-hygiene)
 - **Milestone:** 6
@@ -593,6 +600,12 @@ P-23.40 under provenance/attestation.
   clause now requires spreading new sessions within seconds and reporting the copies a relaunch
   would list.
   Evidence: `docs/reports/2026-09-24-mirror-load-gap.md`.
+- **Amended 2026-09-26 (one model and place per session):** the mirror copied a session only into
+  folders that lacked it, so a model switch or worktree move in one account never reached the
+  others: 2,311 copies of 20 open sessions said Fable under an opus-5-5 newest copy, and 18 open
+  sessions had copies with a stale `cwd`. The app (2.9939.2) runs a resumed session on the copy's
+  `model`, `effort` and `worktreePath || cwd`, and a model pick never raises `lastActivityAt`, so
+  the newest-activity rule alone would undo picks. Evidence: `docs/reports/2026-09-26-mirror-settings.md`.
 
 ### P-23.29 — a keepalive pass is bounded
 
