@@ -147,8 +147,11 @@ class TurnRunner:
     # --- lifecycle -------------------------------------------------------------
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, name=f"turn:{self.attempt_id}", daemon=True)
-        self._thread.start()
+        """Start the runner's thread; one that cannot start (`RuntimeError` at a
+        thread limit) raises, and the runner stays as if never started."""
+        thread = threading.Thread(target=self._run, name=f"turn:{self.attempt_id}", daemon=True)
+        thread.start()
+        self._thread = thread
 
     def stop(self) -> None:
         """End the loop after the iteration under way (the service's close())."""

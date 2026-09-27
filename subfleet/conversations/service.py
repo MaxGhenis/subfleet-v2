@@ -1333,6 +1333,11 @@ class ConversationService:
             try:
                 step()
             except Exception as exc:
+                if self._closed:
+                    # close() overtook the step (its store now refuses): no failure of the step's own.
+                    self.log.info("conversation tick step %s stopped: the service closed (%s: %s)", step.__name__,
+                                  type(exc).__name__, exc)
+                    return
                 self.log.error("conversation tick step %s failed: %s: %s", step.__name__, type(exc).__name__, exc)
 
     # --- the catalog timer (C-30.1, design D-23) --------------------------------
@@ -1817,7 +1822,13 @@ class ConversationService:
                 try:
                     self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
                 finally:
-                    runner.start()
+                    try:
+                        runner.start()
+                    except BaseException:
+                        # Its thread never started (a thread limit): a runner left
+                        # registered would never be adopted again, or finished.
+                        self.runners.pop(aid, None)
+                        raise
             try:
                 self._record_start(turn, dict(attempt))   # C-26.14: the turn's diff has a base
             except Exception as exc:                      # finalization records it again; a turn never waits on it

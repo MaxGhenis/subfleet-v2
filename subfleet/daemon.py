@@ -482,9 +482,11 @@ class Daemon:
         # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
         from .conversations.service import ConversationService
         self.conversations = ConversationService(self)
-        # C-3.6: a long hold of either store's lock, or a long wait for one, is
-        # written to daemon.log with the holder's stack. Waiters report on their
-        # own; the thread that samples long holds starts with serve_forever.
+        # C-3.6: a long hold of either store's lock or of the conversation store's
+        # file-write guard (`conversation-files`, held across a write's fsyncs), or
+        # a long wait for one, is written to daemon.log with the holder's stack.
+        # Waiters report on their own; the thread that samples long holds starts
+        # with serve_forever.
         self.lock_watch = LockWatch(lambda text: self.log.warning("%s", text))
         self.lock_watch.add(self.store._lock)
         self.lock_watch.add(self.conversations.store._lock)

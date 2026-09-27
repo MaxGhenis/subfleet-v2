@@ -1534,6 +1534,62 @@ def test_a_runner_adopted_while_close_runs_is_stopped_or_never_started(svc, monk
             runner.join(30)
 
 
+def test_a_runner_whose_thread_cannot_start_is_adopted_again_and_close_still_closes(svc, tmp_path, monkeypatch):
+    """C-25.3 (review of 4d3d3ea, F2): the control loop registers a runner, then starts
+    it. When its thread could not start (`RuntimeError` at a thread limit), the runner
+    stayed registered: never adopted again or finished, its job pinned for good, and
+    close() raised joining it, before the conversation store and the rest of
+    `Daemon.close()` were closed. Now such a runner is not kept: the next tick adopts
+    the turn again, and close() stops it and closes the store."""
+    aid = launched_turn(svc, tmp_path, [INIT_OK])
+    real_start = threading.Thread.start
+
+    def failing(self):
+        if self.name.startswith("turn:"):
+            raise RuntimeError("can't start new thread")
+        return real_start(self)
+
+    monkeypatch.setattr(threading.Thread, "start", failing)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        svc._adopt_runners()
+    assert aid not in svc.runners
+    monkeypatch.setattr(threading.Thread, "start", real_start)
+    svc._adopt_runners()                    # the next tick
+    runner = svc.runners[aid]
+    assert runner._thread is not None and runner._thread.ident is not None
+    svc.close()
+    assert runner._stopping.is_set() and runner.join(30)
+    with pytest.raises(ConversationError) as err:
+        svc.store.query("SELECT 1")
+    assert err.value.reason == "store-closed"
+
+
+def test_a_tick_step_close_overtook_is_logged_as_stopped_not_failed(svc, tmp_path, monkeypatch, caplog):
+    """C-25.3 (review of 4d3d3ea, F4): `Daemon.close()` waits only 2 s for the control
+    loop, so close() can return while `_adopt_runners` is still in its reads before the
+    lock (a writer check runs `ps`). Its next store read is refused, and the tick logged
+    that as a failed step at ERROR. It is the service closing, not a defect: it is
+    logged at info, and no runner is registered or started."""
+    svc.daemon.policy["conversations"]["catalog_interval_s"] = 0
+    aid = launched_turn(svc, tmp_path, [INIT_OK])
+    real = svc._writer_check
+
+    def closing(turn, adir):
+        closer = threading.Thread(target=svc.close)
+        closer.start()
+        closer.join(60)
+        assert not closer.is_alive()
+        return real(turn, adir)
+
+    monkeypatch.setattr(svc, "_writer_check", closing)
+    with caplog.at_level(logging.INFO, logger="test-conversations"):
+        svc.tick()
+    assert aid not in svc.runners
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert any(r.levelno == logging.INFO and "_adopt_runners stopped: the service closed" in r.getMessage()
+               for r in caplog.records), [r.getMessage() for r in caplog.records]
+
+
 def test_a_closed_store_refuses_every_read_and_write_and_writes_no_file(svc):
     """C-25.3: after close() the conversation store answers `store-closed` (exit 1) to
     every read, write and file write, where a runner still going had reached a closed
