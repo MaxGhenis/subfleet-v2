@@ -3867,7 +3867,14 @@ class Daemon:
                         self.log.error("accept failed: %s (%d in a row, %d connections open, %s descriptors, next try in %g s)",
                                        errno.errorcode.get(exc.errno, exc.errno), failures,
                                        len(self._connections), descriptors.open_descriptors() or "unknown", delay)
-                    self.stopping.wait(delay)
+                    # A sleep, not `self.stopping.wait`: this is the main thread,
+                    # where the SIGTERM/SIGINT handler runs and calls
+                    # `stopping.set()`. `Event.wait` holds the event's
+                    # non-reentrant lock except while it blocks, so a signal in
+                    # that window would leave `set()` waiting on its own thread
+                    # for ever. The loop sees `stopping` on its next pass, at
+                    # most one pause (2 s) late. (Release line's hotfix review, F5.)
+                    time.sleep(delay)
                     continue
                 if failures:
                     self.log.info("accept recovered after %d failures", failures)

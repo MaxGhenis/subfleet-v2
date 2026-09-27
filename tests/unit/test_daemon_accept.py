@@ -141,3 +141,36 @@ def test_c16_6_the_start_log_says_what_the_raise_achieved():
     daemon_module.log_open_file_limit(log, 1048576, 1048576, resource.RLIM_INFINITY)
     assert records == [("INFO", "open-file limit raised from 256 to 65536 at start"),
                        ("WARNING", "open-file limit left at 1024: the hard limit (1024) or the kernel allows no more")]
+
+
+def test_c16_6_the_accept_loop_never_blocks_on_the_stop_event(serving):
+    """C-16.6 the serving thread (the main thread, in production) never waits on
+    `stopping`, even while it backs off from failed accepts: the SIGTERM handler
+    runs on that thread and calls `stopping.set()`, and `Event.wait` holds the
+    event's non-reentrant lock outside its blocking call, so a signal arriving
+    there would deadlock the stop (release line's hotfix review, F5)."""
+    service, thread, failures = serving
+    waited_here = []
+    real = service.stopping
+
+    class Watched(threading.Event):
+        def wait(self, timeout=None):
+            if threading.current_thread() is thread:
+                waited_here.append(timeout)
+            return real.wait(timeout)
+
+        def is_set(self):
+            return real.is_set()
+
+        def set(self):
+            real.set()
+    service.stopping = Watched()
+    failures.extend([errno.EMFILE] * 6)
+    thread.start()
+    deadline = time.monotonic() + 5
+    while failures:
+        assert time.monotonic() < deadline
+        time.sleep(.01)
+    assert ping(service.root)["result"]["pong"] is True
+    assert waited_here == []
+    service.stopping = real
