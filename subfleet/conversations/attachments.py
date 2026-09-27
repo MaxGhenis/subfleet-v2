@@ -155,7 +155,11 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
     directory = store.subdirectory("attachments")         # never the state root itself
     target = directory / f"{digest}.{ext}"
     if not _holds(target, digest, len(data)):             # missing or changed: copy it again
-        _copy(data, target)
+        try:
+            _copy(data, target)
+        except IsADirectoryError:                         # a rename cannot replace a directory
+            raise ConversationError("copy-blocked", f"a directory holds the stored copy's name {target}",
+                                    code=1, fix="remove that directory, then add the image again") from None
         if not _holds(target, digest, len(data)):
             raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
     # Published as C-8.1 says, its name on disk before its row, whichever add made the

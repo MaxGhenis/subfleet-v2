@@ -268,9 +268,12 @@ DAMAGE = {
     "readable by others": lambda copy, tmp_path: copy.chmod(0o644),
     "a hard link another name writes through": _hard_link_elsewhere,
 }
+# Root reads a file of mode 0000, so for root "unreadable" is the daemon's own copy.
+DAMAGE_CASES = [pytest.param(name, marks=pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file"))
+                if name == "unreadable" else name for name in DAMAGE]
 
 
-@pytest.mark.parametrize("damage", DAMAGE)
+@pytest.mark.parametrize("damage", DAMAGE_CASES)
 def test_a_re_add_repairs_a_stored_copy_that_changed(store, tmp_path, damage):
     """C-28.1 adding an image again copies it again when its stored copy is not a regular
     file holding its bytes (disk damage, a stray write), and returns the receipt. The
@@ -299,7 +302,7 @@ def test_a_re_add_repairs_a_stored_copy_that_changed(store, tmp_path, damage):
     assert attachments.check(store, out["sha256"])[0] == str(copy)
 
 
-@pytest.mark.parametrize("damage", DAMAGE)
+@pytest.mark.parametrize("damage", DAMAGE_CASES)
 def test_the_drivers_check_refuses_a_changed_copy_at_once(store, tmp_path, damage):
     """C-28.1 (review of 1808f61): the driver's check judges the stored copy as an add
     does. It read it with `path.read_bytes()`, which followed a symlink and blocked on a
@@ -512,6 +515,64 @@ def test_no_row_names_a_copy_whose_directory_could_not_be_synced(store, tmp_path
     monkeypatch.setattr(os, "fsync", real)
     assert attachments.add(store, str(src))["sha256"] == digest
     assert store.attachment(digest) is not None and copies(store) == [f"{digest}.png"]
+
+
+def test_a_stored_copy_whose_read_fails_is_refused_and_repaired(store, tmp_path, monkeypatch):
+    """C-28.1 (review of 1808f61): a stored copy whose read fails (EIO: disk damage) is
+    not the daemon's own copy. The driver's check refuses it (`attachment-missing`), not
+    with an unhandled OSError, and a re-add copies it again to a new file."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    out = attachments.add(store, str(src))
+    copy = store.root / "attachments" / f"{out['sha256']}.png"
+    damaged = os.stat(copy)
+    real_read = os.read
+
+    def read(fd, n):
+        info = os.fstat(fd)
+        if (info.st_dev, info.st_ino) == (damaged.st_dev, damaged.st_ino):
+            raise OSError(errno.EIO, "Input/output error")
+        return real_read(fd, n)
+
+    monkeypatch.setattr(os, "read", read)
+    with pytest.raises(ConversationError) as err:
+        attachments.check(store, out["sha256"])
+    assert err.value.reason == "attachment-missing"
+    assert attachments.add(store, str(src)) == out
+    # The new copy was made while the damaged one still had its name, so its inode differs.
+    assert os.stat(copy).st_ino != damaged.st_ino
+    assert attachments.check(store, out["sha256"]) == (str(copy), "image/png")
+
+
+@pytest.mark.parametrize("contents", [[], ["kept.txt"]], ids=["empty", "not empty"])
+def test_a_directory_at_the_copys_name_is_named_and_left_alone(store, tmp_path, contents):
+    """C-28.1 (review of 1808f61): a rename cannot replace a directory, so a directory at
+    the copy's name failed every re-add with an unhandled IsADirectoryError ("operation
+    failed"). The add now says what is in the way (`copy-blocked`, with the fix), leaves
+    the directory and its contents alone and no temporary file behind; once the
+    directory is gone, the next add makes the copy."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    out = attachments.add(store, str(src))
+    directory = store.root / "attachments"
+    copy = directory / f"{out['sha256']}.png"
+    copy.unlink()
+    copy.mkdir(mode=0o700)
+    for name in contents:
+        (copy / name).write_text("someone else's")
+    with pytest.raises(ConversationError) as err:
+        attachments.add(store, str(src))
+    assert (err.value.reason, err.value.code) == ("copy-blocked", 1)
+    assert "remove that directory" in err.value.fix
+    assert sorted(os.listdir(directory)) == [copy.name] and sorted(os.listdir(copy)) == contents
+    with pytest.raises(ConversationError) as err:
+        attachments.check(store, out["sha256"])
+    assert err.value.reason == "attachment-missing"
+    for name in contents:
+        (copy / name).unlink()
+    copy.rmdir()
+    assert attachments.add(store, str(src)) == out
+    assert copies(store) == [copy.name]
 
 
 def test_a_development_build_counts_as_the_app_only_on_a_development_state_root(tmp_path, monkeypatch):
