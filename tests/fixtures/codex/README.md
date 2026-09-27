@@ -53,6 +53,14 @@ credential/attempt environment fields for the process isolation tests. The
 in those diagnostics, and keeps both the fake and grandchild alive for 30 s
 so the process lane can test containment (C-12.8).
 
+The `sigterm-exit-0` scenario has no fixture directory: it reproduces what
+Codex did when the daemon stopped it on 2026-09-24. It prints `thread.started`,
+waits, and on SIGTERM writes an interim progress message to the
+`--output-last-message` path and exits 0; unsignalled it exits 1 after 30 s
+with no message. `tests/e2e/test_notice_job_state.py` uses it to prove that an
+attempt the daemon signalled is never `ok` (C-9.2) and that the notice names
+the job's `cancelled` state (C-15.1).
+
 The process tests verify exact replay, delay, final-message output, provenance,
 redaction, API-key removal, and that the detached grandchild survives termination
 of the fake provider. The test always kills that grandchild during cleanup.

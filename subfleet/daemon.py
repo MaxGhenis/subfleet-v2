@@ -1027,7 +1027,10 @@ class Daemon:
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
             if existing:
                 if existing["payload_digest"] != digest:
-                    raise protocol.ProtocolError("request id already used with a different payload")
+                    # Named, so a caller settling a lost answer (C-16.3) learns
+                    # which job holds the id without another round trip.
+                    raise protocol.ProtocolError("request id already used with a different "
+                                                 f"payload by job {existing['job_id']}")
                 return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False}
             job_id = ids.job_id(args.name or args.task or model,
                                 existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
@@ -1463,6 +1466,8 @@ class Daemon:
                 sql += " AND caller_session=?"; params.append(a.mine)
             if a.running:
                 sql += " AND state NOT IN ('succeeded','failed','cancelled','lost')"
+            if a.request_id is not None:
+                sql += " AND request_id=?"; params.append(a.request_id)   # C-16.3
             sql += " ORDER BY created_at DESC, rowid DESC"
             if a.last is not None:
                 if not isinstance(a.last, int) or a.last < 0:
@@ -1792,16 +1797,33 @@ class Daemon:
                 if not active:
                     tx.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (utcnow(), row["job_id"]))
                     tx.execute("DELETE FROM leases WHERE holder=?", (row["job_id"],))
-                    self._notice(tx, row, "unknown", 130, None, "cancelled before launch")
+                    self._notice(tx, row, "cancelled before launch")
         self._notify()
         return {"job_id": args.job_id, "status": "cancel requested"}
 
-    @staticmethod
-    def _notice(tx, job: dict, cls: str, rc: int | None, deliverable: str | None, summary: str) -> None:
+    def _notice(self, tx, job: dict, summary: str) -> None:
+        """C-15.1: the notice of a job the same transaction has just made terminal.
+
+        The header is read here, from the job row as this transaction left it,
+        and never from what the caller believes: `render.notice_header` names
+        the job's state and rc and, only for an accepted job, the deliverable
+        and the `-o` path. A caller that has not written the terminal state yet
+        is a defect this refuses, not a notice to write early. `summary` is the
+        caller's line(s): the final attempt's class, rc and detail, or why the
+        job ended without one (incident: 2026-09-24, the header came from the
+        attempt, so cancelled jobs were announced `ok; rc=0` with an `-o` path
+        that was never written).
+        """
+        row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session "
+                         "FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
+        if row is None or row["state"] not in TERMINAL:
+            raise RuntimeError(f"notice for {job['job_id']} before its terminal state "
+                               f"({row['state'] if row else 'no job row'})")
         if tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
-        text = f"{job['job_id']}: {cls}; rc={rc}; deliverable={deliverable or '-'}; out={job.get('out_path') or '-'}\n{summary}"
-        tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)", (job["job_id"], job.get("caller_session"), text, utcnow()))
+        text = render.notice_header(dict(row), self.root) + "\n" + summary
+        tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
+                   (row["job_id"], row["caller_session"], text, utcnow()))
 
     def _schedule(self, key: str, fn: Callable, *args, paced: bool = False) -> None:
         """Run `fn` on the worker pool unless `key` is already running.
@@ -2850,9 +2872,8 @@ class Daemon:
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))
         tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
-        self._notice(tx, job, "refused", 7, None,
-                     f"skipped: session {job['caller_session']} already has a live "
-                     f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}")
+        self._notice(tx, job, f"skipped: session {job['caller_session']} already has a live "
+                              f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}")
 
     @staticmethod
     def _workspace_error(exc: BaseException) -> tuple[bool, dict]:
@@ -2909,7 +2930,7 @@ class Daemon:
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?",
                        (state, rc, utcnow(), job["job_id"]))
             tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
-            self._notice(tx, job, "unknown", rc, None, detail)
+            self._notice(tx, job, detail)
         self._notify()
 
     def _launch(self, a: dict) -> None:
@@ -3148,7 +3169,7 @@ class Daemon:
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
             if not retry:
-                self._notice(tx, job, "unknown", rc, None, detail)
+                self._notice(tx, job, detail)
         self._notify()
 
     def _begin_finalizing(self, a: dict, receipt: dict) -> None:
@@ -3220,7 +3241,7 @@ class Daemon:
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("lost", 125)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
-            self._notice(tx, job, "unknown", a.get("rc"), None, "quarantined: " + detail)
+            self._notice(tx, job, "quarantined: " + detail)
         self._notify()
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
@@ -3377,6 +3398,24 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
+        # The daemon's two overrides of the adapter's `ok`. finalization.json
+        # keeps the adapter's verdict; both are recomputed from the attempt row
+        # and the captured deliverable on every (re)finalization, so a replay
+        # reaches the same class (C-4.3), and the adapter's verdict is kept in
+        # the attempt's evidence beside the class that decided.
+        provider_verdict = {"class": outcome.cls.value, "detail": outcome.detail}
+        if outcome.cls == OutcomeClass.OK and actual.get("killed_by"):
+            # C-9.2: an attempt the daemon signalled (an operator's kill, the
+            # wall limit, recovery) did not finish, whatever its rc and its
+            # deliverable say. Codex exits 0 on SIGTERM and leaves its last
+            # interim message in last.md, which classify reads as a completed
+            # turn (incident: 2026-09-24, three cancelled Codex jobs recorded
+            # `ok` with rc 0 and deliverables of 32 to 61 words such as "I am
+            # checking the newer validation code before finalizing").
+            outcome = dataclasses.replace(
+                outcome, cls=OutcomeClass.UNKNOWN,
+                detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
+                       f"is not a finished deliverable")
         if outcome.cls == OutcomeClass.OK and (not deliverable or not deliverable["bytes"]):
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         artifacts = [x for x in [deliverable,
@@ -3408,6 +3447,8 @@ class Daemon:
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
             evidence = json.loads(a["evidence_json"] or "{}")
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint)
+            if provider_verdict["class"] != outcome.cls.value:
+                evidence["provider_verdict"] = {**provider_verdict, "killed_by": actual.get("killed_by")}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
                         outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
@@ -3434,7 +3475,16 @@ class Daemon:
                 if not accepted:
                     tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job["job_id"], a["attempt_id"]))
                 uncertainty = f"; {attest_status}" if attest_status != "attested" else ""
-                self._notice(tx, job, outcome.cls.value, rc, str(deliverable_path) if deliverable else None, outcome.detail + uncertainty)
+                # C-15.1: the header is the job's (see `_notice`); the summary is
+                # the final attempt's evidence, and says what became of an output
+                # the job did not accept, so nobody reads it as the result.
+                summary = (f"attempt a{a['seq']}: {outcome.cls.value}, rc={'-' if rc is None else rc}: "
+                           f"{outcome.detail}{uncertainty}")
+                if not accepted and deliverable and deliverable["bytes"]:
+                    summary += f"\noutput kept, not accepted: {deliverable_path}"
+                    if job["out_path"]:
+                        summary += f"; -o {job['out_path']} was not written"
+                self._notice(tx, job, summary)
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])
             self._boundary("notice", a["job_id"], a["attempt_id"])
