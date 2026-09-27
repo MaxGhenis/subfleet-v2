@@ -1,0 +1,25 @@
+baseline: pass (43 passed in 25.16s)
+  killed   no QoS attribute: FAILED tests/process/test_guardian_qos_process.py::test_c5_1_the_provider_and_its_children_run_at_utility_and_cannot_raise_it
+  killed   guardian never clamps: FAILED tests/process/test_guardian_qos_process.py::test_c5_1_the_provider_and_its_children_run_at_utility_and_cannot_raise_it
+  killed   inherit opt-out ignored: FAILED tests/unit/test_guardian_qos.py::test_c5_1_the_provider_is_clamped_unless_the_operator_says_inherit
+  SURVIVED descriptors not closed: 43 passed in 10.64s
+  SURVIVED signals not restored: 43 passed in 25.86s
+  killed   no chdir: FAILED tests/unit/test_guardian_qos.py::test_c5_1_the_clamped_provider_starts_as_popen_started_it
+  killed   cwd not checked first: FAILED tests/unit/test_guardian_qos.py::test_c5_2_a_clamped_spawn_failure_is_popens_own[missing-cwd]
+  killed   last error, not first: FAILED tests/unit/test_guardian_qos.py::test_c5_1_path_search_matches_popen
+  killed   PATH not searched: FAILED tests/unit/test_guardian_qos.py::test_c5_1_path_search_matches_popen
+  killed   error names the path tried: FAILED tests/unit/test_guardian_qos.py::test_c5_2_a_clamped_spawn_failure_is_popens_own[missing-bare]
+  killed   poll blocks on a wait: FAILED tests/unit/test_guardian_qos.py::test_the_process_handle_polls_waits_and_signals_like_popen
+  killed   send_signal after exit: FAILED tests/unit/test_guardian_qos.py::test_the_process_handle_polls_waits_and_signals_like_popen
+  killed   worktree add unclamped: FAILED tests/process/test_guardian_qos_process.py::test_c5_1_a_job_worktree_runs_the_repositorys_hook_at_utility
+  killed   conversation worktree unclamped: FAILED tests/unit/test_conversation_service.py::test_a_worktree_conversation_runs_the_repositorys_hook_at_utility
+  killed   salvage add unclamped: FAILED tests/unit/test_guardian_qos.py::test_salvage_clamps_the_git_commands_that_run_repository_code
+  killed   salvage clamps reads: FAILED tests/unit/test_guardian_qos.py::test_salvage_clamps_the_git_commands_that_run_repository_code
+  killed   hold timed after release: FAILED tests/unit/test_daemon_qos_tools.py::test_a_store_lock_hold_ends_when_the_lock_is_free
+  killed   plist stays Standard: FAILED tests/unit/test_daemon_verbs.py::test_daemon_install_dry_run_prints_the_plist
+16/18 killed; survivors: ['descriptors not closed', 'signals not restored']
+# After the start differential gained an inheritable descriptor and a self-signalling shell
+# (2026-09-27 ~18:50 EDT), the two survivors were re-run against tests/unit/test_guardian_qos.py:
+  killed   descriptors not closed: FAILED tests/unit/test_guardian_qos.py::test_c5_1_the_clamped_provider_starts_as_popen_started_it
+  killed   signals not restored: FAILED tests/unit/test_guardian_qos.py::test_c5_1_the_clamped_provider_starts_as_popen_started_it
+18/18 killed

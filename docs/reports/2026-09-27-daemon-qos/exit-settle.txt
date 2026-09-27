@@ -1,0 +1,5 @@
+# Output of `exit_settle.py 15` (this directory), run 2026-09-27 at 16:29 EDT in the 885142a5 worktree.
+# Transcribed exactly from the run's terminal output; the script printed it and wrote no file.
+load [188, 106, 97]
+utility n 15 p50 0.305 max 0.783 first-read-empty 11 over 3 s 0
+inherit n 15 p50 0.258 max 0.453 first-read-empty 15 over 3 s 0

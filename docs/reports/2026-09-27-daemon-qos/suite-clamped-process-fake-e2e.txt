@@ -1,0 +1,431 @@
+15:56  up 3 days,  6:44, 1 user, load averages: 158.15 176.02 159.17
+.............................................F.......................... [  9%]
+........................................................................ [ 19%]
+........................................................................ [ 28%]
+........................................................................ [ 38%]
+........................................................................ [ 47%]
+........................................................................ [ 57%]
+........................................................................ [ 66%]
+.............................................F.......................... [ 76%]
+........................................................................ [ 85%]
+..................................................F...F.......F......... [ 95%]
+..........F......F......F..........                                      [100%]
+=================================== FAILURES ===================================
+____________ test_ignore_sigterm_escalates_and_verifies_containment ____________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-25716/test_ignore_sigterm_escalates_0')
+
+    def test_ignore_sigterm_escalates_and_verifies_containment(tmp_path):
+        """C-5.4 and C-5.6 a TERM-ignoring child is killed under a verified leader."""
+        command = [sys.executable, "-c", "import signal,time; from pathlib import Path; "
+            "signal.signal(signal.SIGTERM,signal.SIG_IGN); Path('ready').touch(); time.sleep(30)"]
+        process = subprocess.Popen(argv(tmp_path, command), env=environment("ignore/a1"),
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            start = json.loads(wait_file(tmp_path / "start.json").read_text())
+            wait_file(tmp_path / "ready")
+            assert procs.signal_group(process.pid, signal.SIGTERM, boot_id=start["boot_id"], proc_start=start["proc_start"])
+            time.sleep(.05)
+            assert procs.same_process(process.pid, start["boot_id"], start["proc_start"])
+            assert procs.signal_group(process.pid, signal.SIGKILL, boot_id=start["boot_id"], proc_start=start["proc_start"])
+            assert process.wait(timeout=3) == -signal.SIGKILL
+>           assert procs.containment(process.pid, process.pid, None, "ignore/a1").verified_empty
+E           AssertionError: assert False
+E            +  where False = Containment(group_pids=frozenset({71910}), descendant_pids=frozenset(), marker_pids=frozenset(), unverifiable=False, i...953a665', proc_start='Sun Sep 27 19:57:16 2026')}, errors=(), shapes={71910: {'ppid': 1, 'pgid': 71800, 'stat': '?E'}}).verified_empty
+E            +    where Containment(group_pids=frozenset({71910}), descendant_pids=frozenset(), marker_pids=frozenset(), unverifiable=False, i...953a665', proc_start='Sun Sep 27 19:57:16 2026')}, errors=(), shapes={71910: {'ppid': 1, 'pgid': 71800, 'stat': '?E'}}) = <function containment at 0x106f9cbf0>(71800, 71800, None, 'ignore/a1')
+E            +      where <function containment at 0x106f9cbf0> = procs.containment
+E            +      and   71800 = <Popen: returncode: -9 args: ['/Users/maxghenis/subfleet-v2-lanes/daemon-qos...>.pid
+E            +      and   71800 = <Popen: returncode: -9 args: ['/Users/maxghenis/subfleet-v2-lanes/daemon-qos...>.pid
+
+tests/process/test_guardian_process.py:100: AssertionError
+__________ test_the_lease_is_session_scoped_and_released_with_the_job __________
+
+world = (<subfleet.daemon.Daemon object at 0x107ca8830>, <tests.fake.test_sessions_end_to_end.Client object at 0x109472d50>, P...', 'astra'], ...}, 'fallback': 'upward-only', 'permissions': {'build': 'workspace-write', '*': 'read-only'}, ...}, ...)
+
+    def test_the_lease_is_session_scoped_and_released_with_the_job(world):
+        """C-23.55 and C-6.3: the key names the session, the holder is the job, and
+        every existing holder-keyed release site frees it.
+    
+        The test waits for the release, not for the terminal state. A revive that
+        succeeds becomes terminal in `_finalize`'s transaction, and `_export` frees
+        its job-held leases in the next one; `finished` in `tests/fake/conftest.py`
+        waits out the same gap for `out:`. A check made when the state was first
+        seen landed between the two in a loaded full-suite run on 2026-09-24, and in
+        9 of 60 runs at a load average near 80, none of which ran out of time. Every
+        release site a revive can reach (`max_attempts` is 1) commits the terminal
+        state before or with the delete, so a lease gone while the job is not
+        terminal was released early: each poll reads the two in one statement, and
+        one that finds that fails.
+        """
+        service, client, home, store_dir, root, policy, base = world
+        run(service)
+        repo = workdir(base)
+        cold_desktop_session(home, store_dir, repo)
+        result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                      opt_in=True, model="astra", now=fx.NOW)
+        assert result.admitted, result.reason
+    
+        def seen():
+            return service.store.one(
+                "SELECT state, rc, (SELECT holder FROM leases WHERE lease_key=?) AS holder "
+                "FROM jobs WHERE job_id=?", (revive_lease_key(ALICE), result.job_id))
+    
+        def where():
+            attempts = [a["state"] for a in service.store.list_attempts(result.job_id)]
+            return f"{seen()}, attempts {attempts}"
+    
+        def released():
+            now = seen()
+            ended = now["state"] in ("succeeded", "failed", "cancelled", "lost")
+            assert now["holder"] is not None or ended, f"released before the job ended: {now}"
+            return now["holder"] is None
+    
+        assert until(lambda: seen()["holder"], timeout=stage_s(service),
+                     describe=where) == result.job_id
+>       until(released, timeout=stage_s(service), describe=where)
+
+tests/fake/test_sessions_end_to_end.py:617: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function test_the_lease_is_session_scoped_and_released_with_the_job.<locals>.released at 0x1088012d0>
+timeout = 20
+describe = <function test_the_lease_is_session_scoped_and_released_with_the_job.<locals>.where at 0x108800670>
+
+    def until(predicate, timeout=10, describe=None):
+        """Poll `predicate` until it is truthy; `describe()` says where things stood if not."""
+        limit = time.monotonic() + timeout
+        while time.monotonic() < limit:
+            value = predicate()
+            if value:
+                return value
+            time.sleep(.02)
+>       raise AssertionError(f"condition timed out after {timeout}s"
+                             + (f": {describe()}" if describe else ""))
+E       AssertionError: condition timed out after 20s: {'state': 'running', 'rc': None, 'holder': '20260927-160730-revive-3f9c1a2e'}, attempts ['finalizing']
+
+tests/fake/test_sessions_end_to_end.py:49: AssertionError
+_______________ test_a_denied_question_and_an_answered_question ________________
+
+conv = <test_conversations.Conversations object at 0x109927890>
+
+    def test_a_denied_question_and_an_answered_question(conv):
+        """C-27.2: deny carries the person's message; AskUserQuestion is answered with the
+        chosen answers added to the request's own input."""
+        cid = conv.create()
+        first = conv.submit(cid, "[fake:approval]")
+        approval = pending_approval(conv, cid)
+        detail = conv.as_person("approval.get", approval_id=approval["approval_id"])["result"]
+        conv.as_person("approval.respond", approval_id=approval["approval_id"], decision="deny",
+                       message="not today", nonce=detail["nonce"], request_sha256=detail["request_sha256"])
+        assert conv.until_state(first, "complete", "failed")["state"] == "complete"
+        text = [e for e in conv.events(cid) if e["kind"] == "text"][-1]["data"]["text"]
+        assert text == "Not run: not today"
+    
+        second = conv.submit(cid, "[fake:question]", after_message_id=first)
+        conv.until_state(second, "approval-needed")
+        question = pending_approval(conv, cid)
+        assert question["kind"] == "question" and question["options"] == ["answer", "deny", "cancel-turn"]
+>       detail = conv.as_person("approval.get", approval_id=question["approval_id"])["result"]
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/e2e/test_conversations.py:380: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/e2e/test_conversations.py:78: in as_person
+    return json.loads(line.split("RESPONSE ", 1)[1])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/json/__init__.py:352: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/json/decoder.py:345: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x106550050>
+s = '" + \x1b[31mstream.readline\x1b[0m\x1b[1;31m()\x1b[0m.decode())', idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+>           obj, end = self.scan_once(s, idx)
+                       ^^^^^^^^^^^^^^^^^^^^^^
+E           json.decoder.JSONDecodeError: Invalid control character at: line 1 column 5 (char 4)
+
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/json/decoder.py:361: JSONDecodeError
+--------------------------- Captured stderr teardown ---------------------------
+
+[e2e harness] kept state root at /tmp/sf-failed/test_a_denied_question_and_an_answered_question
+____ test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live _____
+
+conv = <test_conversations.Conversations object at 0x107678950>
+
+    def test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live(conv):
+        """C-26.11, IR-32, D-11: writable Codex refused; a read-only thread starts read-only,
+        the guard is checked on the turn's own server, and the thread continues."""
+        refused = conv.request("conversation.create", provider="codex", request_id=str(uuid.uuid4()),
+                               workspace=str(conv.e2e.workdir), settings={"model": "gpt-6-astra", "permission": "ask"})
+        assert not refused["ok"] and "codex-read-only" in refused["error"]["message"]
+        cid = conv.create(provider="codex", model="gpt-6-astra", permission="read-only")
+        first = conv.submit(cid, "look around")
+>       done = conv.until_state(first, "complete", "failed", "delivery-unknown")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/e2e/test_conversations.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/e2e/test_conversations.py:107: in until_state
+    return self.e2e.until(reached, timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/conftest.py:247: in until
+    value = predicate()
+            ^^^^^^^^^^^
+tests/e2e/test_conversations.py:105: in reached
+    message = self.message(mid)
+              ^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:101: in message
+    return self.call("message.status", message_ids=[mid])["messages"][0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:59: in call
+    response = self.request(op, **args)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:56: in request
+    return json.loads(stream.readline())
+                      ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <socket.SocketIO object at 0x107a82080>, b = <memory at 0x10899f880>
+
+    def readinto(self, b):
+        """Read up to len(b) bytes into the writable buffer *b* and return
+        the number of bytes read.  If the socket is non-blocking and no bytes
+        are available, None is returned.
+    
+        If *b* is non-empty, a 0 return value indicates that the connection
+        was shutdown at the other end.
+        """
+        self._checkClosed()
+        self._checkReadable()
+        if self._timeout_occurred:
+            raise OSError("cannot read from timed out object")
+        try:
+>           return self._sock.recv_into(b)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+E           TimeoutError: timed out
+
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/socket.py:725: TimeoutError
+--------------------------- Captured stderr teardown ---------------------------
+
+[e2e harness] kept state root at /tmp/sf-failed/test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live
+__________ test_a_claude_turn_on_the_wrong_model_fails_model_mismatch __________
+
+conv = <test_conversations.Conversations object at 0x1097b85d0>
+
+    def test_a_claude_turn_on_the_wrong_model_fails_model_mismatch(conv):
+        """C-26.8: the served model differs from the request: the driver stops the turn with the
+        provider's own interrupt; the message fails `model-mismatch`. The provider finished the
+        turn after the stop (a `result`), so nothing is left to resume (C-24.8)."""
+        cid = conv.create()
+        mid = conv.submit(cid, "[fake:wrong-model]")
+>       done = conv.until_state(mid, "failed", "complete", "interrupted", "delivery-unknown")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/e2e/test_conversations.py:694: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/e2e/test_conversations.py:107: in until_state
+    return self.e2e.until(reached, timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/conftest.py:247: in until
+    value = predicate()
+            ^^^^^^^^^^^
+tests/e2e/test_conversations.py:105: in reached
+    message = self.message(mid)
+              ^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:101: in message
+    return self.call("message.status", message_ids=[mid])["messages"][0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:59: in call
+    response = self.request(op, **args)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:56: in request
+    return json.loads(stream.readline())
+                      ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <socket.SocketIO object at 0x107a80400>, b = <memory at 0x10899f4c0>
+
+    def readinto(self, b):
+        """Read up to len(b) bytes into the writable buffer *b* and return
+        the number of bytes read.  If the socket is non-blocking and no bytes
+        are available, None is returned.
+    
+        If *b* is non-empty, a 0 return value indicates that the connection
+        was shutdown at the other end.
+        """
+        self._checkClosed()
+        self._checkReadable()
+        if self._timeout_occurred:
+            raise OSError("cannot read from timed out object")
+        try:
+>           return self._sock.recv_into(b)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+E           TimeoutError: timed out
+
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/socket.py:725: TimeoutError
+--------------------------- Captured stderr teardown ---------------------------
+
+[e2e harness] kept state root at /tmp/sf-failed/test_a_claude_turn_on_the_wrong_model_fails_model_mismatch
+______________ test_detached_cli_exit_does_not_end_provider_work _______________
+
+e2e = <conftest.E2E object at 0x109cef150>
+
+    def test_detached_cli_exit_does_not_end_provider_work(e2e):
+        """C-5.1, C-5.2, C-15.4: the CLI process exits while the guardian keeps working."""
+        e2e.start(scenario="slow", delay_s=2)
+>       submitted = e2e.cli(*e2e.run_args("astra", "-d"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/e2e/test_milestone1_codex.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/e2e/conftest.py:219: in cli
+    result = subprocess.run([sys.executable, "-m", "subfleet.cli", *map(str, argv)],
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/Users/maxghenis/subfleet-v2-lanes/daemon-qos...>
+endtime = 270206.425104625, orig_timeout = 20, stdout_seq = []
+stderr_seq = [b'subfleet run: no answer from the daemon (no response from the daemon within 15s); sending the same submission again under request id beaeb083-7d7e-46a8-9f2f-df28e72658c8, which never creates a second job (C-6.2)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/Users/maxghenis/subfleet-v2-lanes/daemon-qos/.venv/bin/python', '-m', 'subfleet.cli', 'run', '-m', 'astra', '-C', '/private/tmp/sf-e2e-bxnyjybq/work', '-p', '/private/tmp/sf-e2e-bxnyjybq/prompt.md', '--allow-tmp', '-d']' timed out after 20 seconds
+
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:1268: TimeoutExpired
+--------------------------- Captured stderr teardown ---------------------------
+
+[e2e harness] kept state root at /tmp/sf-failed/test_detached_cli_exit_does_not_end_provider_work
+_______ test_offline_reads_after_daemon_stop_and_run_names_start_command _______
+
+e2e = <conftest.E2E object at 0x1083909d0>
+
+    def test_offline_reads_after_daemon_stop_and_run_names_start_command(e2e):
+        """C-17.1, C-17.3, C-17.5: stopped-daemon reads work and submissions exit 69."""
+        e2e.start()
+        submitted = e2e.cli(*e2e.run_args("astra", "--wait"))
+        assert submitted.rc == 0, submitted
+        identity = job_id(submitted)
+>       stopped = e2e.cli("daemon", "stop", timeout=20)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/e2e/test_milestone1_codex.py:205: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/e2e/conftest.py:219: in cli
+    result = subprocess.run([sys.executable, "-m", "subfleet.cli", *map(str, argv)],
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/Users/maxghenis/subfleet-v2-lanes/daemon-qos...>
+endtime = 270247.254241666, orig_timeout = 20, stdout_seq = []
+stderr_seq = [b'subfleet daemon: SIGTERM sent to pid 41540\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/Users/maxghenis/subfleet-v2-lanes/daemon-qos/.venv/bin/python', '-m', 'subfleet.cli', 'daemon', 'stop']' timed out after 20 seconds
+
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:1268: TimeoutExpired
+--------------------------- Captured stderr teardown ---------------------------
+
+[e2e harness] kept state root at /tmp/sf-failed/test_offline_reads_after_daemon_stop_and_run_names_start_command
+__________________ test_empty_result_with_zero_rc_is_unknown ___________________
+
+e2e = <conftest.E2E object at 0x10874b4d0>
+
+    def test_empty_result_with_zero_rc_is_unknown(e2e):
+        """C-9.2, C-12.6: rc 0 with empty text is unknown and cannot succeed."""
+        e2e.start(scenario="empty-result-rc0")
+>       result = e2e.cli(*e2e.run_args("haiku", "--wait"))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/e2e/test_milestone2_claude.py:261: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/e2e/conftest.py:219: in cli
+    result = subprocess.run([sys.executable, "-m", "subfleet.cli", *map(str, argv)],
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/Users/maxghenis/subfleet-v2-lanes/daemon-qos...>
+endtime = 270288.179261833, orig_timeout = 20, stdout_seq = []
+stderr_seq = [b'subfleet run: no answer from the daemon (no response from the daemon within 15s); sending the same submission again under request id 3f5b97c5-8cd4-42d6-8d24-da8065136b5d, which never creates a second job (C-6.2)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/Users/maxghenis/subfleet-v2-lanes/daemon-qos/.venv/bin/python', '-m', 'subfleet.cli', 'run', '-m', 'haiku', '-C', '/private/tmp/sf-e2e-yxsd_arx/work', '-p', '/private/tmp/sf-e2e-yxsd_arx/prompt.md', '--allow-tmp', '--wait']' timed out after 20 seconds
+
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/subprocess.py:1268: TimeoutExpired
+--------------------------- Captured stderr teardown ---------------------------
+
+[e2e harness] kept state root at /tmp/sf-failed/test_empty_result_with_zero_rc_is_unknown
+=========================== short test summary info ============================
+FAILED tests/process/test_guardian_process.py::test_ignore_sigterm_escalates_and_verifies_containment
+FAILED tests/fake/test_sessions_end_to_end.py::test_the_lease_is_session_scoped_and_released_with_the_job
+FAILED tests/e2e/test_conversations.py::test_a_denied_question_and_an_answered_question
+FAILED tests/e2e/test_conversations.py::test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live
+FAILED tests/e2e/test_conversations.py::test_a_claude_turn_on_the_wrong_model_fails_model_mismatch
+FAILED tests/e2e/test_milestone1_codex.py::test_detached_cli_exit_does_not_end_provider_work
+FAILED tests/e2e/test_milestone1_codex.py::test_offline_reads_after_daemon_stop_and_run_names_start_command
+FAILED tests/e2e/test_milestone2_claude.py::test_empty_result_with_zero_rc_is_unknown
+8 failed, 747 passed in 1047.96s (0:17:27)
+16:16  up 3 days,  7:03, 1 user, load averages: 11.68 66.60 121.97

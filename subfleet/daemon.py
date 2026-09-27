@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
+from . import capacity, ids, lanes_transfer, procs, protocol, qos, render, route_check, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -2660,7 +2660,9 @@ class Daemon:
                 self._discard_worktree(job["workdir"], workdir, cap)
             if not Path(workdir).exists():
                 try:
-                    result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
+                    # C-5.1: checkout runs the repository's hooks and filters, clamped as a provider is.
+                    result = subprocess.run(qos.repository_argv(["git", "-C", job["workdir"], "worktree", "add", "--detach",
+                                                                 workdir, job["workdir_head"]]),
                                             capture_output=True, text=True,
                                             timeout=self.policy["caps"]["worktree_add_timeout_s"])
                 except (OSError, subprocess.SubprocessError):
@@ -3916,7 +3918,7 @@ class Daemon:
         transient = (isinstance(exc, subprocess.TimeoutExpired) or transient_os_error(exc)
                      or (isinstance(exc, SalvageError) and exc.transient))
         if isinstance(exc, subprocess.TimeoutExpired):
-            command = exc.cmd if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
+            command = qos.unclamped(exc.cmd if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)])
             verb = next((part for part in command[3:] if not str(part).startswith("-")), "git")
             message = f"git {verb} timed out after {exc.timeout:g} s"
         else:

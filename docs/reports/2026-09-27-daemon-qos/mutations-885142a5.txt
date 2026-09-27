@@ -1,0 +1,16 @@
+baseline: pass (30 passed in 24.60s)
+  killed   no clamp at all: FAILED tests/unit/test_guardian_qos.py::test_c5_1_the_provider_is_clamped_to_utility_unless_the_operator_says_inherit
+  killed   inherit opt-out ignored: FAILED tests/unit/test_guardian_qos.py::test_c5_1_the_provider_is_clamped_to_utility_unless_the_operator_says_inherit
+  killed   taskpolicy presence not checked: FAILED tests/unit/test_guardian_qos.py::test_c5_1_a_host_without_taskpolicy_inherits
+  killed   clamp to background: FAILED tests/unit/test_guardian_qos.py::test_c5_1_the_provider_is_clamped_to_utility_unless_the_operator_says_inherit
+  killed   argv not wrapped: FAILED tests/unit/test_guardian_qos.py::test_c5_1_the_clamp_wraps_argv_without_touching_it
+  killed   spawn failure not translated: FAILED tests/unit/test_guardian_qos.py::test_c5_2_a_clamped_spawn_failure_reads_as_popens_own[missing-absolute]
+  killed   any exit 66 is a spawn failure: FAILED tests/unit/test_guardian_qos.py::test_c5_2_a_provider_that_exits_66_is_not_a_spawn_failure
+  killed   child pid kept on spawn failure: FAILED tests/unit/test_guardian_qos.py::test_c5_2_a_clamped_spawn_failure_reads_as_popens_own[missing-absolute]
+  killed   rc kept on spawn failure: FAILED tests/unit/test_guardian_qos.py::test_c5_2_a_clamped_spawn_failure_reads_as_popens_own[missing-absolute]
+  killed   taskpolicy line left in stderr: FAILED tests/unit/test_guardian_qos.py::test_c5_2_a_clamped_spawn_failure_reads_as_popens_own[missing-absolute]
+  killed   errno not mapped: FAILED tests/unit/test_guardian_qos.py::test_c5_2_a_clamped_spawn_failure_reads_as_popens_own[missing-absolute]
+  SURVIVED first line not isolated: 30 passed in 16.66s
+  killed   plist stays Standard: FAILED tests/unit/test_daemon_verbs.py::test_daemon_install_dry_run_prints_the_plist
+  killed   plist Adaptive: FAILED tests/unit/test_daemon_verbs.py::test_daemon_install_dry_run_prints_the_plist
+13/14 killed; survivors: ['first line not isolated']

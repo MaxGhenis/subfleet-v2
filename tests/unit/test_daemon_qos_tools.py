@@ -71,3 +71,51 @@ def test_thread_priorities_reads_every_thread_of_a_clamped_process():
     finally:
         child.kill()
         child.wait()
+
+
+def test_a_store_lock_hold_ends_when_the_lock_is_free():
+    """Review of 885142a5, finding 4 (Astra's probe): the harness timed a hold after
+    WatchedLock.release returned, which frees the lock first and then logs, so time the
+    lock was free was counted as held. With 250 ms of work after the unlock, the recorded
+    hold must end before another thread could take the lock, not after that work."""
+    import ast
+    import threading
+    import time
+    from types import SimpleNamespace
+    from subfleet.lockwatch import WatchedLock
+    functions = [node for node in ast.parse(repro.DAEMON).body
+                 if isinstance(node, ast.FunctionDef) and node.name in {"acquire", "release"}]
+    assert len(functions) == 2
+    lock = WatchedLock("hold-timer-test")
+    released, taken = threading.Event(), threading.Event()
+    seen = {}
+
+    def after_unlock(*_):
+        seen["unlocked"] = time.monotonic()
+        released.set()
+        assert taken.wait(5)
+        time.sleep(.25)
+
+    lock.watch = SimpleNamespace(hold_s=0, released=after_unlock)
+    env = {"time": time, "lock": lock, "local": threading.local(), "measuring": threading.Event(),
+           "real_acquire": lock.acquire, "real_release": lock.release,
+           "admission": {key: [] for key in ("waits", "all_holds", "all_hold_cpu", "holds", "hold_cpu",
+                                              "reserve_holds", "reserve_hold_cpu")}}
+    env["measuring"].set()
+    exec(compile(ast.Module(body=functions, type_ignores=[]), "harness-wrappers", "exec"), env)
+
+    def contender():
+        assert released.wait(5) and lock._lock.acquire(timeout=5)
+        seen["taken"] = time.monotonic()
+        lock._lock.release()
+        taken.set()
+
+    worker = threading.Thread(target=contender)
+    worker.start()
+    env["acquire"]()
+    started = env["local"].since
+    env["release"]()
+    worker.join(5)
+    held = env["admission"]["all_holds"][0]
+    assert held <= seen["taken"] - started + .01, (held, seen["taken"] - started)
+    assert held < .25

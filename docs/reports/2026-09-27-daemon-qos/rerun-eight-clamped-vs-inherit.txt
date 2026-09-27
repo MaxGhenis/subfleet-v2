@@ -1,0 +1,9 @@
+== round 1 utility load 102.07 47.47 77.25
+8 passed in 22.76s
+== round 1 inherit load 135.65 60.00 80.92
+8 passed in 20.33s
+== round 2 utility load 151.65 68.42 83.44
+FAILED tests/process/test_guardian_process.py::test_ignore_sigterm_escalates_and_verifies_containment
+1 failed, 7 passed in 22.77s
+== round 2 inherit load 154.89 75.84 85.68
+8 passed in 20.46s

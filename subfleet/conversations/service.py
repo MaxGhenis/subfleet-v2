@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .. import protocol
+from .. import protocol, qos
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULTS
@@ -466,8 +466,12 @@ class ConversationService:
         timeout = self._git_timeout_s()
 
         def git(*argv: str, cwd: str | Path = top, cap: float = timeout) -> subprocess.CompletedProcess:
+            command = ["git", "-C", str(cwd), *argv]
+            if argv[:2] == ("worktree", "add"):
+                # C-5.1: checkout runs the repository's hooks and filters, clamped as a provider is.
+                command = qos.repository_argv(command)
             try:
-                return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True, timeout=cap)
+                return subprocess.run(command, capture_output=True, text=True, timeout=cap)
             except (OSError, subprocess.SubprocessError) as exc:
                 raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
                                         fix="repeat conversation.create with the same request_id") from exc

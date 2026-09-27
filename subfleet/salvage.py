@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import qos
 from .adapters.base import AdapterError
 from .sessions.transcripts import open_regular
 
@@ -58,11 +59,23 @@ def transient_os_error(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and exc.errno in TRANSIENT_ERRNOS
 
 
+# C-5.1: these run repository code (`add` its clean filters and fsmonitor, `update-ref`
+# the reference-transaction hook), so they run clamped as a provider does. The reads that
+# decide a submission (`rev-parse`, `symbolic-ref`) keep the daemon's QoS.
+REPOSITORY_CODE = frozenset({"add", "update-ref", "update-index"})
+
+
+def _argv(workdir: str | Path, args: tuple[str, ...]) -> list[str]:
+    command = ["git", "-C", str(workdir), *args]
+    verb = next((part for part in args if not part.startswith("-") and "=" not in part), None)
+    return qos.repository_argv(command) if verb in REPOSITORY_CODE else command
+
+
 def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
          optional: bool = False, timeout_s: float | None = None) -> str | None:
     cap = git_timeout_s(timeout_s)
     try:
-        result = subprocess.run(["git", "-C", str(workdir), *args], env=env,
+        result = subprocess.run(_argv(workdir, args), env=env,
                                 capture_output=True, text=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
         # Never `optional`: a call that did not finish has not said "no HEAD" or
@@ -88,7 +101,7 @@ def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = Non
     exit. Timeouts and transient OS errors raise exactly as in ``_git``."""
     cap = git_timeout_s(timeout_s)
     try:
-        result = subprocess.run(["git", "-C", str(workdir), *args], env=env, input=stdin,
+        result = subprocess.run(_argv(workdir, args), env=env, input=stdin,
                                 capture_output=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git {args[0]} timed out after {cap:g} s", transient=True) from exc

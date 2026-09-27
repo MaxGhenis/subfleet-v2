@@ -1,0 +1,42 @@
+18:25  up 3 days,  9:12, 1 user, load averages: 70.66 134.69 115.67
+    message = self.message(mid)
+              ^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:101: in message
+    return self.call("message.status", message_ids=[mid])["messages"][0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:59: in call
+    response = self.request(op, **args)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/test_conversations.py:56: in request
+    return json.loads(stream.readline())
+                      ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <socket.SocketIO object at 0x10a6cc0a0>, b = <memory at 0x10a6a5900>
+
+    def readinto(self, b):
+        """Read up to len(b) bytes into the writable buffer *b* and return
+        the number of bytes read.  If the socket is non-blocking and no bytes
+        are available, None is returned.
+    
+        If *b* is non-empty, a 0 return value indicates that the connection
+        was shutdown at the other end.
+        """
+        self._checkClosed()
+        self._checkReadable()
+        if self._timeout_occurred:
+            raise OSError("cannot read from timed out object")
+        try:
+>           return self._sock.recv_into(b)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+E           TimeoutError: timed out
+
+../../.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/lib/python3.14/socket.py:725: TimeoutError
+--------------------------- Captured stderr teardown ---------------------------
+
+[e2e harness] kept state root at /tmp/sf-failed/test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_clock
+=========================== short test summary info ============================
+FAILED tests/e2e/test_conversations.py::test_a_turns_session_hooks_see_the_daemons_markers_and_surface_no_ping
+FAILED tests/e2e/test_conversations.py::test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_clock
+2 failed, 6635 passed in 1248.76s (0:20:48)
+18:46  up 3 days,  9:33, 1 user, load averages: 44.06 64.27 76.81

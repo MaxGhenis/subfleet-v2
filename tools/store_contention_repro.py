@@ -131,16 +131,18 @@ def acquire(blocking=True, timeout=-1):
     return ok
 def release():
     outer, since = lock._depth == 1, getattr(local, "since", None)
+    # Taken before the release: WatchedLock frees the lock first and then logs, and a
+    # hold ends when another thread could take it (review of 885142a5, finding 4).
+    held = time.monotonic() - since if since is not None else 0.0
     cpu = time.thread_time() - getattr(local, "cpu", 0.0) if outer else 0.0
     real_release()
     if outer and since is not None and measuring.is_set():
         # Every thread's outermost hold, whoever holds it (2026-09-27, the QoS comparison).
-        admission["all_holds"].append(time.monotonic() - since)
+        admission["all_holds"].append(held)
         admission["all_hold_cpu"].append(cpu)
     if outer and since is not None and measuring.is_set() and getattr(local, "admitting", False):
         # Wall time held, and the holder's own CPU time in it: at a low duty or a
         # high load the first is mostly waiting for the CPU or the GIL.
-        held = time.monotonic() - since
         admission["holds"].append(held)
         admission["hold_cpu"].append(cpu)
         if getattr(local, "reserving", False):

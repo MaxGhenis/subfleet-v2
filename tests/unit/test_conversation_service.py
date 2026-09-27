@@ -1055,6 +1055,19 @@ def test_a_worktree_conversation_records_and_returns_its_path_and_branch(svc, re
     assert len([l for l in git(repo, "worktree", "list", "--porcelain").splitlines() if l.startswith("worktree ")]) == 2
 
 
+@pytest.mark.skipif(not os.access("/usr/sbin/taskpolicy", os.X_OK), reason="C-5.1's clamp is macOS's taskpolicy")
+def test_a_worktree_conversation_runs_the_repositorys_hook_at_utility(svc, repo, monkeypatch):
+    """C-5.1 (review F5 of 885142a5): cutting the worktree runs the repository's own hooks,
+    so it runs clamped to the utility QoS (priority 20) as a provider does."""
+    monkeypatch.delenv("SUBFLEET_PROVIDER_QOS", raising=False)
+    record = repo.parent / "hook-priority"
+    hook = repo / ".git" / "hooks" / "post-checkout"
+    hook.write_text(f"#!/bin/sh\n/bin/ps -o pri= -p $$ > '{record}'\n")
+    hook.chmod(0o755)
+    create_worktree(svc, repo)
+    assert int(record.read_text()) <= 20
+
+
 def test_a_worktree_started_in_a_subdirectory_works_in_it(svc, repo):
     """D-16: the conversation works in the same subdirectory of its own worktree."""
     view = create_worktree(svc, repo / "pkg")["conversation"]

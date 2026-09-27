@@ -31,8 +31,19 @@ def libc():
 
 
 def thread_pris(pid: int) -> list[int]:
-    out = subprocess.run(["/bin/ps", "-M", "-o", "pri=", "-p", str(pid)], capture_output=True, text=True).stdout
-    return [int(tok.rstrip("TRSUIZ")) for tok in out.split() if tok.rstrip("TRSUIZ").isdigit()]
+    """pid's threads' priorities from `ps -M`'s PRI column. (The version that wrote this
+    directory's mech-*.json read every numeric token, so each array there starts with the
+    pid; the priorities follow it. Fixed after the review of 885142a5.)"""
+    rows = subprocess.run(["/bin/ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout.splitlines()
+    if not rows:
+        return []
+    column, found = rows[0].split().index("PRI"), []
+    for n, row in enumerate(rows[1:]):
+        fields = row.split()
+        index = column if n == 0 else column - 2          # a thread's row starts at its PID
+        if index < len(fields):
+            found.append(int(fields[index].rstrip("TRSUIZ")))
+    return found
 
 
 def tree(pid: int) -> dict:

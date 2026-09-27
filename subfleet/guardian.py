@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import errno
 import json
 import os
 import signal
@@ -13,57 +12,20 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import qos as _qos
 from .procs import boot_id, proc_start
-
-# C-5.1: agent work runs at the `utility` QoS whatever the daemon's own scheduling, so a
-# daemon at the default QoS (launchd `ProcessType` `Interactive`) never lifts it over the
-# operator's apps. A QoS clamp is the one setting every process the provider starts
-# inherits and none can raise: measured on 2026-09-27, a thread's own QoS
-# (`pthread_set_qos_class_self_np`) and `nice` reach no child, fork or posix_spawn
-# (docs/reports/2026-09-27-daemon-qos.md). taskpolicy(8) sets the clamp and execs the
-# provider in its own place, so its pid, group, environment and argv are the provider's.
-TASKPOLICY = "/usr/sbin/taskpolicy"
-PROVIDER_QOS = "utility"
-PROVIDER_QOS_ENV = "SUBFLEET_PROVIDER_QOS"    # `inherit`: the provider runs at the guardian's QoS
-# taskpolicy exits 66 (EX_NOINPUT) with this line when its posix_spawn of the provider fails.
-CLAMP_SPAWN_FAILED_RC = 66
-CLAMP_SPAWN_FAILED = b"taskpolicy: posix_spawn: "
-_ERRNO_BY_TEXT = {os.strerror(number): number for number in errno.errorcode}
+# C-5.1: the provider runs clamped to the `utility` QoS whatever the daemon's own
+# scheduling (subfleet/qos.py). The names stay here for installers that check them.
+from .qos import PROVIDER_QOS, PROVIDER_QOS_ENV, TASKPOLICY, provider_qos  # noqa: F401
 
 
-def provider_qos() -> str | None:
-    """The QoS clamp the provider starts under, or None when it inherits the guardian's.
-
-    Only `inherit` opts out. A host without taskpolicy(8) inherits too: that is not macOS,
-    where it ships in the base system."""
-    if os.environ.get(PROVIDER_QOS_ENV, PROVIDER_QOS) == "inherit" or not os.access(TASKPOLICY, os.X_OK):
-        return None
-    return PROVIDER_QOS
-
-
-def provider_argv(argv: list[str], qos: str | None) -> list[str]:
-    """argv as the guardian spawns it: under `taskpolicy -c <qos>` when clamped."""
-    return [TASKPOLICY, "-c", qos, *argv] if qos else list(argv)
-
-
-def clamp_spawn_error(rc: int, stderr_path: str, name: str) -> str | None:
-    """C-5.2's spawn_error when taskpolicy could not spawn the provider, else None.
-
-    Popen's own failure reads `[Errno 2] No such file or directory: 'codex'`; under the
-    clamp the same failure is taskpolicy's exit 66 with its reason as the first line of
-    the provider's stderr, and it is given back in Popen's words."""
-    if rc != CLAMP_SPAWN_FAILED_RC:
-        return None
-    try:
-        with open(stderr_path, "rb") as stream:
-            head = stream.read(256).split(b"\n", 1)[0]
-    except OSError:
-        return None
-    if not head.startswith(CLAMP_SPAWN_FAILED):
-        return None
-    reason = head[len(CLAMP_SPAWN_FAILED):].decode("ascii", "replace").strip()
-    number = _ERRNO_BY_TEXT.get(reason)
-    return str(OSError(number, reason, name)) if number else f"{reason}: {name!r}"
+def _spawn(argv: list[str], *, cwd: str, stdin, stdout, stderr, clamp: str | None):
+    """The provider, clamped by posix_spawn's QoS attribute, or through Popen as before when
+    `inherit` opts out. Either raises Popen's OSError when it cannot start."""
+    if clamp:
+        fileno = lambda stream: stream if isinstance(stream, int) else stream.fileno()
+        return _qos.spawn(argv, cwd=cwd, stdin=fileno(stdin), stdout=fileno(stdout), stderr=fileno(stderr), qos=clamp)
+    return subprocess.Popen(argv, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
 
 
 def atomic_publish(path: str | Path, data: bytes) -> None:
@@ -151,14 +113,13 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     _receipt(attempt_dir / "start.json", start)
     child = None
     spawn_error = None
-    qos = provider_qos()
-    command = provider_argv(argv, qos)
+    clamp = provider_qos()
     try:
         with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
             if relay is not None:
                 read_end, write_end = os.pipe()
                 try:
-                    child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr)
+                    child = _spawn(argv, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr, clamp=clamp)
                 except OSError:
                     os.close(write_end)
                     raise
@@ -175,24 +136,12 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                     # credential lookup and worker queueing (C-23.19).
                     if os.environ.get("SUBFLEET_PROBE"):
                         _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
-                    child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
+                    child = _spawn(argv, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr, clamp=clamp)
                     rc = child.wait()
     except OSError as exc:
         rc = 127
         # OSError contains the executable/path and errno, never child env.
         spawn_error = str(exc)
-    if qos and child is not None and not spawn_error:
-        spawn_error = clamp_spawn_error(rc, stderr_path, argv[0])
-        if spawn_error:
-            # No provider ran, so the receipt and the streams read as Popen's own failure
-            # leaves them. taskpolicy's line lives on in spawn_error; left in the stderr
-            # file, an adapter would read it as the provider's (Codex's transient pattern
-            # matches "Resource temporarily unavailable", its limit one "Disc quota exceeded").
-            rc, child = 127, None
-            try:
-                os.truncate(stderr_path, 0)
-            except OSError:
-                pass
     exit_receipt = {
         "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": _utc(),
         "wall_s": round(time.monotonic() - started, 6),

@@ -83,3 +83,44 @@ def test_c5_1_inherit_runs_the_provider_at_the_guardians_qos(tmp_path):
         pytest.skip("this test process is itself clamped; inherit and utility look alike")
     report, _ = run(tmp_path, SUBFLEET_PROVIDER_QOS="inherit")
     assert max(report["provider"]) > UTILITY and max(report["child"]) > UTILITY, report
+
+
+def hooked_repository(tmp_path: Path) -> tuple[Path, Path]:
+    """A repository whose post-checkout hook records the priority it runs at."""
+    repo, record = tmp_path / "repo", tmp_path / "hook-priority"
+    repo.mkdir()
+    for argv in (["init", "-b", "feature/x"], ["-c", "user.name=T", "-c", "user.email=t@example.test",
+                                                "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "base"]):
+        subprocess.run(["git", "-C", str(repo), *argv], check=True, capture_output=True)
+    hook = repo / ".git" / "hooks" / "post-checkout"
+    hook.write_text(f"#!/bin/sh\n/bin/ps -o pri= -p $$ > '{record}'\n")
+    hook.chmod(0o755)
+    return repo, record
+
+
+def test_c5_1_a_job_worktree_runs_the_repositorys_hook_at_utility(tmp_path, monkeypatch):
+    """Review F5 (Astra, of 885142a5): `git worktree add` runs the repository's own hooks and
+    filters, so the daemon starts it clamped as it starts a provider."""
+    from types import SimpleNamespace
+    from subfleet.daemon import Daemon
+    monkeypatch.delenv(guardian.PROVIDER_QOS_ENV, raising=False)
+    for key, value in {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}.items():
+        monkeypatch.setenv(key, value)
+    repo, record = hooked_repository(tmp_path)
+    state = tmp_path / "state"
+    (state / "worktrees").mkdir(parents=True)
+    stub = SimpleNamespace(root=state, _discard_worktree=Daemon._discard_worktree,
+                           policy={"caps": {"workspace_git_timeout_s": 60, "worktree_add_timeout_s": 60}})
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True,
+                          check=True).stdout.strip()
+    job = {"job_id": "qos-worktree", "kind": "job", "sandbox": "workspace-write", "workdir": str(repo),
+           "workdir_head": head, "in_place": False}
+    workdir, _head, _baseline = Daemon._workspace(stub, job)
+    assert Path(workdir).is_dir()
+    assert int(record.read_text()) <= UTILITY
+    if own_priority() > UTILITY:
+        monkeypatch.setenv(guardian.PROVIDER_QOS_ENV, "inherit")
+        record.unlink()
+        job["job_id"] = "qos-worktree-inherit"
+        Daemon._workspace(stub, job)
+        assert int(record.read_text()) > UTILITY          # the opt-out runs it at the daemon's QoS
