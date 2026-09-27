@@ -346,17 +346,6 @@ class Containment:
         }
 
 
-def _process_table() -> dict[int, tuple[int, int, str]]:
-    """pid -> (ppid, pgid, stat) from one `ps -axo pid=,ppid=,pgid=,stat=` snapshot."""
-    table: dict[int, tuple[int, int, str]] = {}
-    for row in _read(["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat="]).splitlines():
-        parts = row.split(None, 3)
-        if len(parts) < 4:
-            continue
-        table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3].strip())
-    return table
-
-
 def group_members(pgid: int) -> dict[int, str]:
     """pid -> `lstart` for the live, non-zombie members of process group `pgid`,
     from one `ps -axo pid=,pgid=,stat=,lstart=` snapshot.

@@ -74,9 +74,6 @@ class FakePs:
             return (f"{GUARDIAN} {PGID} Ss   {self.starts[GUARDIAN]}\n"
                     f"{CHILD} {PGID} R    {self.starts[CHILD]}\n"
                     f"4300 4300 S    {self.starts[4300]}\n4301 4300 Z    {STARTED}\n")
-        if "pid=,ppid=,pgid=,stat=" in argv:
-            return (f"{GUARDIAN} 1 {PGID} Ss\n{CHILD} {GUARDIAN} {PGID} R\n"
-                    "4300 1 4300 S\n4301 4300 4300 Z\n")
         if "pid=,command=" in argv:
             return ""
         if argv[1:2] == ["-p"] and argv[-1] == "lstart=":

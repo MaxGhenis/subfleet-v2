@@ -575,3 +575,10 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
     monkeypatch.setattr(procs, "_read", read)
     result = procs.containment(42, 42, None, "job/a1")
     assert result.verified_empty and result.errors == (), result
+
+
+def test_c5_5_the_whole_process_table_has_one_reader():
+    """C-5.5, C-5.12 `snapshot()` is the one reader of the whole process table, and a row that is not a process is
+    an `InspectionError` there. The merge of 2026-09-26 left a second, `_process_table()`, which nothing called and
+    which let a `ValueError` escape; it is gone, so no new caller can take it up."""
+    assert not hasattr(procs, "_process_table")
