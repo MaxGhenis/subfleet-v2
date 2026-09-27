@@ -425,7 +425,12 @@ def test_c16_7_shutdown_leaves_no_client_connection_open(serve, monkeypatch):
     until(lambda: service._closed and not service._connections, timeout=5)
     assert time.monotonic() - started < 3                # the join was bounded
     for sock in held:
-        assert sock.recv(1) == b""                       # closed by the daemon, not left open
+        data = b""
+        while chunk := sock.recv(65536):                 # closed by the daemon, not left open
+            data += chunk
+        # C-16.8: a connection whose reader returned ends with the stopping
+        # answer (69, nothing was run); a wedged reader's is closed bare.
+        assert all(json.loads(line)["error"]["code"] == 69 for line in data.splitlines()), data
         sock.close()
     wedged.set()
 

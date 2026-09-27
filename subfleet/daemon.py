@@ -287,8 +287,12 @@ class Daemon:
         self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
-        # C-16.8: notified whenever a held connection is let go, so `close()`
-        # can wait for replies without polling.
+        # C-16.8: what `close()` waits for before it shuts connections: requests
+        # handed to a pool and not yet answered, and the held connections whose
+        # reader is still running (the others are only finishing). Notified on
+        # every change, so the wait needs no polling.
+        self._inflight: set[Future] = set()
+        self._reading: set[socket.socket] = set()
         self._connections_changed = threading.Condition(self._connection_lock)
         # C-16.7: the most client connections held at once, from the open-file
         # limit this process has now (main raises it first), and how long one
@@ -1097,6 +1101,9 @@ class Daemon:
                 columns = ",".join(values)
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
             self._notify()
+            # Committed, not yet answered: the window C-16.3 settles and C-16.8's
+            # stop must still answer.
+            self._boundary("submitted", job_id)
             return {"job_id": job_id, "request_id": args.request_id, "created": True}
 
     def _resolve_pin(self, args: protocol.SubmitArgs, model: str | None, reason: str | None) -> Lane:
@@ -3704,8 +3711,7 @@ class Daemon:
             # A client disconnect cannot cancel its durable job. A reply that
             # failed part way (the client stopped reading, C-16.7) leaves a
             # broken line, so nothing more may follow it on this connection.
-            with contextlib.suppress(OSError):
-                conn.shutdown(socket.SHUT_RDWR)
+            shut(conn)
 
     def _not_run(self, req_id: str) -> protocol.Response:
         """C-16.8: the answer to a request a stopping daemon did not run."""
@@ -3728,8 +3734,7 @@ class Daemon:
         except OSError:
             return
         if sent < len(line):
-            with contextlib.suppress(OSError):  # a broken line: nothing may follow it (C-16.7)
-                conn.shutdown(socket.SHUT_RDWR)
+            shut(conn)                        # a broken line: nothing may follow it (C-16.7)
 
     def _decode(self, conn: socket.socket, write_lock: threading.Lock,
                 line: bytes | descriptors.Oversized) -> protocol.Request | None:
@@ -3744,8 +3749,7 @@ class Daemon:
                     conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
             except OSError:
                 # C-16.7: as in `_respond`, nothing may follow a reply that failed part way.
-                with contextlib.suppress(OSError):
-                    conn.shutdown(socket.SHUT_RDWR)
+                shut(conn)
                 raise
             return None
 
@@ -3796,14 +3800,17 @@ class Daemon:
                         # C-16.8: `close()` shut the pools after the check above.
                         self._reply(conn, write_lock, self._not_run(req.id))
                         continue
+                    with self._connection_lock:
+                        self._inflight.add(future)
                     future.add_done_callback(note_reply)
                     future.add_done_callback(count_unrun)
+                    future.add_done_callback(self._answered)
                     pending.append(future)
                     if descriptors.read_only(req.op, req.args):
                         reads.add(future)
                 if not chunk:
                     # Not while stopping: close() cancels what is queued itself,
-                    # and at its reply deadline its SHUT_RDWR makes the peer look gone.
+                    # and at its reply deadline its shutdown makes the peer look gone.
                     if not self.stopping.is_set() and descriptors.client_gone(conn):
                         # C-16.7: the client closed its whole socket. Its reads that
                         # no thread has reached yet are cancelled now, so the
@@ -3848,6 +3855,7 @@ class Daemon:
             admitted = held < self.max_connections and not self.stopping.is_set()
             if admitted:
                 self._connections.add(conn)       # close() shuts down whatever is here
+                self._reading.add(conn)
                 self._connection_counts["accepted"] += 1
         if not admitted:
             self._refuse(conn, held)
@@ -3861,6 +3869,7 @@ class Daemon:
         except RuntimeError as exc:               # no thread could start
             with self._connection_lock:
                 self._readers.discard(reader)
+                self._reading.discard(conn)
             conn.close()
             self._let_go(conn)
             self.log.error("client connection dropped: no reader (%s)", exc)
@@ -3870,12 +3879,19 @@ class Daemon:
             self._connections.discard(conn)
             self._connections_changed.notify_all()
 
+    def _answered(self, future: Future) -> None:
+        with self._connections_changed:
+            self._inflight.discard(future)
+            self._connections_changed.notify_all()
+
     def _read_connection(self, conn: socket.socket) -> None:
         try:
             self._connection(conn)
         finally:
-            with self._connection_lock:
+            with self._connections_changed:
                 self._readers.discard(threading.current_thread())
+                self._reading.discard(conn)
+                self._connections_changed.notify_all()
 
     def _refuse(self, conn: socket.socket, held: int) -> None:
         if self.stopping.is_set():
@@ -3944,24 +3960,28 @@ class Daemon:
                 return
             self._refuse(conn, 0)
 
-    def _drain_replies(self, deadline: float) -> tuple[float, int]:
-        """C-16.8: wait for every held connection to be answered and let go.
+    def _drain_replies(self, deadline: float) -> tuple[float, int, int]:
+        """C-16.8: wait, until `deadline`, for the replies still owed, then shut the rest.
 
-        A connection is let go once its requests have answered and its last line
-        is sent (`_connection`). At `deadline` those still held are shut down in
-        both directions: a reply blocked on a client that stopped reading fails
-        at once, and one still being worked on will find its socket shut. Returns
-        when the wait ended (monotonic) and how many connections were shut.
+        Owed are the requests handed to a pool and not yet answered, and the
+        last line of each connection whose reader has returned, which follows
+        its replies (`_connection`). A connection whose reader is still running
+        and that owes nothing is not waited for: its reader may never return
+        (C-16.7). Every connection still held when the wait ends is shut in both
+        directions, so a reply blocked on a client that stopped reading fails at
+        once and one still being worked on finds its socket shut. Returns when
+        the wait ended (monotonic), how many requests were still unanswered, and
+        how many connections were shut.
         """
         with self._connections_changed:
-            while self._connections and (remaining := deadline - time.monotonic()) > 0:
+            while ((self._inflight or self._connections - self._reading)
+                   and (remaining := deadline - time.monotonic()) > 0):
                 self._connections_changed.wait(remaining)
-            late = list(self._connections)
+            unanswered, late = len(self._inflight), list(self._connections)
         ended = time.monotonic()
         for conn in late:
-            with contextlib.suppress(OSError):
-                conn.shutdown(socket.SHUT_RDWR)
-        return ended, len(late)
+            shut(conn)
+        return ended, unanswered, len(late)
 
     def serve_forever(self) -> None:
         sock_path = self.root / "daemon.sock"
@@ -4051,17 +4071,15 @@ class Daemon:
         joined_by = time.monotonic() + READER_JOIN_S
         for reader in readers:
             reader.join(max(0.0, joined_by - time.monotonic()))
-        ended, cut = self._drain_replies(began + self.stop_reply_s)
+        ended, unanswered, shut_down = self._drain_replies(began + self.stop_reply_s)
         with self._connection_lock:
             not_run = self._connection_counts["not_run"]
-        if cut:
-            self.log.warning("stopping: %d client connection(s) still held %.1f s after the stop began "
-                             "were shut down with their replies unwritten; %d request(s) were answered "
-                             "as not run (C-16.8)", cut, ended - began, not_run)
-        else:
-            self.log.info("stopping: every client connection was answered and closed %.1f s after "
-                          "the stop began; %d request(s) were answered as not run (C-16.8)",
-                          ended - began, not_run)
+        if unanswered:
+            self.log.warning("stopping: %d request(s) still unanswered %.1f s after the stop began; "
+                             "their connections were shut down (C-16.8)", unanswered, ended - began)
+        self.log.info("stopping: client replies drained %.1f s after the stop began; %d request(s) "
+                      "were answered as not run; %d connection(s) still held were shut down (C-16.8)",
+                      ended - began, not_run, shut_down)
         for pool in (self.requests, self.waiters, self.workers):
             pool.shutdown(wait=True)      # C-5.8a bounds this wait
         with self._connection_lock:
@@ -4076,6 +4094,22 @@ class Daemon:
         self._lock_finalizer()
         self.log.removeHandler(self._log_handler)
         self._log_handler.stream.close()
+
+
+def shut(conn: socket.socket) -> None:
+    """Shut `conn` in both directions, so nothing more is sent on it (C-16.7, C-16.8).
+
+    Once the read half is shut (`close()` does that first, C-16.8), macOS 26
+    refuses SHUT_RDWR with ENOTCONN and shuts nothing, which leaves a blocked
+    send blocked and lets a later line follow a broken one; SHUT_WR still works
+    then. So the write half is shut on its own when both at once is refused.
+    """
+    for how in (socket.SHUT_RDWR, socket.SHUT_WR):
+        try:
+            conn.shutdown(how)
+            return
+        except OSError:
+            continue
 
 
 def log_open_file_limit(log: logging.Logger, before: int, after: int, hard: int) -> None:
