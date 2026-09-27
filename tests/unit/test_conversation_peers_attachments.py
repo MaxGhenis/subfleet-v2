@@ -6,6 +6,7 @@ import errno
 import hashlib
 import os
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -173,13 +174,20 @@ def test_a_temporary_name_another_add_holds_is_drawn_again(store, tmp_path, monk
     digest = hashlib.sha256(PNG).hexdigest()
     taken = store.subdirectory("attachments") / f".{digest}.aaaaaaaa.tmp"
     taken.write_bytes(b"another add's copy, half written")
-    monkeypatch.setattr(attachments.secrets, "token_hex", lambda n: "aaaaaaaa")
+    drawn = []
+
+    def always_taken(n):
+        drawn.append(n)
+        return "aaaaaaaa"
+
+    monkeypatch.setattr(attachments, "secrets", SimpleNamespace(token_hex=always_taken))   # this module only
     with pytest.raises(FileExistsError):
         attachments.add(store, str(src))
+    assert len(drawn) == 8                  # up to 8 draws, then the add fails
     assert sorted(p.name for p in taken.parent.iterdir()) == [taken.name]
     assert taken.read_bytes() == b"another add's copy, half written"
     draws = iter(["aaaaaaaa", "aaaaaaaa", "bbbbbbbb"])
-    monkeypatch.setattr(attachments.secrets, "token_hex", lambda n: next(draws))
+    monkeypatch.setattr(attachments, "secrets", SimpleNamespace(token_hex=lambda n: next(draws)))
     out = attachments.add(store, str(src))
     assert out["sha256"] == digest and next(draws, None) is None
     assert taken.read_bytes() == b"another add's copy, half written"

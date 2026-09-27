@@ -44,14 +44,15 @@ def _copy(data: bytes, target: Path) -> None:
     into place; through one shared name, the second open truncated the first's file
     and one rename found it gone. A copy that fails removes its temporary file, if the
     directory still lets it."""
-    for draw in range(8):                                 # a name another add holds is drawn again
+    for _ in range(8):                                    # a name another add holds is drawn again
         tmp = target.with_name(f".{target.stem}.{secrets.token_hex(4)}.tmp")
         try:
             out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             break
-        except FileExistsError:
-            if draw == 7:
-                raise
+        except FileExistsError as exc:
+            taken = exc
+    else:
+        raise taken                                       # every draw taken: fail before the cleanup's try
     try:
         try:
             view = memoryview(data)
