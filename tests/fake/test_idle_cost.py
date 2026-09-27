@@ -7,6 +7,7 @@ healthy guardian was alive on every 50 ms tick, and a census of `2 + 3N` every
 """
 
 import importlib.util
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -117,4 +118,6 @@ def test_c5_12_the_idle_cost_measurement_runs(process_inspection_available):
     result = tool.measure(window_s=.5, history=20, waiting=6, settle_s=.5, closed_settle_s=.3, deadline_s=60)
     assert result["settled"] == {"idle": True, "saturated": True, "closed": True}, result
     assert result["decisions_written"] == 0 and result["closed_decisions_written"] == 0, result
-    assert all(0 <= value for pair in (result["idle"], result["saturated"]) for value in pair)
+    # Every window reports the daemon's share and its children's, as finite numbers.
+    for window in ("idle", "saturated", "closed"):
+        assert len(result[window]) == 2 and all(math.isfinite(value) and value >= 0 for value in result[window]), result
