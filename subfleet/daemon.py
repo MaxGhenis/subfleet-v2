@@ -319,6 +319,9 @@ class Daemon:
         # C-16.7: each connection the daemon holds has a reader thread of its own
         # (`_hold_connection`), so none waits for one; `close()` joins them.
         self._readers: set[threading.Thread] = set()
+        # C-16.7: connections this daemon shut down after a reply failed part
+        # way; their end of stream is not a client leaving.
+        self._shut_down: set[socket.socket] = set()
         self.waiters = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-wait")
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
@@ -3653,8 +3656,7 @@ class Daemon:
             # A client disconnect cannot cancel its durable job. A reply that
             # failed part way (the client stopped reading, C-16.7) leaves a
             # broken line, so nothing more may follow it on this connection.
-            with contextlib.suppress(OSError):
-                conn.shutdown(socket.SHUT_RDWR)
+            self._end_stream(conn)
 
     def _decode(self, conn: socket.socket, write_lock: threading.Lock,
                 line: bytes | descriptors.Oversized) -> protocol.Request | None:
@@ -3669,8 +3671,7 @@ class Daemon:
                     conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
             except OSError:
                 # C-16.7: as in `_respond`, nothing may follow a reply that failed part way.
-                with contextlib.suppress(OSError):
-                    conn.shutdown(socket.SHUT_RDWR)
+                self._end_stream(conn)
                 raise
             return None
 
@@ -3715,7 +3716,9 @@ class Daemon:
                 if not chunk:
                     # Not while stopping: close()'s own SHUT_RDWR also makes the
                     # peer look gone, and close() cancels what is queued itself.
-                    if not self.stopping.is_set() and descriptors.client_gone(conn):
+                    with self._connection_lock:
+                        ours = conn in self._shut_down
+                    if not self.stopping.is_set() and not ours and descriptors.client_gone(conn):
                         # C-16.7: the client closed its whole socket. Its reads that
                         # no thread has reached yet are cancelled now, so the
                         # connection and its place under the cap go at once instead
@@ -3734,6 +3737,7 @@ class Daemon:
                     conn.close()
                     with self._connection_lock:
                         self._connections.discard(conn)
+                        self._shut_down.discard(conn)
             for f in pending:
                 f.add_done_callback(finish)
             finish()
@@ -3754,7 +3758,7 @@ class Daemon:
                 self._connections.add(conn)       # close() shuts down whatever is here
                 self._connection_counts["accepted"] += 1
         if not admitted:
-            self._refuse(conn, held)
+            self._refuse(conn, f"the daemon is busy: it holds {held} client connections, its limit")
             return
         reader = threading.Thread(target=self._read_connection, args=(conn,),
                                   name="subfleet-socket", daemon=True)
@@ -3766,8 +3770,9 @@ class Daemon:
             with self._connection_lock:
                 self._readers.discard(reader)
                 self._connections.discard(conn)
-            conn.close()
-            self.log.error("client connection dropped: no reader (%s)", exc)
+            self.log.error("client connection refused: no reader thread (%s)", exc)
+            # Nothing was read, so the answer is busy, and the client may try again.
+            self._refuse(conn, f"the daemon is busy: it could not start a thread for this connection ({exc})")
 
     def _read_connection(self, conn: socket.socket) -> None:
         try:
@@ -3776,7 +3781,15 @@ class Daemon:
             with self._connection_lock:
                 self._readers.discard(threading.current_thread())
 
-    def _refuse(self, conn: socket.socket, held: int) -> None:
+    def _end_stream(self, conn: socket.socket) -> None:
+        """C-16.7: shut a connection down after a reply that failed part way."""
+        with self._connection_lock:
+            self._shut_down.add(conn)
+        with contextlib.suppress(OSError):
+            conn.shutdown(socket.SHUT_RDWR)
+
+    def _refuse(self, conn: socket.socket, message: str) -> None:
+        """C-16.7: answer busy (exit 69) before reading anything, and close."""
         if self.stopping.is_set():
             conn.close()                       # shutting down: not busy, just gone
             return
@@ -3784,8 +3797,7 @@ class Daemon:
         try:
             conn.setblocking(False)            # a fresh socket's buffer takes one line
             conn.send(protocol.encode(protocol.fail(
-                "", int(Exit.DAEMON_UNAVAILABLE),
-                f"the daemon is busy: it holds {held} client connections, its limit",
+                "", int(Exit.DAEMON_UNAVAILABLE), message,
                 "try again shortly; `subfleet doctor --live` reports its connections and descriptors")))
         except OSError:
             pass

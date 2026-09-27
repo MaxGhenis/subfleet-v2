@@ -73,6 +73,9 @@ SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESE
 START_DAEMON_FIX = "subfleet daemon start"
 #: C-16.7: the first pause before a busy answer's request is sent again.
 BUSY_PAUSE_S = .05
+#: The clock and sleep `Client.call`'s busy retries use; tests replace these.
+_clock = time.monotonic
+_sleep = time.sleep
 
 
 def state_root(env: dict[str, str] | None = None) -> Path:
@@ -290,10 +293,13 @@ class Client:
     """Connects to `<state root>/daemon.sock` and speaks the C-16 protocol."""
 
     def __init__(self, root: Path | str | None = None, *,
-                 timeout: float | None = None):
+                 timeout: float | None = None, retry_busy: bool = True):
         self.root = Path(root).expanduser() if root is not None else state_root()
         # Read at construction, not at definition, so a test can shorten it.
         self.timeout = DEFAULT_TIMEOUT_S if timeout is None else timeout
+        # C-16.7: False for a caller with a faster answer than waiting, such as
+        # a prompt hook that reads the store offline when the daemon is busy.
+        self.retry_busy = retry_busy
         self._checked = False
 
     # --- paths ---------------------------------------------------------------
@@ -370,11 +376,11 @@ class Client:
         first try has the whole deadline, and every message names it.
         """
         deadline = self.timeout if timeout is None else timeout
-        started = time.monotonic()
+        started = _clock()
         busy: DaemonError | None = None
         streak = 0
         while True:
-            elapsed = time.monotonic() - started
+            elapsed = _clock() - started
             if busy is not None and elapsed > deadline / 2:
                 # Checked when the retry would start, not predicted before the
                 # pause: a slow machine can overrun the sleep or the last try.
@@ -384,14 +390,14 @@ class Client:
                                        timeout=deadline - elapsed if busy else deadline,
                                        stated=deadline)
             except DaemonError as exc:
-                if not exc.busy:
+                if not exc.busy or not self.retry_busy:
                     raise
                 streak += 1
                 pause = busy_pause(streak)
-                if time.monotonic() - started + pause > deadline / 2:
+                if _clock() - started + pause > deadline / 2:
                     raise
                 busy = exc
-                time.sleep(pause)
+                _sleep(pause)
 
     def _call_once(self, op: str, args: dict[str, Any] | None, *,
                    request_id: str, timeout: float, stated: float) -> dict[str, Any]:
@@ -517,10 +523,35 @@ class Client:
             raise OutcomeUnknown(op, request_id, (
                 str(first), f"the daemon went away before the re-sent request: {exc}")) from exc
         except DaemonError as exc:
+            if exc.busy:
+                return self._settle_busy_resend(op, exc, request_id, minted=minted, first=first)
             if op != "submit" or not request_id:
                 raise
             return self._settle_refused_submit(exc, request_id, minted=minted, first=first)
         return {**result, "requeried": True}
+
+    def _settle_busy_resend(self, op: str, busy: DaemonError, request_id: str, *,
+                            minted: bool, first: ResponseLost) -> dict[str, Any]:
+        """The re-send met only busy answers (C-16.7): it was never read, so it
+        settles nothing, and the first request's outcome is still unknown (C-16.3).
+
+        A submit under a request id this call minted is answered by a job that
+        carries the id, as for a refused re-send. Anything else is reported as
+        unknown, never as busy: exit 69 would read as "nothing was sent".
+        """
+        reasons = [str(first), f"the re-sent request was not read: {busy}"]
+        if op == "submit" and request_id:
+            try:
+                job = self.find_request(request_id)
+            except (DaemonUnavailable, DaemonError, ProtocolError) as exc:
+                raise OutcomeUnknown(op, request_id, (
+                    *reasons, f"its request id could not be looked up: {exc}")) from exc
+            if job is not None and minted:
+                return {"job_id": job.get("job_id"), "request_id": request_id, "created": False,
+                        "state": job.get("state"), "requeried": True, "busy": str(busy)}
+            if job is not None:
+                reasons.append(f"job {job.get('job_id')} carries request id {request_id}")
+        raise OutcomeUnknown(op, request_id, reasons) from busy
 
     def _settle_refused_submit(self, refusal: DaemonError, request_id: str, *,
                                minted: bool, first: ResponseLost) -> dict[str, Any]:
