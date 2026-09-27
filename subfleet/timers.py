@@ -103,6 +103,10 @@ class Timers:
         self.metadata = self._latest('timer.verdict')
         # C-18.3: each Codex lane's latest touch; its `at` starts the spacing.
         self.touches = self._latest('timer.touch')
+        # C-18.3: when each Codex lane's weekly clock was last read running. A
+        # clock that ran after a touch was started by it (or by work): a later
+        # unstarted reading is a new window, not that touch failing.
+        self._clock_running = {}
         self._touch_cv = threading.Condition()
         self._touch_pending = set()
         self._touch_results = {}
@@ -604,6 +608,13 @@ class Timers:
             return None
         return touch.get('previous') if self._touch_status(touch) in TOUCH_PENDING else touch
 
+    def _ran_since(self, lane_id, at):
+        """C-18.3: whether this lane's clock was read running after `at`. If so, a touch
+        at `at` did not fail to start it, and an unstarted clock now is a new window
+        (an early or global reset) with its own idle stretch."""
+        seen = self._clock_running.get(lane_id)
+        return bool(seen and at and seen > instant(at))
+
     def _spaced_until(self, touch):
         """C-18.3: when the spacing a lane's last touch imposes ends, or None.
 
@@ -634,6 +645,9 @@ class Timers:
         now = self.now()
         evidence = capacity.clock_unstarted(row['readings'], now=now,
                                             reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
+        if not evidence and any(capacity.fresh_provider(reading, now=now, reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
+                                for reading in capacity.long_windows(row['readings'])):
+            self._clock_running[row['lane_id']] = now
         touch = self.touches.get(row['lane_id'])
         status = self._touch_status(touch)
         # A touch in flight (an operator's, while a cycle reads the lane) must
@@ -651,7 +665,8 @@ class Timers:
                 state = 'touched'
         block = None
         if state == 'not-started':
-            recent = settled and settled.get('at') and (now - instant(settled['at'])).total_seconds() <= 2 * spacing
+            recent = (settled and settled.get('at') and (now - instant(settled['at'])).total_seconds() <= 2 * spacing
+                      and not self._ran_since(row['lane_id'], settled['at']))
             block = self.touch_block(row)
             if recent and verdict in TOUCH_FAILED:
                 alert = 'touch-failed'
@@ -810,7 +825,7 @@ class Timers:
                 record['previous']['unstarted'] = base.get(
                     'unstarted', (base.get('before') or {}).get('weekly_clock') == 'not-started')
             recent = base.get('at') and (self.now() - instant(base['at'])).total_seconds() <= 2 * spacing
-            if entry.get('weekly_clock') == 'not-started' and recent:
+            if entry.get('weekly_clock') == 'not-started' and recent and not self._ran_since(lane.lane_id, base['at']):
                 # Count the touches in this idle stretch that reached the provider
                 # and left the clock unstarted, across any failed ones between, so
                 # the lane reads `not-started` (not `touched`), no "started" notice
@@ -850,6 +865,10 @@ class Timers:
                     probe = self._read_probe(adapter, lane, resolve_credential(lane.credential))
                 except (TimeoutError, OSError) as exc:
                     probe = {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}
+                except Exception as exc:
+                    # The turn reached the provider; that is the touch's verdict. A
+                    # re-probe that fails is recorded beside it, not over it.
+                    probe = {'status': 'unknown', 'readings': (), 'error_type': type(exc).__name__}
                 item['probe'] = {**probe, 'probed_at': iso(self.now())}
         except AdapterError as exc:
             # Refused before any provider launch: the guard preflight (C-14.2)
@@ -880,7 +899,15 @@ class Timers:
             record['error_type'] = type(exc).__name__
         try:
             if record.get('at'):
-                self._record_touch(lane.lane_id, record)
+                try:
+                    self._record_touch(lane.lane_id, record)
+                except Exception as exc:
+                    # The store refused the event (a locked database). The verdict
+                    # still stands for this daemon, so the lane neither stays
+                    # `touching` nor is touched again before its spacing ends.
+                    record['error_type'] = record.get('error_type') or type(exc).__name__
+                    with self._lock:
+                        self.touches[lane.lane_id] = dict(record)
                 self.log.info('lane touch %s lane=%s mode=%s model=%s status=%s requested_at=%s '
                               'weekly_reset=%s%s', iso(self.now()), lane.lane_id, mode, record.get('model'),
                               record['status'], record.get('requested_at') or '-', record.get('resets_at') or '-',
@@ -921,7 +948,14 @@ class Timers:
                 item = {'lane': lanes[entry['lane_id']], 'holder': None, 'quarantined': False, 'probe': None,
                         'record': {'lane_id': entry['lane_id'], 'mode': mode,
                                    'status': 'skipped-' + type(exc).__name__}}
-            results.append(self._publish_touch(item, mode))
+            try:
+                results.append(self._publish_touch(item, mode))
+            except Exception as exc:
+                # Every lane still finishing holds a lease only its own publish
+                # releases: one lane's failure here must not leave the loop.
+                self.log.exception('lane touch publish failed lane=%s', item['lane'].lane_id)
+                item['record'].setdefault('error_type', type(exc).__name__)
+                results.append(item['record'])
         results.sort(key=lambda record: record['lane_id'])
         if any(record.get('at') for record in results):
             self.mark('touch', error=next((r.get('error_type') for r in results if r.get('error_type')), None))

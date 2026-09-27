@@ -800,3 +800,146 @@ def test_a_forced_touch_of_a_running_clock_does_not_make_the_next_real_start_a_r
     assert row["weekly_clock"] == "touched" and row["clock_alert"] is None
     assert [n["subject"] for n in notices if n.get("key") == "codex-clock-started"] == [
         "codex: weekly clock started on 1 lane(s)"]
+
+
+def test_a_lane_whose_touch_cannot_be_recorded_strands_no_other_lanes_lease(rig, monkeypatch):
+    """C-18.3, C-6.4: one lane's store error while recording its verdict is that lane's alone.
+
+    Each finished touch holds its lane's lease until its own publish releases it.
+    A publish that raised used to leave `touch()`'s loop, so every lane still
+    finishing kept its `probe:timer` lease until a restart: out of admission,
+    never probed again.
+    """
+    import sqlite3
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lanes = [enroll(f"codex-{n}") for n in range(1, 4)]
+    record, failed = timer._record_touch, []
+
+    def flaky(lane_id, value):
+        if value["status"] != "touching" and not failed:
+            failed.append(lane_id)
+            raise sqlite3.OperationalError("database is locked")
+        return record(lane_id, value)
+
+    monkeypatch.setattr(timer, "_record_touch", flaky)
+    timer.probe_cycle()
+    assert sorted(lane_id for lane_id, _ in turns) == [lane.lane_id for lane in lanes]
+    assert store.list_leases() == [] and not timer.active_holders
+    assert {lane.lane_id: timer.touches[lane.lane_id]["status"] for lane in lanes} == {
+        lane.lane_id: "ok" for lane in lanes}
+    assert timer.touches[failed[0]]["error_type"] == "OperationalError"
+    wham.calls.clear()
+    clock.advance(60)
+    timer.probe_cycle()
+    assert sorted(set(wham.calls)) == [lane.lane_id for lane in lanes]
+
+
+def test_a_reprobe_that_fails_after_a_touch_reached_the_provider_keeps_the_touch_ok(rig, monkeypatch):
+    """C-18.3: the turn's verdict is the touch's; a re-probe that raises is recorded beside it, not over it."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    read, calls = timer._read_probe, []
+
+    def failing(adapter, lane_, env):
+        calls.append(lane_.lane_id)
+        if len(calls) == 2:                        # the touch's re-probe, after the cycle's own probe
+            raise ValueError("undecodable usage body")
+        return read(adapter, lane_, env)
+
+    monkeypatch.setattr(timer, "_read_probe", failing)
+    timer.probe_cycle()
+    last = touches(store, lane.lane_id)[-1]
+    assert turns == [(lane.lane_id, "touch")] and last["status"] == "ok"
+    assert last["probe_status"] == "unknown" and store.list_leases() == []
+
+
+def test_a_clock_seen_running_since_the_last_touch_makes_the_next_touch_no_repeat(rig):
+    """C-18.3: a reset that comes within twice the spacing of a touch that worked (an early
+    or global reset) starts a new idle stretch; that touch is not counted as ineffective."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer.probe_cycle()                            # touched; the clock starts
+    clock.advance(600)
+    snapshot = timer.probe_cycle()                 # read as running
+    row = next(row for row in snapshot["lanes"] if row["lane_id"] == lane.lane_id)
+    assert row["weekly_clock"] is None and turns == [(lane.lane_id, "touch")]
+    clock.advance(3600)                            # an early reset, 70 minutes after the touch
+    wham.started.clear()
+    notices.clear()
+    snapshot = timer.probe_cycle()
+    assert turns == [(lane.lane_id, "touch")] * 2
+    assert "ineffective" not in touches(store, lane.lane_id)[-1]
+    row = next(row for row in snapshot["lanes"] if row["lane_id"] == lane.lane_id)
+    assert row["clock_alert"] is None
+    assert [n["subject"] for n in notices if n.get("key") == "codex-clock-started"] == [
+        "codex: weekly clock started on 1 lane(s)"]
+
+
+@pytest.mark.parametrize("seed", range(16))
+def test_property_every_cycle_releases_every_touch_lease_whatever_fails(rig, monkeypatch, seed):
+    """C-18.3, C-6.4: for any lanes and any faults (a turn that raises, times out or is refused,
+    a re-probe, persist or record that raises), after each cycle no touch holds a lease or a
+    holder, and every lane touched has a verdict, not `touching`. Quarantine keeps its lease by
+    design (C-5.8) and is not generated here."""
+    import random
+    import sqlite3
+    import threading
+    rng = random.Random(seed)
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lanes = [enroll(f"codex-{n}") for n in range(1, rng.randint(1, 6) + 1)]
+    faults = {}
+
+    def turn(lane, purpose, holder, *, cancel, deadline):
+        turns.append((lane.lane_id, purpose))
+        fault = faults.get((lane.lane_id, "turn"))
+        if fault == "raise":
+            raise RuntimeError("guardian exploded")
+        if fault == "refused":
+            raise AdapterError("guard preflight refused", code=7)
+        wham.start(lane.lane_id)
+        evidence = {"requested_at": iso(clock()), "rc": 0}
+        if fault == "timeout":
+            return Outcome(OutcomeClass.UNKNOWN, "timed out", evidence={**evidence, "timed_out": True})
+        return Outcome(OutcomeClass.OK, "OK", evidence=evidence)
+
+    publishing = threading.local()
+    publish = timer._publish_touch
+
+    def published(item, mode):
+        publishing.on = True
+        try:
+            return publish(item, mode)
+        finally:
+            publishing.on = False
+
+    def faulty(name, error):
+        original = getattr(timer, name)
+
+        def call(*args):
+            lane_id = args[0] if isinstance(args[0], str) else getattr(args[0], "lane_id", None) or args[1].lane_id
+            status = args[1].get("status") if name == "_record_touch" else None
+            # The cycle's own persist is not the touch's: fault only the touch's re-probe.
+            touching = name != "_persist" or getattr(publishing, "on", False)
+            if faults.get((lane_id, name)) and status != "touching" and touching:
+                raise error
+            return original(*args)
+        monkeypatch.setattr(timer, name, call)
+
+    monkeypatch.setattr(timer, "_publish_touch", published)
+    timer.turn = turn
+    faulty("_record_touch", sqlite3.OperationalError("database is locked"))
+    faulty("_persist", sqlite3.OperationalError("database is locked"))
+    faulty("_read_probe", ValueError("undecodable"))
+    for _cycle in range(4):
+        faults.clear()
+        for lane in lanes:
+            faults[(lane.lane_id, "turn")] = rng.choice([None, None, "raise", "refused", "timeout"])
+            for name in ("_record_touch", "_persist", "_read_probe"):
+                faults[(lane.lane_id, name)] = rng.random() < .25
+        before = len(turns)
+        timer.probe_cycle()
+        assert store.list_leases() == [] and not timer.active_holders
+        for lane_id, purpose in turns[before:]:
+            assert timer.touches[lane_id]["status"] != "touching", (seed, lane_id, faults)
+        clock.advance(2 * 3600 + 60)
+        wham.started.clear()
