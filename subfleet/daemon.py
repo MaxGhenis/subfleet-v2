@@ -3043,11 +3043,25 @@ class Daemon:
         due = self._inspect_next.get(aid, now)
         if now < due:
             return
+        try:
+            self._inspect_running(a, adir, due)
+        except BaseException:
+            # A pass that raised must be retried in full, not skipped at the
+            # gate: a skipped pass returns normally, and C-5.10 would count it
+            # as recovery and start its backoff over. The retry is given the
+            # same table while that has not expired, so a table is still read
+            # at most once per interval.
+            self._inspect_next.pop(aid, None)
+            raise
+
+    def _inspect_running(self, a: dict, adir: Path, due: float) -> None:
+        """The paced half of `_process_attempt` (C-5.12): is the guardian still ours?"""
+        aid = a["attempt_id"]
         shared = self._process_table(due)
         if shared is None:
-            # Another attempt's `ps` is running: ask again next tick, still due
-            # from when it fell due (a recovered attempt, from now), so that it
-            # may be given that read.
+            # Another attempt's read (`ps`, then `sysctl`) is running: ask again
+            # next tick, still due from when it fell due (a recovered attempt,
+            # from now), so that it may be given that read.
             self._inspect_next.setdefault(aid, due)
             return
         table, self._inspect_next[aid] = shared
@@ -3148,7 +3162,8 @@ class Daemon:
             finally:
                 # Published however the boot read ends: anything else it raises
                 # fails the passes of the attempts given the table (C-5.10
-                # retries them), never costs a second `ps` this interval.
+                # retries them, on this table while it lasts), and never costs
+                # a second `ps` this interval.
                 self._table = (table, began + self.inspect_interval_s)
             return self._table
         finally:
