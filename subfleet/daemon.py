@@ -4596,8 +4596,10 @@ class Daemon:
         # finished tearing them down, and under load that takes longer than one
         # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).
         # The loop ends early only on a verified-empty census; the last census,
-        # never a guess about a pid, decides. No SQLite transaction is open.
-        settle_until = time.monotonic() + self.kill_settle_s
+        # never a guess about a pid, decides. No SQLite transaction is open. A
+        # resumed kill's window was spent before its census was deferred: C-5.10's
+        # backoff is its settling now, so it takes one census, not one every 50 ms.
+        settle_until = time.monotonic() + (0 if resumed else self.kill_settle_s)
         while True:
             if self.stopping.wait(.05):
                 return

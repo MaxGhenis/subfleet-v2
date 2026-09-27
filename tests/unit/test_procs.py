@@ -14,7 +14,7 @@ from unittest import mock
 import time
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import example, given, settings, strategies as st
 
 import os
 
@@ -745,15 +745,18 @@ def test_c5_12_a_reader_that_answered_by_its_cap_is_not_timed_out(monkeypatch):
     """C-5.12 the cap is on the reader, not on this process: a `ps` that exited in time has answered, however late
     a starved daemon gets to its output. On release/217 the cap covered the whole read and the answer was lost."""
     monkeypatch.setattr(procs, "READ_TIMEOUT_S", .3)
-    real_read = os.read
+    real_read, reads = os.read, []
 
     def late(fd, n):
         if threading.current_thread() is threading.main_thread():
-            time.sleep(.2)                                 # each wake comes late: .6 s in all, past the cap
+            reads.append(n)
+            if len(reads) == 1:
+                time.sleep(.6)                             # the first wake comes after the cap
         return real_read(fd, n)
     monkeypatch.setattr(os, "read", late)
     row = "4242 1 4242 Ss Sat Sep  5 10:00:00 2026"
     assert procs._read(writer(f"import sys; sys.stdout.write({row + chr(10)!r})")) == row + "\n"
+    assert len(reads) >= 2                                 # it was still reading when the cap passed
 
 
 def test_c5_12_a_reader_still_running_at_its_cap_is_killed_reaped_and_named(monkeypatch, tmp_path):
@@ -856,3 +859,40 @@ def test_c5_5_an_error_head_never_carries_an_environment_entry_or_a_path(data):
     assert len(head) <= procs.STDERR_HEAD_CHARS
     assert "\n" not in head and all(char.isprintable() and char.isascii() for char in head)
     assert not any("=" in word or "/" in word for word in head.split())
+
+
+@settings(max_examples=14, deadline=None)
+@example(size=12 * 2**20, err=b"", rc=0)                       # past the buffer: drained while the child writes
+@example(size=procs.READ_BUFFER_BYTES + 4097, err=b"ps: TOKEN=x /a/b failed\n" * 500, rc=1)
+@given(size=st.one_of(st.integers(0, 70_000), st.sampled_from([procs.READ_BUFFER_BYTES - 1, procs.READ_BUFFER_BYTES + 4097,
+                                                                12 * 2**20])),
+       err=st.binary(max_size=9000), rc=st.sampled_from([0, 0, 1, 2]))
+def test_c5_12_the_reader_returns_exactly_what_ps_wrote_and_always_reaps_it(size, err, rc):
+    """C-5.5, C-5.12, for every answer size (past the 8 MiB buffer too, where the reader drains while the child
+    writes), error output and exit status: a zero exit returns the bytes written, exactly, however large; a non-zero
+    one is an `InspectionError` naming the status; either way the child has been reaped when `_read` returns."""
+    seen = []
+
+    def spawn(argv, **kwargs):
+        child = REAL_POPEN(argv, **kwargs)
+        seen.append(child)
+        return child
+    script = ("import sys\n"
+              f"block = bytes(range(32, 127)) + b'\\n'\n"
+              f"data = (block * ({size} // len(block) + 1))[:{size}]\n"
+              "sys.stdout.buffer.write(data); sys.stdout.flush()\n"
+              f"sys.stderr.buffer.write({err!r}); sys.stderr.flush()\n"
+              f"sys.exit({rc})\n")
+    block = bytes(range(32, 127)) + b"\n"
+    expected = (block * (size // len(block) + 1))[:size].decode()
+    original = procs._spawn
+    procs._spawn = spawn
+    try:
+        if rc == 0:
+            assert procs._read(writer(script)) == expected
+        else:
+            with pytest.raises(procs.InspectionError, match=rf"^{re.escape(READER)} exited {rc}"):
+                procs._read(writer(script))
+    finally:
+        procs._spawn = original
+    assert seen and seen[0].returncode == rc

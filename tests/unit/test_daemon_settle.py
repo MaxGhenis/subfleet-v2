@@ -12,7 +12,11 @@ import threading
 import time
 from types import SimpleNamespace
 
+import tempfile
+from pathlib import Path
+
 import pytest
+from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import daemon as daemon_module
 from subfleet.contracts import (
@@ -49,7 +53,17 @@ EMPTY = Containment()
 @pytest.fixture
 def daemon(tmp_path, monkeypatch):
     """A daemon core with a running attempt and no processes: the census is injected."""
-    root = tmp_path / "state"
+    # No real process is signalled or inspected: the leader is gone, signals succeed.
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
+    monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *args, **kwargs: True)
+    monkeypatch.setattr(daemon_module.procs, "signal_process", lambda *args, **kwargs: True)
+    core = build_core(tmp_path / "state")
+    yield core
+    core.store.close()
+
+
+def build_core(root) -> Daemon:
+    """The fixture's daemon core on a fresh store at `root` (a property test builds one per example)."""
     attempt_dir(root, JOB, 1).mkdir(parents=True)
     core = object.__new__(Daemon)
     core.root, core.store = root, Store(root / "state.sqlite3")
@@ -80,12 +94,7 @@ def daemon(tmp_path, monkeypatch):
                            model_requested="astra", state="running", guardian_pid=4242,
                            child_pid=4243, pgid=4242, boot_id="boot", proc_start=STARTED,
                            started_at="2026-09-05T14:00:00Z", evidence_json="{}")
-    # No real process is signalled or inspected: the leader is gone, signals succeed.
-    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
-    monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *args, **kwargs: True)
-    monkeypatch.setattr(daemon_module.procs, "signal_process", lambda *args, **kwargs: True)
-    yield core
-    core.store.close()
+    return core
 
 
 def attempt(core) -> dict:
@@ -916,6 +925,23 @@ def test_c5_5_a_kill_whose_census_stays_inconclusive_defers_then_resumes_from_it
     assert ATTEMPT not in daemon._kill_resumed
 
 
+def test_c5_5_a_resumed_kill_takes_one_census_while_the_census_stays_inconclusive(daemon):
+    """C-5.5, C-5.6 a resumed kill's settle window was spent before it was deferred: while the census stays
+    inconclusive each retry reads it a fixed few times (before, after the SIGKILL, and once to settle), not once
+    every 50 ms for kill_settle_s, so a `ps` that fails fast and for good costs a few reads per C-5.10 retry."""
+    calls = []
+    daemon._contain = lambda a: calls.append(1) or MARKER_TIMED_OUT
+    with pytest.raises(daemon_module.CensusDeferred):
+        daemon._kill_attempt(attempt(daemon))
+    daemon.term_grace_s, daemon.kill_settle_s = 30, 30          # a grace or a window here would show
+    calls.clear()
+    started = time.monotonic()
+    with pytest.raises(daemon_module.CensusDeferred, match=r"\(2 in a row\)"):
+        daemon._kill_attempt(attempt(daemon))
+    assert time.monotonic() - started < 5
+    assert len(calls) == 3
+
+
 def test_c5_5_a_kill_whose_census_shows_a_survivor_still_quarantines(daemon):
     """C-5.6 unchanged where the census is evidence: a process seen past the settle window quarantines."""
     daemon._contain = lambda a: BUSY_UNVERIFIABLE
@@ -931,3 +957,56 @@ def test_c5_5_deferral_state_is_dropped_once_an_attempt_is_no_longer_live(daemon
     daemon._kill_resumed = {ATTEMPT, "20260905-090000-gone/a1"}
     daemon._forget_paced({ATTEMPT})
     assert daemon._census_deferrals == {ATTEMPT: 3} and daemon._kill_resumed == {ATTEMPT}
+
+
+CENSUSES = {"empty": EMPTY, "marker-unread": MARKER_TIMED_OUT, "table-unread": UNVERIFIABLE,
+            "survivor": BUSY, "survivor-and-a-source-unread": BUSY_UNVERIFIABLE}
+
+
+@settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(seq=st.lists(st.sampled_from(sorted(CENSUSES)), min_size=1, max_size=10),
+       site=st.sampled_from(["exit receipt", "termination"]))
+def test_c5_5_a_census_decides_only_on_evidence_whatever_came_before(daemon, monkeypatch, tmp_path, seq, site):
+    """C-5.5, C-5.6, C-5.9, for every sequence of censuses at the exit window and the kill protocol: while each
+    census is inconclusive the attempt keeps its state and job, nothing is quarantined, and the pass is deferred;
+    the first census that is not decides as release/217 would have (verified empty releases, a process seen
+    quarantines); and the census is on record exactly on the 1st, 2nd, 4th ... deferral."""
+    with tempfile.TemporaryDirectory(dir=tmp_path) as scratch:
+        core = build_core(Path(scratch) / "state")
+        try:
+            with_launch(core, monkeypatch)
+            if site == "exit receipt":
+                core.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
+                publish_receipt(core, rc=0)
+                core._exit_settle[ATTEMPT] = time.monotonic() - 1.0       # the window is spent
+            decided, deferrals = None, 0
+            for name in seq:
+                core._contain = lambda a, census=CENSUSES[name]: census
+                try:
+                    if site == "exit receipt":
+                        core._finalize(attempt(core))
+                    else:
+                        core._kill_attempt(attempt(core))
+                except daemon_module.CensusDeferred:
+                    assert CENSUSES[name].inconclusive
+                    deferrals += 1
+                    a = attempt(core)
+                    assert a["state"] == ("finalizing" if site == "exit receipt" else "running")
+                    assert core.store.get_job(JOB)["state"] == "running"
+                    assert "attempt.quarantined" not in kinds(core)
+                    continue
+                assert not CENSUSES[name].inconclusive
+                decided = name
+                break
+            recorded = [event["deferrals"] for event in deferred_events(core)]
+            assert recorded == [n for n in range(1, deferrals + 1) if n & (n - 1) == 0]
+            state = attempt(core)["state"]
+            if decided is None:
+                assert state in ("finalizing", "running")
+            elif CENSUSES[decided].verified_empty:
+                assert state in ("succeeded", "finalizing")      # the kill protocol hands a verified end to finalizing
+                assert "attempt.quarantined" not in kinds(core)
+            else:
+                assert state == "quarantined" and core.store.get_job(JOB)["state"] == "lost"
+        finally:
+            core.store.close()

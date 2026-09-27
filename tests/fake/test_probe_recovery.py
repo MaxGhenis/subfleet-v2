@@ -3,13 +3,15 @@
 import collections
 import dataclasses
 import json
+import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import daemon as daemon_module, procs
 from subfleet.contracts import Launch, Outcome, OutcomeClass
@@ -312,6 +314,22 @@ def test_c5_5_a_quarantined_probe_s_job_that_was_let_go_is_held_again(routing_st
     assert kinds == ["probe.job_held"]
 
 
+def test_c5_5_a_timer_turn_whose_containment_was_deferred_is_left_for_recovery(routing_state, monkeypatch):
+    """C-5.5 a timer turn (keepalive, heal) whose census could not be read is not marked completed and keeps its
+    directory, so recovery can finish it from its receipt once a census verifies it (release/217 completed only
+    a turn that was not quarantined, and had no deferral)."""
+    service, _ = routing_state
+    lane = service.store.get_lane("codex-1")
+    holder = "probe:timer:" + os.urandom(6).hex()
+    monkeypatch.setattr(service, "_execute_probe", lambda job, lane_, model, holder_: Outcome(
+        OutcomeClass.UNKNOWN, "probe containment deferred: its census could not be read",
+        evidence={"probe_deferred": True}))
+    outcome = service._timer_turn(lane, "keepalive", holder, cancel=threading.Event(), deadline=time.monotonic() + 60)
+    assert outcome.evidence["probe_deferred"]
+    assert service._probe_record(holder)["state"] != "completed"
+    assert Path(service._probe_record(holder)["directory"]).exists()
+
+
 def test_c5_5_a_deferred_timer_turn_keeps_its_lease_for_recovery():
     """C-5.5 a timer turn whose containment was deferred keeps its probe lease, as a quarantined one does."""
     from subfleet.timers import held
@@ -473,3 +491,62 @@ def test_c5_5_a_probe_deferred_at_its_end_leaves_admission_without_a_second_cens
     assert service._probe_record(holder)["state"] == "containing" and service.store.list_leases(holder)
     assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
     assert events(service, "probe.completed") == [] and events(service, "probe.quarantined") == []
+
+
+PROBE_CENSUSES = {
+    "empty": procs.Containment(),
+    "marker-unread": MARKER_TIMED_OUT,
+    "escape": procs.Containment(marker_pids=frozenset({900003}),
+                                identities={900003: procs.ProcessIdentity(900003, "boot", "escaped")}),
+    "escape-and-marker-unread": procs.Containment(group_pids=frozenset({900004}), unverifiable=True,
+                                                  identities={900004: procs.ProcessIdentity(900004, "boot", "g")},
+                                                  errors=("marker enumeration unavailable: ps exited 1",)),
+}
+
+
+@settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(seq=st.lists(st.sampled_from(sorted(PROBE_CENSUSES)), min_size=1, max_size=8))
+def test_c5_5_a_probe_lease_goes_only_with_a_verified_census_whatever_came_before(routing_state, monkeypatch, seq):
+    """C-5.4–7, C-5.5, for every sequence of censuses recovery takes of a finished probe: its lease is released only
+    by a verified-empty census; it is quarantined only once a census shows a process, and stays so until one is
+    verified empty; an inconclusive census leaves it `containing`; its job waits `uncertain` while the lease is held;
+    at most one `probe.quarantined` event is written; and no unowned process is ever signalled."""
+    service, harness = routing_state
+    service.term_grace_s = 0
+    monkeypatch.setattr(procs, "same_process", lambda *args: False)
+    monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: pytest.fail("no recorded leader is live"))
+    monkeypatch.setattr(procs, "signal_process", lambda *args, **kwargs: pytest.fail("nothing here is owned"))
+    for lease in service.store.list_leases():
+        service.store.release_leases(lease["holder"])
+    job_id = submitted(service, harness)
+    token = os.urandom(6).hex()
+    directory = service.root / "lanes" / "codex-1" / "probes" / token
+    directory.mkdir(parents=True)
+    record = {"holder": f"probe:{token}", "job_id": job_id, "lane_id": "codex-1", "model_id": "gpt-6-astra",
+              "directory": str(directory), "state": "starting", "created_at": utcnow(), "deadline_at": after(60),
+              "guardian_pid": 900001, "pgid": 900001, "boot_id": "boot", "proc_start": "start",
+              "owned_identities": {}}
+    assert service.store.acquire_lease("lane:codex-1:slot:0", record["holder"])
+    service._save_probe(record)
+    exit_receipts(record)
+    quarantined_seen = released = False
+    for name in seq:
+        census = PROBE_CENSUSES[name]
+        monkeypatch.setattr(service, "_probe_census", lambda value, census=census: census)
+        if record["holder"] in service._probe_census_due:
+            count, _ = service._probe_census_due[record["holder"]]
+            service._probe_census_due[record["holder"]] = (count, 0.0)     # due
+        service._recover_probes()
+        state = service._probe_record(record["holder"])["state"]
+        if census.verified_empty:
+            assert state == "completed" and not service.store.list_leases(record["holder"])
+            released = True
+            break
+        assert service.store.list_leases(record["holder"])
+        quarantined_seen = quarantined_seen or bool(census.live_pids)
+        assert state == ("quarantined" if quarantined_seen else "containing")
+        assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+    holder_rows = service.store.query("SELECT data_json FROM events WHERE kind='probe.quarantined' AND job_id=?", (job_id,))
+    assert len([row for row in holder_rows if row["data_json"] != "{}"]) <= 1
+    if not released:
+        assert service.store.list_leases(record["holder"])
