@@ -52,13 +52,16 @@ def main() -> int:
     parser.add_argument("--start-delay", type=float, default=0)
     parser.add_argument("--publication-audit", action="store_true")
     parser.add_argument("--gate-peer", action="store_true")
+    parser.add_argument("--max-connections", type=int)
+    parser.add_argument("--connection-idle-s", type=float)
     args = parser.parse_args()
     root = args.state_root
     if args.publication_audit:
         audit_publication(root / "publication.jsonl")
 
+    from subfleet import descriptors
     from subfleet.adapters.registry import register
-    from subfleet.daemon import Daemon, DaemonUnavailable
+    from subfleet.daemon import Daemon, DaemonUnavailable, log_open_file_limit
     from tests.fake import profile as fake_profile
     from tests.fake_adapter import FakeAdapter
 
@@ -94,12 +97,20 @@ def main() -> int:
             while True:
                 time.sleep(1)
 
+    # As `subfleet.daemon.main` does (C-16.6): raise the open-file limit first,
+    # so the connection cap is derived from what the process can really open.
+    limits = descriptors.raise_open_file_limit()
+    connections = {key: value for key, value in (
+        ("max_connections", args.max_connections),
+        ("connection_idle_s", args.connection_idle_s)) if value is not None}
     try:
         daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,
                         kill_settle_s=1.0, exit_settle_s=1.0,
-                        guardian_start_delay_s=args.start_delay, crash_hook=hook)
+                        guardian_start_delay_s=args.start_delay, crash_hook=hook,
+                        **connections)
     except DaemonUnavailable:
         return 69
+    log_open_file_limit(daemon.log, *limits)
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: daemon.stopping.set())
     try:
