@@ -2383,8 +2383,14 @@ def _plist(root: Path) -> bytes:
         "WorkingDirectory": str(root),
         "StandardOutPath": str(root / LOG_NAME),
         "StandardErrorPath": str(root / LOG_NAME),
-        # Dispatch serves user requests, so use standard service resource limits.
-        "ProcessType": "Standard",
+        # C-5.1: the daemon answers the operator (the CLI, hooks, the desktop app) and
+        # decides for every attempt, so it runs at the default QoS. `Standard` clamps it
+        # and everything it starts to `utility` (priority 20), which starved its reads
+        # and store lock under load (2026-09-27); `Adaptive` leaves Background only on
+        # XPC activity, which a Unix-socket daemon never has (priority 4). The guardian
+        # starts each provider under a `utility` clamp itself, so agent work stays below
+        # the operator's apps.
+        "ProcessType": "Interactive",
         # C-16.6: launchd would start the daemon at 256 descriptors; every client
         # connection and every pipe to a child holds one. The daemon raises its
         # own limit too, and this covers a start where it cannot.
