@@ -36,9 +36,22 @@ def test_the_app_is_known_by_its_executable_path_even_with_spaces():
 
 
 def test_executable_path_reads_the_running_process():
-    """The helper reads a live process's executable (libproc `proc_pidpath`)."""
-    import sys
-    assert executable_path(os.getpid()) == os.path.realpath(sys.executable)
+    """The helper reads a live process's executable (libproc `proc_pidpath`).
+
+    It is checked on a child whose image is known, not on this interpreter: a
+    framework build of Python (python.org's, which CI installs, and Homebrew's)
+    runs `bin/python3.x` as a launcher that executes
+    `Python.app/Contents/MacOS/Python`, so the kernel's path for this process is
+    not `sys.executable`, and must not be for the peer check to work."""
+    import subprocess
+    child = subprocess.Popen(["/bin/sleep", "30"])
+    try:
+        assert executable_path(child.pid) == "/bin/sleep"
+    finally:
+        child.kill()
+        child.wait()
+    assert executable_path(child.pid) is None                  # reaped: no such process
+    assert os.access(executable_path(os.getpid()), os.X_OK)    # this process has an image too
     assert executable_path(2 ** 22 + 12345) is None
 
 
