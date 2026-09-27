@@ -282,6 +282,40 @@ def test_a_tracked_run_that_declined_is_logged_with_why_and_one_after_close_is_n
     assert "did not end" in caplog.text and "stopped publishing" not in caplog.text
 
 
+class _Conn:
+    """What `respond` writes to: the lines it sent."""
+
+    def __init__(self):
+        self.sent = []
+
+    def sendall(self, data):
+        self.sent.append(json.loads(data))
+
+
+def test_an_operational_fault_is_logged_and_a_refusal_is_not(svc, tmp_path, caplog):
+    """C-17.3, review of a673b64: a conversation op that fails with code 1 (an
+    operational fault such as `copy-blocked`, `copy-mismatch` or `state-root-gone`) is
+    logged at warning, since the app resends such an op as it is and shows neither the
+    error nor its fix; before, a `ConversationError` was answered and never logged, so a
+    directory at an attachment copy's name was retried silently for good. A refusal
+    (code 2 or 7) is the caller's to act on and is not logged."""
+    image = tmp_path / "a.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    digest = hashlib.sha256(image.read_bytes()).hexdigest()
+    (svc.store.subdirectory("attachments") / f"{digest}.png").mkdir()
+    conn = _Conn()
+    with caplog.at_level(logging.WARNING, logger="test-conversations"):
+        svc.respond(conn, threading.Lock(), protocol.Request("attachment.add", {"path": str(image)}, "r1"), None)
+        svc.respond(conn, threading.Lock(), protocol.Request("attachment.add", {"path": "relative.png"}, "r2"), None)
+    blocked, refused = (reply["error"] for reply in conn.sent)
+    assert blocked["code"] == 1 and blocked["message"].startswith("copy-blocked: ")
+    assert blocked["fix"] == attachment_module.BLOCKED_FIX
+    assert refused["code"] == 2 and refused["message"].startswith("bad-path: ")
+    said = [(r.levelno, r.getMessage()) for r in caplog.records]
+    assert len(said) == 1 and said[0][0] == logging.WARNING, said
+    assert said[0][1].startswith("conversation op attachment.add: copy-blocked: a directory is in the way"), said
+
+
 def test_catalog_refresh_starts_a_run_without_waiting_and_resets_the_timer(svc, runs):
     """D-23, C-25.3: `catalog.refresh` starts a run and returns; a second request while it
     runs starts nothing; the timer counts from the request."""
