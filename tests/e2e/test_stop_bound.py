@@ -25,6 +25,11 @@ from subfleet.procs import same_process
 GRACE_S = 5.0
 #: Scheduling slack past the grace on a loaded machine.
 SLACK_S = 10.0
+#: A process's descriptors, and so its flock, close as it exits, before
+#: `waitpid` can reap it: a free lock is an early unlock only if the process is
+#: still alive this long after the lock was seen free. An early-unlock daemon
+#: stays alive until its grace ends (GRACE_S), well past this.
+EXIT_SETTLE_S = 2.0
 
 
 def _wait_for_exit_with_lock(process, path, deadline, timeout_message):
@@ -43,6 +48,16 @@ def _wait_for_exit_with_lock(process, path, deadline, timeout_message):
             # these observations, which is valid. A free lock followed by a
             # live process proves it relinquished single-writer ownership early.
             alive = process.poll() is None
+            if not held_while_stopping and alive:
+                # The lock is released as the process exits, a moment before it
+                # can be reaped (seen on CI, Python 3.12: a clean exit read as an
+                # early unlock). Only a process that outlives the settle released
+                # the lock while it went on running.
+                try:
+                    process.wait(timeout=EXIT_SETTLE_S)
+                except subprocess.TimeoutExpired:
+                    pass
+                alive = process.poll() is None
             assert held_while_stopping or not alive, "live stopping daemon released daemon.lock"
             if not alive:
                 return
