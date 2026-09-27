@@ -3713,7 +3713,9 @@ class Daemon:
                     if descriptors.read_only(req.op, req.args):
                         reads.add(future)
                 if not chunk:
-                    if descriptors.client_gone(conn):
+                    # Not while stopping: close()'s own SHUT_RDWR also makes the
+                    # peer look gone, and close() cancels what is queued itself.
+                    if not self.stopping.is_set() and descriptors.client_gone(conn):
                         # C-16.7: the client closed its whole socket. Its reads that
                         # no thread has reached yet are cancelled now, so the
                         # connection and its place under the cap go at once instead
