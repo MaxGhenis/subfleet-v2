@@ -7,9 +7,12 @@ import json
 import signal
 import subprocess
 import threading
+from pathlib import Path
 from unittest import mock
 
+import hypothesis
 import pytest
+from hypothesis import strategies as st
 
 import os
 
@@ -703,3 +706,42 @@ def test_signal_timestamp_is_captured_after_identity_reads(monkeypatch):
     assert procs.signal_group(42, signal.SIGTERM, boot_id="test", proc_start="start",
                               before_signal=lambda: calls.append("timestamp"))
     assert calls == ["identity", "group", "timestamp", "signal"]
+
+
+def test_ps_text_prints_every_byte_as_ps_printed_it():
+    """C-5.5: `PS_BYTES` is what `ps` printed for each of the 255 bytes an environment
+    can hold, measured on macOS 26.6.2 (tests/fixtures/ps_vis_bytes.json; the process
+    test `test_ps_rendering.py` measures again wherever it runs)."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "ps_vis_bytes.json"
+    measured = json.loads(fixture.read_text())["bytes"]
+    assert sorted(measured) == [f"{value:02X}" for value in range(1, 256)]
+    assert {name: procs.PS_BYTES[int(name, 16)] for name in measured} == measured
+
+
+@pytest.mark.parametrize("value,printed", [
+    ("/tmp/subfleet-José-root", "/tmp/subfleet-JosM-CM-)-root"),
+    ("a\tb\nc", "a\\011b\\012c"),
+    ("a back\\slash and a space ", "a back\\slash and a space "),
+    ("\u00a0", "M-B\\240"),
+    ("\x01\x1b\x7f", "^A^[^?"),
+    (os.fsdecode(b"\x80\x89\xa0\xde\xff"), "M^@M^I\\240M-^M^?"),
+    ("M-CM-)", "M-CM-)"),
+])
+def test_ps_text_examples(value, printed):
+    """C-5.5: a value as `ps` prints it, byte by byte, from its `os.fsencode` bytes."""
+    assert procs.ps_text(value) == printed
+
+
+@hypothesis.settings(max_examples=300, deadline=None)
+@hypothesis.given(raw=st.binary(max_size=64).map(lambda raw: raw.replace(b"\0", b"")))
+def test_ps_text_invariants(raw):
+    """C-5.5 invariants the census's `(?:^|\\s)` and `(?=\\s|$)` boundaries rely on: for
+    any bytes a value can hold, `ps_text` prints only printable ASCII, with a space
+    exactly where the value had one (so no other byte can end or start a variable),
+    prints printable ASCII as itself, and prints a value one byte at a time."""
+    printed = procs.ps_text(os.fsdecode(raw))
+    assert all(" " <= char <= "~" for char in printed)
+    assert printed.count(" ") == raw.count(b" ")
+    assert printed == "".join(procs.PS_BYTES[byte] for byte in raw)
+    if all(0x20 <= byte <= 0x7E for byte in raw):
+        assert printed == raw.decode("ascii")
