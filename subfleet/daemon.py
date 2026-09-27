@@ -48,7 +48,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
-from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
+from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model, turn_cap
 from .retention import maintenance
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
@@ -3238,9 +3238,10 @@ class Daemon:
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
         roster = self._pin_roster()              # C-6.9: lane pins are compared by lane id (C-11.2)
         # C-26.9: turns and detached jobs fill separate pools, so one being full
-        # holds back only its own kind.
+        # holds back only its own kind. The turn pool has no cap unless the policy
+        # sets `conversations.max_active_turns`: then it is never full.
         saturated: dict[str, bool] = {}
-        turn_cap = int((self.policy.get("conversations") or {}).get("max_active_turns", 3))
+        turns_cap = turn_cap(self.policy.get("conversations"), "max_active_turns")
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
@@ -3294,7 +3295,7 @@ class Daemon:
             behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
                            if scheduler.competes(models, theirs, lanes, their_lanes)), None)
             pool = "turn" if job["kind"] == "turn" else "detached"
-            pool_cap = turn_cap if pool == "turn" else cap
+            pool_cap = turns_cap if pool == "turn" else cap
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
@@ -3484,12 +3485,14 @@ class Daemon:
                         live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
                                           "WHERE a.state IN ('reserved','starting','running','finalizing') "
                                           "AND (j.kind = 'turn') = ?", (pool == "turn",)).fetchone()[0]
-                        saturated[pool] = live >= pool_cap
+                        saturated[pool] = pool_cap is not None and live >= pool_cap
                         # A job that passes an older waiting job of its tier leaves one
                         # active slot free, so the older job can start the moment its
                         # capacity appears instead of waiting out the jobs that passed it.
-                        limit = pool_cap - 1 if waiters.get(tier) else pool_cap
-                        if not decision.chosen_lane or live >= limit:
+                        # An uncapped pool (C-26.9) has no last slot to keep.
+                        limit = None if pool_cap is None else pool_cap - 1 if waiters.get(tier) else pool_cap
+                        at_limit = limit is not None and live >= limit
+                        if not decision.chosen_lane or at_limit:
                             waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                             # C-6.10: a wait that reaches the verdict it reached last time
                             # is rechecked later each time and adds no decision row. On
@@ -3501,13 +3504,13 @@ class Daemon:
                             else:
                                 # A lane would take it. Either the fleet is at its cap, or
                                 # C-6.9 keeps the last slot for an older job of this tier.
-                                label = "fleet-full" if live >= pool_cap else "slot-kept"
+                                label = "fleet-full" if saturated[pool] else "slot-kept"
                             hold = {"reason": label,
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
                             rechecks = self._capacity_wait(
-                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", hold)
+                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)

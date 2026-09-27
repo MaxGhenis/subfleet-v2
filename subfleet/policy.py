@@ -68,19 +68,37 @@ SESSION_DEFAULTS: dict[str, Any] = {
 #: after the stop was requested. `after_result_s` is how long a process may outlive its terminal
 #: event before the same escalation stops it (D-15: the 120 s background ceiling
 #: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's bound
-#: on an unanswered approval.
-CONVERSATION_DEFAULTS: dict[str, float] = {
+#: on an unanswered approval. The two turn caps (C-26.9) are `null` by default,
+#: meaning no cap: a person's turn waits only for a lane that can take it, never
+#: for a count Subfleet imposes (Max, 2026-09-27, after a turn waited 12 minutes
+#: behind two other conversations' turns while one turn per lane was the rule).
+CONVERSATION_DEFAULTS: dict[str, float | None] = {
     "approval_wait_s": 3600,         # C-26.9: an unanswered approval stops its turn
     "catalog_interval_s": 60,        # C-30.1, design D-23: a catalog run this often; 0: on request only
     "compact_after_s": 300,          # C-25.4: a settled turn keeps its deltas this long
     "compact_per_tick": 20,          # C-25.4: attempts compacted per conversation tick
-    "max_active_turns": 3,           # C-26.9: turns running at once, apart from detached jobs
-    "turn_slots_per_lane": 1,        # C-26.9: turns on one lane at once, apart from detached jobs
+    "max_active_turns": None,        # C-26.9: turns running at once, apart from detached jobs; null: no cap
+    "turn_slots_per_lane": None,     # C-26.9: turns on one lane at once, apart from detached jobs; null: no cap
     "stop_sigint_after_s": 10,       # C-24.7: a stop not honoured by then gets SIGINT
     "stop_close_after_s": 20,        # C-24.7: then stdin is closed
     "stop_contain_after_s": 30,      # C-24.7: then the attempt is contained
     "after_result_s": 135,           # C-26.5: background output allowed after `result`
 }
+
+#: C-26.9: the `conversations` keys that cap turns, each a positive whole number or null (no cap).
+TURN_CAPS = frozenset({"max_active_turns", "turn_slots_per_lane"})
+
+
+def turn_cap(conversations: Mapping[str, Any] | None, key: str) -> int | None:
+    """C-26.9: one turn cap from policy `conversations`, or None when there is none.
+
+    A section without the key has the default, which is no cap, so a missing
+    key and a null mean the same thing to every reader.
+    """
+    if key not in TURN_CAPS:
+        raise KeyError(key)
+    value = (conversations or {}).get(key, CONVERSATION_DEFAULTS[key])
+    return None if value is None else int(value)
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
 #: pruned against separate budgets, so a busy conversation never evicts the
@@ -307,10 +325,10 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     # `conversations` and `retention`: whole counts where the value counts
     # things, and zero only where it means "at once", "never on a timer" or "keep
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
-    # days kept after a turn ends).
+    # days kept after a turn ends). A turn cap may also be null: no cap (C-26.9).
     for section, defaults, may_be_zero, whole in (
             ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
-             {"compact_per_tick", "max_active_turns", "turn_slots_per_lane"}),
+             {"compact_per_tick", *TURN_CAPS}),
             ("retention", RETENTION_DEFAULTS, {"turn_keep_days"}, {"jobs", "bytes", "turn_jobs", "turn_bytes"})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
@@ -318,6 +336,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         settings = {**defaults, **supplied}
         for key in defaults:
             item = settings[key]
+            if item is None and section == "conversations" and key in TURN_CAPS:
+                continue
             if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
                     or item < 0 or (item == 0 and key not in may_be_zero)):
                 fail(f"{section}.{key}", "must be a nonnegative finite number" if key in may_be_zero

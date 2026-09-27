@@ -193,8 +193,10 @@ def check_reservation(service, attempt_id):
     probes = store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
     on_lane = sum(1 for row in pool if row["lane_id"] == lane_id)
     if turn:
-        assert on_lane < turns.get("turn_slots_per_lane", 1)
-        assert len(pool) < turns.get("max_active_turns", 3)
+        # C-26.9: a null or missing cap is no cap.
+        lane_cap, fleet_cap = turns.get("turn_slots_per_lane"), turns.get("max_active_turns")
+        assert lane_cap is None or on_lane < lane_cap
+        assert fleet_cap is None or len(pool) < fleet_cap
     else:
         slots = caps["max_in_flight_per_lane"] if measured_now(service, lane_id, now) else min(
             caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1)
@@ -296,8 +298,9 @@ def admission_under_commits(data, service, harness, patch, *, checked=None):
     # an example can outlast the policy's 120 s, which would move a lane between them.
     caps.update(max_active_attempts=data.draw(st.sampled_from([1, 2, 3, 5]), label="fleet cap"),
                 max_in_flight_per_lane=data.draw(st.sampled_from([1, 2]), label="lane cap"), reading_ttl_s=3600)
-    service.policy.setdefault("conversations", {}).update(
-        max_active_turns=data.draw(st.sampled_from([1, 2]), label="turn cap"), turn_slots_per_lane=1)
+    service.policy.setdefault("conversations", {}).update(      # C-26.9: None is no cap, the default
+        max_active_turns=data.draw(st.sampled_from([None, 1, 2]), label="turn cap"),
+        turn_slots_per_lane=data.draw(st.sampled_from([None, 1]), label="turn lane cap"))
     for lane_id in LANES:
         if data.draw(st.booleans(), label=f"{lane_id} measured"):
             measure(service, lane_id, data.draw(st.sampled_from([.1, .5, .9]), label=f"{lane_id} use"))
