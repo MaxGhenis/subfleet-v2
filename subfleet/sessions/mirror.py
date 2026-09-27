@@ -150,6 +150,9 @@ DEFAULT_STALL_MIN = 10.0
 ENTRY_CACHE_LIMIT = 1_000_000
 PAYLOAD_CACHE_BYTES = 128 * 1024 * 1024
 PROGRESS_INTERVAL_S = 5.0
+#: Listing itself may lose time reacquiring the GIL after readdir. Keep its
+#: batches short enough to service flags before entry processing begins.
+LISTING_CHECKPOINT_ENTRIES = 64
 #: A full pass stats every entry at least this often. Between sweeps a folder
 #: whose directory is unchanged is not re-listed, and a re-listed one is diffed
 #: by inode; both rely on the app's write-then-rename, and the sweep bounds how
@@ -770,6 +773,7 @@ class Mirror:
         #: A full pass services flags synchronously under its existing flock.
         #: Its helper has separate inventory bookkeeping, never another writer.
         self._hot_worker: Mirror | None = None
+        self._hot_parent: Mirror | None = None
         self._hot_options: Options | None = None
         self._hot_due = 0.0
         self._hot_services = 0
@@ -779,6 +783,19 @@ class Mirror:
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
         return _signature_of(path)
+
+    def _invalidate_folder(self, path: Path) -> None:
+        """A known write invalidates both cooperating inventories.
+
+        Directory timestamps need not distinguish two writes. Each inventory
+        keeps its own entries and payload references, but neither may retain a
+        folder listing from before a write the other one made.
+        """
+        self._dirty.add(path)
+        if self._hot_worker is not None:
+            self._hot_worker._dirty.add(path)
+        if self._hot_parent is not None:
+            self._hot_parent._dirty.add(path)
 
     def _forget(self, path: str | Path) -> None:
         old = self._entries.pop(os.fspath(path), None)
@@ -891,6 +908,7 @@ class Mirror:
         The journal is shared: both passes write sequentially under one flock.
         """
         worker = Mirror(self.root, self.policy, now=self.now, cancel=self.cancel)
+        worker._hot_parent = self
         worker._entries = dict(self._entries)
         worker._payloads = {key: _Payload(row.value, row.size, row.refs)
                             for key, row in self._payloads.items()}
@@ -1164,12 +1182,21 @@ class Mirror:
             current.entries_scanned += len(state.names)
             return None, []
         current.folders_scanned += 1
+        if state is not None:
+            # An interrupted refresh must not make the old listing reusable.
+            # Replace the snapshot, never mutate one shared with the hot worker.
+            self._folders[path] = _Folder(state.signature, state.names, state.ids, False)
+        # Clear only the old invalidation. An embedded hot write during this
+        # listing or its reads must leave a fresh invalidation for the next scan.
+        self._dirty.discard(path)
         try:
             with os.scandir(path) as listing:
                 # The same ~1.8k names recur in every folder; interned, the
                 # folders' listings share one string per name.
                 found, leftovers = [], []
-                for item in listing:
+                for index, item in enumerate(listing):
+                    if index % LISTING_CHECKPOINT_ENTRIES == 0:
+                        self._checkpoint(current)
                     if item.name.startswith("local_") and item.name.endswith(".json"):
                         found.append((sys.intern(item.name), item))
                     elif sweep and item.name.endswith(TEMPORARY_SUFFIX):
@@ -1181,7 +1208,6 @@ class Mirror:
             self._dirty.add(path)
             transient = not (isinstance(exc, FileNotFoundError) or _permanent(exc))
             raise _Unlisted(str(path), transient=transient) from exc
-        self._dirty.discard(path)
         _remove_leftovers(leftovers)
         previous = state.names if state is not None else frozenset()
         files: dict[str, dict] = {}
@@ -1306,7 +1332,7 @@ class Mirror:
     def _place(self, source: Path, destination: Path, identity: str, data: dict,
                kind: str, current: Pass, *, expect: tuple[int, ...] | None = None,
                exclusive: bool = False) -> bool:
-        self._dirty.add(destination.parent)
+        self._invalidate_folder(destination.parent)
         try:
             inode = _copy_entry(source, destination, expect=expect, exclusive=exclusive)
         except OSError:
@@ -1389,7 +1415,7 @@ class Mirror:
                 if existing(path, fallback) is not None or destination.exists():
                     continue
                 if not options.dry_run:
-                    self._dirty.add(path)
+                    self._invalidate_folder(path)
                     try:
                         body = _load(source, strict=True)
                         body["sessionId"] = f"local_{identity}"   # keep it self-consistent
@@ -1724,7 +1750,7 @@ class Mirror:
                     if resolved is None or original is None:
                         continue
                     target = path / name
-                    self._dirty.add(path)
+                    self._invalidate_folder(path)
                     try:
                         expect = _signature_of(target)
                         body = _load(target, strict=True)
@@ -2078,7 +2104,7 @@ class Mirror:
                     if path == keep:
                         continue
                     if not options.dry_run:
-                        self._dirty.add(path)
+                        self._invalidate_folder(path)
                         try:
                             (path / name).unlink()
                             self._forget(path / name)
