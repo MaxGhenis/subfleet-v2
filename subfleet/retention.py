@@ -14,11 +14,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
@@ -44,28 +46,86 @@ def _checkpoint(cancel: threading.Event | None, deadline: float | None) -> None:
         raise _Interrupted("deadline")
 
 
-def _size(path: Path, *, cancel: threading.Event | None = None, deadline: float | None = None) -> int:
-    """Count regular files without following workdir or artifact symlinks."""
-    _checkpoint(cancel, deadline)
-    size = 0
+def _file_sizes(path: Path):
+    """Yield after each filesystem operation, keeping the walk resumable.
+
+    Checkpoints belong to the consumer: throwing into this generator would
+    close it and force the next pass to start the same large tree over again.
+    os.walk closes each scandir before yielding, so no directory descriptors
+    are held between maintenance passes.
+    """
     if path.is_symlink() or not path.is_dir():
-        return path.lstat().st_size if path.exists() or path.is_symlink() else 0
+        yield path.lstat().st_size if path.exists() or path.is_symlink() else 0
+        return
 
     def unreadable(error: OSError) -> None:
         raise error
 
     for directory, dirnames, filenames in os.walk(path, followlinks=False, onerror=unreadable):
-        _checkpoint(cancel, deadline)
-        # os.walk puts links to directories in dirnames even when followlinks
-        # is false. Their own bytes count, but their external contents do not.
-        links = [name for name in dirnames if (Path(directory) / name).is_symlink()]
-        for name in [*filenames, *links]:
-            _checkpoint(cancel, deadline)
+        yield 0
+        for name in dirnames:
+            entry = Path(directory) / name
             try:
-                size += (Path(directory) / name).lstat().st_size
+                metadata = entry.lstat()
+                yield metadata.st_size if stat.S_ISLNK(metadata.st_mode) else 0
             except FileNotFoundError:
                 pass
-    return size
+        for name in filenames:
+            try:
+                yield (Path(directory) / name).lstat().st_size
+            except FileNotFoundError:
+                pass
+
+
+@dataclass
+class _SizeScan:
+    iterator: Any
+    size: int = 0
+    complete: bool = False
+
+    def advance(self, cancel, deadline) -> int:
+        while not self.complete:
+            _checkpoint(cancel, deadline)
+            try:
+                self.size += next(self.iterator)
+            except StopIteration:
+                self.complete = True
+        return self.size
+
+
+def _size(path: Path, *, cancel: threading.Event | None = None, deadline: float | None = None,
+          scan: _SizeScan | None = None) -> int:
+    """Count files without following links; a supplied scan survives interruption."""
+    _checkpoint(cancel, deadline)
+    return (scan or _SizeScan(_file_sizes(path))).advance(cancel, deadline)
+
+
+@dataclass
+class _Measurement:
+    signature: tuple
+    scans: list[_SizeScan]
+
+    @property
+    def complete(self) -> bool:
+        return all(scan.complete for scan in self.scans)
+
+    @property
+    def size(self) -> int:
+        return sum(scan.size for scan in self.scans)
+
+
+@dataclass
+class _RetentionCache:
+    # Scoped to one Store and state root, used by the single retention worker.
+    # No schema change or filesystem I/O is needed to save interrupted work.
+    measurements: dict[str, _Measurement] = field(default_factory=dict)
+    # Failed Git proofs/removals must not spend every deadline on the same
+    # oldest jobs. Remember their last attempt, never a cached permission.
+    retries: dict[str, tuple[tuple, float]] = field(default_factory=dict)
+
+
+def _signature(job):
+    return tuple(job.get(key) for key in ("state", "finished_at", "worktree", "workdir", "sandbox", "in_place"))
 
 
 def _contains(value: Any, job_id: str) -> bool:
@@ -171,7 +231,8 @@ def _git(worktree: Path, *args: str, env: dict[str, str] | None = None,
 
 def _remove_worktree(job: dict[str, Any], state_root: Path,
                      salvage_artifacts: list[dict[str, Any]], expected_worktree: Path | None, *,
-                     cancel: threading.Event | None = None, deadline: float | None = None) -> None:
+                     cancel: threading.Event | None = None, deadline: float | None = None,
+                     before_remove: Callable[[], None] = lambda: None) -> None:
     """Verify preservation, then remove both the owned tree and Git registration.
 
     A forced removal additionally requires a recorded, existing salvage ref
@@ -216,6 +277,8 @@ def _remove_worktree(job: dict[str, Any], state_root: Path,
         if not preserved:
             raise ValueError("dirty allocated worktree is not preserved by an existing salvage ref")
     options = ("--force",) if dirty else ()
+    _checkpoint(cancel, deadline)
+    before_remove()
     git(source, "worktree", "remove", *options, "--", str(worktree))
 
 
@@ -237,7 +300,9 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     reported and audited; pruning never performs a subprocess, stat, or removal
     inside a tx. C-16.4 cancellation is cooperative between filesystem
     operations. A cancelled selection keeps its rows and any deletion lease for
-    the next maintenance pass.
+    the next maintenance pass. The Store retains partial walks and completed
+    terminal measurements in memory; a restart safely starts fresh. Count and
+    measured-byte pressure trigger deletion before the complete scan finishes.
     """
     progress = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None}
     try:
@@ -248,8 +313,9 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                             cancel=cancel, deadline=deadline, progress=progress)
     except _Interrupted as exc:
         jobs = store.list_jobs()
-        # Filesystem removal may have stopped between stages, so the remaining
-        # bytes are unknown until the next pass. Conservatively pin every row.
+        # Filesystem removal may have stopped between stages, so remaining
+        # bytes are unknown. This result protects the remaining rows for this
+        # pass only; cached scans and committed deletions survive the retry.
         return {**progress, "protected": sorted(job["job_id"] for job in jobs),
                 "bytes_after": None, "jobs_after": len(jobs), "interrupted": str(exc)}
 
@@ -265,132 +331,250 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
     _checkpoint(cancel, deadline)
     state_root = Path(state_root).resolve()
     root = state_root / "jobs"
-    jobs = store.list_jobs()
-    sizes = {}
+    jobs = list(reversed(store.list_jobs()))   # oldest first, for both scanning and pruning
+    cache_key = str(state_root)
+    caches = getattr(store, "_retention_caches", None)
+    if caches is None:
+        caches = store._retention_caches = {}
+    cache = caches.setdefault(cache_key, _RetentionCache())
+    by_id = {job["job_id"]: job for job in jobs}
+    cache.retries = {identity: retry for identity, retry in cache.retries.items() if identity in by_id}
+    # Terminal directories are immutable once their attempts have settled.
+    # Never reuse a completed live measurement, or one of a changed job.
+    unsettled = {row["job_id"] for row in store.query(
+        "SELECT DISTINCT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing','quarantined')")}
+    for identity, measurement in list(cache.measurements.items()):
+        job = by_id.get(identity)
+        if (job is None or measurement.signature != _signature(job)
+                or (measurement.complete and (job["state"] not in _TERMINAL or identity in unsettled))):
+            del cache.measurements[identity]
+    sizes = {identity: m.size for identity, m in cache.measurements.items() if m.complete}
+    initial_sizes = dict(sizes)
+    reused_sizes = set(sizes)
     errors = progress["errors"]
-    for job in jobs:
-        _checkpoint(cancel, deadline)
-        identity = job["job_id"]
-        if Path(identity).name != identity or identity in (".", ".."):
-            errors.append({"job_id": identity, "error": "invalid job directory name"})
-            continue
-        try:
-            sizes[identity] = _size(root / identity, cancel=cancel, deadline=deadline)
-            worktree = _owned_worktree(job, state_root)
-            if worktree is not None:
-                sizes[identity] += _size(worktree, cancel=cancel, deadline=deadline)
-        except (OSError, ValueError) as exc:
-            errors.append({"job_id": identity, "error": str(exc)})
-    explicit = set(referenced_job_ids) | {error["job_id"] for error in errors}
+    explicit = set(referenced_job_ids)
+    measurement_errors = set()
+    artifacts = store.query("SELECT r.*,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) WHERE r.role='salvage'")
+    salvage_by_job = {}
+    for artifact in artifacts:
+        salvage_by_job.setdefault(artifact["job_id"], []).append(artifact)
     landed = set()
-    if salvage_referenced_elsewhere is not None:
-        for artifact in store.query("SELECT * FROM artifacts WHERE role='salvage'"):
-            _checkpoint(cancel, deadline)
-            if salvage_referenced_elsewhere(artifact):
-                landed.add(artifact["artifact_id"])
-    _checkpoint(cancel, deadline)
 
-    def pinned() -> set[str]:
+    def pinned():
         return _pins(store, explicit, landed, pins=pins, turn_keep_s=turn_keep_s)
 
-    protected = pinned()
-    counts = {name: 0 for name in budgets}
-    totals = {name: 0 for name in budgets}
-    for job in jobs:
-        counts[_pool(job)] += 1
-        totals[_pool(job)] += sizes.get(job["job_id"], 0)
-    before = sum(totals.values())
-    progress["bytes_before"] = before
-    progress["pools"] = {name: {"jobs_before": counts[name], "bytes_before": totals[name],
-                                "max_jobs": budgets[name][0], "max_bytes": budgets[name][1]} for name in budgets}
+    # Separate salvage from other pins so expensive Git proofs are made only
+    # for candidates under pressure, never as a precondition for all pruning.
+    other_pins = _pins(store, explicit, {a["artifact_id"] for a in artifacts},
+                       pins=pins, turn_keep_s=turn_keep_s)
+    protected = other_pins | set(salvage_by_job)
+    counts = {name: sum(_pool(job) == name for job in jobs) for name in budgets}
+    totals = {name: sum(sizes.get(job["job_id"], 0) for job in jobs if _pool(job) == name) for name in budgets}
+    progress["pools"] = {name: {"jobs_before": counts[name], "bytes_before": None,
+                                "max_jobs": pair[0], "max_bytes": pair[1]} for name, pair in budgets.items()}
     pruned = progress["pruned"]
-    for job in reversed(jobs):
-        _checkpoint(cancel, deadline)
-        pool = _pool(job)
-        max_jobs, max_bytes = budgets[pool]
-        if all(counts[name] <= budgets[name][0] and totals[name] <= budgets[name][1] for name in budgets):
-            break
-        if counts[pool] <= max_jobs and totals[pool] <= max_bytes:
-            continue
+    removed = set()
+
+    def account():
+        # Unknown bytes are never advertised as zero. Measured totals are a
+        # lower bound, sufficient to prove pressure before the whole scan ends.
+        for name in budgets:
+            pool_jobs = [job for job in jobs if _pool(job) == name]
+            complete_before = all(job["job_id"] in initial_sizes for job in pool_jobs)
+            complete_after = all(job["job_id"] in sizes for job in pool_jobs if job["job_id"] not in removed)
+            progress["pools"][name].update(
+                bytes_before=sum(initial_sizes[j["job_id"]] for j in pool_jobs) if complete_before else None,
+                jobs_after=counts[name], bytes_after=totals[name] if complete_after else None,
+                measured_bytes=totals[name])
+        progress["bytes_before"] = sum(initial_sizes.values()) if len(initial_sizes) == len(jobs) else None
+        progress["bytes_after"] = sum(totals.values()) if all(
+            p["bytes_after"] is not None for p in progress["pools"].values()) else None
+
+    def measure(job):
         identity = job["job_id"]
-        if identity in protected:
-            continue
-        # Fence new in-place admission for the entire filesystem removal. The
-        # dedicated holder survives a daemon crash and this pass can resume it.
-        worktree = _owned_worktree(job, state_root)
-        lease_key = f"worktree:{worktree}" if worktree is not None else None
-        lease_holder = f"retention:{identity}"
-        with store.transaction("retention.selected", job_id=identity) as conn:
-            _checkpoint(cancel, deadline)
-            if identity in pinned():
-                protected.add(identity)
-                continue
-            if lease_key is not None:
-                current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (lease_key,)).fetchone()
-                if current and current["holder"] != lease_holder:
-                    protected.add(identity)
-                    continue
-                conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
-                             (lease_key, lease_holder, utc_now()))
-            _checkpoint(cancel, deadline)
-        salvage_artifacts = store.query("SELECT r.* FROM artifacts r JOIN attempts a USING(attempt_id) "
-                                        "WHERE a.job_id=? AND r.role='salvage'", (identity,))
-        try:
-            _remove_worktree(job, state_root, salvage_artifacts, worktree, cancel=cancel, deadline=deadline)
-        except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            error = {"job_id": identity, "error": str(exc)}
-            errors.append(error)
-            protected.add(identity)
-            with store.transaction("retention.worktree_error", job_id=identity, data=error) as conn:
-                _checkpoint(cancel, deadline)
-                conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
-                _checkpoint(cancel, deadline)
-            continue
-        _checkpoint(cancel, deadline)
-        directory = root / identity
-        try:
-            if directory.is_symlink():
-                directory.unlink()
-            elif directory.exists():
-                shutil.rmtree(directory)
-        except OSError as exc:
-            error = {"job_id": identity, "error": str(exc)}
-            errors.append(error)
-            protected.add(identity)
-            # A partial removal must retain the job so a later pass can retry
-            # it, and must not claim bytes that remain on disk were reclaimed.
+        if identity in sizes or identity in measurement_errors:
+            return
+        if Path(identity).name != identity or identity in (".", ".."):
+            error = "invalid job directory name"
+        else:
             try:
-                remaining = _size(directory, cancel=cancel, deadline=deadline)
-                if worktree is not None:
-                    remaining += _size(worktree, cancel=cancel, deadline=deadline)
-            except OSError:
-                remaining = sizes.get(identity, 0)
-            totals[pool] += remaining - sizes.get(identity, 0)
-            sizes[identity] = remaining
-            with store.transaction("retention.lease_released", job_id=identity) as conn:
+                measurement = cache.measurements.get(identity)
+                if measurement is None:
+                    worktree = _owned_worktree(job, state_root)
+                    paths = [root / identity] + ([worktree] if worktree is not None else [])
+                    measurement = _Measurement(_signature(job), [_SizeScan(_file_sizes(path)) for path in paths])
+                    cache.measurements[identity] = measurement
+                for scan in measurement.scans:
+                    _size(root / identity, cancel=cancel, deadline=deadline, scan=scan)
+                sizes[identity] = measurement.size
+                initial_sizes[identity] = measurement.size
+                totals[_pool(job)] += measurement.size
+                account()
+                return
+            except (OSError, ValueError) as exc:
+                error = str(exc)
+        errors.append({"job_id": identity, "error": error})
+        cache.measurements.pop(identity, None)
+        explicit.add(identity)
+        measurement_errors.add(identity)
+        protected.add(identity)
+
+    def candidate_evidence(job):
+        return (_signature(job), tuple((a["artifact_id"], a["path"], a["sha256"])
+                                      for a in salvage_by_job.get(job["job_id"], [])))
+
+    # Try fresh candidates oldest-first, then known failures least-recently
+    # tried first. This stays fair with arbitrarily many slow Git failures and
+    # any worker backoff, while promptly noticing refs repaired between passes.
+    def retry_order(job):
+        previous = cache.retries.get(job["job_id"])
+        if previous is not None and previous[0] == candidate_evidence(job):
+            return (True, previous[1])
+        return (False, 0)
+
+    ordered = sorted(jobs, key=retry_order)
+    candidates = {name: iter([job for job in ordered if _pool(job) == name]) for name in budgets}
+    exhausted = set()
+
+    def drain():
+        for pool, (max_jobs, max_bytes) in budgets.items():
+            while pool not in exhausted and (counts[pool] > max_jobs or totals[pool] > max_bytes):
                 _checkpoint(cancel, deadline)
-                conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
+                job = next(candidates[pool], None)
+                if job is None:
+                    exhausted.add(pool)
+                    break
+                identity = job["job_id"]
+                if identity in other_pins or identity in explicit:
+                    continue
+                salvage_artifacts = salvage_by_job.get(identity, [])
+                if salvage_artifacts and salvage_referenced_elsewhere is None:
+                    continue   # no expensive proof was attempted to defer
+                evidence = candidate_evidence(job)
+                def defer():
+                    cache.retries[identity] = (evidence, time.monotonic())
+
+                if salvage_artifacts:
+                    try:
+                        for artifact in salvage_artifacts:
+                            _checkpoint(cancel, deadline)
+                            if salvage_referenced_elsewhere is not None and salvage_referenced_elsewhere(artifact):
+                                landed.add(artifact["artifact_id"])
+                    except _Interrupted:
+                        defer()
+                        raise
+                    if any(artifact["artifact_id"] not in landed for artifact in salvage_artifacts):
+                        defer()
+                        continue
+                    protected.discard(identity)
+                # Even count-based selection validates the candidate's tree;
+                # unreadable trees remain pinned, without sizing every job.
+                measure(job)
+                if identity in explicit:
+                    continue
+                worktree = _owned_worktree(job, state_root)
+                lease_key = f"worktree:{worktree}" if worktree is not None else None
+                lease_holder = f"retention:{identity}"
+                with store.transaction("retention.selected", job_id=identity) as conn:
+                    _checkpoint(cancel, deadline)
+                    if identity in pinned():
+                        protected.add(identity)
+                        continue
+                    if lease_key is not None:
+                        current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (lease_key,)).fetchone()
+                        if current and current["holder"] != lease_holder:
+                            protected.add(identity)
+                            continue
+                        conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                                     (lease_key, lease_holder, utc_now()))
+                    _checkpoint(cancel, deadline)
+                def invalidate():
+                    cache.measurements.pop(identity, None)
+
+                try:
+                    _remove_worktree(job, state_root, salvage_artifacts, worktree, cancel=cancel, deadline=deadline,
+                                     before_remove=invalidate)
+                except _Interrupted:
+                    # A scan that just finished must get a fresh deadline for
+                    # read-only Git checks before a slow candidate is deferred.
+                    if identity in reused_sizes or identity not in cache.measurements:
+                        defer()
+                    raise
+                except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                    error = {"job_id": identity, "error": str(exc)}
+                    errors.append(error)
+                    protected.add(identity)
+                    defer()
+                    # Audit before any further interruptible work. A failed
+                    # removal must remain visible even at the deadline.
+                    with store.transaction("retention.worktree_error", job_id=identity, data=error) as conn:
+                        conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
+                    # Git can fail after deleting some files. Its old size is
+                    # no longer a lower bound on bytes still present.
+                    if identity not in cache.measurements:
+                        totals[pool] -= sizes.pop(identity)
+                    account()
+                    continue
                 _checkpoint(cancel, deadline)
-            _checkpoint(cancel, deadline)
-            store.add_event("retention.remove_error", job_id=identity, data=error)
-            continue
-        with store.transaction("retention.pruned", job_id=identity,
-                               data={"bytes": sizes.get(identity, 0), "pool": pool}) as conn:
-            _checkpoint(cancel, deadline)
-            conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
-            if identity in pinned():
-                protected.add(identity)
-                continue
-            for table in ("artifacts", "readings"):
-                conn.execute(f"DELETE FROM {table} WHERE attempt_id IN (SELECT attempt_id FROM attempts WHERE job_id=?)", (identity,))
-            for table in ("notices", "decisions", "attempts", "jobs"):
-                conn.execute(f"DELETE FROM {table} WHERE job_id=?", (identity,))
-            _checkpoint(cancel, deadline)
-        pruned.append(identity)
-        counts[pool] -= 1
-        totals[pool] -= sizes.get(identity, 0)
-    for name in budgets:
-        progress["pools"][name].update(jobs_after=counts[name], bytes_after=totals[name])
-    return {"pruned": pruned, "protected": sorted(protected), "bytes_before": before,
-            "bytes_after": sum(totals.values()), "jobs_after": sum(counts.values()), "errors": errors,
-            "pools": progress["pools"]}
+                directory = root / identity
+                invalidate()   # all read-only worktree checks have now finished
+                try:
+                    if directory.is_symlink():
+                        directory.unlink()
+                    elif directory.exists():
+                        shutil.rmtree(directory)
+                except OSError as exc:
+                    error = {"job_id": identity, "error": str(exc)}
+                    errors.append(error)
+                    protected.add(identity)
+                    with store.transaction("retention.lease_released", job_id=identity) as conn:
+                        conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
+                    store.add_event("retention.remove_error", job_id=identity, data=error)
+                    try:
+                        remaining = _size(directory, cancel=cancel, deadline=deadline)
+                        if worktree is not None:
+                            remaining += _size(worktree, cancel=cancel, deadline=deadline)
+                    except OSError:
+                        totals[pool] -= sizes.pop(identity)
+                        measurement_errors.add(identity)
+                    else:
+                        totals[pool] += remaining - sizes[identity]
+                        sizes[identity] = remaining
+                    account()
+                    continue
+                # Files are gone even if the final pin recheck retains the
+                # row. Do not charge those bytes to later deletion decisions.
+                reclaimed = sizes[identity]
+                totals[pool] -= reclaimed
+                sizes[identity] = 0
+                account()
+                with store.transaction("retention.pruned", job_id=identity,
+                                       data={"bytes": reclaimed, "pool": pool}) as conn:
+                    _checkpoint(cancel, deadline)
+                    conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (lease_key, lease_holder))
+                    if identity in pinned():
+                        protected.add(identity)
+                        continue
+                    for table in ("artifacts", "readings"):
+                        conn.execute(f"DELETE FROM {table} WHERE attempt_id IN (SELECT attempt_id FROM attempts WHERE job_id=?)", (identity,))
+                    for table in ("notices", "decisions", "attempts", "jobs"):
+                        conn.execute(f"DELETE FROM {table} WHERE job_id=?", (identity,))
+                    _checkpoint(cancel, deadline)
+                pruned.append(identity)
+                cache.retries.pop(identity, None)
+                removed.add(identity)
+                counts[pool] -= 1
+                totals[pool] -= sizes[identity]
+                account()
+
+    account()
+    # Count pressure and bytes already measured by previous passes can prune
+    # immediately. Each new measurement can establish more byte pressure.
+    drain()
+    for job in jobs:
+        _checkpoint(cancel, deadline)
+        if job["job_id"] not in removed:
+            measure(job)
+            drain()
+    account()
+    return {**progress, "protected": sorted(protected), "jobs_after": sum(counts.values())}

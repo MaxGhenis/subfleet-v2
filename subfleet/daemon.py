@@ -50,6 +50,7 @@ from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
+from .retention_salvage import SalvageReachability
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
@@ -2504,11 +2505,14 @@ class Daemon:
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
         # conversation service pins the turn jobs it still needs (IR-17).
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
+        deadline = time.monotonic() + 60
+        salvage_held = SalvageReachability(self.store, self.root, cancel=self.timers.cancel, deadline=deadline)
         result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
                              turn_keep_s=float(budget["turn_keep_days"]) * 86400,
                              pins=self.conversations.retention_pins,
-                             cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+                             salvage_referenced_elsewhere=salvage_held,
+                             cancel=self.timers.cancel, deadline=deadline)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))

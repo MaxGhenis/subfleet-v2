@@ -1,0 +1,265 @@
+{
+  "all": {
+    "paths": 162,
+    "measured_paths": 161,
+    "kib": 60762112,
+    "gib": 57.9473,
+    "timeouts": 1
+  },
+  "terminal": {
+    "paths": 147,
+    "measured_paths": 146,
+    "kib": 57840172,
+    "gib": 55.1607,
+    "timeouts": 1
+  },
+  "live": {
+    "paths": 9,
+    "measured_paths": 9,
+    "kib": 2021424,
+    "gib": 1.9278,
+    "timeouts": 0
+  },
+  "unmatched": {
+    "paths": 6,
+    "measured_paths": 6,
+    "kib": 900516,
+    "gib": 0.8588,
+    "timeouts": 0
+  },
+  "detached": {
+    "paths": 156,
+    "measured_paths": 155,
+    "kib": 59861596,
+    "gib": 57.0885,
+    "timeouts": 1
+  },
+  "turn": {
+    "paths": 0,
+    "measured_paths": 0,
+    "kib": 0,
+    "gib": 0.0,
+    "timeouts": 0
+  },
+  "currently_pinned": {
+    "paths": 146,
+    "measured_paths": 145,
+    "kib": 57395484,
+    "gib": 54.7366,
+    "timeouts": 1
+  },
+  "currently_unpinned": {
+    "paths": 10,
+    "measured_paths": 10,
+    "kib": 2466112,
+    "gib": 2.3519,
+    "timeouts": 0
+  },
+  "fixed_pinned": {
+    "paths": 49,
+    "measured_paths": 48,
+    "kib": 23060992,
+    "gib": 21.9927,
+    "timeouts": 1
+  },
+  "fixed_unpinned": {
+    "paths": 107,
+    "measured_paths": 107,
+    "kib": 36800604,
+    "gib": 35.0958,
+    "timeouts": 0
+  },
+  "fixed_unpinned_no_historical_error": {
+    "paths": 106,
+    "measured_paths": 106,
+    "kib": 36172108,
+    "gib": 34.4964,
+    "timeouts": 0
+  },
+  "historical_error_worktrees": {
+    "paths": 1,
+    "measured_paths": 1,
+    "kib": 628496,
+    "gib": 0.5994,
+    "timeouts": 0
+  },
+  "pin_reasons": {
+    "attempt finalizing": {
+      "paths": 2,
+      "measured_paths": 2,
+      "kib": 577464,
+      "gib": 0.5507,
+      "timeouts": 0
+    },
+    "attempt lease": {
+      "paths": 8,
+      "measured_paths": 8,
+      "kib": 1520056,
+      "gib": 1.4496,
+      "timeouts": 0
+    },
+    "attempt quarantined": {
+      "paths": 15,
+      "measured_paths": 14,
+      "kib": 4539996,
+      "gib": 4.3297,
+      "timeouts": 1
+    },
+    "attempt running": {
+      "paths": 6,
+      "measured_paths": 6,
+      "kib": 942592,
+      "gib": 0.8989,
+      "timeouts": 0
+    },
+    "gate-review job": {
+      "paths": 0,
+      "measured_paths": 0,
+      "kib": 0,
+      "gib": 0.0,
+      "timeouts": 0
+    },
+    "job lease": {
+      "paths": 23,
+      "measured_paths": 22,
+      "kib": 6060052,
+      "gib": 5.7793,
+      "timeouts": 1
+    },
+    "live job": {
+      "paths": 9,
+      "measured_paths": 9,
+      "kib": 2021424,
+      "gib": 1.9278,
+      "timeouts": 0
+    },
+    "parent of retained job": {
+      "paths": 0,
+      "measured_paths": 0,
+      "kib": 0,
+      "gib": 0.0,
+      "timeouts": 0
+    },
+    "salvage (daemon supplies no proof)": {
+      "paths": 113,
+      "measured_paths": 113,
+      "kib": 43058348,
+      "gib": 41.0636,
+      "timeouts": 0
+    },
+    "turn keep window": {
+      "paths": 0,
+      "measured_paths": 0,
+      "kib": 0,
+      "gib": 0.0,
+      "timeouts": 0
+    },
+    "unread addressed notice": {
+      "paths": 32,
+      "measured_paths": 31,
+      "kib": 18397332,
+      "gib": 17.5451,
+      "timeouts": 1
+    },
+    "worktree lease": {
+      "paths": 23,
+      "measured_paths": 22,
+      "kib": 6060052,
+      "gib": 5.7793,
+      "timeouts": 1
+    }
+  },
+  "fixed_pin_reasons": {
+    "attempt finalizing": {
+      "paths": 2,
+      "measured_paths": 2,
+      "kib": 577464,
+      "gib": 0.5507,
+      "timeouts": 0
+    },
+    "attempt lease": {
+      "paths": 8,
+      "measured_paths": 8,
+      "kib": 1520056,
+      "gib": 1.4496,
+      "timeouts": 0
+    },
+    "attempt quarantined": {
+      "paths": 15,
+      "measured_paths": 14,
+      "kib": 4539996,
+      "gib": 4.3297,
+      "timeouts": 1
+    },
+    "attempt running": {
+      "paths": 6,
+      "measured_paths": 6,
+      "kib": 942592,
+      "gib": 0.8989,
+      "timeouts": 0
+    },
+    "gate-review job": {
+      "paths": 0,
+      "measured_paths": 0,
+      "kib": 0,
+      "gib": 0.0,
+      "timeouts": 0
+    },
+    "job lease": {
+      "paths": 23,
+      "measured_paths": 22,
+      "kib": 6060052,
+      "gib": 5.7793,
+      "timeouts": 1
+    },
+    "live job": {
+      "paths": 9,
+      "measured_paths": 9,
+      "kib": 2021424,
+      "gib": 1.9278,
+      "timeouts": 0
+    },
+    "parent of retained job": {
+      "paths": 0,
+      "measured_paths": 0,
+      "kib": 0,
+      "gib": 0.0,
+      "timeouts": 0
+    },
+    "salvage (daemon supplies no proof)": {
+      "paths": 0,
+      "measured_paths": 0,
+      "kib": 0,
+      "gib": 0.0,
+      "timeouts": 0
+    },
+    "turn keep window": {
+      "paths": 0,
+      "measured_paths": 0,
+      "kib": 0,
+      "gib": 0.0,
+      "timeouts": 0
+    },
+    "unread addressed notice": {
+      "paths": 32,
+      "measured_paths": 31,
+      "kib": 18397332,
+      "gib": 17.5451,
+      "timeouts": 1
+    },
+    "worktree lease": {
+      "paths": 23,
+      "measured_paths": 22,
+      "kib": 6060052,
+      "gib": 5.7793,
+      "timeouts": 1
+    }
+  },
+  "salvage": {
+    "artifacts": 220,
+    "named_ref_held": 178,
+    "fingerprint_matches": 196,
+    "another_ref": 1,
+    "callback_proven": 196
+  }
+}
