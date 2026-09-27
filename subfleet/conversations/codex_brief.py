@@ -126,13 +126,15 @@ def headless_run(path: Path) -> bool:
 
 
 def _records(path: Path) -> Iterator[tuple[str, dict[str, Any]]]:
-    """(raw line, record) in file order; unreadable or oversized lines are skipped."""
+    """(raw line, record) in file order, in the rollout's first
+    `handoff.FULL_SCAN_BYTES`; unreadable or oversized lines are skipped."""
     try:
-        stream = transcripts.open_regular(path, "r", encoding="utf-8", errors="replace")
+        stream = transcripts.open_regular(path)
     except OSError as exc:
         raise HandoffError(f"cannot read rollout {path}: {exc}") from exc
     with stream:
-        for line in stream:
+        for raw in transcripts.capped_lines(stream, handoff.FULL_SCAN_BYTES):
+            line = raw.decode("utf-8", "replace").replace("\r\n", "\n")   # as text mode read it
             record = handoff._parse(line)
             if record is not None:
                 yield line.rstrip("\n"), record

@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .adapters.base import AdapterError
+from .sessions.transcripts import open_regular
 
 #: One git call's wall-clock cap when the caller names none. The 15 s this
 #: replaced failed jobs whose repository was healthy: on 2026-09-20, under a
@@ -172,6 +173,12 @@ def _seed_index(workdir: str | Path, index: Path, *,
     stamped now would hide exactly those edits. The bytes and the mtime come
     from one open file, so a concurrent rewrite of the index (git replaces
     it by rename) cannot pair one index's entries with another's mtime.
+
+    The real index is read only as a regular file, and the copy is a new file
+    (O_EXCL, O_NOFOLLOW): this runs outside git's time limit, and a FIFO in
+    the index's place had held a diff, and with it the file pool and the
+    conversation service's close(), until a writer came (review of aa41312).
+    Anything but a regular file there is no index to copy.
     """
     real = _git(workdir, "rev-parse", "--git-path", "index", optional=True,
                 timeout_s=timeout_s)
@@ -179,11 +186,14 @@ def _seed_index(workdir: str | Path, index: Path, *,
         return False
     source = Path(real) if os.path.isabs(real) else Path(workdir) / real
     try:
-        with open(source, "rb") as reader, open(index, "wb") as writer:
+        out = os.open(index, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        with open(out, "wb") as writer, open_regular(source) as reader:
             stat = os.fstat(reader.fileno())
             shutil.copyfileobj(reader, writer)
-        os.utime(index, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            writer.flush()
+            os.utime(writer.fileno(), ns=(stat.st_atime_ns, stat.st_mtime_ns))
     except OSError:
+        index.unlink(missing_ok=True)
         return False
     return True
 

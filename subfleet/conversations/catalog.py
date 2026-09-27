@@ -19,6 +19,7 @@ One that stops publishing for either reason says so in its exit status
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import functools
 import json
@@ -47,6 +48,11 @@ OWNER_GONE = 3
 #: made (a descriptor never passed, or one a standard-stream redirect replaced), so it
 #: cannot tell whether that owner is open, and writes nothing.
 FENCE_BROKEN = 4
+#: How often, and how far apart, a run tries for `catalog.lock` before it leaves the
+#: catalog to the run holding it (`_take_lock`): a reader's probe (`refresh_running`)
+#: holds the lock for microseconds, and a run that met one had given up at once.
+LOCK_TRIES = 40
+LOCK_RETRY_S = 0.025
 #: Why a run stopped publishing, by its exit status, for its owner's log.
 DECLINED = {OWNER_GONE: "it found its owner gone (the fence closed, or the state root removed or replaced)",
             FENCE_BROKEN: "its fence descriptor was not the pipe it was given"}
@@ -266,18 +272,27 @@ def _cached(cache: dict, fresh: dict, path: Path, reader, started: float, wall_s
     return record
 
 
-def _codex_names(home: Path, opener=transcripts.open_regular) -> dict[str, str]:
+#: The most of Codex's `session_index.jsonl` read (it had been read whole).
+INDEX_MAX = 64 * 1024 * 1024
+
+
+def _codex_names(home: Path, opener=transcripts.open_regular, only: str | None = None) -> dict[str, str]:
+    """Codex's thread names, scrubbed, from the first `INDEX_MAX` of its index. With
+    `only`, the one thread's: a line that does not name it is not parsed or
+    scrubbed (a 200,000-row index had taken 100 s to scrub for one name)."""
     names: dict[str, str] = {}
+    wanted = only.lower().encode() if only else None
     try:
-        with opener(home / "session_index.jsonl", "r") as stream:
-            index = stream.read()
-        for raw in index.splitlines():
-            try:
-                row = json.loads(raw)
-            except ValueError:
-                continue
-            if row.get("id") and row.get("thread_name"):
-                names[row["id"]] = scrub(row["thread_name"])[:200]
+        with opener(home / "session_index.jsonl", "rb") as stream:
+            for raw in transcripts.capped_lines(stream, INDEX_MAX):
+                if wanted is not None and wanted not in raw.lower():
+                    continue
+                try:
+                    row = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and row.get("id") and row.get("thread_name"):
+                    names[row["id"]] = scrub(row["thread_name"])[:200]
     except OSError:
         pass
     return names
@@ -464,7 +479,8 @@ def _load(path: Path) -> tuple[dict, str]:
     if hit and hit[0] == identity:
         return hit[1], hit[2]
     try:
-        catalog, state = json.loads(path.read_text()), "fresh"
+        with transcripts.open_regular(path, "r") as stream:     # a FIFO here is unreadable, at once
+            catalog, state = json.loads(stream.read()), "fresh"
     except FileNotFoundError:
         return {}, "absent"
     except (OSError, ValueError):
@@ -534,14 +550,16 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
 
 def refresh_running(root: Path) -> bool | None:
     """Whether a catalog run holds the lock now; None when the lock cannot be read.
-    A non-blocking probe: it never waits for a run."""
+    A non-blocking probe: it never waits for a run. It takes the lock shared, so
+    probes never exclude each other: one probe had read another (a list, and the
+    tick about to start a run) as a run, and no run started for an interval."""
     lock = Path(root) / "catalog.lock"
     try:
-        fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
+        fd = transcripts.lock_fd(lock)
     except OSError:
         return None
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
         fcntl.flock(fd, fcntl.LOCK_UN)
         return False
     except BlockingIOError:
@@ -586,7 +604,7 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
         record = _codex_record(matches[0])
         if lane_id is None:
             return {"continuable": False, "continue_blocker": "codex-app thread: continue by handoff"}
-        return {"cwd": record.get("cwd"), "title": _codex_names(Path.home() / ".codex").get(session_id)
+        return {"cwd": record.get("cwd"), "title": _codex_names(Path.home() / ".codex", only=session_id).get(session_id)
                 or record.get("first_prompt"), "model_value": record.get("model") or "",
                 "permission": "read-only", "continuable": True, "lane_id": lane_id}
     return None
@@ -664,12 +682,10 @@ def main(argv: list[str] | None = None) -> int:
         return OWNER_GONE                   # the service closed before the run began: touch nothing
     lock = args.state_root / "catalog.lock"
     try:
-        fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
+        fd = transcripts.lock_fd(lock)
     except FileNotFoundError:
         return OWNER_GONE                   # no state root, and a run never makes one
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+    if not _take_lock(fd):
         return 0                            # another run holds the lock, and writes the catalog
     lanes = []
     try:
@@ -683,6 +699,23 @@ def main(argv: list[str] | None = None) -> int:
     owner = Owner(args.state_root, fd, args.fence_fd)
     build(args.state_root, lanes=lanes, may_write=owner)
     return OWNER_GONE if owner.gone else 0
+
+
+def _take_lock(fd: int) -> bool:
+    """Take `catalog.lock` for this run, trying `LOCK_TRIES` times: a probe's shared
+    hold ends at once, a run's lasts the run."""
+    for attempt in range(LOCK_TRIES):
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if attempt + 1 < LOCK_TRIES:
+                _lock_wait()
+    return False
+
+
+def _lock_wait() -> None:
+    time.sleep(LOCK_RETRY_S)
 
 
 def _terminated(signum, frame):

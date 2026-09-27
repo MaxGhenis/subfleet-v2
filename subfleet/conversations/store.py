@@ -10,11 +10,13 @@ request ids (`turn:<message id>:<n>`) whenever it is missing.
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import json
 import os
 import secrets
 import sqlite3
+import stat
 import threading
 import time
 import uuid
@@ -23,11 +25,14 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..lockwatch import WatchedLock
+from ..sessions.transcripts import NotRegularFile, read_regular
 from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
 EVENT_ROW_MAX = 64 * 1024
+#: A message's text, in UTF-8 bytes (C-24.3, `LIMITS['message_bytes']`).
+TEXT_MAX = 1_048_576
 PAGE_BYTES = 256 * 1024
 # Streamed fragments a settled turn no longer needs: its `text` and `thinking`
 # events carry the whole of each (design §3).
@@ -363,6 +368,11 @@ class ConversationStore:
         if self._closed:
             raise ConversationError("store-closed", "the conversation store is closed", code=1)
 
+    def check_open(self) -> None:
+        """Raise `store-closed` once the store has closed: for a write elsewhere
+        (the main store) that must end with this store, as a runner's own do."""
+        self._open()
+
     @contextlib.contextmanager
     def writing(self) -> Iterator[None]:
         """Hold the store open across a write of files under the state root: close()
@@ -548,7 +558,7 @@ class ConversationStore:
                                           *({**m, "origin": "person"} for m in moves)]):
                 message_id = canonical_uuid(item["message_id"])
                 text = item["text"]
-                if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
+                if not isinstance(text, str) or len(text.encode("utf-8")) > TEXT_MAX:
                     raise ConversationError("bad-text", "a handed-off message must be text of at most 1 MiB")
                 digest = message_digest(cid, text, list(item["attachments"]), settings)
                 path = self.dir / cid / "messages" / f"{message_id}.{digest[:16]}.md"
@@ -817,7 +827,7 @@ class ConversationStore:
             after_message_id = canonical_uuid(after_message_id)
         conversation = self.conversation(conversation_id)
         settings = validate_settings(conversation["provider"], settings)
-        if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
+        if not isinstance(text, str) or len(text.encode("utf-8")) > TEXT_MAX:
             raise ConversationError("bad-text", "text must be a string of at most 1 MiB")
         if not text.strip() and not attachments:
             raise ConversationError("empty", "a message needs text or an attachment")
@@ -883,7 +893,7 @@ class ConversationStore:
         message_id = canonical_uuid(message_id)
         if state not in TERMINAL_STATES:
             raise ConversationError("not-terminal", f"legacy history is terminal; {state!r} is not")
-        if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
+        if not isinstance(text, str) or len(text.encode("utf-8")) > TEXT_MAX:
             raise ConversationError("bad-text", "text must be a string of at most 1 MiB")
         if not isinstance(settings, dict):
             raise ConversationError("bad-settings", "settings must be an object")
@@ -924,10 +934,16 @@ class ConversationStore:
         return self.message(message_id), True
 
     def message(self, message_id: str) -> dict:
-        row = self.one("SELECT * FROM messages WHERE message_id=?", (message_id,))
-        if row is None:
+        message = self.find_message(message_id)
+        if message is None:
             raise ConversationError("unknown-message", f"no message {message_id}")
-        return _decode_message(row)
+        return message
+
+    def find_message(self, message_id: str) -> dict | None:
+        """The message, or None when the store has none by that id. Any other
+        refusal (`store-closed`) is raised: it says nothing of the message."""
+        row = self.one("SELECT * FROM messages WHERE message_id=?", (message_id,))
+        return None if row is None else _decode_message(row)
 
     def messages(self, conversation_id: str, *, limit: int = 50) -> list[dict]:
         rows = self.query("SELECT * FROM messages WHERE conversation_id=? ORDER BY seq DESC LIMIT ?",
@@ -935,7 +951,11 @@ class ConversationStore:
         return [_decode_message(r) for r in reversed(rows)]
 
     def message_text(self, message: dict) -> str:
-        return Path(message["text_path"]).read_text(encoding="utf-8")
+        """The message's text as published (C-24.3), read only as a regular file of
+        at most 1 MiB: a FIFO there had held `conversation.open` and a handoff in
+        open() (review of aa41312)."""
+        text = read_regular(message["text_path"], TEXT_MAX).decode("utf-8")
+        return text.replace("\r\n", "\n").replace("\r", "\n")      # as `read_text` gave it
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,
                   expect: tuple[str, ...] | None = None, unbound: bool = False,
@@ -1305,7 +1325,10 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
     path = Path(root) / "conversations.sqlite3"
     open_marks, live_marks = ",".join("?" * len(_OPEN_STATES)), ",".join("?" * len(LIVE_STATES))
     try:
-        path.stat()
+        if not stat.S_ISREG(path.stat().st_mode):
+            # SQLite opens it by name and would wait in open() on a FIFO, holding the
+            # timers' worker that `Timers.stop()` waits for.
+            raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
         db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=timeout_s,
                              isolation_level=None)
     except FileNotFoundError:

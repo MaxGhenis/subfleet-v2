@@ -102,7 +102,9 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -349,22 +351,58 @@ def _read_entry(path: Path) -> bytes:
         return stream.read()
 
 
-def _copy_regular(source: str | Path, destination: Path) -> os.stat_result:
-    """Copy `source`'s bytes into a new file at `destination`, reading `source`
-    only as a regular file; returns `source`'s status as read.
+def _copy_regular(source: str | Path, out) -> os.stat_result:
+    """Copy `source`'s bytes into the open file `out`, reading `source` only as a
+    regular file; returns `source`'s status as read.
 
     shutil refused a FIFO only by a stat before its own open(), and copied a
     device (see `_load`).
     """
-    with transcripts.open_regular(source) as stream, open(destination, "wb") as out:
+    with transcripts.open_regular(source) as stream:
         shutil.copyfileobj(stream, out)
         return os.fstat(stream.fileno())
 
 
-def _temporary(path: Path) -> Path:
-    # Never `*.json` or `*.json.tmp`: the app lists the first and promotes the
-    # second on load.
-    return path.with_name(path.name + ".tmp-subfleet")
+#: The end of every temporary the mirror makes beside a record. Never `*.json`
+#: or `*.json.tmp`: the app lists the first and promotes the second on load.
+TEMPORARY_SUFFIX = ".tmp-subfleet"
+#: A temporary older than this is a pass's leftover (a daemon killed mid-write),
+#: which a sweep removes; a write finishes with its temporary in well under it.
+TEMPORARY_STALE_S = 3600
+
+
+def _temporary(path: Path, suffix: str = TEMPORARY_SUFFIX) -> tuple[int, Path]:
+    """A new file beside `path` for its next version: `(descriptor, name)`.
+
+    Made with O_CREAT | O_EXCL | O_NOFOLLOW under a name no one else holds
+    (`tempfile.mkstemp`), so it never opens what already stands there: a FIFO
+    at the fixed name the mirror had used blocked the write's open() (a revival
+    held `Timers.stop()` that way), and a symlink there was followed. The write,
+    its times and its fsync all go through the one descriptor; nothing reopens
+    the name (reviews of 8172685)."""
+    fd, name = tempfile.mkstemp(prefix=f"{path.name}.", suffix=suffix, dir=path.parent)
+    return fd, Path(name)
+
+
+def _same_file(temporary: Path, inode: int) -> None:
+    """Raise unless `temporary` still names the regular file the write made."""
+    info = os.lstat(temporary)
+    if not stat.S_ISREG(info.st_mode) or info.st_ino != inode:
+        raise transcripts.NotRegularFile(errno.EINVAL, "not the file the write made", str(temporary))
+
+
+def _remove_leftovers(paths: Iterable[str]) -> None:
+    """Remove temporaries of the mirror's that a killed pass left behind: made
+    under names of their own (`_temporary`), they are not reused. Only one whose
+    status last changed `TEMPORARY_STALE_S` ago: a write in flight (another state
+    root's mirror, say) set its times moments ago, which changes its ctime."""
+    now = time.time()
+    for path in paths:
+        try:
+            if now - os.lstat(path).st_ctime > TEMPORARY_STALE_S:
+                os.unlink(path)
+        except OSError:
+            pass
 
 
 def _signature_of(path: str | Path) -> tuple[int, ...]:
@@ -373,18 +411,22 @@ def _signature_of(path: str | Path) -> tuple[int, ...]:
 
 
 def _install(temporary: Path, destination: Path, *, expect: tuple[int, ...] | None,
-             exclusive: bool) -> bool:
+             exclusive: bool, inode: int | None = None) -> bool:
     """Put a finished temporary file in place; False if the destination moved.
 
     `exclusive` is create-only: a hard link fails if the name was taken since
     the pass looked, so a file the app just created is never replaced.
     `expect` is the signature the pass decided on; the destination is re-read
     right before the rename, which narrows the window in which an app save can
-    be lost to the rename itself.
+    be lost to the rename itself. `inode` is the temporary the write made: a
+    name that holds anything else by now (a FIFO put there) is never put in
+    place (`_same_file`).
     """
+    if inode is not None:
+        _same_file(temporary, inode)
     if exclusive:
         try:
-            os.link(temporary, destination)
+            os.link(temporary, destination, follow_symlinks=False)
         except FileExistsError:
             temporary.unlink()
             return False
@@ -420,22 +462,17 @@ def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
             stamp = path.stat().st_mtime
         except OSError:
             stamp = None
-    temporary = _temporary(path)
+    handle, temporary = _temporary(path)
     try:
-        temporary.unlink()
-    except FileNotFoundError:
-        pass
-    handle = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        with open(handle, "w", encoding="utf-8") as stream:
             stream.write(json.dumps(value, separators=(",", ":"), ensure_ascii=False))
+            stream.flush()
+            if stamp is not None:
+                os.utime(stream.fileno(), (stamp, stamp))
             if sync:                           # a record the app loads: as it does
-                stream.flush()
                 os.fsync(stream.fileno())
-        if stamp is not None:
-            os.utime(temporary, (stamp, stamp))
-        inode = os.stat(temporary).st_ino
-        if not _install(temporary, path, expect=expect, exclusive=exclusive):
+            inode = os.fstat(stream.fileno()).st_ino
+        if not _install(temporary, path, expect=expect, exclusive=exclusive, inode=inode):
             return None
     except BaseException:
         try:
@@ -455,22 +492,16 @@ def _copy_entry(source: Path, destination: Path, *, expect: tuple[int, ...] | No
     one step. Returns the inode, or None when the destination changed (see
     `_install`).
     """
-    temporary = _temporary(destination)
+    handle, temporary = _temporary(destination)
     try:
-        temporary.unlink()
-    except FileNotFoundError:
-        pass
-    try:
-        info = _copy_regular(source, temporary)
-        os.utime(temporary, ns=(info.st_atime_ns, info.st_mtime_ns))   # as copy2 did
-        os.chmod(temporary, 0o600)
-        handle = os.open(temporary, os.O_RDONLY)
-        try:
-            os.fsync(handle)                   # as the app does before its rename
-        finally:
-            os.close(handle)
-        inode = os.stat(temporary).st_ino
-        if not _install(temporary, destination, expect=expect, exclusive=exclusive):
+        with open(handle, "wb") as out:
+            info = _copy_regular(source, out)
+            out.flush()
+            os.utime(out.fileno(), ns=(info.st_atime_ns, info.st_mtime_ns))   # as copy2 did
+            os.fchmod(out.fileno(), 0o600)
+            os.fsync(out.fileno())             # as the app does before its rename
+            inode = os.fstat(out.fileno()).st_ino
+        if not _install(temporary, destination, expect=expect, exclusive=exclusive, inode=inode):
             return None
     except BaseException:
         try:
@@ -691,7 +722,7 @@ class Mirror:
         #: Folders this process wrote into or found busy; re-listed next pass.
         self._dirty: set[Path] = set()
         #: `<project dir> -> (st_mtime_ns, {stem: transcript})`, depth one.
-        self._stem_dirs: dict[str, tuple[int, dict[str, Path]]] = {}
+        self._stem_dirs: dict[str, tuple[int, dict[str, Path], frozenset[str]]] = {}
         #: The last full pass's `<session id> -> transcript`.
         self._stems: dict[str, Path] = {}
         self._archive: tuple[str, float, dict[str, tuple[int, Path]], frozenset[str]] | None = None
@@ -962,6 +993,11 @@ class Mirror:
         the deeper `.jsonl` files are subagent logs (34k of them on 2026-09-24,
         none named like a session). A project directory is re-listed only when
         its mtime moved, which creating or pruning a transcript always does.
+        Only a regular file is a transcript. A listing kept since then still
+        names the same files, but a transcript that is a symlink can name
+        something else by now, its target replaced where it lives: each such
+        link is checked again on every call (reviews of 8172685), where a FIFO
+        it had come to name had been spread as a transcript.
         """
         stems: dict[str, Path] = {}
         base = projects_dir()
@@ -982,14 +1018,25 @@ class Mirror:
                 continue
             cached = self._stem_dirs.get(directory)
             if sweep or cached is None or cached[0] != mtime:
+                found, links, leftovers = {}, set(), []
                 try:
                     with os.scandir(directory) as listing:
-                        found = {item.name[:-6]: Path(item.path) for item in listing
-                                 if item.name.endswith(".jsonl") and item.is_file()}
+                        for item in listing:
+                            if item.name.endswith(".jsonl") and item.is_file():
+                                found[item.name[:-6]] = Path(item.path)
+                                if item.is_symlink():
+                                    links.add(item.name[:-6])
+                            elif sweep and item.name.endswith(".tmp-revive"):
+                                leftovers.append(item.path)
                 except OSError:
-                    found = {}
-                cached = self._stem_dirs[directory] = (mtime, found)
-            stems.update(cached[1])
+                    found, links = {}, set()
+                _remove_leftovers(leftovers)
+                self._stem_dirs[directory] = (mtime, found, frozenset(links))
+                stems.update(found)
+                continue
+            listed, links = cached[1], cached[2]
+            stems.update(listed if not links else
+                         {stem: path for stem, path in listed.items() if stem not in links or path.is_file()})
         for directory in list(self._stem_dirs):
             if directory not in seen:
                 del self._stem_dirs[directory]
@@ -1053,8 +1100,13 @@ class Mirror:
             with os.scandir(path) as listing:
                 # The same ~1.8k names recur in every folder; interned, the
                 # folders' listings share one string per name.
-                found = sorted((sys.intern(item.name), item.inode()) for item in listing
-                               if item.name.startswith("local_") and item.name.endswith(".json"))
+                found, leftovers = [], []
+                for item in listing:
+                    if item.name.startswith("local_") and item.name.endswith(".json"):
+                        found.append((sys.intern(item.name), item.inode()))
+                    elif sweep and item.name.endswith(TEMPORARY_SUFFIX):
+                        leftovers.append(item.path)
+                found.sort()
         except OSError as exc:
             # Unknown is not empty: an empty view would hide every session the
             # folder holds and invite copies over them. List it again next pass.
@@ -1062,6 +1114,7 @@ class Mirror:
             transient = not (isinstance(exc, FileNotFoundError) or _permanent(exc))
             raise _Unlisted(str(path), transient=transient) from exc
         self._dirty.discard(path)
+        _remove_leftovers(leftovers)
         previous = state.names if state is not None else frozenset()
         files: dict[str, dict] = {}
         ids: dict[str, list[str]] = {}
@@ -1360,16 +1413,48 @@ class Mirror:
                     continue
                 try:
                     destination.parent.mkdir(parents=True, exist_ok=True)
-                    temporary = destination.with_name(destination.name + ".tmp-revive")
-                    _copy_regular(source[1], temporary)
-                    os.replace(temporary, destination)
-                    stamp = self.now().timestamp()
-                    os.utime(destination, (stamp, stamp))   # cleanup cannot insta-prune
+                    placed = self._revive(source[1], destination)
                 except OSError:
+                    continue
+                if not placed:                  # a transcript appeared since the check: another writer's
+                    if destination.is_file():
+                        stems[identity] = destination
                     continue
             stems[identity] = destination
             revived += 1
         return revived
+
+    def _revive(self, source: Path, destination: Path) -> bool:
+        """Copy an archived transcript to `destination` if nothing stands there;
+        False if something does. The copy is a new file of its own (`_temporary`),
+        stamped now so cleanup cannot prune it at once, and put in place create-only
+        (a hard link): a transcript written after the pass looked is never
+        replaced, where `os.replace` had overwritten it."""
+        handle, temporary = _temporary(destination, ".tmp-revive")
+        try:
+            with open(handle, "wb") as out:
+                _copy_regular(source, out)
+                out.flush()
+                stamp = self.now().timestamp()
+                os.utime(out.fileno(), (stamp, stamp))
+                os.fsync(out.fileno())             # whole before it is anyone's transcript
+                inode = os.fstat(out.fileno()).st_ino
+            _same_file(temporary, inode)
+            try:
+                os.link(temporary, destination, follow_symlinks=False)
+            except FileExistsError:
+                return False
+            except OSError as exc:
+                if exc.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK):
+                    raise
+                # A filesystem without hard links: renamed after a fresh look, which
+                # leaves the one race `os.replace` had, never replacing what is there.
+                if os.path.lexists(destination):
+                    return False
+                os.rename(temporary, destination)
+            return True
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def sync_flags(self, folder_files: dict[Path, dict[str, dict]],
                    stems: dict[str, Path], options: Options,
@@ -1744,7 +1829,9 @@ class Mirror:
         stream = None
         try:
             self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
-            stream = path.open("a")
+            # Never waiting in open(): a FIFO at the lock's name had held the pass,
+            # and the timers' worker that `Timers.stop()` waits for.
+            stream = open(transcripts.lock_fd(path), "a")
             fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             if stream is not None:
@@ -1767,6 +1854,12 @@ class Mirror:
             return
         sweep = self._sweep_due()
         current.swept = sweep
+        if sweep:                               # the mirror's own state files' leftovers too
+            try:
+                with os.scandir(self.dir) as listing:
+                    _remove_leftovers([item.path for item in listing if item.name.endswith(TEMPORARY_SUFFIX)])
+            except OSError:
+                pass
         self._checkpoint(current, "finding transcripts")
         stems = self.transcript_stems(current, sweep=sweep)
 

@@ -67,22 +67,108 @@ class NotRegularFile(OSError):
     """A path handed to a reader names something other than a regular file."""
 
 
-def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
-    """Open `path` for reading only if it is a regular file, and never block in
-    open(). A FIFO named where a transcript or rollout belongs made open() wait for
-    a writer, so a file op held there held the conversation service's close() for
-    good (reviews of 39223c9). O_NONBLOCK lets open() return whatever the path is;
-    the descriptor's own type then decides, so the file checked is the file read.
-    Anything else raises `NotRegularFile`, an OSError, as a missing file would."""
+def regular_fd(path: str | Path) -> int:
+    """A read-only descriptor for `path` only if it is a regular file, opened
+    without blocking.
+
+    O_NONBLOCK lets open() return whatever the path is, so a FIFO with no writer
+    never holds it; the descriptor's own type then decides, so the file checked
+    is the file used. Anything else raises `NotRegularFile`, an OSError, as a
+    missing file would, with nothing left open. A socket fails in open() itself,
+    with its own OSError. O_NONBLOCK bounds only that rendezvous: a read from a
+    stalled filesystem can still wait (C-25.3)."""
     fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
         fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
-        return os.fdopen(fd, mode, **kwargs)
     except BaseException:
         os.close(fd)
         raise
+    return fd
+
+
+def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
+    """Open `path` for reading, as `open` would, only if it is a regular file, and
+    never block in open() (`regular_fd`). A FIFO named where a transcript or
+    rollout belongs made open() wait for a writer, so a file op held there held
+    the conversation service's close() for good (reviews of 39223c9).
+
+    `open` owns the descriptor from the moment `regular_fd` returns it, and
+    closes it itself if building the stream fails (an unknown encoding, say):
+    the helper had closed it a second time, which could close a descriptor
+    another thread had just been given (review of aa41312)."""
+    if mode not in ("r", "rb", "rt") or {"opener", "closefd"} & set(kwargs):
+        raise ValueError(f"open_regular reads only, with its own descriptor: mode {mode!r}, {sorted(kwargs)}")
+    return open(path, mode, opener=lambda name, flags: regular_fd(name), **kwargs)
+
+
+def lock_fd(path: str | Path) -> int:
+    """A lock file opened for flock, made if missing, never waiting in open():
+    anything but a regular file there (a FIFO with no reader had held open())
+    raises OSError. The descriptor is the caller's to close."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+class TooLarge(OSError):
+    """A file handed to `read_regular` is longer than the reader's cap."""
+
+
+def read_regular(path: str | Path, limit: int | None = None) -> bytes:
+    """The bytes of `path`, a regular file (`open_regular`), never more than `limit`:
+    a longer file raises `TooLarge`, an OSError, having read `limit` + 1 bytes."""
+    with open_regular(path) as stream:
+        data = stream.read() if limit is None else stream.read(limit + 1)
+    if limit is not None and len(data) > limit:
+        raise TooLarge(errno.EFBIG, f"longer than {limit} bytes", str(path))
+    return data
+
+
+#: The most of one line a forward reader holds: a longer line is skipped, read in
+#: pieces. Readers had held a line of any length (review of aa41312).
+_LINE_MAX = _SCAN_MAX
+
+
+def capped_lines(stream, max_bytes: int, *, max_line: int = _LINE_MAX) -> Iterator[bytes]:
+    """The lines of the binary `stream` from where it stands, reading at most
+    `max_bytes` in all: a reader that scans for something (a first task, a
+    prompt) stops there rather than reading a file of any size. A line longer
+    than `max_line` is skipped, read in pieces rather than held; the last line
+    comes without its newline if it has none (one byte past the budget is read to
+    see that the file ends there)."""
+    read = 0
+    while read < max_bytes:
+        limit = min(max_line + 1, max_bytes - read)
+        line = stream.readline(limit)
+        if not line:
+            return
+        read += len(line)
+        if line.endswith(b"\n"):
+            yield line
+        elif len(line) < limit:
+            yield line                      # the last line, with no newline
+            return
+        elif limit <= max_line:
+            if not stream.read(1):
+                yield line                  # the budget ends where the file does
+            return                          # the budget ends inside this line
+        else:
+            while read < max_bytes:         # longer than a reader holds: skipped
+                rest = stream.readline(min(_TAIL_BYTES, max_bytes - read))
+                if not rest:
+                    return
+                read += len(rest)
+                if rest.endswith(b"\n"):
+                    break
+
+
 _MAIN_ENTRY_LIMIT = 12
 _MODE_RE = re.compile(rb'"permissionMode"\s*:\s*"([A-Za-z]+)"')
 
@@ -207,31 +293,48 @@ def lines_reversed_with_offsets(path: Path, *, chunk: int = _TAIL_BYTES, max_byt
         return
 
 
-def lines_forward_with_offsets(path: Path, start: int, max_bytes: int) -> Iterator[tuple[int, str]]:
+def lines_forward_with_offsets(path: Path, start: int, max_bytes: int, *,
+                               max_line: int = _LINE_MAX) -> Iterator[tuple[int, str]]:
     """The non-blank lines that start at or after `start` (a line's start) and
-    before `start + max_bytes`, oldest first, each with its byte offset."""
+    before `start + max_bytes`, oldest first, each with its byte offset. A line
+    longer than `max_line` is skipped, read in pieces no further than the
+    window's end, so at most `max_bytes` + `max_line` is read."""
     try:
         with open_regular(path) as stream:
             stream.seek(max(0, start))
             offset = max(0, start)
-            for raw in stream:
-                if offset >= start + max_bytes:
+            end = offset + max_bytes
+            while offset < end:
+                raw = stream.readline(max_line + 1)
+                if not raw:
                     return
-                if raw.strip():
-                    yield offset, raw.rstrip(b"\r\n").decode("utf-8", "replace")
                 offset += len(raw)
+                if len(raw) > max_line and not raw.endswith(b"\n"):
+                    while offset < end:     # longer than a reader holds: skipped
+                        rest = stream.readline(min(_TAIL_BYTES, end - offset))
+                        if not rest:
+                            return
+                        offset += len(rest)
+                        if rest.endswith(b"\n"):
+                            break
+                    continue
+                if raw.strip():
+                    yield offset - len(raw), raw.rstrip(b"\r\n").decode("utf-8", "replace")
     except OSError:
         return
 
 
-def line_start(path: Path, offset: int, *, chunk: int = _TAIL_BYTES) -> int:
+def line_start(path: Path, offset: int, *, chunk: int = _TAIL_BYTES, max_bytes: int | None = None) -> int:
     """The byte offset where the line holding byte `offset` starts (0 for the first
-    line), found by scanning back for the newline before it."""
+    line), found by scanning back for the newline before it. With `max_bytes`, no
+    further back than that: a line that starts further back is cut there, and
+    `offset - max_bytes` is returned."""
+    floor = 0 if max_bytes is None else max(0, offset - max_bytes)
     try:
         with open_regular(path) as stream:
             end = max(0, offset)
-            while end > 0:
-                start = max(0, end - chunk)
+            while end > floor:
+                start = max(floor, end - chunk)
                 stream.seek(start)
                 block = stream.read(end - start)
                 at = block.rfind(b"\n")
@@ -239,8 +342,8 @@ def line_start(path: Path, offset: int, *, chunk: int = _TAIL_BYTES) -> int:
                     return start + at + 1
                 end = start
     except OSError:
-        pass
-    return 0
+        return 0
+    return floor
 
 
 def blocks(message: Any) -> list[dict[str, Any]]:
@@ -415,7 +518,7 @@ def fingerprint(transcript: str | Path | None) -> tuple[Any, Any] | None:
 
 
 def headless_transcript(transcript: str | Path | None, *,
-                        max_lines: int = 5000) -> bool:
+                        max_lines: int = 5000, max_bytes: int = _SCAN_MAX) -> bool:
     """True for a `claude -p` (SDK) run — a lane run, a probe, or a one-shot.
 
     C-23.31: a headless lane run is not a session. Measured in v1 on 2026-09-04
@@ -433,12 +536,12 @@ def headless_transcript(transcript: str | Path | None, *,
     text_prompts = 0
     first: str | None = None
     try:
-        with open_regular(path, "r", encoding="utf-8", errors="replace") as stream:
-            for index, line in enumerate(stream):
+        with open_regular(path) as stream:
+            for index, line in enumerate(capped_lines(stream, max_bytes)):
                 if index >= max_lines:
                     break
                 try:
-                    entry = json.loads(line)
+                    entry = json.loads(line.decode("utf-8", "replace"))
                 except ValueError:
                     continue
                 if not isinstance(entry, dict) or entry.get("type") != "user" or entry.get("isMeta"):

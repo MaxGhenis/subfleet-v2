@@ -685,3 +685,42 @@ def test_c16_3_handoff_says_whether_it_minted_the_request_id(home, repo, policy,
                     stage_prompt=lambda text: (staged.write_text(text, encoding="utf-8"), staged)[1],
                     workdir=repo, request_id=request_id, **extra)
     assert daemon.minted == [minted]
+
+
+def test_a_bounded_read_is_bounded_by_the_file_it_reads(tmp_path, monkeypatch):
+    """C-25.3 (review of aa41312, finding 2): `_read_bounded` (a workspace's
+    PROGRESS.md) took the size from a stat of the path, then read the file it opened
+    whole when that size was small: a file that grew between the two was read
+    whole. The size is the open file's, and the read is capped either way."""
+    from subfleet.sessions import handoff as handoff_module
+    path = tmp_path / "PROGRESS.md"
+    path.write_text("head\n")
+    grew = []
+    real_open = handoff_module.transcripts.open_regular
+
+    class Growing:
+        """The file as opened, which grows by 400 KB before its first read."""
+
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.stream.close()
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def read(self, *args):
+            if not grew:
+                with path.open("a") as more:
+                    more.write("a" * 400_000)
+                grew.append(True)
+            return self.stream.read(*args)
+
+    monkeypatch.setattr(handoff_module.transcripts, "open_regular", lambda *a, **kw: Growing(real_open(*a, **kw)))
+    text = handoff_module._read_bounded(path, max_bytes=1_000)
+    assert grew, "the file never grew: the test checked nothing"
+    assert len(text) <= 1_000 + len("\n... [middle omitted] ...\n"), len(text)

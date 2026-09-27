@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .base import Adapter, AdapterError
 from ..guardian import atomic_publish
+from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
 from ..contracts import (
     Attestation, AttestationResult, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, GUESSED_CLOSURE_S, JobSpec, Lane, LaneInfo, Launch, Outcome,
@@ -104,7 +105,9 @@ def _claims(token: object) -> dict:
 
 def _read_auth(home: Path) -> dict:
     try:
-        raw = json.loads((home / "auth.json").read_bytes())
+        # A lane's or the desktop's login, read by the timers and at enrollment: only
+        # as a regular file, never waiting in open() (Timers.stop() waits for them).
+        raw = json.loads(read_regular(home / "auth.json"))
     except (OSError, ValueError):
         return {}
     return raw if isinstance(raw, dict) else {}
@@ -140,9 +143,10 @@ def _identity(raw: dict) -> dict:
 
 
 def _events(path: Path) -> Iterator[dict]:
-    """Stream complete JSONL records, tolerating truncated/malformed lines."""
+    """Stream complete JSONL records, tolerating truncated/malformed lines. Only a
+    regular file is read: a FIFO where a rollout or a stream belongs is none."""
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as stream:
+        with open_regular(path, "r", encoding="utf-8", errors="replace") as stream:
             for line in stream:
                 try:
                     event = json.loads(line)
@@ -150,7 +154,7 @@ def _events(path: Path) -> Iterator[dict]:
                     continue
                 if isinstance(event, dict):
                     yield event
-    except FileNotFoundError:
+    except (FileNotFoundError, NotRegularFile):
         return
 
 
@@ -470,7 +474,7 @@ class CodexAdapter(Adapter):
         env["SUBFLEET_JOB"] = attempt_id.rsplit("/", 1)[0]
         attempt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         sent_path = attempt_dir / "prompt.sent.md"
-        atomic_publish(sent_path, prompt_path.read_bytes())
+        atomic_publish(sent_path, read_regular(prompt_path))
         return Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
                       str(sent_path), str(attempt_dir / "stdout"), str(attempt_dir / "stderr"),
                       str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id)
@@ -498,10 +502,10 @@ class CodexAdapter(Adapter):
 
     def deliverable(self, attempt_dir: Path, launch: Launch, outcome: Outcome) -> bytes | None:
         try:
-            data = (attempt_dir / "last.md").read_bytes()
+            data = read_regular(attempt_dir / "last.md")
             if data.strip():
                 return data
-        except FileNotFoundError:
+        except (FileNotFoundError, NotRegularFile):
             pass
         last = None
         for event in _events(_stream_path(attempt_dir, launch)):
@@ -567,7 +571,7 @@ class CodexAdapter(Adapter):
             lane_id = launch.lane_id or launch.env_add.get("SUBFLEET_LANE_ID", "")
             if not lane_id:
                 try:
-                    lane_id = json.loads((attempt_dir / "start.json").read_bytes()).get("lane_id", "")
+                    lane_id = json.loads(read_regular(attempt_dir / "start.json")).get("lane_id", "")
                 except (OSError, ValueError, AttributeError):
                     pass
             closure = Closure(lane_id, scope, until,
@@ -595,8 +599,8 @@ class CodexAdapter(Adapter):
             # Resumes share a persistent rollout. The guardian's existing receipts
             # bound this invocation without adding another shared interface field.
             try:
-                start = json.loads((attempt_dir / "start.json").read_bytes())
-                end = json.loads((attempt_dir / "exit.json").read_bytes())
+                start = json.loads(read_regular(attempt_dir / "start.json"))
+                end = json.loads(read_regular(attempt_dir / "exit.json"))
                 started = _clock(start.get("started_at"))
                 finished = _clock(end.get("finished_at"))
                 if started and finished and started < finished:

@@ -25,6 +25,7 @@ from typing import Any, Callable
 
 from ..policy import CONVERSATION_DEFAULTS
 from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
+from ..sessions import transcripts
 from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
@@ -88,8 +89,11 @@ class TurnRunner:
                  on_contain: Callable[[str], None],
                  clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None,
-                 handover: threading.Lock | None = None):
+                 handover: threading.Lock | None = None, ended: bool = False):
         self.store = store
+        # A replay of an attempt the job store has ended (`ConversationService._replay_unsettled`):
+        # its provider is gone whether or not it left an exit receipt.
+        self.ended = ended
         self.attempt = attempt
         self.attempt_id = attempt["attempt_id"]
         self.spec = spec
@@ -143,12 +147,21 @@ class TurnRunner:
         self.handover_tried = False            # a send of the message frame whose answer was lost
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
+        self._stop_on_catch_up = False         # a replayed stop, sent once the replay has caught up (`_run`)
+        # The outcome an earlier runner for this attempt recorded (`turn.json`), if it
+        # reached one: a replay re-derives the outcome from stdout without what that
+        # runner knew, so the record is kept (review of the branch, 2026-09-27).
+        recorded = _read_json(self.adir / "turn.json")
+        self.recorded = recorded if isinstance(recorded, dict) and recorded.get("state") else None
 
     # --- lifecycle -------------------------------------------------------------
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, name=f"turn:{self.attempt_id}", daemon=True)
-        self._thread.start()
+        """Start the runner's thread; one that cannot start (`RuntimeError` at a
+        thread limit) raises, and the runner stays as if never started."""
+        thread = threading.Thread(target=self._run, name=f"turn:{self.attempt_id}", daemon=True)
+        thread.start()
+        self._thread = thread
 
     def stop(self) -> None:
         """End the loop after the iteration under way (the service's close())."""
@@ -189,24 +202,41 @@ class TurnRunner:
     def _run(self) -> None:
         try:
             message = self.store.message(self.message_id)
+            if self.sent.get("interrupt") == "written":
+                # Replay (C-26.6): an interrupt an earlier runner wrote reached the
+                # provider, so what followed it is read as that runner's driver read it.
+                self.driver.interrupted_earlier()
             if message.get("stop_requested_at"):
                 self.stop_at = self.clock()
                 # A person's stop that came before the message was handed over
                 # stands: the message is never written (C-24.7, IR-2).
                 self.withheld = self.withheld or "user-message" not in self.sent
+                if not self.withheld:
+                    # One that came after is this turn's stop too (D-13): a runner
+                    # adopted for it had sent no interrupt and settled the stopped
+                    # turn as failed. Its interrupt is sent once the replay has read
+                    # the stdout there is (below): a driver still behind the provider
+                    # would end a delivered turn as stopped before sending. A no-op
+                    # when one was written.
+                    self.stop_reason = self.stop_reason or "stopped"
+                    self._stop_on_catch_up = True
             self._apply(self.driver.start())
             if self.withheld:
                 self.stop_at = self.stop_at or self.clock()
                 self._apply(self.driver.interrupt())
             while not self._stopping.is_set():
                 progressed = self._read_stdout()
+                if self._stop_on_catch_up and not progressed:
+                    self._stop_on_catch_up = False
+                    self.commands.put(("interrupt",))
                 progressed |= self._drain_commands()
                 self._send_outbox()
                 self._timers()
                 if self._flush_due():
                     self._flush()
                 if self._process_gone():
-                    self._read_stdout()
+                    while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
+                        pass
                     if self.driver.outcome is None:
                         self._apply(self.driver.eof(self.offset))
                     self._flush()
@@ -231,18 +261,19 @@ class TurnRunner:
             return
         if isinstance(exc, ConversationError) and exc.reason == "store-closed":
             # Its service closed while it was still going: what it did not record, a
-            # runner a later daemon adopts for the attempt replays from stdout (C-26.6).
+            # later daemon's runner replays from stdout (C-26.6), whether it adopts the
+            # attempt live or replays it ended (`ConversationService._replay_unsettled`).
             self.log.info("turn runner %s stopped: its service closed", self.attempt_id)
         else:
             self.log.error("turn runner %s failed: %s: %s", self.attempt_id, type(exc).__name__, exc)
 
     def _process_gone(self) -> bool:
-        return (self.adir / "exit.json").exists()
+        return self.ended or (self.adir / "exit.json").exists()
 
     def _read_stdout(self) -> bool:
         path = self.adir / "stdout"
         try:
-            with open(path, "rb") as stream:
+            with transcripts.open_regular(path) as stream:      # a FIFO here fails the runner, never holds it
                 stream.seek(self.offset + len(self.partial))
                 chunk = stream.read(READ_CHUNK)
         except FileNotFoundError:
@@ -569,6 +600,17 @@ class TurnRunner:
         self.last_flush = self.clock()
 
     def _write_outcome(self) -> None:
+        recorded = self.recorded
+        if recorded is not None:
+            # A runner before this one reached the turn's outcome, with what only it
+            # knew (a withhold, a stop's reason, an idle settle): that record stands.
+            # Only what stdout said after the outcome (C-24.8) is added.
+            data = {**recorded, "terminal_after_end": bool(recorded.get("terminal_after_end"))
+                    or bool(getattr(self.driver, "terminal_after_end", False))}
+            from ..guardian import atomic_publish
+            with self.store.writing():
+                atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
+            return
         outcome = self.driver.outcome
         data = {**asdict(outcome), "served": self.served, "turn_id": getattr(self.driver, "turn_id", None),
                 "stop_reason": self.stop_reason, "final_text": self.final_text,
@@ -591,12 +633,13 @@ class TurnRunner:
             self.on_outcome(self)
 
     def _read_attachment(self, path: str) -> bytes:
-        # Images are read at frame time from the daemon's own copy (C-28.1).
-        return Path(path).read_bytes()
+        # Images are read at frame time from the daemon's own copy (C-28.1), only as
+        # a regular file of at most 20 MiB.
+        return transcripts.read_regular(path, attachment_store.MAX_BYTES)
 
 
 def _read_json(path: Path) -> dict | None:
     try:
-        return json.loads(path.read_bytes())
+        return json.loads(transcripts.read_regular(path))
     except (OSError, ValueError):
         return None

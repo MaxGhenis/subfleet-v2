@@ -39,6 +39,8 @@ import tempfile
 import time
 from typing import Any
 
+from ..sessions.transcripts import NotRegularFile, read_regular
+
 
 HOOK_KEY = "/<session-flags>/config.toml:pre_tool_use:0:0"
 HOOK_MATCHER = "Bash|apply_patch"
@@ -194,8 +196,10 @@ def load_guard(state_root: str | Path | None = None, *,
     hook, pin = guard_paths(state_root, hook_path=hook_path, trust_path=trust_path)
     try:
         hook, pin = hook.resolve(strict=True), pin.resolve(strict=True)
-        trust = json.loads(pin.read_text())
-        hook_bytes = hook.read_bytes()
+        # Only as regular files, never waiting in open(): a heal turn reads them on
+        # the timers' worker, a launch on the daemon's; both are waited for at close.
+        trust = json.loads(read_regular(pin).decode("utf-8"))
+        hook_bytes = read_regular(hook)
     except (OSError, RuntimeError) as exc:
         raise ValueError(f"guard file unreadable: {exc}") from None
     except (ValueError, UnicodeError):
@@ -244,8 +248,10 @@ def read_seed_files(home: str | Path | None) -> dict[str, bytes]:
     if home is not None:
         for name in SEED_FILES:
             path = Path(home) / name
-            if path.is_file():
-                seeds[name] = path.read_bytes()
+            try:
+                seeds[name] = read_regular(path)
+            except (FileNotFoundError, NotRegularFile):
+                continue                        # none there, as `is_file()` had said
     return seeds
 
 
@@ -306,7 +312,7 @@ def read_cached_verdict(directory: Path, key: str, *, now: datetime | None = Non
     """The marker for ``key`` when it is readable and younger than 30 days (C-23.5)."""
     path = _marker_path(directory, key)
     try:
-        marker = json.loads(path.read_bytes())
+        marker = json.loads(read_regular(path))
         verified_at = datetime.fromisoformat(marker["verified_at"])
     except (OSError, ValueError, KeyError, TypeError):
         return None

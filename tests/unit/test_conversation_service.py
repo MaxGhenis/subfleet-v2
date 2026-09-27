@@ -44,6 +44,7 @@ from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
 from subfleet.store import Store
 from tests import spellings
+from tests.nonblocking import run_child
 from tests.unit.test_conversation_handoff import handoff, world  # noqa: F401 (a fixture)
 from tests.unit.test_conversation_handoff import source as handoff_source
 
@@ -1161,9 +1162,26 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     root = svc.root
     future, go = held_file_op(svc, monkeypatch, tmp_path, repo, op)
     running_at_return = []
-    shutting = threading.Event()
+    shutdowns: list[dict] = []
     real_shutdown = svc.files.shutdown
-    monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (shutting.set(), real_shutdown(**kw))[1])
+    monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (shutdowns.append(kw), real_shutdown(**kw))[1])
+    # The op is let go only once close() waits for its thread: a signal before the
+    # pool's shutdown call let a shutdown that does not wait, reached late, pass
+    # (review of aa41312, finding 5).
+    joining = threading.Event()
+
+    class Watched:
+        def __init__(self, thread):
+            self.thread = thread
+
+        def join(self, timeout=None):
+            joining.set()
+            return self.thread.join(timeout)
+
+        def __getattr__(self, name):
+            return getattr(self.thread, name)
+
+    svc.files._threads = {Watched(thread) for thread in svc.files._threads}
 
     def owner():                            # as a daemon's owner does: close it, then remove its root
         svc.close()
@@ -1172,12 +1190,13 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
 
     closer = threading.Thread(target=owner)
     closer.start()
-    assert shutting.wait(30), "close() never reached the file pool"
-    closer.join(1.0)                        # a close() that does not wait has returned by now
+    until_true(lambda: joining.is_set() or not closer.is_alive(), "close() to wait for the op or return")
     go.set()
     closer.join(30)
     assert not closer.is_alive(), "close() did not return once the op had finished"
     problems = []
+    if not joining.is_set() or [kw.get("wait") for kw in shutdowns] != [True]:
+        problems.append(f"close() never waited for the file pool's threads: shutdown{shutdowns}")
     if running_at_return != [False]:
         problems.append(f"close() returned while {op} was still running")
     try:
@@ -1247,17 +1266,8 @@ CODEX_SETTINGS = {"model": "gpt-6-astra", "effort": None, "fast": False, "permis
                   "auto_continue": True}
 
 
-def release_fifo(path: Path) -> None:
-    """Let a reader blocked opening `path` go on (a writer opens it, then leaves)."""
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
-    except OSError:
-        return                              # no reader is waiting on it
-    os.close(fd)
-
-
 @pytest.mark.parametrize("op", ["conversation.history", "conversation.handoff", "conversation.open"])
-def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(svc, tmp_path, monkeypatch, op):
+def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(tmp_path, op):
     """C-25.3 (both reviews of 39223c9, finding 1): close() waits for the file ops
     already running, so one blocked for good held close() for good. A Codex thread
     whose rollout was a FIFO did that: `conversation.history`, or a handoff reading
@@ -1265,44 +1275,51 @@ def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(svc, tmp_path, mo
     opens a transcript or rollout only as a regular file, without ever blocking in
     open(): each op answers at once, and close() returns. `conversation.open` runs on
     the requests pool, which `Daemon.close()` waits for too; it reads the thread
-    through the catalog's record reader."""
-    monkeypatch.setenv("HOME", str(tmp_path / "user-home"))   # no real ~/.codex or ~/.claude
-    home = tmp_path / "codex-home"
-    thread = str(uuid.uuid4())
-    day = home / "sessions" / "2026" / "09" / "26"
-    day.mkdir(parents=True)
-    fifo = day / f"rollout-2026-09-26T00-00-00-{thread}.jsonl"
-    os.mkfifo(fifo)
-    svc.daemon.store.put_lane(Lane("codex-1", "codex", "codex:one", Credential("codex", str(home), "home"), str(home),
-                                   LaneOwner.V2, False))
-    if op == "conversation.open":
-        args = {"native": {"provider": "codex", "session_id": thread}}
-    else:
-        cid = svc.store.create_conversation(provider="codex", workspace=svc.test_workspace, workspace_kind="in-place",
-                                            settings=CODEX_SETTINGS, origin="native", native_session_id=thread,
-                                            lane_id="codex-1")[0]["conversation_id"]
-        args = ({"conversation_id": cid} if op == "conversation.history" else
-                {"request_id": "h-fifo", "from": {"conversation_id": cid},
-                 "to": {"provider": "claude", "settings": SETTINGS}})
-    requests = concurrent.futures.ThreadPoolExecutor(1)       # the fake daemon has no requests pool
-    future = (svc.pool_for(op) or requests).submit(svc.handle, op, args, None)
-    closer = threading.Thread(target=svc.close)
-    try:
+    through the catalog's record reader. In a child process (`tests.nonblocking`),
+    killed and reaped if it blocks (review of aa41312, finding 4: the one release
+    this test sent could come before the op reached open(), and miss it)."""
+    out = run_child(f"""
+        import concurrent.futures, json, os, uuid
+        from pathlib import Path
+        from subfleet.contracts import Credential, Lane, LaneOwner
+        from subfleet.conversations.store import ConversationError
+        from tests.unit import test_conversation_service as fx
+        tmp, op = Path({str(tmp_path)!r}), {op!r}
+        os.environ["HOME"] = str(tmp / "user-home")        # no real ~/.codex or ~/.claude
+        root = tmp / "state"
+        root.mkdir()
+        svc = fx.ConversationService(fx.FakeDaemon(root))
+        svc.test_workspace = str(tmp)
+        home = tmp / "codex-home"
+        thread = str(uuid.uuid4())
+        day = home / "sessions" / "2026" / "09" / "26"
+        day.mkdir(parents=True)
+        os.mkfifo(day / f"rollout-2026-09-26T00-00-00-{{thread}}.jsonl")
+        svc.daemon.store.put_lane(Lane("codex-1", "codex", "codex:one", Credential("codex", str(home), "home"),
+                                       str(home), LaneOwner.V2, False))
+        if op == "conversation.open":
+            args = {{"native": {{"provider": "codex", "session_id": thread}}}}
+        else:
+            cid = svc.store.create_conversation(provider="codex", workspace=str(tmp), workspace_kind="in-place",
+                                                settings=fx.CODEX_SETTINGS, origin="native", native_session_id=thread,
+                                                lane_id="codex-1")[0]["conversation_id"]
+            args = ({{"conversation_id": cid}} if op == "conversation.history" else
+                    {{"request_id": "h-fifo", "from": {{"conversation_id": cid}},
+                     "to": {{"provider": "claude", "settings": fx.SETTINGS}}}})
+        requests = concurrent.futures.ThreadPoolExecutor(1)    # the fake daemon has no requests pool
+        future = (svc.pool_for(op) or requests).submit(svc.handle, op, args, None)
         try:
-            outcome = future.result(10)
-        except concurrent.futures.TimeoutError:
-            pytest.fail(f"{op} was still blocked on the FIFO after 10 s")
+            outcome = future.result()
         except ConversationError as exc:
             outcome = exc.reason
-        closer.start()
-        closer.join(10)
-        assert not closer.is_alive(), "close() was held by the file op"
-    finally:
-        release_fifo(fifo)
-        if closer.is_alive():
-            closer.join(30)
+        svc.close()
         requests.shutdown(wait=True)
-    assert outcome is not None
+        svc.daemon.store.close()
+        print(json.dumps(outcome, default=repr))
+    """)
+    assert json.loads(out) is not None, out             # the op's answer, or its refusal
+
+
 # --- close() and the turn runners (C-25.3, C-26.6) ---------------------------------------
 
 INIT_OK = json.dumps({"type": "control_response", "response": {
@@ -1534,6 +1551,176 @@ def test_a_runner_adopted_while_close_runs_is_stopped_or_never_started(svc, monk
             runner.join(30)
 
 
+def test_a_runner_whose_thread_cannot_start_is_adopted_again_and_close_still_closes(svc, tmp_path, monkeypatch):
+    """C-25.3 (review of 4d3d3ea, F2): the control loop registers a runner, then starts
+    it. When its thread could not start (`RuntimeError` at a thread limit), the runner
+    stayed registered: never adopted again or finished, its job pinned for good, and
+    close() raised joining it, before the conversation store and the rest of
+    `Daemon.close()` were closed. Now such a runner is not kept: the next tick adopts
+    the turn again, and close() stops it and closes the store."""
+    aid = launched_turn(svc, tmp_path, [INIT_OK])
+    real_start = threading.Thread.start
+
+    def failing(self):
+        if self.name.startswith("turn:"):
+            raise RuntimeError("can't start new thread")
+        return real_start(self)
+
+    monkeypatch.setattr(threading.Thread, "start", failing)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        svc._adopt_runners()
+    assert aid not in svc.runners
+    # Nothing owns a stop meanwhile: the daemon's wall limit and a kill reach the
+    # attempt, where a dead runner kept registered answered True for good.
+    job_id = aid.rsplit("/", 1)[0]
+    assert svc.stop({"attempt_id": aid}, {"job_id": job_id}, "wall-limit") is False
+    monkeypatch.setattr(threading.Thread, "start", real_start)
+    svc._adopt_runners()                    # the next tick
+    runner = svc.runners[aid]
+    assert runner._thread is not None and runner._thread.ident is not None
+    svc.close()
+    assert runner._stopping.is_set() and runner.join(30)
+    with pytest.raises(ConversationError) as err:
+        svc.store.query("SELECT 1")
+    assert err.value.reason == "store-closed"
+
+
+def test_a_tick_step_close_overtook_is_logged_as_stopped_not_failed(svc, tmp_path, monkeypatch, caplog):
+    """C-25.3 (review of 4d3d3ea, F4): `Daemon.close()` waits only 2 s for the control
+    loop, so close() can return while `_adopt_runners` is still in its reads before the
+    lock (a writer check runs `ps`). Its next store read is refused, and the tick logged
+    that as a failed step at ERROR. It is the service closing, not a defect: it is
+    logged at info, and no runner is registered or started."""
+    svc.daemon.policy["conversations"]["catalog_interval_s"] = 0
+    aid = launched_turn(svc, tmp_path, [INIT_OK])
+    real = svc._writer_check
+
+    def closing(turn, adir):
+        closer = threading.Thread(target=svc.close)
+        closer.start()
+        closer.join(60)
+        assert not closer.is_alive()
+        return real(turn, adir)
+
+    monkeypatch.setattr(svc, "_writer_check", closing)
+    with caplog.at_level(logging.INFO, logger="test-conversations"):
+        svc.tick()
+    assert aid not in svc.runners
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert any(r.levelno == logging.INFO and "_adopt_runners stopped: the service closed" in r.getMessage()
+               for r in caplog.records), [r.getMessage() for r in caplog.records]
+
+
+def test_a_dispatch_close_overtook_is_logged_as_stopped_not_failed(svc, monkeypatch, caplog):
+    """C-25.3 (review of the branch): the dispatch step logs each message it could not
+    dispatch at ERROR, so close() landing after the step read its candidates logged
+    the refused store as a failed dispatch. The step ends, and the tick logs it at
+    info as stopped."""
+    svc.daemon.policy["conversations"]["catalog_interval_s"] = 0
+    cid = conversation(svc)
+    submit(svc, cid)
+    real = svc._dispatch_one
+
+    def closing(message):
+        closer = threading.Thread(target=svc.close)
+        closer.start()
+        closer.join(60)
+        assert not closer.is_alive()
+        return real(message)
+
+    monkeypatch.setattr(svc, "_dispatch_one", closing)
+    with caplog.at_level(logging.INFO, logger="test-conversations"):
+        svc.tick()
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert any("_dispatch stopped: the service closed" in r.getMessage() for r in caplog.records)
+
+
+def test_a_closed_store_is_never_read_as_a_message_the_daemon_never_had(svc):
+    """C-25.3: `message.status` and `message.cancel` read every refusal of
+    `store.message` as "no such message". Once close() had closed the store, an op
+    still running answered `unknown` for a message the daemon holds (the app reads
+    that as never received) and a cancel without its conversation id failed
+    `unknown-message`, exit 2. Only a missing message is unknown; a store that
+    refuses fails the op (`store-closed`, exit 1). A malformed id is still unknown."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    answer = svc.handle("message.status", {"message_ids": ["not-a-uuid", mid]}, None)
+    assert [m["state"] for m in answer["messages"]] == ["unknown", "queued"]
+    svc.close()
+    calls = {"status": lambda: svc.handle("message.status", {"message_ids": [mid]}, None),
+             "cancel": lambda: svc.handle("message.cancel", {"message_id": mid}, None),
+             "cancel naming its conversation": lambda: svc.handle(
+                 "message.cancel", {"message_id": mid, "conversation_id": cid}, None)}
+    refused = {}
+    for name, call in calls.items():
+        try:
+            refused[name] = ("answered", call())
+        except ConversationError as exc:
+            refused[name] = (exc.reason, exc.code)
+    assert refused == {name: ("store-closed", 1) for name in calls}, refused
+
+
+def test_containment_after_the_store_closed_is_refused_like_every_other_late_write(svc, tmp_path):
+    """C-25.3: a runner still going when close() stops waiting reaches D-13's
+    containment through `_on_contain`, which writes only the main store. Every other
+    write of such a runner is refused (`store-closed`, logged at info); this one went
+    on, and after `Daemon.close()` had closed the main store it raised
+    ProgrammingError, logged as a runner failure at ERROR. It is refused once the
+    conversation store has closed, which `Daemon.close()` does before the main store;
+    before that it is recorded as ever."""
+    aid = launched_turn(svc, tmp_path, [INIT_OK])
+    svc._on_contain(aid)
+    job_id = aid.rsplit("/", 1)[0]
+    assert svc.daemon.store.one("SELECT killed_by FROM attempts WHERE attempt_id=?", (aid,))["killed_by"]
+    later = launched_turn(svc, tmp_path, [INIT_OK], n=1)
+    svc.close()
+    with pytest.raises(ConversationError) as err:
+        svc._on_contain(later)
+    assert err.value.reason == "store-closed"
+    assert svc.daemon.store.one("SELECT killed_by FROM attempts WHERE attempt_id=?", (later,))["killed_by"] is None
+    assert svc.daemon.store.one("SELECT cancel_requested_at FROM jobs WHERE job_id=?",
+                                (later.rsplit("/", 1)[0],))["cancel_requested_at"] is None
+    assert job_id != later.rsplit("/", 1)[0]
+
+
+def test_a_persons_stop_finds_its_runner_while_the_control_loop_adds_and_forgets_others(svc):
+    """C-24.7: `turn.interrupt` looks for the message's runner while the control loop
+    registers runners (under the service lock) and forgets finished ones. The lookup
+    iterated the live dict, so on the free-threaded build it raised "dictionary
+    changed size during iteration" after the stop was recorded, and the runner was
+    never interrupted. It looks through a copy."""
+    class Live(FakeRunner):
+        message_id = "the-message"
+
+    live = Live()
+    svc.runners["live/a1"] = live
+    stop = threading.Event()
+
+    def churn():
+        n = 0
+        while not stop.is_set():
+            with svc._lock:
+                svc.runners[f"churn-{n}/a1"] = FakeRunner(finished=True)
+            svc.runners.pop(f"churn-{n - 8}/a1", None)
+            n += 1
+
+    churner = threading.Thread(target=churn)
+    churner.start()
+    errors, found = [], 0
+    try:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                found += svc._runner_for_message("the-message") is live
+            except RuntimeError as exc:
+                errors.append(str(exc))
+    finally:
+        stop.set()
+        churner.join(30)
+        svc.runners.clear()
+    assert errors == [] and found > 0, (errors[:3], len(errors), found)
+
+
 def test_a_closed_store_refuses_every_read_and_write_and_writes_no_file(svc):
     """C-25.3: after close() the conversation store answers `store-closed` (exit 1) to
     every read, write and file write, where a runner still going had reached a closed
@@ -1616,6 +1803,45 @@ def test_close_waits_for_a_store_file_write_under_way(svc, monkeypatch):
     with contextlib.closing(sqlite3.connect(svc.root / "conversations.sqlite3")) as db:
         rows = db.execute("SELECT COUNT(*) FROM messages WHERE conversation_id=?", (cid,)).fetchone()[0]
     assert (refused, rows) in ((["store-closed"], 0), (["store-closed"], 1), ([], 1)), (refused, rows)
+
+
+def test_a_model_catalog_waiting_for_a_file_write_holds_no_service_lock(svc, monkeypatch):
+    """C-25.3 (review of 585ea41..4d3d3ea): a turn's model catalog is merged into
+    `conversations/models.json` under the store's write guard, which another file
+    write (a message's text: two fsyncs) can hold. The merge waited for it holding the
+    service lock, so every poll, dispatch claim and adoption waited on an unrelated
+    fsync too. The merge has a lock of its own."""
+    cid = conversation(svc)
+    hold = Hold()
+    real = store_module._publish
+    monkeypatch.setattr(store_module, "_publish", lambda path, data: (hold(), real(path, data))[1])
+    entering = threading.Event()
+    real_writing = svc.store.writing
+
+    @contextlib.contextmanager
+    def writing():
+        entering.set()
+        with real_writing():
+            yield
+
+    sender = threading.Thread(target=lambda: submit(svc, cid))
+    sender.start()
+    assert hold.entered.wait(30), "the text was never published"
+    monkeypatch.setattr(svc.store, "writing", writing)
+    merger = threading.Thread(target=svc._on_catalog, args=("claude", "claude-1",
+                                                           [{"model": "claude-opus-5-5", "value": "opus"}]))
+    merger.start()
+    try:
+        assert entering.wait(30), "the merge never reached the write guard"
+        took = svc._lock.acquire(timeout=5)
+        if took:
+            svc._lock.release()
+        assert took, "the service lock was held by a merge waiting for another file write"
+    finally:
+        hold.go.set()
+        sender.join(30)
+        merger.join(30)
+    assert json.loads((svc.root / "conversations" / "models.json").read_text())["claude"]["claude-opus-5-5"]
 
 
 @pytest.mark.parametrize("write", ["message text", "approval request", "model catalog"])

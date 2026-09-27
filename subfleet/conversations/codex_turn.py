@@ -174,6 +174,11 @@ class CodexTurn:
             return self._send_interrupt("cmd:interrupt")
         return Step(events=[Event("status", {"phase": "stopping"}, "cmd:interrupt")])  # sent when the id arrives
 
+    def interrupted_earlier(self) -> None:
+        """Replay (C-26.6): the relay's log shows an interrupt an earlier runner
+        wrote, so the provider has it; what follows reads as the stop's outcome."""
+        self.interrupt_requested = True
+
     def withdraw(self) -> Step:
         """The runner did not hand `turn/start` over: a stop came first (C-24.7).
         The turn ends as one stopped before sending, and stdin closes."""
@@ -216,6 +221,10 @@ class CodexTurn:
     def eof(self, offset: int) -> Step:
         if self.outcome is not None:
             return Step()
+        if self.idle_pending:
+            # The thread went idle after the turn started and the provider then
+            # exited: the turn ended there (C-26.5), not without a result.
+            return self.settle_idle()
         step = self._flush(f"{offset}:eof")
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,

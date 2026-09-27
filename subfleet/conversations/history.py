@@ -99,7 +99,9 @@ def _next_cursor(path: Path, top: int, last: int | None) -> int | None:
             # The reader covered everything back to the file's start and found no
             # row (only blank space): the history ends (review of 5aa2718).
             return None
-        start = transcripts.line_start(path, top - 1) if top > 0 else 0
+        # No further back than the reader's own budget: a row whose start lies
+        # further back is stepped over in budget-sized steps (review of aa41312).
+        start = transcripts.line_start(path, top - 1, max_bytes=READ_BUDGET) if top > 0 else 0
         return _earlier(path, start)
     return _earlier(path, last)
 

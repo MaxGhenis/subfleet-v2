@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import READING_TTL_S, IdentityStatus
+from .sessions.transcripts import read_regular
 
 ACTIVE_ATTEMPT_STATES = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -75,7 +76,9 @@ def read_desktop_account(path: str | Path | None = None) -> str | None:
         kept = _desktop_hint
         if kept is not None and kept[:2] == (str(target), seen):
             return kept[2]
-        result = _login_email(target.read_text())
+        # Only as a regular file, never waiting in open() (readings, pick and the
+        # admission pass read it on pools Daemon.close() waits for).
+        result = _login_email(read_regular(target).decode("utf-8"))
     except (OSError, UnicodeError, ValueError):
         _desktop_hint = None
         return None
@@ -92,8 +95,8 @@ def cached_desktop_identity(path: str | Path | None = None) -> dict[str, Any]:
     `doctor` reads more of it than the email, and only to report a disagreement.
     """
     try:
-        value = json.loads((Path(path) if path is not None
-                            else Path.home() / ".claude.json").read_text())
+        value = json.loads(read_regular(Path(path) if path is not None
+                                        else Path.home() / ".claude.json").decode("utf-8"))
         account = value.get("oauthAccount") if isinstance(value, dict) else None
     except (OSError, UnicodeError, ValueError):
         return {}

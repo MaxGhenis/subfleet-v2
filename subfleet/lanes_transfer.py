@@ -58,12 +58,14 @@ import json
 import os
 import plistlib
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .contracts import Exit
+from .sessions.transcripts import NotRegularFile, read_regular
 from .store import Store, utc_now
 
 V1_ROSTER_DIR = Path("~/chief-of-staff/subfleet").expanduser()
@@ -154,10 +156,18 @@ class TransferPlan:
 
 
 def _read_text(path: Path) -> str:
+    """A roster's text, as `read_text` gives it (universal newlines); "" when there
+    is none. Read only as a regular file, never waiting in open(): `lanes transfer`
+    and `lanes enroll` run on the requests pool, which Daemon.close() waits for.
+    Anything else at a roster's name is refused, never read as an empty roster
+    that an edit would then replace; text that is not UTF-8 raises, as it did."""
     try:
-        return path.read_text(encoding="utf-8")
+        data = read_regular(path)
+    except NotRegularFile:
+        raise TransferError(f"{path} is not a regular file; refusing to edit it", Exit.OPERATIONAL) from None
     except OSError:
         return ""
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _indent_of(text: str) -> int:
@@ -195,18 +205,49 @@ def _publish(path: Path, text: str) -> None:
         mode = path.stat().st_mode & 0o777
     except OSError:
         mode = 0o600
-    temporary = path.with_name(path.name + ".tmp")
-    with open(temporary, "wb", opener=lambda name, flags: os.open(name, flags, mode)) as handle:
-        handle.write(text.encode("utf-8"))
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.chmod(temporary, mode)
-    os.replace(temporary, path)
-    directory = os.open(path.parent, os.O_RDONLY)
+    # A new file under a name of its own (O_EXCL, O_NOFOLLOW): the fixed `<name>.tmp`
+    # was opened O_TRUNC, so a FIFO there held the transfer in open().
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with open(fd, "wb") as handle:
+            handle.write(text.encode("utf-8"))
+            handle.flush()
+            os.fchmod(handle.fileno(), mode)
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
         os.fsync(directory)
     finally:
         os.close(directory)
+
+
+def _backup(path: Path) -> Path:
+    """Copy `path` to a free `<name>.bak-<utc>` beside it (`_backup_path`), keeping
+    its mode and times as `shutil.copy2` did. Its bytes are read only as a regular
+    file, and the backup is a new file (O_EXCL, O_NOFOLLOW): copy2 opened a name
+    the `exists()` loop had found free, however it stood by then."""
+    data = read_regular(path)
+    info = os.stat(path)
+    while True:
+        backup = _backup_path(path)
+        try:
+            fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                         info.st_mode & 0o777)
+            break
+        except FileExistsError:
+            continue                            # taken since the loop looked: the next free name
+    with open(fd, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fchmod(handle.fileno(), info.st_mode & 0o777)
+        os.utime(handle.fileno(), ns=(info.st_atime_ns, info.st_mtime_ns))
+        os.fsync(handle.fileno())
+    return backup
 
 
 def _backup_path(path: Path) -> Path:
@@ -219,7 +260,7 @@ def _backup_path(path: Path) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     candidate = path.with_name(f"{path.name}.bak-{stamp}")
     serial = 1
-    while candidate.exists():
+    while os.path.lexists(candidate):         # a dangling link there is taken too
         candidate = path.with_name(f"{path.name}.bak-{stamp}-{serial}")
         serial += 1
     return candidate
@@ -246,7 +287,7 @@ def v1_codex_scope(home: Path, roster_dir: Path,
         return scope
     for path in sorted(agents.glob("*.plist")):
         try:
-            plist = plistlib.loads(path.read_bytes())
+            plist = plistlib.loads(read_regular(path))
         except (OSError, ValueError, plistlib.InvalidFileException):
             continue
         argv = " ".join(str(item) for item in (plist.get("ProgramArguments") or []))
@@ -390,7 +431,7 @@ def _v1_unfinished_runs(v1_state: Path):
     runs = Path(v1_state).expanduser() / "runs"
     for meta_path in sorted(runs.glob("*/meta.json")):
         try:
-            meta = json.loads(meta_path.read_text())
+            meta = json.loads(read_regular(meta_path))
         except (OSError, ValueError):
             continue
         if not isinstance(meta, dict):
@@ -580,8 +621,7 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
     def publish(edits: list[RosterEdit]) -> None:
         for edit in edits:
             if edit.owner == "v1" and edit.path.exists():
-                edit.backup = _backup_path(edit.path)
-                shutil.copy2(edit.path, edit.backup)
+                edit.backup = _backup(edit.path)
             _publish(edit.path, edit.after)
 
     def move() -> None:

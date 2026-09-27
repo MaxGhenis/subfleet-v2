@@ -30,6 +30,7 @@ from ..contracts import (
     Attestation, AttestationResult, ClockSource, Closure, ClosureReason, ExitInfo, Launch, Outcome,
     OutcomeClass, Reading, ReadingLabel,
 )
+from ..sessions import transcripts
 
 GUESSED_S = 3600
 CODEX_WINDOWS = {300: "five_hour", 10080: "seven_day"}
@@ -52,7 +53,7 @@ def _epoch_iso(value: Any) -> str | None:
 
 def read_turn(attempt_dir: Path) -> dict | None:
     try:
-        return json.loads((Path(attempt_dir) / "turn.json").read_bytes())
+        return json.loads(transcripts.read_regular(Path(attempt_dir) / "turn.json"))
     except (OSError, ValueError):
         return None
 
@@ -136,7 +137,7 @@ def codex_readings(stdout: Path, *, lane_id: str, attempt_id: str | None) -> tup
     last: dict | None = None
     observed = _iso(_now())
     try:
-        lines = Path(stdout).read_bytes().splitlines()
+        lines = transcripts.read_regular(stdout).splitlines()
     except OSError:
         return [], None
     for raw in lines:
@@ -190,7 +191,7 @@ def codex_attest(home: str | None, thread_id: str | None, turn_id: str | None, m
         return AttestationResult(Attestation.UNATTESTED, None, f"{len(matches)} rollouts for {thread_id}")
     served = []
     try:
-        with open(matches[0], "rb") as stream:
+        with transcripts.open_regular(matches[0]) as stream:     # a lane's rollout: never a FIFO's open()
             for raw in stream:
                 if b'"turn_context"' not in raw:
                     continue

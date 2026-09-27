@@ -15,6 +15,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from ..sessions.transcripts import TooLarge, read_regular
 from ..store import utc_now
 from ..protocol import SubmitArgs, GateStartArgs, GateContinueArgs, coerce_args, ProtocolError
 from .certificate import certificate, load_state, private_dir, write_bytes, write_json
@@ -33,10 +34,12 @@ def read_context(path: str | None, label: str) -> str:
     if not path:
         return ""
     try:
-        body = Path(path).expanduser().read_bytes()
-        if len(body) > 65536:
-            raise GateError(f"{label} exceeds 65536 bytes")
+        # Only a regular file, and never more than the cap: a FIFO had held gate.start
+        # on a pool Daemon.close() waits for, and the size was checked after the whole read.
+        body = read_regular(Path(path).expanduser(), 65536)
         return body.decode("utf-8")
+    except TooLarge:
+        raise GateError(f"{label} exceeds 65536 bytes") from None
     except (OSError, UnicodeError) as exc:
         raise GateError(f"cannot read {label}: {exc}") from exc
 
@@ -377,7 +380,7 @@ class GateService:
             artifact = next((r for r in artifacts if r["role"] == "deliverable"), None)
             if not artifact:
                 raise GateError("peer has no accepted deliverable", 4)
-            body = Path(artifact["path"]).read_bytes()
+            body = read_regular(artifact["path"])
             if hashlib.sha256(body).hexdigest() != artifact["sha256"]:
                 raise GateError("peer deliverable changed after acceptance", 4)
             verdict = parse_verdict(body.decode(), expected)

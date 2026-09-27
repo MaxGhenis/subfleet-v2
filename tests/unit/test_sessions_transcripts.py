@@ -15,6 +15,7 @@ import pytest
 
 from subfleet.sessions import registry, transcripts
 from tests import sessions_fixtures as fx
+from tests.nonblocking import run_child
 
 SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 
@@ -345,24 +346,6 @@ def test_the_offset_readers_agree_with_a_plain_split_of_the_bytes(tmp_path):
 # --- opening a session file (reviews of 39223c9) --------------------------------------
 
 
-def _opened_in_thread(path, *args, **kwargs):
-    """`open_regular(path)` on a helper thread, so a regression that blocks in open()
-    fails the test instead of hanging it: (the result or the exception, finished)."""
-    import threading
-    out: list = []
-
-    def run():
-        try:
-            out.append(transcripts.open_regular(path, *args, **kwargs))
-        except Exception as exc:            # the outcome under test
-            out.append(exc)
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    thread.join(10)
-    return (out[0] if out else None), not thread.is_alive()
-
-
 def _open_fds() -> int:
     return len(os.listdir("/dev/fd"))
 
@@ -371,19 +354,29 @@ def _open_fds() -> int:
 def test_open_regular_refuses_anything_but_a_regular_file_at_once(tmp_path, kind):
     """A FIFO (no writer), a directory or a device is refused with `NotRegularFile`,
     an OSError, without blocking in open() and without leaking its descriptor. A
-    FIFO where a rollout belongs had blocked a file op, and with it close()."""
-    path = tmp_path / "entry"
-    if kind == "fifo":
-        os.mkfifo(path)
-    elif kind == "directory":
-        path.mkdir()
-    else:
-        path = Path(os.devnull)
-    before = _open_fds()
-    result, finished = _opened_in_thread(path)
-    assert finished, f"open_regular blocked on a {kind}"
-    assert isinstance(result, transcripts.NotRegularFile) and isinstance(result, OSError), result
-    assert _open_fds() == before
+    FIFO where a rollout belongs had blocked a file op, and with it close(). In a
+    child process (`tests.nonblocking`): a regression that blocks is killed and
+    reaped, where a helper thread had stayed blocked for the rest of the run."""
+    out = run_child(f"""
+        import os
+        from pathlib import Path
+        from subfleet.sessions import transcripts
+        kind, path = {kind!r}, Path({str(tmp_path / "entry")!r})
+        if kind == "fifo":
+            os.mkfifo(path)
+        elif kind == "directory":
+            path.mkdir()
+        else:
+            path = Path(os.devnull)
+        before = len(os.listdir("/dev/fd"))
+        try:
+            transcripts.open_regular(path)
+        except transcripts.NotRegularFile as exc:
+            print("refused", isinstance(exc, OSError), len(os.listdir("/dev/fd")) - before)
+        else:
+            print("opened")
+    """)
+    assert out.split() == ["refused", "True", "0"], out
 
 
 def test_open_regular_reads_a_regular_file_or_a_link_to_one_as_open_would(tmp_path):
@@ -405,23 +398,208 @@ def test_open_regular_reads_a_regular_file_or_a_link_to_one_as_open_would(tmp_pa
         transcripts.open_regular(tmp_path / "missing.jsonl")
 
 
-def test_every_transcript_reader_skips_a_fifo_at_once(tmp_path):
-    """The readers a file op uses answer as for an unreadable file (nothing), at once."""
-    fifo = tmp_path / "rollout.jsonl"
-    os.mkfifo(fifo)
-    readers = {
-        "lines_reversed": lambda: list(transcripts.lines_reversed(fifo)),
-        "lines_reversed_with_offsets": lambda: list(transcripts.lines_reversed_with_offsets(fifo)),
-        "lines_forward_with_offsets": lambda: list(transcripts.lines_forward_with_offsets(fifo, 0, 1 << 20)),
-        "line_start": lambda: transcripts.line_start(fifo, 10),
-        "headless_transcript": lambda: transcripts.headless_transcript(str(fifo)),
-        "registry row": lambda: registry._row(fifo),
-    }
-    import threading
-    for name, read in readers.items():
-        out: list = []
-        thread = threading.Thread(target=lambda: out.append(read()), daemon=True)
-        thread.start()
-        thread.join(10)
-        assert not thread.is_alive(), f"{name} blocked on a FIFO"
-        assert out and out[0] in ([], None, False, 0), (name, out)
+@pytest.mark.parametrize("kwargs, error", [({"encoding": "no-such-encoding"}, LookupError),
+                                           ({"newline": "neither"}, ValueError)])
+def test_a_stream_open_regular_cannot_build_raises_its_own_error_and_closes_once(tmp_path, kwargs, error):
+    """`open` owns the descriptor once `regular_fd` returns it. The helper had
+    closed it after `os.fdopen` already had, so an unknown encoding surfaced as
+    EBADF, and the second close could close a descriptor another thread had just
+    been given (review of aa41312)."""
+    path = tmp_path / "t.jsonl"
+    path.write_text("one\n")
+    before = _open_fds()
+    with pytest.raises(error):
+        transcripts.open_regular(path, "r", **kwargs)
+    assert _open_fds() == before
+
+
+@pytest.mark.parametrize("mode, kwargs", [("wb", {}), ("r+", {}), ("a", {}), ("rb", {"closefd": False}),
+                                          ("rb", {"opener": os.open})])
+def test_open_regular_only_reads_through_its_own_descriptor(tmp_path, mode, kwargs):
+    """A write mode, `closefd=False` (which left the helper's descriptor open after
+    the stream closed) or another opener is refused before anything is opened."""
+    path = tmp_path / "t.jsonl"
+    path.write_text("one\n")
+    before = _open_fds()
+    with pytest.raises(ValueError):
+        transcripts.open_regular(path, mode, **kwargs)
+    assert _open_fds() == before
+    assert path.read_text() == "one\n"
+
+
+#: Every reader of a native session's files, as a call on `fifo`, a FIFO named
+#: `session_index.jsonl`, and its answer for an unreadable file (nothing), at once.
+#: The last seven had no test of their own (review of aa41312, finding 4): reverting
+#: any one of them to a plain open() had failed nothing.
+FIFO_READERS = {
+    "lines_reversed": ("list(transcripts.lines_reversed(fifo))", []),
+    "lines_reversed_with_offsets": ("list(transcripts.lines_reversed_with_offsets(fifo))", []),
+    "lines_forward_with_offsets": ("list(transcripts.lines_forward_with_offsets(fifo, 0, 1 << 20))", []),
+    "line_start": ("transcripts.line_start(fifo, 10)", 0),
+    "headless_transcript": ("transcripts.headless_transcript(str(fifo))", False),
+    "registry row": ("registry._row(fifo)", None),
+    "history._earlier": ("history._earlier(fifo, 10)", 10),          # unreadable: the cursor stays
+    "catalog._codex_names": ("catalog._codex_names(fifo.parent)", {}),
+    "catalog._claude_record": ("catalog._claude_record(fifo)", {}),
+    "codex_brief._records": ("list(codex_brief._records(fifo))", "refused"),
+    "handoff.first_task": ("handoff.first_task(fifo, 1024)", "refused"),
+    "handoff._read_bounded": ("handoff._read_bounded(fifo)", ""),
+    "last_permission_mode": ("transcripts.last_permission_mode(fifo)", None),
+}
+
+
+@pytest.mark.parametrize("reader", list(FIFO_READERS))
+def test_every_transcript_reader_skips_a_fifo_at_once(tmp_path, reader):
+    """The readers a file op uses answer as for an unreadable file (nothing, or the
+    handoff's own refusal), at once. Each in a child process of its own
+    (`tests.nonblocking`), killed and reaped if it blocks: on a helper thread a
+    regression had left the thread blocked for the rest of the run."""
+    out = run_child(f"""
+        import json, os
+        from pathlib import Path
+        from subfleet.conversations import catalog, codex_brief, history
+        from subfleet.sessions import handoff, registry, transcripts
+        fifo = Path({str(tmp_path / "session_index.jsonl")!r})
+        os.mkfifo(fifo)
+        try:
+            answer = {FIFO_READERS[reader][0]}
+        except handoff.HandoffError:
+            answer = "refused"
+        print(json.dumps(answer))
+    """)
+    assert json.loads(out) == FIFO_READERS[reader][1], out     # each reader's own "nothing"
+
+
+# --- what a reader reads is capped (C-25.3, review of aa41312, finding 2) --------------------
+
+class _Counted:
+    """A stream that counts the bytes read through it."""
+
+    def __init__(self, stream, counter):
+        self.stream, self.counter = stream, counter
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.stream.close()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+    def read(self, *args):
+        data = self.stream.read(*args)
+        self.counter[0] += len(data)
+        return data
+
+    def readline(self, *args):
+        data = self.stream.readline(*args)
+        self.counter[0] += len(data)
+        return data
+
+
+def _counting(monkeypatch) -> list[int]:
+    counter = [0]
+    real = transcripts.open_regular
+    monkeypatch.setattr(transcripts, "open_regular", lambda *a, **kw: _Counted(real(*a, **kw), counter))
+    return counter
+
+
+def test_capped_lines_reads_its_budget_and_skips_a_line_too_long_to_hold(tmp_path):
+    """Whole lines within the budget; a line longer than `max_line` is skipped, not
+    held; nothing past the budget is read."""
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b"one\n" + b"x" * 5000 + b"\ntwo\nthree\n" + b"y" * 10_000 + b"\n")
+    with path.open("rb") as stream:
+        assert list(transcripts.capped_lines(stream, 10**6, max_line=100)) == [b"one\n", b"two\n", b"three\n"]
+    with path.open("rb") as stream:                   # the budget ends inside "two"
+        assert list(transcripts.capped_lines(stream, 5_006, max_line=100)) == [b"one\n"]
+        assert stream.tell() <= 5_006 + 1                # and one byte to see whether the file ends there
+    with path.open("rb") as stream:
+        assert list(transcripts.capped_lines(stream, 5_012, max_line=10**6)) == [b"one\n", b"x" * 5000 + b"\n", b"two\n"]
+
+
+def test_the_forward_reader_skips_a_line_longer_than_it_holds(tmp_path, monkeypatch):
+    """A history page reads forward from its cursor for calls' results. It returned a
+    line however long past its window (an 8 MiB window returned an 8 MiB + 1 KiB line);
+    it now skips a line longer than `max_line`, reading at most the window and one
+    line more, and keeps every other line's offset."""
+    path = tmp_path / "rollout.jsonl"
+    lines = [b"first", b"z" * 50_000, b"after", b"last"]
+    path.write_bytes(b"".join(line + b"\n" for line in lines))
+    counter = _counting(monkeypatch)
+    rows = list(transcripts.lines_forward_with_offsets(path, 0, 10**6, max_line=1_000))
+    assert rows == [(0, "first"), (50_007, "after"), (50_013, "last")]
+    counter[0] = 0
+    assert list(transcripts.lines_forward_with_offsets(path, 6, 2_000, max_line=1_000)) == []
+    assert counter[0] <= 2_000 + 1_001
+
+
+def test_finding_a_lines_start_reads_no_further_back_than_its_budget(tmp_path, monkeypatch):
+    """History's cursor recovery scanned back to the file's start for the row the
+    cursor falls in: past its budget, as far as the file is long. With `max_bytes` it
+    scans no further, and a row that starts further back is cut there."""
+    from subfleet.conversations import history
+    monkeypatch.setattr(history, "READ_BUDGET", 1_000_000)
+    path = tmp_path / "rollout.jsonl"
+    with path.open("wb") as stream:
+        stream.truncate(3_000_000)                         # one row, no newline
+    counter = _counting(monkeypatch)
+    assert transcripts.line_start(path, 2_999_999, max_bytes=1_000_000) == 1_999_999
+    assert counter[0] <= 1_000_000
+    counter[0] = 0
+    history._next_cursor(path, 3_000_000, None)
+    assert counter[0] <= 1_000_000 + history.BLANK_PROBE
+
+
+def test_a_first_task_is_looked_for_only_in_the_scan_budget(tmp_path, monkeypatch):
+    """Both first-task scanners (a Claude transcript, a Codex rollout) read on past
+    `FULL_SCAN_BYTES` (64 MiB) to a user turn however far in; each now looks no
+    further, and a transcript with no user turn within it has no task."""
+    from subfleet.conversations import codex_brief
+    from subfleet.sessions import handoff
+    monkeypatch.setattr(handoff, "FULL_SCAN_BYTES", 64 * 1024)
+    path = tmp_path / "native.jsonl"
+    with path.open("w") as stream:
+        for _ in range(100):
+            stream.write(json.dumps({"type": "system", "text": "x" * 1000}) + "\n")
+        stream.write(json.dumps({"type": "response_item", "payload": {"type": "message", "role": "user",
+                     "content": [{"type": "input_text", "text": "late user task"}]}}) + "\n")
+        stream.write(json.dumps({"type": "user", "uuid": "first", "message": {"content": "late user task"}}) + "\n")
+    for first_task in (handoff.first_task, codex_brief.first_task):
+        with pytest.raises(handoff.HandoffError, match="no user task"):
+            first_task(path, 256)
+
+
+def test_a_headless_check_reads_its_byte_budget_at_most(tmp_path, monkeypatch):
+    """`headless_transcript` read up to 5000 lines of any length; it also stops at
+    `max_bytes`, and decides on what it read, as it does at its line limit."""
+    path = tmp_path / "t.jsonl"
+    sdk = {"type": "user", "promptSource": "sdk", "message": {"content": "brief"}}
+    typed = {"type": "user", "promptSource": "typed", "message": {"content": "hello"}}
+    path.write_text(json.dumps(sdk) + "\n" + json.dumps({"type": "system", "text": "x" * 20_000}) + "\n"
+                    + json.dumps(typed) + "\n")
+    counter = _counting(monkeypatch)
+    assert transcripts.headless_transcript(path) is False                    # all read: a typed prompt
+    counter[0] = 0
+    assert transcripts.headless_transcript(path, max_bytes=10_000) is True   # stopped before it
+    assert counter[0] <= 10_000 + 1
+
+
+def test_a_registry_row_is_read_only_up_to_its_cap(tmp_path, monkeypatch):
+    """Each registry file was read whole on every dispatch check; one past
+    `ROW_MAX` reads as no row."""
+    monkeypatch.setattr(registry, "ROW_MAX", 4_096)
+    path = tmp_path / "123.json"
+    path.write_text(json.dumps({"sessionId": "s-1", "pid": 123}) + " " * 10_000)
+    assert registry._row(path) is None
+    path.write_text(json.dumps({"sessionId": "s-1", "pid": 123}))
+    assert registry._row(path).session_id == "s-1"
+
+
+def test_capped_lines_keeps_a_last_line_that_ends_where_the_budget_does():
+    """A last line with no newline that ends exactly at the budget is the file's
+    last line, not one the budget cut."""
+    import io
+    assert list(transcripts.capped_lines(io.BytesIO(b"ab\ncd"), 5, max_line=5)) == [b"ab\n", b"cd"]
+    assert list(transcripts.capped_lines(io.BytesIO(b"ab\ncde"), 5, max_line=5)) == [b"ab\n"]

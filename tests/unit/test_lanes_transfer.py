@@ -615,3 +615,68 @@ def test_a_rollback_rerun_without_the_operators_mv_finishes_the_move(world, monk
     assert row["owner"] == "v1" and row["home"] == str(src)
     assert "transferred_to_v2" not in roster_json(world, "codex-accounts.json")
     assert [r for r in lanes_json(world) if r["lane_id"] == "codex-1"][0]["home"] == str(src)
+
+
+def test_a_v2_roster_that_is_not_utf8_is_never_rewritten_as_one_lane(tmp_path):
+    """C-2.2: the roster edit reads `lanes.json` first and writes it whole. A
+    roster that could not be decoded had read as empty (the branch's first cut of
+    the non-blocking read), so enrolling one lane rewrote it with that lane alone.
+    It raises, as it always did, and the file is left as it was."""
+    from subfleet import lanes_transfer as lt
+    rows = [{"lane_id": f"claude-{n}", "provider": "claude", "account_key": f"claude:a{n}@x",
+             "credential_ref": f"claude-quota-a{n}", "credential_kind": "keychain-token", "credential_epoch": 1,
+             "home": None, "desktop": False, "enabled": True, "label": "André" if n == 1 else None}
+            for n in (1, 2, 3)]
+    roster = tmp_path / "lanes.json"
+    roster.write_bytes(json.dumps(rows, indent=2, ensure_ascii=False).encode("latin-1"))
+    before = roster.read_bytes()
+    new = {"lane_id": "claude-4", "provider": "claude", "account_key": "claude:a4@x",
+           "credential_ref": "claude-quota-a4", "credential_kind": "keychain-token", "credential_epoch": 1,
+           "home": None, "desktop": False, "enabled": True, "identity": None, "label": None}
+    with pytest.raises(UnicodeDecodeError):
+        lt._v2_roster_edit(tmp_path, new, "v2")
+    assert roster.read_bytes() == before
+
+
+def test_a_roster_reads_with_universal_newlines_as_it_did(tmp_path):
+    """A roster written with CRLF reads as LF, as `Path.read_text` gave it, so a
+    transfer that changes nothing edits nothing."""
+    from subfleet import lanes_transfer as lt
+    path = tmp_path / "roster.json"
+    path.write_bytes(b'[\r\n  {"lane_id": "a"}\r\n]\r')
+    assert lt._read_text(path) == '[\n  {"lane_id": "a"}\n]\n'
+
+
+@pytest.mark.parametrize("standing", ["dangling link", "fifo", "hard link"])
+def test_a_backup_is_a_new_file_and_leaves_what_stands_at_its_name(tmp_path, standing):
+    """A backup is a new file of its own (O_EXCL, O_NOFOLLOW), with the roster's
+    bytes, mode and times, as `shutil.copy2` made it. Whatever stands at the
+    free-looking name is left alone: a dangling link is never written through (as
+    copy2 wrote to its target) nor retried until the second changes, and a FIFO or
+    another file's hard link there is never opened."""
+    import os
+    import stat
+    import time
+    from subfleet import lanes_transfer as lt
+    roster = tmp_path / "roster.json"
+    roster.write_text("[]")
+    os.chmod(roster, 0o644)
+    os.utime(roster, ns=(1_700_000_000_000_000_000, 1_700_000_100_000_000_000))
+    other = tmp_path / "other.txt"
+    other.write_text("someone else's")
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    taken = [tmp_path / f"roster.json.bak-{stamp}", tmp_path / f"roster.json.bak-{stamp}-1"]
+    for name in taken:
+        if standing == "dangling link":
+            name.symlink_to(tmp_path / "elsewhere" / "victim")
+        elif standing == "fifo":
+            os.mkfifo(name)
+        else:
+            os.link(other, name)
+    started = time.monotonic()
+    backup = lt._backup(roster)
+    assert time.monotonic() - started < 1.0
+    info = os.lstat(backup)
+    assert backup not in taken and stat.S_ISREG(info.st_mode) and backup.read_text() == "[]"
+    assert stat.S_IMODE(info.st_mode) == 0o644 and info.st_mtime_ns == 1_700_000_100_000_000_000
+    assert not (tmp_path / "elsewhere").exists() and other.read_text() == "someone else's"

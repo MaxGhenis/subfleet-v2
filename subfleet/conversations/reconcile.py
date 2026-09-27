@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..relay import read_log
+from ..sessions import transcripts
 from .store import LEGACY_OWNER
 from .turn import COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, WAITING
 
@@ -235,7 +236,7 @@ def frame_status(attempt_dir: Path) -> str:
     `read_log`); a log it stopped reading early is `unreadable`."""
     path = Path(attempt_dir) / "stdin.jsonl"
     try:
-        data = path.read_bytes()
+        data = transcripts.read_regular(path)
     except FileNotFoundError:
         return "absent"                     # the relay never logged a frame
     except OSError:
@@ -309,7 +310,7 @@ def _scan(path: str, message_id: str, start: int, matches: Callable[[dict], bool
     read as a whole record makes the answer unreadable, not absent."""
     needle = message_id.encode()
     try:
-        with open(path, "rb") as stream:
+        with transcripts.open_regular(path) as stream:
             size = os.fstat(stream.fileno()).st_size
             if 0 < start <= size:
                 stream.seek(start - 1)
@@ -352,7 +353,7 @@ def _same_file(a: str, b: str) -> bool:
 
 def _read_json(path: Path) -> dict | None:
     try:
-        value = json.loads(Path(path).read_bytes())
+        value = json.loads(transcripts.read_regular(path))
     except (OSError, ValueError):
         return None
     return value if isinstance(value, dict) else None

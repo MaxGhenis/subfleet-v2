@@ -248,3 +248,76 @@ def test_discovery_and_opening_agree_on_every_transcript(moves, copy):
             assert catalog._temporary(item["cwd"])            # opening names no cwd for a /tmp session
         assert item["continuable"] == facts["continuable"]
         assert item["continue_blocker"] == facts.get("continue_blocker")
+
+
+# --- catalog.lock: a reader's probe is not a run (C-30.1) -------------------------------------
+
+def _held(root: Path, how: int) -> int:
+    import fcntl
+    fd = os.open(root / "catalog.lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    fcntl.flock(fd, how | fcntl.LOCK_NB)
+    return fd
+
+
+def test_a_readers_probe_is_not_read_as_a_run(tmp_path):
+    """C-30.1: `conversation.list` probes `catalog.lock` on every list, and the tick
+    probes it before starting a run. Each probe took the lock exclusively, so one
+    that met another in its instant read it as a run: the tick started none, and
+    none started for a whole interval. A probe takes it shared; only a run's hold
+    reads as a run."""
+    import fcntl
+    probe = _held(tmp_path, fcntl.LOCK_SH)             # another probe, in the instant it holds the lock
+    try:
+        assert catalog.refresh_running(tmp_path) is False
+    finally:
+        os.close(probe)
+    run = _held(tmp_path, fcntl.LOCK_EX)
+    try:
+        assert catalog.refresh_running(tmp_path) is True
+    finally:
+        os.close(run)
+
+
+def test_a_run_that_meets_a_probe_still_publishes(tmp_path, monkeypatch):
+    """C-30.1: a run that found the lock taken exited 0 at once, as for another run
+    holding it, and published nothing: meeting a list's probe in its instant cost a
+    whole interval of catalog. A run tries again for a moment, which outlasts any
+    probe (`LOCK_TRIES`), and publishes."""
+    import fcntl
+    home = tmp_path / "home"
+    (home / ".claude" / "projects").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(home / ".claude"))
+    root = tmp_path / "state"
+    root.mkdir()
+    probe = [_held(root, fcntl.LOCK_SH)]
+
+    def the_probe_ends():
+        while probe:
+            os.close(probe.pop())
+
+    monkeypatch.setattr(catalog, "_lock_wait", the_probe_ends, raising=False)
+    try:
+        assert catalog.main(["--state-root", str(root)]) == 0
+    finally:
+        the_probe_ends()
+    assert (root / "catalog.json").exists(), "the run gave up at the probe and published nothing"
+
+
+def test_one_threads_name_scrubs_only_its_own_row_and_the_index_is_read_to_its_cap(tmp_path, monkeypatch):
+    """C-25.3 (review of aa41312, finding 2): `conversation.open` of a Codex thread
+    read Codex's whole `session_index.jsonl` and scrubbed every row for one name (a
+    200,000-row index took 100 s at load 130). It reads at most `INDEX_MAX`, and for
+    one thread parses and scrubs only the rows that name it."""
+    home = tmp_path / ".codex"
+    home.mkdir()
+    rows = [{"id": f"0f0e0d0c-1111-2222-3333-{n:012d}", "thread_name": f"thread {n}"} for n in range(2_000)]
+    (home / "session_index.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    scrubbed = []
+    real = catalog.scrub
+    monkeypatch.setattr(catalog, "scrub", lambda text: (scrubbed.append(text), real(text))[1])
+    wanted = rows[1_500]["id"]
+    assert catalog._codex_names(home, only=wanted) == {wanted: "thread 1500"}
+    assert scrubbed == ["thread 1500"]
+    monkeypatch.setattr(catalog, "INDEX_MAX", 1_000, raising=False)
+    assert wanted not in catalog._codex_names(home)                     # past the cap: not read

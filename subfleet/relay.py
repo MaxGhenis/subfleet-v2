@@ -57,6 +57,8 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from .sessions.transcripts import open_regular
+
 FRAME_MAX = 64 * 1024 * 1024        # one image in base64 plus JSON, with margin
 LOG_INLINE_MAX = 64 * 1024          # frames logged verbatim up to this size
 ACK_TIMEOUT_S = 60.0
@@ -108,7 +110,7 @@ def read_log(path: str | Path) -> list[dict]:
     never followed by a pipe write and is ignored."""
     frames: list[dict] = []
     try:
-        with open(path, "rb") as stream:
+        with open_regular(path) as stream:            # the daemon reads it: never a FIFO's open()
             for raw in stream:
                 if not raw.endswith(b"\n"):
                     break

@@ -55,6 +55,7 @@ from .salvage import (
     validate_writable_workdir, working_tree,
 )
 from .sessions.registry import CONVERSATION_FIX
+from .sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .store import Store
 
 #: "not asked yet", distinct from "asked, and there was no answer".
@@ -322,6 +323,12 @@ def peer_gone(conn: socket.socket) -> bool:
         return False
 
 
+
+def _text(path: Path) -> str:
+    """A probe's output as `read_text` gives it (universal newlines), only as a
+    regular file (never waiting in open())."""
+    return read_regular(path).decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
 class DaemonUnavailable(RuntimeError):
     code = 69
 
@@ -492,9 +499,11 @@ class Daemon:
         # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
         from .conversations.service import ConversationService
         self.conversations = ConversationService(self)
-        # C-3.6: a long hold of either store's lock, or a long wait for one, is
-        # written to daemon.log with the holder's stack. Waiters report on their
-        # own; the thread that samples long holds starts with serve_forever.
+        # C-3.6: a long hold of either store's lock or of the conversation store's
+        # file-write guard (`conversation-files`, held across a write's fsyncs), or
+        # a long wait for one, is written to daemon.log with the holder's stack.
+        # Waiters report on their own; the thread that samples long holds starts
+        # with serve_forever.
         self.lock_watch = LockWatch(lambda text: self.log.warning("%s", text))
         self.lock_watch.add(self.store._lock)
         self.lock_watch.add(self.conversations.store._lock)
@@ -762,7 +771,7 @@ class Daemon:
         rc = receipt.get('rc')
         if rc is None:
             rc = -receipt['signal'] if receipt.get('signal') else 1
-        return subprocess.CompletedProcess(argv, rc, stdout.read_text(), stderr.read_text())
+        return subprocess.CompletedProcess(argv, rc, _text(stdout), _text(stderr))
 
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
@@ -1220,7 +1229,9 @@ class Daemon:
                     raise ValueError("round_lease is reserved for gate-review jobs")
                 if any(workdir == p or p in workdir.parents for p in (Path("/tmp"), Path("/private/tmp"))) and not args.allow_tmp:
                     raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir")
-                prompt = Path(args.prompt_path).expanduser().read_bytes()
+                # Only a regular file, never waiting in open(): a FIFO (or a device, which
+                # never ends) named here held this submit, `_submit_lock` and every submit after.
+                prompt = read_regular(Path(args.prompt_path).expanduser())
                 out = str(Path(args.out_path).expanduser().resolve()) if args.out_path else None
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
@@ -1553,7 +1564,7 @@ class Daemon:
             if artifact["role"] != "stderr":
                 continue
             try:
-                with Path(artifact["path"]).open("rb") as stream:
+                with open_regular(artifact["path"]) as stream:
                     text = stream.read(4_000_000).decode("utf-8", "replace")
                 found.update(re.findall(r"(?m)^session id:\s*(" + uuid + r")\s*$", text))
             except OSError:
@@ -1776,8 +1787,11 @@ class Daemon:
         if lane.provider != "codex" or lane.credential.kind != "home":
             return
         path = Path(lane.credential.ref).expanduser() / "auth.json"
-        if path.is_file():
-            auth = json.loads(path.read_bytes())
+        try:
+            auth = json.loads(read_regular(path))                  # never waiting in open()
+        except (FileNotFoundError, NotRegularFile):
+            auth = None                                            # none there, as `is_file()` had said
+        if auth is not None:
             if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
                 raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
 
@@ -3904,7 +3918,7 @@ class Daemon:
         if a["seq"] > 1 and job["sandbox"] == "workspace-write":
             refs = self.store.query("SELECT path FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=? AND role='salvage' ORDER BY seq", (job["job_id"],))
             suffix = f"\n\nContinue from checkpoint {evidence.get('baseline_commit')}. Preserved snapshots: {', '.join(r['path'] for r in refs) or 'none'}.\n"
-            prompt = prompt_path.read_bytes() + suffix.encode()
+            prompt = read_regular(prompt_path) + suffix.encode()
             prompt_path = adir / "prompt.md"
             self._publish("prompt", prompt_path, prompt)
         turn_block = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn")
@@ -4039,9 +4053,13 @@ class Daemon:
 
     @staticmethod
     def _read_json(path: Path) -> dict | None:
+        """An attempt's or a job's JSON record, or None when there is none. Only a
+        regular file is read: a FIFO put where one belongs (a running agent can name
+        its attempt's directory) had held `_process_attempt`, and the workers pool
+        Daemon.close() waits for, in open(); it is no record."""
         try:
-            return json.loads(path.read_bytes())
-        except FileNotFoundError:
+            return json.loads(read_regular(path))
+        except (FileNotFoundError, NotRegularFile):
             return None
 
     def _process_attempt(self, aid: str) -> object:
@@ -4520,8 +4538,8 @@ class Daemon:
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
         try:
-            contents = path.read_bytes()
-        except FileNotFoundError:
+            contents = read_regular(path)          # only a regular file is an artifact
+        except (FileNotFoundError, NotRegularFile):
             return None
         return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
 
@@ -4561,9 +4579,12 @@ class Daemon:
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
         # stream once after containment when no separate raw file was supplied.
         if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
-            stdout = Path(launch.stdout_path)
-            if stdout.is_file():
-                self._publish("raw-stream", Path(launch.raw_stream_path), stdout.read_bytes())
+            try:
+                data = read_regular(Path(launch.stdout_path))       # never waiting in open()
+            except (FileNotFoundError, NotRegularFile):
+                data = None                                        # none there, as `is_file()` had said
+            if data is not None:
+                self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
         adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
         if job["kind"] == "turn":
@@ -4734,7 +4755,7 @@ class Daemon:
         exported = None
         if job["out_path"] and not self.store.one("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'", (a["attempt_id"],)):
             try:
-                contents = Path(artifact["path"]).read_bytes()
+                contents = read_regular(artifact["path"])          # only a regular file, never waiting in open()
                 destination = Path(job["out_path"])
                 if hashlib.sha256(contents).hexdigest() != artifact["sha256"]:
                     raise OSError("accepted deliverable digest changed")

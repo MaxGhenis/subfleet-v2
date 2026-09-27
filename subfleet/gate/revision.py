@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ..sessions.transcripts import read_regular
 from .errors import GateError
 
 GIT_OID_RE = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
@@ -18,9 +19,7 @@ def plan(path: Path | str) -> tuple[dict[str, Any], bytes]:
     """Capture a plan once, retaining exactly the bytes that were hashed."""
     try:
         resolved = Path(path).expanduser().resolve(strict=True)
-        if not resolved.is_file():
-            raise OSError("not a regular file")
-        body = resolved.read_bytes()
+        body = read_regular(resolved)               # the file checked is the file read
     except OSError as exc:
         raise GateError(f"cannot read plan {path}: {exc}") from exc
     return {

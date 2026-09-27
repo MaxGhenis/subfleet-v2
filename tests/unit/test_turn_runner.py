@@ -137,6 +137,27 @@ def test_a_runner_ends_and_closes_its_relay_even_when_its_last_writes_are_refuse
     assert runner.join(0)                   # never started: nothing to wait for
 
 
+def test_a_runner_whose_thread_cannot_start_is_left_as_never_started(make_runner, monkeypatch):
+    """C-25.3 (review of 4d3d3ea, F2): `start()` kept its thread before starting it, so
+    a thread that could not start (`RuntimeError` at a thread limit) left a runner
+    whose `join()` raised "cannot join thread before it is started", and with it the
+    service's close(), before the store and the rest of `Daemon.close()` were closed."""
+    import threading
+    runner, clock, contained = make_runner(Clocks())
+    real_start = threading.Thread.start
+
+    def failing(self):
+        if self.name.startswith("turn:"):
+            raise RuntimeError("can't start new thread")
+        return real_start(self)
+
+    monkeypatch.setattr(threading.Thread, "start", failing)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        runner.start()
+    assert runner.join(0)                   # never started: nothing to wait for, and no error
+    assert not runner.finished.is_set()
+
+
 def test_a_runner_writes_no_outcome_after_its_service_closed(make_runner, tmp_path):
     """C-25.3, C-26.6: `turn.json` is written only while the store is open, so a runner
     still going after close() adds nothing to an attempt directory its owner may be

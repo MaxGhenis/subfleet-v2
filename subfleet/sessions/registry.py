@@ -53,6 +53,9 @@ from .client import SessionsUnsupported
 
 #: C-26.13: why the kit leaves a conversation's session alone, and where it
 #: continues instead. The daemon's resume and revive refusals name the same fix.
+#: The most of one registry file read: a row is a few hundred bytes (review of aa41312:
+#: each was read whole, on every dispatch check).
+ROW_MAX = 1024 * 1024
 CONVERSATION_REASON = "bound to a Subfleet conversation"
 CONVERSATION_FIX = ("continue it in the Subfleet app: open the conversation "
                     "and send the next message there")
@@ -156,9 +159,8 @@ class SessionRow:
 
 def _row(path: Path) -> SessionRow | None:
     try:
-        with transcripts.open_regular(path, "r", encoding="utf-8") as stream:
-            data = json.loads(stream.read())
-    except (OSError, ValueError):
+        data = json.loads(transcripts.read_regular(path, ROW_MAX).decode("utf-8"))
+    except (OSError, ValueError):                   # a UnicodeDecodeError is a ValueError
         return None
     if not isinstance(data, dict) or not isinstance(data.get("sessionId"), str):
         return None

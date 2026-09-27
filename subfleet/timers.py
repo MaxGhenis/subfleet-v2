@@ -18,6 +18,7 @@ from . import capacity
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential
+from .sessions.transcripts import read_regular
 from .store import Store
 
 
@@ -287,7 +288,8 @@ class Timers:
 
     def _epoch(self, lane):
         try:
-            raw = json.loads((Path(lane.home or lane.credential.ref).expanduser() / 'auth.json').read_bytes())
+            # Only a regular file, never waiting in open(): Timers.stop() waits for this worker.
+            raw = json.loads(read_regular(Path(lane.home or lane.credential.ref).expanduser() / 'auth.json'))
             return raw.get('last_refresh', lane.credential.epoch)
         except (OSError, ValueError, TypeError):
             return lane.credential.epoch
