@@ -17,6 +17,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import errno
 import json
+import operator
 from pathlib import Path
 import socket
 import subprocess
@@ -317,6 +318,93 @@ def test_idle_connections_past_the_old_pool_never_starve_a_request(serve):
     finally:
         for client in idle:
             client.close()
+
+
+@pytest.mark.parametrize(("pool_name", "threads"), [("waiters", "subfleet-wait"),
+                                                     ("conversations.polls", "subfleet-poll")])
+def test_a_thread_going_idle_as_a_call_arrives_leaves_no_call_waiting(admitted, monkeypatch, pool_name, threads):
+    """The race that left a ping unanswered behind 40 idle connections when each
+    connection's reader was a call on a pool (release/217 before #43, 2026-09-27:
+    on the free-threaded 3.14.7 the test above failed up to 14 runs in 40), forced
+    so it happens every run, on the pools whose long polls each hold a thread for
+    up to a minute and which have one for every connection the daemon may hold
+    (C-16.5, C-16.7). A pool thread finishes a call and finds nothing queued;
+    before it says it is idle, a call arrives, finds no idle thread and starts a
+    new one; the old thread then takes that call, and the new thread finds
+    nothing and goes idle. The standard pool counted that as two idle threads
+    (permits of a `threading.Semaphore`), so of the next two calls the second was
+    left queued behind calls that hold their threads, with the pool nowhere near
+    its size: a long poll queued past its client's deadline. Here the finishing
+    thread is held just before it counts itself idle and let go once the call has
+    found no idle thread; then every call must still start at once. A pool that
+    counts no permits (`subfleet.pool.Pool`) has no such moment, and the calls
+    start as they come."""
+    daemon, _ = admitted
+    pool = operator.attrgetter(pool_name)(daemon)
+    let_go, holding, finisher_took_it, new_thread_idle = (threading.Event() for _ in range(4))
+    finisher, submitter = {}, threading.get_ident()
+    real_release, real_acquire = threading.Semaphore.release, threading.Semaphore.acquire
+
+    def release(self, n=1):
+        me = threading.get_ident()
+        if me == finisher.get("thread") and not holding.is_set():
+            holding.set()
+            let_go.wait(10)                 # the call arrives meanwhile and starts a thread
+        elif (let_go.is_set() and me != finisher.get("thread")
+              and threading.current_thread().name.startswith(threads)):
+            new_thread_idle.set()           # the thread that call started, finding nothing
+        return real_release(self, n)
+
+    def acquire(self, blocking=True, timeout=None):
+        got = real_acquire(self, blocking, timeout)
+        if not got and threading.get_ident() == submitter and holding.is_set() and not let_go.is_set():
+            let_go.set()                    # no idle thread was found: the finisher goes on
+            finisher_took_it.wait(10)       # and takes the call before the new thread exists
+        return got
+
+    monkeypatch.setattr(threading.Semaphore, "release", release)
+    monkeypatch.setattr(threading.Semaphore, "acquire", acquire)
+    release_all = threading.Event()
+    started = {name: threading.Event() for name in ("first", "second", "third")}
+
+    def holds(name):
+        if name == "first" and threading.get_ident() == finisher.get("thread"):
+            finisher_took_it.set()
+        started[name].set()
+        release_all.wait(30)
+
+    try:
+        pool.submit(lambda: finisher.setdefault("thread", threading.get_ident())).result(5)
+        holding.wait(1)                     # only a pool that counts permits gets here
+        pool.submit(holds, "first")
+        assert started["first"].wait(5)
+        if holding.is_set():
+            assert finisher_took_it.is_set() and new_thread_idle.wait(5)
+        pool.submit(holds, "second")
+        pool.submit(holds, "third")
+        # Three calls hold threads of a pool sized for MAX_CONNECTIONS: each starts.
+        assert started["second"].wait(5)
+        assert started["third"].wait(5), f"a call waited in daemon.{pool_name} with room to spare"
+    finally:
+        let_go.set()
+        release_all.set()
+
+
+def test_every_pool_the_daemon_runs_calls_on_starts_them_while_it_has_room(admitted):
+    """C-16.5: the daemon's own pools, its conversation service's and its timers'
+    are `Pool`s, whose calls never wait while a thread could run them; the
+    standard pool's count of idle threads could drift above the truth."""
+    from concurrent.futures import Executor
+    from subfleet.pool import Pool
+    daemon, _ = admitted
+    pools = {f"{owner}.{name}": value
+             for owner, holder in (("daemon", daemon), ("conversations", daemon.conversations),
+                                   ("timers", daemon.timers))
+             for name, value in vars(holder).items() if isinstance(value, Executor)}
+    assert {"daemon.waiters", "daemon.requests", "daemon.lookups", "daemon.workers",
+            "conversations.polls", "conversations.files",
+            "timers._cycles", "timers._mirror", "timers._lanes"} <= set(pools)
+    assert [name for name, value in pools.items() if type(value) is not Pool] == []
 
 
 def test_accept_raises_what_is_not_a_shortage(monkeypatch, unbound_listener):

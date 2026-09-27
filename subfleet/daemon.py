@@ -29,7 +29,7 @@ import threading
 import time
 import weakref
 from uuid import uuid4
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -49,6 +49,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
+from .pool import Pool
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
@@ -467,17 +468,19 @@ class Daemon:
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
         self._seed_lanes()
-        self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
-        self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
-        self.lookups = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subfleet-read")   # C-16.5
+        # C-16.5, C-16.7: each pool starts a call at once while it has a thread to
+        # spare (`Pool`). The standard pool's count of idle threads could run ahead
+        # of them and leave a call queued behind held ones (2026-09-27).
+        self.workers = Pool(12, "subfleet-io")
+        self.requests = Pool(16, "subfleet-api")
+        self.lookups = Pool(8, "subfleet-read")   # C-16.5
         # C-16.7: each connection the daemon holds has a reader thread of its own
         # (`_hold_connection`), so none waits for one; `close()` joins them.
         self._readers: set[threading.Thread] = set()
         # A `wait` holds its thread for up to WAIT_POLL_MAX_S on its hub event (C-15.5), so
         # there is one for every connection the daemon may hold (review of the
         # descriptor hotfix: at 16, a 17th wait queued until its client gave up).
-        self.waiters = ThreadPoolExecutor(max_workers=descriptors.CONNECTIONS_CEILING,
-                                          thread_name_prefix="subfleet-wait")
+        self.waiters = Pool(descriptors.CONNECTIONS_CEILING, "subfleet-wait")
         # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
         from .conversations.service import ConversationService
         self.conversations = ConversationService(self)
