@@ -127,12 +127,14 @@ TEXTS = sorted({os.strerror(number) for number in errno.errorcode})
 
 @settings(max_examples=300, deadline=None)
 @given(number=st.sampled_from(sorted(errno.errorcode)),
-       name=st.text(st.characters(blacklist_categories=("Cs",)), min_size=1, max_size=40))
-def test_c5_2_every_taskpolicy_reason_becomes_popens_words(tmp_path_factory, number, name):
-    """C-5.2 property: for any errno taskpolicy reports, spawn_error is str(OSError(errno, text, argv0))."""
+       name=st.text(st.characters(blacklist_categories=("Cs",)), min_size=1, max_size=40),
+       after=st.binary(max_size=60))
+def test_c5_2_every_taskpolicy_reason_becomes_popens_words(tmp_path_factory, number, name, after):
+    """C-5.2 property: for any errno taskpolicy reports, spawn_error is str(OSError(errno, text, argv0)),
+    read from taskpolicy's line alone, whatever follows it."""
     stderr = tmp_path_factory.mktemp("err") / "stderr"
     text = os.strerror(number)
-    stderr.write_bytes(guardian.CLAMP_SPAWN_FAILED + text.encode() + b"\n")
+    stderr.write_bytes(guardian.CLAMP_SPAWN_FAILED + text.encode() + b"\n" + after)
     got = guardian.clamp_spawn_error(guardian.CLAMP_SPAWN_FAILED_RC, str(stderr), name)
     mapped = guardian._ERRNO_BY_TEXT[text]
     assert os.strerror(mapped) == text

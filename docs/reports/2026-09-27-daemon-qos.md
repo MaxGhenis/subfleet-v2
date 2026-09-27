@@ -121,15 +121,24 @@ How the change meets it:
 
 ## Installing it
 
-The plist lives outside the repository and is changed only by an install. The step belongs in the desktop line's installer (`install_desktop_217.py`); it is a patch, `install_desktop_217-processtype.patch`, handed to the transition session:
+The plist lives outside the repository and is changed only by an install. Setting `Interactive` on this Mac changes every agent's scheduling there, so it waits for Max. It is decision d493. Until he says yes, the plist keeps `Standard`, and the guardian's clamp changes nothing, because the daemon's whole tree already runs at `utility`. A release with this commit can therefore ship before the ruling.
+
+Both tools are in `~/reviews/daemon-qos-2026-09-27/installer/`.
+
+**At an install.** `install_desktop_217-processtype.patch` is a patch to the desktop line's installer. It sets the key only when the installer runs with `SUBFLEET_INSTALL_PROCESS_TYPE=Interactive`:
 
 1. **Before the daemon is stopped**, the installer asserts:
    - the release being installed has the clamp (`guardian.PROVIDER_QOS == 'utility'`, imported from the new release's Python, which the installer already runs);
    - taskpolicy is executable;
    - the plist does not opt providers out.
 2. **While the daemon is booted out**, it runs `plutil -replace ProcessType -string Interactive`, beside `ExitTimeOut` 40. It asserts that no other key changed.
-3. **After the bootstrap**, it asserts that `launchctl print` shows `spawn type = interactive (4)`, and it prints the daemon's thread priorities, which should be 31.
+3. **After the bootstrap**, it asserts that `launchctl print` shows `spawn type = interactive (4)` (`daemon (3)` without the variable), and it prints the daemon's thread priorities, which should be 31.
 4. **Rollback** is the plist in the install's backup, which the installer already copies.
+
+**On its own.** `apply_process_type.py Interactive` is for a ruling that comes after the release is installed. `apply_process_type.py Standard` rolls it back.
+- Run it with the installed release's Python, when no turn is live: it stops and restarts the daemon.
+- It changes that one key and refuses `Interactive` for a release without the clamp. It keeps a dated copy of the plist and checks the spawn type afterwards.
+- With `--dry-run --plist <copy>` it edits a copy only. A round trip on a copy of the live plist came back byte-identical, and with release/217's Python (no clamp) it refused `Interactive`.
 
 **Ordering.** Never set `Interactive` on a release without the guardian clamp. Every provider would then run at the default QoS beside the operator's apps.
 
@@ -150,6 +159,8 @@ The plist lives outside the repository and is changed only by an install. The st
   - the kill protocol still contains a clamped, TERM-ignoring provider.
 - `tests/unit/test_daemon_verbs.py`: the plist says `Interactive`.
 - `tests/unit/test_daemon_qos_tools.py`: the harness's ABBA order (a property), and the repro tool's QoS helpers.
+
+`~/reviews/daemon-qos-2026-09-27/mutate.py` makes 14 mutants of the guardian's clamp and the plist and runs these tests against each. On 885142a5 it caught 13. The survivor was reading the whole stderr head instead of taskpolicy's first line. That is equivalent in practice, since taskpolicy writes one line, but the property now appends arbitrary bytes after that line, which catches it.
 
 The suite runs providers clamped, as production does; no fixture opts out. The directories that start providers were run that way:
 
