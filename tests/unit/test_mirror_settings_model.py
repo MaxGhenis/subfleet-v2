@@ -29,6 +29,7 @@ memory older than the mirror's write spreads what it ran, the known limit.
 from __future__ import annotations
 
 import itertools
+from dataclasses import replace
 
 import pytest
 
@@ -39,16 +40,26 @@ def settled_roots() -> list[model.State]:
     return [model.settled_root(3, v) for v in (0, 1)]
 
 
+ON_TIME, PICK, RESAVE = "on-time", "pick", "re-save"
+
+
+def first_root(value, rank, kinds) -> model.State:
+    """A store before its first decision. Each copy was written at its
+    activity (its value ran), or later: a pick that never ran, or a re-save
+    from memory (focus, a PR poll) of a value that ran."""
+    stamp = tuple(r if kind == ON_TIME else 2 for r, kind in zip(rank, kinds))
+    ran = frozenset(v for v, kind in zip(value, kinds) if kind != PICK)
+    picked = frozenset(v for v, kind in zip(value, kinds) if kind == PICK)
+    return model.initial(value, rank, stamp, ran=ran, picked=picked)
+
+
 def first_roots() -> list[model.State]:
     """Every store a first decision can meet in three folders: each value,
-    rank 0 or 1, and a file written at its activity or after it settled."""
-    roots = []
-    for value in itertools.product(model.VALUES, repeat=3):
-        for rank in itertools.product((0, 1), repeat=3):
-            for late in itertools.product((False, True), repeat=3):
-                stamp = tuple(2 if after else r for r, after in zip(rank, late))
-                roots.append(model.initial(value, rank, stamp))
-    return roots
+    rank 0 or 1, and each kind of last write."""
+    return [first_root(value, rank, kinds)
+            for value in itertools.product(model.VALUES, repeat=3)
+            for rank in itertools.product((0, 1), repeat=3)
+            for kinds in itertools.product((ON_TIME, PICK, RESAVE), repeat=3)]
 
 
 @pytest.mark.parametrize("honest", [True, False])
@@ -122,7 +133,7 @@ def test_activity_decides_a_value_the_session_had_before():
 @pytest.mark.parametrize("honest", [True, False])
 @pytest.mark.parametrize("picked", [True, False])
 def test_every_first_decision_keeps_its_invariants(picked, honest):
-    """C-23.28: one clean pass from each of the 1,728 first-decision stores."""
+    """C-23.28: one clean pass from each of the 5,832 first-decision stores."""
     for root in first_roots():
         decided = model.pass_decide(root, picked=picked)
         after = model.pass_publish(decided, honest=honest)
@@ -135,13 +146,40 @@ def test_every_first_decision_keeps_its_invariants(picked, honest):
 def test_a_first_decision_takes_a_pick_made_after_the_last_activity():
     """C-23.28, the rollout's shape (2026-09-26): 120 copies ran their last turn
     on one model, and one account picked another afterwards without a turn."""
-    root = model.initial((0, 0, 1), (1, 1, 0), (1, 1, 2))
+    root = first_root((0, 0, 1), (1, 1, 0), (ON_TIME, ON_TIME, PICK))
     assert model.pass_decide(root, picked=True).decided == 1
     assert model.pass_decide(root, picked=False).decided == 0, \
         "a place moves with activity, so it takes the most active copy"
-    shared = model.initial((1, 0, 1), (0, 1, 0), (0, 1, 2))
+    shared = model.initial((1, 0, 1), (0, 1, 0), (0, 1, 2), ran=frozenset({0}))
     assert model.pass_decide(shared, picked=True).decided == 0, \
         "a value some copy held before the last activity is not a later pick"
+
+
+def test_a_late_save_of_a_value_that_ran_never_beats_newer_activity():
+    """C-23.28, review round 1 (PR #49): at a first decision a late write alone
+    is no pick. The app re-saves the whole record on focus or a PR poll, so a
+    folder can write an old value long after the session last ran elsewhere.
+    A value that ran is not a pick; the transcript records what ran."""
+    state = model.initial((1, 0, 0), (0, 1, 1), (0, 1, 1))     # 1 and 0 both ran
+    state = model.save(state, 0, limit=10)                      # A re-saves 1 late
+    decided = model.pass_decide(state, picked=True)
+    assert decided.decided == 0, "B and C ran more recently"
+    after = model.pass_publish(decided, honest=False)
+    assert after.value == (0, 0, 0)
+    assert model.check_step(decided, "pass_publish", after, picked=True, honest=False) == []
+    unpicked = replace(state, ran=frozenset({0}))               # 1 never ran: a pick
+    assert model.pass_decide(unpicked, picked=True).decided == 1
+
+
+def test_the_first_decision_property_is_not_the_rule_restated():
+    """C-23.28, review round 1: "newer never overwritten" judges a first decision
+    by the ghost of which values picks produced, which the rule never reads.
+    A rule that took every late value as a pick breaks it."""
+    root = first_root((1, 0, 0), (0, 1, 1), (RESAVE, ON_TIME, ON_TIME))
+    wrong = replace(model.pass_decide(root, picked=True), decided=1)
+    after = model.pass_publish(wrong, honest=False)
+    assert "newer-never-overwritten" in model.check_step(wrong, "pass_publish", after,
+                                                         picked=True, honest=False)
 
 
 @pytest.mark.parametrize("picked", [True, False])
@@ -150,10 +188,13 @@ def test_explorations_from_first_decisions_break_only_the_known_limit(picked):
     sample of the first-decision stores: three values, a minority value in a
     less active or the most active folder, a tie, and every write-time shape.
     (Every one of the 1,728 stores gets the one-pass check above.)"""
-    shapes = {(0, 1, 2), (0, 0, 1), (1, 0, 0), (0, 1, 0)}
-    ranks = {(1, 0, 0), (0, 0, 0), (0, 1, 1)}
-    roots = [root for root in first_roots() if root.value in shapes and root.rank in ranks]
-    assert len(roots) == 96
+    shapes = {(0, 1, 2), (0, 0, 1), (1, 0, 0)}
+    ranks = {(1, 0, 0), (0, 1, 1)}
+    kinds = {(ON_TIME, ON_TIME, PICK), (ON_TIME, ON_TIME, RESAVE), (RESAVE, ON_TIME, PICK),
+             (PICK, RESAVE, ON_TIME), (ON_TIME, ON_TIME, ON_TIME)}
+    roots = [first_root(value, rank, kind)
+             for value in shapes for rank in ranks for kind in kinds]
+    assert len(roots) == 30
     _states, broken = model.explore(roots, picked=picked, honest=False, limit=4)
     assert set(broken) <= {"no-stale-resurrection"}, broken
 
@@ -186,7 +227,7 @@ def test_a_merge_base_rule_spreads_a_stale_save(monkeypatch):
     """C-23.28: the flag protocol's rule (any change from the base wins) would
     spread a value the app re-saved from memory older than the mirror's write,
     with no activity at all."""
-    def merge_base(snap, base, *, picked):
+    def merge_base(snap, base, *, ran):
         values = {value for value, _r, _s in snap}
         if len(values) == 1:
             return snap[0][0]
@@ -201,7 +242,7 @@ def test_a_merge_base_rule_spreads_a_stale_save(monkeypatch):
 def test_a_newest_activity_rule_loses_a_users_pick(monkeypatch):
     """C-23.28: "the copy with the greatest lastActivityAt wins" alone would
     overwrite a pick made in any folder but the most active one."""
-    def newest(snap, base, *, picked):
+    def newest(snap, base, *, ran):
         return model._best(snap, list(range(len(snap))), lambda item: (item[1], item[2]))
 
     assert "intent-wins" in _explore_with(monkeypatch, newest)

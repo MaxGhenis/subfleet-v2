@@ -580,9 +580,10 @@ P-23.40 under provenance/attestation.
 >
 > The mirror also brings every copy of a session to one model, effort and place, each unit whole
 > from one copy, in the same all-or-nothing publish: the most active copy at a session's first
-> decision (a model or effort picked after the last activity excepted), then a value no pass has
-> seen, then activity since the last decision, and otherwise the decided value, so a stale
-> re-save never spreads without new activity. Session files whose copies hold different
+> decision (a model picked after the last activity, one the transcript never ran, excepted), then
+> a value no pass has seen, then activity since the last decision, and otherwise the decided
+> value, so a re-save from stale memory never beats newer activity and never spreads without
+> new activity of its own. Session files whose copies hold different
 > conversation ids are reported, never rewritten.
 
 - **Ledger rows:** 159 (`keep`, ops-hygiene)

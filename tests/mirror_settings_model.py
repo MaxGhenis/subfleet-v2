@@ -22,8 +22,9 @@ The app is modeled as the 2.9939.2 bundle shows it (2026-09-26 report):
 * `pick` is the model picker or `set_session_model` in the loaded folder: it
   changes memory and the file, and not the rank (`commitSessionModel` never
   touches `lastActivityAt`). The app ignores a pick of the value it holds;
-* `turn` is any activity (a turn, a respawn): it writes memory and raises
-  the rank;
+* `turn` is any activity (a turn, a respawn): it writes memory, raises the
+  rank, and records the value in the session's transcript (`ran`), which is
+  account-agnostic and append-only;
 * `save` is every other save (focus, a PR poll, another field): it writes
   memory and keeps the rank.
 
@@ -83,16 +84,24 @@ class State:
     turns: tuple[bool, ...] = ()
     #: Ghost: accounts whose memory predates the mirror's last write there.
     stale: frozenset[int] = frozenset()
+    #: The values any turn ran on: the transcript the code reads.
+    ran: frozenset[int] = frozenset()
+    #: Ghost: values some pick produced. Independent of what the rule reads,
+    #: it is what "a pick won" is checked against.
+    picked: frozenset[int] = frozenset()
 
 
 def initial(value: tuple[int, ...], rank: tuple[int, ...], stamp: tuple[int, ...], *,
-            loaded: int = 0, base: Base | None = None) -> State:
-    """A store before a pass: the app loaded `loaded` and holds what it read."""
+            loaded: int = 0, base: Base | None = None, ran: frozenset[int] | None = None,
+            picked: frozenset[int] = frozenset()) -> State:
+    """A store before a pass: the app loaded `loaded` and holds what it read.
+    By default every value on disk has run (none is a pick)."""
     mem = tuple(value[a] if a == loaded else None for a in range(len(value)))
     settled = value[0] if base is not None and base.v is not None \
         and all(item == base.v for item in value) else None
     return State(value=value, rank=rank, stamp=stamp, mem=mem, loaded=loaded,
-                 tick=max((*rank, *stamp)) + 1, base=base, settled=settled)
+                 tick=max((*rank, *stamp)) + 1, base=base, settled=settled,
+                 ran=frozenset(value) if ran is None else ran, picked=picked)
 
 
 def settled_root(accounts: int, v: int) -> State:
@@ -111,15 +120,18 @@ def _best(snap, indices, key) -> int:
     return snap[top][0]
 
 
-def later_only(snap) -> list[int]:
-    """Copies whose value only copies written after the last activity hold."""
+def later_only(snap, ran: frozenset[int]) -> list[int]:
+    """Copies whose value never ran and only copies written after the last
+    activity hold: `decide_setting`'s later picks."""
     last = max(rank for _v, rank, _s in snap)
     return [index for index, (value, _r, _s) in enumerate(snap)
-            if all(stamp > last for other, _r2, stamp in snap if other == value)]
+            if value not in ran
+            and all(stamp > last for other, _r2, stamp in snap if other == value)]
 
 
-def decide(snap, base: Base | None, *, picked: bool) -> int:
-    """`decide_setting`: agree, first, new, activity, base."""
+def decide(snap, base: Base | None, *, ran: frozenset[int] | None) -> int:
+    """`decide_setting`: agree, later, first, new, activity, base. `ran` is the
+    transcript for the unit that has one (the model), else None."""
     values = {value for value, _r, _s in snap}
     if len(values) == 1:
         return snap[0][0]
@@ -129,8 +141,8 @@ def decide(snap, base: Base | None, *, picked: bool) -> int:
 
     everyone = list(range(len(snap)))
     if base is None or base.v is None:
-        if picked:
-            later = later_only(snap)
+        if ran is not None:
+            later = later_only(snap, ran)
             if later:
                 return _best(snap, later, lambda item: item[2])
         return _best(snap, everyone, activity)
@@ -166,7 +178,7 @@ def pick(state: State, value: int, *, limit: int) -> State | None:
     return replace(state, value=_set(state.value, here, value), mem=_set(state.mem, here, value),
                    stamp=_set(state.stamp, here, state.tick), tick=state.tick + 1,
                    picks=state.picks + ((value, novel),), settled=None,
-                   stale=state.stale - {here})
+                   stale=state.stale - {here}, picked=state.picked | {value})
 
 
 def turn(state: State, account: int, *, limit: int) -> State | None:
@@ -176,7 +188,8 @@ def turn(state: State, account: int, *, limit: int) -> State | None:
     return replace(state, value=_set(state.value, account, held),
                    rank=_set(state.rank, account, state.tick),
                    stamp=_set(state.stamp, account, state.tick), tick=state.tick + 1,
-                   turns=state.turns + (account in state.stale,), settled=None)
+                   turns=state.turns + (account in state.stale,), settled=None,
+                   ran=state.ran | {held})
 
 
 def save(state: State, account: int, *, limit: int) -> State | None:
@@ -187,12 +200,16 @@ def save(state: State, account: int, *, limit: int) -> State | None:
                    stamp=_set(state.stamp, account, state.tick), tick=state.tick + 1)
 
 
-def pass_decide(state: State, *, picked: bool) -> State | None:
+def pass_decide(state: State, *, picked: bool,
+                transcript: frozenset[int] | None = None) -> State | None:
+    """Read every copy and decide. `picked` means the unit is the model, whose
+    later picks the transcript tells apart; the code reads the transcript a
+    moment after the copies, so `transcript` may be a later one."""
     if state.phase != IDLE:
         return None
     snap = tuple(zip(state.value, state.rank, state.stamp))
-    return replace(state, phase=DECIDED, snap=snap,
-                   decided=decide(snap, state.base, picked=picked))
+    ran = (state.ran if transcript is None else transcript) if picked else None
+    return replace(state, phase=DECIDED, snap=snap, decided=decide(snap, state.base, ran=ran))
 
 
 def dirty(state: State) -> tuple[int, ...]:
@@ -278,16 +295,19 @@ def _decided_base(state: State) -> bool:
 def overwrite_allowed(before: State, a: int, *, picked: bool) -> bool:
     """Newer is never overwritten by older: the mirror writes the decided value
     over copy `a` only if a copy holding that value is at least as active as
-    `a` (rank, then stamp), or the value is a change no pass had seen (a pick
-    or a move), or `a` has had no activity since the base was decided (so its
-    difference is a save from memory, not something newer)."""
+    `a` (rank, then stamp), or some pick produced that value (the ghost
+    `picked`, which the rule never reads), or the value is a change no pass
+    had seen, or `a` has had no activity since the base was decided (so its
+    difference is a save from memory, not something newer). At a first
+    decision only the first two count: a re-save of a value that ran must
+    never beat newer activity."""
     snap, decided, base = before.snap, before.decided, before.base
     assert snap is not None
     if any(snap[b][0] == decided and snap[b][1:] >= snap[a][1:] for b in range(len(snap))):
         return True
     if _decided_base(before):
         return decided not in base.seen or snap[a][1] <= base.rank
-    return picked and any(snap[b][0] == decided for b in later_only(snap))
+    return decided in before.picked
 
 
 def check_step(before: State, label: str, after: State, *, picked: bool,

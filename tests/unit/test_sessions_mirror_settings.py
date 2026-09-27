@@ -169,6 +169,70 @@ def test_a_place_saved_after_the_last_activity_does_not_win_the_first_decision(w
     assert {read(store, i)["cwd"] for i in range(3)} == {TREE}
 
 
+def test_a_late_re_save_of_a_model_that_ran_never_beats_newer_activity(world):
+    """Review round 1 (PR #49): a late write is no pick by itself. A focus or a
+    PR poll re-saves the whole record long after the last turn; the model it
+    writes ran before (the transcript says so), so the most active copy wins."""
+    running, store = world                  # the transcripts ran claude-fable-5-1
+    seed(store, 0, model=FABLE, activity=T0, written=T0 + 3 * HOUR)
+    seed(store, 1, model=OPUS, activity=T0 + HOUR)
+    seed(store, 2, model=OPUS, activity=T0 + HOUR)
+    running.run_once()
+    assert models(store) == [OPUS] * 3
+
+
+def test_without_a_transcript_a_late_model_is_no_pick(world):
+    """No evidence it never ran is no evidence of a pick: a session whose
+    transcript is gone takes the most active copy's model."""
+    running, store = world
+    gone = "0d0d0d0d-0000-4000-8000-00000000dead"
+    seed(store, 0, model=FABLE, activity=T0 + HOUR, session=gone)
+    seed(store, 1, model=FABLE, activity=T0 + HOUR, session=gone)
+    seed(store, 2, model=OPUS, activity=T0, written=T0 + 3 * HOUR, session=gone)
+    running.run_once()
+    assert models(store, gone) == [FABLE] * 3
+
+
+@pytest.mark.parametrize("late_s, wins", [(59, FABLE), (61, OPUS)])
+def test_a_later_pick_must_come_a_settled_minute_after_the_last_activity(world, late_s, wins):
+    """The app saves within 1-3 s of the frame that raised lastActivityAt; a
+    write within `SETTLE_MS` (60 s) of it is that activity's own save."""
+    running, store = world
+    seed(store, 0, model=FABLE, activity=T0 + HOUR)
+    seed(store, 1, model=FABLE, activity=T0 + HOUR)
+    account, org = FOLDERS[2]
+    target = fx.index_entry(store, account, org, ONE, model=OPUS, last_activity=T0,
+                            settings={"ultracode": True}, **{"cwd": REPO, "originCwd": REPO})
+    stamp = (T0 + HOUR) / 1000 + late_s
+    os.utime(target, (stamp, stamp))
+    running.run_once()
+    assert models(store) == [wins] * 3
+
+
+def test_a_flag_write_keeps_a_model_the_app_changed_during_the_pass(world, monkeypatch):
+    """Review round 1: a copy getting only a flag write is checked and patched
+    on the flags alone, as before settings sync. A pick landing in it between
+    the read and the publish stays, and the archive still spreads."""
+    running, store = world
+    everywhere(store, FABLE)
+    running.run_once()
+    app_writes(path(store, 0), at=T0 + HOUR, isArchived=True)
+    sync = mirror.Mirror.sync_flags
+
+    def a_pick_lands(engine, folder_files, *args, **kwargs):
+        app_writes(path(store, 1), at=T0 + 2 * HOUR, model=OPUS)
+        return sync(engine, folder_files, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.Mirror, "sync_flags", a_pick_lands)
+        result = running.run_once()
+    assert result.flags_held == 0 and result.flag_synced == 1
+    assert [read(store, i)["isArchived"] for i in range(3)] == [True] * 3
+    assert models(store) == [FABLE, OPUS, FABLE]
+    running.run_once()
+    assert models(store) == [OPUS] * 3, "the pick nobody saw spreads next pass"
+
+
 def test_a_model_some_copy_held_before_the_last_activity_is_not_a_later_pick(world):
     running, store = world
     seed(store, 0, model=OPUS, activity=T0)                         # opus, early
@@ -561,8 +625,9 @@ def test_the_first_decision_never_writes_an_older_copys_values_over_a_newer_one(
         tmp_path_factory, monkeypatch, copies):
     """Newer is never overwritten by older: the place every copy ends with is the
     most active copy's (rank, then later write, then folder order), and the
-    model is that copy's too unless a model only copies written after the last
-    activity hold, which was picked after it."""
+    model is that copy's too unless a model that never ran (the transcript ran
+    only Fable 5.1) is held only by copies written after the last activity,
+    which was picked after it."""
     with monkeypatch.context() as patch:
         store, running = build(tmp_path_factory.mktemp("s"), patch, copies)
         before = [read(store, i) for i in range(3)]
@@ -576,8 +641,9 @@ def test_the_first_decision_never_writes_an_older_copys_values_over_a_newer_one(
     assert mirror._unit_value(after, place) == mirror._unit_value(newest, place)
     last = max(copy["lastActivityAt"] for copy in before)
     later = [i for i in range(3)
-             if all(mtimes[j] > last + mirror.SETTLE_MS
-                    for j in range(3) if before[j]["model"] == before[i]["model"])]
+             if before[i]["model"] != FABLE
+             and all(mtimes[j] > last + mirror.SETTLE_MS
+                     for j in range(3) if before[j]["model"] == before[i]["model"])]
     if later:
         pick = max(later, key=lambda i: (mtimes[i], -i))
         assert after["model"] == before[pick]["model"]

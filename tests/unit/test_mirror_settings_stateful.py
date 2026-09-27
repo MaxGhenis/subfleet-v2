@@ -1,21 +1,34 @@
 """The real mirror against its settings rule, on random interleavings: C-23.28.
 
 A Hypothesis state machine drives the real `Mirror` on real files, with three
-account folders holding one session whose copies start with random models,
-activity and file times, and the model in `tests/mirror_settings_model.py`
-in lockstep. The rules interleave the app's picks in the loaded folder,
-turns and saves in any folder it holds (the loaded one and parked ones,
-including saves of a memory older than the mirror's write), account
-switches, full passes, passes with app writes landing between the read and
-the publish, passes cancelled before they publish, and passes that cannot
-read a copy. After every step every file's model and `lastActivityAt`, its
-mtime, and the settings base must equal the model's. The model's invariants
-are checked over every reachable state by `test_mirror_settings_model.py`,
-so this ties the implementation to them.
+account folders holding one session, and the model in
+`tests/mirror_settings_model.py` in lockstep. It runs twice: once for the model
+unit, whose later picks the session's transcript tells apart, and once for the
+place unit, which has no such evidence.
+
+The copies start with random values, activity and file times. Each copy's last
+write is either at its activity, a later pick that never ran, or a later
+re-save of a value that ran. The transcript on disk records every value that
+ran.
+
+The rules interleave:
+- the app's picks in the loaded folder;
+- turns and saves in any folder it holds: the loaded one, and parked ones,
+  including saves of a memory older than the mirror's write;
+- account switches;
+- full passes;
+- passes with app writes landing between the read and the publish;
+- passes cancelled before they publish;
+- passes that cannot read a copy.
+
+After every step, every file's value, `lastActivityAt` and mtime, and the
+settings base, must equal the model's. `test_mirror_settings_model.py` checks
+the model's invariants over every reachable state, so this ties the
+implementation to them.
 
 Write-level races inside a publish (a save between two of its writes, and the
 rollback) are shared with flag sync and held to `mirror_flags_model.py` by
-`test_mirror_flags_stateful.py`; `test_sessions_mirror_settings.py` covers
+`test_mirror_flags_stateful.py`. `test_sessions_mirror_settings.py` covers
 them for a settings write.
 """
 
@@ -47,14 +60,14 @@ STEP = 1_000_000
 LIMIT = 10_000
 EVENTS = ("pick_0", "pick_1", "pick_2", "load_0", "load_1", "load_2",
           "turn_0", "turn_1", "turn_2", "save_0", "save_1", "save_2")
+KINDS = ("on-time", "pick", "re-save")
 
 
-def name_of(value: int) -> str:
-    return f"claude-model-{value}"
-
-
-def digest_of(value: int) -> str:
-    return mirror._unit_digest({"model": name_of(value)})
+def fields_of(unit: str, value: int) -> dict[str, str]:
+    """The record fields one model value stands for, in the unit under test."""
+    if unit == "model":
+        return {"model": f"claude-model-{value}"}
+    return {"cwd": f"/Users/fixture/place-{value}", "originCwd": f"/Users/fixture/place-{value}"}
 
 
 def rank_ms(tick: int) -> int:
@@ -66,18 +79,23 @@ def mtime_s(tick: int) -> float:
 
 
 class MirrorAgainstModel(RuleBasedStateMachine):
+    unit = "model"
+
     def __init__(self, base: Path, monkeypatch):
         super().__init__()
         self.monkeypatch = monkeypatch
-        home = fx.claude_home(base, monkeypatch)
+        self.home = fx.claude_home(base, monkeypatch)
         self.store = fx.desktop_store(base, monkeypatch)
-        fx.transcript(home, SESSION, fx.completed())
         self.root = base / "state"
         self.root.mkdir()
         ticks = itertools.count()
         self.running = mirror.Mirror(
             self.root, fx.policy(), now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
         self.state: model.State | None = None
+
+    @property
+    def picked(self) -> bool:
+        return self.unit == "model"
 
     # --- the two worlds -------------------------------------------------------
 
@@ -89,17 +107,27 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         """The app's own write: beside the file, then rename, then its mtime."""
         target = self.path(account)
         data = json.loads(target.read_text()) if target.exists() else {}
-        data.update({"model": name_of(value), "lastActivityAt": rank_ms(rank)})
+        data.update({**fields_of(self.unit, value), "lastActivityAt": rank_ms(rank)})
         temporary = target.with_name(target.name + ".tmp")
         temporary.write_text(json.dumps(data), encoding="utf-8")
         os.utime(temporary, (mtime_s(stamp), mtime_s(stamp)))
         temporary.replace(target)
+
+    def transcript(self, ran) -> None:
+        """The session's transcript: one assistant message per model that ran."""
+        entries = [fx.typed_prompt("start")]
+        for value in sorted(ran):
+            model_id = fields_of("model", value)["model"] if self.picked else "claude-fable-5-1"
+            entries.append(fx.assistant_text("ran", uuid=f"a{value}", model=model_id))
+        fx.transcript(self.home, SESSION, entries)
 
     def sync_files(self, before: model.State, after: model.State) -> None:
         for a in range(len(FOLDERS)):
             if (before.value[a], before.rank[a], before.stamp[a]) != \
                     (after.value[a], after.rank[a], after.stamp[a]):
                 self.write(a, after.value[a], after.rank[a], after.stamp[a])
+        if after.ran != before.ran:
+            self.transcript(after.ran)
 
     def apply(self, event: str) -> None:
         kind, _sep, arg = event.partition("_")
@@ -113,6 +141,9 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             self.sync_files(state, nxt)
             self.state = nxt
 
+    def decide(self) -> model.State:
+        return model.pass_decide(self.state, picked=self.picked)
+
     def base(self) -> dict:
         return (mirror._load(self.running.flags_path).get(SESSION) or {}).get("settings") or {}
 
@@ -120,13 +151,16 @@ class MirrorAgainstModel(RuleBasedStateMachine):
 
     @initialize(value=st.tuples(*[st.sampled_from(model.VALUES)] * 3),
                 rank=st.tuples(*[st.sampled_from((0, 1))] * 3),
-                late=st.tuples(*[st.booleans()] * 3))
-    def seed(self, value, rank, late):
-        stamp = tuple(2 if after else r for r, after in zip(rank, late))
+                kinds=st.tuples(*[st.sampled_from(KINDS)] * 3))
+    def seed(self, value, rank, kinds):
+        stamp = tuple(r if kind == "on-time" else 2 for r, kind in zip(rank, kinds))
+        ran = frozenset(v for v, kind in zip(value, kinds) if kind != "pick")
+        picked = frozenset(v for v, kind in zip(value, kinds) if kind == "pick")
         for a, (account, org) in enumerate(FOLDERS):
             fx.index_entry(self.store, account, org, SESSION, settings={"ultracode": True})
             self.write(a, value[a], rank[a], stamp[a])
-        self.state = model.initial(value, rank, stamp)
+        self.transcript(ran)
+        self.state = model.initial(value, rank, stamp, ran=ran, picked=picked)
 
     @rule(event=st.sampled_from(EVENTS))
     def app(self, event):
@@ -135,16 +169,14 @@ class MirrorAgainstModel(RuleBasedStateMachine):
     @rule()
     def full_pass(self):
         assert self.running.run_once().state == "ok"
-        self.state = model.pass_publish(model.pass_decide(self.state, picked=True),
-                                        honest=False)
+        self.state = model.pass_publish(self.decide(), honest=False)
 
     @rule(events=st.lists(st.sampled_from(EVENTS), min_size=1, max_size=3))
     def pass_with_writes_between_read_and_publish(self, events):
-        decided = model.pass_decide(self.state, picked=True)
+        before = self.state
         sync = mirror.Mirror.sync_flags
 
         def interleave(engine, folder_files, *args, **kwargs):
-            self.state = decided
             for event in events:
                 self.apply(event)
             return sync(engine, folder_files, *args, **kwargs)
@@ -152,7 +184,13 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         with self.monkeypatch.context() as patch:
             patch.setattr(mirror.Mirror, "sync_flags", interleave)
             assert self.running.run_once().state == "ok"
-        self.state = model.pass_publish(self.state, honest=False)
+        # The copies were read before the events; the transcript is read in
+        # the decision, after them.
+        decided = model.pass_decide(before, picked=self.picked, transcript=self.state.ran)
+        after_events = self.state
+        self.state = model.pass_publish(
+            model.replace(after_events, phase=model.DECIDED, snap=decided.snap,
+                          decided=decided.decided), honest=False)
 
     @rule()
     def pass_cancelled_before_publish(self):
@@ -168,7 +206,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             patch.setattr(mirror.Mirror, "_checkpoint", cancel_at_publish)
             assert running.run_once().state == "cancelled"
         running.cancel = None
-        self.state = model.cancel(model.pass_decide(self.state, picked=True))
+        self.state = model.cancel(self.decide())
 
     @rule(account=st.integers(min_value=0, max_value=2))
     def pass_that_cannot_read_a_copy(self, account):
@@ -192,7 +230,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             patch.setattr(mirror, "_read_entry", unreadable)
             result = self.running.run_once()
         assert result.state == "ok" and result.flags_held >= 1
-        self.state = model.cancel(model.pass_decide(self.state, picked=True))
+        self.state = model.cancel(self.decide())
 
     # --- the check --------------------------------------------------------------
 
@@ -203,21 +241,30 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             return
         for a in range(len(FOLDERS)):
             data = json.loads(self.path(a).read_text())
-            assert data["model"] == name_of(state.value[a]), a
+            for key, expected in fields_of(self.unit, state.value[a]).items():
+                assert data[key] == expected, (a, key)
             assert data["lastActivityAt"] == rank_ms(state.rank[a]), a
             assert os.stat(self.path(a)).st_mtime == mtime_s(state.stamp[a]), a
         recorded = self.base()
-        unit = (recorded.get("units") or {}).get("model") or {}
+        unit = (recorded.get("units") or {}).get(self.unit) or {}
         if state.base is None:
-            assert not unit
+            assert not unit.get("seen")
             return
-        assert set(unit.get("seen") or ()) == {digest_of(v) for v in state.base.seen}
+
+        def digest(value: int) -> str:
+            return mirror._unit_digest(fields_of(self.unit, value))
+
+        assert set(unit.get("seen") or ()) == {digest(v) for v in state.base.seen}
         if state.base.v is None:
             assert "v" not in unit
         else:
-            assert unit["v"] == digest_of(state.base.v)
-            assert unit["value"] == {"model": name_of(state.base.v)}
+            assert unit["v"] == digest(state.base.v)
+            assert unit["value"] == fields_of(self.unit, state.base.v)
             assert recorded["rank"] == rank_ms(state.base.rank)
+
+
+class PlaceAgainstModel(MirrorAgainstModel):
+    unit = "place"
 
 
 class _Always:
@@ -225,13 +272,14 @@ class _Always:
         return True
 
 
-@pytest.mark.parametrize("seed", [0])
+@pytest.mark.parametrize("machine", [MirrorAgainstModel, PlaceAgainstModel],
+                         ids=["model", "place"])
 def test_the_mirror_follows_its_settings_rule_on_random_interleavings(
-        seed, tmp_path_factory, monkeypatch):
+        machine, tmp_path_factory, monkeypatch):
     """C-23.28: implementation and model agree step by step, so the model's
     exhaustively checked invariants hold for the mirror on every trace tried."""
     run_state_machine_as_test(
-        lambda: MirrorAgainstModel(tmp_path_factory.mktemp("trace"), monkeypatch),
+        lambda: machine(tmp_path_factory.mktemp("trace"), monkeypatch),
         settings=settings(max_examples=100, stateful_step_count=30, deadline=None,
                           derandomize=True, database=None,
                           suppress_health_check=[HealthCheck.too_slow,

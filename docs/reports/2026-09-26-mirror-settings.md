@@ -113,33 +113,44 @@ The settings base, in `mirror-flags.json` under the session's `settings`, holds:
 `decide_setting` applies, in order:
 
 1. **agree**: every copy holds the same value.
-2. **first** (no value decided yet): the most active copy wins, by rank, then
-   latest write (mtime), then folder order. There is one exception, for model
-   and effort. If a value is held only by copies the app wrote more than 60 s
-   (`SETTLE_MS`) after the session's last activity, it was picked after that
-   activity, and the latest such write wins. This does not apply to places: a
-   model fix re-saves the whole record, stale place included, so a place saved
-   late is no evidence of a move.
-3. **new**: a value no pass has seen wins, the most active such copy first.
+2. **later** (no value decided yet, model only): a model that meets both of
+   these conditions was picked, and the copy with the latest such write wins:
+   - Every copy holding it was written more than 60 s (`SETTLE_MS`) after the
+     session's last activity.
+   - It never ran: no assistant message in the session's transcript used it.
+     The transcript is account-agnostic and append-only.
+
+   A late write alone is no evidence of a pick. The app re-saves the whole
+   record on focus, on a PR poll or for any other field, long after the last
+   turn. But what it re-saves from memory either ran or was itself picked and
+   never ran. Model ids are compared without their context suffix: `[1m]`.
+   Effort leaves no such record, so it has no exception. Neither does a place,
+   which moves in or right after a turn.
+3. **first** (no value decided yet): the most active copy wins, by rank, then
+   latest write (mtime), then folder order.
+4. **new**: a value no pass has seen wins, the most active such copy first.
    The app's memory holds only values it read from a file. The mirror read
    every value a file held before it overwrote it, so an unseen value can only
    be a change the app made since: a pick or a move.
-4. **activity**: a copy whose rank exceeds the base's `rank` had a turn or a
+5. **activity**: a copy whose rank exceeds the base's `rank` had a turn or a
    respawn since the last decision. The most active such copy wins.
-5. **base**: otherwise the decided value stands. A copy that differs without
+6. **base**: otherwise the decided value stands. A copy that differs without
    new activity holds a value the app re-saved from stale memory, or a pick of
    a value the session had before. The latter spreads with the session's next
    activity in that account.
 
 **Publishing** is flag sync's own publish, whole per session:
-- Before writing, every copy is re-read. It must still hold what the pass read
-  in its flag fields and in every setting field. A copy getting a setting
-  write must also still have the same rank, so a copy that ran a turn since
-  the read is never overwritten with older values. If any check fails, the
-  session is held and decided again next pass.
+- Before writing, every copy is re-read and must still hold what the pass read
+  in its flag fields. A copy getting a setting write must also still hold what
+  the pass read in every setting field, and still have the same rank, so a
+  copy that ran a turn since the read is never overwritten with older values.
+  A copy getting only a flag write keeps the settings it holds now, as in
+  PR #41. If any check fails, the session is held and decided again next
+  pass.
 - A write that finds its copy saved since the check puts back the copies
   already written.
-- Every write keeps the file's mtime, which is the sidebar's order.
+- Every write keeps the file's mtime to the nanosecond, which is the sidebar's
+  order.
 - Before the first write, the values the publish will displace are added to
   `seen` and the base file is synced: a write-ahead. Without it, a crash
   between the copy writes and the base write could let a displaced value that
@@ -154,7 +165,7 @@ precisely.
 |---|---|
 | Convergence | One pass with nothing written in between leaves every copy and the base on the decided value, and that value is one some copy held. |
 | Idempotence | A converged store decides itself and writes nothing. |
-| Newer never overwritten by older | The mirror writes a value over a copy only if one of these holds: a copy holding that value is at least as active; the value is a change no pass had seen; or the copy has had no activity since the base was decided. |
+| Newer never overwritten by older | The mirror writes a value over a copy only if one of these holds: a copy holding that value is at least as active; the value is a change no pass had seen; or the copy has had no activity since the base was decided. At a first decision, only a value that some pick produced may beat a more active copy. The model checks this against an independent record of which values picks produced, one the rule never reads. So a re-save of a value that ran never beats newer activity. |
 | No lost update, all or nothing | A publish writes only copies unchanged, in value and rank, since the read. A held session writes nothing and keeps its decided value and rank; only `seen` grows. |
 | Keeps rank and mtime | The mirror never changes `lastActivityAt` or a file's mtime. |
 | Never undo a settled value | With no pick and no activity since a clean publish, no pass decides anything else, even when the app re-saves stale values. |
@@ -164,11 +175,11 @@ precisely.
 
 | Method | Where | Result |
 |---|---|---|
-| Exhaustive model check | `tests/mirror_settings_model.py`, explored by `tests/unit/test_mirror_settings_model.py` over three folders, every event and pass. The app has current memory (`honest`) or stale memory with parked folders | App with current memory: 13,016 states, every property holds. Stale memory with parked folders: 22,640 states (407,966 at three app events deep), and only "no stale resurrection" fails, the known limit; its trace is a turn in a folder whose memory predates the mirror's write. First decisions: all 1,728 three-folder stores (each value, rank 0 or 1, written at or after its activity) keep every publish invariant in one pass for picked and place units alike, and explorations from 96 of them break only the known limit. Two mutants of the rule document the design: any-change-from-the-base breaks "never undo a settled value", and newest-activity-only breaks "intent wins" |
-| Differential | `tests/unit/test_mirror_settings_stateful.py`: a Hypothesis machine drives the real `Mirror` on real files in lockstep with the model: picks, turns, stale saves, switches, passes with writes between the read and the publish, cancellations, unreadable copies | 100 random traces of up to 30 steps from random first-decision stores; after every step every file's model, `lastActivityAt` and mtime, and the settings base, equal the model's |
+| Exhaustive model check | `tests/mirror_settings_model.py`, explored by `tests/unit/test_mirror_settings_model.py` over three folders, every event and pass. The app has current memory (`honest`) or stale memory with parked folders | App with current memory: 13,952 states, every property holds. Stale memory with parked folders: 24,776 states (490,492 at three app events deep), and only "no stale resurrection" fails, the known limit; its trace is a turn in a folder whose memory predates the mirror's write. First decisions: all 5,832 three-folder stores (each value, rank 0 or 1, and each copy last written at its activity, as a later pick that never ran, or as a later re-save of a value that ran) keep every publish invariant in one pass, for the model and for units without transcript evidence; explorations from 30 of them break only the known limit. "Newer never overwritten" judges a first decision by a ghost record of which values picks produced, which the rule never reads (review round 1 found the earlier form restated the rule). Two mutants of the rule document the design: any-change-from-the-base breaks "never undo a settled value", and newest-activity-only breaks "intent wins" |
+| Differential | `tests/unit/test_mirror_settings_stateful.py`: a Hypothesis machine drives the real `Mirror` on real files in lockstep with the model: picks, turns (which the transcript on disk records), stale saves, switches, passes with writes between the read and the publish, cancellations, unreadable copies. It runs for the model unit and again for the place unit | For each unit, 100 random traces of up to 30 steps from random first-decision stores; after every step every file's value, `lastActivityAt` and mtime, and the settings base, equal the model's |
 | Properties | `tests/unit/test_sessions_mirror_settings.py`: random three-copy stores (model, effort, place, activity, write times, flags) | convergence to a value some copy held; idempotence; first decision = the most active copy's place and model (or the later pick); flags equal to the same store with uniform settings |
-| Examples and faults | same file | first decision, ties, later picks, a pick in a less active account, stale saves, a stale-memory turn (the known limit), a turn during the pass, a save between two writes (rollback), a crash after the write-ahead, an unreadable copy, cancellation, the switch, a dry run, the journal, diverged ids |
-| Mutation | 12 hand-written mutants of `decide_setting`, `_settle_settings` and the publish: each tier removed, later picks for every unit or none, a zero settle margin, rank-only ties, no rank or setting re-check, no write-ahead, `seen` without the values read, a frozen base rank | All 12 killed: 10 by the differential test, the other 2 (later picks for places, rank-only ties) by the example tests |
+| Examples and faults | same file | first decision, ties, later picks, a late re-save of a model that ran, the 60 s margin on both sides, a pick in a less active account, stale saves, a stale-memory turn (the known limit), a turn during the pass, a pick landing in a flag-only copy during the pass, a save between two writes (rollback), a crash after the write-ahead, an unreadable copy, cancellation, the switch, a dry run, the journal, diverged ids |
+| Mutation | MUTANTS_ROUND2 | MUTANTS_ROUND2_KILLED |
 
 ## The rollout
 
@@ -179,6 +190,8 @@ every session is at its first decision, as after install), at 2026-09-27 02:55Z.
   - Open sessions: 13 get a model decision, 60 a place decision and 1 an effort decision. That is 1,370, 3,725 and 114 copies rewritten.
   - The rest are archived sessions.
 - 11 of the 13 open model decisions go to `claude-opus-5-5`. 9 of those are picks made after the session's last activity, in account `9921292e…`, which the newest-activity rule alone would have undone.
+  - Audited by hand on 2026-09-27: in all 9 transcripts, every assistant message ran on `claude-fable-5` or `claude-fable-5-1`, never opus-5-5.
+  - In each, the `9921292e…` copy's last write came weeks after its own `lastFocusedAt` and after the session's last turn. So it was not a focus save, and the model it holds never ran: a pick.
 - 2 stay Fable, because Fable is what they last ran:
   - `344c1562…` goes from `claude-fable-5` to `claude-fable-5-1`.
   - `f1263913…` goes to `claude-fable-5-1` over 2 copies that ran on opus-5-5 earlier.
@@ -197,6 +210,20 @@ After install:
   pass has seen for that session wins everywhere. A model the session had
   before takes effect everywhere once the session runs or is opened in that
   account.
+
+## Review
+
+One independent adversarial review, by Opus 5.5 on a Subfleet lane, requested changes. Its findings and their fixes:
+
+| Finding | Fix |
+|---|---|
+| **High.** At a first decision, "every holder written after the last activity" also matches a focus or PR-poll re-save of an old value, which then beat newer activity. The model's first-decision property restated the rule, so it could not see this. | A later value must also never have run in the session's transcript, and only the model has that evidence. The property now checks against a ghost record of which values picks produced. The reviewer's trace is a regression test in the model and on the real mirror. |
+| The dry run could not tell a later pick from a re-save. | The rule is now named `later` rather than `first`. The 9 open later picks were audited against their transcripts and write times (above). |
+| The stricter pre-check held flag-only writes when a setting changed during the pass. | Only copies getting a setting write are checked and patched on settings. A flag-only copy keeps the settings it holds now, as in PR #41. |
+| A held first decision's write-ahead leaves a settings-only base record. | Documented at the write-ahead: every reader takes it as no base. |
+| Unit values and digests were computed for every copy on every pass; mtimes were read eagerly. | Memoized per payload object, since equal records share one object. Mtimes are read only for sessions whose copies disagree. |
+| `keep_mtime` round-tripped a float, moving mtimes by up to about 0.1 µs. | Nanoseconds throughout. |
+| The differential test drove only the model unit. | It also runs for the place unit, and the 60 s margin is tested at 59 s and 61 s. |
 
 ## Conversation ids that diverged
 
@@ -228,9 +255,13 @@ sidebar. That predates this change and is a separate follow-up.
   before, made without a turn, looks exactly like a stale re-save. The mirror
   keeps the decided value on disk. The app keeps the pick in memory, and the
   session's next activity in that account spreads it.
-- **The first decision is heuristic** for a model or effort picked on a less
-  active copy. It needs every holder of that value written more than 60 s
-  after the session's last activity.
+- **The first decision reads intent from the transcript, and only for the
+  model.** A model that never ran counts as picked even if the pick came
+  before the last activity elsewhere (a pick made in one account that another
+  account's turns never knew of). A later pick of a model that ran earlier is
+  missed, and the most active copy wins. The same goes for any effort pick,
+  which leaves no record. Both are misses, never a stale value winning; after
+  the first decision the rule's "new" and "activity" steps apply as usual.
 - **Crash windows narrow, not closed.** The write-ahead covers a crash
   between the copy writes and the base write. As in the flag protocol, an app
   rename in the instant between the mirror's last check and its own rename is
