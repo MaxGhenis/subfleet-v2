@@ -4150,10 +4150,15 @@ class Daemon:
             self.log.debug("process table unreadable; %s not inspected this interval", aid)
             return False
         try:
-            shown = table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
+            # C-5.3's legacy match too: a guardian recorded with `kern.boottime`
+            # seconds (its UUID `sysctl` failed once at start) is shown alive when
+            # the table's one read of those seconds matches, as `liveness` would
+            # say, and is recorded from this table, not asked about singly.
+            shown = table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"], legacy=True)
         except procs.InspectionError:
-            # The table's boot identity could not be read, once for every attempt
-            # that asks; asked singly, the guardian would need the same read.
+            # The table's boot identity (or the seconds a legacy record needs)
+            # could not be read, once for every attempt that asks; asked singly,
+            # the guardian would need the same read.
             self.log.debug("boot identity unreadable; %s not inspected this interval", aid)
             return False
         if shown:

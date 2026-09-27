@@ -591,8 +591,8 @@ def test_c5_12_a_table_whose_uuid_read_fell_back_decides_nothing_for_uuid_record
 
 
 def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_group_owned(daemon, monkeypatch):
-    """C-5.3, C-5.6, C-5.12 the shared table cannot say "alive" for a `kern.boottime` record, so the fresh reads
-    do; once they have, its group's members are recorded as owned, as `same_process` would allow."""
+    """C-5.3, C-5.6, C-5.12 the shared table says "alive" for a `kern.boottime` record that C-5.3 matches, with no
+    fresh read, and its group's members are recorded as owned from that table, as `same_process` would allow."""
     session = "11111111-1111-4111-8111-111111111111"
     daemon.store.update_attempt(ATTEMPT, boot_id="1726000000")
     table = ProcessTable({4242: (1, 4242, "Ss", STARTED), 4243: (4242, 4242, "S", STARTED)}, session)
@@ -602,8 +602,8 @@ def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_gr
         return "{ sec = 1726000000, usec = 0 } Sat Sep 10 10:00:00 2024\n"
     monkeypatch.setattr(daemon_module.procs, "_read", read)
     daemon._process_table = shared(table)
-    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")   # C-5.3 matched the timestamp
-    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("the table matched it itself"))
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("no table of its own"))
     daemon._contain = never_census
     daemon._process_attempt(ATTEMPT)
     owned = json.loads(attempt(daemon)["evidence_json"])["owned_identities"]

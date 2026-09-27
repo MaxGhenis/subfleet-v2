@@ -37,6 +37,7 @@ GUARDIAN, CHILD, PGID = 4242, 4243, 4242
 GROUP_SNAPSHOT = ["/bin/ps", "-axo", "pid=,pgid=,stat=,lstart="]
 TABLE = procs.TABLE_ARGV                      # C-5.12's shared table
 UUID_READ = ["/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"]
+BOOTTIME_READ = ["/usr/sbin/sysctl", "-n", "kern.boottime"]
 
 
 class FakePs:
@@ -203,6 +204,34 @@ def test_running_attempt_inspection_shares_one_table_and_never_dumps_environment
     expire(daemon)
     daemon._process_attempt(ATTEMPT)
     assert asked == [] and ps.calls == [TABLE]
+
+
+def test_a_guardian_recorded_with_a_legacy_boot_timestamp_is_inspected_from_the_shared_table(daemon, monkeypatch):
+    """C-5.3, C-5.12: a guardian whose receipt holds `kern.boottime` seconds (its UUID `sysctl` failed once at start)
+    is shown alive by the shared table when C-5.3 matches the seconds, and its group is recorded from that table:
+    an interval costs the table, its boot identity and one `kern.boottime` read, and nothing is asked singly.
+
+    Final review of PR #37, 2026-09-26: the table was asked without the legacy match, so every interval such an
+    attempt was asked about afresh (two `ps -p` and a `kern.boottime`) and read a table of its own and
+    `kern.boottime` again to record its group: six processes against the UUID attempt's one."""
+    daemon.store.update_attempt(ATTEMPT, boot_id="1790255587")      # what FakePs's kern.boottime says
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    asked = count_liveness(monkeypatch)
+    daemon._process_attempt(ATTEMPT)
+    assert asked == []
+    assert ps.calls == [TABLE, UUID_READ, BOOTTIME_READ]
+    assert set(owned(daemon)) == {str(GUARDIAN), str(CHILD)}
+    assert daemon.store.get_attempt(ATTEMPT)["state"] == "running"
+    ps.calls.clear()
+    expire(daemon)                                           # the next interval: the UUID is remembered,
+    daemon._process_attempt(ATTEMPT)                         # the seconds are read again with the new table
+    assert asked == [] and ps.calls == [TABLE, BOOTTIME_READ]
+    ps.calls.clear()
+    daemon.store.update_attempt(ATTEMPT, boot_id="1790255500")      # a shifted timestamp: C-5.3 says unknown
+    expire(daemon)
+    daemon._process_attempt(ATTEMPT)
+    assert len(asked) == 1 and daemon.store.get_attempt(ATTEMPT)["state"] == "running"
 
 
 def test_a_pid_taken_by_a_new_group_member_is_recorded_afresh(daemon, monkeypatch):
