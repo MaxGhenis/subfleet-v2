@@ -6,7 +6,8 @@ Around 07:45 EDT (11:45Z) the daemon that had started at 02:38:43Z
 (pid 31388, release `20260923T005311Z`, commit `6420f5b`) stopped answering in
 time. `subfleet daemon status` reported the lock holder alive and the socket
 present but `ping unreachable` ("no response from the daemon within 5s", and at
-other moments `[Errno 61] Connection refused`). A `subfleet run --batch` from the
+other moments `[Errno 61] Connection refused`). A `subfleet run --batch` from
+the
 subfleet-fanout workflow could not submit, and `subfleet runs` fell back to the
 offline store. The daemon was not dead: a `daemon.status` sent with a 120 s
 client timeout at 11:48Z came back after 38.8 s, and admission still placed the
@@ -65,8 +66,10 @@ two hours after the restart.
 The store serializes every request on one connection and one lock
 (`Store._lock`, held across `execute` and `fetchall`), and every thread must
 retake the GIL after each SQLite step and each subprocess wait. A reproduction
-run once on 2026-09-24 with the installed release's interpreter and code (6420f5b,
-unfixed; `census_storm.py` and `census_storm_bigheap.py`) ran the same inspection loop in one to seven threads
+run once on 2026-09-24 with the installed release's interpreter and code
+(6420f5b,
+unfixed; `census_storm.py` and `census_storm_bigheap.py`) ran the same
+inspection loop in one to seven threads
 beside sixteen threads issuing a 300-row query under an `RLock`:
 
 | running attempts | subprocesses/s | query p50 | query p90 | queries in 12 s |
@@ -121,7 +124,8 @@ not take the GIL to read or to time out.
   current start and the current boot identity. A pid a new process has taken,
   and a member recorded under another boot identity (legacy seconds once the
   boot UUID can be read, or seconds a clock correction has moved), are recorded
-  afresh while still in the group, as the full census did. The snapshot's start time only
+  afresh while still in the group, as the full census did. The snapshot's start
+  time only
   detects the change; the identity is still captured by `procs.identity`
   (C-5.3), and on this machine the two renderings agreed for all 400 processes
   compared. The three-source census is unchanged and still decides every
@@ -162,12 +166,14 @@ the boot seconds, so 7 + 4N + 4 (fifteen for one).
 The reproductions were run once each on 2026-09-24, against the first version of
 this fix (8331709). Where the boot UUID is readable, as on the machine measured,
 that loop asks the same questions in steady state as the merged one. The other
-review fixes touch code that no reproduction runs. Driving the fixed loop at seven attempts
+review fixes touch code that no reproduction runs. Driving the fixed loop at
+seven attempts
 kept the query p50 at 0.2 ms and p90 at 0.7 ms (7,038 queries in 12 s). The
 eight-waiter herd fell from 2,834 store reads a second to 386, most of them the
 measuring client's own. The combined reproduction ran at 0.5 ms p50 and 1.5 ms
 p90 (101 ms worst), and completed 592 requests.
-`tests/unit/test_daemon_inspection_load.py` pins the budget. On the unfixed code,
+`tests/unit/test_daemon_inspection_load.py` pins the budget. On the unfixed
+code,
 20 ticks of one running attempt asked about the guardian 21 times (now 2), one
 waiter re-read the store 190 times across 200 wake-ups (now 1), 20 idle
 worker passes woke waiters 20 times (now 0), and the export sweep went from 266
@@ -196,7 +202,8 @@ each defect fails its test.
   worktrees' 606,364 entries in 43.6 s with a cold cache. `retention._size`
   sized all 36 worktrees (10.59 GB) in 19.6 s with a warm one
   (`retention_hog.py`). A pass sizes only the 32 that jobs own, so for that
-  part of a pass 19.6 s is an upper bound. The job directories held about 4,500 entries. Passes timed
+  part of a pass 19.6 s is an upper bound. The job directories held about 4,500
+  entries. Passes timed
   out for hours at a time (`worker retention failed: TimeoutError`, 32 in a row
   on the morning daemon), and each interrupted pass started its walk from zero.
   Retention's own `_pins`, run read-only on the store afterwards, pins 331 of
@@ -216,7 +223,8 @@ each defect fails its test.
   2,000-row query from 1.5 ms to 101 ms (`gil_convoy.py`). Three reruns on
   2026-09-27 (Python 3.14.4, load average about 170) and five by a reviewer
   showed 0.9 to 1.9 ms.
-- **Shutdown** is bounded now: PR #48 (C-5.8a) ends a stop that cannot drain, so it can no longer hold the lock as it did here.
+- **Shutdown** is bounded now: PR #48 (C-5.8a) ends a stop that cannot drain, so
+  it can no longer hold the lock as it did here.
 - **Restart after SIGKILL.** A killed daemon leaves `daemon.sock` behind, so
   clients got `Connection refused` for the 26 s the new process spent in
   `Daemon.__init__`, and then no response for about 75 s of recovery.
@@ -245,10 +253,12 @@ directories. Run each from a checkout of the revision it measures, with
   per liveness check; two plus three per pid per census), not counted.
   `census_storm_bigheap.py` reads `census_storm.py` by relative path.
 - `census_storm_fixed.py`: the fixed loop at the same loads. It needs PR #40's
-  constants, which later lines rename (PR #37 renames `LIVENESS_INTERVAL_S`), so
-  run it with `--project` pointed at a checkout of 7fd9cb5. Its 2026-09-24
+  constants, which lines that merge PR #37 with this fix rename (the installed
+  release 324b6d7 has `INSPECT_INTERVAL_S` instead of `LIVENESS_INTERVAL_S`),
+  so run it with `--project` pointed at a checkout of 7fd9cb5. Its 2026-09-24
   figures were measured against 8331709. It differs by one line from what ran
-  then: `members.keys()`, because `group_members` has returned pid to start since
+  then: `members.keys()`, because `group_members` has returned pid to start
+  since
   the review fixes. Against 8331709, drop `.keys()`. Its simulated group is the
   script's own process group, which holds the script's own `ps` children, so it
   finds a "new" member at almost every census. It therefore costs more than the
@@ -259,7 +269,8 @@ directories. Run each from a checkout of the revision it measures, with
   revision, passing a label such as `unfixed` or `fixed`.
 - `combined.py`: the combined reproduction. Pass `unfixed` with `--project`
   pointed at a checkout from before PR #40, or `fixed` with 7fd9cb5. Its fixed
-  loop has the same one-line `.keys()` change as `census_storm_fixed.py`. It gave 4.8 ms
+  loop has the same one-line `.keys()` change as `census_storm_fixed.py`. It
+  gave 4.8 ms
   p50 and 62 ms p90 unfixed, against 0.5 ms and 1.5 ms for 8331709.
 - `retention_hog.py`: `retention._size` over the worktrees only (19.6 s warm,
   10.59 GB), and its effect on a locked query. The 606,364 entries and the
@@ -269,8 +280,9 @@ directories. Run each from a checkout of the revision it measures, with
   On 2026-09-24 it gave 1.5 ms to 101 ms for 2,000 rows. It did not reproduce
   on 2026-09-27: 0.9 to 1.9 ms in eight runs.
 
-These figures have no script. They came from one-off commands and read-only
-queries on 2026-09-24: the 2.3 MB and 1.45 s `ps -axEww` dump, the 59 child
+Some figures have no script. They came from one-off commands and read-only
+queries on 2026-09-24, for example: the 2.3 MB and 1.45 s `ps -axEww` dump, the
+59 child
 processes, the 266 statements and 2.65 ms of lock-held work a tick, the 31,496
 `readings` rows and their 46 ms read, the roughly 4,500 job-directory entries,
 and the 400 processes whose `lstart` renderings were compared.
