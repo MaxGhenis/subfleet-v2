@@ -2556,8 +2556,7 @@ class Daemon:
                             **({"max_active_attempts": cap} if label == "fleet-full" else {}),
                             **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                 "max_active_attempts": cap} if label == "slot-kept" else {})}
-                    rechecks = self._capacity_wait(
-                        job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", hold)
+                    rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold)
                     waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                     if not rechecks:
                         self.store.add_decision(job["job_id"], decision)

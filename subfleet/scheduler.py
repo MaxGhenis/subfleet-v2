@@ -168,9 +168,10 @@ def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any]) -> list[dict[st
 def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
     """The models a job could run on, exactly as `evaluate` builds its chain (C-11.2).
 
-    A pin is that one model; a task is its chain from the job's tier upward. None
-    means "cannot tell" (a lane pin with no model), which admission treats as
-    competing with everything.
+    A pin is that one model; a task is its chain from the job's tier upward, and a
+    lane-pinned task only the first model of it, which is all `evaluate` walks for
+    a pinned job. None means "cannot tell" (a lane pin with no model), which
+    admission treats as competing with everything.
     """
     job = _row(job)
     try:
@@ -180,7 +181,8 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             default = "standard" if "standard" in tiers else tiers[0]
-            return frozenset(policy["chains"][task][tiers.index(job.get("tier") or default):])
+            chain = policy["chains"][task][tiers.index(job.get("tier") or default):]
+            return frozenset(chain[:1] if job.get("pinned_lane") else chain)
     except (PolicyError, ValueError, KeyError):
         pass
     return None
