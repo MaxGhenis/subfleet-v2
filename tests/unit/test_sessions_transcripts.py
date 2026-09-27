@@ -405,6 +405,35 @@ def test_open_regular_reads_a_regular_file_or_a_link_to_one_as_open_would(tmp_pa
         transcripts.open_regular(tmp_path / "missing.jsonl")
 
 
+@pytest.mark.parametrize("kwargs, error", [({"encoding": "no-such-encoding"}, LookupError),
+                                           ({"newline": "neither"}, ValueError)])
+def test_a_stream_open_regular_cannot_build_raises_its_own_error_and_closes_once(tmp_path, kwargs, error):
+    """`open` owns the descriptor once `regular_fd` returns it. The helper had
+    closed it after `os.fdopen` already had, so an unknown encoding surfaced as
+    EBADF, and the second close could close a descriptor another thread had just
+    been given (review of aa41312)."""
+    path = tmp_path / "t.jsonl"
+    path.write_text("one\n")
+    before = _open_fds()
+    with pytest.raises(error):
+        transcripts.open_regular(path, "r", **kwargs)
+    assert _open_fds() == before
+
+
+@pytest.mark.parametrize("mode, kwargs", [("wb", {}), ("r+", {}), ("a", {}), ("rb", {"closefd": False}),
+                                          ("rb", {"opener": os.open})])
+def test_open_regular_only_reads_through_its_own_descriptor(tmp_path, mode, kwargs):
+    """A write mode, `closefd=False` (which left the helper's descriptor open after
+    the stream closed) or another opener is refused before anything is opened."""
+    path = tmp_path / "t.jsonl"
+    path.write_text("one\n")
+    before = _open_fds()
+    with pytest.raises(ValueError):
+        transcripts.open_regular(path, mode, **kwargs)
+    assert _open_fds() == before
+    assert path.read_text() == "one\n"
+
+
 def test_every_transcript_reader_skips_a_fifo_at_once(tmp_path):
     """The readers a file op uses answer as for an unreadable file (nothing), at once."""
     fifo = tmp_path / "rollout.jsonl"

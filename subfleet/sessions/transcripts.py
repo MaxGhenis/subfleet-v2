@@ -67,22 +67,42 @@ class NotRegularFile(OSError):
     """A path handed to a reader names something other than a regular file."""
 
 
-def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
-    """Open `path` for reading only if it is a regular file, and never block in
-    open(). A FIFO named where a transcript or rollout belongs made open() wait for
-    a writer, so a file op held there held the conversation service's close() for
-    good (reviews of 39223c9). O_NONBLOCK lets open() return whatever the path is;
-    the descriptor's own type then decides, so the file checked is the file read.
-    Anything else raises `NotRegularFile`, an OSError, as a missing file would."""
+def regular_fd(path: str | Path) -> int:
+    """A read-only descriptor for `path` only if it is a regular file, opened
+    without blocking.
+
+    O_NONBLOCK lets open() return whatever the path is, so a FIFO with no writer
+    never holds it; the descriptor's own type then decides, so the file checked
+    is the file used. Anything else raises `NotRegularFile`, an OSError, as a
+    missing file would, with nothing left open. A socket fails in open() itself,
+    with its own OSError. O_NONBLOCK bounds only that rendezvous: a read from a
+    stalled filesystem can still wait (C-25.3)."""
     fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
         fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
-        return os.fdopen(fd, mode, **kwargs)
     except BaseException:
         os.close(fd)
         raise
+    return fd
+
+
+def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
+    """Open `path` for reading, as `open` would, only if it is a regular file, and
+    never block in open() (`regular_fd`). A FIFO named where a transcript or
+    rollout belongs made open() wait for a writer, so a file op held there held
+    the conversation service's close() for good (reviews of 39223c9).
+
+    `open` owns the descriptor from the moment `regular_fd` returns it, and
+    closes it itself if building the stream fails (an unknown encoding, say):
+    the helper had closed it a second time, which could close a descriptor
+    another thread had just been given (review of aa41312)."""
+    if mode not in ("r", "rb", "rt") or {"opener", "closefd"} & set(kwargs):
+        raise ValueError(f"open_regular reads only, with its own descriptor: mode {mode!r}, {sorted(kwargs)}")
+    return open(path, mode, opener=lambda name, flags: regular_fd(name), **kwargs)
+
+
 _MAIN_ENTRY_LIMIT = 12
 _MODE_RE = re.compile(rb'"permissionMode"\s*:\s*"([A-Za-z]+)"')
 
