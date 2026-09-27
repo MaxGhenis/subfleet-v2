@@ -672,8 +672,9 @@ class Daemon:
                 if enrollment_holder:
                     from .adapters.claude import ClaudeAdapter
                     if isinstance(adapter, ClaudeAdapter):
-                        adapter._runner = lambda argv, **kwargs: self._enrollment_turn(
-                            existing['lane_id'], enrollment_holder, argv, **kwargs)
+                        adapter._runner = enrollment_runner(
+                            adapter._runner, lambda argv, **kwargs: self._enrollment_turn(
+                                existing['lane_id'], enrollment_holder, argv, **kwargs))
                 info = adapter.enroll(credential)
             except AdapterError as exc:
                 raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
@@ -5141,6 +5142,21 @@ class Daemon:
 #: C-3.6: the daemon whose log SIGUSR1 dumps into (one per process in service;
 #: a test process may build many).
 _STACK_DUMPS: weakref.ref | None = None
+
+
+def enrollment_runner(original: Callable[..., Any], turn: Callable[..., Any]) -> Callable[..., Any]:
+    """C-10.2: the adapter's runner during a re-enrollment. Only the login turn, the
+    one call that names a working directory and an environment, runs through the
+    enrollment fence (`Daemon._enrollment_turn`); every other call, the keychain reads
+    that resolve a keychain-token credential and its plan, stays with `original`.
+    Routing every call through the fence made each keychain-token re-enrollment raise
+    before its turn ("_enrollment_turn() missing 2 required keyword-only arguments:
+    'cwd' and 'env'", 2026-09-27), so a lapsed account could never be brought back."""
+    def runner(argv, **kwargs):
+        if "cwd" in kwargs and "env" in kwargs:
+            return turn(argv, **kwargs)
+        return original(argv, **kwargs)
+    return runner
 
 
 def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Callable[[], bool]:
