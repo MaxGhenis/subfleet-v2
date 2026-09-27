@@ -10,7 +10,6 @@ from its turn's outcome. `daemon.py` calls it through a handful of seams:
 
 from __future__ import annotations
 
-import concurrent.futures
 import dataclasses
 import hashlib
 import json
@@ -31,6 +30,7 @@ from .. import protocol
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULTS
+from ..pool import Pool
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..salvage import SalvageError
 from . import attachments as attachment_store
@@ -119,8 +119,8 @@ class ConversationService:
         self.daemon = daemon
         self.root: Path = daemon.root
         self.store = ConversationStore(self.root)
-        self.polls = concurrent.futures.ThreadPoolExecutor(8, thread_name_prefix="subfleet-poll")
-        self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
+        self.polls = Pool(8, "subfleet-poll")
+        self.files = Pool(2, "subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
         # Merges into `conversations/models.json` (`_on_catalog`), one at a time. Not

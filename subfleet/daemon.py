@@ -29,7 +29,6 @@ import threading
 import time
 import weakref
 from uuid import uuid4
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -48,6 +47,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
+from .pool import Pool
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
@@ -488,10 +488,13 @@ class Daemon:
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
         self._seed_lanes()
-        self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
-        self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
-        self.lookups = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subfleet-read")   # C-16.5
-        self.readers = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-socket")
+        # C-16.1, C-16.5: every pool starts a call at once while it has a thread to
+        # spare (`Pool`); the standard pool's idle count could run ahead of its idle
+        # threads and leave a reader queued behind 40 idle connections (2026-09-27).
+        self.workers = Pool(12, "subfleet-io")
+        self.requests = Pool(16, "subfleet-api")
+        self.lookups = Pool(8, "subfleet-read")   # C-16.5
+        self.readers = Pool(MAX_CONNECTIONS, "subfleet-socket")
         # Not 0: `time.monotonic()` counts from boot, so a daemon started in the
         # machine's first minute would log nothing until it passed 60 (F10).
         self._accept_trouble_logged = -math.inf
@@ -501,7 +504,7 @@ class Daemon:
         # A `wait` holds its thread for up to WAIT_POLL_MAX_S on its hub event (C-15.5), so
         # there is one for every connection that could send one (review of the
         # descriptor hotfix: at 16, a 17th wait queued until its client gave up).
-        self.waiters = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-wait")
+        self.waiters = Pool(MAX_CONNECTIONS, "subfleet-wait")
         # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
         from .conversations.service import ConversationService
         self.conversations = ConversationService(self)
@@ -4980,8 +4983,9 @@ class Daemon:
             if not busy:
                 self._reading.add(conn)
                 self._connections.add(conn)
-                # submit queues work before starting a thread, and can then
-                # raise. Keep the reader behind its admission check until that
+                # submit raises when no thread can start. `Pool` queues nothing
+                # then, but the standard pool queued the call before it tried,
+                # so the reader stays behind its admission check until that
                 # outcome is known: a busy answer must mean nothing was read.
                 try:
                     self.readers.submit(self._connection, conn)

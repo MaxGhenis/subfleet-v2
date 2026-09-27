@@ -5,7 +5,7 @@ only reserve lanes or publish facts. Timer requests never create jobs (C-8.4).
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 import json
@@ -18,6 +18,7 @@ from . import capacity
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential
+from .pool import Pool
 from .sessions.transcripts import read_regular
 from .store import Store
 
@@ -42,15 +43,14 @@ class Timers:
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
-        self._cycles = ThreadPoolExecutor(max_workers=2, thread_name_prefix='subfleet-timer')
+        self._cycles = Pool(2, 'subfleet-timer')
         # The mirror gets its own worker. It is a file-copy pass over the whole
         # desktop session store and an 8.5-minute one was observed on 2026-08-18
         # during app churn; sharing the two-slot cycle pool would let it hold a
         # probe or a keepalive behind it for minutes (C-23.28).
-        self._mirror = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-mirror')
+        self._mirror = Pool(1, 'subfleet-mirror')
         self._session_mirror = None
-        self._lanes = ThreadPoolExecutor(max_workers=min(4, policy.get('caps', {}).get('keepalive_workers', 4)),
-                                         thread_name_prefix='subfleet-timer-lane')
+        self._lanes = Pool(min(4, policy.get('caps', {}).get('keepalive_workers', 4)), 'subfleet-timer-lane')
         self._running = set()
         self.active_holders = set()
         self._probe_holders = {}
