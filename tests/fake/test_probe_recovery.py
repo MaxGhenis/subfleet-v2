@@ -162,7 +162,7 @@ def test_c5_probe_gate_opens_after_durable_identity_and_readonly_launch(routing_
         assert spec.kind == "probe"
         return original_build(adapter, spec, *args, **kwargs)
     monkeypatch.setattr(FakeAdapter, "build_launch", build)
-    monkeypatch.setattr(daemon_module.os, "pipe", lambda: (800, 801))
+    monkeypatch.setattr(daemon_module.procs, "pipe_above_stdio", lambda: (800, 801))
     monkeypatch.setattr(daemon_module.os, "close", lambda fd: None if fd in (800, 801) else original_close(fd))
     def release(fd, value):
         if fd != 801:

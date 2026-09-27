@@ -71,9 +71,25 @@ def test_guardian_launch_gate_eof_prevents_unrecorded_provider(tmp_path, guardia
         stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"), launch_fd=reader)
     assert rc == 127
     assert not (tmp_path / "start.json").exists()
+    assert not (tmp_path / "exit.json").exists()
     assert not (tmp_path / "stdout").exists()
     with pytest.raises(OSError):
         os.read(reader, 1)
+
+
+def test_guardian_launch_gate_refuses_any_byte_but_the_release(tmp_path, guardian_identity):
+    """C-5.1 a gate that reads anything but `1` (a byte the daemon did not write) starts
+    nothing, writes neither start.json nor exit.json, and exits 127."""
+    reader, writer = os.pipe()
+    os.write(writer, b"0")
+    os.close(writer)
+    rc = guardian.run_guardian([sys.executable, "-c", "raise AssertionError('must not run')"],
+        attempt_dir=tmp_path, cwd=str(tmp_path), stdin_path=None,
+        stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"), launch_fd=reader)
+    assert rc == 127
+    assert not (tmp_path / "start.json").exists()
+    assert not (tmp_path / "exit.json").exists()
+    assert not (tmp_path / "stdout").exists()
 
 
 def test_guardian_launch_gate_releases_after_starting_commit(tmp_path, guardian_identity):

@@ -739,7 +739,7 @@ class Daemon:
         package_root = str(Path(__file__).resolve().parent.parent)
         env = {**env, 'SUBFLEET_ATTEMPT': holder, 'SUBFLEET_ROOT': str(self.root), 'SUBFLEET_PROBE': '1'}
         env['PYTHONPATH'] = package_root + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
-        read_fd, write_fd = os.pipe()
+        read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, '-m', 'subfleet.guardian', '--attempt-dir', str(directory),
                    '--cwd', cwd, '--stdout-path', str(stdout), '--stderr-path', str(stderr),
                    '--launch-fd', str(read_fd), '--', *argv]
@@ -2852,7 +2852,7 @@ class Daemon:
         env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
         package_root = str(Path(__file__).resolve().parent.parent)
         env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        read_fd, write_fd = os.pipe()
+        read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(directory),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
                    "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]
@@ -3988,7 +3988,7 @@ class Daemon:
         # to the daemon's installation or test checkout.
         package_root = str(Path(__file__).resolve().parent.parent)
         env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        read_fd, write_fd = os.pipe()
+        read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(adir),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
                    "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]

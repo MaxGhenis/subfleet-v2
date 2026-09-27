@@ -1,5 +1,7 @@
 """Deterministic ownership checks; real-process acceptance lives in tests/process."""
 
+import errno
+import fcntl
 import itertools
 import json
 import signal
@@ -611,3 +613,67 @@ def test_c5_12_legacy_records_asked_about_one_table_at_once_share_one_kern_boott
         thread.join(5)
     assert found == [True, True]
     assert reads == [1]
+
+@pytest.mark.parametrize("error", [OSError(errno.EMFILE, "descriptor table full"), KeyboardInterrupt()],
+                         ids=["emfile", "interrupt"])
+@pytest.mark.parametrize("fail_at", [1, 2])
+def test_a_pipe_that_cannot_be_moved_above_the_standard_streams_leaves_no_descriptor(monkeypatch, fail_at, error):
+    """A full descriptor table (or any other exception) while either end is moved up
+    closes every descriptor the call made and hands the error to the caller, which then
+    launches nothing."""
+    real_pipe, real_fcntl = os.pipe, fcntl.fcntl
+    made, moves = [], []
+
+    def pipe():
+        ends = real_pipe()
+        made.extend(ends)
+        return ends
+
+    def move(fd, command, arg=0):
+        if command != fcntl.F_DUPFD_CLOEXEC:
+            return real_fcntl(fd, command, arg)
+        moves.append(fd)
+        if len(moves) == fail_at:
+            raise error
+        made.append(real_fcntl(fd, command, arg))
+        return made[-1]
+
+    monkeypatch.setattr(procs.os, "pipe", pipe)
+    monkeypatch.setattr(procs.fcntl, "fcntl", move)
+    with pytest.raises(type(error)) as raised:
+        procs.pipe_above_stdio()
+    monkeypatch.undo()
+    assert raised.value is error
+    assert len(made) == 2 + fail_at - 1
+    for fd in made:
+        with pytest.raises(OSError) as gone:
+            os.fstat(fd)
+        assert gone.value.errno == errno.EBADF
+
+
+def test_a_pipe_is_returned_empty_whatever_its_raw_ends_took_in(monkeypatch):
+    """While its raw write end sat at 1 or 2, another thread's output to that stream
+    could land in the pipe (review of e3c35ff). A gate holding a byte its owner never
+    wrote is a refusal to its guardian, or a release before its identity is recorded;
+    so the pipe comes back empty and blocking, and the owner's byte is the first read."""
+    real_pipe = os.pipe
+
+    def pipe():
+        ends = real_pipe()
+        os.write(ends[1], b"1" + b"stray output\n" * 500)
+        return ends
+
+    monkeypatch.setattr(procs.os, "pipe", pipe)
+    read_fd, write_fd = procs.pipe_above_stdio()
+    monkeypatch.undo()
+    try:
+        assert os.get_blocking(read_fd)
+        os.set_blocking(read_fd, False)
+        with pytest.raises(BlockingIOError):
+            os.read(read_fd, 1)
+        os.set_blocking(read_fd, True)
+        os.write(write_fd, b"0")
+        assert os.read(read_fd, 2) == b"0"
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
