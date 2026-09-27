@@ -43,26 +43,36 @@ class FakePs:
     """Answers `procs._read` like macOS would for one guardian and its child.
 
     `starts` is each live pid's `lstart`; changing a pid's entry models a new
-    process that has taken that pid.
+    process that has taken that pid. `failing` names the reads that fail
+    ("table", "sysctl", "ps -p"), and `hidden` the pids the table does not show.
     """
 
     def __init__(self):
         self.calls: list[list[str]] = []
         self.starts = {GUARDIAN: STARTED, CHILD: STARTED, 4300: STARTED}
+        self.failing: set[str] = set()
+        self.hidden: set[int] = set()
 
     def __call__(self, argv, *, empty_ok=False):
         argv = [str(part) for part in argv]
         self.calls.append(argv)
         if argv[0].endswith("sysctl"):
+            if "sysctl" in self.failing:
+                raise procs.InspectionError("sysctl inspection unavailable")
             return BOOT + "\n" if argv[-1] == "kern.bootsessionuuid" else "{ sec = 1790255587, usec = 0 }\n"
+        if argv == TABLE:
+            if "table" in self.failing:
+                raise procs.InspectionError("ps inspection unavailable")
+            rows = [(GUARDIAN, 1, PGID, "Ss"), (CHILD, GUARDIAN, PGID, "R"), (4300, 1, 4300, "S")]
+            return "".join(f"{pid} {ppid} {pgid} {stat:<4} {self.starts[pid]}\n"
+                           for pid, ppid, pgid, stat in rows if pid not in self.hidden) + \
+                f"4301 4300 4300 Z    {STARTED}\n"
+        if argv[1:2] == ["-p"] and "ps -p" in self.failing:
+            raise procs.InspectionError("ps inspection unavailable")
         if argv == GROUP_SNAPSHOT:
             return (f"{GUARDIAN} {PGID} Ss   {self.starts[GUARDIAN]}\n"
                     f"{CHILD} {PGID} R    {self.starts[CHILD]}\n"
                     f"4300 4300 S    {self.starts[4300]}\n4301 4300 Z    {STARTED}\n")
-        if argv == TABLE:
-            return (f"{GUARDIAN} 1 {PGID} Ss   {self.starts[GUARDIAN]}\n"
-                    f"{CHILD} {GUARDIAN} {PGID} R    {self.starts[CHILD]}\n"
-                    f"4300 1 4300 S    {self.starts[4300]}\n4301 4300 4300 Z    {STARTED}\n")
         if "pid=,command=" in argv:
             return ""
         if argv[1:2] == ["-p"] and argv[-1] == "lstart=":
@@ -73,6 +83,9 @@ class FakePs:
 
     def environment_dumps(self):
         return [argv for argv in self.calls if "-axEww" in argv]
+
+    def tables(self):
+        return [argv for argv in self.calls if argv == TABLE]
 
 
 @pytest.fixture
