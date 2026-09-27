@@ -731,7 +731,10 @@ def test_copies_are_atomic_owner_only_and_keep_the_sidebar_order(world):
     assert stat.S_IMODE((store / ACCOUNT_A / ORG_A / "local_three.json").stat().st_mode) == 0o644
     assert stat.S_IMODE(copy.stat().st_mode) == 0o600, "a copy is owner-only whatever its source"
     assert not list(store.glob("*/*/*.tmp-subfleet")), "no temporary file is left"
-    assert not mirror._temporary(copy).name.endswith((".json", ".json.tmp")), \
+    handle, temporary = mirror._temporary(copy)          # a new file of its own, beside the record
+    os.close(handle)
+    temporary.unlink()
+    assert not temporary.name.endswith((".json", ".json.tmp")), \
         "the app lists *.json and promotes *.json.tmp; the mirror's temporaries are neither"
 
 

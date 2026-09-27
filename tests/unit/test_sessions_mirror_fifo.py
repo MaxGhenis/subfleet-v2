@@ -10,9 +10,17 @@ the worker and `Daemon.close()` with it, as a FIFO where a Codex rollout
 belonged had held the conversation service's `close()` (C-25.3).
 
 Every call under test runs on a helper thread with a timeout, so a regression
-fails the test instead of hanging it. Each FIFO's write end is then opened
-without blocking until the thread ends, which releases a reader stuck in
-open(). The store, the transcripts and the log all live under `tmp_path`.
+fails the test instead of hanging it. Each FIFO is then opened for reading and
+writing, without blocking, until the thread ends, which releases a reader or a
+writer stuck in open(). The store, the transcripts and the log all live under
+`tmp_path`.
+
+The mirror's own writes (a copy into the store, a revived transcript, a flag
+write) make each temporary as a new file under a name of their own, and write,
+stamp and fsync it through that one descriptor: a FIFO at the fixed name the
+mirror had used blocked its open() for writing, a link there sent the write
+through to what it named, and a temporary replaced after the copy blocked the
+reopen for fsync, or was put in place as it stood (reviews of 8172685).
 """
 
 from __future__ import annotations
@@ -42,11 +50,11 @@ WAIT_S = 15.0
 
 
 def release(fifo: Path) -> None:
-    """Open the FIFO's write end without blocking, then close it. A reader
-    waiting in open() returns and reads end of file; with no reader waiting,
-    the open fails (ENXIO) and nothing changes."""
+    """Open the FIFO for reading and writing without blocking, then close it. A
+    reader waiting in open() returns and reads end of file; a writer waiting in
+    open() returns, and its write finds no reader (EPIPE)."""
     try:
-        descriptor = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+        descriptor = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
     except OSError:
         return
     os.close(descriptor)
@@ -265,6 +273,165 @@ def test_a_copy_keeps_the_sources_bytes_and_times_and_is_owner_only(tmp_path):
     assert info.st_mtime_ns == 1_700_000_100_987_654_321
     assert stat.S_IMODE(info.st_mode) == 0o600
     assert not list(tmp_path.glob("*.tmp-subfleet"))
+
+
+# --- the mirror's own writes (reviews of 8172685) ------------------------------------
+
+def _dead_session_with_an_archive(world) -> tuple[Path, "mirror.Options"]:
+    archive = world.tmp / "archive"
+    archive.mkdir()
+    entry = archive / f"{DEAD}.jsonl"
+    entry.write_text(transcript_lines())
+    fx.index_entry(world.store, "acct-a", "org-a", DEAD, settings={"ultracode": True})
+    return entry, mirror.Options(archive=str(archive / "*.jsonl"))
+
+
+def test_revival_never_opens_a_fifo_at_its_old_temporary_name(world):
+    """C-23.28: revival copied into `<id>.jsonl.tmp-revive`, a fixed name, with a
+    plain open() for writing. A FIFO left there blocked the pass, the mirror's
+    worker and so `Timers.stop()`; once released, the FIFO was put in the
+    transcript's place and the session spread. The copy is now a new file under
+    a name of its own: the FIFO is never opened, and stays."""
+    entry, options = _dead_session_with_an_archive(world)
+    fifo = make("fifo", world.project / f"{DEAD}.jsonl.tmp-revive")
+    result, finished = finishes(lambda: world.running.run_once(options), fifo)
+    assert finished, "revival blocked in open() on a FIFO at its temporary name"
+    assert result.state == "ok" and result.revived == 1, result
+    transcript = world.project / f"{DEAD}.jsonl"
+    assert stat.S_ISREG(os.lstat(transcript).st_mode) and transcript.read_bytes() == entry.read_bytes()
+    assert stat.S_ISFIFO(os.lstat(fifo).st_mode)
+    assert record(world.store, "acct-b", "org-b", DEAD).exists()
+
+
+def test_revival_never_truncates_the_archive_through_a_link_at_its_temporary_name(world):
+    """C-23.28: with the fixed name hard-linked to the archived transcript, the
+    plain open() for writing truncated the archive before copying it into
+    itself, and revived an empty transcript; `shutil.copyfile` had refused
+    (SameFileError). The archive is never written, and the transcript revived
+    is whole."""
+    entry, options = _dead_session_with_an_archive(world)
+    before = entry.read_bytes()
+    os.link(entry, world.project / f"{DEAD}.jsonl.tmp-revive")
+    result = world.running.run_once(options)
+    assert result.state == "ok" and result.revived == 1, result
+    assert entry.read_bytes() == before, "the archive was truncated"
+    assert (world.project / f"{DEAD}.jsonl").read_bytes() == before
+
+
+def test_revival_never_replaces_a_transcript_written_after_its_check(world, monkeypatch):
+    """C-23.28 ("revival never replaces what it finds"): revival checked that no
+    transcript stood at the path, copied, then `os.replace`d, so a transcript
+    another writer made meanwhile was overwritten with the archived one. It is
+    now put in place create-only: the other writer's transcript stays, and the
+    session is openable by it, not revived."""
+    _entry, options = _dead_session_with_an_archive(world)
+    transcript = world.project / f"{DEAD}.jsonl"
+    theirs = transcript_lines() + json.dumps({"type": "user", "uuid": "late"}) + "\n"
+    copy = mirror._copy_regular
+
+    def another_writer_meanwhile(source, out):
+        result = copy(source, out)
+        if not transcript.exists():
+            transcript.write_text(theirs)
+        return result
+
+    monkeypatch.setattr(mirror, "_copy_regular", another_writer_meanwhile)
+    result = world.running.run_once(options)
+    assert result.state == "ok" and result.revived == 0, result
+    assert transcript.read_text() == theirs
+    assert not list(world.project.glob("*.tmp-revive"))
+
+
+def test_a_copy_never_reopens_its_temporary_nor_places_what_replaced_it(tmp_path, monkeypatch):
+    """C-23.28: `_copy_entry` closed its temporary and opened it again by name to
+    fsync it. A FIFO put at that name meanwhile blocked the reopen; released, it
+    was linked into the store as the record. The copy is now written, stamped and
+    fsynced through its one descriptor, and a name that no longer holds that file
+    is never put in place."""
+    source = tmp_path / "local_source.json"
+    source.write_text(json.dumps({"cliSessionId": SESSION}))
+    store = tmp_path / "store"
+    store.mkdir()
+    destination = store / "local_x.json"
+    copy = mirror._copy_regular
+    swapped: list[Path] = []
+
+    def swap_the_temporary(source, out):
+        result = copy(source, out)
+        for temporary in store.glob("*.tmp-subfleet"):
+            temporary.unlink()
+            os.mkfifo(temporary)
+            swapped.append(temporary)
+        return result
+
+    monkeypatch.setattr(mirror, "_copy_regular", swap_the_temporary)
+    old_name = store / "local_x.json.tmp-subfleet"         # where one that reopens would block
+    result, finished = finishes(lambda: mirror._copy_entry(source, destination), old_name)
+    assert swapped, "the copy made no temporary beside the destination"
+    assert finished, "the copy blocked reopening its temporary"
+    assert isinstance(result, OSError), result
+    assert not destination.exists() and not list(store.iterdir())
+
+
+@pytest.mark.parametrize("write", ["copy", "flag write"])
+def test_a_write_leaves_a_file_at_its_old_temporary_name_alone(tmp_path, write):
+    """C-23.28: a write made its temporary at the fixed name `<record>.tmp-subfleet`,
+    unlinking whatever stood there first, which could be another mirror's
+    temporary in flight (a second state root mirrors the same store). Each write
+    now makes a name of its own, and never removes one it did not make."""
+    destination = tmp_path / "local_x.json"
+    theirs = tmp_path / "local_x.json.tmp-subfleet"
+    theirs.write_text("another writer's")
+    source = tmp_path / "local_source.json"
+    source.write_text(json.dumps({"cliSessionId": SESSION}))
+    if write == "copy":
+        mirror._copy_entry(source, destination)
+    else:
+        mirror._write_json(destination, {"cliSessionId": SESSION})
+    assert json.loads(destination.read_text()) == {"cliSessionId": SESSION}
+    assert theirs.read_text() == "another writer's"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["local_source.json", "local_x.json",
+                                                          "local_x.json.tmp-subfleet"]
+
+
+def test_a_sweep_removes_the_temporaries_a_killed_pass_left(world, monkeypatch):
+    """C-23.28: a temporary is made under a name of its own, so one a daemon
+    killed mid-write leaves is never reused: a sweep removes it once it is
+    stale. One still being written is not stale."""
+    folder = world.store / "acct-b" / "org-b"
+    left = folder / f"local_{SESSION}.json.k1ll3d00.tmp-subfleet"
+    left.write_text("{")
+    revive_left = world.project / f"{DEAD}.jsonl.k1ll3d00.tmp-revive"
+    revive_left.write_text("{")
+    assert world.running.run_once().swept
+    assert left.exists() and revive_left.exists(), "a fresh temporary was removed"
+    monkeypatch.setattr(mirror, "TEMPORARY_STALE_S", -1, raising=False)
+    monkeypatch.setattr(mirror, "SWEEP_INTERVAL_S", 0)
+    assert world.running.run_once().swept
+    assert not left.exists() and not revive_left.exists()
+
+
+def test_a_linked_transcript_whose_target_became_a_fifo_is_not_spread(world):
+    """C-23.28 ("one where a transcript belongs is no transcript"): a project
+    directory's listing is kept until its mtime moves, and replacing a linked
+    transcript's target elsewhere does not move it. A session whose link had come
+    to name a FIFO stayed openable between sweeps, and was spread to a folder
+    that appeared meanwhile. A kept link is checked again on every pass."""
+    elsewhere = world.tmp / "elsewhere"
+    elsewhere.mkdir()
+    target = elsewhere / "kept.jsonl"
+    target.write_text(transcript_lines())
+    link = world.project / f"{SESSION}.jsonl"
+    link.unlink()
+    link.symlink_to(target)
+    assert world.running.run_once().state == "ok"          # inventories the link
+    target.unlink()
+    os.mkfifo(target)
+    (world.store / "acct-d" / "org-d").mkdir(parents=True)
+    result, finished = finishes(world.running.run_once, target)
+    assert finished, "a pass blocked on the FIFO a linked transcript names"
+    assert result.state == "ok" and not result.swept, result
+    assert result.added == 0 and not record(world.store, "acct-d", "org-d").exists(), result
 
 
 # --- the app's log --------------------------------------------------------------
