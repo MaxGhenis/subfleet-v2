@@ -1405,7 +1405,9 @@ def test_a_daemon_busy_to_the_end_is_a_wait_timeout(daemon, capsys):
     started = _time.monotonic()
     assert run_cli(["wait", JOB, "--timeout", "2"]) == 124
     assert _time.monotonic() - started < 5
-    assert 2 <= len(poll.calls) <= 8, len(poll.calls)            # backed off, not a spin
+    # `Client.call` asks again inside each poll's budget (C-16.7), 50 ms doubling,
+    # and the loop again after it: backed off, not a spin.
+    assert 2 <= len(poll.calls) <= 16, len(poll.calls)
     err = capsys.readouterr().err
     assert "still busy" in err and "still running" in err
 
@@ -1417,17 +1419,20 @@ def test_wait_still_ends_on_other_refusals(daemon, capsys):
     assert "no such job" in capsys.readouterr().err
 
 
-class GateClient:
-    """`gate.start` hands out a gate; `gate.poll` answers busy `busy` times first."""
+class GateClient(cli.Client):
+    """`gate.start` hands out a gate; `gate.poll` answers busy `busy` times first.
+    Each send is scripted below `Client.call`, whose busy retry (C-16.7) runs."""
 
     def __init__(self, busy: int):
-        self.busy, self.polls = busy, 0
+        super().__init__(Path("/nonexistent-gate-root"))
+        self.busy, self.polls, self.budgets = busy, 0, []
 
-    def call(self, op, args, **kwargs):
+    def _call_once(self, op, args, *, request_id, timeout):
         from subfleet.client import DaemonError
         if op == "gate.start":
             return {"gate_id": "gate-1", "job_id": "job-1", "code": None}
         self.polls += 1
+        self.budgets.append(timeout)
         if self.polls <= self.busy:
             raise DaemonError(69, "the daemon is serving 512 connections", "try again shortly")
         return {"gate_id": "gate-1", "status": "agreement", "code": 0}
@@ -1469,8 +1474,11 @@ def test_gate_gives_up_on_a_daemon_busy_past_the_poll_timeout(unmanaged, tmp_pat
 
 @pytest.fixture
 def poll_clock(monkeypatch):
-    """A poll-only clock: advancing it never affects sockets or fixture threads."""
+    """A poll-only clock, for the gate and the client's busy retry: advancing it
+    never affects sockets or fixture threads. The busy backoff takes its full
+    length (no random shortening), so the sleeps are exact."""
     from types import SimpleNamespace
+    from subfleet import client as client_module
     from subfleet.gate import cli as gate_cli
 
     clock = SimpleNamespace(now=0.0, sleeps=[])
@@ -1479,18 +1487,21 @@ def poll_clock(monkeypatch):
         clock.sleeps.append(seconds)
         clock.now += seconds
 
-    monkeypatch.setattr(gate_cli, "time", SimpleNamespace(
-        monotonic=lambda: clock.now, sleep=sleep))
+    fake = SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep)
+    monkeypatch.setattr(gate_cli, "time", fake)
+    monkeypatch.setattr(client_module, "time", fake)
+    monkeypatch.setattr(client_module, "random", SimpleNamespace(random=lambda: 0.0))
     return clock
 
 
-@pytest.mark.parametrize("command,timeout,expected", [
-    ("wait", 60, 0), ("kill", 60, 130),
-    ("wait", 1, 124), ("kill", 1, 124),
+@pytest.mark.parametrize("command,timeout,busies,expected", [
+    ("wait", 60, 3, 0), ("kill", 60, 3, 130),
+    ("wait", 1, 10**6, 124), ("kill", 1, 10**6, 124),
 ])
 def test_wait_busy_backoff_and_deadline_without_a_listener(
-        root, unmanaged, monkeypatch, poll_clock, capsys, command, timeout, expected):
-    """C-16.1/F8: both wait entry points back off within their original deadline."""
+        root, unmanaged, monkeypatch, poll_clock, capsys, command, timeout, busies, expected):
+    """C-16.7/F8: both wait entry points go on asking a daemon still busy after a
+    call, backing off, within their original deadline."""
     from types import SimpleNamespace
     from subfleet.client import DaemonError
 
@@ -1501,7 +1512,7 @@ def test_wait_busy_backoff_and_deadline_without_a_listener(
         if op == "kill":
             return {"status": "cancel requested"}
         assert kwargs["timeout"] <= timeout - poll_clock.now
-        if calls.count("wait") <= 3:
+        if calls.count("wait") <= busies:
             raise DaemonError(69, "busy", "try again shortly")
         return terminal("cancelled" if command == "kill" else "succeeded", rc=0)
 
@@ -1514,14 +1525,17 @@ def test_wait_busy_backoff_and_deadline_without_a_listener(
         argv.append("--wait")
     assert run_cli(argv) == expected
     assert calls.count("kill") == (1 if command == "kill" else 0)
-    assert calls.count("wait") == (3 if timeout == 1 else 4)
-    assert poll_clock.sleeps == [0.25, 0.5, 0.25 if timeout == 1 else 1.0]
+    if timeout == 1:           # busy to the end: every pause fits in what is left
+        assert calls.count("wait") == 5
+        assert poll_clock.sleeps == pytest.approx([0.05, 0.1, 0.2, 0.4, 0.25])
+    else:
+        assert calls.count("wait") == 4 and poll_clock.sleeps == [0.05, 0.1, 0.2]
     assert poll_clock.now <= timeout
     capsys.readouterr()
 
 
 def test_daemon_busy_status_without_a_listener(root, monkeypatch, capsys):
-    """C-16.1/F9: a refusal proves reachability in both text and JSON output."""
+    """C-16.7/F9: a refusal proves reachability in both text and JSON output."""
     from subfleet.client import DaemonError
 
     def call(self, op, args, **kwargs):
@@ -1539,33 +1553,27 @@ def test_daemon_busy_status_without_a_listener(root, monkeypatch, capsys):
 
 
 def test_gate_busy_retries_share_one_poll_budget(unmanaged, monkeypatch, poll_clock):
-    """C-16.1/F8: backoff uses time from this poll, not a fresh transport timeout."""
+    """C-16.7/F8: the poll is one `Client.call`, whose busy retries use time from this
+    poll's budget, not a fresh transport timeout each."""
     monkeypatch.setattr(unmanaged, "POLL_TIMEOUT_S", 2.0)
     client = GateClient(busy=2)
-    call = client.call
-    budgets = []
-
-    def record(op, args, *, timeout):
-        budgets.append(timeout)
-        return call(op, args, timeout=timeout)
-
-    client.call = record
     assert unmanaged._poll(client, "gate-1")["code"] == 0
-    assert budgets == [2.0, 1.75, 1.25]
-    assert poll_clock.sleeps == [0.25, 0.5]
+    assert client.budgets == pytest.approx([2.0, 1.95, 1.85])
+    assert poll_clock.sleeps == [0.05, 0.1]
 
 
 def test_gate_busy_deadline_prevents_an_extra_poll(unmanaged, monkeypatch, poll_clock):
-    """C-16.1/F8: a sleep reaching the deadline cannot start another request."""
+    """C-16.7/F8: a pause that would reach the deadline starts no other request; the
+    busy answer is reported with the budget still unspent by any sleep."""
     from subfleet.client import DaemonError
 
     monkeypatch.setattr(unmanaged, "POLL_TIMEOUT_S", 1.0)
     client = GateClient(busy=10**6)
     with pytest.raises(DaemonError, match="serving 512 connections"):
         unmanaged._poll(client, "gate-1")
-    assert client.polls == 3
-    assert poll_clock.now == 1.0
-    assert poll_clock.sleeps == [0.25, 0.5, 0.25]
+    assert client.polls == 5                                      # at 0, .05, .15, .35, .75 s
+    assert poll_clock.now == pytest.approx(.75) and poll_clock.now < 1.0
+    assert poll_clock.sleeps == pytest.approx([0.05, 0.1, 0.2, 0.4])
 
 
 def test_daemon_status_reads_a_busy_answer_as_running(daemon, capsys):
@@ -1581,15 +1589,19 @@ def test_daemon_status_reads_a_busy_answer_as_running(daemon, capsys):
 
 
 def test_daemon_status_shows_the_connections(daemon, capsys):
-    """F9: `daemon.status` reports the connections read against the cap, those
-    open, and those answered busy; `daemon status` shows them."""
-    daemon({"daemon.status": lambda request: {"connections": {"reading": 3, "open": 5, "cap": 512,
-                                                              "refused_busy": 7}}})
+    """F9, C-16.6, C-16.7: `daemon.status` reports the connections held against the
+    cap, those answered busy, closed idle and dropped, and the descriptors;
+    `daemon status` shows them."""
+    daemon({"daemon.status": lambda request: {"descriptors": {
+        "connections": 3, "max_connections": 512, "refused": 7, "idle_closed": 2, "abandoned": 1,
+        "open": 40, "soft_limit": 65536, "hard_limit": None, "live_turns": 1}}})
     assert run_cli(["daemon", "status"]) == 0
-    assert "connections 3 of 512 read, 5 open, 7 refused busy" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "connections 3 of 512 held, 7 refused busy, 2 closed idle, 1 dropped for departed clients" in out
+    assert "descriptors 40 open of 65536, 1 turns running" in out
     assert run_cli(["daemon", "status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
-    assert status["busy"] is False and status["connections"]["refused_busy"] == 7
+    assert status["busy"] is False and status["descriptors"]["refused"] == 7
 
 
 def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):

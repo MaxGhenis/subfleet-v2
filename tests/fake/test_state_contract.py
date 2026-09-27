@@ -172,19 +172,15 @@ def test_c5_8_state_exclusive_flock_and_reacquisition(state_daemon):
 
 
 def admitted_reader(daemon, conn):
-    """A reader thread for `conn`, registered as `_admit_connection` registers one.
-
-    Since F1 (C-16.1) `_connection` serves only a connection admission counted,
-    so a test that hands it a socket pair registers the pair first.
-    """
+    """A reader thread for `conn`, held as `_hold_connection` holds one (C-16.7), so
+    `_connection` lets it go when its last reply is out."""
     with daemon._connection_lock:
-        daemon._reading.add(conn)
         daemon._connections.add(conn)
     return threading.Thread(target=daemon._connection, args=(conn,))
 
 
 def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
-    """C-16.1 malformed input returns code 2 while the same socket handler accepts another line."""
+    """C-16.1, C-16.7 malformed input returns code 2 while the same socket handler accepts another line."""
     daemon, _ = state_daemon
     server, client = socket.socketpair()
     server.settimeout(2)

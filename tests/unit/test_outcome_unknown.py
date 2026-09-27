@@ -209,17 +209,37 @@ def busy():
     return DaemonError(69, "the daemon is serving 512 connections", "try again shortly")
 
 
+class ScriptedWire(Client):
+    """A client whose every send plays a script, below `call`'s busy retry (C-16.7):
+    each step is a result or an exception, as one exchange on the socket would be."""
+
+    def __init__(self, root, *script):
+        super().__init__(root)
+        self.script = list(script)
+        self.sent: list[tuple] = []
+
+    def _call_once(self, op, args, *, request_id, timeout):
+        self.sent.append((op, args, request_id, timeout))
+        step = self.script.pop(0)
+        if isinstance(step, BaseException):
+            raise step
+        return step
+
+
 @pytest.mark.parametrize("op", ["submit", "kill"])
 def test_c16_3_a_busy_re_send_is_asked_again_then_answered(root, monkeypatch, op):
-    """C-16.3 with C-16.1 (merge review 1): "busy" is answered before anything is read,
-    so it says nothing about the first request; the re-send is repeated with the busy
-    backoff, and the answer that comes is the outcome."""
+    """C-16.3 with C-16.7 (merge review 1): "busy" is answered before anything is read,
+    so it says nothing about the first request; `call` repeats the re-send with the
+    busy backoff (50 ms doubling), the same request each time, and the answer that
+    comes is the outcome."""
     slept = []
     monkeypatch.setattr(client_module.time, "sleep", slept.append)
-    client = Scripted(root, lost(), busy(), busy(), {"job_id": JOB, "created": False})
+    monkeypatch.setattr(client_module.random, "random", lambda: 0.0)      # the backoff's full length
+    client = ScriptedWire(root, lost(), busy(), busy(), {"job_id": JOB, "created": False})
     result = client.call_settled(op, {"job_id": JOB}, request_id="rid")
     assert result == {"job_id": JOB, "created": False, "requeried": True}
-    assert len(client.sent) == 4 and slept == [0.25, 0.5]
+    assert len(client.sent) == 4 and slept == [0.05, 0.1]
+    assert len({(step[0], json.dumps(step[1]), step[2]) for step in client.sent}) == 1   # one request, sent again
     assert all(0 < step[3] <= client_module.REQUERY_TIMEOUT_S for step in client.sent[1:])
 
 
@@ -227,16 +247,19 @@ def test_c16_3_a_busy_re_send_is_asked_again_then_answered(root, monkeypatch, op
 def test_c16_3_busy_to_the_end_is_an_unknown_outcome_never_refused(root, monkeypatch, op):
     """C-16.3, C-17.3 (merge review 1): a daemon busy through the whole re-send deadline
     leaves the first request's outcome unknown. Before, a busy `submit` was looked up,
-    found nowhere (the first had not committed yet) and reported "NOT submitted"."""
+    found nowhere (the first had not committed yet) and reported "NOT submitted".
+    `call` asks again until the deadline is spent, and never past it."""
     clock = [0.0]
     monkeypatch.setattr(client_module.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(client_module.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
-    client = Scripted(root, lost(), *[busy() for _ in range(40)])
+    client = ScriptedWire(root, lost(), *[busy() for _ in range(200)])
     with pytest.raises(OutcomeUnknown) as unknown:
         client.call_settled(op, {"job_id": JOB}, request_id="rid", minted=True)
     assert unknown.value.request_id == "rid" and "busy" in unknown.value.reasons[-1]
     assert not any(step[0] == "list" for step in client.sent)       # no lookup settles it
     assert clock[0] < client_module.REQUERY_TIMEOUT_S
+    assert len(client.sent) > 3                                     # asked again, within the deadline
+    assert all(step[3] <= client_module.REQUERY_TIMEOUT_S for step in client.sent[1:])
 
 
 def test_c16_3_lost_twice_is_an_unknown_outcome(root):

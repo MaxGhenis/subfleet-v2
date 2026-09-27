@@ -373,9 +373,12 @@ class Client:
         give_up_at = time.monotonic() + deadline
         streak = 0
         while True:
+            # The first send has the whole deadline, as the caller named it (a lost
+            # answer says "within 15s", not "within 14.9999s"); a send after a busy
+            # answer has what is left of it.
+            left = deadline if not streak else max(give_up_at - time.monotonic(), .05)
             try:
-                return self._call_once(op, args, request_id=request_id,
-                                       timeout=max(give_up_at - time.monotonic(), .05))
+                return self._call_once(op, args, request_id=request_id, timeout=left)
             except DaemonError as exc:
                 if not exc.busy:
                     raise

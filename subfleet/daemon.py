@@ -5039,7 +5039,7 @@ class Daemon:
                 self._connections.add(conn)       # close() shuts down whatever is here
                 self._connection_counts["accepted"] += 1
         if not admitted:
-            self._refuse(conn, f"it holds {held} client connections, its limit")
+            self._refuse(conn, f"it holds {held} client connections, its limit", "connection over the cap")
             return
         reader = threading.Thread(target=self._read_connection, args=(conn,),
                                   name="subfleet-socket", daemon=True)
@@ -5051,8 +5051,8 @@ class Daemon:
             with self._connection_lock:
                 self._readers.discard(reader)
                 self._connections.discard(conn)
-            self.log.error("client connection refused: no reader thread (%s)", exc)
-            self._refuse(conn, "it cannot start a reader for this connection")
+            self._refuse(conn, "it cannot start a reader for this connection",
+                         f"connection no reader thread could start for ({exc})")
 
     def _read_connection(self, conn: socket.socket) -> None:
         try:
@@ -5061,12 +5061,12 @@ class Daemon:
             with self._connection_lock:
                 self._readers.discard(threading.current_thread())
 
-    def _refuse(self, conn: socket.socket, why: str) -> None:
+    def _refuse(self, conn: socket.socket, why: str, detail: str) -> None:
         """C-16.7: answer busy (exit 69) before reading anything, and close."""
         if self.stopping.is_set():
             conn.close()                       # shutting down: not busy, just gone
             return
-        self._count_connection("refused")
+        self._count_connection("refused", detail)
         try:
             conn.setblocking(False)            # a fresh socket's buffer takes one line
             conn.send(busy_answer(f"the daemon is busy: {why}"))
