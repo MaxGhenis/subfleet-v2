@@ -145,3 +145,124 @@ def test_c6_3_a_reservation_records_the_evidence_an_evaluation_there_would(tmp_p
         full = scheduler.evaluate(service.policy, service._capacity_view(), {
             **service.store.get_job(job_id), "exclusions": (), "policy_hash": service.policy_digest})
         assert [row["label"] for row in full.evaluations[0]["readings"]] == ["stale-provider"]
+
+
+# --- P1: a turn never holds the lease a detached job's probe needs ---------------------------------
+
+def probing(service, patch, probes: list, during=None):
+    """A successful admission probe that records itself, and runs `during` while its lease is held."""
+    from subfleet.contracts import Outcome, OutcomeClass
+
+    def probe(job, lane, model, holder):
+        held = service.store.one("SELECT lease_key FROM leases WHERE holder=?", (holder,))
+        probes.append((job["job_id"], lane.lane_id, held["lease_key"]))
+        if during is not None:
+            during()
+        return Outcome(OutcomeClass.OK, "admitted", {"rc": 0, "signal": None})
+    patch.setattr(service, "_execute_probe", probe)
+
+
+def one_unmeasured_lane(service, harness, patch):
+    """codex-1 alone, no reading: a writable detached job needs its probe first (C-11.4).
+    The workdir is a committed repository on a feature branch, as a writable job's must be."""
+    from tests.unit.test_salvage import git
+    for argv in (("init", "-b", "task/liveness"), ("config", "user.name", "Test User"),
+                 ("config", "user.email", "test@example.invalid")):
+        git(harness.workdir, *argv)
+    (harness.workdir / "tracked.txt").write_text("baseline\n")
+    git(harness.workdir, "add", ".")
+    git(harness.workdir, "commit", "-m", "baseline")
+    service.store.update_lane("codex-2", enabled=0)
+    service.store.update_lane("codex-3", enabled=0)
+    patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+
+
+def complete(service, job_id):
+    live = [row for row in service.store.list_attempts(job_id) if row["state"] == "reserved"][0]
+    with service.store.transaction("test.complete") as tx:
+        tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (live["attempt_id"],))
+        tx.execute("UPDATE jobs SET state='succeeded' WHERE job_id=?", (job_id,))
+        tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (live["attempt_id"], job_id))
+
+
+def slot_of(service, job_id):
+    attempt = service.store.list_attempts(job_id)[0]["attempt_id"]
+    return service.store.one("SELECT lease_key FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'",
+                             (attempt,))["lease_key"]
+
+
+def test_c26_9_a_stream_of_turns_never_keeps_an_older_writable_job_from_its_probe(tmp_path):
+    """The review's schedule: an `easy` writable detached job on codex-1, unmeasured, needs
+    an admission probe, whose lease is `lane:codex-1:slot:0`; a default-tier turn arrives,
+    and each next one is queued before the last one ends, ten in all. On d04b8b3 the turn
+    pass, which runs first, gave every turn `slot:0`, the job's probe could never take it,
+    and it stayed `probe-pending` through all ten (e053b2c's one pass put the `easy` job
+    before the turn, and placed both). Turns now take slots of their own: the job is probed
+    and placed on the first pass, beside the first turn, and every turn is placed."""
+    from tests.fake.test_admission_latency import submit, submit_turn
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        one_unmeasured_lane(service, harness, patch)
+        probes = []
+        probing(service, patch, probes)
+        detached = submit(service, harness, pinned_model="astra", tier="easy", sandbox="workspace-write",
+                          in_place=True)
+        turn = submit_turn(service, harness, 0)
+        for n in range(10):
+            service._admit()
+            assert [row["lane_id"] for row in service.store.list_attempts(detached)] == ["codex-1"]
+            assert [row["lane_id"] for row in service.store.list_attempts(turn)] == ["codex-1"]
+            assert slot_of(service, turn) == "lane:codex-1:slot:turn-0"
+            successor = submit_turn(service, harness, n + 1) if n < 9 else None
+            complete(service, turn)
+            turn = successor
+        assert probes == [(detached, "codex-1", "lane:codex-1:slot:0")]      # one probe, on the first pass
+        assert slot_of(service, detached) == "lane:codex-1:slot:0"
+
+
+def test_c26_9_a_turn_of_the_same_tier_never_keeps_a_writable_job_from_its_probe(tmp_path):
+    """The same with a `standard` writable job: e053b2c's one pass put a turn before a
+    detached job of its own tier, so there too each turn took `slot:0` first, and the job
+    waited for a gap between turns. It is placed on the first pass now."""
+    from tests.fake.test_admission_latency import submit, submit_turn
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        one_unmeasured_lane(service, harness, patch)
+        probes = []
+        probing(service, patch, probes)
+        detached = submit(service, harness, pinned_model="astra", tier="standard", sandbox="workspace-write",
+                          in_place=True)
+        turn = submit_turn(service, harness, 0)
+        service._admit()
+        assert [row["lane_id"] for row in service.store.list_attempts(detached)] == ["codex-1"]
+        assert [job for job, _, _ in probes] == [detached]
+        assert slot_of(service, turn) == "lane:codex-1:slot:turn-0"
+        assert slot_of(service, detached) == "lane:codex-1:slot:0"
+
+
+def test_c26_9_a_turn_held_off_a_lane_by_a_probe_is_looked_at_when_the_probe_ends(tmp_path):
+    """The turn pass runs beside the detached pass, so it can meet a lane a detached job's
+    admission probe holds: the probe keeps every job off the lane while it runs (C-11.4),
+    a turn too, and the turn waits (`no-slot`) on a backed-off clock. Probe leases were not
+    counted as freed capacity, so the turn waited out that clock after the probe had ended;
+    under e053b2c's one pass the probe had always ended before the turn was looked at. The
+    turn pass now counts the admission probes' leases, and looks again at once."""
+    from tests.fake.test_admission_latency import submit, submit_turn
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        one_unmeasured_lane(service, harness, patch)
+        probes, turn = [], []
+
+        def turn_pass_meanwhile():
+            turn.append(submit_turn(service, harness, 1))
+            service._admit_turns()                       # the turn worker's pass, while the probe runs
+            assert not service.store.list_attempts(turn[0])
+            assert service._holds[turn[0]]["reason"] == "no-slot"
+            # Its next look is well in the future: only freed capacity brings it forward.
+            service.store.update_job(turn[0], next_check_at=daemon_module.after(600))
+        probing(service, patch, probes, during=turn_pass_meanwhile)
+        detached = submit(service, harness, pinned_model="astra", tier="easy", sandbox="workspace-write",
+                          in_place=True)
+        service._admit()
+        assert [row["lane_id"] for row in service.store.list_attempts(detached)] == ["codex-1"]
+        assert not service.store.list_attempts(turn[0])  # the detached pass does not look at turns
+        service._admit_turns()
+        assert [row["lane_id"] for row in service.store.list_attempts(turn[0])] == ["codex-1"]
+        assert slot_of(service, turn[0]) == "lane:codex-1:slot:turn-0"

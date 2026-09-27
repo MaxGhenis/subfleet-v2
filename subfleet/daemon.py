@@ -3171,14 +3171,19 @@ class Daemon:
         for table in tables:
             for job_id in gone:
                 table.pop(job_id, None)
-        queued = [job for job in queued if (job["kind"] == "turn") == (kind == "turn")]
+        queued = [job for job in queued if self._in_pass(job, kind)]
         # C-6.10: a lease that was held at the last pass and is not now is capacity
         # that came free (an attempt ended, a job let go of its worktree or its
         # output path), so backed-off capacity waits are looked at on this pass
-        # rather than up to 30 s later. Probe reservations come and go every cycle
-        # and free nothing a job was waiting for.
+        # rather than up to 30 s later. Timer probes come and go every cycle and
+        # free nothing a job was waiting for. A detached job's admission probe
+        # (C-11.4) runs in the detached pass, beside the turn pass (C-26.9), and
+        # holds its lane from every job while it runs: a turn held off that lane
+        # waits for exactly that lease, so the turn pass counts it, and looks
+        # again as soon as the probe ends rather than on its backed-off clock.
+        probes = "holder NOT LIKE 'probe:timer:%'" if kind == "turn" else "holder NOT LIKE 'probe:%'"
         leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
-            "SELECT lease_key,holder FROM leases WHERE holder NOT LIKE 'probe:%'"))
+            f"SELECT lease_key,holder FROM leases WHERE {probes}"))
         with self._admission_lock:                  # the other pass replaces its own entry meanwhile
             freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
@@ -3481,10 +3486,7 @@ class Daemon:
                         seq = len(previous) + 1
                         aid = ids.attempt_id(job["job_id"], seq)
                         lane_id = decision.chosen_lane
-                        slot = 0
-                        while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane_id}:slot:{slot}",)).fetchone():
-                            slot += 1
-                        leases = [(f"lane:{lane_id}:slot:{slot}", aid)]
+                        leases = [(self._slot_lease(tx, lane_id, pool == "turn"), aid)]
                         if native_session:
                             # C-12.3/4, C-12.6: filesystem read-only permissions do not
                             # isolate a provider transcript. Resume and revive share
@@ -3600,6 +3602,31 @@ class Daemon:
                 with self._busy_lock:
                     self._busy.discard(aid)
             self._notify()
+
+    @staticmethod
+    def _in_pass(job: dict, kind: str) -> bool:
+        """C-26.9: whether `job` is the `kind` pass's: turns are the turn pass's, every other job the detached pass's."""
+        return (job["kind"] == "turn") == (kind == "turn")
+
+    @staticmethod
+    def _slot_lease(tx, lane_id: str, turn: bool) -> str:
+        """C-6.3, C-26.9: the lowest free slot lease of the job's pool on `lane_id`,
+        read inside the reserving transaction.
+
+        A detached attempt takes `lane:<lane id>:slot:<n>`, a turn
+        `lane:<lane id>:slot:turn-<n>`: the two pools are counted apart
+        (`scheduler.prepare`, C-26.9), and a turn never holds `slot:0`, the lease
+        a detached job's admission probe takes (C-11.4). Numbered together, the
+        turn pass, which runs first, gave each new turn `slot:0`, and an older
+        writable job waiting on a probe of that lane stayed `probe-pending` for as
+        long as turns kept coming (review of d04b8b3: ten in a row, and no
+        probe). Both keep the `lane:<lane id>:slot:` prefix every lane fence
+        reads: re-enrolment, `lanes transfer`, `login`, the timers' probes."""
+        prefix = f"lane:{lane_id}:slot:" + ("turn-" if turn else "")
+        slot = 0
+        while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"{prefix}{slot}",)).fetchone():
+            slot += 1
+        return f"{prefix}{slot}"
 
     def _route_stands(self, basis: dict, decision) -> tuple[str | None, int, Any]:
         """C-6.3: inside the reserving transaction, the decision as an evaluation now makes it.
