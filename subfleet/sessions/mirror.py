@@ -1437,12 +1437,21 @@ class Mirror:
                 out.flush()
                 stamp = self.now().timestamp()
                 os.utime(out.fileno(), (stamp, stamp))
+                os.fsync(out.fileno())             # whole before it is anyone's transcript
                 inode = os.fstat(out.fileno()).st_ino
             _same_file(temporary, inode)
             try:
                 os.link(temporary, destination, follow_symlinks=False)
             except FileExistsError:
                 return False
+            except OSError as exc:
+                if exc.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK):
+                    raise
+                # A filesystem without hard links: renamed after a fresh look, which
+                # leaves the one race `os.replace` had, never replacing what is there.
+                if os.path.lexists(destination):
+                    return False
+                os.rename(temporary, destination)
             return True
         finally:
             temporary.unlink(missing_ok=True)
@@ -1845,6 +1854,12 @@ class Mirror:
             return
         sweep = self._sweep_due()
         current.swept = sweep
+        if sweep:                               # the mirror's own state files' leftovers too
+            try:
+                with os.scandir(self.dir) as listing:
+                    _remove_leftovers([item.path for item in listing if item.name.endswith(TEMPORARY_SUFFIX)])
+            except OSError:
+                pass
         self._checkpoint(current, "finding transcripts")
         stems = self.transcript_stems(current, sweep=sweep)
 

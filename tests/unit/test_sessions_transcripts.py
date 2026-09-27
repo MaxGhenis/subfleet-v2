@@ -515,7 +515,7 @@ def test_capped_lines_reads_its_budget_and_skips_a_line_too_long_to_hold(tmp_pat
         assert list(transcripts.capped_lines(stream, 10**6, max_line=100)) == [b"one\n", b"two\n", b"three\n"]
     with path.open("rb") as stream:                   # the budget ends inside "two"
         assert list(transcripts.capped_lines(stream, 5_006, max_line=100)) == [b"one\n"]
-        assert stream.tell() <= 5_006
+        assert stream.tell() <= 5_006 + 1                # and one byte to see whether the file ends there
     with path.open("rb") as stream:
         assert list(transcripts.capped_lines(stream, 5_012, max_line=10**6)) == [b"one\n", b"x" * 5000 + b"\n", b"two\n"]
 
@@ -584,7 +584,7 @@ def test_a_headless_check_reads_its_byte_budget_at_most(tmp_path, monkeypatch):
     assert transcripts.headless_transcript(path) is False                    # all read: a typed prompt
     counter[0] = 0
     assert transcripts.headless_transcript(path, max_bytes=10_000) is True   # stopped before it
-    assert counter[0] <= 10_000
+    assert counter[0] <= 10_000 + 1
 
 
 def test_a_registry_row_is_read_only_up_to_its_cap(tmp_path, monkeypatch):
@@ -596,3 +596,11 @@ def test_a_registry_row_is_read_only_up_to_its_cap(tmp_path, monkeypatch):
     assert registry._row(path) is None
     path.write_text(json.dumps({"sessionId": "s-1", "pid": 123}))
     assert registry._row(path).session_id == "s-1"
+
+
+def test_capped_lines_keeps_a_last_line_that_ends_where_the_budget_does():
+    """A last line with no newline that ends exactly at the budget is the file's
+    last line, not one the budget cut."""
+    import io
+    assert list(transcripts.capped_lines(io.BytesIO(b"ab\ncd"), 5, max_line=5)) == [b"ab\n", b"cd"]
+    assert list(transcripts.capped_lines(io.BytesIO(b"ab\ncde"), 5, max_line=5)) == [b"ab\n"]

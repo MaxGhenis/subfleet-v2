@@ -20,9 +20,6 @@ from typing import Any
 from .contracts import READING_TTL_S, IdentityStatus
 from .sessions.transcripts import read_regular
 
-#: The most of the desktop app's `~/.claude.json` read (it grows with project history).
-CLAUDE_JSON_MAX = 64 * 1024 * 1024
-
 ACTIVE_ATTEMPT_STATES = frozenset({"reserved", "starting", "running", "finalizing"})
 
 #: C-10.3: the store keeps the last desktop identity the profile endpoint
@@ -81,7 +78,7 @@ def read_desktop_account(path: str | Path | None = None) -> str | None:
             return kept[2]
         # Only as a regular file, never waiting in open() (readings, pick and the
         # admission pass read it on pools Daemon.close() waits for).
-        result = _login_email(read_regular(target, CLAUDE_JSON_MAX).decode("utf-8"))
+        result = _login_email(read_regular(target).decode("utf-8"))
     except (OSError, UnicodeError, ValueError):
         _desktop_hint = None
         return None
@@ -98,8 +95,8 @@ def cached_desktop_identity(path: str | Path | None = None) -> dict[str, Any]:
     `doctor` reads more of it than the email, and only to report a disagreement.
     """
     try:
-        value = json.loads(read_regular(Path(path) if path is not None else Path.home() / ".claude.json",
-                                        CLAUDE_JSON_MAX).decode("utf-8"))
+        value = json.loads(read_regular(Path(path) if path is not None
+                                        else Path.home() / ".claude.json").decode("utf-8"))
         account = value.get("oauthAccount") if isinstance(value, dict) else None
     except (OSError, UnicodeError, ValueError):
         return {}

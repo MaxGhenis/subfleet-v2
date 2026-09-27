@@ -22,10 +22,6 @@ from .sessions.transcripts import read_regular
 from .store import Store
 
 
-#: The most of a lane's `auth.json` read: a login is a few KiB.
-AUTH_MAX = 1024 * 1024
-
-
 def instant(value=None):
     if isinstance(value, str):
         value = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -293,7 +289,7 @@ class Timers:
     def _epoch(self, lane):
         try:
             # Only a regular file, never waiting in open(): Timers.stop() waits for this worker.
-            raw = json.loads(read_regular(Path(lane.home or lane.credential.ref).expanduser() / 'auth.json', AUTH_MAX))
+            raw = json.loads(read_regular(Path(lane.home or lane.credential.ref).expanduser() / 'auth.json'))
             return raw.get('last_refresh', lane.credential.epoch)
         except (OSError, ValueError, TypeError):
             return lane.credential.epoch

@@ -177,10 +177,6 @@ READERS = {
         fifo(tmp / "gate" / "gate.json")
         report(**outcome(lambda: certificate.load_state(tmp / "gate")))
         """, {"error": "GateError"}),
-    "lanes_transfer._read_text (a v1 roster)": ("""
-        from subfleet import lanes_transfer
-        report(**outcome(lambda: lanes_transfer._read_text(fifo(tmp / "roster.json"))))
-        """, {"value": ""}),
     "lanes_transfer._publish (a FIFO at the old temporary name)": ("""
         import stat
         from subfleet import lanes_transfer
@@ -190,6 +186,40 @@ READERS = {
         result = outcome(lambda: lanes_transfer._publish(roster, '{"moved": true}'))
         report(**result, written=roster.read_text(), fifo=stat.S_ISFIFO(os.lstat(old).st_mode))
         """, {"value": None, "written": '{"moved": true}', "fifo": True}),
+    "lanes_transfer._read_text (a roster that is a FIFO is refused, never read as empty)": ("""
+        from subfleet import lanes_transfer
+        report(**outcome(lambda: lanes_transfer._read_text(fifo(tmp / "lanes.json"))))
+        """, {"error": "TransferError"}),
+    "ClaudeAdapter._write_prompt_sent (the job's prompt)": ("""
+        from subfleet.adapters.claude import ClaudeAdapter
+        (tmp / "a1").mkdir()
+        adapter = ClaudeAdapter.__new__(ClaudeAdapter)
+        report(**outcome(lambda: adapter._write_prompt_sent(tmp / "a1", fifo(tmp / "prompt.md"))))
+        """, {"error": "NotRegularFile"}),                   # the launch fails; never a turn with no task
+    "Daemon._export_locked (the accepted deliverable)": ("""
+        from subfleet.daemon import Daemon
+        deliverable = fifo(tmp / "deliverable.md")
+        class Store:
+            def one(self, sql, params=()):
+                if "FROM leases" in sql:
+                    return {"holder": "j1"}
+                if "role='deliverable'" in sql:
+                    return {"path": str(deliverable), "sha256": "0" * 64, "bytes": 1}
+                return None
+            def get_attempt(self, aid):
+                return {"attempt_id": aid}
+            def add_event(self, *a, **k):
+                pass
+        class Core:
+            store = Store()
+            def _job(self, job_id):
+                return {"job_id": job_id, "accepted_attempt_id": "a1", "out_path": str(tmp / "out.md")}
+            def _publish(self, *a, **k):
+                raise AssertionError("an unreadable deliverable is never exported")
+            def _boundary(self, *a, **k):
+                pass
+        report(**outcome(lambda: Daemon._export_locked(Core(), "j1")), exported=(tmp / "out.md").exists())
+        """, {"exported": False}),
     "lanes_transfer._backup (a v1 roster that is a FIFO)": ("""
         from subfleet import lanes_transfer
         report(**outcome(lambda: lanes_transfer._backup(fifo(tmp / "roster.json"))))

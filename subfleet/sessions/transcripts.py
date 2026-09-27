@@ -141,7 +141,8 @@ def capped_lines(stream, max_bytes: int, *, max_line: int = _LINE_MAX) -> Iterat
     `max_bytes` in all: a reader that scans for something (a first task, a
     prompt) stops there rather than reading a file of any size. A line longer
     than `max_line` is skipped, read in pieces rather than held; the last line
-    comes without its newline if it has none."""
+    comes without its newline if it has none (one byte past the budget is read to
+    see that the file ends there)."""
     read = 0
     while read < max_bytes:
         limit = min(max_line + 1, max_bytes - read)
@@ -155,6 +156,8 @@ def capped_lines(stream, max_bytes: int, *, max_line: int = _LINE_MAX) -> Iterat
             yield line                      # the last line, with no newline
             return
         elif limit <= max_line:
+            if not stream.read(1):
+                yield line                  # the budget ends where the file does
             return                          # the budget ends inside this line
         else:
             while read < max_bytes:         # longer than a reader holds: skipped

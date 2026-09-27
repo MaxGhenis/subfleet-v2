@@ -318,8 +318,9 @@ def peer_gone(conn: socket.socket) -> bool:
 
 
 def _text(path: Path) -> str:
-    """A probe's output as text, only as a regular file (never waiting in open())."""
-    return read_regular(path).decode("utf-8", "replace")
+    """A probe's output as `read_text` gives it (universal newlines), only as a
+    regular file (never waiting in open())."""
+    return read_regular(path).decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 class DaemonUnavailable(RuntimeError):
     code = 69
@@ -1777,7 +1778,7 @@ class Daemon:
             return
         path = Path(lane.credential.ref).expanduser() / "auth.json"
         try:
-            auth = json.loads(read_regular(path, 1024 * 1024))     # never waiting in open()
+            auth = json.loads(read_regular(path))                  # never waiting in open()
         except (FileNotFoundError, NotRegularFile):
             auth = None                                            # none there, as `is_file()` had said
         if auth is not None:
@@ -4521,9 +4522,12 @@ class Daemon:
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
         # stream once after containment when no separate raw file was supplied.
         if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
-            stdout = Path(launch.stdout_path)
-            if stdout.is_file():
-                self._publish("raw-stream", Path(launch.raw_stream_path), stdout.read_bytes())
+            try:
+                data = read_regular(Path(launch.stdout_path))       # never waiting in open()
+            except (FileNotFoundError, NotRegularFile):
+                data = None                                        # none there, as `is_file()` had said
+            if data is not None:
+                self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
         adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
         if job["kind"] == "turn":
@@ -4694,7 +4698,7 @@ class Daemon:
         exported = None
         if job["out_path"] and not self.store.one("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'", (a["attempt_id"],)):
             try:
-                contents = Path(artifact["path"]).read_bytes()
+                contents = read_regular(artifact["path"])          # only a regular file, never waiting in open()
                 destination = Path(job["out_path"])
                 if hashlib.sha256(contents).hexdigest() != artifact["sha256"]:
                     raise OSError("accepted deliverable digest changed")

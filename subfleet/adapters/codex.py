@@ -107,7 +107,7 @@ def _read_auth(home: Path) -> dict:
     try:
         # A lane's or the desktop's login, read by the timers and at enrollment: only
         # as a regular file, never waiting in open() (Timers.stop() waits for them).
-        raw = json.loads(read_regular(home / "auth.json", 1024 * 1024))
+        raw = json.loads(read_regular(home / "auth.json"))
     except (OSError, ValueError):
         return {}
     return raw if isinstance(raw, dict) else {}

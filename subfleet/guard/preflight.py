@@ -41,9 +41,6 @@ from typing import Any
 
 from ..sessions.transcripts import NotRegularFile, read_regular
 
-#: The most of a guard file (TRUST, the hook, a lane's seed file, a cached verdict) read.
-GUARD_FILE_MAX = 16 * 1024 * 1024
-
 
 HOOK_KEY = "/<session-flags>/config.toml:pre_tool_use:0:0"
 HOOK_MATCHER = "Bash|apply_patch"
@@ -201,8 +198,8 @@ def load_guard(state_root: str | Path | None = None, *,
         hook, pin = hook.resolve(strict=True), pin.resolve(strict=True)
         # Only as regular files, never waiting in open(): a heal turn reads them on
         # the timers' worker, a launch on the daemon's; both are waited for at close.
-        trust = json.loads(read_regular(pin, GUARD_FILE_MAX).decode("utf-8"))
-        hook_bytes = read_regular(hook, GUARD_FILE_MAX)
+        trust = json.loads(read_regular(pin).decode("utf-8"))
+        hook_bytes = read_regular(hook)
     except (OSError, RuntimeError) as exc:
         raise ValueError(f"guard file unreadable: {exc}") from None
     except (ValueError, UnicodeError):
@@ -252,7 +249,7 @@ def read_seed_files(home: str | Path | None) -> dict[str, bytes]:
         for name in SEED_FILES:
             path = Path(home) / name
             try:
-                seeds[name] = read_regular(path, GUARD_FILE_MAX)
+                seeds[name] = read_regular(path)
             except (FileNotFoundError, NotRegularFile):
                 continue                        # none there, as `is_file()` had said
     return seeds
@@ -315,7 +312,7 @@ def read_cached_verdict(directory: Path, key: str, *, now: datetime | None = Non
     """The marker for ``key`` when it is readable and younger than 30 days (C-23.5)."""
     path = _marker_path(directory, key)
     try:
-        marker = json.loads(read_regular(path, GUARD_FILE_MAX))
+        marker = json.loads(read_regular(path))
         verified_at = datetime.fromisoformat(marker["verified_at"])
     except (OSError, ValueError, KeyError, TypeError):
         return None

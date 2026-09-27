@@ -65,7 +65,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import Exit
-from .sessions.transcripts import read_regular
+from .sessions.transcripts import NotRegularFile, read_regular
 from .store import Store, utc_now
 
 V1_ROSTER_DIR = Path("~/chief-of-staff/subfleet").expanduser()
@@ -156,12 +156,18 @@ class TransferPlan:
 
 
 def _read_text(path: Path) -> str:
+    """A roster's text, as `read_text` gives it (universal newlines); "" when there
+    is none. Read only as a regular file, never waiting in open(): `lanes transfer`
+    and `lanes enroll` run on the requests pool, which Daemon.close() waits for.
+    Anything else at a roster's name is refused, never read as an empty roster
+    that an edit would then replace; text that is not UTF-8 raises, as it did."""
     try:
-        # Only a regular file, never waiting in open(): `lanes transfer` runs on the
-        # requests pool, which Daemon.close() waits for.
-        return read_regular(path).decode("utf-8")
-    except (OSError, UnicodeError):
+        data = read_regular(path)
+    except NotRegularFile:
+        raise TransferError(f"{path} is not a regular file; refusing to edit it", Exit.OPERATIONAL) from None
+    except OSError:
         return ""
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _indent_of(text: str) -> int:
@@ -254,7 +260,7 @@ def _backup_path(path: Path) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     candidate = path.with_name(f"{path.name}.bak-{stamp}")
     serial = 1
-    while candidate.exists():
+    while os.path.lexists(candidate):         # a dangling link there is taken too
         candidate = path.with_name(f"{path.name}.bak-{stamp}-{serial}")
         serial += 1
     return candidate

@@ -134,7 +134,7 @@ def _records(path: Path) -> Iterator[tuple[str, dict[str, Any]]]:
         raise HandoffError(f"cannot read rollout {path}: {exc}") from exc
     with stream:
         for raw in transcripts.capped_lines(stream, handoff.FULL_SCAN_BYTES):
-            line = raw.decode("utf-8", "replace")
+            line = raw.decode("utf-8", "replace").replace("\r\n", "\n")   # as text mode read it
             record = handoff._parse(line)
             if record is not None:
                 yield line.rstrip("\n"), record

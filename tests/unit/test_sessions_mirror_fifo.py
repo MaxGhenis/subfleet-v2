@@ -411,6 +411,48 @@ def test_a_sweep_removes_the_temporaries_a_killed_pass_left(world, monkeypatch):
     assert not left.exists() and not revive_left.exists()
 
 
+def test_revival_on_a_volume_without_hard_links_still_places_the_transcript(world, monkeypatch):
+    """C-23.28: revival puts its copy in place create-only, by a hard link; on a
+    filesystem that refuses one (ENOTSUP, EPERM), where `os.replace` had worked, it
+    renames after a fresh look instead of silently reviving nothing."""
+    import errno as errno_module
+    entry, options = _dead_session_with_an_archive(world)
+
+    def no_links(*args, **kwargs):
+        raise OSError(errno_module.ENOTSUP, "Operation not supported")
+
+    monkeypatch.setattr(mirror.os, "link", no_links)
+    result = world.running.run_once(options)
+    assert result.state == "ok" and result.revived == 1, result
+    assert (world.project / f"{DEAD}.jsonl").read_bytes() == entry.read_bytes()
+    assert not list(world.project.glob("*.tmp-revive"))
+
+
+def test_a_revived_transcript_is_synced_before_it_is_put_in_place(world, monkeypatch):
+    """C-23.28: a revival writes, stamps and fsyncs its copy through its one
+    descriptor before the link puts it in place."""
+    _entry, options = _dead_session_with_an_archive(world)
+    events = []
+    real_fsync, real_link = mirror.os.fsync, mirror.os.link
+    monkeypatch.setattr(mirror.os, "fsync", lambda fd: (events.append("fsync"), real_fsync(fd))[1])
+    monkeypatch.setattr(mirror.os, "link", lambda *a, **k: (events.append("link"), real_link(*a, **k))[1])
+    assert world.running.run_once(options).revived == 1
+    assert "fsync" in events and events.index("fsync") < events.index("link")
+
+
+def test_a_sweep_removes_the_leftovers_of_the_mirrors_own_state_files(world, monkeypatch):
+    """C-23.28: the mirror's own state files (its sidecar, ledger, flags) are written
+    through temporaries of their own too; one a killed write left is swept."""
+    running = world.running
+    assert running.run_once().state == "ok"
+    left = running.dir / f"{mirror.SIDECAR_NAME}.k1ll3d00{mirror.TEMPORARY_SUFFIX}"
+    left.write_text("{")
+    monkeypatch.setattr(mirror, "TEMPORARY_STALE_S", -1)
+    monkeypatch.setattr(mirror, "SWEEP_INTERVAL_S", 0)
+    assert running.run_once().swept
+    assert not left.exists()
+
+
 def test_a_linked_transcript_whose_target_became_a_fifo_is_not_spread(world):
     """C-23.28 ("one where a transcript belongs is no transcript"): a project
     directory's listing is kept until its mtime moves, and replacing a linked

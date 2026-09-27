@@ -954,7 +954,8 @@ class ConversationStore:
         """The message's text as published (C-24.3), read only as a regular file of
         at most 1 MiB: a FIFO there had held `conversation.open` and a handoff in
         open() (review of aa41312)."""
-        return read_regular(message["text_path"], TEXT_MAX).decode("utf-8")
+        text = read_regular(message["text_path"], TEXT_MAX).decode("utf-8")
+        return text.replace("\r\n", "\n").replace("\r", "\n")      # as `read_text` gave it
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,
                   expect: tuple[str, ...] | None = None, unbound: bool = False,

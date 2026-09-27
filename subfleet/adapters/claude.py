@@ -61,8 +61,6 @@ from .claude_stream import (
 # --- constants ---------------------------------------------------------------
 
 PROVIDER = "claude"
-#: The most of a `.claude.json` read (it grows with the app's project history).
-CLAUDE_JSON_MAX = 64 * 1024 * 1024
 
 #: The enrolment / probe turn (C-10.2), exactly as experiment-0 ran it.
 ENROLL_MODEL = "claude-haiku-4-5-20251001"
@@ -399,7 +397,7 @@ def home_login(home: str | Path) -> dict[str, Any] | None:
     try:
         # Only a regular file, never waiting in open(): a keepalive or heal turn
         # reads it on the timers' worker, which Timers.stop() waits for.
-        text = read_regular(path / ".credentials.json", 1024 * 1024).decode("utf-8")
+        text = read_regular(path / ".credentials.json").decode("utf-8")
     except (OSError, UnicodeError):
         text = _keychain_blob(keychain_service_for_home(path))
     if not text:
@@ -798,7 +796,7 @@ class ClaudeAdapter(Adapter):
         """
         path = Path(home).expanduser() / ".claude.json"
         try:
-            blob = json.loads(read_regular(path, CLAUDE_JSON_MAX).decode("utf-8"))
+            blob = json.loads(read_regular(path).decode("utf-8"))
         except (OSError, ValueError):                  # a UnicodeDecodeError is a ValueError
             return None
         account = blob.get("oauthAccount") if isinstance(blob, dict) else None
@@ -1250,7 +1248,9 @@ class ClaudeAdapter(Adapter):
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:
-        prompt = self.read_text(prompt_path)
+        # The task itself: only a regular file, and one that cannot be read fails the
+        # launch (as Codex's prepare does), never a turn started with no task.
+        prompt = read_regular(prompt_path).decode("utf-8", "replace")
         sent = attempt_dir / "prompt.sent.md"
         _atomic_write_text(sent, apply_headless_block(prompt))
         return sent

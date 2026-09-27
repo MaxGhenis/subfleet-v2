@@ -591,3 +591,16 @@ def test_a_native_id_matches_in_any_spelling_of_a_uuid_and_an_opaque_one_exactly
     if opaque.swapcase() != opaque:
         assert found(opaque.swapcase()) == []
     db.close()
+
+
+def test_a_messages_text_reads_with_universal_newlines_as_it_did(tmp_path):
+    """C-24.3: a text read back only as a regular file (C-25.3) still reads as
+    `Path.read_text` gave it: CRLF and CR as LF."""
+    from subfleet.conversations.store import ConversationStore
+    store = ConversationStore(tmp_path / "state")
+    path = tmp_path / "m.md"
+    path.write_bytes(b"line one\r\nline two\rline three\n")
+    try:
+        assert store.message_text({"text_path": str(path)}) == "line one\nline two\nline three\n"
+    finally:
+        store.close()

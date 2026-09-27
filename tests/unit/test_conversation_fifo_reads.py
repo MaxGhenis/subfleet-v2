@@ -282,6 +282,10 @@ if pool is not svc.files:              # the fake daemon has no requests pool
     pool = concurrent.futures.ThreadPoolExecutor(1)
 future = pool.submit(outcome, call)
 print("submitted", flush=True)
+if pool is not svc.files:
+    # close() waits for the file pool; an op on the requests pool is waited for by
+    # Daemon.close() after it, so here it answers before the service closes.
+    future.result()
 svc.close()                             # waits for a file op already running
 print("closed", flush=True)
 result = future.result()
