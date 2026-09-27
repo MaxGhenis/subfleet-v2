@@ -215,6 +215,19 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_job ON events(job_id, event_id);
 CREATE INDEX IF NOT EXISTS events_kind ON events(kind, event_id DESC);
+-- C-5.7a: the newest probe record of a holder in one index step, not a walk of
+-- every probe.state event (8,058 in the live store on 2026-09-27, never pruned),
+-- once per probe lease per admission pass and per capacity view. Only payloads
+-- SQLite reads as JSON are indexed: the index evaluates json_extract, which
+-- raises on anything else, and one such row must not stop the store opening or
+-- a probe record being written. Both statements are the release line's (its
+-- C-3.7), character for character, so a store both lines open has one definition.
+CREATE INDEX IF NOT EXISTS events_probe_holder ON events(json_extract(data_json,'$.holder'), event_id DESC)
+  WHERE kind='probe.state' AND json_valid(data_json);
+-- C-5.7a: every event whose payload json_valid refuses: a NaN or an Infinity,
+-- which json.dumps writes and json.loads reads, or a row that is not JSON at all.
+-- The probe record lookup reads these few rows too and parses them in Python.
+CREATE INDEX IF NOT EXISTS events_not_json ON events(kind, event_id DESC) WHERE NOT json_valid(data_json);
 
 -- Jobless operator messages use ping and the same notice polling/ack path.
 -- A separate table is additive: v1's notices.job_id remains a required FK.

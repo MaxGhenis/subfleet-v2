@@ -49,7 +49,7 @@ from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
-from .store import Store
+from .store import Store, _json
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -58,6 +58,18 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+#: C-5.7a: a holder's newest probe record, newest first: the newest JSON payload
+#: naming it (`hit`, one step of `events_probe_holder`), and every probe.state
+#: payload SQLite does not read as JSON (`events_not_json`, normally none),
+#: which `_probe_record` parses as the old walk did. A NaN or an Infinity is one
+#: such payload: json.dumps writes it, json.loads reads it, json_valid refuses it.
+#: The release line's C-3.7 query, character for character.
+PROBE_RECORD = (
+    "SELECT event_id,hit,data_json FROM (SELECT event_id,1 AS hit,data_json FROM events "
+    "WHERE kind='probe.state' AND json_valid(data_json) AND json_extract(data_json,'$.holder')=? "
+    "ORDER BY event_id DESC LIMIT 1) "
+    "UNION ALL SELECT event_id,0,data_json FROM events WHERE kind='probe.state' AND NOT json_valid(data_json) "
+    "ORDER BY event_id DESC")
 
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
@@ -72,6 +84,10 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-5.7a: a probe a look left quarantined is looked at again this long after,
+#: doubling per consecutive such look to the ceiling.
+PROBE_RECHECK_BASE_S = 1
+PROBE_RECHECK_CEILING_S = 60
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -153,6 +169,31 @@ def worker_retry_delay(failures: int) -> float:
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
 
 
+def probe_recheck_delay(looks: int) -> float:
+    """C-5.7a: seconds from the `looks`-th consecutive look that left a probe quarantined to the next."""
+    return min(PROBE_RECHECK_CEILING_S, PROBE_RECHECK_BASE_S * 2 ** min(max(looks, 1) - 1, 16))
+
+
+def probe_evidence(record: dict | None) -> str | None:
+    """C-5.7a: a probe record as a recheck compares it with the last one kept.
+
+    All of it except each live pid's run state (`ps` `stat`, C-5.5): a busy
+    survivor reads `R` on one look and `S` on the next, and neither says
+    anything about whether the probe is contained. Everything else a census
+    records (which pids are live, in which source, their identities, parents
+    and groups, whether it could look at all and what failed) is evidence.
+    """
+    if record is None:
+        return None
+    value = json.loads(_json(record))
+    containment = value.get("containment")
+    shapes = containment.get("shapes") if isinstance(containment, dict) else None
+    for shape in (shapes.values() if isinstance(shapes, dict) else ()):
+        if isinstance(shape, dict):
+            shape.pop("stat", None)
+    return _json(value)
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -217,6 +258,12 @@ class Daemon:
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
         self._census_next: dict[str, float] = {}
+        # C-5.7a: probe holder -> (consecutive looks that left it quarantined,
+        # the monotonic time the next is due). Replaced whole, never updated in
+        # place: a timer turn or an enrollment can quarantine a probe on its own
+        # thread. In memory as C-6.10's records are: a restart looks at every
+        # quarantined probe once, and that look writes nothing it already said.
+        self._probe_rechecks: dict[str, tuple[int, float]] = {}
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -1996,22 +2043,57 @@ class Daemon:
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
-        rows = self.store.query("SELECT data_json FROM events WHERE kind='probe.state' ORDER BY event_id DESC")
-        for row in rows:
-            record = json.loads(row["data_json"])
-            if record.get("holder") == holder:
+        # C-5.7a: the newest record for this holder, found by SQLite; every
+        # probe.state event (thousands, never pruned) used to be fetched and
+        # parsed in Python, on every admission pass for every probe lease and
+        # in every capacity view. The release line's C-3.7 lookup.
+        # The holder is checked in Python for the index's hit too: a payload
+        # with the key twice, which no writer makes (every one is json.dumps of
+        # a dict), is indexed under SQLite's first value and read by Python
+        # under the last, and must never be returned as another holder's. Being
+        # the newest indexed row under that first value, it also hides that
+        # holder's older records (the hit is LIMIT 1); C-5.7a names this.
+        for row in self.store.query(PROBE_RECORD, (holder,)):
+            try:
+                record = json.loads(row["data_json"])
+            except (TypeError, ValueError):
+                continue        # not JSON at all; no writer makes one (the old walk raised here)
+            if isinstance(record, dict) and record.get("holder") == holder:
                 return record
         return None
 
-    def _save_probe(self, record: dict) -> None:
+    def _save_probe(self, record: dict) -> bool:
+        """C-8.4: append the record as a `probe.state` event, and say whether it did.
+
+        C-5.7a: a record that is exactly the newest its holder already has is not
+        appended again; `_probe_record` would return the same thing either way.
+        """
+        latest = self._probe_record(record["holder"])
+        if latest is not None and _json(latest) == _json(record):
+            return False
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
+        return True
+
+    def _pace_probe(self, holder: str, contained: bool) -> None:
+        """C-5.7a: a look that left the probe quarantined backs its clock off; a contained probe has none."""
+        if contained:
+            self._probe_rechecks.pop(holder, None)
+            return
+        looks = self._probe_rechecks.get(holder, (0, 0.0))[0] + 1
+        self._probe_rechecks[holder] = (looks, time.monotonic() + probe_recheck_delay(looks))
 
     def _probe_census(self, record: dict):
         return procs.containment(record.get("pgid"), record.get("guardian_pid"),
                                  record.get("child_pid"), record["holder"], root=str(self.root))
 
     def _contain_probe(self, record: dict) -> bool:
-        """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
+        """C-5.4–7: terminate only recorded identities and retain uncertain leases.
+
+        C-5.7a: whatever it finds starts or backs off the probe's recheck clock
+        when it is not verified empty, and it writes only what changes the
+        record: a quarantined probe found as it was adds no row and commits no
+        transaction.
+        """
         census = self._probe_census(record)
         owned = {int(pid): procs.ProcessIdentity(**value)
                  for pid, value in record.get("owned_identities", {}).items()}
@@ -2042,6 +2124,12 @@ class Daemon:
                 census = self._probe_census(record)
         record.update(state="contained" if census.verified_empty else "quarantined",
                       containment=census.to_dict())
+        self._pace_probe(record["holder"], census.verified_empty)
+        if probe_evidence(record) == probe_evidence(self._probe_record(record["holder"])):
+            # C-5.7a: nothing the record says has changed, so neither does the
+            # store: no probe.state row, no probe.quarantined transaction, and
+            # nothing for a waiter to wake on. The job is already `uncertain`.
+            return census.verified_empty
         self._save_probe(record)
         if not census.verified_empty:
             with self.store.transaction("probe.quarantined", job_id=record["job_id"],
@@ -2202,10 +2290,21 @@ class Daemon:
         shutil.rmtree(record["directory"], ignore_errors=True)
 
     def _recover_probes(self) -> None:
-        """C-5.3–7, C-8.4: recover each durable probe before admitting more work."""
-        for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'"):
+        """C-5.3–7, C-8.4: recover each durable probe before admitting more work.
+
+        C-5.7a: every admission pass runs this, up to twenty a second. A probe
+        the last look left quarantined keeps its lease and is looked at again
+        only when its own clock is due, since a look is a full census (C-5.5,
+        which reads every process's environment) and a guardian identity check.
+        """
+        leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
+        for gone in set(self._probe_rechecks) - {lease["holder"] for lease in leases}:
+            self._probe_rechecks.pop(gone, None)          # released: nothing left to look at
+        for lease in leases:
             if lease["holder"] in self.timers.active_holders:
                 continue
+            if time.monotonic() < self._probe_rechecks.get(lease["holder"], (0, 0.0))[1]:
+                continue                                  # quarantined, and not yet due
             record = self._probe_record(lease["holder"])
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
