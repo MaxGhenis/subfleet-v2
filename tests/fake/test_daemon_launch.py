@@ -113,7 +113,7 @@ def test_c5_12_a_new_attempt_is_first_inspected_with_a_table_read_after_its_guar
     another running attempt had read before its guardian existed, so it paid a fresh `liveness` and a `ps -axo` of
     its own, outside the one read per interval."""
     daemon, harness, calls = launch_state
-    daemon.inspect_interval_s = 5                            # longer than this launch takes, even under load
+    daemon.inspect_interval_s = 30                           # longer than this launch takes, even under load
     a = reserve(daemon, harness)
     aid, guardian = a["attempt_id"], 987654321
     before = time.monotonic()

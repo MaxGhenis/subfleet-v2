@@ -4263,15 +4263,18 @@ class Daemon:
                 table = procs.snapshot()
             except procs.InspectionError:
                 table = None
-            if table is not None:
-                try:
+            try:
+                if table is not None:
                     # The reader waits for `sysctl` too, before any attempt is
                     # given the table: an attempt that read it lazily held every
                     # other attempt given the table on its lock for as long.
                     table.boot()
-                except procs.InspectionError:
-                    pass                         # kept by the table: each attempt sees it
-            self._table = (table, began + self.inspect_interval_s)
+            except procs.InspectionError:
+                pass                             # kept by the table: each attempt sees it
+            finally:
+                # Published however the boot read ends, so that anything else it
+                # raises costs this reader's pass, never the interval's ration.
+                self._table = (table, began + self.inspect_interval_s)
             return self._table
         finally:
             self._table_lock.release()

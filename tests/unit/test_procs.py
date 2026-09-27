@@ -582,3 +582,32 @@ def test_c5_5_the_whole_process_table_has_one_reader():
     an `InspectionError` there. The merge of 2026-09-26 left a second, `_process_table()`, which nothing called and
     which let a `ValueError` escape; it is gone, so no new caller can take it up."""
     assert not hasattr(procs, "_process_table")
+
+
+def test_c5_12_legacy_records_asked_about_one_table_at_once_share_one_kern_boottime(monkeypatch):
+    """C-5.12 the legacy attempts given the shared table ask about it together, on the tick after it is read: the
+    first reads `kern.boottime` and the others wait for that read rather than each running one.
+
+    Review of these fixes, 2026-09-27: without a lock, 50 of 50 trials read it twice for two legacy records."""
+    reads = []
+    together = threading.Barrier(2)
+
+    def read(argv, *, empty_ok=False):
+        assert argv[-1] == "kern.boottime", argv
+        reads.append(1)
+        try:
+            together.wait(timeout=.5)                           # both inside at once only without the lock
+        except threading.BrokenBarrierError:
+            pass
+        return "{ sec = 100, usec = 0 }\n"
+    monkeypatch.setattr(procs, "_read", read)
+    table = procs.ProcessTable({42: (1, 42, "Ss", START), 43: (1, 43, "Ss", START)}, BOOT_A)
+    found = []
+    threads = [threading.Thread(target=lambda pid=pid: found.append(table.is_process(pid, "100", START, legacy=True)),
+                                daemon=True) for pid in (42, 43)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+    assert found == [True, True]
+    assert reads == [1]

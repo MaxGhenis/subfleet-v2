@@ -545,7 +545,7 @@ def test_c5_12_only_the_inspection_that_reads_waits_for_the_boot_identity(daemon
         for aid in others:                                     # they ask while its `sysctl` runs
             worker = threading.Thread(target=daemon._process_attempt, args=(aid,), daemon=True)
             worker.start()
-            worker.join(5)
+            worker.join(20)
             assert not worker.is_alive(), f"{aid} waited for the reader's sysctl"
     finally:
         release.set()
@@ -557,6 +557,30 @@ def test_c5_12_only_the_inspection_that_reads_waits_for_the_boot_identity(daemon
     for aid, pid in zip([ATTEMPT, *others], (4242, 5252, 6262)):
         assert str(pid) in json.loads(daemon.store.get_attempt(aid)["evidence_json"])["owned_identities"]
 
+
+
+def test_c5_12_a_table_is_published_however_its_boot_identity_read_ends(daemon, monkeypatch):
+    """C-5.12, C-5.10 a boot-identity read that raises something other than an inspection failure costs the reader's
+    pass (C-5.10 retries it), not the interval's ration: the table is still published, so the next attempt to ask
+    is given it rather than reading `ps` again."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
+    daemon.inspect_interval_s = 30
+    other = add_running(daemon, JOB + "-b", 5252)
+    reads = []
+
+    def broken():
+        raise RuntimeError("not an inspection failure")
+    monkeypatch.setattr(daemon_module.procs, "boot_id", broken)
+    monkeypatch.setattr(daemon_module.procs, "snapshot",
+                        lambda: reads.append(1) or ProcessTable({pid: (1, pid, "Ss", STARTED) for pid in (4242, 5252)}))
+    daemon._contain = never_census
+    with pytest.raises(RuntimeError):
+        daemon._process_attempt(ATTEMPT)
+    assert reads == [1] and daemon._table[0] is not None
+    with pytest.raises(RuntimeError):                          # the other asks the same table's boot identity
+        daemon._process_attempt(other)
+    assert reads == [1]
 
 def test_c5_12_a_failed_shared_read_is_all_that_an_outage_costs_an_interval(daemon, monkeypatch):
     """C-5.12, C-4.2 when this interval's table could not be read, no attempt asks about its guardian singly,

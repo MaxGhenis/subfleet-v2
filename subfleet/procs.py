@@ -220,6 +220,7 @@ class ProcessTable:
     _boot: list = field(default_factory=list, init=False, repr=False, compare=False)
     _seconds: list = field(default_factory=list, init=False, repr=False, compare=False)
     _reading: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+    _reading_seconds: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
     def boot(self) -> str:
         """The boot identity of every row; `InspectionError` when it cannot be read."""
@@ -240,15 +241,17 @@ class ProcessTable:
         """`kern.boottime` seconds for matching a legacy record (C-5.3); `InspectionError`
         when they cannot be read.
 
-        Read the first time a legacy record needs them and kept for the table's
-        life, failed or not, so every legacy record asked about the table shares
-        one `sysctl`. Without a lock: two that ask at the same instant may each
-        read, and neither waits for the other's `sysctl` (C-5.12)."""
+        Read the first time a legacy record needs them, once, and kept for the
+        table's life, failed or not, so every legacy record asked about the table
+        shares one `sysctl`; one that asks while it runs waits for it (C-5.12).
+        The lock is this read's own, so no one waiting for `boot()` waits for it."""
         if not self._seconds:
-            try:
-                self._seconds.append(boot_identity.boot_seconds(_read))
-            except InspectionError as exc:
-                self._seconds.append(exc)
+            with self._reading_seconds:
+                if not self._seconds:
+                    try:
+                        self._seconds.append(boot_identity.boot_seconds(_read))
+                    except InspectionError as exc:
+                        self._seconds.append(exc)
         found = self._seconds[0]
         if isinstance(found, InspectionError):
             raise InspectionError(str(found)) from found

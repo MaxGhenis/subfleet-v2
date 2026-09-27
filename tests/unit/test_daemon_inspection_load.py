@@ -323,6 +323,27 @@ def test_a_retry_that_finds_another_read_running_keeps_its_backoff(daemon, monke
         f"worker {ATTEMPT} failed: RuntimeError (2 in a row, next try in 1 s)"]
 
 
+
+def test_an_inspection_that_runs_to_its_end_ends_the_retry(daemon, monkeypatch):
+    """C-5.10, C-5.11: once an inspection that raised has been repeated to its end, the attempt's passes are ordinary
+    again: one that stops at the pacing gate is a success, so a later failure elsewhere in the pass is the first of
+    its run, not the next of the old one."""
+    monkeypatch.setattr(procs, "_read", FakePs())
+    failures = failing_record(daemon, monkeypatch)
+    counts = [scheduled(daemon)]                           # the inspection raises
+    monkeypatch.setattr(daemon, "_record_owned", lambda a, table: None)
+    counts.append(scheduled(daemon))                       # repeated to its end: recovered
+    assert ATTEMPT not in daemon._inspect_retry
+    read_json = daemon._read_json
+
+    def unreadable(path):
+        raise OSError("input/output error")                # the per-tick receipt read fails once
+    monkeypatch.setattr(daemon, "_read_json", unreadable)
+    counts.append(scheduled(daemon))
+    monkeypatch.setattr(daemon, "_read_json", read_json)
+    counts.append(scheduled(daemon))                       # the pacing gate: an ordinary success
+    assert counts == [1, 0, 1, 0] and len(failures) == 1
+
 @pytest.mark.parametrize("cannot", ["table", "boot identity", "guardian", "recording table"])
 def test_a_retry_that_cannot_inspect_keeps_its_backoff(daemon, monkeypatch, cannot):
     """C-5.10, C-5.11, C-4.2: nor is it recovery when the retry is given a table whose read failed, or whose boot
