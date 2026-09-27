@@ -117,9 +117,10 @@ not take the GIL to read or to time out.
   did this, `client._BOOT_ID`).
 - `procs.group_members(pgid)` reads C-5.5's group source alone, with each
   member's start time, from one `ps -axo pid=,pgid=,stat=,lstart=` snapshot.
-  `_record_owned` uses it and asks for an identity only for a member it has not
-  recorded or whose start has changed, so a pid a new process has taken is
-  recorded afresh, as the full census did. The snapshot's start time only
+  `_record_owned` asks for an identity only for a member not recorded under its
+  current start and the current boot identity. A pid a new process has taken,
+  and a member recorded under legacy boot seconds, are recorded afresh while
+  still in the group, as the full census did. The snapshot's start time only
   detects the change; the identity is still captured by `procs.identity`
   (C-5.3), and on this machine the two renderings agreed for all 400 processes
   compared. The three-source census is unchanged and still decides every
@@ -163,7 +164,16 @@ hard`) found three defects in the first version of this fix: a pid taken by a
 new group member kept its old identity, a failing paced pass reset C-5.10's
 backoff, and pacing state leaked for attempts that finished normally. It also
 found the export sweep and the probe loop. All five are fixed above, each with
-a test that fails on the first version.
+a test that fails on the first version. A second independent review (Claude Opus
+5.5, `--tier standard`) of the final head found that a member recorded under
+legacy boot seconds was never refreshed, that the pacing prune walked dicts
+workers write to, and that the probe test could race its receipt; those are
+fixed too. `tests/unit/test_daemon_inspection_properties.py` states the
+invariants as Hypothesis properties: pacing asks exactly when a greedy clock
+allows, recording asks exactly about members not recorded as they are, the
+export query matches the per-job sweep it replaced for any jobs and leases, and
+the generation counts exactly the committed top-level changes. Reintroducing
+each defect fails its test.
 
 ## Related findings, not fixed here
 

@@ -201,6 +201,44 @@ def test_a_pid_taken_by_a_new_group_member_is_recorded_afresh(daemon, monkeypatc
     assert owned(daemon)[str(GUARDIAN)]["proc_start"] == STARTED
 
 
+def test_a_member_recorded_under_another_boot_identity_is_recorded_afresh(daemon, monkeypatch):
+    """C-5.3, C-5.4: a member recorded with legacy boot seconds (from before the boot
+    UUID could be read) is re-identified while it is still in the group, as the
+    full census refreshed it; kept, a later clock correction would leave it an
+    identity that no signal may trust once it escapes."""
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    legacy = {"pid": CHILD, "boot_id": "1790255587", "proc_start": STARTED}
+    with daemon.store.transaction("test.legacy") as tx:
+        tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                   (json.dumps({"owned_identities": {str(CHILD): legacy}}), ATTEMPT))
+    daemon._process_attempt(ATTEMPT)
+    assert owned(daemon)[str(CHILD)] == {"pid": CHILD, "boot_id": BOOT, "proc_start": STARTED}
+
+    # Recorded under the current boot and start, it is not asked about again.
+    ps.calls.clear()
+    daemon._liveness_next[ATTEMPT] = daemon._census_next[ATTEMPT] = 0
+    daemon._process_attempt(ATTEMPT)
+    assert ps.calls[-1] == GROUP_SNAPSHOT
+
+
+def test_pacing_cleanup_survives_a_worker_adding_an_entry_mid_walk(daemon):
+    """C-5.11: workers add pacing entries while the control loop prunes them; the
+    prune walks a copy, so an insertion mid-walk cannot raise and cost a tick."""
+    daemon._liveness_next.update({"gone/a1": 1.0, "also-gone/a1": 1.0})
+    daemon._census_next.update({"gone/a1": 1.0})
+
+    class Live(set):
+        def __contains__(self, aid):                # a worker's first deadline lands mid-walk
+            daemon._liveness_next.setdefault("new/a1", 2.0)
+            daemon._census_next.setdefault("new/a1", 2.0)
+            return super().__contains__(aid)
+
+    daemon._forget_paced(Live({"new/a1"}))
+    assert daemon._liveness_next == {"new/a1": 2.0}
+    assert daemon._census_next == {"new/a1": 2.0}
+
+
 def test_a_failing_inspection_is_retried_not_skipped(daemon, monkeypatch):
     """C-5.10 with C-5.11: a paced pass that raised leaves no pacing deadline, so the
     retry C-5.10 schedules repeats the inspection (and fails again, keeping its
@@ -253,6 +291,7 @@ def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tm
     its guardian once per liveness interval and records its group without an
     environment dump. Before the fix it asked every pass and took the full
     census every 0.5 s."""
+    from subfleet.guardian import atomic_publish
     ps = FakePs()
     monkeypatch.setattr(procs, "_read", ps)
     asked = count_liveness(monkeypatch)
@@ -267,10 +306,19 @@ def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tm
     waiter = threading.Thread(target=lambda: result.update(zip(("safe", "receipt"),
                                                                daemon._await_probe(record))))
     waiter.start()
-    time.sleep(1.2)                                # about 24 passes of the loop
-    (directory / "exit.json").write_text(json.dumps({"rc": 0, "child_pid": CHILD}))
-    waiter.join(timeout=5)
-    assert not waiter.is_alive()
+    try:
+        deadline = time.monotonic() + 10
+        while not record["owned_identities"]:       # the first pass has asked and recorded
+            assert time.monotonic() < deadline
+            time.sleep(.01)
+        time.sleep(.5)                                # about ten more passes, none of them due
+        atomic_publish(directory / "exit.json", json.dumps({"rc": 0, "child_pid": CHILD}).encode())
+        waiter.join(timeout=10)
+        assert not waiter.is_alive()
+    finally:
+        if waiter.is_alive():
+            daemon.stopping.set()
+            waiter.join(timeout=10)
     assert result["safe"] is True and result["receipt"]["rc"] == 0
     assert len(asked) == 2                         # the pass's question and the leader re-check
     assert not ps.environment_dumps()
