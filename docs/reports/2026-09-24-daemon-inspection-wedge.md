@@ -205,6 +205,7 @@ each defect fails its test.
   daemon that thread was busy in nearly every sample, and the process held
   1.1 GB. A thread that runs Python continuously slowed the lock-serialized
   query in the reproduction from 1.5 ms to 101 ms (2,000 rows).
+- **Shutdown** is bounded now: PR #48 (C-5.8a) ends a stop that cannot drain, so it can no longer hold the lock as it did here.
 - **Restart after SIGKILL.** A killed daemon leaves `daemon.sock` behind, so
   clients got `Connection refused` for the 26 s the new process spent in
   `Daemon.__init__`, and then no response for about 75 s of recovery.
