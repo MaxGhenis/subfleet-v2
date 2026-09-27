@@ -2872,6 +2872,7 @@ class Daemon:
                 break
             if record.get("state") in ("reserved", "quarantined", "containing", "contained"):
                 break
+            self._deadline_from_start(record, directory)
             if record["deadline_at"] <= utcnow():
                 record["deadline_hit"] = True        # C-11.4: evidence for the next deadline
                 break
@@ -2899,6 +2900,34 @@ class Daemon:
         if child:
             child.poll()
         return safe, self._read_json(directory / "exit.json")
+
+    def _deadline_from_start(self, record: dict, directory: Path) -> None:
+        """C-11.4: an admission probe's deadline, measured from its guardian's own start.
+
+        The guardian writes `start.json` (C-5.2) after it reads the gate's byte
+        and just before it starts the provider, so its `started_at` plus
+        `deadline_s` is the provider's whole budget, whatever the daemon's
+        commits cost around the gate; and recovery reads the same file after a
+        restart or a raised pass, where the deadline committed before the
+        ownership record was all it had (review of 6ebc009). Read until found,
+        once per pass: it never shortens a deadline, and a `started_at` later
+        than now counts as now, so the bound holds. Timer turns keep theirs."""
+        if record.get("deadline_from_start") or not (record.get("job_id") and record.get("deadline_s")):
+            return
+        start = self._read_json(directory / "start.json")
+        if not isinstance(start, dict) or not isinstance(start.get("started_at"), str):
+            return
+        try:
+            begun = datetime.fromisoformat(start["started_at"].replace("Z", "+00:00"))
+        except ValueError:
+            return
+        if begun.tzinfo is None:
+            begun = begun.replace(tzinfo=timezone.utc)
+        seconds = float(record["deadline_s"])
+        until = min(begun + timedelta(seconds=seconds), datetime.now(timezone.utc) + timedelta(seconds=seconds))
+        rebased = until.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        record["deadline_at"] = max(record["deadline_at"], rebased)
+        record["deadline_from_start"] = True
 
     def _execute_probe(self, job: dict, lane: Lane, model: dict, holder: str) -> Outcome:
         """C-11.4, C-5.1: run a read-only requested-model probe through the guardian.

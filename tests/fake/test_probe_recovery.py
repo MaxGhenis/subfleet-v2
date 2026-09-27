@@ -612,3 +612,71 @@ def test_c5_5_a_keepalive_whose_probe_is_held_keeps_its_lease_for_recovery(tmp_p
         finally:
             timer.stop()
         assert turns and store.list_leases(turns[0])
+
+
+def started_probe(service, job_id, *, deadline_s=90, started_at=None, timer=False):
+    """A probe whose guardian has started (its `start.json` says when) and whose committed deadline has passed."""
+    token = os.urandom(6).hex()
+    directory = service.root / "lanes" / "codex-1" / "probes" / token
+    directory.mkdir(parents=True)
+    record = {"holder": f"probe:{'timer:' if timer else ''}{token}", "job_id": None if timer else job_id,
+              "lane_id": "codex-1", "model_id": "gpt-6-astra", "directory": str(directory), "state": "starting",
+              "created_at": utcnow(), "deadline_s": deadline_s, "deadline_at": "2026-01-01T00:00:00Z",
+              "guardian_pid": 900001, "pgid": 900001, "boot_id": "boot", "proc_start": "start",
+              "owned_identities": {}}
+    if timer:
+        record["timer_kind"] = "keepalive"
+    (directory / "start.json").write_text(json.dumps({"guardian_pid": 900001, "pgid": 900001, "boot_id": "boot",
+                                                      "proc_start": "start", "started_at": started_at or utcnow()}))
+    return record, directory
+
+
+def awaiting(service, monkeypatch, record, directory, *, finish_after_s):
+    """Run the real `_await_probe` over `record`: its guardian is alive until a receipt lands `finish_after_s` in."""
+    monkeypatch.setattr(procs, "same_process", lambda *args: True)
+    monkeypatch.setattr(service, "_new_group_identities", lambda pgid, recorded: {})
+    monkeypatch.setattr(service, "_contain_probe", lambda value: True)
+    timer = threading.Timer(finish_after_s, lambda: (directory / "exit.json").write_text(
+        json.dumps({"rc": 0, "signal": None, "wall_s": finish_after_s, "child_pid": 900002})))
+    timer.start()
+    try:
+        return service._await_probe(record)
+    finally:
+        timer.cancel()
+
+
+def test_c11_4_recovery_measures_the_deadline_from_the_guardian_s_start(routing_state, monkeypatch):
+    """C-11.4 after a restart, or a pass that raised, recovery takes the probe up with only the deadline committed
+    before its ownership record, which a slow commit had already spent. The guardian's `started_at` is the
+    provider's real start, so the probe keeps its whole budget and is not killed one second in (re-review of
+    6ebc009, Astra: a 120 s commit on a 90 s probe had it SIGTERMed at 1 s)."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record, directory = started_probe(service, job_id)
+    safe, receipt = awaiting(service, monkeypatch, record, directory, finish_after_s=1.2)
+    assert safe and receipt and receipt["rc"] == 0
+    assert not record.get("deadline_hit")
+    left = datetime.fromisoformat(record["deadline_at"].replace("Z", "+00:00")) - datetime.now(timezone.utc)
+    assert 85 <= left.total_seconds() <= 91
+
+
+def test_c11_4_a_start_later_than_now_never_stretches_the_bound(routing_state, monkeypatch):
+    """C-11.4 the deadline stays bounded whatever `start.json` says: a `started_at` in the future counts as now."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record, directory = started_probe(service, job_id, started_at="2099-01-01T00:00:00Z")
+    service._deadline_from_start(record, directory)
+    left = datetime.fromisoformat(record["deadline_at"].replace("Z", "+00:00")) - datetime.now(timezone.utc)
+    assert left.total_seconds() <= 91
+
+
+def test_c11_4_a_timer_turn_keeps_its_own_deadline(routing_state, monkeypatch):
+    """C-11.4, C-23.29 only an admission probe's deadline is measured from its gate or its start; a timer turn's,
+    set by the timer, is not moved by the guardian's `start.json`."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record, directory = started_probe(service, job_id, timer=True)
+    started = time.monotonic()
+    safe, receipt = awaiting(service, monkeypatch, record, directory, finish_after_s=5)
+    assert record.get("deadline_hit") and record["deadline_at"] == "2026-01-01T00:00:00Z"
+    assert time.monotonic() - started < 3

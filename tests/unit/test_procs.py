@@ -916,3 +916,43 @@ def test_c5_12_a_reader_that_closed_its_streams_is_still_capped(monkeypatch):
     with pytest.raises(procs.InspectionError, match="still running after 0.6 s"):
         procs._read(writer(script))
     assert time.monotonic() - started < .6 + .25
+
+
+def test_c5_12_a_reader_that_exits_as_its_cap_passes_has_answered(monkeypatch):
+    """C-5.12 the cap is on a reader still running: one that exits between the last wait and the check after it
+    has answered (re-review of 6ebc009: dropping that check survived every test)."""
+    class ExitsAtTheCap(REAL_POPEN):
+        waited = False
+
+        def wait(self, timeout=None):
+            if timeout is not None and not ExitsAtTheCap.waited:
+                ExitsAtTheCap.waited = True
+                super().wait()                              # it exits ...
+                raise subprocess.TimeoutExpired(self.args, timeout)   # ... just after the wait gave up
+            return super().wait(timeout)
+    monkeypatch.setattr(procs, "_spawn", lambda argv, **kwargs: ExitsAtTheCap(argv, **kwargs))
+    assert procs._read(writer("import sys; sys.stdout.write('4242 answered\\n')")) == "4242 answered\n"
+    assert ExitsAtTheCap.waited
+
+
+def test_c5_12_the_reader_is_started_through_subprocess_popen_at_each_call(monkeypatch):
+    """C-5.12 `_spawn` looks `subprocess.Popen` up when it runs, so a test (or a tool) that counts every process the
+    daemon starts through that one seam sees `ps` too (re-review of 6ebc009: binding it at import survived)."""
+    started = []
+
+    class Counting(REAL_POPEN):
+        def __init__(self, args, *rest, **kwargs):
+            started.append(list(args))
+            super().__init__(args, *rest, **kwargs)
+    monkeypatch.setattr(subprocess, "Popen", Counting)
+    assert procs._read(writer("print('ok')")) == "ok\n"
+    assert len(started) == 1 and started[0][0] == sys.executable
+
+
+@pytest.mark.parametrize("err", [b"\x00", b"\x00" * 5000, b" \x00\n", "é".encode()])
+def test_c5_5_error_output_that_is_not_blank_is_never_an_empty_selection(err):
+    """C-5.5 only ASCII blank space is blank: a NUL or a non-ASCII byte on standard error is something said, so rc 1
+    with it is a failure, as release/217 (which stripped text) had it (re-review of 6ebc009: a mutant that also
+    stripped NUL survived)."""
+    with pytest.raises(procs.InspectionError, match=rf"^{re.escape(READER)} exited 1"):
+        procs._read(writer(f"import sys; sys.stderr.buffer.write({err!r}); sys.exit(1)"), empty_ok=True)
