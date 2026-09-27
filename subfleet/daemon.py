@@ -4435,12 +4435,13 @@ class Daemon:
             # C-5.5: nothing seen and nothing ruled out: neither a loss nor a
             # reason to kill. The raise is C-5.10's to retry, in full (C-5.11).
             self._defer_census(a, census, "dead guardian")
-        # Not concluded here: the kill or the loss that follows decides, and a
-        # kill whose own census was deferred resumes from its SIGKILL.
-        if not census.verified_empty:
-            self._kill_attempt(a, lost=True)
-        else:
+        if census.verified_empty:
+            self._census_concluded(aid)
             self._lost(a)
+        else:
+            # Not concluded here: the kill decides, and a kill whose own census
+            # was deferred resumes from its SIGKILL, not from a second SIGTERM.
+            self._kill_attempt(a, lost=True)
         return True
 
     def _contain(self, a: dict):

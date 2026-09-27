@@ -27,15 +27,18 @@ class Growing(dict):
 
 def test_an_entry_added_while_forgetting_does_not_raise():
     due = Growing({"a1": 1.0, "a2": 2.0, "a3": 3.0})
-    core = SimpleNamespace(_inspect_next=due, _inspect_retry=set())
+    deferrals = Growing({"a1": 1, "a2": 2})                 # C-5.5's census deferral counts are walked too
+    core = SimpleNamespace(_inspect_next=due, _inspect_retry=set(), _census_deferrals=deferrals,
+                           _kill_resumed={"a1", "a3"})
     Daemon._forget_paced(core, live={"a1"})
     assert "a1" in due and "a2" not in due and "a3" not in due
+    assert "a1" in deferrals and "a2" not in deferrals and core._kill_resumed == {"a1"}
 
 
 def test_forgetting_races_workers_without_raising():
     """Bounded: a worker adds and removes entries while forgetting runs 2,000 times,
     with the interpreter switching threads as often as it can."""
-    core = SimpleNamespace(_inspect_next={}, _inspect_retry=set())
+    core = SimpleNamespace(_inspect_next={}, _inspect_retry=set(), _census_deferrals={}, _kill_resumed=set())
     stop, errors = threading.Event(), []
 
     def worker():
@@ -44,8 +47,12 @@ def test_forgetting_races_workers_without_raising():
             n += 1
             key = f"a{n % 500}"
             core._inspect_next[key] = float(n)
+            core._census_deferrals[key] = n                   # C-5.5: written by attempt workers too
+            core._kill_resumed.add(key)
             if n % 3 == 0:
                 core._inspect_next.pop(f"a{(n + 250) % 500}", None)
+                core._census_deferrals.pop(f"a{(n + 250) % 500}", None)
+                core._kill_resumed.discard(f"a{(n + 250) % 500}")
     interval = sys.getswitchinterval()
     sys.setswitchinterval(1e-6)
     thread = threading.Thread(target=worker)
