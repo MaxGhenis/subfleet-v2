@@ -25,9 +25,9 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from .. import protocol
+from .. import descriptors, protocol
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULTS
@@ -119,7 +119,11 @@ class ConversationService:
         self.daemon = daemon
         self.root: Path = daemon.root
         self.store = ConversationStore(self.root)
-        self.polls = concurrent.futures.ThreadPoolExecutor(8, thread_name_prefix="subfleet-poll")
+        # C-25.4, C-16.7: a long poll holds its thread for up to MAX_WAIT_S, so there
+        # is one for every connection the daemon may hold, as for `wait`: a poll
+        # queued behind others could outlast the app's deadline (wait_s + 15 s).
+        self.polls = concurrent.futures.ThreadPoolExecutor(descriptors.CONNECTIONS_CEILING,
+                                                           thread_name_prefix="subfleet-poll")
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
@@ -196,9 +200,23 @@ class ConversationService:
             return self.files
         return self.daemon.requests
 
+    def live_runners(self) -> int:
+        """Turn runners still going: each holds its relay connection and reads its
+        stdout, descriptors the daemon keeps back from client connections (C-16.7)."""
+        return sum(1 for runner in list(self.runners.values()) if not runner.finished.is_set())
+
     def respond(self, conn, write_lock, req: protocol.Request, peer: int | None) -> None:
+        def gone() -> bool:
+            return descriptors.client_gone(conn)
+        if descriptors.read_only(req.op, req.args) and gone():
+            # C-16.7: the client hung up while this waited for a thread: a read
+            # has no one to answer. A write still runs (C-5.2). A stopping daemon
+            # shut the socket down itself, which is not a client leaving.
+            if not self.daemon.stopping.is_set():
+                self.daemon._count_connection("abandoned", req.op)
+            return
         try:
-            response = protocol.ok(req.id, self.handle(req.op, req.args, peer))
+            response = protocol.ok(req.id, self.handle(req.op, req.args, peer, client_gone=gone))
         except ConversationError as exc:
             response = protocol.fail(req.id, exc.code, f"{exc.reason}: {exc}", exc.fix)
         except (protocol.ProtocolError, AdapterError) as exc:
@@ -208,16 +226,17 @@ class ConversationService:
         except Exception as exc:
             self.log.error("conversation op %s failed: %s: %s", req.op, type(exc).__name__, exc)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
-        try:
-            with write_lock:
-                conn.sendall(protocol.encode(response))
-        except OSError:
-            pass
+        descriptors.send_reply(conn, write_lock, response)
 
-    def handle(self, op: str, args: dict, peer: int | None) -> dict:
+    def handle(self, op: str, args: dict, peer: int | None, *,
+               client_gone: Callable[[], bool] | None = None) -> dict:
+        """One conversation op. `client_gone`, from the socket, ends a long poll
+        whose client has left (C-16.7)."""
         if not isinstance(args, dict):
             raise ConversationError("bad-args", "args must be an object")
         handler = getattr(self, "op_" + op.replace(".", "_"))
+        if op in POLL_OPS:
+            return handler(args, peer, client_gone=client_gone)
         return handler(args, peer)
 
     def _app_executables(self) -> tuple[str, ...]:
@@ -566,7 +585,21 @@ class ConversationService:
             self._poll_slots[key] = flag
         return flag
 
-    def op_conversation_events(self, args, peer) -> dict:
+    def _poll_over(self, op: str, superseded: threading.Event,
+                   client_gone: Callable[[], bool] | None) -> bool:
+        """Whether a long poll should answer now whatever the store holds: a newer
+        poll of its kind superseded it (C-29.9), the daemon is stopping, or its
+        client has closed its socket (C-16.7), which is counted, since no one
+        reads that answer. The store's wait asks at least every 0.5 s."""
+        stopping = getattr(self.daemon, "stopping", None)      # a test's daemon may have none
+        if superseded.is_set() or (stopping is not None and stopping.is_set()):
+            return True
+        if client_gone is not None and client_gone():
+            self.daemon._count_connection("abandoned", op)
+            return True
+        return False
+
+    def op_conversation_events(self, args, peer, *, client_gone: Callable[[], bool] | None = None) -> dict:
         cid = args["conversation_id"]
         self.store.conversation(cid)
         after = int(args.get("after") or 0)
@@ -575,7 +608,7 @@ class ConversationService:
         page = self.store.events_after(cid, after, limit=int(args.get("limit") or 500))
         if not page["events"] and not page["reset"] and wait_s:
             def ready():
-                return superseded.is_set() or bool(self.store.one(
+                return self._poll_over("conversation.events", superseded, client_gone) or bool(self.store.one(
                     "SELECT 1 FROM events WHERE conversation_id=? AND seq>?", (cid, after)))
             self.store.wait(ready, wait_s)
             if superseded.is_set():
@@ -583,14 +616,14 @@ class ConversationService:
             page = self.store.events_after(cid, after, limit=int(args.get("limit") or 500))
         return page
 
-    def op_conversation_watch(self, args, peer) -> dict:
+    def op_conversation_watch(self, args, peer, *, client_gone: Callable[[], bool] | None = None) -> dict:
         after = int(args.get("after") or 0)
         wait_s = max(0.0, min(float(args.get("wait_s") or 0), MAX_WAIT_S))
         superseded = self._slot(peer, "watch")
         result = self.store.changes_after(after)
         if not result["changes"] and wait_s:
-            self.store.wait(lambda: superseded.is_set() or bool(self.store.one("SELECT 1 FROM changes WHERE seq>?", (after,))),
-                            wait_s)
+            self.store.wait(lambda: self._poll_over("conversation.watch", superseded, client_gone)
+                            or bool(self.store.one("SELECT 1 FROM changes WHERE seq>?", (after,))), wait_s)
             if superseded.is_set():
                 return {"changes": [], "next": after, "superseded": True}
             result = self.store.changes_after(after)

@@ -33,6 +33,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import random
 import re
 import socket
 import subprocess
@@ -60,7 +61,18 @@ DEFAULT_TIMEOUT_S = 15.0
 REQUERY_TIMEOUT_S = 60.0
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 DEFAULT_STATE_ROOT = "~/.subfleet"
+#: C-16.7: the errors of a request's send that met a socket the daemon had
+#: already answered and closed (at its connection cap it answers `busy` before
+#: reading): BrokenPipeError (EPIPE, ESHUTDOWN), ConnectionResetError, and, on
+#: macOS when the close races the send, ENOTCONN (errno 57). Measured against a
+#: unix-socket server that answers and closes at once, 8,000 sends under Python
+#: 3.12 and 3.14: 510 met EPIPE and 6 ENOTCONN, and the answer was readable
+#: after every one of them.
+SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESET,
+                                   errno.ENOTCONN})
 START_DAEMON_FIX = "subfleet daemon start"
+#: C-16.7: the first pause before a busy answer's request is sent again.
+BUSY_PAUSE_S = .05
 
 
 def state_root(env: dict[str, str] | None = None) -> Path:
@@ -94,15 +106,16 @@ class DaemonError(Exception):
 
     @property
     def busy(self) -> bool:
-        """The daemon answered "busy, try again shortly": it answers so before it
-        reads a request (C-16.1), so nothing was done and asking again is safe."""
+        """C-16.7: the daemon was at its connection cap and answered before
+        reading the request. It sends 69 over the socket for nothing else, so
+        the request did nothing and may be sent again as it is."""
         return self.code == Exit.DAEMON_UNAVAILABLE
 
 
 def busy_pause(streak: int) -> float:
-    """How long a polling loop waits after its `streak`th busy answer in a row
-    (C-16.1): 0.25 s, doubling to 5 s."""
-    return min(5.0, 0.25 * 2 ** min(max(streak, 1) - 1, 5))
+    """C-16.7: the wait after the `streak`th busy answer in a row: 50 ms doubling
+    to 1 s, less up to half at random so refused clients do not return together."""
+    return min(1.0, BUSY_PAUSE_S * 2 ** min(streak - 1, 10)) * (1 - random.random() / 2)
 
 
 class ResponseLost(ProtocolError):
@@ -352,9 +365,30 @@ class Client:
 
         `DaemonUnavailable` before the request is sent, `ResponseLost` after it
         was sent and before a complete, decodable answer was read (C-16.3).
+        A busy answer (C-16.7) is not an outcome: the daemon read nothing, so the
+        same request is sent again after `busy_pause`, within the same deadline,
+        and only a daemon still busy when the deadline is spent is reported.
         """
-        self.check_available()
         deadline = self.timeout if timeout is None else timeout
+        give_up_at = time.monotonic() + deadline
+        streak = 0
+        while True:
+            try:
+                return self._call_once(op, args, request_id=request_id,
+                                       timeout=max(give_up_at - time.monotonic(), .05))
+            except DaemonError as exc:
+                if not exc.busy:
+                    raise
+                streak += 1
+                pause = busy_pause(streak)
+                if time.monotonic() + pause >= give_up_at:
+                    raise
+                time.sleep(pause)
+
+    def _call_once(self, op: str, args: dict[str, Any] | None, *,
+                   request_id: str, timeout: float) -> dict[str, Any]:
+        self.check_available()
+        deadline = timeout
         request = Request(op=op, args=args or {}, id=request_id)
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(deadline)
@@ -371,11 +405,11 @@ class Client:
                 try:
                     conn.sendall(encode(request))
                 except OSError as exc:
-                    # The daemon may answer and close before reading the request:
-                    # a connection past its cap is told it is busy (C-16.1). That
-                    # answer is still there to read. (macOS says EPIPE, ECONNRESET
-                    # or, under load, ENOTCONN.)
-                    if exc.errno not in (errno.EPIPE, errno.ECONNRESET, errno.ENOTCONN):
+                    # C-16.7: a daemon at its connection cap answers at once and
+                    # closes before reading the request. Its answer says why, so
+                    # a send that met that close is read past, whichever errno
+                    # the kernel gave it; anything else is a lost answer.
+                    if exc.errno not in SEND_MET_CLOSE_ERRNOS:
                         raise
                 line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
@@ -442,10 +476,10 @@ class Client:
           committed, so a `submit` is `OutcomeUnknown`. Anything else (`kill`)
           re-raises, and the CLI falls back to offline mode (C-17.5), which is
           what the operator asked for.
-        * The daemon answers the re-send "busy" (C-16.1). It read nothing, so
-          that says nothing about the first request: the re-send is repeated,
+        * The daemon answers the re-send "busy" (C-16.7). It read nothing, so
+          that says nothing about the first request: `call` sends it again,
           with `busy_pause` between tries, until the re-send's deadline, and a
-          daemon still busy then leaves the outcome unknown.
+          daemon still busy then leaves the outcome unknown, never refused.
         * The re-sent `submit` is refused. That alone does not prove the first
           created nothing: `submit` validates before it looks up the request id,
           and a checkout whose HEAD moved between the two is "a different
@@ -467,36 +501,28 @@ class Client:
             on_lost(first)
         deadline = (max(REQUERY_TIMEOUT_S, self.timeout) if requery_timeout is None
                     else requery_timeout)
-        give_up, streak = time.monotonic() + deadline, 0
-        while True:
-            try:
-                result = self.call(op, args, request_id=request_id, timeout=(
-                    deadline if not streak else max(0.1, give_up - time.monotonic())))
-            except ResponseLost as exc:
-                raise OutcomeUnknown(op, request_id, (str(first), str(exc))) from exc
-            except DaemonUnavailable as exc:
-                if op != "submit":
-                    raise
+        try:
+            result = self.call(op, args, request_id=request_id, timeout=deadline)
+        except ResponseLost as exc:
+            raise OutcomeUnknown(op, request_id, (str(first), str(exc))) from exc
+        except DaemonUnavailable as exc:
+            if op != "submit":
+                raise
+            raise OutcomeUnknown(op, request_id, (
+                str(first), f"the daemon went away before the re-sent request: {exc}")) from exc
+        except DaemonError as exc:
+            if exc.busy:
+                # C-16.7: "busy" is answered before anything is read, so it says
+                # nothing about the first request, which may have committed.
+                # `call` asked again until the re-send's deadline; busy to the
+                # end, the outcome is unknown, never refused.
                 raise OutcomeUnknown(op, request_id, (
-                    str(first), f"the daemon went away before the re-sent request: {exc}")) from exc
-            except DaemonError as exc:
-                if exc.busy:
-                    # C-16.1: "busy" is answered before anything is read, so it
-                    # says nothing about the first request, which may have
-                    # committed. Ask again within the re-send's deadline; busy to
-                    # the end, the outcome is unknown, never refused.
-                    streak += 1
-                    pause = busy_pause(streak)
-                    if time.monotonic() + pause >= give_up:
-                        raise OutcomeUnknown(op, request_id, (
-                            str(first), f"the daemon answered busy to {streak} re-send(s) "
-                                        f"within {deadline:.0f} s: {exc}")) from exc
-                    time.sleep(pause)
-                    continue
-                if op != "submit" or not request_id:
-                    raise
-                return self._settle_refused_submit(exc, request_id, minted=minted, first=first)
-            return {**result, "requeried": True}
+                    str(first), f"the daemon answered busy to the re-send until its "
+                                f"{deadline:.0f} s deadline: {exc}")) from exc
+            if op != "submit" or not request_id:
+                raise
+            return self._settle_refused_submit(exc, request_id, minted=minted, first=first)
+        return {**result, "requeried": True}
 
     def _settle_refused_submit(self, refusal: DaemonError, request_id: str, *,
                                minted: bool, first: ResponseLost) -> dict[str, Any]:

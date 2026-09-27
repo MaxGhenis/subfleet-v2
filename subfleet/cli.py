@@ -39,7 +39,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, ids, protocol
+from . import capacity, descriptors, ids, protocol
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -2302,12 +2302,12 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     info = client.lock_info()
     alive = client.lock_holder_alive()
     started = time.monotonic()
-    reachable, busy, detail, connections = False, False, "", None
+    reachable, busy, detail, budget = False, False, "", None
     try:
-        connections = client.call("daemon.status", {}, timeout=5.0).get("connections")
+        budget = client.call("daemon.status", {}, timeout=5.0).get("descriptors")
         reachable = True
     except DaemonError as exc:
-        # It answered, so it is running: busy at its connection cap (C-16.1), or
+        # It answered, so it is running: busy at its connection cap (C-16.7), or
         # refusing this op; not unreachable (review of the descriptor hotfix, F9).
         reachable, busy, detail = True, exc.busy, str(exc) + (f" ({exc.fix})" if exc.fix else "")
     except (DaemonUnavailable, ProtocolError) as exc:
@@ -2317,7 +2317,7 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
                "socket_present": client.socket_path.exists(), "lock": info,
                "lock_holder_alive": alive, "ping": reachable, "busy": busy,
                "ping_ms": round(elapsed_ms, 1), "detail": detail or None,
-               "connections": connections}
+               "descriptors": budget}
     if args.json:
         emit(payload)
         return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)
@@ -2331,9 +2331,14 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
         out(f"holder      {'alive' if alive else ('dead' if alive is False else 'unverifiable')}")
     answer = ("busy" if busy else "refused") if detail and reachable else "ok" if reachable else "unreachable"
     out(f"ping        {answer} ({elapsed_ms:.1f} ms)")
-    if isinstance(connections, dict):
-        out(f"connections {connections.get('reading')} of {connections.get('cap')} read, "
-            f"{connections.get('open')} open, {connections.get('refused_busy')} refused busy")
+    if isinstance(budget, dict):
+        # C-16.6, C-16.7: `null` limits are unlimited.
+        soft = budget.get("soft_limit")
+        out(f"connections {budget.get('connections')} of {budget.get('max_connections')} held, "
+            f"{budget.get('refused', 0)} refused busy, {budget.get('idle_closed', 0)} closed idle, "
+            f"{budget.get('abandoned', 0)} dropped for departed clients")
+        out(f"descriptors {budget.get('open')} open of {'unlimited' if soft is None else soft}, "
+            f"{budget.get('live_turns', 0)} turns running")
     if detail:
         note(f"  {detail}")
     return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)
@@ -2380,6 +2385,10 @@ def _plist(root: Path) -> bytes:
         "StandardErrorPath": str(root / LOG_NAME),
         # Dispatch serves user requests, so use standard service resource limits.
         "ProcessType": "Standard",
+        # C-16.6: launchd would start the daemon at 256 descriptors; every client
+        # connection and every pipe to a child holds one. The daemon raises its
+        # own limit too, and this covers a start where it cannot.
+        "SoftResourceLimits": {"NumberOfFiles": descriptors.launchd_open_files()},
         # C-5.8a: with none set, `launchctl print` reports an exit timeout of
         # 5 s, which SIGKILLs a stop before the daemon's bound can dump.
         "ExitTimeOut": int(STOP_GRACE_S + STOP_BACKSTOP_S),
