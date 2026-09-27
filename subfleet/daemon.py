@@ -4021,7 +4021,13 @@ class Daemon:
             os.close(read_fd)
             if write_fd >= 0:
                 os.close(write_fd)
-        self._starting_deadlines[a["attempt_id"]] = time.monotonic() + self.start_grace_s
+        now = time.monotonic()
+        self._starting_deadlines[a["attempt_id"]] = now + self.start_grace_s
+        # C-5.12: first inspected with a table read after its guardian started,
+        # which shows the guardian. Due as it first asked, it was usually given
+        # a table another attempt had read before the guardian existed, and paid
+        # for a fresh `liveness` and a table of its own to record its group.
+        self._inspect_next[a["attempt_id"]] = now + self.inspect_interval_s
         self._boundary("starting", a["job_id"], a["attempt_id"])
 
     def _launch_failure(self, a: dict, detail: str, *, rc: int = 127) -> None:
@@ -4137,8 +4143,8 @@ class Daemon:
         shared = self._process_table(due)
         if shared is None:
             # Another attempt's `ps` is running: ask again next tick, still due
-            # from when it fell due (a new attempt, from now), so that it may be
-            # given that read.
+            # from when it fell due (a recovered attempt, from now), so that it
+            # may be given that read.
             self._inspect_next.setdefault(aid, due)
             return False
         table, self._inspect_next[aid] = shared
@@ -4230,8 +4236,9 @@ class Daemon:
 
         An inspection is given the last table if it expires after the inspection
         fell due: for an attempt already inspected, one read after the table it
-        was last given, and for a new attempt one read less than an interval
-        before it asked. Otherwise it reads a table, and that is the only time a
+        was last given; for one this daemon launched, one read after its guardian
+        started (it falls due an interval after that); and for one it recovered,
+        one read less than an interval before it first asked. Otherwise it reads a table, and that is the only time a
         read begins, so reads begin at least `inspect_interval_s` apart however
         many attempts ask and however long `ps` takes. A read is `ps` and then the
         table's boot identity (`sysctl`, unless the module remembers the UUID).
