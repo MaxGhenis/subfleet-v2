@@ -9,6 +9,7 @@ from subfleet import cli, compat, picker
 from subfleet.capacity import build_view
 from subfleet.client import DaemonUnavailable
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from tests.fable_reserve import load_fable_reserve_policy
 
 
 NOW = "2026-09-20T16:00:00Z"
@@ -18,6 +19,12 @@ LATER = "2026-09-21T16:00:00Z"
 @pytest.fixture
 def policy():
     return load_policy(DEFAULT_POLICY_PATH)
+
+
+@pytest.fixture
+def reserve_policy():
+    """Fable still reserved (C-11.7), as shipped until its retirement on 2026-09-27."""
+    return load_fable_reserve_policy()
 
 
 def lane(name="codex-1", **kw):
@@ -111,8 +118,9 @@ def test_exact_model_keeps_unrelated_closure_out_but_unknown_model_is_conservati
     assert picker.rank(policy, data)["best"] is None
 
 
-def test_claude_email_exact_model_reserve_and_exclusion(policy):
+def test_claude_email_exact_model_reserve_and_exclusion(reserve_policy):
     """C-11.7: no operator reserve authorization is inherited by a picker."""
+    policy = reserve_policy
     data = view([lane("claude-1")], [reading("claude-1")])
     assert picker.rank(policy, data, family="claude", model="fable")["best"] == "claude-1@example.org"
     assert picker.rank(policy, data, family="claude", model="opus")["best"] is None
@@ -121,8 +129,17 @@ def test_claude_email_exact_model_reserve_and_exclusion(policy):
                        exclusions=["claude-1@example.org"])["best"] is None
 
 
-def test_reserve_slack_requiring_probe_is_not_a_raw_pick(policy):
+def test_shipped_policy_picks_opus_for_a_retired_fable_pick(policy, capsys):
+    """C-11.1: with Fable retired and nothing reserved, `pick --model fable` ranks Opus."""
+    data = view([lane("claude-1")], [reading("claude-1")])
+    assert picker.rank(policy, data, family="claude", model="fable")["best"] == "claude-1@example.org"
+    assert picker.rank(policy, data, family="claude", model="opus")["best"] == "claude-1@example.org"
+    assert "retired model 'fable' resolves to 'opus'" in capsys.readouterr().err
+
+
+def test_reserve_slack_requiring_probe_is_not_a_raw_pick(reserve_policy):
     """C-11.4: scoped closure evidence may require supervised admission."""
+    policy = reserve_policy
     data = view([lane("claude-1")], [reading("claude-1")], closures=[{
         "lane_id": "claude-1", "scope": policy["models"]["fable"]["id"],
         "reason": "provider-limit", "clock_source": "reported", "until_at": LATER,
@@ -132,8 +149,9 @@ def test_reserve_slack_requiring_probe_is_not_a_raw_pick(policy):
     assert "admission-probe-required" in result["excluded"][0]["reasons"]
 
 
-def test_matched_stream_windows_can_measure_real_opus_reserve_slack(policy):
+def test_matched_stream_windows_can_measure_real_opus_reserve_slack(reserve_policy):
     """C-11.7: same-event shared/Fable measurements need no unknown-quota waiver."""
+    policy = reserve_policy
     data = view([lane("claude-1")], [
         reading("claude-1", .2, source="rate_limit_event", attempt_id="old/a1"),
         reading("claude-1", .95, source="rate_limit_event", attempt_id="old/a1",

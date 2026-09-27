@@ -37,7 +37,7 @@ def manifest(folder: Path, workdir: Path, *, suffix=".toml", extra="") -> Path:
     if suffix == ".toml":
         path.write_text(f'''label = "codex handoff"
 [defaults]
-model = "fable"
+model = "opus"
 sandbox = "workspace-write"
 in_place = true
 {extra}
@@ -59,7 +59,7 @@ in_place = false
 ''')
     else:
         path.write_text(json.dumps([
-            {"prompt": "spm.md", "workdir": str(workdir / "spm"), "model": "fable"},
+            {"prompt": "spm.md", "workdir": str(workdir / "spm"), "model": "sonnet"},
             {"prompt": "tariff.md", "workdir": str(workdir / "tariff"), "model": "opus"}]))
     return path
 
@@ -78,7 +78,7 @@ def test_c17_7_one_call_submits_every_brief_and_prints_the_job_ids(daemon, capsy
     assert all(args["batch"]["label"] == "codex handoff" and args["batch"]["size"] == 3 for args in sent)
     # an entry overrides the manifest's defaults, which override nothing the entry said
     assert [(a["pinned_model"], a["sandbox"], a["in_place"]) for a in sent] == [
-        ("fable", "workspace-write", True), ("fable", "workspace-write", True), ("fable", "read-only", False)]
+        ("opus", "workspace-write", True), ("opus", "workspace-write", True), ("opus", "read-only", False)]
     # paths are relative to the manifest, so the folder can be moved whole
     assert sent[0]["prompt_path"] == str((folder / "spm.md").resolve())
     assert sent[0]["out_path"] == str(folder / "spm-out.md") and sent[1]["out_path"] is None
@@ -95,8 +95,25 @@ def test_c17_7_command_line_flags_are_the_lowest_defaults(daemon, capsys, briefs
     assert cli.main(["run", "--batch", str(path), "-m", "haiku", "-s", "workspace-write", "--in-place", "-d"]) == Exit.OK
     sent = [request.args for request in server.requests if request.op == "submit"]
     assert [(a["pinned_model"], a["sandbox"], a["in_place"]) for a in sent] == [
-        ("fable", "workspace-write", True), ("opus", "workspace-write", True)]
+        ("sonnet", "workspace-write", True), ("opus", "workspace-write", True)]
     assert {a["batch"]["label"] for a in sent} == {"handoff-20260920"}     # a bare list is labelled by its file
+
+
+def test_c17_2_a_retired_model_in_a_manifest_submits_its_successor(daemon, capsys, briefs):
+    """C-17.2, C-17.7: a manifest names models like `-m` does, so `fable` (retired
+    2026-09-27) and `sol` submit their successors, with one note per entry."""
+    folder, workdir = briefs
+    server = daemon({"submit": numbered})
+    path = folder / "retired.json"
+    path.write_text(json.dumps([
+        {"prompt": "spm.md", "workdir": str(workdir / "spm"), "model": "fable"},
+        {"prompt": "tariff.md", "workdir": str(workdir / "tariff"), "model": "sol"}]))
+    assert cli.main(["run", "--batch", str(path), "-d"]) == Exit.OK
+    sent = [request.args for request in server.requests if request.op == "submit"]
+    assert [a["pinned_model"] for a in sent] == ["opus", "astra"]
+    err = capsys.readouterr().err
+    assert "-m fable is retired; using opus" in err and "-m sol is retired; using astra" in err
+    assert err.count("is retired") == 2
 
 
 def test_c17_7_a_refused_entry_does_not_stop_the_rest(daemon, capsys, briefs):

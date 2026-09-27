@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ..contracts import Sandbox
+from ..policy import RETIRED_MODELS
 from ..protocol import SubmitArgs
 from . import registry, transcripts
 from .transcripts import TurnState
@@ -255,8 +256,10 @@ def model_for(candidate: Candidate, policy: dict[str, Any],
               override: str | None = None) -> tuple[str | None, str]:
     """C-23.39: revive keeps the session's own tier unless `--model` is given.
 
-    Returns `(pinned model, why)`. A substitution is always recorded, because
-    2026-08-26 (Max): a Fable-grade session on Opus is worse than a parked one.
+    Returns `(pinned model, why)`. A substitution is always recorded: on
+    2026-08-26 Max ruled a Fable-grade session on Opus worse than a parked one,
+    and although Fable itself is retired (2026-09-27, "opus 5.5 is strictly
+    better than fable"), a silent tier change is still not revive's to make.
     """
     if override:
         return override, f"operator substituted {override} for {candidate.model or 'unknown'}"
@@ -268,7 +271,22 @@ def model_for(candidate: Candidate, policy: dict[str, Any],
         # that tier, never on the retired model.
         return retired[candidate.model], (f"{candidate.model} is retired; its tier "
                                           f"is now {retired[candidate.model]}")
+    successor = _retired_successor(candidate.model, policy)
+    if successor:
+        # An older policy may still list a model retired from dispatch (C-17.2);
+        # a revive, which runs unattended, must not be the route back to it.
+        return successor, f"{candidate.model} is retired; its tier is now {successor}"
     return candidate.model, "the session's own recorded model"
+
+
+def _retired_successor(model: str, policy: dict[str, Any]) -> str | None:
+    """The successor of a recorded model (short name or exact id) retired from dispatch."""
+    if model in RETIRED_MODELS:
+        return RETIRED_MODELS[model]
+    for short, entry in (policy.get("models") or {}).items():
+        if short in RETIRED_MODELS and isinstance(entry, dict) and entry.get("id") == model:
+            return RETIRED_MODELS[short]
+    return None
 
 
 def submit_args(candidate: Candidate, *, model: str | None, request_id: str,

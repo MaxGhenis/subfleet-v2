@@ -109,3 +109,23 @@ running, and `daemon.log` was silent; every unplaced job now has a stated
 reason, and a fleet that places nothing for a minute says so. C-5.10: a worker
 that raises is retried with backoff rather than on every 50 ms tick. No schema
 change: the new state is in memory, so rollback stays possible.
+
+## Fable retired from dispatch, 2026-09-27
+
+Max: "opus 5.5 is strictly better than fable" and "we dont use fable anymore".
+The installed policy already routed the writing tasks to Opus; the shipped
+default still named Fable, so a fresh install or a reset would have brought it
+back. Plan B's routing-as-data example is amended: `authored-prose`, `strategy`,
+and `adjudication` are Opus at every tier; `fable` leaves `models`; `fable`,
+`claude-fable-5`, and `claude-fable-5-1` are `retired` aliases of `opus`; and
+`reserve.models` is empty, because a reserve held for a model nothing routes to
+only stops Opus work. Retirement follows Sol's path (C-17.2): `run -m` and `-t`,
+`why -m`, `sessions handoff --to`, `sessions revive --model`, and `gate --peer`
+accept the old name, say so on stderr, and use the successor even under a
+`policy.json` that still lists Fable. `gate --peer opus` is the Claude-family
+peer that `fable` was; a gate opened before the retirement runs its next round
+on Opus and keeps its earlier rounds as recorded. The reserve rule (C-11.7) and
+stranded-capacity ordering (C-23.37) are unchanged and keep their tests against
+an explicit policy that still reserves Fable. Claude accounts still report
+Fable's weekly window; it is recorded under its own id, and a `retired` alias
+never re-labels it as Opus's (the v1 importer used to, through the alias map).

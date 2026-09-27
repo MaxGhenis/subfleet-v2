@@ -913,6 +913,16 @@ def test_a_cooldown_with_no_corroborating_reading_is_guessed(v1):
     assert closure["clock_source"] == "guessed"
 
 
+@pytest.mark.parametrize("scope", ["fable", "Fable", "claude-fable-5-1"])
+def test_a_retired_models_cooldown_keeps_its_own_bucket(v1, scope):
+    """C-9.6, C-11.1: `retired` moves dispatch, not usage. The shipped policy retires
+    Fable onto Opus (2026-09-27), yet a v1 Fable cooldown is Fable's weekly bucket and
+    must never become a closure that stops Opus on that account."""
+    write_json(v1["delegate"] / "cooldowns.json", {ENROLLED: {scope: offset_now(3600)}})
+    run_import(v1)
+    assert [row["scope"] for row in rows(v1["root"], "SELECT * FROM closures")] == ["claude-fable-5-1"]
+
+
 def test_a_closure_is_extended_never_shortened(v1):
     """C-9.6: a new closure on the same lane and scope extends `until`."""
     run_import(v1)
