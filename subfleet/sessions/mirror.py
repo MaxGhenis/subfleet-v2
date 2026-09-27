@@ -1820,7 +1820,9 @@ class Mirror:
         stream = None
         try:
             self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
-            stream = path.open("a")
+            # Never waiting in open(): a FIFO at the lock's name had held the pass,
+            # and the timers' worker that `Timers.stop()` waits for.
+            stream = open(transcripts.lock_fd(path), "a")
             fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             if stream is not None:

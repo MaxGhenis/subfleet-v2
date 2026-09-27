@@ -103,6 +103,20 @@ def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
     return open(path, mode, opener=lambda name, flags: regular_fd(name), **kwargs)
 
 
+def lock_fd(path: str | Path) -> int:
+    """A lock file opened for flock, made if missing, never waiting in open():
+    anything but a regular file there (a FIFO with no reader had held open())
+    raises OSError. The descriptor is the caller's to close."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 class TooLarge(OSError):
     """A file handed to `read_regular` is longer than the reader's cap."""
 

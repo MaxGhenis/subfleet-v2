@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..guardian import atomic_publish
+from ..sessions.transcripts import read_regular
 from ..store import utc_now
 from .errors import GateError
 from .revision import assert_expected
@@ -41,7 +42,7 @@ def write_json(path: Path, value: Any) -> None:
 
 def load_state(directory: Path) -> dict[str, Any]:
     try:
-        value = json.loads((directory / "gate.json").read_text())
+        value = json.loads(read_regular(directory / "gate.json").decode("utf-8"))
     except (OSError, UnicodeError, ValueError) as exc:
         raise GateError(f"cannot read gate state: {exc}") from exc
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:

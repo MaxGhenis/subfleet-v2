@@ -14,6 +14,7 @@ from pathlib import Path
 from ..contracts import (
     AttestationResult, Credential, ExitInfo, JobSpec, Lane, LaneInfo, Launch, Outcome, Reading,
 )
+from ..sessions.transcripts import NotRegularFile, open_regular
 
 
 class AdapterError(Exception):
@@ -83,8 +84,10 @@ class Adapter(ABC):
 
     @staticmethod
     def read_text(path: Path, limit: int = 4_000_000) -> str:
+        """At most `limit` bytes of `path`, only as a regular file: a FIFO there
+        reads as nothing, at once (finalization runs on a pool Daemon.close() waits for)."""
         try:
-            with path.open("rb") as fh:
+            with open_regular(path) as fh:
                 return fh.read(limit).decode("utf-8", "replace")
-        except FileNotFoundError:
+        except (FileNotFoundError, NotRegularFile):
             return ""

@@ -51,6 +51,7 @@ from ..contracts import (
     IdentityStatus, JobSpec, Lane, LaneInfo, Launch, Outcome, OutcomeClass, Reading,
     ReadingLabel, Sandbox,
 )
+from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .base import Adapter, AdapterError
 from .claude_stream import (
     AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
@@ -60,6 +61,8 @@ from .claude_stream import (
 # --- constants ---------------------------------------------------------------
 
 PROVIDER = "claude"
+#: The most of a `.claude.json` read (it grows with the app's project history).
+CLAUDE_JSON_MAX = 64 * 1024 * 1024
 
 #: The enrolment / probe turn (C-10.2), exactly as experiment-0 ran it.
 ENROLL_MODEL = "claude-haiku-4-5-20251001"
@@ -394,8 +397,10 @@ def home_login(home: str | Path) -> dict[str, Any] | None:
     path = Path(home).expanduser()
     text: str | None = None
     try:
-        text = (path / ".credentials.json").read_text(encoding="utf-8")
-    except OSError:
+        # Only a regular file, never waiting in open(): a keepalive or heal turn
+        # reads it on the timers' worker, which Timers.stop() waits for.
+        text = read_regular(path / ".credentials.json", 1024 * 1024).decode("utf-8")
+    except (OSError, UnicodeError):
         text = _keychain_blob(keychain_service_for_home(path))
     if not text:
         return None
@@ -793,8 +798,8 @@ class ClaudeAdapter(Adapter):
         """
         path = Path(home).expanduser() / ".claude.json"
         try:
-            blob = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            blob = json.loads(read_regular(path, CLAUDE_JSON_MAX).decode("utf-8"))
+        except (OSError, ValueError):                  # a UnicodeDecodeError is a ValueError
             return None
         account = blob.get("oauthAccount") if isinstance(blob, dict) else None
         if isinstance(account, dict):
@@ -1416,9 +1421,9 @@ class ClaudeAdapter(Adapter):
         candidates.append(attempt_dir / "stdout")
         for path in dict.fromkeys(candidates):
             try:
-                with path.open(encoding="utf-8", errors="replace") as handle:
+                with open_regular(path, "r", encoding="utf-8", errors="replace") as handle:
                     summary = parse_lines(handle)
-            except FileNotFoundError:
+            except (FileNotFoundError, NotRegularFile):
                 continue
             if summary.lines_total:
                 return summary
@@ -1750,7 +1755,7 @@ class ClaudeAdapter(Adapter):
         from its own range, never from a predecessor's (C-12.5, C-12.6).
         """
         try:
-            with transcript.open("rb") as handle:
+            with open_regular(transcript) as handle:
                 if offset > 0:
                     size = transcript.stat().st_size
                     start = min(offset, size)
@@ -1982,7 +1987,10 @@ def link_raw_stream(attempt_dir: Path, launch: Launch) -> Path | None:
         os.link(stdout, stream)
     except OSError:
         try:
-            stream.write_bytes(stdout.read_bytes())
+            data = read_regular(stdout)
+            fd = os.open(stream, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+            with open(fd, "wb") as out:            # a new file of its own, never one standing there
+                out.write(data)
         except OSError:
             return None
     return stream

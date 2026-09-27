@@ -10,11 +10,13 @@ request ids (`turn:<message id>:<n>`) whenever it is missing.
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import json
 import os
 import secrets
 import sqlite3
+import stat
 import threading
 import time
 import uuid
@@ -23,7 +25,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..lockwatch import WatchedLock
-from ..sessions.transcripts import read_regular
+from ..sessions.transcripts import NotRegularFile, read_regular
 from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
 SCHEMA_VERSION = 2
@@ -1322,7 +1324,10 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
     path = Path(root) / "conversations.sqlite3"
     open_marks, live_marks = ",".join("?" * len(_OPEN_STATES)), ",".join("?" * len(LIVE_STATES))
     try:
-        path.stat()
+        if not stat.S_ISREG(path.stat().st_mode):
+            # SQLite opens it by name and would wait in open() on a FIFO, holding the
+            # timers' worker that `Timers.stop()` waits for.
+            raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
         db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=timeout_s,
                              isolation_level=None)
     except FileNotFoundError:

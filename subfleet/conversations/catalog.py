@@ -548,20 +548,6 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
             "live_elsewhere": live}
 
 
-def lock_fd(lock: Path) -> int:
-    """`catalog.lock` opened for flock, made if missing, never waiting in open():
-    anything but a regular file there (a FIFO with no reader had held open())
-    raises OSError."""
-    fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise transcripts.NotRegularFile(errno.EINVAL, "not a regular file", str(lock))
-    except BaseException:
-        os.close(fd)
-        raise
-    return fd
-
-
 def refresh_running(root: Path) -> bool | None:
     """Whether a catalog run holds the lock now; None when the lock cannot be read.
     A non-blocking probe: it never waits for a run. It takes the lock shared, so
@@ -569,7 +555,7 @@ def refresh_running(root: Path) -> bool | None:
     tick about to start a run) as a run, and no run started for an interval."""
     lock = Path(root) / "catalog.lock"
     try:
-        fd = lock_fd(lock)
+        fd = transcripts.lock_fd(lock)
     except OSError:
         return None
     try:
@@ -696,7 +682,7 @@ def main(argv: list[str] | None = None) -> int:
         return OWNER_GONE                   # the service closed before the run began: touch nothing
     lock = args.state_root / "catalog.lock"
     try:
-        fd = lock_fd(lock)
+        fd = transcripts.lock_fd(lock)
     except FileNotFoundError:
         return OWNER_GONE                   # no state root, and a run never makes one
     if not _take_lock(fd):
