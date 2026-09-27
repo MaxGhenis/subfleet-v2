@@ -1,13 +1,18 @@
 """Launch construction tests; Popen is recorded and no provider is executed."""
 import dataclasses
 import json
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from subfleet import daemon as module
+from subfleet import procs
 from subfleet.adapters.registry import register
+from subfleet.contracts import attempt_dir
 from subfleet.daemon import Daemon
+from subfleet.guardian import atomic_publish
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 
@@ -95,6 +100,43 @@ def test_c4_2_absent_guardian_identity_never_releases_launch_gate(launch_state, 
     assert attempt["outcome_detail"].startswith("guardian-identity-unavailable")
     assert daemon.store.get_job(a["job_id"])["state"] == "queued"
     assert daemon.store.query("SELECT * FROM leases") == []
+
+
+def test_c5_12_a_new_attempt_is_first_inspected_with_a_table_read_after_its_guardian_started(launch_state,
+                                                                                               monkeypatch):
+    """C-5.12 an attempt this daemon launches falls due one interval after its guardian started, so its first
+    inspection is given a table read after that, which shows the guardian: nothing is asked about it singly and
+    it reads no table of its own.
+
+    Reviews of 2026-09-26: it fell due as it first asked, just after `start.json`, and was usually given the table
+    another running attempt had read before its guardian existed, so it paid a fresh `liveness` and a `ps -axo` of
+    its own, outside the one read per interval."""
+    daemon, harness, calls = launch_state
+    daemon.inspect_interval_s = 30                           # longer than this launch takes, even under load
+    a = reserve(daemon, harness)
+    aid, guardian = a["attempt_id"], 987654321
+    before = time.monotonic()
+    # Another running attempt's table, read just before this launch: it cannot show the new guardian.
+    daemon._table = (procs.ProcessTable({1: (0, 1, "Ss", "fixture-start")}, "fixture-boot"),
+                     before + daemon.inspect_interval_s - .001)
+    daemon._launch(a)
+    assert daemon.store.get_attempt(aid)["state"] == "starting"
+    atomic_publish(attempt_dir(daemon.root, a["job_id"], a["seq"]) / "start.json", json.dumps(
+        {"guardian_pid": guardian, "pgid": guardian, "boot_id": "fixture-boot", "proc_start": "fixture-start",
+         "started_at": module.utcnow()}).encode())
+    asked, tables = [], []
+    monkeypatch.setattr(module.procs, "liveness", lambda *args: asked.append(args) or "alive")
+    monkeypatch.setattr(module.procs, "snapshot", lambda: tables.append(1) or procs.ProcessTable(
+        {guardian: (1, guardian, "Ss", "fixture-start")}, "fixture-boot"))
+    daemon._process_attempt(aid)                             # `start.json`: running, and not yet due
+    assert daemon.store.get_attempt(aid)["state"] == "running"
+    assert asked == [] and tables == []
+    due = daemon._inspect_next[aid]
+    assert due > daemon._table[1]                            # no table read before the launch can serve it
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: due))
+    daemon._process_attempt(aid)                             # due: it reads the table, which shows its guardian
+    assert asked == [] and tables == [1]
+    assert str(guardian) in json.loads(daemon.store.get_attempt(aid)["evidence_json"])["owned_identities"]
 
 
 # --- C-14.2: the guard preflight leaves a diagnosable record -----------------
