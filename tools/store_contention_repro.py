@@ -26,6 +26,10 @@ checkout (`--code`), so a baseline and a fix can be measured the same way:
   does while its peer runs (each poll reads every `gate.state` event);
 - `--spinners` CPU-bound processes; everything this tool starts runs at
   `--nice` so the contention is among its own processes, not other work;
+- `--daemon-qos utility` starts the daemon under `taskpolicy -c utility`, the QoS
+  launchd's `ProcessType` `Standard` gives the installed one (priority 20; a shell's
+  processes run at 31), and `--spinner-qos utility` does the same for the spinners,
+  as agent work runs; `inherit` (the default) leaves either at this tool's own;
 - `--duty`: the daemon is let run only this fraction of each 100 ms
   (SIGSTOP/SIGCONT), which pins it to a small share of one core without
   loading the machine; the live daemon used 3% of a core during the stall;
@@ -112,7 +116,8 @@ if os.environ.get("SFR_SAMPLE"):
 import contextlib
 from subfleet import protocol
 from subfleet.adapters.base import AdapterError
-admission = {"holds": [], "reserve_holds": [], "hold_cpu": [], "reserve_hold_cpu": [], "waits": [], "turns": {}}
+admission = {"holds": [], "reserve_holds": [], "hold_cpu": [], "reserve_hold_cpu": [], "waits": [], "turns": {},
+             "all_holds": [], "all_hold_cpu": []}
 local, measuring = threading.local(), threading.Event()
 lock = daemon.store._lock
 real_acquire, real_release = lock.acquire, lock.release
@@ -128,6 +133,10 @@ def release():
     outer, since = lock._depth == 1, getattr(local, "since", None)
     cpu = time.thread_time() - getattr(local, "cpu", 0.0) if outer else 0.0
     real_release()
+    if outer and since is not None and measuring.is_set():
+        # Every thread's outermost hold, whoever holds it (2026-09-27, the QoS comparison).
+        admission["all_holds"].append(time.monotonic() - since)
+        admission["all_hold_cpu"].append(cpu)
     if outer and since is not None and measuring.is_set() and getattr(local, "admitting", False):
         # Wall time held, and the holder's own CPU time in it: at a low duty or a
         # high load the first is mostly waiting for the CPU or the GIL.
@@ -219,6 +228,28 @@ finally:
 """
 
 SPINNER = "while True:\n    pass\n"
+TASKPOLICY = "/usr/sbin/taskpolicy"
+
+
+def qos_argv(qos: str, argv: list[str]) -> list[str]:
+    """argv run under `qos`: `utility` is a QoS clamp every descendant inherits (taskpolicy(8))."""
+    return [TASKPOLICY, "-c", "utility", *argv] if qos == "utility" else argv
+
+
+def thread_priorities(pid: int) -> dict[str, int]:
+    """How many of pid's threads run at each scheduling priority (`ps -M`'s PRI; no environment is read)."""
+    out = subprocess.run(["/bin/ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout.splitlines()
+    if not out:
+        return {}
+    column = out[0].split().index("PRI")
+    counts: collections.Counter = collections.Counter()
+    for n, line in enumerate(out[1:]):
+        fields = line.split()
+        # The first row carries USER, PID and TT before %CPU; each further thread row only PID.
+        index = column if n == 0 else column - 2
+        if 0 <= index < len(fields):
+            counts[fields[index].rstrip("TRSUIZ")] += 1
+    return dict(counts)
 TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 
 
@@ -288,7 +319,8 @@ class Rig:
 
     def start_daemon(self) -> None:
         log = (self.root / "harness.log").open("ab")
-        self.daemon = subprocess.Popen([self.python, "-c", DAEMON, str(self.root)], cwd=self.code,
+        self.daemon = subprocess.Popen(qos_argv(self.args.daemon_qos, [self.python, "-c", DAEMON, str(self.root)]),
+                                       cwd=self.code,
                                        env=self.env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
@@ -366,7 +398,8 @@ class Rig:
 
     def start_spinners(self) -> None:
         for _ in range(self.args.spinners):
-            self.spinners.append(subprocess.Popen([self.python, "-c", SPINNER], stdin=subprocess.DEVNULL))
+            self.spinners.append(subprocess.Popen(qos_argv(self.args.spinner_qos, [self.python, "-c", SPINNER]),
+                                                  stdin=subprocess.DEVNULL))
 
     def stop_spinners(self) -> None:
         for proc in self.spinners:
@@ -565,7 +598,11 @@ class Rig:
             self.daemon.send_signal(signal.SIGUSR2)          # the sampler and admission counts start
             self.measuring.set()
             measured_from, cpu_from = time.monotonic(), self.cpu_seconds()
-            time.sleep(a.duration)
+            self.loadavg = {"start": [round(x, 1) for x in os.getloadavg()]}
+            time.sleep(a.duration / 2)
+            self.daemon_priorities = thread_priorities(self.daemon.pid)
+            time.sleep(a.duration / 2)
+            self.loadavg["end"] = [round(x, 1) for x in os.getloadavg()]
             self.measuring.clear()
             measured_s, cpu_to = time.monotonic() - measured_from, self.cpu_seconds()
             final = self.timed("daemon.status", {}, label="final-status", timeout=600) or {}
@@ -597,7 +634,9 @@ class Rig:
         record = json.loads(path.read_text())
         turns = [t for t in record["turns"].values() if t.get("measured")]
         placed = [t["reserved"] - t["queued"] for t in turns if "reserved" in t]
-        return {"holds_s": stats(record["holds"]), "reserve_holds_s": stats(record["reserve_holds"]),
+        return {"store_holds_s": stats(record.get("all_holds", [])),
+                "store_hold_cpu_s": stats(record.get("all_hold_cpu", [])),
+                "holds_s": stats(record["holds"]), "reserve_holds_s": stats(record["reserve_holds"]),
                 "hold_cpu_s": stats(record.get("hold_cpu", [])),
                 "reserve_hold_cpu_s": stats(record.get("reserve_hold_cpu", [])),
                 "hold_cpu_s_per_s": round(sum(record.get("hold_cpu", [])) / measured_s, 5),
@@ -643,6 +682,8 @@ class Rig:
         admission = self.admission_report(stats, measured_s)
         return {"code": str(self.code), "root": str(self.root), "diagnostics": diagnostics,
                 "daemon_cpu_cores": getattr(self, "daemon_cpu", None), "admission": admission,
+                "loadavg": getattr(self, "loadavg", None),
+                "daemon_thread_priorities": getattr(self, "daemon_priorities", None),
                 "route_evaluations": getattr(self, "admission", {}).get("route_evaluations"),
                 "args": vars(self.args), "store": sizes, "measured_s": round(measured_s, 1),
                 "ops": ops, "wake_after_terminal_s": stats(wakes), "wakes_unmatched":
@@ -686,6 +727,11 @@ def main() -> int:
                         help="submit a conversation turn job every this many seconds (0: none); "
                              "each is measured from queued to reserved and never launched")
     parser.add_argument("--spinners", type=int, default=os.cpu_count() or 8)
+    parser.add_argument("--daemon-qos", choices=["inherit", "utility"], default="inherit",
+                        help="utility: start the daemon under `taskpolicy -c utility`, as launchd's "
+                             "ProcessType Standard runs the installed one")
+    parser.add_argument("--spinner-qos", choices=["inherit", "utility"], default="inherit",
+                        help="utility: start the spinners under `taskpolicy -c utility`, as agent work runs")
     parser.add_argument("--nice", type=int, default=10)
     parser.add_argument("--warmup", type=float, default=20.0)
     parser.add_argument("--duration", type=float, default=90.0)
@@ -702,6 +748,7 @@ def main() -> int:
         Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
     print(f"code {report['code']}  root {report['root']}  measured {report['measured_s']} s")
     print(f"store {report['store']}  daemon CPU {report['daemon_cpu_cores']} cores")
+    print(f"load average {report['loadavg']}  daemon thread priorities {report['daemon_thread_priorities']}")
     print(f"route evaluations (C-6.3): {report['route_evaluations']}")
     for op, entry in report["ops"].items():
         print(f"  {op:28s} n={entry.get('n', 0):5d} {entry.get('rate_per_s', 0):6.1f}/s  "

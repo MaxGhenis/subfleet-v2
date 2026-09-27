@@ -195,7 +195,8 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
     plist = plistlib.loads(captured.out.encode())
     assert plist["Label"] == "com.subfleet.daemon"
     assert plist["KeepAlive"] is True and plist["RunAtLoad"] is True
-    assert plist["ProcessType"] == "Standard"
+    # C-5.1: the daemon at the default QoS; the guardian clamps each provider to `utility`.
+    assert plist["ProcessType"] == "Interactive"
     assert plist["ProgramArguments"] == [str(tmp_path / "subfleetd"),
                                          "--state-root", str(root)]
     assert plist["EnvironmentVariables"]["SUBFLEET_HOME"] == str(root)

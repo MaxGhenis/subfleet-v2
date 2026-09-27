@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import procs
+from subfleet.contracts import KILL_SETTLE_S
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -97,7 +98,13 @@ def test_ignore_sigterm_escalates_and_verifies_containment(tmp_path):
         assert procs.same_process(process.pid, start["boot_id"], start["proc_start"])
         assert procs.signal_group(process.pid, signal.SIGKILL, boot_id=start["boot_id"], proc_start=start["proc_start"])
         assert process.wait(timeout=3) == -signal.SIGKILL
-        assert procs.containment(process.pid, process.pid, None, "ignore/a1").verified_empty
+        # C-5.6 re-reads for up to kill_settle_s: a killed process stays in the table
+        # until the kernel finishes tearing it down, longer for a provider at the
+        # `utility` QoS (C-5.1) under load (up to 0.78 s at load ~190, 2026-09-27).
+        settle_until = time.monotonic() + KILL_SETTLE_S
+        while not procs.containment(process.pid, process.pid, None, "ignore/a1").verified_empty:
+            assert time.monotonic() < settle_until, "census not verified empty within kill_settle_s"
+            time.sleep(.05)
     finally:
         cleanup(process)
 
