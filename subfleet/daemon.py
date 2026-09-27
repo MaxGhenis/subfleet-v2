@@ -3022,8 +3022,11 @@ class Daemon:
             # and exits, so the receipts can land while the census runs, and a
             # census that then finds nothing is an attempt that finished. Read
             # before them, it released a provider that had exited 0 to run again
-            # (C-4.2). The next tick takes them from the top.
-            if (adir / "start.json").exists() or (adir / "exit.json").exists():
+            # (C-4.2). The next tick takes them from the top, and takes only a
+            # receipt that reads as a value (as above): one that merely exists,
+            # holding `{}` or `null`, left the attempt here, taking a census on
+            # every tick.
+            if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
                 return
             if census.verified_empty:
                 self._unlaunched(a, "starting-no-receipt")
