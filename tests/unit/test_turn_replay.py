@@ -183,7 +183,7 @@ class Ended:
     stdout), in a state root a first and a next service share, as a daemon and the one
     after its restart do."""
 
-    def __init__(self, tmp: Path, monkeypatch, stdout: list[str]):
+    def __init__(self, tmp: Path, monkeypatch, stdout: list[str], logged: list[dict] = WRITTEN):
         monkeypatch.setattr(runner_module, "RESEND_MAX", 10**6)   # no relay listens: not "relay-failed"
         self.root, self.ws = tmp / "state", tmp / "work"
         self.root.mkdir()
@@ -198,9 +198,11 @@ class Ended:
         self.adir = job / "a1"
         self.adir.mkdir(parents=True)
         (self.adir / "start.json").write_text(json.dumps({"control_socket": str(tmp / "none.sock")}))
+        (tmp / "projects").mkdir()                          # where settlement looks for the session's transcript
+        (self.adir / "launch.json").write_text(json.dumps({"notes": {"projects_dir": str(tmp / "projects")}}))
         lines = [line.replace("<mid>", self.mid) for line in stdout]
         (self.adir / "stdout").write_text("".join(line + "\n" for line in lines))
-        (self.adir / "stdin.jsonl").write_text("".join(json.dumps(r) + "\n" for r in WRITTEN))
+        (self.adir / "stdin.jsonl").write_text("".join(json.dumps(r) + "\n" for r in logged))
         turn = {"provider": "claude", "conversation_id": self.cid, "message_id": self.mid, "text": "hello",
                 "settings": SETTINGS, "cwd": str(self.ws), "new_session_id": str(uuid.uuid4())}
         (job / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
@@ -244,8 +246,8 @@ class Ended:
 def ended(tmp_path, monkeypatch):
     made = []
 
-    def make(stdout):
-        made.append(Ended(tmp_path, monkeypatch, stdout))
+    def make(stdout, logged=WRITTEN):
+        made.append(Ended(tmp_path, monkeypatch, stdout, logged))
         return made[-1]
     yield make
     for world in made:
@@ -363,3 +365,102 @@ def test_an_ended_attempt_is_replayed_once(ended, monkeypatch):
     world.restart()
     world.ticks(1)
     assert world.message() == ("failed", "ended-without-result")
+
+
+@pytest.mark.parametrize("path", ["same-daemon", "restart-live", "restart-ended"])
+def test_a_withheld_turn_is_readmitted_however_its_attempt_is_settled(ended, path):
+    """C-26.6, C-30.4 (review of the branch): a turn the legacy hold withheld ends
+    stopped before its message was sent, and its message is readmitted. A replay of
+    its ended attempt had skipped the withhold and derived the outcome again from
+    stdout (an initialize answer, then EOF: no result), overwriting the recorded one,
+    so the message failed and was never carried again. A replay reads the hold, and
+    keeps the outcome an earlier runner recorded."""
+    world = ended([INIT_OK], logged=WRITTEN[:2])
+    world.svc.store.set_legacy_hold(world.cid, "held by a test: the cockpit may be using this session")
+    world.svc._adopt_runners()
+    first = world.svc.runners[world.aid]
+    until(lambda: (world.adir / "turn.json").exists(), "the first runner's outcome")
+    recorded = json.loads((world.adir / "turn.json").read_text())
+    assert (recorded["state"], recorded["reason"]) == ("interrupted", "stopped-before-send")
+    if path == "same-daemon":
+        (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+        assert first.join(60)
+    else:
+        world.restart()
+        (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+        if path == "restart-ended":
+            world.end_attempt()
+        world.ticks()
+    assert world.message() == ("waiting", "readmit:legacy-owner")
+    final = json.loads((world.adir / "turn.json").read_text())
+    assert (final["state"], final["reason"], final["stop_reason"]) == ("interrupted", "stopped-before-send",
+                                                                        "legacy-owner")
+
+
+@pytest.mark.parametrize("ended_attempt", [False, True], ids=["live", "replay"])
+def test_a_codex_thread_that_went_idle_before_its_provider_exited_completed_its_turn(tmp_path, ended_attempt):
+    """C-26.5: a Codex turn that used a tool gets no `turn/completed`; the runner ends
+    it from the thread going idle, after a grace. A runner that met the provider
+    already gone (adopted after a restart, or a replay of the ended attempt) drained
+    stdout and ended the turn at EOF with no result, failing a turn the provider had
+    completed. A thread idle when its provider exited has ended its turn."""
+    from subfleet.conversations.runner import TurnRunner
+    from subfleet.conversations.store import ConversationStore
+    from subfleet.conversations.turn import TurnSpec
+    from tests.unit.test_turn_runner import codex_replies
+    thread, mid = "7f1c9a0e-2222-4222-8333-444455556666", str(uuid.uuid4())
+    store = ConversationStore(tmp_path / "state")
+    settings = {"model": "gpt-6", "effort": None, "fast": False, "permission": "read-only", "auto_continue": True}
+    cid = store.create_conversation(provider="codex", workspace=str(tmp_path), workspace_kind="in-place",
+                                    settings=settings, origin="new")[0]["conversation_id"]
+    store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None, text="hi", attachments=[],
+                         settings=settings)
+    store.set_state(mid, "starting")
+    adir = tmp_path / "a1"
+    adir.mkdir()
+    lines = codex_replies(str(tmp_path)) + [
+        json.dumps({"id": 5, "result": {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}}),
+        json.dumps({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": "turn-1"}}}),
+        json.dumps({"method": "item/completed", "params": {"threadId": thread, "turnId": "turn-1",
+                    "item": {"type": "agentMessage", "id": "m1", "text": "Done."}}}),
+        json.dumps({"method": "thread/status/changed", "params": {"threadId": thread, "status": {"type": "idle"}}})]
+    (adir / "stdout").write_text("".join(line + "\n" for line in lines))
+    tags = ["init", "initialized", "hooks", "models", "thread", "user-message"]
+    (adir / "stdin.jsonl").write_text("".join(json.dumps(r) + "\n" for seq, tag in enumerate(tags, 1) for r in (
+        {"kind": "intent", "seq": seq, "tag": tag, "op": "write"}, {"kind": "written", "seq": seq})))
+    (adir / "exit.json").write_text(json.dumps({"rc": 0}))           # the provider is gone already
+    spec = TurnSpec(provider="codex", message_id=mid, text="hi", model_id="gpt-6", permission="read-only",
+                    native_session_id=None, new_session_id=None, cwd=str(tmp_path))
+    reported = []
+    runner = TurnRunner(store=store, attempt={"attempt_id": "job/a1", "lane_id": "codex-1"}, spec=spec,
+                        conversation_id=cid, attempt_dir=adir, control_socket=str(tmp_path / "none.sock"),
+                        on_outcome=reported.append, on_contain=lambda a: None, ended=ended_attempt)
+    runner.start()
+    try:
+        assert runner.join(60)
+        turn = json.loads((adir / "turn.json").read_text())
+        assert (turn["state"], turn["reason"]) == ("complete", None), turn
+        assert reported == [runner]
+    finally:
+        store.close()
+
+
+def test_a_replay_whose_thread_cannot_start_is_tried_again_on_the_next_pass(ended, monkeypatch):
+    """C-25.3: a runner whose thread cannot start is not kept, and the next pass
+    adopts its turn again. A replay was marked done before its runner started, so one
+    that could not start was never tried again in that daemon."""
+    import threading
+    world = ended([INIT_OK, LIFECYCLE, SUCCESS])
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    world.end_attempt()
+    real_start, failed = threading.Thread.start, []
+
+    def once(self):
+        if self.name.startswith("turn:") and not failed:
+            failed.append(self.name)
+            raise RuntimeError("can't start new thread")
+        return real_start(self)
+
+    monkeypatch.setattr(threading.Thread, "start", once)
+    world.ticks(2)
+    assert failed and world.message() == ("complete", None)

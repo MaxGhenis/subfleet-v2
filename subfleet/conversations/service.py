@@ -1574,6 +1574,8 @@ class ConversationService:
             try:
                 self._dispatch_one(message)
             except Exception as exc:            # one message never holds up the others
+                if self._closed:
+                    raise                       # close() overtook: the tick logs the step as stopped
                 self.log.error("dispatch of %s failed: %s: %s", message["message_id"], type(exc).__name__, exc)
 
     def _dispatch_one(self, message: dict) -> None:
@@ -1828,7 +1830,12 @@ class ConversationService:
                 continue
             self._replayed.add(aid)         # once per service: a replay that fails is not retried each tick
             self.log.info("turn %s ended with its message %s unsettled: replaying it", aid, message["message_id"])
-            if not self._adopt(attempt, ended=True):
+            try:
+                adopted = self._adopt(attempt, ended=True)
+            except BaseException:
+                self._replayed.discard(aid)     # its runner never started (a thread limit): the next pass tries again
+                raise
+            if not adopted:
                 return                      # close() overtook
 
     def _adopt(self, attempt: dict, *, ended: bool = False) -> bool:
@@ -1852,9 +1859,9 @@ class ConversationService:
         if held:
             spec = dataclasses.replace(spec, held_by=tuple(held))
         # Read before the runner is registered: a runner registered and never
-        # started would never be adopted again (C-30.4, D-17). A replay stops
-        # nothing: its provider is gone.
-        legacy = None if ended else (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
+        # started would never be adopted again (C-30.4, D-17). A replay reads it
+        # too: the hold decides how its turn settles (readmitted, not failed).
+        legacy = (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
         runner = TurnRunner(store=self.store, attempt=dict(attempt), spec=spec,
                             conversation_id=turn["conversation_id"], attempt_dir=adir,
                             control_socket=start["control_socket"], on_outcome=self._on_outcome,

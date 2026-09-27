@@ -148,6 +148,11 @@ class TurnRunner:
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
         self._stop_on_catch_up = False         # a replayed stop, sent once the replay has caught up (`_run`)
+        # The outcome an earlier runner for this attempt recorded (`turn.json`), if it
+        # reached one: a replay re-derives the outcome from stdout without what that
+        # runner knew, so the record is kept (review of the branch, 2026-09-27).
+        recorded = _read_json(self.adir / "turn.json")
+        self.recorded = recorded if isinstance(recorded, dict) and recorded.get("state") else None
 
     # --- lifecycle -------------------------------------------------------------
 
@@ -232,6 +237,10 @@ class TurnRunner:
                 if self._process_gone():
                     while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
                         pass
+                    if self.driver.outcome is None and getattr(self.driver, "idle_pending", False):
+                        # A Codex thread that went idle and whose provider then exited
+                        # ended its turn (C-26.5): not a turn with no result.
+                        self._apply(self.driver.settle_idle())
                     if self.driver.outcome is None:
                         self._apply(self.driver.eof(self.offset))
                     self._flush()
@@ -595,6 +604,17 @@ class TurnRunner:
         self.last_flush = self.clock()
 
     def _write_outcome(self) -> None:
+        recorded = self.recorded
+        if recorded is not None:
+            # A runner before this one reached the turn's outcome, with what only it
+            # knew (a withhold, a stop's reason, an idle settle): that record stands.
+            # Only what stdout said after the outcome (C-24.8) is added.
+            data = {**recorded, "terminal_after_end": bool(recorded.get("terminal_after_end"))
+                    or bool(getattr(self.driver, "terminal_after_end", False))}
+            from ..guardian import atomic_publish
+            with self.store.writing():
+                atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
+            return
         outcome = self.driver.outcome
         data = {**asdict(outcome), "served": self.served, "turn_id": getattr(self.driver, "turn_id", None),
                 "stop_reason": self.stop_reason, "final_text": self.final_text,

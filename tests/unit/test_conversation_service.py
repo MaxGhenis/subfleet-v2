@@ -1611,6 +1611,30 @@ def test_a_tick_step_close_overtook_is_logged_as_stopped_not_failed(svc, tmp_pat
                for r in caplog.records), [r.getMessage() for r in caplog.records]
 
 
+def test_a_dispatch_close_overtook_is_logged_as_stopped_not_failed(svc, monkeypatch, caplog):
+    """C-25.3 (review of the branch): the dispatch step logs each message it could not
+    dispatch at ERROR, so close() landing after the step read its candidates logged
+    the refused store as a failed dispatch. The step ends, and the tick logs it at
+    info as stopped."""
+    svc.daemon.policy["conversations"]["catalog_interval_s"] = 0
+    cid = conversation(svc)
+    submit(svc, cid)
+    real = svc._dispatch_one
+
+    def closing(message):
+        closer = threading.Thread(target=svc.close)
+        closer.start()
+        closer.join(60)
+        assert not closer.is_alive()
+        return real(message)
+
+    monkeypatch.setattr(svc, "_dispatch_one", closing)
+    with caplog.at_level(logging.INFO, logger="test-conversations"):
+        svc.tick()
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert any("_dispatch stopped: the service closed" in r.getMessage() for r in caplog.records)
+
+
 def test_a_closed_store_is_never_read_as_a_message_the_daemon_never_had(svc):
     """C-25.3: `message.status` and `message.cancel` read every refusal of
     `store.message` as "no such message". Once close() had closed the store, an op
