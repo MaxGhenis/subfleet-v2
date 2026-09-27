@@ -23,11 +23,14 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..lockwatch import WatchedLock
+from ..sessions.transcripts import read_regular
 from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
 EVENT_ROW_MAX = 64 * 1024
+#: A message's text, in UTF-8 bytes (C-24.3, `LIMITS['message_bytes']`).
+TEXT_MAX = 1_048_576
 PAGE_BYTES = 256 * 1024
 # Streamed fragments a settled turn no longer needs: its `text` and `thinking`
 # events carry the whole of each (design §3).
@@ -548,7 +551,7 @@ class ConversationStore:
                                           *({**m, "origin": "person"} for m in moves)]):
                 message_id = canonical_uuid(item["message_id"])
                 text = item["text"]
-                if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
+                if not isinstance(text, str) or len(text.encode("utf-8")) > TEXT_MAX:
                     raise ConversationError("bad-text", "a handed-off message must be text of at most 1 MiB")
                 digest = message_digest(cid, text, list(item["attachments"]), settings)
                 path = self.dir / cid / "messages" / f"{message_id}.{digest[:16]}.md"
@@ -817,7 +820,7 @@ class ConversationStore:
             after_message_id = canonical_uuid(after_message_id)
         conversation = self.conversation(conversation_id)
         settings = validate_settings(conversation["provider"], settings)
-        if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
+        if not isinstance(text, str) or len(text.encode("utf-8")) > TEXT_MAX:
             raise ConversationError("bad-text", "text must be a string of at most 1 MiB")
         if not text.strip() and not attachments:
             raise ConversationError("empty", "a message needs text or an attachment")
@@ -883,7 +886,7 @@ class ConversationStore:
         message_id = canonical_uuid(message_id)
         if state not in TERMINAL_STATES:
             raise ConversationError("not-terminal", f"legacy history is terminal; {state!r} is not")
-        if not isinstance(text, str) or len(text.encode("utf-8")) > 1_048_576:
+        if not isinstance(text, str) or len(text.encode("utf-8")) > TEXT_MAX:
             raise ConversationError("bad-text", "text must be a string of at most 1 MiB")
         if not isinstance(settings, dict):
             raise ConversationError("bad-settings", "settings must be an object")
@@ -935,7 +938,10 @@ class ConversationStore:
         return [_decode_message(r) for r in reversed(rows)]
 
     def message_text(self, message: dict) -> str:
-        return Path(message["text_path"]).read_text(encoding="utf-8")
+        """The message's text as published (C-24.3), read only as a regular file of
+        at most 1 MiB: a FIFO there had held `conversation.open` and a handoff in
+        open() (review of aa41312)."""
+        return read_regular(message["text_path"], TEXT_MAX).decode("utf-8")
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,
                   expect: tuple[str, ...] | None = None, unbound: bool = False,

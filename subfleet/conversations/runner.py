@@ -25,6 +25,7 @@ from typing import Any, Callable
 
 from ..policy import CONVERSATION_DEFAULTS
 from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
+from ..sessions import transcripts
 from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
@@ -245,7 +246,7 @@ class TurnRunner:
     def _read_stdout(self) -> bool:
         path = self.adir / "stdout"
         try:
-            with open(path, "rb") as stream:
+            with transcripts.open_regular(path) as stream:      # a FIFO here fails the runner, never holds it
                 stream.seek(self.offset + len(self.partial))
                 chunk = stream.read(READ_CHUNK)
         except FileNotFoundError:
@@ -594,12 +595,13 @@ class TurnRunner:
             self.on_outcome(self)
 
     def _read_attachment(self, path: str) -> bytes:
-        # Images are read at frame time from the daemon's own copy (C-28.1).
-        return Path(path).read_bytes()
+        # Images are read at frame time from the daemon's own copy (C-28.1), only as
+        # a regular file of at most 20 MiB.
+        return transcripts.read_regular(path, attachment_store.MAX_BYTES)
 
 
 def _read_json(path: Path) -> dict | None:
     try:
-        return json.loads(path.read_bytes())
+        return json.loads(transcripts.read_regular(path))
     except (OSError, ValueError):
         return None

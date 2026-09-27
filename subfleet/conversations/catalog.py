@@ -19,6 +19,7 @@ One that stops publishing for either reason says so in its exit status
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import functools
 import json
@@ -464,7 +465,8 @@ def _load(path: Path) -> tuple[dict, str]:
     if hit and hit[0] == identity:
         return hit[1], hit[2]
     try:
-        catalog, state = json.loads(path.read_text()), "fresh"
+        with transcripts.open_regular(path, "r") as stream:     # a FIFO here is unreadable, at once
+            catalog, state = json.loads(stream.read()), "fresh"
     except FileNotFoundError:
         return {}, "absent"
     except (OSError, ValueError):
@@ -532,12 +534,26 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
             "live_elsewhere": live}
 
 
+def lock_fd(lock: Path) -> int:
+    """`catalog.lock` opened for flock, made if missing, never waiting in open():
+    anything but a regular file there (a FIFO with no reader had held open())
+    raises OSError."""
+    fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise transcripts.NotRegularFile(errno.EINVAL, "not a regular file", str(lock))
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 def refresh_running(root: Path) -> bool | None:
     """Whether a catalog run holds the lock now; None when the lock cannot be read.
     A non-blocking probe: it never waits for a run."""
     lock = Path(root) / "catalog.lock"
     try:
-        fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
+        fd = lock_fd(lock)
     except OSError:
         return None
     try:
@@ -664,7 +680,7 @@ def main(argv: list[str] | None = None) -> int:
         return OWNER_GONE                   # the service closed before the run began: touch nothing
     lock = args.state_root / "catalog.lock"
     try:
-        fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
+        fd = lock_fd(lock)
     except FileNotFoundError:
         return OWNER_GONE                   # no state root, and a run never makes one
     try:

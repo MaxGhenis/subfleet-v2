@@ -103,6 +103,20 @@ def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
     return open(path, mode, opener=lambda name, flags: regular_fd(name), **kwargs)
 
 
+class TooLarge(OSError):
+    """A file handed to `read_regular` is longer than the reader's cap."""
+
+
+def read_regular(path: str | Path, limit: int | None = None) -> bytes:
+    """The bytes of `path`, a regular file (`open_regular`), never more than `limit`:
+    a longer file raises `TooLarge`, an OSError, having read `limit` + 1 bytes."""
+    with open_regular(path) as stream:
+        data = stream.read() if limit is None else stream.read(limit + 1)
+    if limit is not None and len(data) > limit:
+        raise TooLarge(errno.EFBIG, f"longer than {limit} bytes", str(path))
+    return data
+
+
 _MAIN_ENTRY_LIMIT = 12
 _MODE_RE = re.compile(rb'"permissionMode"\s*:\s*"([A-Za-z]+)"')
 

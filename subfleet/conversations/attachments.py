@@ -5,6 +5,12 @@ before any message names it: a regular file owned by the daemon's user,
 opened without following symlinks, at most 20 MiB, PNG, JPEG, GIF or WebP by
 magic bytes, re-hashed after the copy. The daemon's copy is what a provider
 sees; the original can be deleted the moment the receipt arrives.
+
+The copy is written to a new file of its own (`tempfile.mkstemp`: O_EXCL,
+O_NOFOLLOW, a name no one else holds) and the stored copy is read back only
+as a regular file, at most 20 MiB: `close()` waits for a file op, and a FIFO
+where either was, with no one at its other end, had held the op in open()
+(review of aa41312).
 """
 
 from __future__ import annotations
@@ -12,8 +18,10 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+import tempfile
 from pathlib import Path
 
+from ..sessions.transcripts import read_regular
 from .store import ConversationError, ConversationStore
 
 MAX_BYTES = 20 * 1024 * 1024
@@ -70,19 +78,31 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
         raise ConversationError("hash-mismatch", "the file does not match the hash the app sent")
     directory = store.subdirectory("attachments")         # never the state root itself
     target = directory / f"{digest}.{ext}"
-    if not target.exists():
-        tmp = directory / f".{digest}.{os.getpid()}.tmp"
-        out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    if not _holds(target, digest):
+        # Missing, or not this content (a FIFO, a partial copy): the new copy replaces it.
+        fd, tmp = tempfile.mkstemp(prefix=f".{digest}.", suffix=".tmp", dir=directory)
         try:
-            os.write(out, data)
-            os.fsync(out)
-        finally:
-            os.close(out)
-        os.rename(tmp, target)
-    if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-        raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
+            try:
+                os.write(fd, data)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.rename(tmp, target)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        if not _holds(target, digest):
+            raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
     store.add_attachment(digest, media, len(data), str(target))
     return {"sha256": digest, "media_type": media, "bytes": len(data)}
+
+
+def _holds(path: Path, sha256: str) -> bool:
+    """Whether `path` is a regular file of at most 20 MiB hashing to `sha256`."""
+    try:
+        return hashlib.sha256(read_regular(path, MAX_BYTES)).hexdigest() == sha256
+    except OSError:
+        return False
 
 
 def check(store: ConversationStore, sha256: str) -> tuple[str, str]:
@@ -92,7 +112,7 @@ def check(store: ConversationStore, sha256: str) -> tuple[str, str]:
         raise ConversationError("attachment-missing", f"attachment {sha256} is not stored")
     path = Path(row["path"])
     try:
-        if hashlib.sha256(path.read_bytes()).hexdigest() != sha256:
+        if hashlib.sha256(read_regular(path, MAX_BYTES)).hexdigest() != sha256:
             raise ConversationError("attachment-missing", f"attachment {sha256} changed on disk")
     except OSError as exc:
         raise ConversationError("attachment-missing", f"attachment {sha256} is gone") from exc

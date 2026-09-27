@@ -279,7 +279,7 @@ class ConversationService:
 
     def _catalog_cache(self) -> dict:
         try:
-            return json.loads((self.root / "conversations" / "models.json").read_text())
+            return json.loads(transcripts.read_regular(self.root / "conversations" / "models.json"))
         except (OSError, ValueError):
             return {}
 
@@ -807,7 +807,7 @@ class ConversationService:
         self._person(peer, "reading an approval")
         from .redact import mask_approval
         approval = self.store.approval(args["approval_id"])
-        request = json.loads(Path(approval["request_path"]).read_text())
+        request = json.loads(transcripts.read_regular(approval["request_path"]))
         masked, spans = mask_approval(request) if not args.get("reveal") else (request, [])
         return {"approval": self._approval_view(approval), "request": masked, "masked": spans,
                 "request_sha256": approval["request_sha256"], "nonce": approval["nonce"]}
@@ -1847,7 +1847,8 @@ class ConversationService:
             return []
         from . import catalog
         pids = catalog.external_writers(turn["native_session_id"])
-        path.write_text(json.dumps({"pids": pids, "at": utcnow()}) + "\n")
+        from ..guardian import atomic_publish          # a new file of its own, never a FIFO's open()
+        atomic_publish(path, (json.dumps({"pids": pids, "at": utcnow()}) + "\n").encode())
         return pids
 
     def _settle_unstarted(self) -> None:
@@ -2060,7 +2061,7 @@ def _handoff_id(request_id: str, part: str) -> str:
 
 def _read_json(path: Path) -> dict | None:
     try:
-        return json.loads(Path(path).read_bytes())
+        return json.loads(transcripts.read_regular(path))
     except (OSError, ValueError):
         return None
 
