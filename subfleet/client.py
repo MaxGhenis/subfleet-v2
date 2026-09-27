@@ -371,12 +371,17 @@ class Client:
         """
         deadline = self.timeout if timeout is None else timeout
         started = time.monotonic()
+        busy: DaemonError | None = None
         streak = 0
         while True:
             elapsed = time.monotonic() - started
+            if busy is not None and elapsed > deadline / 2:
+                # Checked when the retry would start, not predicted before the
+                # pause: a slow machine can overrun the sleep or the last try.
+                raise busy
             try:
                 return self._call_once(op, args, request_id=request_id,
-                                       timeout=deadline - elapsed if streak else deadline,
+                                       timeout=deadline - elapsed if busy else deadline,
                                        stated=deadline)
             except DaemonError as exc:
                 if not exc.busy:
@@ -385,6 +390,7 @@ class Client:
                 pause = busy_pause(streak)
                 if time.monotonic() - started + pause > deadline / 2:
                     raise
+                busy = exc
                 time.sleep(pause)
 
     def _call_once(self, op: str, args: dict[str, Any] | None, *,

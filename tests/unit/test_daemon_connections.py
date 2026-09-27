@@ -474,23 +474,27 @@ def test_c16_7_nothing_follows_a_reply_that_failed_part_way(serve):
 
 def test_c16_7_busy_retries_stay_in_the_first_half_of_the_deadline(monkeypatch):
     """C-16.7 property, over seeded deadlines and busy streaks (a stub daemon that is
-    always busy, and a clock the test advances): no retry starts after half the
-    deadline, the first try gets the whole deadline, a retry gets what is left
-    (at least half), and a lost answer's message names the caller's deadline."""
+    always busy, and a clock the test advances, with slow answers and overrun
+    sleeps as on a loaded CI runner): no retry starts after half the deadline, the
+    first try gets the whole deadline, and a retry gets what is left, at least
+    half and never a non-positive socket timeout (CI 36348531450 hit one)."""
     import random
     from subfleet import client as client_module
     rng = random.Random(1607)
-    for case in range(300):
+    for case in range(2000):
         deadline = rng.choice([.2, 1, 5, 15, 75, rng.uniform(.05, 120)])
         now = [1000.0]
         tries = []
 
         def once(self, op, args, *, request_id, timeout, stated):
             tries.append((now[0] - 1000.0, timeout, stated))
-            now[0] += rng.uniform(0, .01)            # a busy answer comes back at once
+            # Usually at once; on a loaded machine a busy answer can take a while.
+            now[0] += rng.choice([rng.uniform(0, .01), rng.uniform(0, deadline)])
             raise DaemonError(69, "the daemon is busy", "try again shortly")
         monkeypatch.setattr(client_module.time, "monotonic", lambda: now[0])
-        monkeypatch.setattr(client_module.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+        # Sleeps overrun on a loaded machine, sometimes by several times the pause.
+        monkeypatch.setattr(client_module.time, "sleep",
+                            lambda s: now.__setitem__(0, now[0] + s * rng.choice([1, 1, rng.uniform(1, 40)])))
         monkeypatch.setattr(Client, "_call_once", once)
         with pytest.raises(DaemonError):
             Client("/nonexistent", timeout=deadline).call("ping")
@@ -498,6 +502,7 @@ def test_c16_7_busy_retries_stay_in_the_first_half_of_the_deadline(monkeypatch):
         for started_at, timeout, stated in tries[1:]:
             assert started_at <= deadline / 2 + 1e-9, (case, deadline, tries)
             assert timeout >= deadline / 2 - 1e-9 and stated == deadline, (case, tries)
+            assert timeout > 0, (case, tries)               # a socket timeout must be positive
         monkeypatch.undo()
 
 
