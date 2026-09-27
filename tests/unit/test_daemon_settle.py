@@ -725,6 +725,46 @@ def test_c5_12_a_legacy_attempt_s_interval_costs_the_table_its_boot_identity_and
     assert len(asked) == 1 and attempt(daemon)["state"] == "running"
 
 
+@pytest.mark.parametrize("record", ["uuid", "legacy"])
+def test_c5_12_a_guardian_the_shared_table_missed_is_recorded_from_one_ps_and_a_legacy_one_kern_boottime(
+        daemon, monkeypatch, record):
+    """C-5.12 a guardian the shared table does not show, but that the fresh reads find alive, has its group recorded
+    from a table read for it alone: one `ps` outside the shared read and, for a guardian recorded with a legacy boot
+    timestamp, one `kern.boottime` read as well, since that table matches the timestamp itself.
+
+    Review of PR #37's port, 2026-09-27 (L4): C-5.12 said "one `ps`", for a legacy record too."""
+    session = "11111111-1111-4111-8111-111111111111"
+    table_read, seconds_read = daemon_module.procs.TABLE_ARGV, ["/usr/sbin/sysctl", "-n", "kern.boottime"]
+    daemon.store.update_attempt(ATTEMPT, boot_id=session if record == "uuid" else "1726000000")
+    daemon._process_table = shared(ProcessTable({}, session))  # read before the guardian started
+    monkeypatch.setattr(daemon_module.procs, "BOOT_ID_TTL_S", 3600)   # the UUID stays remembered, however slow
+    calls = []
+
+    def read(argv, *, empty_ok=False):
+        argv = [str(part) for part in argv]
+        calls.append(argv)
+        if argv[0].endswith("sysctl"):
+            return session + "\n" if argv[-1] == "kern.bootsessionuuid" else "{ sec = 1726000000, usec = 0 }\n"
+        if argv == table_read:
+            return f"4242 1 4242 Ss {STARTED}\n4243 4242 4242 S {STARTED}\n"
+        if argv[1:2] == ["-p"]:                                # `liveness`, asked singly
+            return (STARTED if argv[-1] == "lstart=" else "Ss") + "\n"
+        raise AssertionError(argv)
+    monkeypatch.setattr(daemon_module.procs, "_read", read)
+    liveness = daemon_module.procs.liveness
+
+    def fresh(*args):
+        alive = liveness(*args)
+        calls.clear()                                          # what follows the fresh reads
+        return alive
+    monkeypatch.setattr(daemon_module.procs, "liveness", fresh)
+    daemon._contain = never_census
+    daemon._process_attempt(ATTEMPT)
+    assert calls == ([table_read] if record == "uuid" else [table_read, seconds_read])
+    owned = json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
+    assert set(owned) == {"4242", "4243"} and attempt(daemon)["state"] == "running"
+
+
 def publish_start(core):
     atomic_publish(attempt_dir(core.root, JOB, 1) / "start.json",
                    json.dumps({"guardian_pid": 4242, "pgid": 4242, "boot_id": "boot", "proc_start": STARTED,
