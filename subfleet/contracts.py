@@ -230,6 +230,11 @@ WAIT_RECHECK_S = 1.0
 # (SIGTERM, up to TERM_GRACE_S of census polling, then SIGKILL and one census),
 # so that finishes first.
 STOP_GRACE_S = 30
+# C-16.8: how long after `close()` begins the replies of requests already running
+# may still be written. Then every client connection still held is shut down, so a
+# client that stopped reading cannot hold a stop until C-5.8a ends it. A third of
+# STOP_GRACE_S: the rest of the grace is for the pools and the store.
+STOP_REPLY_S = 10.0
 # C-5.8a: leave faulthandler time to dump before the kernel's SIGALRM ends a
 # process whose dump timer failed, was cancelled, or is still dumping.
 STOP_DUMP_MARGIN_S = 3.0
