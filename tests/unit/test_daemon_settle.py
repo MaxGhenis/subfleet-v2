@@ -479,6 +479,42 @@ def test_c5_12_only_the_inspection_that_reads_waits_for_ps(daemon, monkeypatch):
         daemon._table_lock.release()
 
 
+
+def test_c5_12_a_read_that_ended_while_an_inspection_asked_is_taken_not_repeated(daemon, monkeypatch):
+    """C-5.12 an inspection that found the table expired and then waited its turn at the lock while another's read
+    ended takes that read's table: reads begin at least an interval apart, never back to back.
+
+    Final review of PR #37, 2026-09-26: dropping the re-check inside the lock survived every test (mutant M16)."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon.inspect_interval_s = 1.0
+    real = threading.Lock()
+    at_lock, other_done = threading.Event(), threading.Event()
+    reads = []
+
+    class Lock:
+        """The table's lock, reached just as another inspection's read ends."""
+        def acquire(self, blocking=True):
+            at_lock.set()
+            assert other_done.wait(5), "the other read never ended"
+            return real.acquire(blocking=blocking)
+
+        def release(self):
+            real.release()
+    daemon._table, daemon._table_lock = (None, 0.0), Lock()
+    monkeypatch.setattr(daemon_module.procs, "snapshot",
+                        lambda: reads.append(1) or table_showing((4242, 1, 4242, "Ss")))
+    result = []
+    worker = threading.Thread(target=lambda: result.append(Daemon._process_table(daemon, 100.0)), daemon=True)
+    worker.start()
+    assert at_lock.wait(5)
+    other = (table_showing((4242, 1, 4242, "Ss")), 100.0 + 1.0)   # its read began at 100 and has just ended
+    daemon._table = other
+    other_done.set()
+    worker.join(5)
+    assert not worker.is_alive()
+    assert reads == [], "a second read began as the other ended"
+    assert result == [other]
+
 def test_c5_12_only_the_inspection_that_reads_waits_for_the_boot_identity(daemon, monkeypatch):
     """C-5.12 the reader reads the table's boot identity before any other attempt is given the table, so a slow
     `sysctl` holds the reader's worker only: the others return at once and ask again next tick, and then share

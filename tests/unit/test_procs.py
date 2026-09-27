@@ -4,6 +4,7 @@ import itertools
 import json
 import signal
 import subprocess
+import threading
 from unittest import mock
 
 import pytest
@@ -326,10 +327,19 @@ def test_c5_12_a_table_reads_the_boot_identity_once_and_only_when_it_needs_it(mo
     assert table.identity(42) == procs.ProcessIdentity(42, BOOT_A, START)
     assert reads == ["ps", "sysctl"]
     census(monkeypatch, parents=f"42 1 42 Ss {START}\n", fail="sysctl")
+    failing = procs._read
+    sysctl = []
+
+    def counting_sysctl(argv, **kwargs):
+        if os.path.basename(argv[0]) == "sysctl":
+            sysctl.append(argv[-1])
+        return failing(argv, **kwargs)
+    monkeypatch.setattr(procs, "_read", counting_sysctl)
     failed = procs.snapshot()
     for _ in range(3):
         with pytest.raises(procs.InspectionError):
             failed.is_process(42, BOOT_A, START)
+    assert sysctl == ["kern.bootsessionuuid", "kern.boottime"]      # one boot-identity read, failed, kept
 
 
 def test_c5_12_a_table_matches_a_legacy_boot_record_only_when_asked_and_c5_3_agrees(monkeypatch):
@@ -516,3 +526,52 @@ def test_c5_12_the_legacy_match_says_alive_exactly_where_liveness_does():
         seen.add((shown, live))
     # Every answer occurs, so the comparison is not vacuous.
     assert {(True, "alive"), (False, "dead"), (False, "unknown"), ("raised", "unknown")} <= seen
+
+
+def test_c5_12_inspections_reading_a_table_s_boot_identity_at_once_share_one_sysctl(monkeypatch):
+    """C-5.12 a table's boot-identity read is serialised: two first callers at the same instant cost one `sysctl`.
+
+    Final review of PR #37, 2026-09-26: removing the table's lock survived every test (mutant M20)."""
+    reads = []
+    together = threading.Barrier(2)
+
+    def slow_boot_id():
+        reads.append(1)
+        try:
+            together.wait(timeout=.5)                           # both inside at once only without the lock
+        except threading.BrokenBarrierError:
+            pass
+        return BOOT_A
+    monkeypatch.setattr(procs, "boot_id", slow_boot_id)
+    table = procs.ProcessTable({42: (1, 42, "Ss", START)})
+    found = []
+    threads = [threading.Thread(target=lambda: found.append(table.boot()), daemon=True) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+    assert found == [BOOT_A, BOOT_A]
+    assert reads == [1]
+
+
+def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypatch):
+    """C-5.5, C-5.12 a marker process born after the snapshot and gone by the identity read leaves the census, which
+    needs no `sysctl`: a failed one cannot make that census unverifiable.
+
+    Final review of PR #37, 2026-09-26: reading the boot identity before checking the pid is live survived every
+    test (mutant M22)."""
+    def read(argv, *, empty_ok=False):
+        if os.path.basename(argv[0]) == "sysctl":
+            raise procs.InspectionError("unavailable")
+        if "pid=,ppid=,pgid=,stat=,lstart=" in argv:
+            return f"1 0 1 Ss {START}\n"
+        if "pid=,command=" in argv:
+            return "77 provider SUBFLEET_ATTEMPT=job/a1\n"
+        if "stat=" in argv:
+            return "S"                                          # alive when the marker scan looked
+        if "lstart=" in argv:
+            return ""                                           # gone by the identity read
+        raise AssertionError(argv)
+    monkeypatch.setattr(procs, "_read", read)
+    result = procs.containment(42, 42, None, "job/a1")
+    assert result.verified_empty and result.errors == (), result
