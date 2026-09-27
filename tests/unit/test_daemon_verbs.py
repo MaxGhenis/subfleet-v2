@@ -370,6 +370,44 @@ def test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed(root, tmp_p
     assert "stopped" in err
 
 
+def test_daemon_stop_uses_configured_waits_before_and_after_escalation(root, monkeypatch, capsys):
+    """C-5.8a, C-5.4: the stop flow uses both configured waits and verifies
+    the recorded identity again before escalation, without host inspection."""
+    info = {"pid": 4242, "boot_id": "test-boot", "proc_start": "test-start"}
+    (root / "daemon.lock").write_text(json.dumps(info))
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 3.25)
+    monkeypatch.setattr(cli, "DAEMON_KILL_WAIT_S", 0.625)
+    events = []
+    exits = iter([False, True])
+
+    def verified(pid, boot_id, proc_start):
+        events.append(("verify", pid, boot_id, proc_start))
+        return True
+
+    def wait_for_exit(pid, recorded, seconds):
+        assert recorded == info
+        events.append(("wait", pid, seconds))
+        return next(exits)
+
+    monkeypatch.setattr(cli, "same_process", verified)
+    # No OS signal or process inspection is performed by this test.
+    monkeypatch.setattr(os, "kill", lambda pid, sig: events.append(("signal", pid, sig)))
+    monkeypatch.setattr(cli, "_wait_for_exit", wait_for_exit)
+
+    assert cli.main(["daemon", "stop"]) == 0
+    assert events == [
+        ("verify", 4242, "test-boot", "test-start"),
+        ("signal", 4242, signal.SIGTERM),
+        ("wait", 4242, cli.DAEMON_STOP_WAIT_S),
+        ("verify", 4242, "test-boot", "test-start"),
+        ("signal", 4242, signal.SIGKILL),
+        ("wait", 4242, cli.DAEMON_KILL_WAIT_S),
+    ]
+    err = capsys.readouterr().err
+    assert "its own stop bound (C-5.8a) did not end it" in err
+    assert "sent SIGKILL" in err and "stopped" in err
+
+
 def test_daemon_stop_never_kills_an_identity_it_can_no_longer_verify(root, monkeypatch, capsys):
     """C-5.4 the escalation re-checks the identity; unknown means no SIGKILL."""
     (root / "daemon.lock").write_text(json.dumps(
