@@ -682,8 +682,9 @@ class Daemon:
                 if enrollment_holder:
                     from .adapters.claude import ClaudeAdapter
                     if isinstance(adapter, ClaudeAdapter):
-                        adapter._runner = lambda argv, **kwargs: self._enrollment_turn(
-                            existing['lane_id'], enrollment_holder, argv, **kwargs)
+                        adapter._runner = enrollment_runner(
+                            adapter._runner, lambda argv, **kwargs: self._enrollment_turn(
+                                existing['lane_id'], enrollment_holder, argv, **kwargs))
                 info = adapter.enroll(credential)
             except AdapterError as exc:
                 raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
@@ -5282,6 +5283,29 @@ def log_open_file_limit(log: logging.Logger, before: int, after: int, hard: int)
     elif after != resource.RLIM_INFINITY and after < descriptors.OPEN_FILES_WANTED:
         log.warning("open-file limit left at %s: the hard limit (%s) or the kernel allows no more",
                     after, descriptors.limit_for_display(hard) or "unlimited")
+
+
+def _keychain_read(argv) -> bool:
+    """Whether `argv` is one of the two reads `credentials.keychain_command` builds:
+    `<agent-secret> get <reference>` or `security find-generic-password -s <reference> -w`."""
+    argv = list(argv)
+    return len(argv) >= 2 and ((argv[1] == "get" and len(argv) == 3) or argv[1] == "find-generic-password")
+
+
+def enrollment_runner(original: Callable[..., Any], turn: Callable[..., Any]) -> Callable[..., Any]:
+    """C-10.2: the adapter's runner during a re-enrollment. The keychain reads that
+    resolve a keychain-token credential and its plan stay with `original`; every other
+    call, the login turn above all, runs through the enrollment fence
+    (`Daemon._enrollment_turn`). Routing every call through the fence made each
+    keychain-token re-enrollment raise before its turn ("_enrollment_turn() missing 2
+    required keyword-only arguments: 'cwd' and 'env'", 2026-09-27), so a lapsed
+    account could never be brought back. The fence is the default, so a call this does
+    not recognise is contained (or refused by the fence's signature), never run bare."""
+    def runner(argv, **kwargs):
+        if _keychain_read(argv):
+            return original(argv, **kwargs)
+        return turn(argv, **kwargs)
+    return runner
 
 
 def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Callable[[], bool]:
