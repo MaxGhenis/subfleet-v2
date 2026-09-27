@@ -84,7 +84,8 @@ if kind == "kernel-arm-fails":
         raise OSError("injected setitimer failure")
 
     signal.setitimer = refuse_setitimer
-if kind in ("arm-fails", "nested-signals-arm-fails", "arm-fails-no-thread", "arm-fails-gil"):
+if kind in ("arm-fails", "nested-signals-arm-fails", "arm-fails-no-thread", "arm-fails-gil",
+            "rearm-arm-fails"):
     import faulthandler
 
     def refuse(*_args, **_kwargs):
@@ -229,7 +230,8 @@ if kind == "clean":
 held = threading.Lock()
 if kind in ("lock", "descriptors", "set-only", "arm-fails", "rearm", "nested-signals",
             "nested-signals-arm-fails", "arm-fails-no-thread", "overlap-cancel-fails",
-            "overlap-rearm", "blocked-dump", "nested-before-kernel", "kernel-arm-fails"):
+            "overlap-rearm", "blocked-dump", "nested-before-kernel", "kernel-arm-fails",
+            "rearm-arm-fails"):
     held.acquire()                     # and never released
     worker = threading.Thread(target=stuck_behind_lock, args=(held,), name="subfleet-api_11")
 elif kind in ("gil", "hog-during-write", "arm-fails-gil"):
@@ -257,7 +259,7 @@ if kind in ("gil", "arm-fails-gil"):
     hog.join()
 elif kind == "hog-during-write":
     threading.Event().wait()
-elif kind == "rearm":
+elif kind in ("rearm", "rearm-arm-fails"):
     while True:                        # every later arm must leave the deadline alone
         arm()
         time.sleep(0.05)
@@ -360,10 +362,12 @@ def test_c5_8a_a_stop_that_finishes_in_time_exits_with_its_own_status(tmp_path):
 
 
 @pytest.mark.parametrize("kind", ["arm-fails", "nested-signals-arm-fails",
-                                 "overlap-cancel-fails", "arm-fails-gil"])
+                                 "overlap-cancel-fails", "arm-fails-gil", "rearm-arm-fails"])
 def test_c5_8a_a_stop_still_ends_when_faulthandler_cannot_arm(tmp_path, kind):
     """The kernel bound survives an unset/deadlocked stop event, reentrant
-    cancellation, and a permanent GIL hog."""
+    cancellation, a permanent GIL hog, and later arms that keep coming: with no
+    faulthandler timer to exit first, only an ITIMER_REAL that a later `arm`
+    leaves alone ends the process on time (round-4 review, low 1)."""
     rc, lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
     assert rc == -signal.SIGALRM, text
     assert 1.0 + ALARM_MARGIN_S - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
