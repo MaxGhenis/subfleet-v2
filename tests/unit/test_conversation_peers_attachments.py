@@ -254,6 +254,10 @@ def _fifo(copy, tmp_path):
     os.mkfifo(copy)
 
 
+def _hard_link_elsewhere(copy, tmp_path):
+    os.link(copy, tmp_path / "elsewhere.png")            # the same bytes, writable through another name
+
+
 DAMAGE = {
     "other bytes": lambda copy, tmp_path: copy.write_bytes(b"garbage"),
     "emptied": lambda copy, tmp_path: copy.write_bytes(b""),
@@ -261,6 +265,8 @@ DAMAGE = {
     "unreadable": lambda copy, tmp_path: copy.chmod(0),
     "a symlink to the same bytes": _symlink_elsewhere,
     "a fifo": _fifo,
+    "readable by others": lambda copy, tmp_path: copy.chmod(0o644),
+    "a hard link another name writes through": _hard_link_elsewhere,
 }
 
 
@@ -288,9 +294,114 @@ def test_a_re_add_repairs_a_stored_copy_that_changed(store, tmp_path, damage):
     worker.join(10)
     assert results == [out]
     info = os.lstat(copy)
-    assert stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600
+    assert stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
     assert copies(store) == [copy.name]
     assert attachments.check(store, out["sha256"])[0] == str(copy)
+
+
+@pytest.mark.parametrize("damage", DAMAGE)
+def test_the_drivers_check_refuses_a_changed_copy_at_once(store, tmp_path, damage):
+    """C-28.1 (review of 1808f61): the driver's check judges the stored copy as an add
+    does. It read it with `path.read_bytes()`, which followed a symlink and blocked on a
+    FIFO for good, holding the conversation tick that builds turns and every tick after
+    it; and it passed a copy others could read or write through another name. It now
+    refuses each at once (`attachment-missing`), and adding the image again repairs it."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    out = attachments.add(store, str(src))
+    copy = store.root / "attachments" / f"{out['sha256']}.png"
+    DAMAGE[damage](copy, tmp_path)
+    results: list = []
+
+    def check():
+        try:
+            results.append(attachments.check(store, out["sha256"]))
+        except ConversationError as exc:
+            results.append(exc.reason)
+
+    worker = threading.Thread(target=check, daemon=True)      # a fifo must not hold the check
+    worker.start()
+    worker.join(10)
+    assert results == ["attachment-missing"]
+    assert attachments.add(store, str(src)) == out
+    assert attachments.check(store, out["sha256"]) == (str(copy), "image/png")
+
+
+def test_a_copy_another_add_replaces_while_it_is_judged_still_holds(store, tmp_path, monkeypatch):
+    """C-28.1 an add renaming its identical copy over the one being judged leaves the
+    open file with no name at all: no link but its own, or none, holds; only a second
+    name that could write through it does not. (Requiring exactly one link failed adds
+    of the same image at once with `copy-mismatch`, about one run in eight.)"""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    out = attachments.add(store, str(src))
+    copy = store.root / "attachments" / f"{out['sha256']}.png"
+    real_fstat, replaced = os.fstat, []
+
+    def fstat(fd):
+        if not replaced:                    # between the open and the look: another add's rename
+            other = copy.with_name(".another-add.tmp")
+            other.write_bytes(PNG)
+            other.chmod(0o600)
+            os.rename(other, copy)
+            replaced.append(True)
+        return real_fstat(fd)
+
+    monkeypatch.setattr(os, "fstat", fstat)
+    assert attachments.check(store, out["sha256"]) == (str(copy), "image/png")
+    monkeypatch.setattr(os, "fstat", real_fstat)
+    assert replaced == [True] and copies(store) == [copy.name]
+
+
+def test_a_stored_file_of_the_wrong_size_is_judged_without_reading_it(store, tmp_path, monkeypatch):
+    """C-28.1 (review of 1808f61): whatever sits at the copy's name is judged by its size
+    before any byte of it is read, so a stray large file costs no read on the file pool
+    that `close()` waits for, and no more than the copy's size is ever read."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    out = attachments.add(store, str(src))
+    copy = store.root / "attachments" / f"{out['sha256']}.png"
+    copy.write_bytes(os.urandom(3 << 20))
+    real_read, real_sniff = os.read, attachments.sniff
+    oversized: list[int] = []
+
+    def read(fd, n):
+        if os.fstat(fd).st_size != len(PNG):
+            oversized.append(os.fstat(fd).st_size)
+        return real_read(fd, n)
+
+    def sniff(head):                        # the add has read its source; now watch every read
+        monkeypatch.setattr(os, "read", read)
+        return real_sniff(head)
+
+    monkeypatch.setattr(os, "read", read)
+    with pytest.raises(ConversationError):
+        attachments.check(store, out["sha256"])
+    monkeypatch.setattr(os, "read", real_read)
+    monkeypatch.setattr(attachments, "sniff", sniff)
+    assert attachments.add(store, str(src)) == out
+    assert oversized == [] and copy.read_bytes() == PNG
+
+
+def test_a_re_add_after_the_state_root_moved_names_the_copy_where_it_is(tmp_path):
+    """C-28.1 (review of 1808f61): the row keeps the path of the copy it names. A re-add
+    kept the old row's path, so after the state root moved every message naming the
+    image failed `attachment-missing` though the add had made the copy again."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    old = ConversationStore(tmp_path / "state-old")
+    out = attachments.add(old, str(src))
+    old.close()
+    (tmp_path / "state-old").rename(tmp_path / "state")
+    moved = ConversationStore(tmp_path / "state")
+    try:
+        with pytest.raises(ConversationError):
+            attachments.check(moved, out["sha256"])
+        assert attachments.add(moved, str(src)) == out
+        copy = tmp_path / "state" / "attachments" / f"{out['sha256']}.png"
+        assert attachments.check(moved, out["sha256"]) == (str(copy), "image/png")
+    finally:
+        moved.close()
 
 
 def test_a_copy_gone_when_it_is_checked_is_a_mismatch_to_retry(store, tmp_path, monkeypatch):
@@ -327,6 +438,7 @@ def test_the_copys_name_is_synced_after_the_rename_and_before_its_row(store, tmp
     directory = store.subdirectory("attachments")
     if in_place:
         (directory / f"{digest}.png").write_bytes(PNG)   # renamed in by another add, not yet synced
+        (directory / f"{digest}.png").chmod(0o600)        # as an add makes it: others cannot read it
     here = os.stat(directory)
     events: list[str] = []
     real_fsync, real_rename, real_row = os.fsync, os.rename, store.add_attachment

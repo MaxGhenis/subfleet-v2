@@ -1100,7 +1100,7 @@ class ConversationStore:
         now = utcnow()
         with self.transaction() as tx:
             tx.execute("INSERT INTO attachments(sha256,media_type,bytes,path,created_at,last_used_at) VALUES (?,?,?,?,?,?) "
-                       "ON CONFLICT(sha256) DO UPDATE SET last_used_at=excluded.last_used_at",
+                       "ON CONFLICT(sha256) DO UPDATE SET path=excluded.path, last_used_at=excluded.last_used_at",
                        (sha256, media_type, size, path, now, now))
         return self.one("SELECT * FROM attachments WHERE sha256=?", (sha256,))
 

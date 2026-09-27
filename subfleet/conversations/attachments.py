@@ -39,20 +39,30 @@ def sniff(head: bytes) -> tuple[str, str] | None:
     return None
 
 
-def _holds(target: Path, digest: str) -> bool:
-    """Whether `target` is a regular file whose bytes hash to `digest`. Anything else is
-    not holding, and the add copies over it: no file, other bytes (disk damage, a stray
-    write), a file this user cannot read, a symlink (not followed) or a FIFO (opened
-    without waiting for a writer)."""
+def _holds(target: Path, digest: str, size: int) -> bool:
+    """Whether `target` is the daemon's own copy: a regular file of `size` bytes that
+    hash to `digest`, owned by this user, with one link and no group or other access.
+    Anything else is not holding: an add copies over it and the driver's check refuses
+    it. That is no file, other bytes (disk damage, a stray write), a file this user
+    cannot read, a symlink (not followed), a FIFO (opened without waiting for a
+    writer), a hard link another name can write through, or a copy others can read.
+    The size is checked before any byte is read, and no more than `size` are read."""
     try:
         fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return False
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        info = os.fstat(fd)
+        # No link but its name, or none: an add that renamed its identical copy over this
+        # one after it was opened leaves it with no name at all, which no one writes through.
+        if (not stat.S_ISREG(info.st_mode) or info.st_size != size or info.st_uid != os.getuid()
+                or info.st_nlink > 1 or info.st_mode & 0o077):
             return False
-        sha = hashlib.sha256()
-        while chunk := os.read(fd, 1 << 20):
+        sha, total = hashlib.sha256(), 0
+        while chunk := os.read(fd, min(1 << 20, size + 1 - total)):
+            total += len(chunk)
+            if total > size:                              # it grew while it was read
+                return False
             sha.update(chunk)
         return sha.hexdigest() == digest
     except OSError:
@@ -142,9 +152,9 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
         raise ConversationError("hash-mismatch", "the file does not match the hash the app sent")
     directory = store.subdirectory("attachments")         # never the state root itself
     target = directory / f"{digest}.{ext}"
-    if not _holds(target, digest):                        # missing or changed: copy it again
+    if not _holds(target, digest, len(data)):             # missing or changed: copy it again
         _copy(data, target)
-        if not _holds(target, digest):
+        if not _holds(target, digest, len(data)):
             raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
     # Published as C-8.1 says, its name on disk before its row, whichever add made the
     # copy: one that found it in place may have found it before its maker synced.
@@ -154,14 +164,15 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
 
 
 def check(store: ConversationStore, sha256: str) -> tuple[str, str]:
-    """Before a frame is built (C-28.1): the stored copy exists and still hashes right."""
+    """Before a frame is built (C-28.1): the stored copy is still the daemon's own and
+    hashes right, judged as an add judges it (`_holds`), so it never blocks on a FIFO or
+    follows a symlink. `path.read_bytes()` did both: a FIFO at the name held the
+    conversation tick that builds turns, and every tick after it, for good (review of
+    1808f61). Adding the image again repairs the copy."""
     row = store.attachment(sha256)
     if row is None:
         raise ConversationError("attachment-missing", f"attachment {sha256} is not stored")
-    path = Path(row["path"])
-    try:
-        if hashlib.sha256(path.read_bytes()).hexdigest() != sha256:
-            raise ConversationError("attachment-missing", f"attachment {sha256} changed on disk")
-    except OSError as exc:
-        raise ConversationError("attachment-missing", f"attachment {sha256} is gone") from exc
-    return str(path), row["media_type"]
+    if not _holds(Path(row["path"]), sha256, row["bytes"]):
+        raise ConversationError("attachment-missing", f"attachment {sha256} is gone or changed on disk",
+                                fix="add the image again; that repairs the stored copy")
+    return row["path"], row["media_type"]
