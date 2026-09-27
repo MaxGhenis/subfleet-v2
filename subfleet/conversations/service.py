@@ -99,6 +99,13 @@ CATALOG_STOP_WAIT_S = 2.0
 # How long close() waits, in all, for the turn runners to finish the iteration they are
 # in. The conversation store refuses what a runner still going after it writes (C-25.3).
 RUNNER_STOP_WAIT_S = 5.0
+# How long close() waits for the file ops already running (C-25.3). They take
+# milliseconds, git under its own caps longer; one held past this (a walk with no
+# budget, a stalled mount, a slow git call) is logged, and the store closes under it.
+FILE_OPS_STOP_WAIT_S = 10.0
+# How long close() waits, last, for a file write under way or an operation holding the
+# conversation store; past it the store refuses everything and its connection stays open.
+STORE_CLOSE_WAIT_S = 2.0
 # Attempt states that have ended; `quarantined` has not (its processes may live).
 ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 # The dispatcher's claim on a queued message while it creates the message's turn job
@@ -114,13 +121,75 @@ HANDOFF_KEEPS = ("unblock-note",)
 HANDOFF_FENCE = "handoff:"
 
 
+class _FileOp:
+    """One op submitted to the file pool: refused if its submit raised."""
+    __slots__ = ("refused",)
+
+    def __init__(self):
+        self.refused = False
+
+
+class FilePool(concurrent.futures.ThreadPoolExecutor):
+    """The file pool (C-25.3). It knows which of its ops are running, so close() can
+    wait for them with a bound (`shutdown(wait=True)` waits without one, and one op
+    blocked for good held close() for good), and it starts none once it has stopped.
+
+    An op counts from when a worker starts it, decided under the lock `stop()` takes,
+    not from its submit: CPython queues the work before it starts a thread, so a submit
+    whose thread could not start raised while an existing worker still ran the op,
+    which nothing counted (reviews of 6c1f8bb). Such an op never runs now, nor does one
+    a worker reaches after `stop()`."""
+
+    def __init__(self, workers: int, name: str):
+        super().__init__(workers, thread_name_prefix=name)
+        self._guard = threading.RLock()
+        self._idle = threading.Condition(self._guard)      # notified when an op ends
+        self._running: set[_FileOp] = set()
+        self._stopped = False
+
+    def submit(self, fn, /, *args, **kwargs):
+        op = _FileOp()
+
+        def run():
+            with self._guard:
+                if op.refused or self._stopped:
+                    return None             # its submit raised, or stop() came first: never run
+                self._running.add(op)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                with self._idle:
+                    self._running.discard(op)
+                    self._idle.notify_all()
+
+        with self._guard:                   # a worker cannot start `run` before this has decided
+            try:
+                return super().submit(run)
+            except BaseException:
+                op.refused = True
+                raise
+
+    def stop(self) -> set[_FileOp]:
+        """Take nothing more, drop what has not started, and return the ops running."""
+        with self._guard:
+            self._stopped = True
+            self.shutdown(wait=False, cancel_futures=True)
+            return set(self._running)
+
+    def await_running(self, ops: set[_FileOp], timeout: float) -> set[_FileOp]:
+        """Wait up to `timeout` s for `ops` to end; return the ones still running."""
+        with self._idle:
+            self._idle.wait_for(lambda: not ops & self._running, timeout=timeout)
+            return ops & self._running
+
+
 class ConversationService:
     def __init__(self, daemon):
         self.daemon = daemon
         self.root: Path = daemon.root
         self.store = ConversationStore(self.root)
         self.polls = concurrent.futures.ThreadPoolExecutor(8, thread_name_prefix="subfleet-poll")
-        self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
+        self.files = FilePool(2, "subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
         # Merges into `conversations/models.json` (`_on_catalog`), one at a time. Not
@@ -158,30 +227,44 @@ class ConversationService:
             runners = list(self.runners.values())
         for runner in runners:
             runner.stop()
-        deadline = time.monotonic() + RUNNER_STOP_WAIT_S
+        stopped = time.monotonic()
+        deadline = stopped + RUNNER_STOP_WAIT_S
         self.polls.shutdown(wait=False, cancel_futures=True)
         # File ops write into the state root: an attachment's copy, a worktree. One
         # still running when close() returned finished after its owner had removed
-        # the root, and made it again (review of #47). The ones running finish here,
-        # while the root and the store are still there; queued ones never run, and
-        # the pool takes none after. Each is bounded (a capped file read, git under
-        # its caps), as the ops the daemon's own pools wait for are.
-        self.files.shutdown(wait=True, cancel_futures=True)
+        # the root, and made it again (review of #47). Queued ones never run and the
+        # pool takes none after; the ones running finish here, while the root and the
+        # store are still there. The wait has a bound of its own: the reads' caps do
+        # not bound every op (a walk with no budget, a stalled mount), and one op held
+        # for good held close() for good (reviews of 39223c9). One still running after
+        # it is logged, and the store refuses what it does next. A subprocess it runs (git,
+        # and a hook or filter git starts) is not stopped here: supervising those is
+        # C-25.3's open item, and C-5.8a bounds the daemon's own stop meanwhile.
+        late_ops = self.files.await_running(self.files.stop(), FILE_OPS_STOP_WAIT_S)
+        if late_ops:
+            self.log.warning("%d file op(s) still running %g s into close(); closing the conversation store "
+                             "under them", len(late_ops), FILE_OPS_STOP_WAIT_S)
         # A turn runner writes into the state root too: the store, an approval's request,
         # `conversations/models.json`, `turn.json`. One still in its iteration when close()
-        # returned made the removed root again. Each finishes that iteration here, within
-        # a bound; the store refuses what one still going writes after it closes (`writing`).
+        # returned made the removed root again. Each finishes that iteration here, until
+        # RUNNER_STOP_WAIT_S after it was stopped (the file wait runs meanwhile, so a runner
+        # may go on as long as that wait); the store refuses what one still going writes
+        # after it closes (`writing`).
         late = [runner.attempt_id for runner in runners if not runner.join(deadline - time.monotonic())]
         if late:
-            self.log.warning("turn runners still going %g s after close(); the conversation store refuses "
-                             "what they write now: %s", RUNNER_STOP_WAIT_S, ", ".join(late))
+            self.log.warning("turn runners still going %.1f s after close() stopped them; the conversation store "
+                             "refuses what they write now: %s", time.monotonic() - stopped, ", ".join(late))
         for runner in runners:
             # A runner that reached its outcome and was stopped before its report.
             driver = getattr(runner, "driver", None)
             if getattr(driver, "outcome", None) is not None and getattr(runner, "outcome_reported", True) is False:
                 self.log.warning("turn %s stopped with its outcome unreported: message %s settles when a later "
                                  "daemon replays the attempt", runner.attempt_id, runner.message_id)
-        self.store.close()
+        if not self.store.close(timeout=STORE_CLOSE_WAIT_S):
+            self.log.warning("a file write or operation still held the conversation store %g s into its close(); "
+                             "the store refuses everything from now and its connection is left open",
+                             STORE_CLOSE_WAIT_S)
+
 
     # --- the socket seam -------------------------------------------------------
 

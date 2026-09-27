@@ -1141,9 +1141,37 @@ def held_file_op(svc, monkeypatch, tmp_path, repo, op):
         monkeypatch.setattr(attachment_module, "sniff", hold(attachment_module.sniff))
     else:
         monkeypatch.setattr(svc, "_cut_worktree", hold(svc._cut_worktree))
-    future = svc.pool_for(op).submit(svc.handle, op, file_op_args(op, tmp_path, repo), None)
+    args, body_finished = file_op_args(op, tmp_path, repo), threading.Event()
+
+    def body():
+        try:
+            return svc.handle(op, args, None)
+        finally:
+            body_finished.set()             # the op's own end; the future is settled a moment later
+
+    future = svc.pool_for(op).submit(body)
+    future.body_finished = body_finished
     assert entered.wait(30), f"{op} never started"
     return future, go
+
+
+class WatchedIdle(threading.Condition):
+    """The file pool's wait condition, recording each bounded wait close() starts on
+    it (how many ops were running, and the timeout the wait itself was given)."""
+
+    def __init__(self, pool):
+        super().__init__(pool._guard)
+        self.pool, self.waits, self.waiting = pool, [], threading.Event()
+
+    def wait_for(self, predicate, timeout=None):
+        self.waits.append((len(self.pool._running), timeout))
+        self.waiting.set()
+        return super().wait_for(predicate, timeout)
+
+
+def watch_file_wait(svc) -> WatchedIdle:
+    svc.files._idle = watched = WatchedIdle(svc.files)
+    return watched
 
 
 def tree(root: Path) -> list[str]:
@@ -1158,45 +1186,31 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     had removed the state root, and made the root again, holding `attachments/<sha>.png`
     (a worktree create did the same with `worktrees/`). close() now returns only once
     the file ops already running have finished, while the root and the store are still
-    there, so removing the root afterwards leaves nothing to bring it back."""
+    there, so removing the root afterwards leaves nothing to bring it back.
+
+    The op is let go only once close() is inside its wait and has handed it that op
+    with the full bound (reviews of 39223c9 and aa41312: a timer, then a signal before
+    the wait, let a close() that did not wait pass)."""
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 120.0)   # a loaded git must not outlast it here
     root = svc.root
     future, go = held_file_op(svc, monkeypatch, tmp_path, repo, op)
     running_at_return = []
-    shutdowns: list[dict] = []
-    real_shutdown = svc.files.shutdown
-    monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (shutdowns.append(kw), real_shutdown(**kw))[1])
-    # The op is let go only once close() waits for its thread: a signal before the
-    # pool's shutdown call let a shutdown that does not wait, reached late, pass
-    # (review of aa41312, finding 5).
-    joining = threading.Event()
-
-    class Watched:
-        def __init__(self, thread):
-            self.thread = thread
-
-        def join(self, timeout=None):
-            joining.set()
-            return self.thread.join(timeout)
-
-        def __getattr__(self, name):
-            return getattr(self.thread, name)
-
-    svc.files._threads = {Watched(thread) for thread in svc.files._threads}
+    watched = watch_file_wait(svc)
 
     def owner():                            # as a daemon's owner does: close it, then remove its root
         svc.close()
-        running_at_return.append(not future.done())
+        running_at_return.append(not future.body_finished.is_set())
         shutil.rmtree(root)
 
     closer = threading.Thread(target=owner)
     closer.start()
-    until_true(lambda: joining.is_set() or not closer.is_alive(), "close() to wait for the op or return")
+    until_true(lambda: watched.waiting.is_set() or not closer.is_alive(), "close() to wait for the op or return")
     go.set()
     closer.join(30)
     assert not closer.is_alive(), "close() did not return once the op had finished"
     problems = []
-    if not joining.is_set() or [kw.get("wait") for kw in shutdowns] != [True]:
-        problems.append(f"close() never waited for the file pool's threads: shutdown{shutdowns}")
+    if watched.waits != [(1, service_module.FILE_OPS_STOP_WAIT_S)]:
+        problems.append(f"close() did not wait for the op with its full bound: {watched.waits}")
     if running_at_return != [False]:
         problems.append(f"close() returned while {op} was still running")
     try:
@@ -1211,6 +1225,93 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     if root.exists():
         problems.append(f"the removed state root came back holding {tree(root)}")
     assert problems == [], "\n".join(problems)
+
+
+def test_close_waits_for_a_file_op_only_so_long_and_the_op_still_makes_no_root(svc, repo, monkeypatch, tmp_path,
+                                                                             caplog):
+    """C-25.3 (reviews of 39223c9 and aa41312): close() waited for the file ops already
+    running without a bound of its own, so an op that never ends (a walk with no budget,
+    a stalled mount) held it for good. It now waits FILE_OPS_STOP_WAIT_S, says how many
+    ops it outlasted, and closes the store under them. The op, once it goes on, is
+    refused and leaves the root its owner removed gone."""
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 0.3)
+    root = svc.root
+    future, go = held_file_op(svc, monkeypatch, tmp_path, repo, "attachment.add")
+    closer = threading.Thread(target=svc.close)
+    with caplog.at_level(logging.WARNING, logger="test-conversations"):
+        closer.start()
+        closer.join(30)
+    try:
+        assert not closer.is_alive(), "close() waited for the held op past its bound"
+        assert not future.done() and "1 file op(s) still running 0.3 s into close()" in caplog.text
+        shutil.rmtree(root)                 # the owner, once close() has returned
+    finally:
+        go.set()
+    with pytest.raises(ConversationError) as err:
+        future.result(30)
+    assert err.value.reason in ("state-root-gone", "store-closed") and not root.exists()
+
+
+def test_a_file_op_whose_submit_raised_never_runs(svc, monkeypatch):
+    """C-25.3 (reviews of 6c1f8bb): CPython's pool queues an op before it starts a
+    thread for it, so a submit whose thread could not start raised while a worker
+    already there still ran the op later, and close() never counted it. An op counts
+    from when a worker starts it now, and one whose submit raised never runs."""
+    entered, go, ran = threading.Event(), threading.Event(), []
+
+    def held():
+        entered.set()
+        assert go.wait(30)
+        return "held"
+
+    first = svc.files.submit(held)
+    assert entered.wait(30), "the first op never started"
+    real_start = threading.Thread.start
+
+    def no_thread(thread):
+        if thread.name.startswith("subfleet-files"):
+            raise RuntimeError("can't start new thread")
+        return real_start(thread)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(threading.Thread, "start", no_thread)
+        with pytest.raises(RuntimeError):
+            svc.files.submit(lambda: ran.append("the op whose submit raised"))
+    go.set()
+    assert first.result(30) == "held"
+    svc.files.shutdown(wait=True)           # the worker drains the queue, that op included
+    assert ran == []
+
+
+def test_close_leaves_a_store_write_that_holds_it_past_its_bound(svc, monkeypatch, caplog):
+    """C-25.3 (reviews of 6c1f8bb): the store's close() waited without a bound for a
+    file write under way, so an op held inside one (an fsync on a stalled disk) held
+    close() for good. Past STORE_CLOSE_WAIT_S the store refuses everything all the
+    same and close() returns, saying so."""
+    monkeypatch.setattr(service_module, "STORE_CLOSE_WAIT_S", 0.3)
+    entered, go = threading.Event(), threading.Event()
+
+    def write():
+        with svc.store.writing():
+            entered.set()
+            assert go.wait(30)
+
+    writer = threading.Thread(target=write)
+    writer.start()
+    assert entered.wait(30), "the write never began"
+    try:
+        closer = threading.Thread(target=svc.close)
+        with caplog.at_level(logging.WARNING, logger="test-conversations"):
+            closer.start()
+            closer.join(30)
+        assert not closer.is_alive(), "close() waited for the store's write past its bound"
+        assert "still held the conversation store 0.3 s into its close()" in caplog.text
+        with pytest.raises(ConversationError) as err:
+            svc.store.one("SELECT 1")
+        assert err.value.reason == "store-closed"
+    finally:
+        go.set()
+        writer.join(30)
 
 
 def test_close_never_runs_a_file_op_it_had_not_started(svc, monkeypatch, tmp_path):
@@ -1526,8 +1627,8 @@ def test_a_runner_adopted_while_close_runs_is_stopped_or_never_started(svc, monk
         monkeypatch.setattr(svc, "_stop_catalog", lambda: (closing(), real_stop())[1])
     else:
         file_op, closing.go = held_file_op(svc, monkeypatch, tmp_path, None, "attachment.add")
-        real_shutdown = svc.files.shutdown
-        monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (closing.entered.set(), real_shutdown(**kw))[1])
+        monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 120.0)   # the test lets the op go, not the bound
+        closing.entered = watch_file_wait(svc).waiting
     launched_turn(svc, tmp_path, [INIT_OK])
     adopter = threading.Thread(target=svc._adopt_runners)
     adopter.start()
@@ -1762,9 +1863,9 @@ def test_a_closed_store_refuses_every_read_and_write_and_writes_no_file(svc):
 
 
 def test_close_waits_for_a_store_file_write_under_way(svc, monkeypatch):
-    """C-24.3, C-25.3: close() takes the store's write guard, so a message's text being
-    published when it runs has landed by the time close() returns, and nothing lands
-    after. The message's row is committed before the store closes (its receipt may
+    """C-24.3, C-25.3: close() takes the store's write guard (for up to
+    STORE_CLOSE_WAIT_S), so a message's text being published when it runs has landed
+    by the time close() returns, and nothing lands after. The message's row is committed before the store closes (its receipt may
     still be refused, as a lost response is: a resend of the same id gets it, C-24.2),
     or refused (`store-closed`) and its text left with no row, as a crash between the
     two would leave it."""
@@ -1785,7 +1886,8 @@ def test_close_waits_for_a_store_file_write_under_way(svc, monkeypatch):
 
     closing = threading.Event()
     real_close = svc.store.close
-    monkeypatch.setattr(svc.store, "close", lambda: (closing.set(), real_close())[1])
+    monkeypatch.setattr(svc.store, "close", lambda **kw: (closing.set(), real_close(**kw))[1])
+    monkeypatch.setattr(service_module, "STORE_CLOSE_WAIT_S", 120.0)   # the test lets the write go, not the bound
     sender = threading.Thread(target=send)
     sender.start()
     assert hold.entered.wait(30), "the text was never published"

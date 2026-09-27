@@ -355,14 +355,37 @@ class ConversationStore:
             raise
         self._db.execute("COMMIT")
 
-    def close(self) -> None:
+    def close(self, timeout: float | None = None) -> bool:
         """A file write under way (`writing`) finishes first. Every read, write and
         file write after this is refused (`store-closed`): a turn runner still going
         when its service closed wrote into the state root after its owner had removed
-        it, and made the root again (C-25.3)."""
-        with self._writes, self._lock:
+        it, and made the root again (C-25.3).
+
+        With `timeout`, the write under way, and then an operation holding the
+        database, get that long in all: an op held inside a write (an fsync on a
+        stalled disk) held close() for good (reviews of 6c1f8bb). Past it the store
+        refuses everything all the same, its connection is left open, and close()
+        returns False; True once the connection is closed."""
+        end = None if timeout is None else time.monotonic() + max(0.0, timeout)
+
+        def left() -> float:
+            return -1 if end is None else max(0.0, end - time.monotonic())
+
+        if not self._writes.acquire(timeout=left()):
             self._closed = True
-            self._db.close()
+            return False
+        try:
+            if not self._lock.acquire(timeout=left()):
+                self._closed = True
+                return False
+            try:
+                self._closed = True
+                self._db.close()
+            finally:
+                self._lock.release()
+        finally:
+            self._writes.release()
+        return True
 
     def _open(self) -> None:
         if self._closed:
