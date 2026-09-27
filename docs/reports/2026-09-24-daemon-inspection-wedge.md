@@ -65,8 +65,8 @@ two hours after the restart.
 The store serializes every request on one connection and one lock
 (`Store._lock`, held across `execute` and `fetchall`), and every thread must
 retake the GIL after each SQLite step and each subprocess wait. A reproduction
-run once on 2026-09-24 against the unfixed code (`census_storm.py` and
-`census_storm_bigheap.py`) ran the same inspection loop in one to seven threads
+run once on 2026-09-24 with the installed release's interpreter and code (6420f5b,
+unfixed; `census_storm.py` and `census_storm_bigheap.py`) ran the same inspection loop in one to seven threads
 beside sixteen threads issuing a 300-row query under an `RLock`:
 
 | running attempts | subprocesses/s | query p50 | query p90 | queries in 12 s |
@@ -160,9 +160,9 @@ the leader before recording them: with the boot UUID cached that is 3 + 2N + 2
 the boot seconds, so 7 + 4N + 4 (fifteen for one).
 
 The reproductions were run once each on 2026-09-24, against the first version of
-this fix (8331709). In steady state that loop asks the same questions as the
-merged one; the review fixes change only what happens for a reused pid, a
-legacy boot record, or a failing pass. Driving the fixed loop at seven attempts
+this fix (8331709). Where the boot UUID is readable, as on the machine measured,
+that loop asks the same questions in steady state as the merged one. The other
+review fixes touch code that no reproduction runs. Driving the fixed loop at seven attempts
 kept the query p50 at 0.2 ms and p90 at 0.7 ms (7,038 queries in 12 s). The
 eight-waiter herd fell from 2,834 store reads a second to 386, most of them the
 measuring client's own. The combined reproduction ran at 0.5 ms p50 and 1.5 ms
@@ -195,7 +195,8 @@ each defect fails its test.
   pass sizes every job directory and owned worktree. `find` listed the
   worktrees' 606,364 entries in 43.6 s with a cold cache. `retention._size`
   sized all 36 worktrees (10.59 GB) in 19.6 s with a warm one
-  (`retention_hog.py`). The job directories held about 4,500 entries. Passes timed
+  (`retention_hog.py`). A pass sizes only the 32 that jobs own, so for that
+  part of a pass 19.6 s is an upper bound. The job directories held about 4,500 entries. Passes timed
   out for hours at a time (`worker retention failed: TimeoutError`, 32 in a row
   on the morning daemon), and each interrupted pass started its walk from zero.
   Retention's own `_pins`, run read-only on the store afterwards, pins 331 of
@@ -235,19 +236,30 @@ directories. Run each from a checkout of the revision it measures, with
 
 - `census_storm.py` and `census_storm_bigheap.py`: the unfixed per-attempt
   inspection loop at 0 to 7 simulated attempts, with a small heap and then a
-  1 GB heap (the table under Cause). Run them from a checkout from before PR
-  #40, for example 2f842d3. Their subprocess column is computed from that code's
-  per-call costs (three per liveness check; two plus three per pid per census)
-  rather than counted. `census_storm_bigheap.py` reads `census_storm.py` by
-  relative path, so run it from its own directory.
+  1 GB heap (the table under Cause). On 2026-09-24 they ran with the installed
+  release's interpreter (6420f5b). To rerun against unfixed code, stay in this
+  directory and point `uv` at a checkout from before PR #40:
+  `uv run --project <checkout of 2f842d3> python census_storm_bigheap.py`.
+  Run from this checkout, they would import the fixed subfleet. Their
+  subprocess column is computed from the unfixed code's per-call costs (three
+  per liveness check; two plus three per pid per census), not counted.
+  `census_storm_bigheap.py` reads `census_storm.py` by relative path.
 - `census_storm_fixed.py`: the fixed loop at the same loads. It needs PR #40's
-  constants, so run it from a checkout at or after 7fd9cb5. Its 2026-09-24
-  figures were measured against 8331709.
+  constants, which later lines rename (PR #37 renames `LIVENESS_INTERVAL_S`), so
+  run it with `--project` pointed at a checkout of 7fd9cb5. Its 2026-09-24
+  figures were measured against 8331709. It differs by one line from what ran
+  then: `members.keys()`, because `group_members` has returned pid to start since
+  the review fixes. Against 8331709, drop `.keys()`. Its simulated group is the
+  script's own process group, which holds the script's own `ps` children, so it
+  finds a "new" member at almost every census. It therefore costs more than the
+  merged loop (about 5 subprocesses a second for one attempt, against 3), and
+  its figures are conservative.
 - `waiter_herd.py`: eight waiters on the real `Daemon.wait`, woken at 60 Hz:
   2,834 store reads a second unfixed, 386 fixed. Run it from a checkout of each
   revision, passing a label such as `unfixed` or `fixed`.
-- `combined.py`: the combined reproduction. Pass `unfixed` (from a checkout from
-  before PR #40) or `fixed` (from a checkout at or after 7fd9cb5). It gave 4.8 ms
+- `combined.py`: the combined reproduction. Pass `unfixed` with `--project`
+  pointed at a checkout from before PR #40, or `fixed` with 7fd9cb5. Its fixed
+  loop has the same one-line `.keys()` change as `census_storm_fixed.py`. It gave 4.8 ms
   p50 and 62 ms p90 unfixed, against 0.5 ms and 1.5 ms for 8331709.
 - `retention_hog.py`: `retention._size` over the worktrees only (19.6 s warm,
   10.59 GB), and its effect on a locked query. The 606,364 entries and the
@@ -257,10 +269,11 @@ directories. Run each from a checkout of the revision it measures, with
   On 2026-09-24 it gave 1.5 ms to 101 ms for 2,000 rows. It did not reproduce
   on 2026-09-27: 0.9 to 1.9 ms in eight runs.
 
-These figures were measured with one-off commands, and this report records how:
-the 2.3 MB and 1.45 s `ps -axEww` dump, the 59 child processes, the 266
-statements a tick, the 31,496 `readings` rows, and the 400 processes whose
-`lstart` renderings were compared.
+These figures have no script. They came from one-off commands and read-only
+queries on 2026-09-24: the 2.3 MB and 1.45 s `ps -axEww` dump, the 59 child
+processes, the 266 statements and 2.65 ms of lock-held work a tick, the 31,496
+`readings` rows and their 46 ms read, the roughly 4,500 job-directory entries,
+and the 400 processes whose `lstart` renderings were compared.
 
 The independent reviews of PR #40 are kept outside the repository in
 `~/reviews/subfleet-daemon-wedge-2026-09-24/`.
