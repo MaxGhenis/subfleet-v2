@@ -144,6 +144,7 @@ class ConversationService:
         self._catalog_killed = False
         self._catalog_last: float | None = None   # the last start or request; None: the first tick starts one
         self._catalog_fence: tuple[int, int] | None = None   # (read, write): catalog.Owner
+        self._replayed: set[str] = set()       # ended attempts `_replay_unsettled` has replayed
         self._closed = False
 
     def close(self) -> None:
@@ -169,6 +170,12 @@ class ConversationService:
         if late:
             self.log.warning("turn runners still going %g s after close(); the conversation store refuses "
                              "what they write now: %s", RUNNER_STOP_WAIT_S, ", ".join(late))
+        for runner in runners:
+            # A runner that reached its outcome and was stopped before its report.
+            driver = getattr(runner, "driver", None)
+            if getattr(driver, "outcome", None) is not None and getattr(runner, "outcome_reported", True) is False:
+                self.log.warning("turn %s stopped with its outcome unreported: message %s settles when a later "
+                                 "daemon replays the attempt", runner.attempt_id, runner.message_id)
         self.store.close()
 
     # --- the socket seam -------------------------------------------------------
@@ -1332,8 +1339,8 @@ class ConversationService:
         """Called on the control loop's worker pool, never on a request thread. Each
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
-        for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners, self._settle_unstarted,
-                     self._reap_runners, self._compact):
+        for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners,
+                     self._replay_unsettled, self._settle_unstarted, self._reap_runners, self._compact):
             if self._closed:
                 return                          # a tick close() overtook: its store is gone
             try:
@@ -1785,60 +1792,100 @@ class ConversationService:
             "SELECT a.*, j.kind, j.sandbox AS job_sandbox FROM attempts a JOIN jobs j USING(job_id) WHERE j.kind='turn' "
             "AND a.state IN ('starting','running','finalizing')")
         for attempt in rows:
+            if attempt["attempt_id"] in self.runners:
+                continue
+            if not self._adopt(attempt):
+                return                      # close() overtook
+
+    def _replay_unsettled(self) -> None:
+        """Settle a live message whose turn attempt has ended with no runner left to
+        settle it (C-25.3, C-26.6). Only a runner settles a delivered message, at its
+        report, and `_adopt_runners` adopts only attempts not yet ended: a runner that
+        close() (or a crash) stopped before its report, followed by a next daemon that
+        finalized the attempt before its first tick, left the message running for
+        good, and its conversation with it (review of 585ea41..4d3d3ea). Each such
+        attempt is replayed once by a runner that takes its provider as gone; one
+        never started is `_settle_unstarted`'s."""
+        live = (WAITING, STARTING, RUNNING, APPROVAL_NEEDED)
+        rows = self.store.query(f"SELECT message_id, job_id FROM messages WHERE state IN ({','.join('?' * len(live))}) "
+                                "AND job_id IS NOT NULL", live)
+        for message in rows:
+            if self._runner_for_message(message["message_id"]) is not None:
+                continue
+            attempt = self.daemon.store.one(
+                "SELECT a.*, j.kind, j.sandbox AS job_sandbox FROM attempts a JOIN jobs j USING(job_id) "
+                "WHERE a.job_id=? AND j.kind='turn' ORDER BY a.seq DESC LIMIT 1", (message["job_id"],))
+            if attempt is None or attempt["state"] not in ATTEMPT_ENDED:
+                continue
             aid = attempt["attempt_id"]
-            if aid in self.runners:
-                continue
             adir = self.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
-            start = _read_json(adir / "start.json")
-            if not start or not start.get("control_socket"):
+            if aid in self.runners or aid in self._replayed or not (adir / "stdin.jsonl").exists():
                 continue
-            manifest = _read_json(self.root / "jobs" / attempt["job_id"] / "manifest.json") or {}
-            turn = manifest.get(TURN_MANIFEST_KEY)
-            launch = _read_json(adir / "launch.json") or {}
-            if not turn:
-                continue
-            notes = launch.get("notes") or {}
-            lane = self.daemon.store.get_lane(attempt["lane_id"])
-            spec = spec_from_manifest(turn, lane_email=lane_email(lane) if lane else None,
-                                      guard_hash=notes.get("guard_hash"), model_ref=notes.get("model_id"))
-            held = self._writer_check(turn, adir)
-            if held:
-                spec = dataclasses.replace(spec, held_by=tuple(held))
-            # Read before the runner is registered: a runner registered and never
-            # started would never be adopted again (C-30.4, D-17).
-            legacy = (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
-            runner = TurnRunner(store=self.store, attempt=dict(attempt), spec=spec,
-                                conversation_id=turn["conversation_id"], attempt_dir=adir,
-                                control_socket=start["control_socket"], on_outcome=self._on_outcome,
-                                on_contain=self._on_contain, log=self.log,
-                                clocks=Clocks.from_policy(self.daemon.policy),   # C-24.7, C-26.5, C-26.9
-                                on_catalog=self._on_catalog, handover=self._handover(turn["message_id"]))
-            if legacy:
-                # C-30.4, D-17: a pass run while the daemon was down found the
-                # legacy cockpit may be using this session again. A turn that
-                # kept running across the restart is stopped, not left beside
-                # it: before its message is ever written if the relay log shows
-                # it was not handed over, else through D-13.
-                self.log.warning("turn %s stopped: its conversation is held %s (%s)", aid, LEGACY_OWNER, legacy)
-                runner.withhold(LEGACY_OWNER)
-            with self._lock:
-                if self._closed:
-                    return                  # close() overtook: nothing would stop a runner started now
-                self.runners[aid] = runner
-                try:
-                    self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
-                finally:
-                    try:
-                        runner.start()
-                    except BaseException:
-                        # Its thread never started (a thread limit): a runner left
-                        # registered would never be adopted again, or finished.
-                        self.runners.pop(aid, None)
-                        raise
+            self._replayed.add(aid)         # once per service: a replay that fails is not retried each tick
+            self.log.info("turn %s ended with its message %s unsettled: replaying it", aid, message["message_id"])
+            if not self._adopt(attempt, ended=True):
+                return                      # close() overtook
+
+    def _adopt(self, attempt: dict, *, ended: bool = False) -> bool:
+        """Build, register and start the runner for a turn attempt; False when
+        close() overtook. `ended`: a replay of an attempt the job store has ended."""
+        aid = attempt["attempt_id"]
+        adir = self.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
+        start = _read_json(adir / "start.json")
+        if not start or not start.get("control_socket"):
+            return True
+        manifest = _read_json(self.root / "jobs" / attempt["job_id"] / "manifest.json") or {}
+        turn = manifest.get(TURN_MANIFEST_KEY)
+        launch = _read_json(adir / "launch.json") or {}
+        if not turn:
+            return True
+        notes = launch.get("notes") or {}
+        lane = self.daemon.store.get_lane(attempt["lane_id"])
+        spec = spec_from_manifest(turn, lane_email=lane_email(lane) if lane else None,
+                                  guard_hash=notes.get("guard_hash"), model_ref=notes.get("model_id"))
+        held = self._writer_check(turn, adir)
+        if held:
+            spec = dataclasses.replace(spec, held_by=tuple(held))
+        # Read before the runner is registered: a runner registered and never
+        # started would never be adopted again (C-30.4, D-17). A replay stops
+        # nothing: its provider is gone.
+        legacy = None if ended else (self.store.turn_hold(turn["conversation_id"]) or {}).get("legacy_hold")
+        runner = TurnRunner(store=self.store, attempt=dict(attempt), spec=spec,
+                            conversation_id=turn["conversation_id"], attempt_dir=adir,
+                            control_socket=start["control_socket"], on_outcome=self._on_outcome,
+                            on_contain=self._on_contain, log=self.log,
+                            clocks=Clocks.from_policy(self.daemon.policy),   # C-24.7, C-26.5, C-26.9
+                            on_catalog=self._on_catalog, handover=self._handover(turn["message_id"]),
+                            ended=ended)
+        if legacy:
+            # C-30.4, D-17: a pass run while the daemon was down found the
+            # legacy cockpit may be using this session again. A turn that
+            # kept running across the restart is stopped, not left beside
+            # it: before its message is ever written if the relay log shows
+            # it was not handed over, else through D-13.
+            self.log.warning("turn %s stopped: its conversation is held %s (%s)", aid, LEGACY_OWNER, legacy)
+            runner.withhold(LEGACY_OWNER)
+        with self._lock:
+            if self._closed:
+                return False                # nothing would stop a runner started now
+            self.runners[aid] = runner
             try:
-                self._record_start(turn, dict(attempt))   # C-26.14: the turn's diff has a base
-            except Exception as exc:                      # finalization records it again; a turn never waits on it
-                self.log.warning("turn %s start snapshot not recorded: %s: %s", aid, type(exc).__name__, exc)
+                self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
+            finally:
+                try:
+                    runner.start()
+                except BaseException:
+                    # Its thread never started (a thread limit): a runner left
+                    # registered would never be adopted again, or finished.
+                    self.runners.pop(aid, None)
+                    raise
+        if ended:
+            return True                     # its start snapshot was its first runner's to record
+        try:
+            self._record_start(turn, dict(attempt))   # C-26.14: the turn's diff has a base
+        except Exception as exc:                      # finalization records it again; a turn never waits on it
+            self.log.warning("turn %s start snapshot not recorded: %s: %s", aid, type(exc).__name__, exc)
+        return True
 
     def _writer_check(self, turn: dict, adir: Path) -> list[int]:
         """C-26.3 at launch: dispatch looked before the job waited for admission,
@@ -1958,6 +2005,11 @@ class ConversationService:
             # limited message failed without it; it cannot dispatch while the
             # original is live.
             self._continue_elsewhere(conversation, message)
+        if settlement.block:
+            # Before the message settles, so a settlement cut short (close() refusing
+            # what a late runner writes) leaves it live, for a replay to settle whole,
+            # never settled with its conversation unblocked (C-24.8).
+            self.store.update_conversation(conversation["conversation_id"], blocked_by=settlement.block)
         if settlement.readmit:
             self.store.set_state(message["message_id"], WAITING, reason=settlement.reason, expect=live,
                                  turn_seq=message["turn_seq"] + 1, job_id=None)
@@ -1971,8 +2023,6 @@ class ConversationService:
                 fields["turn_ref"] = turn.get("turn_id") or message.get("turn_ref")
             self.store.set_state(message["message_id"], settlement.state, reason=settlement.reason, expect=live,
                                  **fields)
-        if settlement.block:
-            self.store.update_conversation(conversation["conversation_id"], blocked_by=settlement.block)
         self.daemon._notify()
 
     def _continue_elsewhere(self, conversation: dict, message: dict) -> None:

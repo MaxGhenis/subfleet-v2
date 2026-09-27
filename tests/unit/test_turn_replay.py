@@ -168,3 +168,198 @@ def test_a_stop_recorded_after_close_stopped_the_runner_is_sent_by_the_next_daem
     until(lambda: "interrupt" in world.logged(), "the next daemon's interrupt", timeout=5)
     assert world.settle(runner, result=False) == ("interrupted", "stopped")
     assert world.logged().count("interrupt") == 1
+
+
+# --- a message whose attempt ended with no runner to settle it -----------------------------
+
+LIFECYCLE = '{"type": "command_lifecycle", "command_uuid": "<mid>", "state": "started"}'
+SUCCESS = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "done"})
+WRITTEN = [{"kind": "intent", "seq": 1, "tag": "init", "op": "write"}, {"kind": "written", "seq": 1},
+           {"kind": "intent", "seq": 2, "tag": "user-message", "op": "write"}, {"kind": "written", "seq": 2}]
+
+
+class Ended:
+    """A delivered turn whose runner no relay answers (the provider is simulated by its
+    stdout), in a state root a first and a next service share, as a daemon and the one
+    after its restart do."""
+
+    def __init__(self, tmp: Path, monkeypatch, stdout: list[str]):
+        monkeypatch.setattr(runner_module, "RESEND_MAX", 10**6)   # no relay listens: not "relay-failed"
+        self.root, self.ws = tmp / "state", tmp / "work"
+        self.root.mkdir()
+        self.ws.mkdir()
+        self.svc = self.service()
+        self.cid = conversation(self.svc)
+        self.mid = submit(self.svc, self.cid)
+        self.svc.store.set_state(self.mid, "waiting")
+        self.aid = turn_attempt(self.svc, self.mid, state="running", n=0)
+        self.job_id = self.aid.split("/")[0]
+        job = self.root / "jobs" / self.job_id
+        self.adir = job / "a1"
+        self.adir.mkdir(parents=True)
+        (self.adir / "start.json").write_text(json.dumps({"control_socket": str(tmp / "none.sock")}))
+        lines = [line.replace("<mid>", self.mid) for line in stdout]
+        (self.adir / "stdout").write_text("".join(line + "\n" for line in lines))
+        (self.adir / "stdin.jsonl").write_text("".join(json.dumps(r) + "\n" for r in WRITTEN))
+        turn = {"provider": "claude", "conversation_id": self.cid, "message_id": self.mid, "text": "hello",
+                "settings": SETTINGS, "cwd": str(self.ws), "new_session_id": str(uuid.uuid4())}
+        (job / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
+
+    def service(self) -> ConversationService:
+        daemon = FakeDaemon(self.root)
+        daemon.policy["conversations"]["catalog_interval_s"] = 0
+        svc = ConversationService(daemon)
+        svc.clock = Clock()
+        svc.test_workspace = str(self.ws)
+        return svc
+
+    def restart(self):
+        self.svc.close()
+        self.svc.daemon.store.close()
+        self.svc = self.service()
+
+    def end_attempt(self, state: str = "succeeded"):
+        """What the next daemon's `_finalize` leaves, before its conversation tick."""
+        with self.svc.daemon.store.transaction("attempt.ended", job_id=self.job_id, attempt_id=self.aid) as tx:
+            tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", (state, self.aid))
+            tx.execute("UPDATE jobs SET state=? WHERE job_id=?", ("lost" if state == "lost" else state, self.job_id))
+
+    def ticks(self, n: int = 3):
+        for _ in range(n):
+            self.svc.tick()
+            for runner in list(self.svc.runners.values()):
+                assert runner.join(60)
+            self.svc.clock.now += 60
+
+    def message(self) -> tuple:
+        message = self.svc.store.message(self.mid)
+        return message["state"], message["state_reason"]
+
+    def close(self):
+        self.svc.close()
+        self.svc.daemon.store.close()
+
+
+@pytest.fixture
+def ended(tmp_path, monkeypatch):
+    made = []
+
+    def make(stdout):
+        made.append(Ended(tmp_path, monkeypatch, stdout))
+        return made[-1]
+    yield make
+    for world in made:
+        world.close()
+
+
+def test_a_turn_close_stopped_before_its_report_is_settled_after_the_next_daemon_ends_its_attempt(ended, caplog):
+    """C-25.3, C-26.6 (review of 585ea41..4d3d3ea): close() stopped a runner whose turn
+    had reached its outcome (turn.json written, stdin's close queued) before the exit
+    receipt came, so it never reported. The next daemon finalized the attempt from its
+    exit receipt before its first conversation tick, and only attempts not yet ended
+    were adopted: the message stayed running for good, its follow-up never dispatched,
+    and neither a stop nor a cancel could move it. The ended attempt is now replayed,
+    and the message settles; close() says it left one unreported."""
+    import logging
+    world = ended([INIT_OK, LIFECYCLE, SUCCESS])
+    world.svc._adopt_runners()
+    first = world.svc.runners[world.aid]
+    until(lambda: (world.adir / "turn.json").exists(), "the first runner's outcome")
+    with caplog.at_level(logging.WARNING, logger="test-conversations"):
+        world.restart()
+    assert first.finished.is_set() and not first.outcome_reported
+    assert any("outcome unreported" in r.getMessage() and world.mid in r.getMessage() for r in caplog.records)
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    world.end_attempt()
+    follow = submit(world.svc, world.cid, text="next", after=world.mid)
+    world.ticks()
+    assert world.message() == ("complete", None)
+    assert world.svc.store.message(follow)["state"] != "queued"         # dispatched once the turn settled
+
+
+def test_an_attempt_that_ended_with_no_exit_receipt_is_settled_from_its_stdout(ended):
+    """C-26.6: an attempt the daemon ended as lost (its guardian gone) leaves no exit
+    receipt; the replay takes its provider as gone and settles what stdout shows."""
+    world = ended([INIT_OK, LIFECYCLE])
+    world.end_attempt("lost")
+    world.ticks()
+    assert world.message() == ("failed", "ended-without-result")
+    assert world.svc.store.conversation(world.cid)["blocked_by"] == "unfinished-turn"
+
+
+def test_a_replay_reads_all_of_stdout_before_it_ends_the_turn(ended):
+    """C-26.6: a runner that found its provider gone read one more chunk (1 MiB) of
+    stdout and ended the turn there. A runner adopted after a restart is as far behind
+    as the turn was long: a turn with more than 2 MiB before its result ended as one
+    with no result. It reads all of stdout first."""
+    padding = json.dumps({"type": "system", "subtype": "padding", "text": "x" * 4000})
+    world = ended([INIT_OK, LIFECYCLE, *([padding] * 800), SUCCESS])
+    assert (world.adir / "stdout").stat().st_size > 3 * runner_module.READ_CHUNK
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    with world.svc.daemon.store.transaction("attempt.finalizing", job_id=world.job_id, attempt_id=world.aid) as tx:
+        tx.execute("UPDATE attempts SET state='finalizing' WHERE attempt_id=?", (world.aid,))
+    world.ticks(1)
+    assert world.message() == ("complete", None)
+
+
+@pytest.mark.parametrize("cut_at", ["the block", "the message's state"])
+def test_a_settlement_cut_short_leaves_the_message_live_for_the_replay(ended, monkeypatch, cut_at):
+    """C-24.8, C-25.3: a turn that ended without a result blocks its conversation
+    (`unfinished-turn`). The message was settled first and the block written after, so
+    close() refusing the second write (the runner past close()'s wait) left the message
+    failed with its conversation open, and the next daemon dispatched the follow-up
+    into a session left mid-turn. The block is written first: a cut leaves the message
+    live, and the next daemon's replay settles it whole, before any follow-up."""
+    from subfleet.conversations.store import ConversationError
+    world = ended([INIT_OK, LIFECYCLE])
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 1}))
+    closed = ConversationError("store-closed", "the conversation store is closed", code=1)
+    if cut_at == "the block":
+        real_update = world.svc.store.update_conversation
+
+        def cut(conversation_id, **fields):
+            if "blocked_by" in fields:
+                raise closed
+            return real_update(conversation_id, **fields)
+        monkeypatch.setattr(world.svc.store, "update_conversation", cut)
+    else:
+        real_set = world.svc.store.set_state
+
+        def cut(message_id, state, **kwargs):
+            if message_id == world.mid and state == "failed":
+                raise closed
+            return real_set(message_id, state, **kwargs)
+        monkeypatch.setattr(world.svc.store, "set_state", cut)
+    world.svc._adopt_runners()
+    assert world.svc.runners[world.aid].join(60)
+    assert world.message()[0] in ("starting", "running")                # live, not failed with no block
+    world.restart()
+    world.end_attempt("failed")
+    follow = submit(world.svc, world.cid, text="next", after=world.mid)
+    world.ticks()
+    assert world.message() == ("failed", "ended-without-result")
+    assert world.svc.store.conversation(world.cid)["blocked_by"] == "unfinished-turn"
+    assert world.svc.store.message(follow)["state"] == "queued"
+    assert world.svc.daemon.submits == [] or all(a.request_id.split(":")[1] != follow
+                                                 for a in world.svc.daemon.submits)
+
+
+def test_an_ended_attempt_is_replayed_once(ended, monkeypatch):
+    """A replay that cannot settle its message (here its runner fails at once) is not
+    started again on every tick; a later daemon tries again."""
+    world = ended([INIT_OK, LIFECYCLE])
+    world.end_attempt("lost")
+    built = []
+    real = runner_module.TurnRunner._read_stdout
+
+    def failing(self):
+        built.append(self.attempt_id)
+        raise RuntimeError("a runner defect")          # logged; the runner ends without its report
+
+    monkeypatch.setattr(runner_module.TurnRunner, "_read_stdout", failing)
+    world.ticks(3)
+    assert built == [world.aid]
+    monkeypatch.setattr(runner_module.TurnRunner, "_read_stdout", real)
+    world.restart()
+    world.ticks(1)
+    assert world.message() == ("failed", "ended-without-result")

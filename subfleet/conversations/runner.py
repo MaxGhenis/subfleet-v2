@@ -89,8 +89,11 @@ class TurnRunner:
                  on_contain: Callable[[str], None],
                  clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None,
-                 handover: threading.Lock | None = None):
+                 handover: threading.Lock | None = None, ended: bool = False):
         self.store = store
+        # A replay of an attempt the job store has ended (`ConversationService._replay_unsettled`):
+        # its provider is gone whether or not it left an exit receipt.
+        self.ended = ended
         self.attempt = attempt
         self.attempt_id = attempt["attempt_id"]
         self.spec = spec
@@ -227,7 +230,8 @@ class TurnRunner:
                 if self._flush_due():
                     self._flush()
                 if self._process_gone():
-                    self._read_stdout()
+                    while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
+                        pass
                     if self.driver.outcome is None:
                         self._apply(self.driver.eof(self.offset))
                     self._flush()
@@ -252,13 +256,14 @@ class TurnRunner:
             return
         if isinstance(exc, ConversationError) and exc.reason == "store-closed":
             # Its service closed while it was still going: what it did not record, a
-            # runner a later daemon adopts for the attempt replays from stdout (C-26.6).
+            # later daemon's runner replays from stdout (C-26.6), whether it adopts the
+            # attempt live or replays it ended (`ConversationService._replay_unsettled`).
             self.log.info("turn runner %s stopped: its service closed", self.attempt_id)
         else:
             self.log.error("turn runner %s failed: %s: %s", self.attempt_id, type(exc).__name__, exc)
 
     def _process_gone(self) -> bool:
-        return (self.adir / "exit.json").exists()
+        return self.ended or (self.adir / "exit.json").exists()
 
     def _read_stdout(self) -> bool:
         path = self.adir / "stdout"
