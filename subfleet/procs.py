@@ -210,7 +210,9 @@ class ProcessTable:
     Its boot identity is read the first time it builds a live pid's identity,
     and once, whatever the answer: a table that shows no live pid of interest,
     as an empty census does, needs no `sysctl`, and a table shared by every
-    running attempt costs one read however many ask.
+    running attempt costs one read however many ask. The daemon's shared table
+    has it read by `boot()` before any attempt is given it, so that only the
+    inspection that read the table waits for it.
     """
     rows: dict[int, tuple[int, int, str, str]]   # pid -> (ppid, pgid, stat, lstart)
     boot_id: str | None = None                   # None: read on first need, by `boot`

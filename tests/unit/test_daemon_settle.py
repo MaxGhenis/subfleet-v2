@@ -479,6 +479,49 @@ def test_c5_12_only_the_inspection_that_reads_waits_for_ps(daemon, monkeypatch):
         daemon._table_lock.release()
 
 
+def test_c5_12_only_the_inspection_that_reads_waits_for_the_boot_identity(daemon, monkeypatch):
+    """C-5.12 the reader reads the table's boot identity before any other attempt is given the table, so a slow
+    `sysctl` holds the reader's worker only: the others return at once and ask again next tick, and then share
+    that one read.
+
+    Final review of PR #37, 2026-09-26: each attempt given the table read its boot identity itself, behind the
+    table's lock, so one 2 s `sysctl` held all four inspecting workers for 1.8 to 2.2 s."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
+    daemon.inspect_interval_s = 30                             # one table serves the whole test
+    others = [add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
+    reading, release, boot_reads = threading.Event(), threading.Event(), []
+
+    def slow_boot_id():
+        boot_reads.append(1)
+        reading.set()
+        assert release.wait(30), "the boot identity read was never released"
+        return "boot"
+    monkeypatch.setattr(daemon_module.procs, "boot_id", slow_boot_id)
+    monkeypatch.setattr(daemon_module.procs, "snapshot",
+                        lambda: ProcessTable({pid: (1, pid, "Ss", STARTED) for pid in (4242, 5252, 6262)}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("nothing is asked singly"))
+    daemon._contain = never_census
+    reader = threading.Thread(target=daemon._process_attempt, args=(ATTEMPT,), daemon=True)
+    reader.start()
+    try:
+        assert reading.wait(10), "the reader never read the boot identity"
+        for aid in others:                                     # they ask while its `sysctl` runs
+            worker = threading.Thread(target=daemon._process_attempt, args=(aid,), daemon=True)
+            worker.start()
+            worker.join(5)
+            assert not worker.is_alive(), f"{aid} waited for the reader's sysctl"
+    finally:
+        release.set()
+        reader.join(10)
+    assert not reader.is_alive()
+    for aid in others:                                         # their next tick: the table, its one boot read
+        daemon._process_attempt(aid)
+    assert boot_reads == [1]
+    for aid, pid in zip([ATTEMPT, *others], (4242, 5252, 6262)):
+        assert str(pid) in json.loads(daemon.store.get_attempt(aid)["evidence_json"])["owned_identities"]
+
+
 def test_c5_12_a_failed_shared_read_is_all_that_an_outage_costs_an_interval(daemon, monkeypatch):
     """C-5.12, C-4.2 when this interval's table could not be read, no attempt asks about its guardian singly,
     and nothing is decided until a read works."""
