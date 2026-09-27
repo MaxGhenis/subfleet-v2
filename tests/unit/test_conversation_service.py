@@ -1197,7 +1197,7 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
 def test_close_never_runs_a_file_op_it_had_not_started(svc, monkeypatch, tmp_path):
     """C-25.3: close() drops the file ops still queued behind busy threads (they never
     run, so write nothing), and the pool accepts none after it."""
-    # Three different images: two adds of the same bytes at once share a temporary name.
+    # The queued image is neither running one, so a copy of it can come only from its own op.
     running = [tmp_path / "one.png", tmp_path / "two.png"]
     for n, path in enumerate(running):
         path.write_bytes(PNG + bytes([n]))
@@ -1767,6 +1767,52 @@ def test_runner_close_invariants_hold_for_random_timings(tmp_path, monkeypatch):
 def snapshot(root: Path) -> dict[str, tuple[int, int]]:
     return {str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns)
             for p in root.rglob("*") if p.is_file()}
+
+
+def test_two_adds_of_the_same_image_at_once_both_succeed(svc, monkeypatch, tmp_path):
+    """C-28.1: the app resending after its request timed out while the first add still
+    ran, or two clients, runs two `attachment.add` calls of the same bytes on the file
+    pool's two threads at once. Both wrote through the one temporary name
+    `.<sha>.<pid>.tmp`: the second open truncated the first's file, one rename found it
+    gone (FileNotFoundError) and the other could hash a copy the second had emptied
+    (copy-mismatch), in 40 of 40 trials; the stored copy was right and one op failed,
+    sometimes both. Each add now writes a temporary file of its own and renames it onto
+    the content-addressed name, so both return the same receipt and one copy is left."""
+    image = tmp_path / "screenshot.png"
+    data = PNG + bytes(range(256)) * 8192                  # 2 MiB: the writes take a while
+    image.write_bytes(data)
+    digest = hashlib.sha256(data).hexdigest()
+    attachments = svc.root / "attachments"
+    read, written = threading.Barrier(2), threading.Barrier(2)
+    real_sniff, real_rename = attachment_module.sniff, os.rename
+
+    def sniff(head):                        # both have read the image before either writes
+        read.wait(30)
+        return real_sniff(head)
+
+    def rename(src, dst, *args, **kwargs):  # and both have written before either renames
+        if Path(dst).parent == attachments:
+            try:
+                written.wait(5)
+            except threading.BrokenBarrierError:   # an add that found the copy made writes none
+                pass
+        return real_rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(attachment_module, "sniff", sniff)
+    monkeypatch.setattr(os, "rename", rename)
+    pool = svc.pool_for("attachment.add")
+    adds = [pool.submit(svc.handle, "attachment.add", {"path": str(image)}, None) for _ in range(2)]
+    receipts, problems = [], []
+    for add in adds:
+        try:
+            receipts.append(add.result(60))
+        except Exception as exc:
+            problems.append(f"an add failed: {type(exc).__name__}: {exc}")
+    assert problems == [], "\n".join(problems)
+    assert receipts == [{"sha256": digest, "media_type": "image/png", "bytes": len(data)}] * 2
+    assert tree(attachments) == [f"{digest}.png"]
+    assert (attachments / f"{digest}.png").read_bytes() == data
+    assert svc.store.attachment(digest)["path"] == str(attachments / f"{digest}.png")
 
 
 def until_true(predicate, what: str, timeout: float = 30.0) -> None:

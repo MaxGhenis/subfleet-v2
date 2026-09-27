@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import errno
+import hashlib
 import os
+import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -126,6 +130,115 @@ def test_a_changed_copy_is_caught_before_a_frame_is_built(store, tmp_path):
     with pytest.raises(ConversationError) as err:
         attachments.check(store, out["sha256"])
     assert err.value.reason == "attachment-missing"
+
+
+def copies(store) -> list[str]:
+    """What `attachments/` holds, each file checked to be a whole copy named by its hash
+    (a temporary file, named `.<sha>.<token>.tmp`, fails the check)."""
+    names = sorted(p.name for p in (store.root / "attachments").iterdir())
+    for name in names:
+        digest = hashlib.sha256((store.root / "attachments" / name).read_bytes()).hexdigest()
+        assert name.split(".")[0] == digest, f"{name} is not a whole copy named by its hash"
+    return names
+
+
+def full(*args, **kwargs):
+    raise OSError(errno.ENOSPC, "No space left on device")
+
+
+@pytest.mark.parametrize("step,fake", [("write", full), ("fsync", full), ("rename", full),
+                                       ("write", lambda fd, buf: 0)],
+                         ids=["write", "fsync", "rename", "write-nothing"])
+def test_a_copy_that_fails_leaves_no_temporary_file(store, tmp_path, monkeypatch, step, fake):
+    """C-28.1 a copy that fails part way (a full disk, or a write that makes no progress
+    and would otherwise loop forever) removes its temporary file, whose name is its own,
+    so failed adds leave nothing behind, and the next add makes the copy."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    real = getattr(os, step)
+    monkeypatch.setattr(os, step, fake)
+    with pytest.raises(OSError):
+        attachments.add(store, str(src))
+    monkeypatch.setattr(os, step, real)
+    assert copies(store) == []
+    out = attachments.add(store, str(src))
+    assert copies(store) == [f"{out['sha256']}.png"]
+
+
+def test_a_temporary_name_another_add_holds_is_drawn_again(store, tmp_path, monkeypatch):
+    """C-28.1 the temporary name is random and created exclusively; one that is already
+    taken (another add drew the same token) is drawn again, never truncated or unlinked,
+    even by an add that finds every name it draws taken and fails."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    digest = hashlib.sha256(PNG).hexdigest()
+    taken = store.subdirectory("attachments") / f".{digest}.aaaaaaaa.tmp"
+    taken.write_bytes(b"another add's copy, half written")
+    drawn = []
+
+    def always_taken(n):
+        drawn.append(n)
+        return "aaaaaaaa"
+
+    monkeypatch.setattr(attachments, "secrets", SimpleNamespace(token_hex=always_taken))   # this module only
+    with pytest.raises(FileExistsError):
+        attachments.add(store, str(src))
+    assert len(drawn) == 8                  # up to 8 draws, then the add fails
+    assert sorted(p.name for p in taken.parent.iterdir()) == [taken.name]
+    assert taken.read_bytes() == b"another add's copy, half written"
+    draws = iter(["aaaaaaaa", "aaaaaaaa", "bbbbbbbb"])
+    monkeypatch.setattr(attachments, "secrets", SimpleNamespace(token_hex=lambda n: next(draws)))
+    out = attachments.add(store, str(src))
+    assert out["sha256"] == digest and next(draws, None) is None
+    assert taken.read_bytes() == b"another add's copy, half written"
+    assert sorted(p.name for p in taken.parent.iterdir()) == [taken.name, f"{digest}.png"]
+    assert (taken.parent / f"{digest}.png").read_bytes() == PNG
+
+
+def test_a_short_write_still_makes_a_whole_copy(store, tmp_path, monkeypatch):
+    """C-28.1 `os.write` may write less than it was given; the copy goes on until it is
+    whole rather than renaming a truncated file into place."""
+    data = PNG + bytes(range(256)) * 64
+    src = tmp_path / "a.png"
+    src.write_bytes(data)
+    real = os.write
+    monkeypatch.setattr(os, "write", lambda fd, buf: real(fd, buf[:1000]))
+    out = attachments.add(store, str(src))
+    assert (store.root / "attachments" / f"{out['sha256']}.png").read_bytes() == data
+
+
+@pytest.mark.parametrize("n", [3, 8])
+def test_adds_at_once_each_get_their_receipt_and_leave_one_copy_per_image(store, tmp_path, monkeypatch, n):
+    """C-28.1 any number of adds at once, of the same image and of different ones, each
+    return their image's receipt, and what is left is one whole copy per image."""
+    images = []
+    for k in range(2):
+        images.append(tmp_path / f"{k}.png")
+        images[k].write_bytes(PNG + bytes([k]) * (1 << 20))
+    lined_up = threading.Barrier(n)
+    real = attachments.sniff
+
+    def sniff(head):                        # every add has read its image before any writes
+        lined_up.wait(30)
+        return real(head)
+
+    monkeypatch.setattr(attachments, "sniff", sniff)
+    results: list = [None] * n
+
+    def run(i):
+        try:
+            results[i] = attachments.add(store, str(images[i % 2]))["sha256"]
+        except Exception as exc:
+            results[i] = f"{type(exc).__name__}: {exc}"
+
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(n)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(60)
+    digests = [hashlib.sha256(image.read_bytes()).hexdigest() for image in images]
+    assert results == [digests[i % 2] for i in range(n)]
+    assert copies(store) == sorted(f"{digest}.png" for digest in digests)
 
 
 def test_a_development_build_counts_as_the_app_only_on_a_development_state_root(tmp_path, monkeypatch):

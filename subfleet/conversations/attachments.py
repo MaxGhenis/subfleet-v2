@@ -9,8 +9,11 @@ sees; the original can be deleted the moment the receipt arrives.
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import hashlib
 import os
+import secrets
 import stat
 from pathlib import Path
 
@@ -32,6 +35,40 @@ def sniff(head: bytes) -> tuple[str, str] | None:
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return "image/webp", "webp"
     return None
+
+
+def _copy(data: bytes, target: Path) -> None:
+    """Write `data` to `target` through a temporary file of this call's own, renamed
+    onto it. Two adds of the same bytes at once (the app resending after its request
+    timed out while the first add still ran, or two clients) each rename a whole copy
+    into place; through one shared name, the second open truncated the first's file
+    and one rename found it gone. A copy that fails removes its temporary file, if the
+    directory still lets it."""
+    for _ in range(8):                                    # a name another add holds is drawn again
+        tmp = target.with_name(f".{target.stem}.{secrets.token_hex(4)}.tmp")
+        try:
+            out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            break
+        except FileExistsError as exc:
+            taken = exc
+    else:
+        raise taken                                       # every draw taken: fail before the cleanup's try
+    try:
+        try:
+            view = memoryview(data)
+            while view:                                   # os.write may write less than asked
+                written = os.write(out, view)
+                if not written:                           # never loop without progress
+                    raise OSError(errno.EIO, "the attachment copy made no progress")
+                view = view[written:]
+            os.fsync(out)
+        finally:
+            os.close(out)
+        os.rename(tmp, target)                            # over an identical copy, if another add got there
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def add(store: ConversationStore, path: str, expected_sha256: str | None = None) -> dict:
@@ -71,14 +108,7 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
     directory = store.subdirectory("attachments")         # never the state root itself
     target = directory / f"{digest}.{ext}"
     if not target.exists():
-        tmp = directory / f".{digest}.{os.getpid()}.tmp"
-        out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-        try:
-            os.write(out, data)
-            os.fsync(out)
-        finally:
-            os.close(out)
-        os.rename(tmp, target)
+        _copy(data, target)
     if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
         raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
     store.add_attachment(digest, media, len(data), str(target))
