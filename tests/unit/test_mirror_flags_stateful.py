@@ -60,8 +60,12 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         self.root = base / "state"
         self.root.mkdir()
         ticks = itertools.count()
+        # Each rule models exactly one flag transaction and injects its races
+        # once. Cooperative hot scheduling is checked separately; a wall-clock
+        # service here would apply these hooks to extra unmodeled transactions.
         self.running = mirror.Mirror(
-            self.root, fx.policy(), now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
+            self.root, fx.policy(mirror_hot_interval_s=0),
+            now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
         self.state: model.State | None = None
         self.focus = itertools.count(1)
         #: Folders some earlier pass listed (the code reads an unlisted

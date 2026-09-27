@@ -619,7 +619,8 @@ def test_equal_bytes_are_parsed_once(world, monkeypatch):
     parsed = []
     project = mirror._project
     monkeypatch.setattr(mirror, "_project", lambda value: parsed.append(1) or project(value))
-    running = engine(world)
+    # These counts describe one full inventory; hot cadence has separate tests.
+    running = engine(world, mirror_hot_interval_s=0)
     assert running.run_once().entries_scanned == 60
     assert len(parsed) == 10
     payload = next(iter(running._payloads.values())).value
@@ -633,7 +634,8 @@ def test_an_unchanged_folder_is_not_relisted(world, monkeypatch):
     home, store, _root, _log = world
     for n in range(5):
         openable(home, store, f"session-{n}", ACCOUNT_A, ORG_A)
-    running = engine(world)
+    # These counts describe one full inventory; hot cadence has separate tests.
+    running = engine(world, mirror_hot_interval_s=0)
     running.run_once()
     running.run_once()                                  # re-lists what the first wrote
     reads = count_entry_reads(monkeypatch)
