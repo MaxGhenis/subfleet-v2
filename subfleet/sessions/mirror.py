@@ -30,10 +30,13 @@ the mirror, whose passes were then taking up to two hours, copied them at
   only when the rename fails (no in-place rewrite among 217,706 files on
   2026-09-24), so a record write normally changes its folder. That includes
   the old account's folder, where sessions still running at a switch keep
-  saving. The hot pass shares the full pass's worker, so it waits behind a
-  full pass in flight: 1-2 s warm, ~9 s for the ten-minute sweep, ~45 s for
-  the first pass after a daemon restart. Title, flag and setting changes
-  spread with the 60 s full pass, which also repairs, revives and prunes.
+  saving. Both timers share one worker and one writer lock. While a full
+  pass runs, its checkpoints service a flag-only hot pass at that cadence,
+  using a separate inventory; an archive, star, title or setting edit does
+  not wait for the full inventory to finish. A hot pass gathers every copy
+  of each changed session and retries held candidates. New-session spreading
+  waits for the worker; revival, pruning, in-place sweep detection and
+  transcript-title discovery remain the full pass's work.
 * **Stay incremental.** A pass that re-parsed every file could not keep up:
   its payload cache held 128 MB of the ~300 MB of distinct parsed records,
   so warm passes re-read most of 218k files, and a daemon restart threw away
@@ -167,9 +170,6 @@ JOURNAL_WINDOW_S = 900.0
 #: (the daemon) still needs.
 JOURNAL_UNSURE_S = 48 * 3600.0
 JOURNAL_LIMIT = 50_000
-#: A hot pass rewrites its sidecar block at most this often unless it changed
-#: something.
-HOT_RECORD_S = 60.0
 
 #: The fields a pass reads from an index entry; the cache keeps nothing else.
 #: Records average 12 KB, three quarters of it MCP configuration the mirror
@@ -341,14 +341,27 @@ def _load(path: Path, *, strict: bool = False) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _read_entry(path: Path) -> bytes:
+def _read_entry(path: Path) -> tuple[bytes, os.stat_result]:
     """An index entry's bytes: the one read the inventory makes per changed file.
 
     The store is listed by name alone, so whatever holds a record's name is
-    opened only as a regular file (see `_load`).
+    opened only as a regular file (see `_load`). Keep its descriptor's stat:
+    a cold entry needs no preliminary path stat. O_NONBLOCK is harmless on a
+    regular file, so a raw descriptor also avoids the stream wrapper's stats
+    and two fcntls to clear it. With GIL contention each needless syscall can
+    cost a full thread switch interval after the syscall has already returned.
     """
-    with transcripts.open_regular(path) as stream:
-        return stream.read()
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise transcripts.NotRegularFile(errno.EINVAL, "not a regular file", str(path))
+        chunks = []
+        while chunk := os.read(fd, 64 * 1024):
+            chunks.append(chunk)
+        return b"".join(chunks), info
+    finally:
+        os.close(fd)
 
 
 def _copy_regular(source: str | Path, out) -> os.stat_result:
@@ -405,9 +418,12 @@ def _remove_leftovers(paths: Iterable[str]) -> None:
             pass
 
 
-def _signature_of(path: str | Path) -> tuple[int, ...]:
-    info = os.stat(path)
+def _stat_signature(info: os.stat_result) -> tuple[int, ...]:
     return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size, info.st_ctime_ns)
+
+
+def _signature_of(path: str | Path) -> tuple[int, ...]:
+    return _stat_signature(os.stat(path))
 
 
 def _install(temporary: Path, destination: Path, *, expect: tuple[int, ...] | None,
@@ -732,7 +748,6 @@ class Mirror:
         self._inventoried = False
         #: New records the hot pass could not spread yet (no transcript).
         self._retry: dict[str, float] = {}
-        self._hot_recorded: tuple[float, Any] | None = None
         self._desktop: DesktopLog | None = None
         self.journal = _Journal(self.dir / JOURNAL_NAME)
         #: `(path, inode, ctime) -> projection` for the load-gap report's reads.
@@ -749,6 +764,17 @@ class Mirror:
         #: What the last `folders()` call could not list.
         self._store_error: OSError | None = None
         self._unlisted_accounts: list[Path] = []
+        #: Flag candidates held by the previous pass must be retried even if
+        #: no directory changes again.
+        self._flag_retry: set[str] = set()
+        #: A full pass services flags synchronously under its existing flock.
+        #: Its helper has separate inventory bookkeeping, never another writer.
+        self._hot_worker: Mirror | None = None
+        self._hot_options: Options | None = None
+        self._hot_due = 0.0
+        self._hot_services = 0
+        self._hot_epoch = 0
+        self._flags_active = False
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -783,7 +809,7 @@ class Mirror:
         self._entries[os.fspath(path)] = (signature, digest)
         return payload.value
 
-    def _entry(self, path: Path) -> dict:
+    def _entry(self, path: Path, *, listing: os.DirEntry | None = None) -> dict:
         """An immutable projection of one entry, read only when its signature moved.
 
         Equal bytes are parsed once: the 217,706 entries of 2026-09-24 held
@@ -795,11 +821,14 @@ class Mirror:
         cached = self._entries.get(key)
         known = (self._payloads[cached[1]].value.get("cliSessionId") or "") if cached else ""
         try:
-            signature = self._signature(path)
-            if cached is not None and cached[0] == signature:
-                return self._payloads[cached[1]].value
+            if cached is not None:
+                signature = (_stat_signature(listing.stat()) if listing is not None
+                             else self._signature(path))
+                if cached[0] == signature:
+                    return self._payloads[cached[1]].value
             self._forget(path)
-            raw = _read_entry(path)
+            raw, info = _read_entry(path)
+            signature = _stat_signature(info)
         except FileNotFoundError:
             self._forget(path)                  # gone: no longer anyone's copy
             return {}
@@ -850,6 +879,52 @@ class Mirror:
         if changed or instant >= self._progress_due:
             self._record(current)
             self._progress_due = instant + PROGRESS_INTERVAL_S
+        if (self._hot_options is not None and not self._flags_active
+                and instant >= self._hot_due):
+            self._service_hot()
+
+    def _fork_hot(self) -> "Mirror":
+        """Snapshot the inventory before a full scan starts changing it.
+
+        Projections and completed folder listings are immutable. Only payload
+        reference counts and the inventory containers need their own copies.
+        The journal is shared: both passes write sequentially under one flock.
+        """
+        worker = Mirror(self.root, self.policy, now=self.now, cancel=self.cancel)
+        worker._entries = dict(self._entries)
+        worker._payloads = {key: _Payload(row.value, row.size, row.refs)
+                            for key, row in self._payloads.items()}
+        worker._payload_bytes = self._payload_bytes
+        worker._folders = dict(self._folders)
+        worker._dirty = set(self._dirty)
+        worker._account_orgs = dict(self._account_orgs)
+        worker._stems = dict(self._stems)
+        worker._flag_retry = set(self._flag_retry)
+        worker._desktop = self._desktop
+        worker.journal = self.journal
+        return worker
+
+    def _service_hot(self) -> None:
+        """Service flags at a full-pass checkpoint without releasing its lock.
+
+        No revival, spreading, repair or pruning here: a full pass's retained
+        liveness and empty-copy decisions remain valid. A flag transaction is
+        never interrupted by another one; its base and writes commit together.
+        """
+        worker, options = self._hot_worker, self._hot_options
+        if worker is None or options is None:
+            return
+        worker.now, worker.cancel = self.now, self.cancel
+        result = worker._run_hot_locked(options, spread=False)
+        self._hot_services += 1
+        if result.sessions:
+            # Even a candidate whose copies already agree can advance its base.
+            # An older full snapshot must not put that base back.
+            self._hot_epoch += 1
+        interval = float(self.policy.get("sessions", {}).get("mirror_hot_interval_s", 2))
+        # Completion-based: a slow hot pass cannot recursively starve the full
+        # inventory. A due service starts at the next checkpoint after this.
+        self._hot_due = time.monotonic() + interval
 
     # --- state files ---------------------------------------------------------
 
@@ -885,19 +960,12 @@ class Mirror:
         """The hot pass's own block; never the heartbeat C-23.28 judges by."""
         if current.dry_run:
             return
-        instant = time.monotonic()
-        seen = (load_gap or {}).get("status"), (load_gap or {}).get("pending")
-        last = self._hot_recorded
-        if (not current.changed and current.state == "ok" and last is not None
-                and last[1] == seen and instant - last[0] < HOT_RECORD_S):
-            return
         self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
         value = self.sidecar()
         value["hot"] = current.to_dict()
         if load_gap is not None:
             value["load_gap"] = load_gap
         _write_json(self.sidecar_path, value)
-        self._hot_recorded = (instant, seen)
 
     # --- the store -----------------------------------------------------------
 
@@ -1103,10 +1171,10 @@ class Mirror:
                 found, leftovers = [], []
                 for item in listing:
                     if item.name.startswith("local_") and item.name.endswith(".json"):
-                        found.append((sys.intern(item.name), item.inode()))
+                        found.append((sys.intern(item.name), item))
                     elif sweep and item.name.endswith(TEMPORARY_SUFFIX):
                         leftovers.append(item.path)
-                found.sort()
+                found.sort(key=lambda row: row[0])
         except OSError as exc:
             # Unknown is not empty: an empty view would hide every session the
             # folder holds and invite copies over them. List it again next pass.
@@ -1122,16 +1190,16 @@ class Mirror:
         complete = signature is not None
         base = os.fspath(path)
         previous_owner: dict[str, str] | None = None
-        for name, inode in found:
+        for name, item in found:
             self._checkpoint(current)
             key = os.path.join(base, name)
             cached = self._entries.get(key)
             if (not sweep and cached is not None and name in previous
-                    and cached[0][1] == inode):
+                    and cached[0][1] == item.inode()):
                 data = self._payloads[cached[1]].value
             else:
                 before = cached[1] if cached is not None else None
-                data = self._entry(path / name)
+                data = self._entry(path / name, listing=item)
                 after = self._entries.get(key)
                 if after is None:
                     complete = False
@@ -1151,7 +1219,7 @@ class Mirror:
                 self._unread[key] = identity
             if identity:
                 ids.setdefault(identity, []).append(name)
-        names = frozenset(name for name, _inode in found)
+        names = frozenset(name for name, _item in found)
         for name in previous - names:
             self._forget(path / name)
         self._folders[path] = _Folder(signature, names, ids, complete)
@@ -1757,6 +1825,13 @@ class Mirror:
             self._record(current)
             self._pass_payloads = {}
             self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
+            interval = float(self.policy.get("sessions", {}).get("mirror_hot_interval_s", 2))
+            self._hot_services = 0
+            self._hot_epoch = 0
+            if interval > 0 and options.flag_sync:
+                self._hot_worker = self._fork_hot()
+                self._hot_options = options
+                self._hot_due = time.monotonic() + interval
             self._pass(current, options)
             self._checkpoint(current, "complete")
             current.state = "ok"
@@ -1771,6 +1846,10 @@ class Mirror:
             if lock is not None:
                 # Only the pass that holds the lock owns the per-pass payloads.
                 self._pass_payloads = {}
+                if self._hot_worker is not None:
+                    self._flag_retry.update(self._hot_worker._flag_retry)
+                self._hot_worker = None
+                self._hot_options = None
                 try:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 finally:
@@ -1784,8 +1863,8 @@ class Mirror:
         every folder before the next account switch. This pass lists only the
         folders whose directory changed, puts each new or changed record whose
         transcript exists into every folder that lacks the session, and fills
-        stale empty copies. Title, flag and setting changes, revival and
-        pruning stay with the full pass. The first pass in a process is a full
+        stale empty copies, and syncs changed sessions' flags, titles and
+        settings. Revival and pruning stay with the full pass. The first pass in a process is a full
         one, because spreading needs to know what every folder already holds.
         It shares the full pass's lock and never touches the full pass's
         record in the sidecar, so C-23.28's heartbeat still means a full pass.
@@ -1802,26 +1881,41 @@ class Mirror:
                 current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
                 return current
-            self.journal.refresh()
-            self._pass_payloads = {}
-            self._hot(current, options)
-            current.state = "ok"
-            current.finished_at = _iso(self.now())
-        except (_Cancelled, OSError) as exc:
-            current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
-            current.error = f"{type(exc).__name__}: {exc}"
-            current.finished_at = _iso(self.now())
+            return self._run_hot_locked(options)
         finally:
             if lock is not None:
-                self._pass_payloads = {}
                 try:
-                    try:
-                        self._record_hot(current, self._settle(options))
-                    except OSError:
-                        pass
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 finally:
                     lock.close()
+        return current
+
+    def _run_hot_locked(self, options: Options, *, spread: bool = True) -> Pass:
+        """A hot pass owned by the caller's flock, including its own sidecar.
+
+        Called by run_hot, or synchronously by the full lock holder. It never
+        acquires or releases a lock and never marks a full pass successful.
+        """
+        current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run, kind="hot")
+        try:
+            self.journal.refresh()
+            self._pass_payloads = {}
+            # Even a usually quiet hot pass may hang on its next read. Record
+            # its start as well as its finish without moving the full heartbeat.
+            self._record_hot(current, None)
+            self._hot(current, options, spread=spread)
+            current.stage = "complete"
+            current.state = "ok"
+        except (_Cancelled, OSError) as exc:
+            current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
+            current.error = f"{type(exc).__name__}: {exc}"
+        finally:
+            self._pass_payloads = {}
+            current.finished_at = _iso(self.now())
+            try:
+                self._record_hot(current, self._settle(options))
+            except OSError:
+                pass
         return current
 
     def _lock(self):
@@ -1941,44 +2035,35 @@ class Mirror:
 
         if options.flag_sync:
             self._checkpoint(current, "resolving flags")
-            # Flag sync decides a session from every copy or not at all: a copy
-            # it skipped would read as a user's change next pass and undo the
-            # change it spread (review round 5). An unlisted folder's copies
-            # are read by name from its last listing; a folder never listed
-            # hides which sessions it holds, so every session waits.
-            flag_files = dict(folder_files)
-            blind = bool(unknown)
-            for where, reason in unknown:
-                self._why[where] = reason
-            for path in unlisted:
-                state = self._folders.get(path)
+            flag_files = folder_files
+            if self._hot_services:
+                for _attempt in range(2):
+                    # An inline hot pass may have advanced the base while this
+                    # pass retained old projections. Decide again from a fresh
+                    # inventory. Its scan still services hot checkpoints; if
+                    # one processed candidates, refresh again before deciding.
+                    epoch = self._hot_epoch
+                    flag_files, unlisted, unknown, failed = self._flag_inventory(current, options)
+                    if epoch == self._hot_epoch:
+                        break
+                else:
+                    # Continuous edits cannot force an endless full refresh.
+                    # Hot sync remains active; this full decision is held and
+                    # retried next pass without touching any merge base.
+                    identities = {data.get("cliSessionId") for files in flag_files.values()
+                                  for data in files.values() if data.get("cliSessionId")}
+                    current.flags_held += len(identities)
+                    current.held_by = [{"path": str(store_dir()),
+                                        "reason": "hot sync advanced during flag inventory; retry next pass"}]
+                    self._flag_retry.update(identities)
+                    flag_files = None
+            if flag_files is not None:
+                self._flags_active = True
                 try:
-                    info = os.stat(path)
-                    now_signature: tuple[int, ...] | None = (info.st_dev, info.st_ino,
-                                                             info.st_mtime_ns)
-                except OSError:
-                    now_signature = None
-                if state is None or now_signature is None or now_signature != state.signature:
-                    # Never listed, or changed since (the mirror's own copies
-                    # change it too): what it holds now is unknown.
-                    blind = True
-                    self._why[os.fspath(path)] = ("folder not listed, never listed" if state is None
-                                                  else "folder not listed, changed since its listing")
-                    continue
-                owner = {name: identity for identity, names in state.ids.items()
-                         for name in names}
-                files = {}
-                for name in sorted(state.names):
-                    files[name] = self._entry(path / name)
-                    key = os.path.join(path, name)
-                    if key in self._unread and not self._unread[key]:
-                        self._unread[key] = owner.get(name, "")
-                flag_files[path] = files
-            self.sync_flags(flag_files, stems, options, current, unread=dict(self._unread),
-                            blind=blind, complete=not unlisted and not failed and not self._unread)
-            if current.flags_held:
-                current.held_by = [{"path": where, "reason": reason}
-                                   for where, reason in list(self._why.items())[:HELD_BY_LIMIT]]
+                    self._sync_inventory_flags(flag_files, stems, options, current,
+                                               unlisted, unknown, failed)
+                finally:
+                    self._flags_active = False
 
         if options.prune:
             self._checkpoint(current, "pruning entries")
@@ -2005,27 +2090,88 @@ class Mirror:
         if sweep:
             self._last_sweep = time.monotonic()
 
-    def _hot(self, current: Pass, options: Options) -> None:
-        self._checkpoint(current, "reading entries")
+    def _flag_inventory(self, current: Pass, options: Options):
+        """Refresh a full flag snapshot after embedded hot writes."""
         folders = self.folders(options.exclude)
-        try:
-            kept, _unknown = self._listing_gaps(options)
-        except OSError as exc:
-            # Nothing to spread from a store it cannot list, and nothing to
-            # forget. The full pass records the failure; a hot pass every 2 s
-            # would only repeat it.
-            current.error = f"store not listed: {exc}"
-            return
+        kept, unknown = self._listing_gaps(options)
+        failed = set(self._unlisted_accounts)
+        folders += kept
+        files, unlisted = {}, []
+        self._unread, self._why = {}, {}
+        for _account, _org, path in folders:
+            self._checkpoint(current)
+            try:
+                found, _fresh = self._scan(path, current, sweep=False)
+            except _Unlisted as exc:
+                if exc.transient:
+                    unlisted.append(path)
+                continue
+            files[path] = found if found is not None else self._files(path)
+        return files, unlisted, unknown, failed
+
+    def _sync_inventory_flags(self, folder_files, stems, options, current,
+                              unlisted, unknown, failed, *, candidates=None) -> None:
+        """The same unknown-copy rules for full and incremental flag sync.
+
+        A failed listing is usable by name only while its directory signature
+        still matches. Unknown identities hold every candidate; unseen bases
+        survive every partial inventory, including every hot pass.
+        """
+        flag_files = dict(folder_files)
+        blind = bool(unknown)
+        for where, reason in unknown:
+            self._why[where] = reason
+        for path in unlisted:
+            state = self._folders.get(path)
+            now_signature = _directory_signature(path)
+            if state is None or now_signature is None or now_signature != state.signature:
+                blind = True
+                self._why[os.fspath(path)] = ("folder not listed, never listed" if state is None
+                                              else "folder not listed, changed since its listing")
+                continue
+            owner = {name: identity for identity, names in state.ids.items() for name in names}
+            files = {}
+            for name in sorted(state.names):
+                files[name] = self._entry(path / name)
+                key = os.path.join(path, name)
+                if key in self._unread and not self._unread[key]:
+                    self._unread[key] = owner.get(name, "")
+            flag_files[path] = files
+        if candidates is not None:
+            flag_files = {path: {name: data for name, data in files.items()
+                                 if data.get("cliSessionId") in candidates}
+                          for path, files in flag_files.items()}
+        identities = {data["cliSessionId"] for files in flag_files.values()
+                      for data in files.values() if data.get("cliSessionId")}
+        self.sync_flags(flag_files, stems, options, current, unread=dict(self._unread),
+                        blind=blind, complete=candidates is None and not unlisted
+                        and not failed and not self._unread)
+        if current.flags_held:
+            self._flag_retry.update(identities)
+            current.held_by = [{"path": where, "reason": reason}
+                               for where, reason in list(self._why.items())[:HELD_BY_LIMIT]]
+        else:
+            self._flag_retry.difference_update(identities)
+
+    def _hot(self, current: Pass, options: Options, *, spread: bool = True) -> None:
+        self._checkpoint(current, "reading entries")
+        self._unread, self._why = {}, {}
+        folders = self.folders(options.exclude)
+        kept, unknown = self._listing_gaps(options)
         folders = folders + kept
+        failed = set(self._unlisted_accounts)
         current.accounts = len(folders)
         fresh: list[tuple[Path, str]] = []
         unlisted: set[Path] = set()
+        unknown_folders: list[Path] = []
         for _account, _org, path in folders:
             self._checkpoint(current)
             try:
                 _files, names = self._scan(path, current, sweep=False)
-            except _Unlisted:
+            except _Unlisted as exc:
                 unlisted.add(path)
+                if exc.transient:
+                    unknown_folders.append(path)
                 continue
             fresh.extend((path, name) for name in names)
         self._drop_folders(folders)             # never forget what it could not list
@@ -2042,6 +2188,9 @@ class Mirror:
                 del self._retry[identity]
             else:
                 identities.setdefault(identity, since)
+        if options.flag_sync:
+            for identity in self._flag_retry:
+                identities.setdefault(identity, instant)
         current.sessions = len(identities)
         if not identities:
             return
@@ -2066,8 +2215,8 @@ class Mirror:
             written.setdefault(path, {})[name] = data
             written_ids.setdefault(path, set()).add(identity)
 
-        self._checkpoint(current, "copying entries")
-        for identity, since in identities.items():
+        self._checkpoint(current, "copying entries" if spread else "resolving flags")
+        for identity, since in (identities.items() if spread else ()):
             # Openability is a property of the session, not of a copy: any copy
             # may know the cwd its transcript lives under.
             best: tuple[Any, dict, str, Path] | None = None
@@ -2087,6 +2236,20 @@ class Mirror:
             _score, data, name, source = best
             self._spread(identity, data, name, source, folders, has=has,
                          existing=existing, note=note, options=options, current=current)
+
+        if options.flag_sync:
+            flag_files = {}
+            for _account, _org, path in folders:
+                state = self._folders.get(path)
+                names = (name for identity in identities for name in
+                         (state.ids.get(identity, ()) if state is not None else ()))
+                flag_files[path] = {name: self._file(path, name) for name in names}
+                # Include copies just placed by this hot pass as well.
+                flag_files[path].update(written.get(path, {}))
+            self._checkpoint(current, "resolving flags")
+            self._sync_inventory_flags(flag_files, self._stems, options, current,
+                                       unknown_folders, unknown, failed,
+                                       candidates=set(identities))
 
     # --- the load gap --------------------------------------------------------
 
@@ -2222,6 +2385,37 @@ class Mirror:
     # --- health (C-23.28) ----------------------------------------------------
 
     def health(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """The full pass's heartbeat, with the hot pass's separate evidence.
+
+        A hot pass cannot make an overdue full pass healthy. Its holds and
+        failures must still be visible to `sessions mirror --status`, including
+        while the full pass is running; that command renders this detail and
+        includes the separate `hot` record in its JSON reply.
+        """
+        data = self.sidecar()
+        result = self._full_health(data, now=now)
+        hot = data.get("hot")
+        if not isinstance(hot, dict):
+            return result
+        result["hot"] = hot
+        details = []
+        if hot.get("state") == "running" and hot.get("finished_at") is None:
+            details.append(f"hot pass in flight since {hot.get('started_at') or 'unknown'}"
+                           + (f" ({hot['stage']})" if hot.get("stage") else ""))
+        elif hot.get("state") in ("error", "cancelled") or hot.get("error"):
+            details.append(f"hot pass {hot.get('state') or 'failed'}: {hot.get('error') or 'unknown cause'}")
+        held = int(hot.get("flags_held") or 0)
+        if held:
+            causes = hot.get("held_by") or []
+            why = "; ".join(f"{item.get('path')}: {item.get('reason')}" for item in causes[:2])
+            details.append(f"hot flags held for {held} session{'s' if held != 1 else ''}"
+                           + (f" ({why})" if why else ""))
+        if details:
+            result["detail"] += "; " + "; ".join(details)
+        return result
+
+    def _full_health(self, data: dict[str, Any], *,
+                     now: datetime | None = None) -> dict[str, Any]:
         """Mirror health, judged from the sidecar and nothing else (C-23.28).
 
         `absent` when no pass was ever recorded, `running` while a recorded pass
@@ -2234,7 +2428,6 @@ class Mirror:
         settings = self.policy.get("sessions", {})
         stall = float(settings.get("mirror_stall_min", DEFAULT_STALL_MIN))
         hang = float(settings.get("mirror_hang_min", DEFAULT_HANG_MIN))
-        data = self.sidecar()
         record = data.get("pass") or {}
         if not record:
             return {"status": "absent", "sidecar": str(self.sidecar_path),

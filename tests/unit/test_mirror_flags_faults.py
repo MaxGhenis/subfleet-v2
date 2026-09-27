@@ -501,8 +501,8 @@ def test_a_hot_pass_that_cannot_list_the_store_forgets_nothing(world, monkeypatc
     with monkeypatch.context() as patch:
         failing_scandir(patch, str(store))
         result = running.run_hot()
-    assert result.state == "ok" and not result.changed, "the full pass reports it, once a minute"
-    assert "store not listed" in (result.error or "")
+    assert result.state == "error" and not result.changed, "a failed inventory cannot report flags synced"
+    assert result.error
     assert set(running._folders) == known
 
 
