@@ -39,7 +39,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, ids, protocol
+from . import capacity, daemonlog, ids, protocol
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -2085,10 +2085,11 @@ def daemon_env(root: Path) -> dict[str, str]:
 
 def _log_tail(path: Path, lines: int = 20) -> str:
     try:
-        text = path.read_text(errors="replace")
+        tail, where = daemonlog.tail(path, lines)
     except OSError:
         return f"(no {path})"
-    tail = text.splitlines()[-lines:]
+    if where is None:
+        return f"(no {path})"
     return "\n".join(f"  | {line}" for line in tail) or f"(empty {path})"
 
 
@@ -2261,10 +2262,9 @@ def cmd_daemon_stacks(args: argparse.Namespace) -> int:
                     "end it; refusing to signal it",
                     fix=f"restart the daemon on this version, or sample it natively: sample {pid} 5")
     path = root / LOG_NAME
-    try:
-        start = path.stat().st_size
-    except OSError:
-        start = 0
+    # Where the log ends now; what the signal writes is read from here on,
+    # across a rotation if one comes in between (C-2.5).
+    start = daemonlog.mark(path)
     # The lock again, just before the signal: a daemon that began to stop since
     # has dropped the flag (it does so before it lets the handler go).
     if client.lock_info() != info:
@@ -2276,23 +2276,22 @@ def cmd_daemon_stacks(args: argparse.Namespace) -> int:
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon stacks: SIGUSR1 to {pid} failed: {exc}")
     # The handler writes at once; wait until the log stops growing.
-    size, quiet_since, deadline = start, time.monotonic(), time.monotonic() + args.wait
+    written, at = b"", start
+    quiet_since, deadline = time.monotonic(), time.monotonic() + args.wait
     while time.monotonic() < deadline:
         time.sleep(0.05)
         try:
-            now_size = path.stat().st_size
+            more, at = daemonlog.read_since(path, at)
         except OSError:
             continue
-        if now_size != size:
-            size, quiet_since = now_size, time.monotonic()
-        elif size > start and time.monotonic() - quiet_since >= 0.3:
+        if more:
+            written, quiet_since = written + more, time.monotonic()
+        elif written and time.monotonic() - quiet_since >= 0.3:
             break
-    if size <= start:
+    if not written:
         return fail(Exit.OPERATIONAL, f"daemon stacks: nothing was written to {path} "
                                       f"within {args.wait:g} s of SIGUSR1 to {pid}")
-    with open(path, "rb") as stream:
-        stream.seek(start)
-        out(stream.read(size - start).decode(errors="replace").rstrip("\n"))
+    out(written.decode(errors="replace").rstrip("\n"))
     return int(Exit.OK)
 
 
@@ -2340,30 +2339,40 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
 
 
 def cmd_daemon_logs(args: argparse.Namespace) -> int:
+    """`daemon logs`: the log's tail, from its rotated files too when it is
+    short, and with `--follow` on across rotations (C-2.5)."""
     path = _root(args) / LOG_NAME
-    if not path.exists():
-        return fail(Exit.OPERATIONAL, f"daemon logs: no {path}")
-    try:
-        text = path.read_text(errors="replace")
-    except OSError as exc:
-        return fail(Exit.OPERATIONAL, f"daemon logs: {exc}")
     if args.lines < 0:
         return fail(Exit.INVALID_INPUT, "daemon logs: --lines must be non-negative")
-    for line in (text.splitlines()[-args.lines:] if args.lines else []):
+    try:
+        lines, at = daemonlog.tail(path, args.lines)
+    except OSError as exc:
+        return fail(Exit.OPERATIONAL, f"daemon logs: {exc}")
+    if at is None:
+        return fail(Exit.OPERATIONAL, f"daemon logs: no {path}")
+    for line in lines:
         out(line)
     if not args.follow:
         return int(Exit.OK)
-    with open(path, "r", errors="replace") as stream:
-        stream.seek(0, os.SEEK_END)
-        try:
-            while True:
-                line = stream.readline()
-                if line:
-                    out(line.rstrip("\n"))
-                else:
-                    time.sleep(0.25)
-        except KeyboardInterrupt:
-            return int(Exit.OK)
+    # Flushed as it goes: into a pipe (`| grep`) stdout is block-buffered, and
+    # a quiet log would otherwise show nothing for kilobytes.
+    sys.stdout.flush()
+    pending = b""
+    try:
+        while True:
+            try:
+                more, at = daemonlog.read_since(path, at)
+            except OSError:
+                more = b""
+            if not more:
+                time.sleep(0.25)
+                continue
+            *complete, pending = (pending + more).split(b"\n")
+            for line in complete:
+                out(line.decode(errors="replace"))
+            sys.stdout.flush()
+    except KeyboardInterrupt:
+        return int(Exit.OK)
 
 
 def _plist(root: Path) -> bytes:

@@ -313,3 +313,42 @@ def test_invalid_conversation_clocks_name_the_key(tmp_path, policy_data, section
     with pytest.raises(PolicyError) as caught:
         load_policy(path)
     assert caught.value.key == error_key
+
+
+def test_daemon_log_rotation_defaults_and_follows_the_policy_file(tmp_path, policy_data):
+    """C-2.5: rotation's size, count and interval are policy, 20 MiB x 5 every 5 s by default."""
+    from subfleet.policy import DAEMON_LOG_DEFAULTS
+    policy_data.pop("daemon_log", None)
+    assert load_policy(write_policy(tmp_path, policy_data))["daemon_log"] == {
+        "max_bytes": 20 * 1024 * 1024, "backups": 5, "check_s": 5.0} == DAEMON_LOG_DEFAULTS
+    policy_data["daemon_log"] = {"max_bytes": 0, "backups": 99, "check_s": 0.25}
+    assert load_policy(write_policy(tmp_path, policy_data))["daemon_log"] == {
+        "max_bytes": 0, "backups": 99, "check_s": 0.25}
+    policy_data["daemon_log"] = {"max_bytes": 65536.0, "backups": 1}
+    assert load_policy(write_policy(tmp_path, policy_data))["daemon_log"] == {
+        "max_bytes": 65536, "backups": 1, "check_s": 5.0}
+
+
+@pytest.mark.parametrize("section,error_key,message", [
+    ([], "daemon_log", "must be an object"),
+    ({"max_byte": 1 << 20}, "daemon_log.max_byte", "is not a daemon_log setting"),
+    ({"max_bytes": True}, "daemon_log.max_bytes", "finite number"),
+    ({"max_bytes": "20M"}, "daemon_log.max_bytes", "finite number"),
+    ({"max_bytes": float("inf")}, "daemon_log.max_bytes", "finite number"),
+    ({"max_bytes": 1e6 + .5}, "daemon_log.max_bytes", "whole number"),
+    ({"max_bytes": 65535}, "daemon_log.max_bytes", "at least 65536"),
+    ({"max_bytes": -1}, "daemon_log.max_bytes", "at least 65536"),
+    ({"backups": 0}, "daemon_log.backups", "from 1 to 99"),
+    ({"backups": 100}, "daemon_log.backups", "from 1 to 99"),
+    ({"backups": 2.5}, "daemon_log.backups", "whole number"),
+    ({"check_s": 0}, "daemon_log.check_s", "positive"),
+    ({"check_s": -5}, "daemon_log.check_s", "positive"),
+])
+def test_daemon_log_rotation_refuses_what_would_not_bound_the_log(tmp_path, policy_data, section, error_key,
+                                                                   message):
+    """C-2.5: a limit that would rotate on every look, keep nothing, or never
+    look is refused with its key, not obeyed; 0 is the one way to turn it off."""
+    policy_data["daemon_log"] = section
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == error_key and message in str(caught.value)

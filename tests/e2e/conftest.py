@@ -178,11 +178,14 @@ class E2E:
         subprocess.run(["git", "commit", "-m", "C-13.1 disposable e2e baseline"],
                        cwd=self.workdir, env=self.env, check=True, capture_output=True, text=True)
 
-    def start(self, scenario="success", delay_s=0, env=None):
+    def start(self, scenario="success", delay_s=0, env=None, output=None):
+        """`output`: where the daemon's stdout and stderr go, appended to as
+        launchd's StandardOutPath does (default: a fresh daemon-<n>.log)."""
         assert self.process is None or self.process.poll() is not None
         daemon_env = {**self.env, "SUBFLEET_FAKE_SCENARIO": scenario,
                       "SUBFLEET_FAKE_DELAY_S": str(delay_s), **(env or {})}
-        log = (self.root / f"daemon-{len(self.logs)}.log").open("wb")
+        log = (Path(output).open("ab") if output is not None
+               else (self.root / f"daemon-{len(self.logs)}.log").open("wb"))
         self.logs.append(log)
         executable = Path(sys.executable).parent / "subfleetd"
         assert executable.is_file(), "run uv sync --group dev to install subfleetd"

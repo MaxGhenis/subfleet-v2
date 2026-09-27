@@ -183,3 +183,73 @@ def test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before(tmp_path
     assert seen == [("unregister", None), ("register", None), ("unregister", None)]
     record = json.loads((root / "daemon.lock").read_text())
     assert "stack_dumps" not in record and record["pid"] == os.getpid()   # the identity stays
+
+#: A daemon of this version that rotates its log (C-2.5) when sent SIGUSR2,
+#: registering SIGUSR1 on each new stream as the daemon does.
+ROTATING_DAEMON = """
+import faulthandler, json, os, signal, sys, time
+from pathlib import Path
+from subfleet import procs
+from subfleet.daemonlog import DaemonLog
+root = Path(sys.argv[1])
+
+def dumps_into(stream):
+    faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
+
+log = DaemonLog(root / "daemon.log", on_stream=dumps_into)
+log.configure(max_bytes=1, backups=3, check_s=60)
+log.stream.write("before the rotation " + "." * 65536 + "\\n")
+log.stream.flush()
+dumps_into(log.stream)
+
+def rotate(*_):
+    assert log.check() == "rotated"
+    (root / "rotated").touch()
+
+signal.signal(signal.SIGUSR2, rotate)
+ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+         "proc_start": procs.proc_start(os.getpid()), "version": "2.0.0a0", "stack_dumps": True}
+with open(os.path.join(root, "daemon.lock"), "w") as lock:
+    lock.write(json.dumps(ident, sort_keys=True) + "\\n")
+print("ready", flush=True)
+
+def parked_where_the_dump_can_find_it():
+    while True:
+        time.sleep(.05)
+
+parked_where_the_dump_can_find_it()
+"""
+
+
+def test_a_rotation_between_the_mark_and_the_dump_still_prints_the_whole_dump(root, monkeypatch, capsys):
+    """C-2.5 with C-3.6: the CLI marked the end of the log, then the log was
+    rotated before the dump. It had read the new, shorter log from the old
+    size, and found nothing (or the dump's tail); it now follows the mark
+    into `daemon.log.1` and on into the new file."""
+    from subfleet import cli
+    child = spawn(ROTATING_DAEMON, root)
+    real_kill = os.kill
+
+    def rotate_first(pid, sig):
+        if pid == child.pid and sig == signal.SIGUSR1:
+            real_kill(pid, signal.SIGUSR2)
+            deadline = time.monotonic() + 10
+            while not (root / "rotated").exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            assert (root / "rotated").exists()
+        return real_kill(pid, sig)
+
+    try:
+        monkeypatch.setenv("SUBFLEET_HOME", str(root))
+        monkeypatch.setattr(cli.os, "kill", rotate_first)
+        assert cli.main(["daemon", "stacks"]) == 0
+        out = capsys.readouterr().out
+        assert out.lstrip().startswith(("Thread 0x", "Current thread 0x")), out[:200]
+        assert "parked_where_the_dump_can_find_it" in out and "before the rotation" not in out
+        rotated = (root / "daemon.log.1").read_text(errors="replace")
+        assert rotated.startswith("before the rotation") and "Thread 0x" not in rotated
+        assert "parked_where_the_dump_can_find_it" in (root / "daemon.log").read_text(errors="replace")
+        assert child.poll() is None
+    finally:
+        child.kill()
+        child.wait(10)

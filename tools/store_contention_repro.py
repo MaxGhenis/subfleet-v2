@@ -231,6 +231,34 @@ SPINNER = "while True:\n    pass\n"
 TASKPOLICY = "/usr/sbin/taskpolicy"
 
 
+def log_mark(path: Path) -> tuple[int, int, int]:
+    """Where daemon.log ends now: its identity and size."""
+    info = path.stat()
+    return info.st_dev, info.st_ino, info.st_size
+
+
+def log_since(path: Path, mark: tuple[int, int, int]) -> bytes:
+    """What was written to daemon.log after `mark`, across rotations (C-2.5):
+    the marked file from the mark on, then every newer rotated file and the
+    log. This tool measures other checkouts too, so it does not import them."""
+    names = [path] + [path.with_name(f"{path.name}.{n}") for n in range(1, 100)]
+    newer, seen = [], set()
+    for name in names:
+        try:
+            info = name.stat()
+        except OSError:
+            continue
+        if (info.st_dev, info.st_ino) in seen:
+            continue
+        seen.add((info.st_dev, info.st_ino))
+        if (info.st_dev, info.st_ino) == mark[:2]:
+            data = name.read_bytes()
+            newer.append(data[mark[2]:] if len(data) >= mark[2] else data)
+            break
+        newer.append(name.read_bytes())
+    return b"".join(reversed(newer))
+
+
 def qos_argv(qos: str, argv: list[str]) -> list[str]:
     """argv run under `qos`: `utility` is a QoS clamp every descendant inherits (taskpolicy(8))."""
     return [TASKPOLICY, "-c", "utility", *argv] if qos == "utility" else argv
@@ -564,7 +592,7 @@ class Rig:
         sizes = self.seed()
         self.start_daemon()
         diagnostics = (self.code / "subfleet/lockwatch.py").exists()
-        log_start = (self.root / "daemon.log").stat().st_size
+        log_start = log_mark(self.root / "daemon.log")
         threads = []
         try:
             for i in range(a.running):
@@ -663,7 +691,7 @@ class Rig:
             entry["rate_per_s"] = round(len(samples) / measured_s, 2)
             ops[op] = entry
         wakes = [self.returned_at[j] - self.terminal_at[j] for j in self.returned_at if j in self.terminal_at]
-        text = (self.root / "daemon.log").read_text(errors="replace")[log_start:]
+        text = log_since(self.root / "daemon.log", log_start).decode(errors="replace")
         watch = collections.Counter()
         holders = collections.Counter()
         held = [float(x) for x in re.findall(r"lock released after (\d+\.\d+) s", text)]

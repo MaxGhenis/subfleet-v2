@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
+from . import capacity, daemonlog, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -45,6 +45,7 @@ from .contracts import (
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
 from .credentials import resolve_credential
+from .daemonlog import DaemonLog
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
@@ -466,8 +467,11 @@ class Daemon:
             raise
         self._ident = ident
         self.log = logging.getLogger(f"subfleet.daemon.{id(self)}")
-        log_fd = os.open(self.root / "daemon.log", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
-        self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
+        # C-2.5: rotated by size on a thread of its own, which moves every
+        # writer of the log onto the new file; the handler is the log's.
+        self._stack_dumps_lock = threading.Lock()
+        self.log_file = DaemonLog(self.root / "daemon.log", on_stream=self._stack_dumps_follow)
+        self._log_handler = self.log_file.handler
         self.log.addHandler(self._log_handler)
         self.log.setLevel(logging.INFO)
         self._enable_stack_dumps()
@@ -482,6 +486,7 @@ class Daemon:
             atomic_publish(policy_path, Path(__file__).with_name("default_policy.json").read_bytes())
         self.policy = load_policy(policy_path)
         self.policy_digest = policy_hash(policy_path)
+        self.log_file.configure(**self.policy["daemon_log"])
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
@@ -4951,6 +4956,7 @@ class Daemon:
         self._control_thread = threading.Thread(target=self._control, name="subfleet-control", daemon=True)
         self._control_thread.start()
         self.lock_watch.start()
+        self.log_file.start(self.log, self.stopping)
         try:
             while not self.stopping.is_set():
                 try:
@@ -5028,20 +5034,32 @@ class Daemon:
         global _STACK_DUMPS
         stream = self._log_handler.stream
         stream.flush()
-        # A daemon built earlier in this process (tests build several) may hold
-        # the registration still. `faulthandler.register` over a live one only
-        # changes the file: it would not put its handler back over the SIG_IGN
-        # below, and the signal would be ignored while the lock says
-        # `stack_dumps` (review of 78a8476). Let it go first (a no-op if none).
-        faulthandler.unregister(signal.SIGUSR1)
-        if threading.current_thread() is threading.main_thread():
-            # What faulthandler puts back when it lets the signal go (at close,
-            # or as the interpreter exits): ignore it, so a SIGUSR1 that races
-            # the close ends nothing. A child started while the handler is in
-            # place gets the default action back at exec, as with any handler.
-            signal.signal(signal.SIGUSR1, signal.SIG_IGN)
-        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
-        _STACK_DUMPS = weakref.ref(self)
+        with self._stack_dumps_lock:
+            # A daemon built earlier in this process (tests build several) may hold
+            # the registration still. `faulthandler.register` over a live one only
+            # changes the file: it would not put its handler back over the SIG_IGN
+            # below, and the signal would be ignored while the lock says
+            # `stack_dumps` (review of 78a8476). Let it go first (a no-op if none).
+            faulthandler.unregister(signal.SIGUSR1)
+            if threading.current_thread() is threading.main_thread():
+                # What faulthandler puts back when it lets the signal go (at close,
+                # or as the interpreter exits): ignore it, so a SIGUSR1 that races
+                # the close ends nothing. A child started while the handler is in
+                # place gets the default action back at exec, as with any handler.
+                signal.signal(signal.SIGUSR1, signal.SIG_IGN)
+            faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
+            _STACK_DUMPS = weakref.ref(self)
+
+    def _stack_dumps_follow(self, stream) -> None:
+        """C-2.5 with C-3.6: a rotation gave the handler `stream`, so SIGUSR1
+        dumps into it from now on. Registering over this daemon's live
+        registration changes only the file; none is made once
+        `_disable_stack_dumps` has let the signal go, or for a daemon that
+        another in this process took the registration from. Called with the
+        handler's lock held, so no log line is being written to the stream."""
+        with self._stack_dumps_lock:
+            if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
+                faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
 
     def _disable_stack_dumps(self) -> None:
         """Unregister before the log closes, so no dump is written to a closed or
@@ -5052,9 +5070,10 @@ class Daemon:
             self._write_lock(stack_dumps=False)
         except OSError as exc:
             self.log.warning("daemon.lock could not drop stack_dumps: %s", exc)
-        if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
-            faulthandler.unregister(signal.SIGUSR1)
-            _STACK_DUMPS = None
+        with self._stack_dumps_lock:
+            if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
+                faulthandler.unregister(signal.SIGUSR1)
+                _STACK_DUMPS = None
 
     def _accept_trouble(self, exc: OSError) -> None:
         """Say so at most once a minute, and pause so a full queue is not spun on;
@@ -5129,6 +5148,7 @@ class Daemon:
         for pool in (self.readers, self.requests, self.lookups, self.waiters, self.workers):
             pool.shutdown(wait=True, cancel_futures=True)
         self.lock_watch.stop()
+        self.log_file.stop()
         self.store.close()
         (self.root / "daemon.sock").unlink(missing_ok=True)
         # While the lock is still this daemon's: the flag goes, then the handler.
@@ -5136,7 +5156,7 @@ class Daemon:
         fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
         self._lock_finalizer()
         self.log.removeHandler(self._log_handler)
-        self._log_handler.stream.close()
+        self.log_file.close()
 
 
 #: C-3.6: the daemon whose log SIGUSR1 dumps into (one per process in service;
@@ -5199,7 +5219,9 @@ def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Cal
     """
     signal.signal(signal.SIGALRM, signal.SIG_DFL)
     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
-    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    # C-2.5: a rotation moves this descriptor onto the new file, so the dump
+    # lands in the current log; it is never closed.
+    fd = daemonlog.open_follower(log_path)
     claimed = threading.Lock()
     complete = False
 

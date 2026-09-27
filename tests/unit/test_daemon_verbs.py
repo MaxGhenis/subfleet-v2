@@ -421,3 +421,64 @@ def test_daemon_stop_never_kills_an_identity_it_can_no_longer_verify(root, monke
     assert cli.main(["daemon", "stop"]) == 1
     assert sent == [signal.SIGTERM]
     assert "can no longer be verified" in capsys.readouterr().err
+
+
+def test_daemon_logs_reaches_into_the_rotated_files_when_the_log_is_short(root, capsys):
+    """C-2.5: after a rotation the tail spans `daemon.log.1` and the new log."""
+    (root / "daemon.log.2").write_text("".join(f"oldest {n}\n" for n in range(3)))
+    (root / "daemon.log.1").write_text("".join(f"older {n}\n" for n in range(3)))
+    (root / "daemon.log").write_text("new 0\n")
+    assert cli.main(["daemon", "logs", "-n", "5"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["oldest 2", "older 0", "older 1", "older 2", "new 0"]
+    assert cli.main(["daemon", "logs", "-n", "50"]) == 0
+    assert len(capsys.readouterr().out.splitlines()) == 7
+
+
+def test_daemon_logs_reads_the_tail_not_the_whole_log(root, capsys, monkeypatch):
+    """C-2.5: `-n 40` read all 68 MB of the installed log; it reads from the end."""
+    import os as os_module
+    (root / "daemon.log").write_bytes(b"x" * (8 << 20) + b"\nlast\n")
+    read = []
+    real = os_module.pread
+    monkeypatch.setattr(os_module, "pread", lambda fd, n, at: read.append(n) or real(fd, n, at))
+    assert cli.main(["daemon", "logs", "-n", "1"]) == 0
+    assert capsys.readouterr().out == "last\n"
+    assert sum(read) < 1 << 20
+
+
+def test_daemon_logs_follow_goes_on_in_the_new_file_after_a_rotation(root):
+    """C-2.5: `-f` read the renamed file forever; it follows the name. Its
+    output is flushed as it goes, so a pipe sees each line."""
+    import select
+    import subprocess
+    import time
+    from subfleet.daemonlog import DaemonLog
+    log = DaemonLog(root / "daemon.log")
+    log.configure(max_bytes=1, backups=2, check_s=60)
+    log.stream.write("before\n")
+    log.stream.flush()
+    repo = Path(__file__).resolve().parents[2]
+    follower = subprocess.Popen([sys.executable, "-m", "subfleet.cli", "daemon", "logs", "-n", "1", "-f"],
+                                cwd=repo, stdout=subprocess.PIPE, env={**os.environ, "PYTHONPATH": str(repo)})
+    got = b""
+
+    def lines_within(count, seconds=20):
+        nonlocal got
+        deadline = time.monotonic() + seconds
+        while got.count(b"\n") < count and time.monotonic() < deadline:
+            if select.select([follower.stdout], [], [], .1)[0]:
+                got += os.read(follower.stdout.fileno(), 4096)
+        return got.decode().splitlines()
+
+    try:
+        assert lines_within(1) == ["before"]
+        log.stream.write("still the old file\n")
+        log.stream.flush()
+        assert log.check() == "rotated"
+        log.stream.write("the new file\n")
+        log.stream.flush()
+        assert lines_within(3) == ["before", "still the old file", "the new file"]
+    finally:
+        follower.kill()
+        follower.wait(10)
+        log.close()

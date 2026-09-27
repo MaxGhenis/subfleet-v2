@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import daemonlog
 from .contracts import (
     DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
@@ -91,6 +92,15 @@ RETENTION_DEFAULTS: dict[str, float] = {
     "turn_jobs": TURN_RETENTION_MAX_JOBS,
     "turn_bytes": TURN_RETENTION_MAX_BYTES,
     "turn_keep_days": TURN_RETENTION_KEEP_DAYS,
+}
+
+#: `daemon_log.*` (C-2.5): `daemon.log` is rotated once it reaches `max_bytes`
+#: (0: never), keeping `backups` rotated files, looked at every `check_s`. At
+#: the defaults the log and its rotated files hold at most about 120 MiB.
+DAEMON_LOG_DEFAULTS: dict[str, float] = {
+    "max_bytes": daemonlog.DEFAULT_MAX_BYTES,
+    "backups": daemonlog.DEFAULT_BACKUPS,
+    "check_s": daemonlog.DEFAULT_CHECK_S,
 }
 
 
@@ -325,6 +335,30 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             if key in whole and item != int(item):
                 fail(f"{section}.{key}", "must be a whole number")
         value[section] = settings
+    # `daemon_log` (C-2.5): whole bytes and files. A limit below the floor
+    # would rotate on every look and keep almost nothing, so it is refused
+    # rather than obeyed; 0 is the one way to turn rotation off.
+    supplied = value.get("daemon_log", {})
+    if not isinstance(supplied, dict):
+        fail("daemon_log", "must be an object")
+    settings = {**DAEMON_LOG_DEFAULTS, **supplied}
+    for key in supplied:
+        if key not in DAEMON_LOG_DEFAULTS:
+            fail(f"daemon_log.{key}", f"is not a daemon_log setting ({', '.join(DAEMON_LOG_DEFAULTS)})")
+    for key, item in settings.items():
+        if not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item):
+            fail(f"daemon_log.{key}", "must be a finite number")
+        if key in ("max_bytes", "backups") and item != int(item):
+            fail(f"daemon_log.{key}", "must be a whole number")
+    if settings["max_bytes"] != 0 and settings["max_bytes"] < daemonlog.MIN_MAX_BYTES:
+        fail("daemon_log.max_bytes", f"must be 0 (never rotate) or at least {daemonlog.MIN_MAX_BYTES} bytes")
+    if not 1 <= settings["backups"] <= daemonlog.MAX_BACKUPS:
+        fail("daemon_log.backups", f"must be a whole number of files from 1 to {daemonlog.MAX_BACKUPS}")
+    if settings["check_s"] <= 0:
+        fail("daemon_log.check_s", "must be a positive number of seconds")
+    value["daemon_log"] = {"max_bytes": int(settings["max_bytes"]), "backups": int(settings["backups"]),
+                           "check_s": float(settings["check_s"])}
+
     # C-24.7, C-26.5, C-26.9: the stop escalation keeps its order (SIGINT, then
     # closing stdin, then containment), because each step is only worth taking
     # while the previous one had its chance to end the turn.
