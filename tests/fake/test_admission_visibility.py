@@ -11,6 +11,7 @@ import linecache
 import logging
 import re
 import subprocess
+import threading
 import time
 
 import pytest
@@ -577,6 +578,166 @@ def test_c5_10_every_failure_of_a_one_shot_request_logs_its_cause(fleet):
     assert text.count("worker resolve:fixture2 failed: RuntimeError\n" + CAUSE) == 3
     assert text.count("RuntimeError: the operator's resolution fails") == 3
     assert "resolve:fixture2" not in service._worker_failures
+
+
+# --- the control loop and requests (C-5.10) -----------------------------------------------------
+#
+# Folded in from `fix/worker-failure-tracebacks`, which found that `control iteration failed` and
+# `request <op> failed` named only a type too.
+
+def resolve_pin(detail):
+    raise ValueError(f"pinned_lane: ambiguous lane {detail!r}")
+
+
+def evaluate_job(detail):
+    resolve_pin(detail)
+
+
+def refresh_readings(detail):
+    raise ValueError(f"reading refused for {detail}")
+
+
+def records(text: str, prefix: str) -> list[str]:
+    """Each `daemon.log` record that starts with `prefix`, with the cause lines that follow it."""
+    return [record for record in re.split(rf"^(?={re.escape(prefix)})", text, flags=re.M)
+            if record.startswith(prefix)]
+
+
+def test_c5_10_a_control_iteration_logs_its_cause_once_per_place_until_one_completes(fleet, monkeypatch):
+    """C-5.10: the control loop logs `control iteration failed: <type>` on each failed tick, twenty a
+    second, and never said why. The cause now rides the first failure at each place it was raised,
+    again after an iteration completes, and never with a credential."""
+    service, _ = fleet
+    plan = ["pin", "pin", "pin", "ok", "pin", "readings", "pin"]
+    step = {"n": 0}
+
+    def query(sql, *args, **kwargs):
+        if plan[step["n"]] == "pin":
+            evaluate_job(FAKE_TOKEN)
+        if plan[step["n"]] == "readings":
+            refresh_readings(FAKE_TOKEN)
+        return []
+
+    def wait(timeout=None):
+        step["n"] += 1
+        if step["n"] == len(plan):
+            service.stopping.set()
+        return service.stopping.is_set()
+
+    monkeypatch.setattr(service.store, "query", query)
+    monkeypatch.setattr(service, "_schedule", lambda *args, **kwargs: None)
+    monkeypatch.setattr(service.stopping, "wait", wait)
+    service._control()
+    found = records(worker_log(service), "control iteration failed")
+    assert [record.splitlines()[0] for record in found] == ["control iteration failed: ValueError"] * 6
+    assert [CAUSE in record for record in found] == [True, False, False, True, True, False]
+    assert "ValueError: pinned_lane: ambiguous lane" in found[0] and "in resolve_pin" in found[0]
+    assert "ValueError: reading refused" in found[4] and "in refresh_readings" in found[4]
+    assert FAKE_TOKEN not in worker_log(service) and "[REDACTED]" in found[0]
+
+
+class Connection:
+    def __init__(self):
+        self.sent = b""
+
+    def sendall(self, data):
+        self.sent += data
+
+
+def read_view(detail):
+    raise RuntimeError(f"view unreadable: api_key={detail}")
+
+
+def write_snapshot(detail):
+    raise RuntimeError(f"snapshot unwritable: api_key={detail}")
+
+
+def test_c5_10_a_failed_request_logs_its_cause_once_per_operation_and_place(fleet, monkeypatch):
+    """C-5.10: `request <op> failed: <type>` said nothing more. A caller that polls a failing
+    operation adds a line per request and one cause in all, and the caller never sees the cause."""
+    service, _ = fleet
+
+    # ValueError, TypeError and KeyError are the caller's (`invalid arguments`); anything else is the daemon's.
+    calls = [("fixture.status", read_view), ("fixture.status", read_view), ("fixture.why", read_view),
+             ("fixture.status", write_snapshot), ("fixture.status", read_view)]
+    places = iter(place for _op, place in calls)
+    monkeypatch.setattr(service, "dispatch", lambda op, args: next(places)(FAKE_TOKEN))
+    for op, _place in calls:
+        conn = Connection()
+        service._respond(conn, threading.Lock(), protocol.Request(op=op, id="1"))
+        assert b"operation failed; inspect daemon status" in conn.sent and b"unreadable" not in conn.sent
+    found = records(worker_log(service), "request fixture.")
+    assert [record.splitlines()[0] for record in found] == [
+        f"request {op} failed: RuntimeError" for op, _place in calls]
+    assert [CAUSE in record for record in found] == [True, False, True, True, False]
+    assert "in write_snapshot" in found[3] and "in read_view" not in found[3]
+    assert "RuntimeError: view unreadable: api_key=[REDACTED]" in found[0]
+    assert FAKE_TOKEN not in worker_log(service)
+
+
+def raised(fn, *args) -> BaseException:
+    try:
+        fn(*args)
+    except BaseException as exc:            # noqa: BLE001  (the fixture is the exception)
+        return exc
+    raise AssertionError("fixture did not raise")
+
+
+def test_c5_10_a_signature_is_where_an_exception_was_raised_and_not_what_it_said():
+    first, second = raised(evaluate_job, "one message"), raised(evaluate_job, "another message")
+    assert daemon_module.raise_signature(first) == daemon_module.raise_signature(second)
+    assert daemon_module.raise_signature(first) != daemon_module.raise_signature(raised(refresh_readings, "x"))
+    assert "one message" not in repr(daemon_module.raise_signature(first))
+
+
+def test_c5_10_a_signature_covers_the_chain_and_ends_on_a_cycle():
+    def wrapped(inner):
+        try:
+            inner("x")
+        except ValueError as exc:
+            raise RuntimeError("wrapped") from exc
+
+    pin, readings = raised(wrapped, evaluate_job), raised(wrapped, refresh_readings)
+    assert daemon_module.raise_signature(pin) != daemon_module.raise_signature(readings)
+    assert [link[0] for link in daemon_module.raise_signature(pin)] == ["RuntimeError", "ValueError"]
+    looped = ValueError("loop")
+    looped.__context__ = RuntimeError("back")
+    looped.__context__.__context__ = looped
+    assert daemon_module.raise_signature(looped) == (("ValueError", ()), ("RuntimeError", ()))
+
+
+def test_c5_10_a_cause_that_cannot_be_read_still_leaves_the_control_loop_running(fleet, monkeypatch):
+    """The cause is rendered in the control loop's handler; a raise there would end the control thread."""
+    service, _ = fleet
+    steps = {"n": 0}
+
+    def unreadable(*args, **kwargs):
+        raise OSError("source unavailable")
+
+    def query(sql, *args, **kwargs):
+        evaluate_job(FAKE_TOKEN)
+
+    def wait(timeout=None):
+        steps["n"] += 1
+        if steps["n"] == 3:
+            service.stopping.set()
+        return service.stopping.is_set()
+
+    monkeypatch.setattr(daemon_module.traceback, "walk_tb", unreadable)
+    monkeypatch.setattr(daemon_module.traceback, "format_exception", unreadable)
+    monkeypatch.setattr(service.store, "query", query)
+    monkeypatch.setattr(service.stopping, "wait", wait)
+    service._control()                                               # returns only because stopping was set
+    found = records(worker_log(service), "control iteration failed")
+    assert len(found) == 3 and "ValueError (cause could not be rendered)" in found[0]
+    assert FAKE_TOKEN not in worker_log(service)
+
+
+def test_c5_10_the_causes_remembered_are_bounded():
+    traced: set[tuple] = set()
+    assert all(daemon_module.Daemon._first_trace(traced, (n,)) for n in range(daemon_module.TRACED_CAUSES_MAX))
+    assert not daemon_module.Daemon._first_trace(traced, (0,))
+    assert daemon_module.Daemon._first_trace(traced, ("one more",)) and traced == {("one more",)}
 
 
 # --- what another thread reads (C-6.11) ---------------------------------------------------------

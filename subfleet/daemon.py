@@ -209,6 +209,34 @@ def worker_failure_location(exc: BaseException, size: int) -> str:
             f"over the {WORKER_CAUSE_SCRUB_MAX_CHARS:,}-character scrub bound")
 
 
+#: C-5.10: the most distinct causes a control-iteration streak, or the daemon's
+#: requests, remember having logged. Past it they start again.
+TRACED_CAUSES_MAX = 256
+
+
+def raise_signature(exc: BaseException) -> tuple:
+    """C-5.10: where `exc` was raised, whatever its message said.
+
+    The type and the file, line and function of every frame, for the exception
+    and each one in its chain. Two failures with the same signature came from the
+    same code path, so the control loop and the request handler log a cause once
+    per signature and not on every repeat. Reads no source file, and never raises:
+    it runs in the control loop's handler, which a raise would leave.
+    """
+    try:
+        links, seen, link = [], set(), exc
+        while link is not None and id(link) not in seen:
+            seen.add(id(link))
+            frames = tuple((frame.f_code.co_filename, lineno, frame.f_code.co_name)
+                           for frame, lineno in traceback.walk_tb(link.__traceback__))
+            links.append((type(link).__qualname__, frames))
+            link = (link.__cause__ if link.__cause__ is not None
+                    else None if link.__suppress_context__ else link.__context__)
+        return tuple(links)
+    except Exception:
+        return ((type(exc).__qualname__, ()),)
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -274,6 +302,12 @@ class Daemon:
         # C-5.10: worker key -> consecutive failures, and the earliest next try.
         self._worker_failures: dict[str, int] = {}
         self._worker_retry_at: dict[str, float] = {}
+        # C-5.10: the `raise_signature`s whose cause `daemon.log` already has, for
+        # control iterations since the last one that completed, and for failed
+        # requests, each with its operation, since the daemon started.
+        self._control_traced: set[tuple] = set()
+        self._request_traced: set[tuple] = set()
+        self._request_traced_lock = threading.Lock()
         self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
@@ -1838,9 +1872,25 @@ class Daemon:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
                 if time.monotonic() - self._last_maintenance >= 3600:
                     self._schedule("retention", self._retention, paced=True)
+                self._control_traced.clear()
             except Exception as exc:
-                self.log.error("control iteration failed: %s", type(exc).__name__)
+                # C-5.10: the type on every failed iteration, and the cause, scrubbed,
+                # once for each place one was raised until an iteration completes. The
+                # loop runs every tick, so a cause on each failure would be twenty a second.
+                self.log.error("control iteration failed: %s%s", type(exc).__name__,
+                               "\n" + worker_failure_cause(exc)
+                               if self._first_trace(self._control_traced, raise_signature(exc)) else "")
             self.stopping.wait(self.tick_s)
+
+    @staticmethod
+    def _first_trace(traced: set[tuple], signature: tuple) -> bool:
+        """C-5.10: record `signature` in `traced`; True if it was not there yet."""
+        if signature in traced:
+            return False
+        if len(traced) >= TRACED_CAUSES_MAX:
+            traced.clear()
+        traced.add(signature)
+        return True
 
     def _timer_notice(self, notice: dict) -> bool:
         result = self.dispatch("ping", {"session_id": self.policy.get("alerts", {}).get("operator_session"),
@@ -3438,7 +3488,13 @@ class Daemon:
         except (ValueError, TypeError, KeyError) as exc:
             response = protocol.fail(req.id, 2, f"invalid arguments: {exc}")
         except Exception as exc:
-            self.log.error("request %s failed: %s", req.op, type(exc).__name__)
+            # C-5.10: the cause, scrubbed, once per operation and place it was raised
+            # while the daemon runs. A caller that polls a failing operation adds a
+            # line per request, not a traceback per request.
+            with self._request_traced_lock:
+                first = self._first_trace(self._request_traced, (req.op, raise_signature(exc)))
+            self.log.error("request %s failed: %s%s", req.op, type(exc).__name__,
+                           "\n" + worker_failure_cause(exc) if first else "")
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         try:
             with write_lock:
