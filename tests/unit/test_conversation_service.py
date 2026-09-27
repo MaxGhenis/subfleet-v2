@@ -1309,15 +1309,15 @@ def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(tmp_path, op):
         requests = concurrent.futures.ThreadPoolExecutor(1)    # the fake daemon has no requests pool
         future = (svc.pool_for(op) or requests).submit(svc.handle, op, args, None)
         try:
-            outcome = "answered" if future.result() is not None else "none"
+            outcome = future.result()
         except ConversationError as exc:
             outcome = exc.reason
         svc.close()
         requests.shutdown(wait=True)
         svc.daemon.store.close()
-        print(json.dumps(outcome))
+        print(json.dumps(outcome, default=repr))
     """)
-    assert json.loads(out) is not None, out
+    assert json.loads(out) is not None, out             # the op's answer, or its refusal
 
 
 # --- close() and the turn runners (C-25.3, C-26.6) ---------------------------------------

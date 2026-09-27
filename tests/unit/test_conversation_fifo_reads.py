@@ -280,7 +280,15 @@ op = ("attachment.add" if case == "attachment.add" else "conversation.handoff" i
 pool = svc.pool_for(op)
 if pool is not svc.files:              # the fake daemon has no requests pool
     pool = concurrent.futures.ThreadPoolExecutor(1)
-future = pool.submit(outcome, call)
+import threading
+started = threading.Event()
+
+def run():
+    started.set()                       # a file op close() must wait for, not one it may cancel unstarted
+    return outcome(call)
+
+future = pool.submit(run)
+assert started.wait(60), "the op never started"
 print("submitted", flush=True)
 if pool is not svc.files:
     # close() waits for the file pool; an op on the requests pool is waited for by

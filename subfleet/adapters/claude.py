@@ -1248,9 +1248,14 @@ class ClaudeAdapter(Adapter):
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:
-        # The task itself: only a regular file, and one that cannot be read fails the
-        # launch (as Codex's prepare does), never a turn started with no task.
-        prompt = read_regular(prompt_path).decode("utf-8", "replace")
+        # The task itself, as `read_text` read it (4 MB; none when missing), but a
+        # prompt that is not a regular file fails the launch (as Codex's prepare
+        # does), never a turn started with no task.
+        try:
+            with open_regular(prompt_path) as handle:
+                prompt = handle.read(4_000_000).decode("utf-8", "replace")
+        except FileNotFoundError:
+            prompt = ""
         sent = attempt_dir / "prompt.sent.md"
         _atomic_write_text(sent, apply_headless_block(prompt))
         return sent

@@ -647,19 +647,36 @@ def test_a_roster_reads_with_universal_newlines_as_it_did(tmp_path):
     assert lt._read_text(path) == '[\n  {"lane_id": "a"}\n]\n'
 
 
-def test_a_backup_never_writes_through_a_dangling_link_at_its_name(tmp_path):
-    """A backup is a new file of its own (O_EXCL, O_NOFOLLOW). A dangling link at
-    the free-looking name is taken, never written through (as `shutil.copy2`
-    wrote to its target) nor retried until the second changes."""
+@pytest.mark.parametrize("standing", ["dangling link", "fifo", "hard link"])
+def test_a_backup_is_a_new_file_and_leaves_what_stands_at_its_name(tmp_path, standing):
+    """A backup is a new file of its own (O_EXCL, O_NOFOLLOW), with the roster's
+    bytes, mode and times, as `shutil.copy2` made it. Whatever stands at the
+    free-looking name is left alone: a dangling link is never written through (as
+    copy2 wrote to its target) nor retried until the second changes, and a FIFO or
+    another file's hard link there is never opened."""
+    import os
+    import stat
     import time
     from subfleet import lanes_transfer as lt
     roster = tmp_path / "roster.json"
     roster.write_text("[]")
+    os.chmod(roster, 0o644)
+    os.utime(roster, ns=(1_700_000_000_000_000_000, 1_700_000_100_000_000_000))
+    other = tmp_path / "other.txt"
+    other.write_text("someone else's")
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    for second in (stamp,):
-        (tmp_path / f"roster.json.bak-{second}").symlink_to(tmp_path / "elsewhere" / "victim")
+    taken = [tmp_path / f"roster.json.bak-{stamp}", tmp_path / f"roster.json.bak-{stamp}-1"]
+    for name in taken:
+        if standing == "dangling link":
+            name.symlink_to(tmp_path / "elsewhere" / "victim")
+        elif standing == "fifo":
+            os.mkfifo(name)
+        else:
+            os.link(other, name)
     started = time.monotonic()
     backup = lt._backup(roster)
     assert time.monotonic() - started < 1.0
-    assert backup.read_text() == "[]" and not backup.is_symlink()
-    assert not (tmp_path / "elsewhere").exists()
+    info = os.lstat(backup)
+    assert backup not in taken and stat.S_ISREG(info.st_mode) and backup.read_text() == "[]"
+    assert stat.S_IMODE(info.st_mode) == 0o644 and info.st_mtime_ns == 1_700_000_100_000_000_000
+    assert not (tmp_path / "elsewhere").exists() and other.read_text() == "someone else's"

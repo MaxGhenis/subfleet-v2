@@ -237,10 +237,6 @@ class TurnRunner:
                 if self._process_gone():
                     while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
                         pass
-                    if self.driver.outcome is None and getattr(self.driver, "idle_pending", False):
-                        # A Codex thread that went idle and whose provider then exited
-                        # ended its turn (C-26.5): not a turn with no result.
-                        self._apply(self.driver.settle_idle())
                     if self.driver.outcome is None:
                         self._apply(self.driver.eof(self.offset))
                     self._flush()

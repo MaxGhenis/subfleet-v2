@@ -428,23 +428,23 @@ def test_open_regular_only_reads_through_its_own_descriptor(tmp_path, mode, kwar
 
 
 #: Every reader of a native session's files, as a call on `fifo`, a FIFO named
-#: `session_index.jsonl`: each answers as for an unreadable file (nothing), at once.
+#: `session_index.jsonl`, and its answer for an unreadable file (nothing), at once.
 #: The last seven had no test of their own (review of aa41312, finding 4): reverting
 #: any one of them to a plain open() had failed nothing.
 FIFO_READERS = {
-    "lines_reversed": "list(transcripts.lines_reversed(fifo))",
-    "lines_reversed_with_offsets": "list(transcripts.lines_reversed_with_offsets(fifo))",
-    "lines_forward_with_offsets": "list(transcripts.lines_forward_with_offsets(fifo, 0, 1 << 20))",
-    "line_start": "transcripts.line_start(fifo, 10)",
-    "headless_transcript": "transcripts.headless_transcript(str(fifo))",
-    "registry row": "registry._row(fifo)",
-    "history._earlier": "history._earlier(fifo, 10)",            # unreadable: the cursor stays (10)
-    "catalog._codex_names": "catalog._codex_names(fifo.parent)",
-    "catalog._claude_record": "catalog._claude_record(fifo)",
-    "codex_brief._records": "list(codex_brief._records(fifo))",
-    "handoff.first_task": "handoff.first_task(fifo, 1024)",
-    "handoff._read_bounded": "handoff._read_bounded(fifo)",
-    "last_permission_mode": "transcripts.last_permission_mode(fifo)",
+    "lines_reversed": ("list(transcripts.lines_reversed(fifo))", []),
+    "lines_reversed_with_offsets": ("list(transcripts.lines_reversed_with_offsets(fifo))", []),
+    "lines_forward_with_offsets": ("list(transcripts.lines_forward_with_offsets(fifo, 0, 1 << 20))", []),
+    "line_start": ("transcripts.line_start(fifo, 10)", 0),
+    "headless_transcript": ("transcripts.headless_transcript(str(fifo))", False),
+    "registry row": ("registry._row(fifo)", None),
+    "history._earlier": ("history._earlier(fifo, 10)", 10),          # unreadable: the cursor stays
+    "catalog._codex_names": ("catalog._codex_names(fifo.parent)", {}),
+    "catalog._claude_record": ("catalog._claude_record(fifo)", {}),
+    "codex_brief._records": ("list(codex_brief._records(fifo))", "refused"),
+    "handoff.first_task": ("handoff.first_task(fifo, 1024)", "refused"),
+    "handoff._read_bounded": ("handoff._read_bounded(fifo)", ""),
+    "last_permission_mode": ("transcripts.last_permission_mode(fifo)", None),
 }
 
 
@@ -462,13 +462,12 @@ def test_every_transcript_reader_skips_a_fifo_at_once(tmp_path, reader):
         fifo = Path({str(tmp_path / "session_index.jsonl")!r})
         os.mkfifo(fifo)
         try:
-            answer = {FIFO_READERS[reader]}
+            answer = {FIFO_READERS[reader][0]}
         except handoff.HandoffError:
             answer = "refused"
         print(json.dumps(answer))
     """)
-    nothing = (10,) if reader == "history._earlier" else ([], None, False, 0, "", {}, "refused")
-    assert json.loads(out) in nothing, out
+    assert json.loads(out) == FIFO_READERS[reader][1], out     # each reader's own "nothing"
 
 
 # --- what a reader reads is capped (C-25.3, review of aa41312, finding 2) --------------------

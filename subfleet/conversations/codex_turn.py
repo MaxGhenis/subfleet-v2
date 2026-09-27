@@ -221,6 +221,10 @@ class CodexTurn:
     def eof(self, offset: int) -> Step:
         if self.outcome is not None:
             return Step()
+        if self.idle_pending:
+            # The thread went idle after the turn started and the provider then
+            # exited: the turn ended there (C-26.5), not without a result.
+            return self.settle_idle()
         step = self._flush(f"{offset}:eof")
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,
