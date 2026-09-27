@@ -3550,8 +3550,8 @@ def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Cal
     installs ITIMER_REAL for grace plus STOP_DUMP_MARGIN_S, then asks
     faulthandler to dump at the grace and exit 1. The kernel backstop needs
     neither the GIL nor a thread, and survives a failed or cancelled dump
-    timer. A working dump normally wins; a blocked dump may be cut short by
-    SIGALRM. Faulthandler includes at most 100 threads, newest first, without
+    timer. A working dump normally wins; a slow or blocked dump may be cut
+    short by SIGALRM. Faulthandler includes at most 100 threads, newest first, without
     lock-ownership metadata. Even the stopping line can block or be absent.
 
     The one-time claim never waits. An interrupted arming call retains the

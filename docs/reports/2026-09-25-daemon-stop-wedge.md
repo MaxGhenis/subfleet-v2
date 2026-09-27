@@ -6,7 +6,8 @@ pid 93697, had begun to stop. It had shut its listening socket, but it held
 `daemon.lock` while it waited, with no deadline, for threads that never
 finished. C-5.8a bounds that wait. A stop that has not finished 30 s after it
 was armed normally dumps up to 100 Python thread stacks and exits 1. An
-independent kernel timer ends it one second later if that dump or exit fails.
+independent kernel timer ends it at 33 s if it is still alive, including when
+an ordinary dump is slow or descheduled. Diagnostics can then be incomplete.
 launchd and `subfleet daemon stop` each provide a SIGKILL backstop at 40 s
 for stops they initiate.
 
@@ -67,9 +68,9 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
 ## The fix: C-5.8a
 
 - **`watch_stop`.** `main` calls it once. It opens a descriptor on `daemon.log` at start, because a daemon stopping after running out of descriptors could not open one later. It reserves `ITIMER_REAL` and leaves SIGALRM at its default terminating action. It starts a thread solely to notice an externally set `stopping` event, and returns `arm`.
-- **`arm`.** Its first invocation claims a lock created at startup with a nonblocking acquire, and never releases that claim. It installs a kernel `ITIMER_REAL` timer for `stop_grace_s + STOP_DUMP_MARGIN_S` (31 s), then starts `faulthandler.dump_traceback_later(stop_grace_s, exit=True)`, then attempts one `stopping:` line. Both timers come before the write because the write can block or give up the GIL.
+- **`arm`.** Its first invocation claims a lock created at startup with a nonblocking acquire, and never releases that claim. It installs a kernel `ITIMER_REAL` timer for `stop_grace_s + STOP_DUMP_MARGIN_S` (33 s), then starts `faulthandler.dump_traceback_later(stop_grace_s, exit=True)`, then attempts one `stopping:` line. Both timers come before the write because the write can block or give up the GIL.
   - Overlapping or later calls cannot replace either timer. A call interrupted by a signal stays responsible for completing the arm; a nested handler returns without setting the event while that call is incomplete. This avoids the deadlock that made a plain nonblocking lock unsafe in the earlier draft.
-  - If faulthandler cannot start its timer, is cancelled, or blocks while dumping, the kernel still delivers SIGALRM at the later deadline. That fallback needs neither the GIL, a successful `Event.set`, the watcher, nor a thread created at stop time. It supplies no dump itself.
+  - If the process is still alive at the later deadline, the kernel delivers SIGALRM, whether faulthandler failed to start, was cancelled, or is still dumping because of slow I/O, descheduling, or a blocked write. That fallback needs neither the GIL, a successful `Event.set`, the watcher, nor a thread created at stop time. It supplies no dump itself.
   - A faulthandler failure does not escape `arm`, so `close()` can continue draining with the kernel timer already installed. If the kernel timer itself cannot be installed, `arm` exits 1 immediately rather than continuing without a bound.
 - **Who arms.** The thread that begins the stop arms, before `stopping` is set:
   - `close()`, through `Daemon.on_stop`;
@@ -77,12 +78,12 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
   - the SIGTERM and SIGINT handler.
 
   A watching thread also arms when anything else sets `stopping`. A daemon built in a test process has no `on_stop` and ends nothing.
-- **Why two timers.** faulthandler's C timer normally dumps and exits at 30 s even while another thread holds the GIL. The independent kernel timer supplies a nominal one-second dump margin; delayed timer installation or a stalled dump can consume that margin before it terminates the process. A Python watcher sleeping until a published deadline would address the two review interleavings while Python can run, but it could still be starved by a permanent GIL holder; the kernel timer closes that path. Installing either timer still requires Python to run. A raw SIGTERM or SIGINT whose handler never runs arms nothing.
+- **Why two timers.** faulthandler's C timer normally dumps and exits at 30 s even while another thread holds the GIL. The independent kernel timer supplies a nominal three-second dump margin. A working dump normally finishes first, but delayed timer installation, descheduling, slow I/O, or a blocked write can consume that margin and leave the dump incomplete. A Python watcher sleeping until a published deadline would address the two review interleavings while Python can run, but it could still be starved by a permanent GIL holder; the kernel timer closes that path. Installing either timer still requires Python to run. A raw SIGTERM or SIGINT whose handler never runs arms nothing.
 - **The signal handler (`stop_request`).** It arms, then sets `stopping`, skipping `Event.set` once the event is set. If another invocation is still arming, the handler returns without entering `Event.set`, letting the interrupted arm finish. A second signal can still land while the first handler holds the event's condition lock before setting its flag. That can deadlock the main thread, but the kernel timer is already installed; even a faulthandler failure leaves that independent deadline.
 - **The external backstops.** A signal whose handler never runs gets an external backstop only when launchd or the CLI initiated the stop:
   - **launchd.** With no `ExitTimeOut` in the plist, `launchctl print` reports an exit timeout of 5 s. That SIGKILLed a launchd stop before any dump. `daemon install` now writes `ExitTimeOut` as `stop_grace_s` + 10 s, which is 40 s. The new value takes effect when the plist is rewritten.
   - **`subfleet daemon stop`.** It waited 15 s flat, so it reported failure in exactly the case the bound ends. It now waits 40 s. If the process it signalled is still running, it verifies the identity again (C-5.4) and sends SIGKILL.
-- **What firing does.** When faulthandler succeeds, it writes the Python stacks of up to 100 threads to `daemon.log`, then calls `_exit(1)`. If it fails or stalls, SIGALRM ends the process one second later, possibly leaving no dump or an incomplete dump. 100 is faulthandler's cap. It lists the newest threads first, so with more than 100 the oldest, the main and control threads, are left out; the live daemon had 94 threads on 2026-09-26. The kernel releases the flock, and launchd's `KeepAlive` starts a fresh daemon.
+- **What firing does.** When faulthandler finishes before the kernel deadline, it writes the Python stacks of up to 100 threads to `daemon.log`, then calls `_exit(1)`. Otherwise SIGALRM ends the process at 33 s, possibly leaving no dump or an incomplete dump, even when faulthandler started successfully and its ordinary writes are merely slow or descheduled. 100 is faulthandler's cap. It lists the newest threads first, so with more than 100 the oldest, the main and control threads, are left out; the live daemon had 94 threads on 2026-09-26. The kernel releases the flock, and launchd's `KeepAlive` starts a fresh daemon.
 - **Guardians are untouched.** A guardian calls `os.setsid()` (`guardian.py`), so it leads its own session and process group. The kernel timer signals only the daemon process. Interval timers are reset in a forked child, so a guardian started after arming does not inherit the timer. The next daemon adopts their running attempts (C-4.2), as after a SIGKILL.
 - **The grace is 30 s.** That outlasts probe containment during a stop. A stop ends probe waits. Containment then sends SIGTERM, polls the census for up to `term_grace_s` (15 s), then sends SIGKILL and takes one more census (`_contain_probe`). With a 15 s bound, containment's SIGKILL could never run.
 - **One writer is kept.** `close()` still releases the lock only after every pool has drained. The bound never releases it early, it only ends the process.
@@ -91,7 +92,7 @@ The log is consistent with this ordering. An EMFILE traceback prints only when t
   - a launchd stop cut it at 5 s;
   - a crash, an OOM kill or an operator's SIGKILL cut it at any moment.
 
-  Once armed, a stop normally gets 30 s to drain, with the independent kernel deadline one second later. Making the publish crash-safe is the mirror's own open item.
+  Once armed, a stop normally gets 30 s to drain, with the independent kernel deadline three seconds later. Making the publish crash-safe is the mirror's own open item.
 
 ## Tests
 
@@ -122,12 +123,14 @@ It also covers:
 - the handler skipping `Event.set` once the flag is set;
 - a guardian started after the kernel timer was armed.
 
-The subprocess environment forces `PYTHON_GIL=1` so the GIL-shaped cases also test the intended contention on a free-threaded interpreter. A Hypothesis property varies the grace and the moment of the stop. These cases establish the following invariants:
+The subprocess environment forces `PYTHON_GIL=1` so the GIL-shaped cases also test the intended contention on a free-threaded interpreter. A Hypothesis property varies the grace and the moment of the stop. These tests retain the following assertions:
 
 - after successful kernel timer installation, the stuck process ends no earlier than the grace and no later than the grace plus 5 s; a separate installation-failure case verifies immediate exit;
-- in the ordinary-write cases, one `stopping:` line precedes a dump that names the stuck frame; a slow or blocked write has no such ordering guarantee, the GIL-during-write case deliberately allows no line, and the kernel fallback promises no dump;
+- in the ordinary-write cases, one `stopping:` line precedes a dump that names the stuck frame; slow, descheduled, or blocked diagnostic work has no completeness guarantee, a slow stopping-line write has no ordering guarantee, the GIL-during-write case deliberately allows no line, and the kernel fallback promises no dump;
 - a stop that finishes in time exits with its own status;
 - a daemon that is never stopped is never ended.
+
+The original one-second margin cut off an ordinary faulthandler dump during round-4 testing on the heavily loaded host. The strict exit-status, frame, line-count, ordering, and elapsed-time assertions were retained. The margin was raised to three seconds, within the existing grace-plus-five-second test bound and the 40 s external backstop. This mitigates that observed failure; no finite margin guarantees complete diagnostics under arbitrary delay. The [round-4 validation report](../../.review/REPORT.md) records the results, including the [retained one-second-margin failures](../../.review/results/314-repeat3-followup.md).
 
 Further tests pin the rest:
 

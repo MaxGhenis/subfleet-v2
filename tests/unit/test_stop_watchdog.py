@@ -39,7 +39,7 @@ REPO = Path(__file__).resolve().parents[2]
 #: How late past its grace a stuck child may end on a loaded machine. This
 #: covers the kernel fallback margin, dump, and parent scheduling.
 SLACK_S = 5.0
-ALARM_MARGIN_S = 1.0
+ALARM_MARGIN_S = 3.0
 
 CHILD = r'''
 import json, os, re, resource, signal, sys, threading, time
@@ -535,9 +535,10 @@ def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_th
     comes first."""
     import inspect
     from subfleet import cli
-    from subfleet.contracts import STOP_BACKSTOP_S, STOP_GRACE_S, TERM_GRACE_S
+    from subfleet.contracts import STOP_BACKSTOP_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S
     assert TERM_GRACE_S + 10 <= STOP_GRACE_S
     assert STOP_BACKSTOP_S >= 5
+    assert 0 < STOP_DUMP_MARGIN_S < STOP_BACKSTOP_S
     assert cli.DAEMON_STOP_WAIT_S == STOP_GRACE_S + STOP_BACKSTOP_S
     default = inspect.signature(daemon_module.Daemon).parameters["stop_grace_s"].default
     assert default == STOP_GRACE_S
