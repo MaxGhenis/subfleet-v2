@@ -53,6 +53,7 @@ def core(tmp_path, monkeypatch):
     chosen = Decision(("astra",), (), "codex-1", "astra", "test", "test")
     daemon._pick = lambda *args, **kwargs: chosen
     daemon._pin_roster = daemon.store.lane_rows          # C-11.2: no timers here, so no probe-reported names
+    daemon._route_stands = lambda basis, decision: (None, 0, decision)  # C-6.3: `_pick` is fixed; nothing moves
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda *args: False)
     daemon.store.put_lane(lane(root / "home"))

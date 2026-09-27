@@ -305,6 +305,25 @@ def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int
     return (1, not measured, -headroom, lane["in_flight"], lane["lane_id"])
 
 
+def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None,
+                 desktop_account: str | None = None) -> dict[str, Any]:
+    """C-10.3: set a lane row's `desktop` flag as a view does, and return the row.
+
+    Only a Claude lane is the desktop app's. `desktop` (the profile endpoint's
+    answer) decides when it can say anything; otherwise the recorded flag
+    stands. `desktop_account` is the bare hint, for callers that have only it.
+    C-6.3's check inside a reservation marks the lane rows it reads with this,
+    so it sees each lane as the view the decision was made on did."""
+    if lane["provider"] == "claude":
+        if desktop is not None:
+            if desktop.decisive:
+                lane["desktop"] = desktop.owns(lane)
+            lane["desktop_identity"] = desktop.status
+        elif desktop_account is not None:
+            lane["desktop"] = _account_matches(lane, desktop_account)
+    return lane
+
+
 def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Iterable[Any] = (),
                attempts: Iterable[Any] = (), jobs: Iterable[Any] = (), *,
                now: str | datetime | None = None, reading_ttl_s: int = READING_TTL_S,
@@ -335,15 +354,8 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
     turn_counts = Counter(row["lane_id"] for row in active if row.get("job_id") in turn_jobs)
     roster = []
     for item in lanes:
-        lane = _row(item)
+        lane = mark_desktop(_row(item), desktop=desktop, desktop_account=desktop_account)
         identity = lane["lane_id"]
-        if lane["provider"] == "claude":
-            if desktop is not None:
-                if desktop.decisive:
-                    lane["desktop"] = desktop.owns(lane)
-                lane["desktop_identity"] = desktop.status
-            elif desktop_account is not None:
-                lane["desktop"] = _account_matches(lane, desktop_account)
         lane["readings"] = [row for row in evidence if row["lane_id"] == identity]
         lane["closures"] = [row for row in active_closures if row["lane_id"] == identity]
         lane["in_flight"] = counts[identity]
@@ -357,6 +369,15 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
             "in_flight": {lane["lane_id"]: counts[lane["lane_id"]] for lane in roster},
             "in_flight_turns": {lane["lane_id"]: turn_counts[lane["lane_id"]] for lane in roster},
             "now": timestamp, "reading_ttl_s": reading_ttl_s}
+
+
+def credential_latched(lane: Mapping[str, Any]) -> bool:
+    """A lane whose credential its last probe found revoked or unusable, as
+    `Timers.enrich_view` merges the probe into the row: the view marks it
+    `credential-latched` in `unavailable_lanes`, so it has no slot until it heals
+    or is re-enrolled. C-6.3's check inside a reservation marks it the same way."""
+    return lane.get("revoked_epoch") is not None or lane.get("probe_status") in (
+        "revoked", "auth-revoked", "expired-token", "no-auth")
 
 
 def identity_blocked(lane: Mapping[str, Any]) -> bool:

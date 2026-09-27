@@ -190,6 +190,8 @@ _HOLD_TEXT = {
                             "that clears and holds no other job back (C-24.5)",
     "message-settled": "its message was withdrawn after the job was made; the job is cancelled while it has no "
                        "attempt, never run (C-24.7)",
+    "route-moved": "its route could not be settled in {tries} reservations in a row (commits changed it, or its "
+                   "clock ran out); it keeps its place and the next pass looks again (C-6.3)",
 }
 
 
@@ -228,7 +230,7 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold)}
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
-                 "conversation_id", "native_session_id"), "?"), **{k: v for k, v in fields.items() if v is not None}}))
+                 "conversation_id", "native_session_id", "tries"), "?"), **{k: v for k, v in fields.items() if v is not None}}))
         else:
             lines.append(f"Held: no lane admits it ({reason})")
     else:
