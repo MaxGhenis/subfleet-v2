@@ -1764,6 +1764,45 @@ def test_close_waits_for_a_store_file_write_under_way(svc, monkeypatch):
     assert (refused, rows) in ((["store-closed"], 0), (["store-closed"], 1), ([], 1)), (refused, rows)
 
 
+def test_a_model_catalog_waiting_for_a_file_write_holds_no_service_lock(svc, monkeypatch):
+    """C-25.3 (review of 585ea41..4d3d3ea): a turn's model catalog is merged into
+    `conversations/models.json` under the store's write guard, which another file
+    write (a message's text: two fsyncs) can hold. The merge waited for it holding the
+    service lock, so every poll, dispatch claim and adoption waited on an unrelated
+    fsync too. The merge has a lock of its own."""
+    cid = conversation(svc)
+    hold = Hold()
+    real = store_module._publish
+    monkeypatch.setattr(store_module, "_publish", lambda path, data: (hold(), real(path, data))[1])
+    entering = threading.Event()
+    real_writing = svc.store.writing
+
+    @contextlib.contextmanager
+    def writing():
+        entering.set()
+        with real_writing():
+            yield
+
+    sender = threading.Thread(target=lambda: submit(svc, cid))
+    sender.start()
+    assert hold.entered.wait(30), "the text was never published"
+    monkeypatch.setattr(svc.store, "writing", writing)
+    merger = threading.Thread(target=svc._on_catalog, args=("claude", "claude-1",
+                                                           [{"model": "claude-opus-5-5", "value": "opus"}]))
+    merger.start()
+    try:
+        assert entering.wait(30), "the merge never reached the write guard"
+        took = svc._lock.acquire(timeout=5)
+        if took:
+            svc._lock.release()
+        assert took, "the service lock was held by a merge waiting for another file write"
+    finally:
+        hold.go.set()
+        sender.join(30)
+        merger.join(30)
+    assert json.loads((svc.root / "conversations" / "models.json").read_text())["claude"]["claude-opus-5-5"]
+
+
 @pytest.mark.parametrize("write", ["message text", "approval request", "model catalog"])
 def test_no_conversation_file_write_makes_the_state_root(svc, write):
     """C-24.3, C-25.3: a message's text, an approval's request and the model catalog go

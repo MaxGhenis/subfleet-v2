@@ -123,6 +123,11 @@ class ConversationService:
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
+        # Merges into `conversations/models.json` (`_on_catalog`), one at a time. Not
+        # the service lock: a merge waits for the store's write guard, which another
+        # file write can hold across two fsyncs, and every poll, dispatch claim and
+        # adoption waited with it (review of 585ea41..4d3d3ea).
+        self._models = threading.Lock()
         self._handing_off: set[str] = set()          # source conversations mid-handoff (IR-28)
         self._poll_slots: dict[tuple, threading.Event] = {}
         # A person's cancels and stops of one message are taken one at a time (C-24.7),
@@ -293,7 +298,7 @@ class ConversationService:
     def _on_catalog(self, provider: str, lane_id: str | None, catalog: list) -> None:
         """Merge one turn's provider catalog into `conversations/models.json`."""
         from ..guardian import atomic_publish
-        with self._lock:
+        with self._models:
             data = self._catalog_cache()
             models: dict[str, dict] = {}
             for entry in catalog:
