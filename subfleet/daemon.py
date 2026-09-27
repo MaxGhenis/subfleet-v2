@@ -544,10 +544,11 @@ class Daemon:
         # C-6.3: reservations whose early decision stood (`reused`) and those
         # whose check chose again from the lanes that changed (`rechosen`); the
         # evaluations made again off the lock after a check refused one, and why
-        # (`moved`: it took lanes never judged, a cap that began or ended
-        # included; `old`: a clock earlier than its view's; `error`: the check
-        # raised); jobs left for the next pass after ROUTE_TRIES; and the lanes
-        # checks judged again, for their rows or their own clocks.
+        # (`moved`: the job's pin names another lane now, or an evaluation now
+        # would raise, or what the check rests on is gone; `old`: a clock earlier
+        # than its view's; `error`: the check raised); jobs left for the next pass
+        # after ROUTE_TRIES; and the lanes checks judged again: for their rows,
+        # their own clocks, or a cap that began or ended.
         self._route_evaluations = {"reused": 0, "rechosen": 0, "again": 0, "moved": 0, "old": 0, "error": 0,
                                    "deferred": 0, "rejudged": 0}
         self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
@@ -2032,13 +2033,14 @@ class Daemon:
                 # C-6.3, since the daemon started: reservation checks that kept the
                 # early decision's lane (`reused`) or chose again from the lanes
                 # that changed (`rechosen`); evaluations made again, off the lock,
-                # after a check refused one (`again`), and why: it took lanes never
-                # judged, a fleet or parent cap that began or ended included
-                # (`moved`), the clock was earlier than its view's (`old`: it
-                # stepped back), or the check raised (`error`); jobs left for the
-                # next pass after ROUTE_TRIES (`deferred`); and the lanes checks
-                # judged again, whose rows changed or whose own clock reached its
-                # horizon (`rejudged`).
+                # after a check refused one (`again`), and why: the job's pin names
+                # another lane now, an evaluation now would raise, or what the
+                # check rests on is gone (`moved`), the clock was earlier than its
+                # view's (`old`: it stepped back), or the check raised (`error`);
+                # jobs left for the next pass after ROUTE_TRIES (`deferred`); and
+                # the lanes checks judged again, whose rows changed, whose own
+                # clock reached its horizon, or every lane of the walk when a
+                # fleet or parent cap began or ended (`rejudged`).
                 "route_evaluations": dict(self._route_evaluations)}
 
     # --- the sessions kit's store seam (C-23.33, C-23.35, C-23.55) ------------
@@ -3381,15 +3383,18 @@ class Daemon:
             # route. It checks the decision against the rows it reads, a few by
             # index (`_route_stands`), at its own clock: the lanes the decision
             # looks at whose rows changed, or whose own clock reached its horizon
-            # (a reading aged out, a closure ended), are judged again. When they
-            # decide it alone, it goes on with exactly the decision an evaluation
-            # of those rows would make at that clock, the same lane or another.
-            # When they do not, it rolls back; the route is evaluated again, off
-            # the lock, and checked again, up to ROUTE_TRIES times in this pass.
-            # A clock on a lane the job could never take (another provider's, one
-            # its pin does not name) is never looked at: sixty Claude lanes'
-            # staggered readings refused every check of a Codex job for as long
-            # as they were refreshed (review of d04b8b3). Evaluating a whole capacity
+            # (a reading aged out, a closure ended), are judged again, and every
+            # lane of the walk when a fleet or parent cap began or ended. It goes
+            # on with exactly the decision an evaluation of those rows would make
+            # at that clock, the same lane or another. Only a pin that names
+            # another lane now (or an evaluation that would raise) rolls it back;
+            # the route is evaluated again, off the lock, and checked again, up
+            # to ROUTE_TRIES times in this pass. A clock on a lane the job could
+            # never take (another provider's, one its pin does not name) is never
+            # looked at: sixty Claude lanes' staggered readings refused every
+            # check of a Codex job for as long as they were refreshed (review of
+            # d04b8b3), and a cap that flipped between each evaluation and its
+            # check refused them as long as it flipped (review of 5d14f98). Evaluating a whole capacity
             # view inside this transaction held the store lock for 13.5 s with the
             # daemon held to 5% of a core, and for 7.7 to 12.6 s on 2026-09-26
             # (load 110-170), when some commit landed between the two evaluations
@@ -3404,7 +3409,7 @@ class Daemon:
                     self._unroutable(job, exc, holds)
                     continue
             decision, basis = early
-            status, route, last = "moved", {"failed": False}, None
+            status, route, last, probed = "moved", {"failed": False}, None, frozenset()
             for tries in range(1, ROUTE_TRIES + 1):
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
@@ -3470,6 +3475,8 @@ class Daemon:
                                        (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
                             status = "held"
+                            if kind == "turn":
+                                probed = self._probes_holding(decision)
                             break
                         if needs_probe and (decision.chosen_lane, decision.chosen_model) not in approved:
                             # The chosen identity changed after its probe; a later pass
@@ -3570,6 +3577,16 @@ class Daemon:
                         break
                     continue
                 break
+            if probed:
+                # C-6.10, C-26.9: a turn held off a lane by a detached job's admission
+                # probe waits for exactly that lease, whenever the probe began: it is
+                # counted as seen, so the next turn pass finds it gone the moment the
+                # probe ends, and looks at once (review of 5d14f98: a probe that began
+                # after this pass read its leases went unseen, and the turn waited out
+                # its backed-off clock).
+                with self._admission_lock:
+                    self._leases_seen = {**self._leases_seen,
+                                         kind: self._leases_seen.get(kind, frozenset()) | probed}
             if route["failed"]:
                 continue
             if status == "moved" and last is not None and last.error is not None:
@@ -3604,6 +3621,16 @@ class Daemon:
             self._notify()
 
     @staticmethod
+    def _probes_holding(decision) -> frozenset[tuple[str, str]]:
+        """C-11.4, C-26.9: the admission probes' leases (`lane:<id>:slot:0`) that kept a
+        lane from `decision`, as its rejections name them (`slot_block`). Timer probes
+        are left out: they come and go every cycle."""
+        return frozenset((f"lane:{row['lane_id']}:slot:0", row["slot_block"])
+                         for evaluation in decision.evaluations for row in evaluation["rejections"]
+                         if str(row.get("slot_block") or "").startswith("probe:")
+                         and not str(row["slot_block"]).startswith("probe:timer:"))
+
+    @staticmethod
     def _in_pass(job: dict, kind: str) -> bool:
         """C-26.9: whether `job` is the `kind` pass's: turns are the turn pass's, every other job the detached pass's."""
         return (job["kind"] == "turn") == (kind == "turn")
@@ -3631,18 +3658,18 @@ class Daemon:
     def _route_stands(self, basis: dict, decision) -> tuple[str | None, int, Any]:
         """C-6.3: inside the reserving transaction, the decision as an evaluation now makes it.
 
-        (None, lanes judged again, that decision) when the lanes that changed
-        since the early decision's snapshot decide it alone: it is then exactly
-        what `scheduler.evaluate` over the rows this transaction sees, at this
-        clock, would return (`route_check.still_stands`). Otherwise the reason
-        not (`moved`, `old`, `full`), and the transaction is rolled back. It
-        reads a few rows by index and judges again only the lanes the decision
-        looks at whose rows changed, whose override began or ended, or whose own
-        clock reached its horizon (`capacity.lane_horizons`, recorded off the
-        lock): it never builds a capacity view or evaluates a route. It refuses
-        what that comparison cannot see: a policy loaded since, a clock earlier
-        than the view's, and readings the snapshot held that are gone
-        (`_route_rows`)."""
+        (None, lanes judged again, that decision): exactly what
+        `scheduler.evaluate` over the rows this transaction sees, at this clock,
+        would return (`route_check.still_stands`). Otherwise the reason not
+        (`moved`, `old`), and the transaction is rolled back. It reads a few rows
+        by index and judges again, in memory, only the lanes the decision looks
+        at whose rows changed, whose override began or ended, or whose own clock
+        reached its horizon (`capacity.lane_horizons`, recorded off the lock), and
+        every lane of the walk when a fleet or parent cap began or ended: it
+        never builds a capacity view, reads the readings table whole, or calls
+        `evaluate`. It refuses what that comparison cannot see: a pin that names
+        another lane now, a policy loaded since, a clock earlier than the view's,
+        and readings the snapshot held that are gone (`_route_rows`)."""
         if not basis or basis.get("policy") is not self.policy:
             return "moved", 0, None
         now = datetime.now(timezone.utc)

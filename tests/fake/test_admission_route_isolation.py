@@ -282,6 +282,23 @@ def two_codex_lanes(service):
     measured(service, "codex-2")
 
 
+def successor(service):
+    """codex-9, codex-1's re-enrolment on the same credential, not yet enabled. Returns a
+    function that completes it from another thread (codex-1 disabled, codex-9 enabled), so
+    a job pinned to codex-1 names codex-9 from then on (C-11.2): a lane its early decision
+    never looked at, the one change C-6.3's check sends to be evaluated again."""
+    row = service.store.one("SELECT * FROM lanes WHERE lane_id='codex-1'")
+    service.store.put_lane(Lane("codex-9", "codex", row["account_key"],
+                                Credential("codex", row["credential_ref"], row["credential_kind"]), row["home"],
+                                LaneOwner.V2, False, False))
+    measured(service, "codex-9")
+
+    def reenrol():
+        service.store.update_lane("codex-1", enabled=0)
+        service.store.update_lane("codex-9", enabled=1)
+    return lambda: elsewhere(reenrol)
+
+
 def evaluation_at_reservation(service, monkeypatch):
     """What an evaluation of the rows the reservation sees would choose, recorded at the
     check inside it. The test evaluates there, with the store lock held; admission never
@@ -298,25 +315,27 @@ def evaluation_at_reservation(service, monkeypatch):
 
 
 def test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too(fleet, monkeypatch):
-    """C-6.12: when the reservation's check refuses the early decision (C-6.3: another
-    reservation filled the fleet meanwhile), the route is evaluated again off the store
-    lock, and the roster can change between them: an error there settles the job, after
-    the reservation has rolled back, and the pass goes on."""
+    """C-6.12: when the reservation's check refuses the early decision (C-6.3: the lane the
+    job is pinned to was re-enrolled meanwhile, so the pin names another lane now), the
+    route is evaluated again off the store lock, and the roster can change between them:
+    an error there settles the job, after the reservation has rolled back, and the pass
+    goes on. (A fleet that filled meanwhile refused the check until the review of 5d14f98;
+    the check now judges every lane again then.)"""
     service, harness = fleet
     service.policy["caps"]["max_active_attempts"] = 1
-    raced = submit(service, harness, pinned_model="astra")
+    reenrol = successor(service)
+    raced = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
     later = submit(service, harness, pinned_model="terra")
-    real, calls, locked, free = service._pick, {}, [], []
+    real, calls, locked = service._pick, {}, []
 
     def pick(job, **options):
         locked.append(service.store._holds_writer())
         if job["job_id"] == raced:
             calls[raced] = calls.get(raced, 0) + 1
             if calls[raced] == 2:                             # the evaluation made again
-                free[0]()                                     # (the other attempt ends: the fleet is free for `later`)
                 raise scheduler.RouteError(f"pinned_lane: {EMAIL!r} names 2 lanes (claude-a, codex-1)")
             decision = real(job, **options)
-            free.append(fill_fleet(service, harness))         # the fleet fills before the reservation
+            reenrol()                                         # codex-1 re-enrolled before the reservation
             return decision
         return real(job, **options)
     monkeypatch.setattr(service, "_pick", pick)
@@ -333,10 +352,12 @@ def test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too(fleet, monk
 
 def test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote(fleet, monkeypatch):
     """C-6.12, C-6.3: the reservation writes a limited lane into `exclusions`; a check that
-    refuses its decision, and a route error when it is evaluated again, leave it unwritten."""
+    refuses its decision (the pin names another lane now), and a route error when it is
+    evaluated again, leave it unwritten."""
     service, harness = fleet
     service.policy["caps"]["max_active_attempts"] = 1
-    raced = submit(service, harness, pinned_model="astra")
+    reenrol = successor(service)
+    raced = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
     service.store.add_attempt(attempt_id=raced + "/a1", job_id=raced, seq=1, lane_id="claude-a",
                               model_requested="gpt-6-astra", state="failed", outcome_class="limited")
     before = service.store.get_job(raced)["exclusions"]
@@ -347,7 +368,7 @@ def test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote(fleet, monk
         if len(calls) > 1:
             raise scheduler.RouteError("pinned_lane: fixture")
         decision = real(job, **options)
-        fill_fleet(service, harness)                          # the fleet fills before the reservation
+        reenrol()                                             # codex-1 re-enrolled before the reservation
         return decision
     monkeypatch.setattr(service, "_pick", pick)
     service._admit()
@@ -420,11 +441,13 @@ def test_c6_3_a_commit_that_moves_the_decision_is_decided_again_from_the_lanes_i
     assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == ["codex-2"] == chosen
 
 
-def test_c6_3_a_cap_that_fills_before_the_reservation_means_evaluating_again_off_the_lock(fleet, monkeypatch):
+def test_c6_3_a_cap_that_fills_before_the_reservation_is_judged_on_every_lane(fleet, monkeypatch):
     """Another reservation fills the fleet before this one: a cap that begins refuses every
-    lane, which takes every lane's rows, so the check refuses, the transaction rolls back,
-    and the route is evaluated again off the lock; that evaluation finds the fleet full and
-    the job waits on it, as an evaluation of the rows the reservation reads would decide."""
+    lane alike, so the check judges every lane of the walk again, finds none with a slot,
+    and the job waits on the full fleet, as an evaluation of the rows the reservation
+    reads decides. Evaluated once, never with the lock held. (The check refused, and the
+    route was evaluated again off the lock, until the review of 5d14f98: a cap that
+    flipped between each evaluation and its check kept a job out for as long as it did.)"""
     service, harness = fleet
     service.policy["caps"]["max_active_attempts"] = 1
     job_id = submit(service, harness, pinned_model="astra")
@@ -437,9 +460,11 @@ def test_c6_3_a_cap_that_fills_before_the_reservation_means_evaluating_again_off
             fill_fleet(service, harness)
         return decision
     monkeypatch.setattr(service, "_pick", pick)
+    chosen = evaluation_at_reservation(service, monkeypatch)
     service._admit()
-    assert inside == [False, False]                               # evaluated twice, never with the lock held
-    assert service._route_evaluations == {**ZERO, "reused": 1, "again": 1, "moved": 1}
+    assert inside == [False]                                      # evaluated once, with no lock held
+    assert service._route_evaluations == {**ZERO, "rechosen": 1, "rejudged": 1}   # codex-1, judged again
+    assert chosen == [None]
     assert not service.store.list_attempts(job_id)
     assert service._holds[job_id]["reason"] == "fleet-full" and service.store.get_job(job_id)["state"] == "waiting"
 

@@ -2,14 +2,15 @@
 
 `route_check.still_stands` judges again only the lanes the decision looks at that
 changed since the early evaluation's snapshot: their rows, their override, or their
-own clock (`capacity.lane_horizons`) (`scheduler.judge_lane`, `scheduler.rank_key`).
-It is pinned against the full evaluation it stands in for, across random stores and
-random commits and clocks in between: it refuses exactly when the decision now takes
-lanes it never judged or that did not change (a capacity block began or ended, the
-walk goes past the models the early decision judged, a pin names another lane), and
-otherwise returns exactly what `scheduler.evaluate` over the rows the reservation
-sees, at its clock, returns: every field, evidence and `evaluated_at` included. A
-clock alone never makes it refuse (review of d04b8b3).
+own clock (`capacity.lane_horizons`) (`scheduler.judge_lane`, `scheduler.rank_key`);
+every lane of the walk when a fleet or parent cap began or ended, and every lane of a
+model past the early decision's when the walk now goes further. It is pinned against
+the full evaluation it stands in for, across random stores and random commits and
+clocks in between: it refuses exactly when the job's pin names another lane now or an
+evaluation now raises, and otherwise returns exactly what `scheduler.evaluate` over the
+rows the reservation sees, at its clock, returns: every field, evidence and
+`evaluated_at` included, in `evaluate`'s order. Neither a clock (review of d04b8b3)
+nor a cap that began or ended (review of 5d14f98) makes it refuse.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from subfleet import capacity, route_check, scheduler
 from tests.routing_strategies import (ACTIVE, BASE_POLICY, NOW, candidates_of, closure_rows, commits, event, exact,
-                                     policies, reading_rows, route_jobs, stores, view_of, walked_no_further)
+                                     policies, reading_rows, route_jobs, stores, view_of)
 
 SETTINGS = settings(max_examples=1500, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large,
@@ -53,17 +54,16 @@ def now_rows(before: dict, after: dict) -> dict:
             "holding": set(after["overridden"])}
 
 
-def from_changed_lanes(policy, job, decision, view, full, view_now) -> bool:
-    """Whether the decision now can be had from the lanes whose rows changed: the
-    evaluation now did not raise, names the lane its pin named, has the capacity
-    blocks the early one had, and walked no model the early one did not judge."""
+def evaluable_now(policy, job, view, full, view_now) -> bool:
+    """Whether the decision now can be had from the early decision's lanes and the rows
+    now: an evaluation now did not raise, and the job's pin names the lane it named."""
     if full is None:
         return False
     if job.get("pinned_lane"):
         pinned = [(scheduler.prepare(policy, one, job)["selected"] or {}).get("lane_id") for one in (view, view_now)]
         if pinned[0] != pinned[1]:
             return False
-    return walked_no_further(decision, full)
+    return True
 
 
 def check(policy, store, job, after, seconds):
@@ -83,7 +83,7 @@ def check(policy, store, job, after, seconds):
         full = scheduler.evaluate(policy, view_of(after, later), job)
     except route_check.ROUTE_ERRORS:
         full = None
-    decidable = from_changed_lanes(policy, job, decision, view, full, view_of(after, later))
+    decidable = evaluable_now(policy, job, view, full, view_of(after, later))
     same = bool(full) and (full.chosen_lane, full.chosen_model) == (decision.chosen_lane, decision.chosen_model)
     expired = sorted(lane_id for lane_id, horizon in clocks.items() if later >= horizon)
     event(f"{'lane' if decision.chosen_lane else 'no lane'}: verdict {verdict}; evaluate "
@@ -93,7 +93,7 @@ def check(policy, store, job, after, seconds):
     if verdict is None:
         # What the reservation goes on with is what a fresh evaluation decides at
         # this clock: every field, the evidence's ages and labels and
-        # `evaluated_at` included.
+        # `evaluated_at` included, in the order `evaluate` gives them.
         assert exact(standing) == exact(full)
     return verdict, decidable, standing or decision, full
 
@@ -101,17 +101,19 @@ def check(policy, store, job, after, seconds):
 @SETTINGS
 @given(cases(), st.data())
 def test_c6_3_still_stands_exactly_when_evaluate_now_chooses_the_same(case, data):
-    """Accepts ⇔ an evaluation over the rows now, at the clock now, picks the same lane
-    and model and reads the same probe need there. Never accepts what that evaluation
-    would not choose; never refuses what it would, except as the caller's own checks do."""
+    """Refuses ⇔ the job's pin names another lane now, or an evaluation now raises;
+    otherwise returns exactly that evaluation's decision (asserted in `check`), whose
+    verdict and probe need are then the evaluation's. Never accepts what an evaluation
+    now would not choose; never refuses what it would, except as the caller's own
+    checks do."""
     policy, store, job = case
     after, seconds = data.draw(commits(store))
     result = check(policy, store, job, after, seconds)
     if result is None:
         return
     verdict, decidable, decision, full = result
-    # Refused exactly when the decision now takes lanes that were never judged or
-    # did not change; otherwise it is the evaluation's own (asserted in `check`).
+    # Refused exactly when the pin moved or an evaluation now raises; otherwise it
+    # is the evaluation's own (asserted in `check`).
     assert (verdict is None) == decidable, (verdict, decision.chosen_lane, full and full.chosen_lane)
     if verdict is None:            # `decision` is the decision now
         assert scheduler.verdict_signature(decision) == scheduler.verdict_signature(full)
@@ -138,8 +140,8 @@ def test_c6_3_still_stands_exactly_when_commits_land_on_the_lanes_it_walked(case
     if result is None:
         return
     verdict, decidable, decision, full = result
-    # Refused exactly when the decision now takes lanes that were never judged or
-    # did not change; otherwise it is the evaluation's own (asserted in `check`).
+    # Refused exactly when the pin moved or an evaluation now raises; otherwise it
+    # is the evaluation's own (asserted in `check`).
     assert (verdict is None) == decidable, (verdict, decision.chosen_lane, full and full.chosen_lane)
     if verdict is None:            # `decision` is the decision now
         assert scheduler.verdict_signature(decision) == scheduler.verdict_signature(full)
@@ -233,11 +235,16 @@ def test_c6_3_a_closure_on_the_chosen_lane_chooses_the_next(policy):
     assert stands(policy, store, with_(store, closures=[closure])) == (None, "codex-2")
 
 
-def test_c6_3_a_concurrent_reservation_that_fills_the_fleet_is_full(policy):
+def test_c6_3_a_concurrent_reservation_that_fills_the_fleet_leaves_no_lane(policy):
+    """Another reservation fills the fleet before this one: every lane is judged again
+    (it used to refuse, `full`), and none has a slot now: a `fleet-full` wait."""
     policy["caps"]["max_active_attempts"] = 1
     store = fleet()
     after = with_(store, attempts=[{"attempt_id": "busy/a1", "job_id": "busy", "lane_id": "codex-3", "state": "reserved"}])
-    assert stands(policy, store, after) == ("full", "codex-1")
+    assert stands(policy, store, after) == (None, None)
+    verdict, _, standing, _ = check(policy, store, JOB, after, 1)
+    assert standing.evaluations[0]["capacity_blocks"] == ["fleet"]
+    assert scheduler.dominant_rejection(standing) == "fleet-full"
 
 
 def test_c6_3_a_second_attempt_on_an_unmeasured_lane_is_never_reserved(policy):
@@ -276,17 +283,47 @@ def test_c6_3_a_disabled_chosen_lane_chooses_the_next(policy):
     assert stands(policy, store, after) == (None, "codex-2")
 
 
-def test_c6_3_a_chosen_model_that_loses_every_lane_is_evaluated_again(policy):
+def test_c6_3_a_chosen_model_that_loses_every_lane_walks_on_to_the_next(policy):
     """`sweep` at `standard` walks Terra, then Astra. Terra closes on every lane before the
     reservation: an evaluation now goes on to Astra, whose lanes this decision never
-    judged, so the check refuses and admission evaluates again, off the lock."""
+    judged. The check judges them now and chooses codex-1 for Astra, as `evaluate` does
+    (it refused, and the route was evaluated again, until the review of 5d14f98)."""
     sweep = {**JOB, "pinned_model": None, "task": "sweep", "tier": "standard"}
     store = fleet()
     closed = [{"closure_id": n, "lane_id": lane_id, "scope": "gpt-5.6-terra",
                "until_at": capacity._iso(NOW + timedelta(hours=1)), "reason": "provider-limit",
                "clock_source": "reported", "source_event": "x", "created_at": capacity._iso(NOW), "released_at": None}
               for n, lane_id in enumerate(("codex-1", "codex-2", "codex-3"), 1)]
-    assert stands(policy, store, with_(store, closures=closed), job=sweep) == ("moved", "codex-1")
+    assert stands(policy, store, store, job=sweep) == (None, "codex-1")
+    result = check(policy, store, sweep, with_(store, closures=closed), 1)
+    assert result[0] is None and result[2].chain == ("terra", "astra") and result[2].chosen_model == "astra"
+    assert judged_again(policy, store, with_(store, closures=closed), job=sweep) == (None, 3)   # each lane, once
+
+
+def test_c6_3_a_fleet_cap_that_begins_or_ends_is_judged_on_every_lane(policy):
+    """Review of 5d14f98: a cap that began or ended refused the check, and a cap that
+    flipped between each evaluation and its check (a timer probe's lease counts toward
+    the detached fleet's) kept a job out for as long as it flipped. Every lane of the
+    walk is judged again instead: a probe that fills the fleet leaves no lane now; one
+    that ends before the check frees codex-1 again."""
+    policy["caps"]["max_active_attempts"] = 2
+    store = fleet(attempts=[{"attempt_id": "busy/a1", "job_id": "busy", "lane_id": "codex-3", "state": "running"}])
+    full = with_(store, unavailable={"codex-2": "probe:timer:1"})
+    assert stands(policy, store, full) == (None, None)
+    assert judged_again(policy, store, full) == (None, 3)
+    assert stands(policy, full, store) == (None, "codex-1")
+    assert judged_again(policy, full, store) == (None, 3)
+
+
+def test_c6_3_only_a_pin_that_names_another_lane_now_is_evaluated_again(policy):
+    """codex-2 is re-enrolled while a job pinned to it waits: the old binding is disabled
+    and codex-4, on the same credential, enabled. The pin follows the credential to codex-4
+    (C-11.2), a lane the early decision never looked at: evaluated again off the lock."""
+    pinned = {**JOB, "pinned_lane": "codex-2"}
+    store = fleet()
+    successor = {**LANES[1], "lane_id": "codex-4"}
+    after = with_(store, lanes=[LANES[0], {**LANES[1], "enabled": 0}, LANES[2], successor])
+    assert stands(policy, store, after, job=pinned) == ("moved", "codex-2")
 
 
 # --- a lane's own clock (review of d04b8b3) -------------------------------------------------------

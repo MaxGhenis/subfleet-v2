@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import json
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -256,20 +257,13 @@ def event(text: str) -> None:
         pass
 
 
-def exact(decision) -> dict:
-    """A decision as data, all of it: lane, model, verdict, details and evidence, every
-    reading's age and label and every closure row, and `evaluated_at`. What C-6.3's check
-    returns is exactly what `scheduler.evaluate` returns at the check's clock (review of
-    d04b8b3: the comparison used to keep only the evidence's ids, and hid a reading
-    labelled `provider` where an evaluation said `stale-provider`)."""
-    return dataclasses.asdict(decision)
-
-
-def walked_no_further(decision, full) -> bool:
-    """Whether an evaluation now (`full`) can be had from the lanes whose rows changed
-    since `decision`'s: it has the capacity blocks the early one had and walked no model
-    of the chain the early one did not judge. (A pin that names another lane now is the
-    other case; the caller checks it where pins are generated.)"""
-    return (full is not None
-            and full.evaluations[0]["capacity_blocks"] == decision.evaluations[0]["capacity_blocks"]
-            and len(full.chain) <= len(decision.chain))
+def exact(decision) -> list:
+    """A decision as data, all of it and in its order: lane, model, verdict, details and
+    evidence, every reading's age and label and every closure row, and `evaluated_at`,
+    each mapping as its list of pairs, as the decision row's JSON is written. What C-6.3's
+    check returns is exactly what `scheduler.evaluate` returns at the check's clock
+    (review of d04b8b3: the comparison used to keep only the evidence's ids, and hid a
+    reading labelled `provider` where an evaluation said `stale-provider`; review of
+    5d14f98: `candidate_details` listed unchanged lanes first, and the recorded JSON
+    differed though the dicts were equal)."""
+    return json.loads(json.dumps(dataclasses.asdict(decision)), object_pairs_hook=list)

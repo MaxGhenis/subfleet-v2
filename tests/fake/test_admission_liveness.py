@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import capacity, scheduler
@@ -270,6 +271,82 @@ def test_c26_9_a_turn_held_off_a_lane_by_a_probe_is_looked_at_when_the_probe_end
         assert slot_of(service, turn[0]) == "lane:codex-1:slot:turn-0"
 
 
+@pytest.mark.parametrize("probe_began", ["before the pass", "during the pass"])
+def test_c26_9_a_turn_held_by_a_probe_is_looked_at_when_it_ends_whenever_it_began(tmp_path, probe_began):
+    """Review of 5d14f98: the turn pass counted the admission probes' leases it read at its
+    start. A probe that began after that, while the pass evaluated a turn pinned to its
+    lane, held the turn `no-slot`, and its end freed nothing the pass had seen: the turn
+    waited out its backed-off clock. A turn held by a probe now counts that probe's lease
+    as seen, whenever it began."""
+    holder = "probe:0123456789abcdef01234567"          # the shape `_prepare_route` gives an admission probe
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        one_unmeasured_lane(service, harness, patch)
+        turn = submit_turn(service, harness, 1)
+        if probe_began == "before the pass":
+            assert service.store.acquire_lease("lane:codex-1:slot:0", holder)
+        real = service._pick
+
+        def pick(job, **options):
+            decision = real(job, **options)
+            if probe_began == "during the pass" and job["job_id"] == turn:
+                assert service.store.acquire_lease("lane:codex-1:slot:0", holder)
+            return decision
+        patch.setattr(service, "_pick", pick)
+        service._admit_turns()
+        assert not service.store.list_attempts(turn) and service._holds[turn]["reason"] == "no-slot"
+        service.store.release_leases(holder)                              # the probe ends
+        service.store.update_job(turn, next_check_at=daemon_module.after(600))   # only freed capacity helps now
+        patch.setattr(service, "_pick", real)
+        service._admit_turns()
+        assert [row["lane_id"] for row in service.store.list_attempts(turn)] == ["codex-1"]
+
+
+@pytest.mark.parametrize("old", [False, True], ids=["this admission", "e053b2c's"])
+def test_c6_3_a_fleet_cap_that_flips_between_evaluation_and_check_never_holds_a_job_back(tmp_path, old):
+    """Review of 5d14f98, its schedule at resonance: the detached fleet is one short of its
+    cap, and a timer probe's lease (which counts toward it) is held while each evaluation
+    reads its snapshot and gone by each check. The check refused a cap that ended between
+    the two, ROUTE_TRIES times a pass: the job was never placed, while e053b2c's
+    evaluation at the reservation placed it at once. The check now judges every lane again
+    when a cap begins or ends, and places it on the first try, as e053b2c did; with the
+    flip the other way round (free at the evaluation, full at the check) it waits
+    `fleet-full`, as e053b2c's did, and is never `route-moved`."""
+    timer = "probe:timer:liveness"
+    for phase in ("full at evaluation", "full at check"):
+        with fleet_daemon(tmp_path / phase.replace(" ", "-")) as (service, harness, patch):
+            service.policy["caps"].update(max_active_attempts=2, max_in_flight_per_lane=1, reading_ttl_s=3600)
+            patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+            from tests.fake.test_admission_latency import measure
+            for lane_id in CODEX:
+                measure(service, lane_id)
+            occupier = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
+            service._admit()
+            assert [row["lane_id"] for row in service.store.list_attempts(occupier)] == ["codex-1"]
+            job_id = submit(service, harness, pinned_model="astra")
+            real = service._pick
+
+            def flipping(job, _real=real, _full_first=(phase == "full at evaluation"), **options):
+                if _full_first:
+                    assert service.store.acquire_lease("lane:codex-3:slot:0", timer)
+                decision = _real(job, **options)
+                if _full_first:
+                    service.store.release_leases(timer)
+                else:
+                    assert service.store.acquire_lease("lane:codex-3:slot:0", timer)
+                return decision
+            patch.setattr(service, "_pick", flipping)
+            if old:
+                as_before(service, patch)
+            service._admit()
+            if phase == "full at evaluation":
+                assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == ["codex-2"]
+            else:
+                assert not service.store.list_attempts(job_id)
+                assert service._holds[job_id]["reason"] == "fleet-full"
+                service.store.release_leases(timer)
+            assert service._route_evaluations["deferred"] == 0 and service._route_evaluations["again"] == 0
+
+
 def test_c26_9_both_passes_racing_keep_every_cap_detached_fifo_and_place_everything(tmp_path):
     """The review's concurrency probe: 40 detached jobs and 24 turns on three measured
     Codex lanes, four admission calls at once per wave (two `_admit`, two turn passes),
@@ -333,6 +410,7 @@ def test_c26_9_both_passes_racing_keep_every_cap_detached_fifo_and_place_everyth
 # --- the property: what e053b2c's admission places, this one places, pass for pass ----------------
 
 CODEX = ("codex-1", "codex-2", "codex-3")
+TIMER = "probe:timer:liveness"
 LIVENESS = settings(max_examples=40, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture,
                                            HealthCheck.data_too_large])
@@ -373,14 +451,17 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
     """Over random schedules of readings (sensors on the Codex lanes and on up to 24 Claude
     lanes no job here could take, refreshed on their own cycles, so readings age out
     between an evaluation and its reservation), closures (some ending within a pass),
-    conversation turns, detached jobs (writable ones needing their probe on an unmeasured
-    lane, pins, every tier) and attempts ending, this admission and e053b2c's (`as_before`)
+    timer probes that start or end between an evaluation and its check (so the detached
+    fleet's cap begins or ends under it), conversation turns, detached
+    jobs (writable ones needing their probe on an unmeasured lane, pins, every tier) and
+    attempts ending, this admission and e053b2c's (`as_before`)
     run side by side from the same fleet, on one clock: every evaluation of a pass at the
     pass's instant, each job's reservation 0 to 3 s after it. After every pass both have
     placed the same jobs, on the same lanes and models: for every N, every job the old
     admission places within N passes this one places within N passes, and nothing else.
     On d04b8b3 this fails both ways the review found: a job refused at every check for
-    another lane's clock, and a writable job kept from its probe by a turn."""
+    another lane's clock, and a writable job kept from its probe by a turn; on 09f82e1,
+    a job refused at every check for a cap that began or ended."""
     draw = data.draw
     root = tmp_path_factory.mktemp("liveness")
     start = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
@@ -398,6 +479,7 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
         sensors[f"claude-{n}"] = (120, (n * 120) // max(unrelated, 1), .2)
     disabled = draw(st.lists(st.sampled_from(CODEX), max_size=2, unique=True), label="disabled")
     delays: dict[str, int] = {}
+    flips: dict[str, bool] = {}
     clock = [start]
     published: dict[tuple[str, str], set] = {}
     with fleet_daemon(root / "new") as (new, new_harness, new_patch), \
@@ -424,10 +506,19 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
             probing(service, patch, [])
             real = service._pick
 
-            def on_the_pass_clock(job, _real=real, **options):
+            def on_the_pass_clock(job, _real=real, _service=service, **options):
                 Clock.at = clock[0]                               # every evaluation at the pass's instant
                 decision = _real(job, **options)
                 Clock.at = clock[0] + timedelta(seconds=delays.get(job["request_id"], 0))
+                if flips.get(job["request_id"]):
+                    # A timer probe starts or ends between this evaluation and its check, on
+                    # a lane no job here runs on: its lease counts toward the detached
+                    # fleet's cap (C-6.4), so the cap can begin or end under the check.
+                    # Only after detached jobs' evaluations, which both admissions make in
+                    # one order: turns come first here and among them there, and a lease
+                    # left by one kind's look would reach the other's in another order.
+                    if not _service.store.release_leases(TIMER):
+                        assert _service.store.acquire_lease("lane:elsewhere:slot:0", TIMER)
                 return decision
             patch.setattr(service, "_pick", on_the_pass_clock)
             if name == "old":
@@ -456,6 +547,7 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
                 jobs += 1
                 request = f"job-{jobs}"
                 delays[request] = draw(st.sampled_from([0, 1, 3]), label="delay")
+                flips[request] = draw(st.booleans(), label="a timer probe starts or ends after evaluating")
                 writable = draw(st.sampled_from([True, True, False]), label="writable")
                 submissions.append(("detached", request, {
                     "request_id": request, "pinned_model": draw(st.sampled_from(["astra", "terra"]), label="model"),
@@ -491,6 +583,7 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
             for name, (service, _, _) in fleets.items():
                 Clock.at = clock[0]
                 service._admit()
+                service.store.release_leases(TIMER)                   # the timer probe is over by the next pass
             assert placements(new) == placements(old), (number, placements(old), placements(new))
         placed = len(placements(new))
         event(f"placed: {min(placed, 6)}{'+' if placed >= 6 else ''}")
@@ -500,4 +593,8 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
             event("probes and turns in one run")
         counts = new._route_evaluations
         event("lanes judged again at a check" if counts["rejudged"] else "no lane judged again")
-        assert counts["again"] == 0 and counts["deferred"] == 0      # nothing here lands inside a pass
+        if any(flips.values()):
+            event("a timer probe came or went between an evaluation and its check")
+        # Timer probes come and go between evaluations and checks here, caps begin and end,
+        # readings age out: none of it sends a route to be evaluated again or a job to wait.
+        assert counts["again"] == 0 and counts["deferred"] == 0
