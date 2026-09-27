@@ -231,6 +231,9 @@ WAIT_RECHECK_S = 1.0
 # (SIGTERM, up to TERM_GRACE_S of census polling, then SIGKILL and one census),
 # so that finishes first.
 STOP_GRACE_S = 30
+# C-5.8a: leave faulthandler time to dump before the kernel's SIGALRM ends a
+# process whose dump timer failed, was cancelled, or is itself stuck writing.
+STOP_DUMP_MARGIN_S = 1.0
 # C-5.8a: how much longer launchd (the plist's ExitTimeOut) and `subfleet daemon
 # stop` wait before SIGKILL: time for the dump, and the backstop for a stop that
 # could not arm because a thread held the GIL through the signal.
