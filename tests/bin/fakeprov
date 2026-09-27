@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,38 @@ import signal
 import subprocess
 import sys
 import time
+
+
+def priorities(pid: int) -> list[int]:
+    """pid's threads' scheduling priorities (`ps -M`'s PRI column; no environment is read)."""
+    rows = subprocess.run(["/bin/ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout.splitlines()
+    if not rows:
+        return []
+    column = rows[0].split().index("PRI")
+    found = []
+    for n, row in enumerate(rows[1:]):
+        fields = row.split()
+        index = column if n == 0 else column - 2     # a thread's row starts at its PID
+        if index < len(fields):
+            found.append(int(fields[index].rstrip("TRSUIZ")))
+    return found
+
+
+def qos_report() -> dict:
+    """C-5.1: the priorities this provider, a child it starts and its guardian run at, and
+    whether it can raise its own thread above the QoS it was started under."""
+    child = subprocess.Popen(["/bin/sleep", "3"], stdin=subprocess.DEVNULL)
+    time.sleep(0.2)
+    report = {"provider": priorities(os.getpid()), "child": priorities(child.pid),
+              "guardian": priorities(os.getppid()), "pid": os.getpid(), "pgid": os.getpgrp(),
+              "ppid": os.getppid(), "attempt": os.environ.get("SUBFLEET_ATTEMPT")}
+    libc = ctypes.CDLL(None)
+    libc.pthread_set_qos_class_self_np.argtypes = [ctypes.c_uint, ctypes.c_int]
+    report["raise_rc"] = libc.pthread_set_qos_class_self_np(0x19, 0)       # QOS_CLASS_USER_INITIATED
+    report["after_raise"] = priorities(os.getpid())
+    child.kill()
+    child.wait()
+    return report
 
 
 def main() -> int:
@@ -43,6 +76,9 @@ def main() -> int:
             start_new_session=True,
             stdin=subprocess.DEVNULL,
         )
+    if scenario == "qos":
+        print(json.dumps(qos_report()), flush=True)
+        return 0
     print(f"fake provider ready: {scenario}", flush=True)
     if scenario in {"ignore-sigterm", "nested-setsid"}:
         time.sleep(delay or 30)

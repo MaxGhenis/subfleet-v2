@@ -1,0 +1,37 @@
+{
+ "hogs": 4,
+ "load_children": 0,
+ "qos": "utility",
+ "loadavg": [
+  130.2,
+  136.5,
+  125.0
+ ],
+ "readers": {
+  "pipe": {
+   "n": 4,
+   "p50_s": 11.046,
+   "max_s": 11.907,
+   "failed": 4,
+   "failures": [
+    "TimeoutExpired"
+   ],
+   "reads_p50": 49,
+   "chars_p50": 0
+  },
+  "socket": {
+   "n": 4,
+   "p50_s": 4.846,
+   "max_s": 6.149,
+   "failed": 0,
+   "failures": [],
+   "reads_p50": 3,
+   "chars_p50": 3730168
+  }
+ },
+ "loadavg_before": [
+  138.1,
+  137.8,
+  124.5
+ ]
+}

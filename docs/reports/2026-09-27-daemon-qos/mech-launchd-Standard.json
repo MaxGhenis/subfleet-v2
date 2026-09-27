@@ -1,0 +1,754 @@
+{
+ "context": "launchd-Standard",
+ "python": "/Users/maxghenis/.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/bin/python3.14",
+ "loadavg": [
+  118.90380859375,
+  46.5244140625,
+  21.6044921875
+ ],
+ "self_pri": [
+  11258,
+  20,
+  20
+ ],
+ "variants": [
+  {
+   "variant": "baseline",
+   "pid": 11488,
+   "set_rc": null,
+   "qos_class_self": "utility",
+   "self_pri": [
+    11488,
+    20,
+    20
+   ],
+   "new_thread": {
+    "qos": "default",
+    "pris_with_thread": [
+     11488,
+     20,
+     20,
+     11488,
+     20,
+     20
+    ]
+   },
+   "children": {
+    "fork_exec": {
+     "pid": 12251,
+     "pri": [],
+     "children": [
+      {
+       "pid": 12297,
+       "pri": [],
+       "children": []
+      },
+      {
+       "pid": 12299,
+       "pri": [],
+       "children": []
+      }
+     ]
+    },
+    "posix_spawn": {
+     "pid": 15750,
+     "pri": [
+      15750,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 15964,
+       "pri": [
+        15964,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 15965,
+       "pri": [
+        15965,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "taskpolicy_utility": {
+     "pid": 17075,
+     "pri": [
+      17075,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 17083,
+       "pri": [
+        17083,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 17085,
+       "pri": [
+        17085,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   },
+   "raise_to_user_initiated": {
+    "rc": 0,
+    "qos_class_self": "user-initiated",
+    "self_pri": [
+     11488,
+     20,
+     20
+    ]
+   },
+   "children_after_raise": {
+    "fork_exec": {
+     "pid": 18046,
+     "pri": [
+      18046,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 18053,
+       "pri": [
+        18053,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 18054,
+       "pri": [
+        18054,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "variant": "thread-qos-utility",
+   "pid": 18758,
+   "set_rc": 0,
+   "qos_class_self": "utility",
+   "self_pri": [
+    18758,
+    20,
+    20
+   ],
+   "new_thread": {
+    "qos": "default",
+    "pris_with_thread": [
+     18758,
+     20,
+     20,
+     18758,
+     20,
+     20
+    ]
+   },
+   "children": {
+    "fork_exec": {
+     "pid": 19024,
+     "pri": [
+      19024,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 19030,
+       "pri": [
+        19030,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 19031,
+       "pri": [
+        19031,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "posix_spawn": {
+     "pid": 19740,
+     "pri": [
+      19740,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 19751,
+       "pri": [
+        19751,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 19752,
+       "pri": [
+        19752,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "taskpolicy_utility": {
+     "pid": 20652,
+     "pri": [
+      20652,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 20850,
+       "pri": [
+        20850,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 20852,
+       "pri": [
+        20852,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   },
+   "raise_to_user_initiated": {
+    "rc": 0,
+    "qos_class_self": "user-initiated",
+    "self_pri": [
+     18758,
+     20,
+     20
+    ]
+   },
+   "children_after_raise": {
+    "fork_exec": {
+     "pid": 22149,
+     "pri": [
+      22149,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 22184,
+       "pri": [
+        22184,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 22189,
+       "pri": [
+        22189,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "variant": "thread-qos-default",
+   "pid": 23321,
+   "set_rc": 0,
+   "qos_class_self": "default",
+   "self_pri": [
+    23321,
+    20,
+    20
+   ],
+   "new_thread": {
+    "qos": "default",
+    "pris_with_thread": [
+     23321,
+     20,
+     20,
+     23321,
+     20,
+     20
+    ]
+   },
+   "children": {
+    "fork_exec": {
+     "pid": 23699,
+     "pri": [
+      23699,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 23966,
+       "pri": [
+        23966,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 24392,
+       "pri": [
+        24392,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "posix_spawn": {
+     "pid": 26304,
+     "pri": [
+      26304,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 26348,
+       "pri": [
+        26348,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 26357,
+       "pri": [
+        26357,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "taskpolicy_utility": {
+     "pid": 27202,
+     "pri": [
+      27202,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 27231,
+       "pri": [
+        27231,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 27233,
+       "pri": [
+        27233,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   },
+   "raise_to_user_initiated": {
+    "rc": 0,
+    "qos_class_self": "user-initiated",
+    "self_pri": [
+     23321,
+     20,
+     20
+    ]
+   },
+   "children_after_raise": {
+    "fork_exec": {
+     "pid": 28150,
+     "pri": [
+      28150,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 28156,
+       "pri": [
+        28156,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 28158,
+       "pri": [
+        28158,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "variant": "nice-11",
+   "pid": 30064,
+   "set_rc": null,
+   "qos_class_self": "utility",
+   "self_pri": [
+    30064,
+    20,
+    20
+   ],
+   "new_thread": {
+    "qos": "default",
+    "pris_with_thread": [
+     30064,
+     20,
+     20,
+     30064,
+     20,
+     20
+    ]
+   },
+   "children": {
+    "fork_exec": {
+     "pid": 31047,
+     "pri": [
+      31047,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 31256,
+       "pri": [
+        31256,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 31259,
+       "pri": [
+        31259,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "posix_spawn": {
+     "pid": 32705,
+     "pri": [
+      32705,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 32748,
+       "pri": [
+        32748,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 32749,
+       "pri": [
+        32749,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "taskpolicy_utility": {
+     "pid": 33739,
+     "pri": [
+      33739,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 33748,
+       "pri": [
+        33748,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 33749,
+       "pri": [
+        33749,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   },
+   "raise_to_user_initiated": {
+    "rc": 0,
+    "qos_class_self": "user-initiated",
+    "self_pri": [
+     30064,
+     20,
+     20
+    ]
+   },
+   "children_after_raise": {
+    "fork_exec": {
+     "pid": 34663,
+     "pri": [
+      34663,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 34678,
+       "pri": [
+        34678,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 34680,
+       "pri": [
+        34680,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "variant": "nice-11-then-thread-qos-default",
+   "before_qos": [
+    35760,
+    20,
+    20
+   ],
+   "rc": 0,
+   "after_qos": [
+    35760,
+    20,
+    20
+   ]
+  },
+  {
+   "under": "taskpolicy -c utility",
+   "variant": "baseline",
+   "pid": 36262,
+   "set_rc": null,
+   "qos_class_self": "utility",
+   "self_pri": [
+    36262,
+    20,
+    20
+   ],
+   "new_thread": {
+    "qos": "default",
+    "pris_with_thread": [
+     36262,
+     20,
+     20,
+     36262,
+     20,
+     20
+    ]
+   },
+   "children": {
+    "fork_exec": {
+     "pid": 36879,
+     "pri": [
+      36879,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 37043,
+       "pri": [
+        37043,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 37052,
+       "pri": [
+        37052,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "posix_spawn": {
+     "pid": 39273,
+     "pri": [
+      39273,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 39287,
+       "pri": [
+        39287,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 39294,
+       "pri": [
+        39294,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    },
+    "taskpolicy_utility": {
+     "pid": 39752,
+     "pri": [
+      39752,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 39763,
+       "pri": [
+        39763,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 39765,
+       "pri": [
+        39765,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   },
+   "raise_to_user_initiated": {
+    "rc": 0,
+    "qos_class_self": "user-initiated",
+    "self_pri": [
+     36262,
+     20,
+     20
+    ]
+   },
+   "children_after_raise": {
+    "fork_exec": {
+     "pid": 41249,
+     "pri": [
+      41249,
+      20,
+      20
+     ],
+     "children": [
+      {
+       "pid": 41280,
+       "pri": [
+        41280,
+        20,
+        20
+       ],
+       "children": []
+      },
+      {
+       "pid": 41295,
+       "pri": [
+        41295,
+        20,
+        20
+       ],
+       "children": []
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
