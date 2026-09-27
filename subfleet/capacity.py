@@ -265,6 +265,48 @@ def fresh_until(readings: Iterable[Mapping[str, Any]], *, now: str | datetime,
     return min(ends, default=None)
 
 
+def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S) -> dict[str, datetime]:
+    """C-6.3: per lane, the first instant after the view's `now` at which the
+    clock alone may change how `scheduler.evaluate` judges that lane on the
+    view's rows; a lane with no such instant is left out.
+
+    `evaluate` reads the clock only through `fresh_provider` and a closure's
+    `until_at`, and a lane's verdict and detail (`scheduler.judge_lane`) read
+    only that lane's readings and closures. So before its horizon a lane is
+    judged as the view judged it: until one of its readings turns fresh (a
+    future `observed_at`) or stops being fresh (`fresh_until`), or one of its
+    closures ends (`until_at`). Either can close a lane, not only open one (a
+    reported closure on a reserved model gives its lane slack behind a probe,
+    C-11.7, that turns `unmeasured` when the closure ends; review of f48df54).
+
+    One lane's horizon says nothing about another's. C-6.3's check inside a
+    reservation judges again only the lanes whose horizon has passed among
+    those the job's decision looks at, so a reading ageing out on a lane the
+    job could never run on (another provider's, or not the lane it is pinned
+    to) never sends its route to be evaluated again (review of d04b8b3: sixty
+    Claude lanes' staggered readings kept a Codex job from ever being placed).
+
+    A reading's label (`stale-provider` past `reading_ttl_s`) and its age are
+    evidence, not judgement; the check gives them again at its own clock."""
+    instant = _time(view["now"])
+    found: dict[str, datetime] = {}
+
+    def note(lane_id: str, clock: datetime | None) -> None:
+        if clock is not None and (lane_id not in found or clock < found[lane_id]):
+            found[lane_id] = clock
+    for item in view.get("readings", ()):
+        row = _row(item)
+        note(row["lane_id"], fresh_until([row], now=instant, reading_ttl_s=reading_ttl_s))
+        observed = _time(row["observed_at"])
+        if observed > instant and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s):
+            note(row["lane_id"], observed)
+    for item in view.get("closures", ()):
+        row = _row(item)
+        if not row.get("released_at") and (until := _time(row["until_at"])) > instant:
+            note(row["lane_id"], until)
+    return found
+
+
 def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S,
                      ends: Iterable[str | datetime] = ()) -> datetime | None:
     """C-6.3: the first instant after the view's `now` at which a routing decision
@@ -280,16 +322,10 @@ def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TT
     not only open one: an override that ends shows a reading below the floor,
     and a reported closure on a reserved model gives its lane slack behind a
     probe (C-11.7) that turns `unmeasured` when the closure ends (review of
-    f48df54)."""
-    instant = _time(view["now"])
-    readings = [_row(item) for item in view.get("readings", ())]
-    clocks = [fresh_until(readings, now=instant, reading_ttl_s=reading_ttl_s)]
-    clocks += [observed for row in readings if (observed := _time(row["observed_at"])) > instant
-               and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s)]
-    clocks += [until for item in view.get("closures", ()) if not (row := _row(item)).get("released_at")
-               and (until := _time(row["until_at"])) > instant]
-    clocks += [_time(end) for end in ends]
-    return min((clock for clock in clocks if clock is not None), default=None)
+    f48df54). It is the earliest of every lane's own (`lane_horizons`) and of
+    `ends`; C-6.3's check reads the lanes' own, never this fleet-wide one."""
+    clocks = [*lane_horizons(view, reading_ttl_s=reading_ttl_s).values(), *(_time(end) for end in ends)]
+    return min(clocks, default=None)
 
 
 def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int) -> tuple:

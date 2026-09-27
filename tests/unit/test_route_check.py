@@ -1,13 +1,15 @@
 """C-6.3: the check a reservation makes of its early route decision, without evaluating.
 
-`route_check.still_stands` judges only the lanes whose rows changed since the
-early evaluation's snapshot (`scheduler.judge_lane`, `scheduler.rank_key`). It is
-pinned against the full evaluation it stands in for, across random stores and
-random commits in between: it refuses exactly when the decision now takes lanes
-it never judged or that did not change (a capacity block began or ended, the
-walk goes past the models the early decision judged, a pin names another lane),
-and otherwise returns exactly what `scheduler.evaluate` over the rows the
-reservation sees, at its clock, returns, but for when it was made.
+`route_check.still_stands` judges again only the lanes the decision looks at that
+changed since the early evaluation's snapshot: their rows, their override, or their
+own clock (`capacity.lane_horizons`) (`scheduler.judge_lane`, `scheduler.rank_key`).
+It is pinned against the full evaluation it stands in for, across random stores and
+random commits and clocks in between: it refuses exactly when the decision now takes
+lanes it never judged or that did not change (a capacity block began or ended, the
+walk goes past the models the early decision judged, a pin names another lane), and
+otherwise returns exactly what `scheduler.evaluate` over the rows the reservation
+sees, at its clock, returns: every field, evidence and `evaluated_at` included. A
+clock alone never makes it refuse (review of d04b8b3).
 """
 
 from __future__ import annotations
@@ -19,8 +21,8 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from subfleet import capacity, route_check, scheduler
-from tests.routing_strategies import (ACTIVE, BASE_POLICY, NOW, candidates_of, commits, comparable, event,
-                                     policies, route_jobs, stores, view_of, walked_no_further)
+from tests.routing_strategies import (ACTIVE, BASE_POLICY, NOW, candidates_of, commits, event, exact, policies,
+                                     route_jobs, stores, view_of, walked_no_further)
 
 SETTINGS = settings(max_examples=1500, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large,
@@ -47,7 +49,8 @@ def now_rows(before: dict, after: dict) -> dict:
                           "parent_job_id": jobs[row["job_id"]]["parent_job_id"]}
                          for row in after["attempts"] if row["state"] in ACTIVE],
             "jobs": list(jobs.values()), "unavailable": dict(after["unavailable"]),
-            "reserved_probes": sum(1 for holder in after["unavailable"].values() if holder.startswith("probe:"))}
+            "reserved_probes": sum(1 for holder in after["unavailable"].values() if holder.startswith("probe:")),
+            "holding": set(after["overridden"])}
 
 
 def from_changed_lanes(policy, job, decision, view, full, view_now) -> bool:
@@ -71,26 +74,27 @@ def check(policy, store, job, after, seconds):
         event("early: raised")
         return None
     later = NOW + timedelta(seconds=seconds)
-    horizon = capacity.decision_horizon(view, reading_ttl_s=120)
-    if horizon is not None and later >= horizon:
-        event("past the horizon: the caller evaluates again")
-        return None
+    clocks = capacity.lane_horizons(view, reading_ttl_s=120)
     rows = now_rows(store, after)
     verdict, judged, standing = route_check.still_stands(
         policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
-        overridden=store["overridden"], now=later, **rows)
+        overridden=store["overridden"], clocks=clocks, now=later, **rows)
     try:
         full = scheduler.evaluate(policy, view_of(after, later), job)
     except route_check.ROUTE_ERRORS:
         full = None
     decidable = from_changed_lanes(policy, job, decision, view, full, view_of(after, later))
     same = bool(full) and (full.chosen_lane, full.chosen_model) == (decision.chosen_lane, decision.chosen_model)
+    expired = sorted(lane_id for lane_id, horizon in clocks.items() if later >= horizon)
     event(f"{'lane' if decision.chosen_lane else 'no lane'}: verdict {verdict}; evaluate "
           f"{'same lane' if same else 'another lane'}; {judged} judged again")
+    if expired:
+        event("a lane's clock passed its horizon" + ("; decision kept" if verdict is None else ""))
     if verdict is None:
-        # What the reservation goes on with is what a fresh evaluation decides:
-        # lane, verdict, details and evidence, but for when it was made.
-        assert comparable(standing) == comparable(full)
+        # What the reservation goes on with is what a fresh evaluation decides at
+        # this clock: every field, the evidence's ages and labels and
+        # `evaluated_at` included.
+        assert exact(standing) == exact(full)
     return verdict, decidable, standing or decision, full
 
 
@@ -283,3 +287,99 @@ def test_c6_3_a_chosen_model_that_loses_every_lane_is_evaluated_again(policy):
                "clock_source": "reported", "source_event": "x", "created_at": capacity._iso(NOW), "released_at": None}
               for n, lane_id in enumerate(("codex-1", "codex-2", "codex-3"), 1)]
     assert stands(policy, store, with_(store, closures=closed), job=sweep) == ("moved", "codex-1")
+
+
+# --- a lane's own clock (review of d04b8b3) -------------------------------------------------------
+
+CLAUDE = [{"lane_id": f"claude-{n}", "provider": "claude", "account_key": f"claude:c{n}@example.invalid",
+           "credential_ref": f"/c/claude-{n}", "credential_kind": "keychain-token", "home": None, "owner": "v2",
+           "enabled": 1, "desktop": 0, "identity_status": None, "label": None} for n in range(1, 7)]
+
+
+def judged_again(policy, store, after, job=JOB, seconds=1):
+    """How many lanes the check judged again, and its verdict."""
+    view = view_of(store, NOW)
+    decision = scheduler.evaluate(policy, view, job)
+    verdict, judged, _ = route_check.still_stands(
+        policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
+        overridden=store["overridden"], clocks=capacity.lane_horizons(view, reading_ttl_s=120),
+        now=NOW + timedelta(seconds=seconds), **now_rows(store, after))
+    return verdict, judged
+
+
+def test_c6_3_readings_ageing_out_on_another_providers_lanes_are_never_looked_at(policy):
+    """The review's livelock, in one check: six Claude lanes' readings, fresh at the early
+    evaluation, age out before a Codex job's reservation. The fleet's first horizon has
+    passed, but no Claude lane is one the decision looks at: nothing is judged again and
+    the decision stands. The check used to refuse it (`old`), every try, for as long as
+    the Claude lanes' readings kept being refreshed."""
+    store = fleet(lanes=[*[dict(row) for row in LANES], *[dict(row) for row in CLAUDE]])
+    store["readings"] += [reading(row["lane_id"], .3, 10 + n, observed=NOW - timedelta(seconds=118))
+                          for n, row in enumerate(CLAUDE)]
+    view = view_of(store, NOW)
+    assert capacity.decision_horizon(view, reading_ttl_s=120) < NOW + timedelta(seconds=5)
+    assert stands(policy, store, store, seconds=5) == (None, "codex-1")
+    assert judged_again(policy, store, store, seconds=5) == (None, 0)
+
+
+def test_c6_3_a_reading_ageing_out_on_a_lane_the_pin_does_not_name_is_never_looked_at(policy):
+    """A job pinned to codex-2 is judged on codex-2 alone: codex-1's and codex-3's
+    readings ageing out change nothing it could run on."""
+    pinned = {**JOB, "pinned_lane": "codex-2"}
+    store = fleet(readings=[reading("codex-1", .2, 1, observed=NOW - timedelta(seconds=118)), reading("codex-2", .5, 2),
+                            reading("codex-3", .6, 3, observed=NOW - timedelta(seconds=119))])
+    assert stands(policy, store, store, job=pinned, seconds=5) == (None, "codex-2")
+    assert judged_again(policy, store, store, job=pinned, seconds=5) == (None, 0)
+
+
+def test_c6_3_the_chosen_lane_whose_reading_ages_out_is_judged_again(policy):
+    """codex-1 ranks first on a reading that resets soonest; the reading ages out before
+    the reservation, so codex-1 is unmeasured now and ranks after the measured lanes. The
+    check judges codex-1 again at its clock and chooses codex-2, as an evaluation now does,
+    instead of refusing."""
+    store = fleet(readings=[reading("codex-1", .2, 1, observed=NOW - timedelta(seconds=118), resets_in=600),
+                            reading("codex-2", .5, 2), reading("codex-3", .6, 3)])
+    assert stands(policy, store, store, seconds=0) == (None, "codex-1")
+    assert stands(policy, store, store, seconds=5) == (None, "codex-2")
+    assert judged_again(policy, store, store, seconds=5) == (None, 1)
+
+
+def test_c6_3_a_closure_that_ends_on_a_lane_it_looks_at_opens_that_lane(policy):
+    """codex-1 was closed at the early evaluation; its closure ends before the
+    reservation. Judged again at the check's clock, it is open and ranks first."""
+    closure = {"closure_id": 1, "lane_id": "codex-1", "scope": "account",
+               "until_at": capacity._iso(NOW + timedelta(seconds=2)), "reason": "provider-limit",
+               "clock_source": "reported", "source_event": "x", "created_at": capacity._iso(NOW), "released_at": None}
+    store = fleet(closures=[closure])
+    assert stands(policy, store, store, seconds=0) == (None, "codex-2")
+    assert stands(policy, store, store, seconds=5) == (None, "codex-1")
+    assert judged_again(policy, store, store, seconds=5) == (None, 1)
+
+
+def test_c6_3_an_override_that_ends_is_judged_on_its_lane_alone(policy):
+    """A confirmed reset-credit override held codex-1's reading out, so it ranked as
+    unmeasured; the override ends before the reservation, and codex-1, judged again with
+    its reading back, ranks first. An override that ends on a Claude lane changes nothing."""
+    store = fleet(readings=[reading("codex-1", .2, 1, resets_in=600), reading("codex-2", .5, 2),
+                            reading("codex-3", .6, 3)], overridden={"codex-1"})
+    assert stands(policy, store, store) == (None, "codex-2")
+    assert stands(policy, store, with_(store, overridden=set())) == (None, "codex-1")
+    assert judged_again(policy, store, with_(store, overridden=set())) == (None, 1)
+    elsewhere = fleet(lanes=[*[dict(row) for row in LANES], dict(CLAUDE[0])], overridden={"claude-1"})
+    assert judged_again(policy, elsewhere, with_(elsewhere, overridden=set())) == (None, 0)
+
+
+def test_c6_3_a_reading_past_its_reset_is_labelled_as_an_evaluation_now_labels_it(policy):
+    """Review of d04b8b3 (P3): a `provider` reading already past its reset measures
+    nothing and gives no horizon. 119 s old at the early evaluation, it is past the
+    120 s TTL at the reservation, where an evaluation now labels it `stale-provider`;
+    the check kept `provider`. It now gives every reading as a view built at its clock
+    does (label and age), and `check` asserts the whole decision equal."""
+    store = fleet(lanes=[dict(LANES[0])],
+                  readings=[reading("codex-1", .2, 1, observed=NOW - timedelta(seconds=119), resets_in=-1)])
+    assert capacity.lane_horizons(view_of(store, NOW), reading_ttl_s=120) == {}
+    result = check(policy, store, JOB, store, 2)
+    verdict, _, standing, full = result
+    assert verdict is None and standing.chosen_lane == "codex-1"
+    assert [row["label"] for row in standing.evaluations[0]["readings"]] == ["stale-provider"]
+    assert exact(standing) == exact(full)

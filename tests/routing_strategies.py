@@ -198,7 +198,8 @@ def commits(draw, store: dict, focus: tuple[str, ...] = ()) -> tuple[dict, float
     next_closure = max((row["closure_id"] for row in after["closures"]), default=0) + 1
     for step in range(draw(st.integers(0, 5))):
         what = draw(st.sampled_from(["reading", "reading", "reading", "closure", "release", "extend",
-                                     "attempt", "end", "lane", "new-lane", "probe", "unprobe"]))
+                                     "attempt", "end", "lane", "new-lane", "probe", "unprobe",
+                                     "override", "unoverride"]))
         if what == "reading" and lane_ids:
             after["readings"].append(draw(reading_rows(a_lane(), next_reading, later)))
             next_reading += 1
@@ -238,6 +239,10 @@ def commits(draw, store: dict, focus: tuple[str, ...] = ()) -> tuple[dict, float
             after["unavailable"][a_lane()] = "probe:timer:2"
         elif what == "unprobe" and after["unavailable"]:
             after["unavailable"].pop(draw(st.sampled_from(sorted(after["unavailable"]))))
+        elif what == "override" and lane_ids:
+            after["overridden"] = set(after["overridden"]) | {a_lane()}       # a reset credit confirmed
+        elif what == "unoverride" and after["overridden"]:
+            after["overridden"] = set(after["overridden"]) - {draw(st.sampled_from(sorted(after["overridden"])))}
     return after, seconds
 
 
@@ -251,18 +256,13 @@ def event(text: str) -> None:
         pass
 
 
-def comparable(decision) -> dict:
-    """A decision as data, but for when it was made: `evaluated_at`, and each reading's
-    age and the label its age gives it, which change with the clock and decide nothing
-    `fresh_provider` does not already decide."""
-    value = dataclasses.asdict(decision)
-    for evaluation in value["evaluations"]:
-        evaluation.pop("evaluated_at")
-        for key in ("readings", "capacity_readings"):
-            evaluation[key] = [row["reading_id"] for row in evaluation[key]]
-        for key in ("closures", "stranding_closures"):
-            evaluation[key] = [row["closure_id"] for row in evaluation[key]]
-    return value
+def exact(decision) -> dict:
+    """A decision as data, all of it: lane, model, verdict, details and evidence, every
+    reading's age and label and every closure row, and `evaluated_at`. What C-6.3's check
+    returns is exactly what `scheduler.evaluate` returns at the check's clock (review of
+    d04b8b3: the comparison used to keep only the evidence's ids, and hid a reading
+    labelled `provider` where an evaluation said `stale-provider`)."""
+    return dataclasses.asdict(decision)
 
 
 def walked_no_further(decision, full) -> bool:

@@ -448,7 +448,7 @@ def test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision(fleet, m
     """The store lock was held for 7.7 to 12.6 s at a time on 2026-09-26, and the early
     evaluation, older than 5 s by the time the reservation got the lock, was thrown away.
     Age alone no longer does that: while the lock is held elsewhere and commits land, the
-    decision stands if the rows it rests on do and its horizon has not passed."""
+    decision stands if the rows it rests on do and no lane it looks at reached its horizon."""
     service, harness = fleet
     job_id = submit(service, harness, pinned_model="astra")
     real, holding, done = service._pick, threading.Event(), threading.Event()
@@ -491,11 +491,13 @@ def busy_codex(service, harness):
                               model_requested="gpt-6-astra", state="running")
 
 
-def test_c6_3_a_reading_that_ages_out_before_the_reservation_means_evaluating_again(routing_state, monkeypatch):  # noqa: F811
+def test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again(routing_state, monkeypatch):  # noqa: F811
     """Review of 5841d8b: an early evaluation made while codex-1's reading was fresh
     was reserved on after the reading aged out, putting a second attempt on a lane
-    that was unmeasured by then. The check refuses a decision past its horizon; the
-    route is evaluated again off the lock, and the lane, unmeasured, has no second slot."""
+    that was unmeasured by then. codex-1's own horizon is that reading's end; past it,
+    the check judges codex-1 again at its clock (review of d04b8b3: it used to refuse
+    and evaluate the whole route again): unmeasured, the lane has no second slot, and
+    the decision now is no lane, as an evaluation now makes it."""
     service, harness = routing_state
     busy_codex(service, harness)
     job_id = submit(service, harness, pinned_model="astra")
@@ -508,24 +510,26 @@ def test_c6_3_a_reading_that_ages_out_before_the_reservation_means_evaluating_ag
         assert not service.store._holds_writer()
         early.append(decision.chosen_lane)
         if len(early) == 1:
-            assert options["horizon"]["until"] == stale[0]
+            assert options["basis"]["clocks"]["codex-1"] == stale[0]
             while datetime.now(timezone.utc) <= stale[0] + timedelta(seconds=.2):
                 time.sleep(.05)                               # the reading ages out before the reservation
         return decision
     monkeypatch.setattr(service, "_pick", pick)
     service._admit()
-    assert early == ["codex-1", None]                          # measured then: a second slot; unmeasured now
-    assert service._route_evaluations == {**ZERO, "reused": 1, "again": 1, "old": 1}
+    assert early == ["codex-1"]                                # measured then: a second slot
+    assert service._route_evaluations == {**ZERO, "rechosen": 1, "rejudged": 1}   # unmeasured now: none
     assert not service.store.list_attempts(job_id)             # no second attempt on an unmeasured lane
     assert service.store.get_job(job_id)["state"] == "waiting"
+    assert service._holds[job_id]["reason"] == "no-slot"
 
 
-def test_c6_3_an_override_that_ends_before_the_reservation_means_evaluating_again(routing_state, monkeypatch):  # noqa: F811
+def test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again(routing_state, monkeypatch):  # noqa: F811
     """Review of f48df54: a confirmed reset-credit override held codex-1's 99% reading
     out of the early evaluation, which chose codex-1; the override ended before the
     reservation, which reserved on that decision though its own evaluation rejects
-    the lane (below the floor). The override's end is part of the horizon, and the
-    check refuses a decision past it."""
+    the lane (below the floor). The check decides every lane's override again at its
+    own clock: codex-1's has ended, so codex-1 is judged again with its reading back
+    (review of d04b8b3: it used to refuse and evaluate the whole route again)."""
     service, harness = routing_state
     now = datetime.now(timezone.utc)
     service.store.add_reading(Reading("codex-1", "account", "seven_day", .99, after(86400),
@@ -542,18 +546,18 @@ def test_c6_3_an_override_that_ends_before_the_reservation_means_evaluating_agai
     def pick(job, **options):
         decision = real(job, **options)
         assert not service.store._holds_writer()
-        early.append((decision.chosen_lane, options["horizon"]["until"]))
+        early.append((decision.chosen_lane, options["basis"]["overrides"].get("codex-1")))
         if len(early) == 1:
             while datetime.now(timezone.utc) <= ends + timedelta(seconds=.2):
                 time.sleep(.05)                               # the override ends before the reservation
         return decision
     monkeypatch.setattr(service, "_pick", pick)
     service._admit()
-    assert early[0] == ("codex-1", ends)                       # held out, the 99% reading did not count
-    assert early[1][0] is None                                 # evaluated again off the lock: below the floor
-    assert service._route_evaluations == {**ZERO, "reused": 1, "again": 1, "old": 1}
+    assert early == [("codex-1", ("act-1", ends.strftime("%Y-%m-%dT%H:%M:%SZ")))]  # held out, 99% did not count
+    assert service._route_evaluations == {**ZERO, "rechosen": 1, "rejudged": 1}   # judged again: below the floor
     assert not service.store.list_attempts(job_id)             # the lane is below the floor now
     assert service.store.get_job(job_id)["state"] == "waiting"
+    assert service._holds[job_id]["reason"] == "below-floor"
 
 
 def test_c6_3_one_view_decides_an_override_on_one_clock(routing_state):  # noqa: F811

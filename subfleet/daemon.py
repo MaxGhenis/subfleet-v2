@@ -545,8 +545,9 @@ class Daemon:
         # whose check chose again from the lanes that changed (`rechosen`); the
         # evaluations made again off the lock after a check refused one, and why
         # (`moved`: it took lanes never judged, a cap that began or ended
-        # included; `old`: its horizon passed; `error`: the check raised); jobs
-        # left for the next pass after ROUTE_TRIES; and the lanes checks judged again.
+        # included; `old`: a clock earlier than its view's; `error`: the check
+        # raised); jobs left for the next pass after ROUTE_TRIES; and the lanes
+        # checks judged again, for their rows or their own clocks.
         self._route_evaluations = {"reused": 0, "rechosen": 0, "again": 0, "moved": 0, "old": 0, "error": 0,
                                    "deferred": 0, "rejudged": 0}
         self._admission: dict[str, Any] = {"pending": 0, "placed_at": None, "idle_since": None,
@@ -968,16 +969,15 @@ class Daemon:
         return status not in (IdentityStatus.MISMATCH, IdentityStatus.UNVERIFIED)
 
     def _pick(self, job: dict, *, extra_exclusions: tuple[str, ...] = (), desktop=None,
-              horizon: dict | None = None, basis: dict | None = None):
+              basis: dict | None = None):
         # C-6.3, C-11: one pure evaluation, on rows read in one snapshot off the
         # store lock (C-3.7). Desktop file I/O and the desktop profile request
-        # happen before it (C-3.3, C-10.3). `horizon`, when given, is told the
-        # first instant this decision may change with no row changing
-        # (`capacity.decision_horizon`: a reading's freshness, a closure's end,
-        # an override's end). `basis`, when given, is told what the reserving
-        # transaction needs to check the decision without evaluating it again
-        # (`_route_stands`): the policy, the job as evaluated, the view, the rows
-        # it was built from, the overrides held out, the horizon and the desktop.
+        # happen before it (C-3.3, C-10.3). `basis`, when given, is told what the
+        # reserving transaction needs to check the decision without evaluating it
+        # again (`_route_stands`): the policy, the job as evaluated, the view, the
+        # rows it was built from, the overrides held out, each lane's horizon
+        # (`capacity.lane_horizons`: the first instant the clock alone could
+        # change how that lane is judged) and the desktop.
         policy = self.policy
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
@@ -990,24 +990,19 @@ class Daemon:
         context = rows["timers"]["overrides"]          # read once, in the view's snapshot (C-3.7)
         # At the view's clock, as `enrich_view` decided them: two clocks could put
         # an override's end between them, its readings relabelled stale there and
-        # not held out here, with no end in the horizon (review of 4f4edcd).
+        # not held out here (review of 4f4edcd).
         overrides = {lane["lane_id"]: found for lane in view["lanes"]
                      if (found := self.timers.actions.confirmed_override(lane["lane_id"], now=view["now"],
                                                                          context=context))}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
-        until = None
-        if horizon is not None or basis is not None:
-            until = capacity.decision_horizon(
-                view, reading_ttl_s=policy["caps"]["reading_ttl_s"],
-                ends=[found["weekly_reset_at"] for found in overrides.values()])
-        if horizon is not None:
-            horizon["until"] = until
         route_job = {**job, "exclusions": tuple(exclusions) + extra_exclusions, "policy_hash": self.policy_digest}
         decision = scheduler.evaluate(policy, view, route_job)
         if basis is not None:
-            basis.update(policy=policy, job=route_job, view=view, rows=rows, until=until, desktop=desktop, instant=instant,
-                         overrides={lane_id: (found["action_id"], found["weekly_reset_at"])
-                                    for lane_id, found in overrides.items()})
+            # Off the lock, so the check inside it compares one clock per lane.
+            clocks = capacity.lane_horizons(view, reading_ttl_s=policy["caps"]["reading_ttl_s"])
+            basis.update(policy=policy, job=route_job, view=view, rows=rows, clocks=clocks, desktop=desktop,
+                         instant=instant, overrides={lane_id: (found["action_id"], found["weekly_reset_at"])
+                                                     for lane_id, found in overrides.items()})
         return decision
 
     def _route(self, job: dict, **options):
@@ -2036,14 +2031,14 @@ class Daemon:
                 "open_lanes": capacity.open_lanes(view, self.policy["caps"]),
                 # C-6.3, since the daemon started: reservation checks that kept the
                 # early decision's lane (`reused`) or chose again from the lanes
-                # whose rows changed (`rechosen`); evaluations made again, off the
-                # lock, after a check refused one (`again`), and why: it took lanes
-                # never judged, a fleet or parent cap that began or ended included
-                # (`moved`), its horizon passed (`old`: a reading it counted fresh
-                # aged out, or a closure or an override ended), or the check raised
-                # (`error`); jobs left for the next pass after ROUTE_TRIES
-                # (`deferred`); and the lanes whose rows changed that checks judged
-                # again (`rejudged`).
+                # that changed (`rechosen`); evaluations made again, off the lock,
+                # after a check refused one (`again`), and why: it took lanes never
+                # judged, a fleet or parent cap that began or ended included
+                # (`moved`), the clock was earlier than its view's (`old`: it
+                # stepped back), or the check raised (`error`); jobs left for the
+                # next pass after ROUTE_TRIES (`deferred`); and the lanes checks
+                # judged again, whose rows changed or whose own clock reached its
+                # horizon (`rejudged`).
                 "route_evaluations": dict(self._route_evaluations)}
 
     # --- the sessions kit's store seam (C-23.33, C-23.35, C-23.55) ------------
@@ -2950,9 +2945,8 @@ class Daemon:
             current = self._job(job["job_id"])
             if current["cancel_requested_at"] or current["state"] in TERMINAL:
                 return None, desktop
-            horizon, basis = {}, {}
-            decision = self._route(decision_job, extra_exclusions=exclusions, desktop=desktop,
-                                   horizon=horizon, basis=basis)
+            basis = {}
+            decision = self._route(decision_job, extra_exclusions=exclusions, desktop=desktop, basis=basis)
             pair = (decision.chosen_lane, decision.chosen_model)
             if not self._needs_probe(decision, job) or pair in approved:
                 # C-6.3: this evaluation is the one the reservation checks and
@@ -3380,12 +3374,17 @@ class Daemon:
             # in one snapshot (`_capacity_rows`): `_prepare_route`'s evaluation is
             # the one reserved on. The reserving transaction never evaluates a
             # route. It checks the decision against the rows it reads, a few by
-            # index (`_route_stands`), before its horizon, the first instant the
-            # clock alone could change it: when the lanes whose rows changed
+            # index (`_route_stands`), at its own clock: the lanes the decision
+            # looks at whose rows changed, or whose own clock reached its horizon
+            # (a reading aged out, a closure ended), are judged again. When they
             # decide it alone, it goes on with exactly the decision an evaluation
-            # of those rows would make, the same lane or another. When they do
-            # not, it rolls back; the route is evaluated again, off the lock, and
-            # checked again, up to ROUTE_TRIES times in this pass. Evaluating a whole capacity
+            # of those rows would make at that clock, the same lane or another.
+            # When they do not, it rolls back; the route is evaluated again, off
+            # the lock, and checked again, up to ROUTE_TRIES times in this pass.
+            # A clock on a lane the job could never take (another provider's, one
+            # its pin does not name) is never looked at: sixty Claude lanes'
+            # staggered readings refused every check of a Codex job for as long
+            # as they were refreshed (review of d04b8b3). Evaluating a whole capacity
             # view inside this transaction held the store lock for 13.5 s with the
             # daemon held to 5% of a core, and for 7.7 to 12.6 s on 2026-09-26
             # (load 110-170), when some commit landed between the two evaluations
@@ -3395,7 +3394,7 @@ class Daemon:
                 basis = {}
                 try:
                     early = (self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account,
-                                         horizon={}, basis=basis), basis)
+                                         basis=basis), basis)
                 except Unroutable as exc:
                     self._unroutable(job, exc, holds)
                     continue
@@ -3562,7 +3561,7 @@ class Daemon:
                     basis = {}
                     try:
                         decision = self._route(decision_job, extra_exclusions=extra_exclusions,
-                                               desktop=desktop_account, horizon={}, basis=basis)
+                                               desktop=desktop_account, basis=basis)
                     except Unroutable as exc:
                         self._unroutable(job, exc, holds)
                         status = "settled"
@@ -3605,28 +3604,31 @@ class Daemon:
     def _route_stands(self, basis: dict, decision) -> tuple[str | None, int, Any]:
         """C-6.3: inside the reserving transaction, the decision as an evaluation now makes it.
 
-        (None, lanes judged again, that decision) when the lanes whose rows
-        changed since the early decision's snapshot decide it alone: it is then
-        exactly what `scheduler.evaluate` over the rows this transaction sees,
-        at this clock, would return (`route_check.still_stands`). Otherwise the
-        reason not (`moved`, `old`, `full`), and the transaction is rolled back. It reads a
-        few rows by index and judges only the lanes whose rows changed since the
-        decision's snapshot: it never builds a capacity view or evaluates a route.
-        It refuses what that comparison cannot see: a policy loaded since, a
-        clock past the decision's horizon, a reset-credit override context that
-        changed, and readings the snapshot held that are gone (`_route_rows`)."""
+        (None, lanes judged again, that decision) when the lanes that changed
+        since the early decision's snapshot decide it alone: it is then exactly
+        what `scheduler.evaluate` over the rows this transaction sees, at this
+        clock, would return (`route_check.still_stands`). Otherwise the reason
+        not (`moved`, `old`, `full`), and the transaction is rolled back. It
+        reads a few rows by index and judges again only the lanes the decision
+        looks at whose rows changed, whose override began or ended, or whose own
+        clock reached its horizon (`capacity.lane_horizons`, recorded off the
+        lock): it never builds a capacity view or evaluates a route. It refuses
+        what that comparison cannot see: a policy loaded since, a clock earlier
+        than the view's, and readings the snapshot held that are gone
+        (`_route_rows`)."""
         if not basis or basis.get("policy") is not self.policy:
             return "moved", 0, None
         now = datetime.now(timezone.utc)
-        if (basis["until"] is not None and now >= basis["until"]) or now < basis["instant"]:
-            return "old", 0, None                  # past the horizon, or a clock that stepped back
+        if now < basis["instant"]:
+            return "old", 0, None                  # a clock that stepped back
         try:
             rows = self._route_rows(basis, now)
             if rows is None:
                 return "moved", 0, None
             return route_check.still_stands(basis["policy"], basis["job"], decision, view=basis["view"],
                                             candidates=basis["rows"]["view"]["readings"],
-                                            overridden=set(basis["overrides"]), now=now, **rows)
+                                            overridden=set(basis["overrides"]), clocks=basis["clocks"],
+                                            now=now, **rows)
         except route_check.ROUTE_ERRORS as exc:
             # C-6.12: a row the check cannot read (a timestamp that does not parse)
             # is the job's, never the pass's: the route is evaluated again off the
@@ -3641,30 +3643,31 @@ class Daemon:
         Every read is a few rows by index: the lane rows (marked and merged as a
         view does), the attempts in flight (`attempts_live`), the probe leases,
         the readings added since the snapshot (by id), the closures not released
-        (`closures_active`), the reset-credit override context, and the parents
-        of the jobs whose caps are counted (the lane, probe-lease and
-        reset-credit tables are small and read whole). None when a reading the
-        snapshot held was deleted, or the reset-credit overrides are not the
-        ones the decision held out: then the rows it rests on cannot be rebuilt
-        from these, and the route is evaluated again. Retention deletes readings only with a pruned job's
-        attempts, and a reading id is reused only after the newest reading is
-        deleted, so while the snapshot's newest reading stands every reading
-        added since has a greater id."""
+        (`closures_active`), the lanes a reset-credit override covers now
+        (`holding`), and the parents of the jobs whose caps are counted (the
+        lane, probe-lease and reset-credit tables are small and read whole).
+        None when a reading the snapshot held was deleted: then the rows it
+        rests on cannot be rebuilt from these, and the route is evaluated
+        again. Retention deletes readings only with a pruned job's attempts, and
+        a reading id is reused only after the newest reading is deleted, so
+        while the snapshot's newest reading stands every reading added since has
+        a greater id."""
         store, rows = self.store, basis["rows"]
         lane_rows = store.query("SELECT * FROM lanes ORDER BY lane_id")
         # C-23.17: which lanes a confirmed reset-credit override covers, now, at a
         # view's clock. Whether one covers a lane turns on the lane's own row
         # (`Actions._belongs_to_lane`: its account key, its home), so a lane
         # enrolled or moved since the snapshot can gain or lose one with no
-        # action changing (review of this change: a hard job was placed without
-        # its probe on a lane enrolled meanwhile, its readings not held out).
+        # action changing (review of 9dd4f35: a hard job was placed without its
+        # probe on a lane enrolled meanwhile, its readings not held out). A lane
+        # whose override began or ended is judged again with its readings held
+        # out or put back, as a view built now holds them; one the decision does
+        # not look at changes nothing (review of d04b8b3).
         context = {**self.timers.actions.override_context(),
                    "lanes": {row["lane_id"]: Store.lane_from_row(row) for row in lane_rows}}
         clock = capacity._iso(now)
-        overrides = {row["lane_id"]: (found["action_id"], found["weekly_reset_at"]) for row in lane_rows
-                     if (found := self.timers.actions.confirmed_override(row["lane_id"], now=clock, context=context))}
-        if overrides != basis["overrides"]:
-            return None
+        holding = {row["lane_id"] for row in lane_rows
+                   if self.timers.actions.confirmed_override(row["lane_id"], now=clock, context=context)}
         mark = rows["reading_mark"]
         if mark is not None and store.one("SELECT * FROM readings WHERE reading_id=?", (mark["reading_id"],)) != mark:
             return None
@@ -3697,7 +3700,7 @@ class Daemon:
                 jobs[job_id] = {"job_id": row["job_id"], "kind": row["kind"], "parent_job_id": row["parent_job_id"]}
                 unseen.append(row["parent_job_id"])
         return {"lanes": lanes, "attempts": attempts, "jobs": list(jobs.values()), "unavailable": unavailable,
-                "reserved_probes": len(probes),
+                "reserved_probes": len(probes), "holding": holding,
                 "readings": store.query("SELECT * FROM readings WHERE reading_id>? ORDER BY reading_id",
                                         (mark["reading_id"] if mark is not None else 0,)),
                 "closures": self._open_closures(basis)}

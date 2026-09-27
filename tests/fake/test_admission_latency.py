@@ -34,7 +34,7 @@ from subfleet.daemon import Daemon, after, utcnow
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
-from tests.routing_strategies import comparable, event, walked_no_further
+from tests.routing_strategies import event, exact, walked_no_further
 
 ACTIVE = ("reserved", "starting", "running", "finalizing")
 
@@ -359,23 +359,38 @@ def test_c6_3_admission_never_exceeds_a_cap_or_double_books_across_commits(tmp_p
         admission_under_commits(data, service, harness, patch)
 
 
+class Frozen(datetime):
+    """The daemon's wall clock, held at one instant while a check and its oracle both read it."""
+    at: datetime | None = None
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.at if cls.at is not None else datetime.now(tz)
+
+
 @PROPERTY
 @given(st.data())
 def test_c6_3_a_check_lets_a_decision_stand_exactly_when_a_full_evaluation_there_agrees(tmp_path_factory, data):
     """The same runs, with a full evaluation made at every check, inside the reservation
-    (in this test only): the check gives a decision exactly when the lanes whose rows
-    changed decide it (the capacity blocks are the early decision's, and the walk goes no
-    further), and that decision is the full evaluation's: lane, model, verdict, details
-    and evidence. A refusal for the clock (`old`) is the caller's own."""
+    and at the check's own clock (in this test only): the check gives a decision exactly
+    when the lanes that changed decide it (the capacity blocks are the early decision's,
+    and the walk goes no further), and that decision is the full evaluation's, all of it:
+    lane, model, verdict, details, evidence (each reading's label and age) and
+    `evaluated_at` (review of d04b8b3: the comparison kept only the evidence's ids). A
+    refusal for the clock (`old`: it stepped back) is the caller's own."""
 
     def checked(stands, pick):
         def check(basis, decision):
-            why, judged, standing = stands(basis, decision)
-            if why in (None, "moved", "full"):
-                full = pick(basis["job"], desktop=basis["desktop"])
+            Frozen.at = datetime.now(timezone.utc)
+            try:
+                why, judged, standing = stands(basis, decision)
+                full = pick(basis["job"], desktop=basis["desktop"]) if why in (None, "moved", "full") else None
+            finally:
+                Frozen.at = None
+            if full is not None:
                 assert (why is None) == walked_no_further(decision, full), (why, decision.chosen_lane, full.chosen_lane)
                 if why is None:
-                    assert comparable(standing) == comparable(full)
+                    assert exact(standing) == exact(full)
                     kept = (standing.chosen_lane, standing.chosen_model) == (decision.chosen_lane, decision.chosen_model)
                     why_label = "kept" if kept else "chose again"
                 else:
@@ -387,6 +402,7 @@ def test_c6_3_a_check_lets_a_decision_stand_exactly_when_a_full_evaluation_there
             return why, judged, standing
         return check
     with fleet_daemon(tmp_path_factory.mktemp("admission") / "state") as (service, harness, patch):
+        patch.setattr(daemon_module, "datetime", Frozen)
         admission_under_commits(data, service, harness, patch, checked=checked)
 
 
@@ -500,8 +516,10 @@ def test_c6_3_a_lane_enrolled_under_a_reset_credit_override_is_never_reserved_as
     `hard` job's early decision, under an account with a confirmed override, and codex-1 is
     disabled: an evaluation now holds codex-3's fresh reading out, so the lane is unmeasured
     and the job needs its probe first (C-11.4). The check used the early decision's override
-    set and reserved codex-3 as measured, with no probe. It now refuses; the route is
-    evaluated again off the lock, and the job waits for its probe."""
+    set and reserved codex-3 as measured, with no probe. It now decides every lane's override
+    at its own clock and judges codex-3 with its reading held out, as an evaluation now does
+    (it refused, and evaluated the whole route again, until the review of d04b8b3): codex-3
+    is unmeasured, and the job waits for its probe."""
     service, harness = routing_state
     service.policy["caps"].update(reading_ttl_s=3600)
     measure(service, "codex-1")
@@ -528,7 +546,8 @@ def test_c6_3_a_lane_enrolled_under_a_reset_credit_override_is_never_reserved_as
     assert early == ["codex-1"]
     assert not service.store.list_attempts(job_id)             # never placed as measured, without its probe
     assert service._holds[job_id]["reason"] == "probe-pending"
-    assert service._route_evaluations["moved"] == 1 and service._route_evaluations["again"] == 1
+    counts = service._route_evaluations
+    assert counts["rechosen"] == 1 and counts["rejudged"] == 2 and counts["again"] == 0   # codex-1 and codex-3
 
 
 def test_c6_12_a_row_the_check_cannot_read_settles_its_job_not_the_pass(routing_state, monkeypatch):  # noqa: F811
