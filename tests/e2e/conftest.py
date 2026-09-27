@@ -61,6 +61,8 @@ if Path(sys.argv[0]).name == "subfleetd":
             kwargs["crash_hook"] = hold
         kwargs["guardian_start_delay_s"] = float(
             os.environ.get("SUBFLEET_E2E_START_DELAY_S", "0"))
+        if os.environ.get("SUBFLEET_E2E_STOP_GRACE_S"):
+            kwargs["stop_grace_s"] = float(os.environ["SUBFLEET_E2E_STOP_GRACE_S"])
         original_init(self, *args, **kwargs)
     Daemon.__init__ = observed_init
 '''
@@ -319,10 +321,14 @@ def e2e(request, e2e_process_inspection):
             # store (with any quarantine census) can be read afterwards.
             report = getattr(request.node, "rep_call", None)
             if report is not None and report.failed:
-                import re, shutil, sys
+                import re, shutil, stat, sys
                 keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
                 shutil.rmtree(keep, ignore_errors=True)
-                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True)
+                # A daemon ended hard (C-5.8a, or a crash) leaves daemon.sock,
+                # which copytree cannot copy.
+                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
+                                ignore=lambda d, names: [n for n in names if stat.S_ISSOCK(
+                                    os.lstat(os.path.join(d, n)).st_mode)])
                 print(f"\n[e2e harness] kept state root at {keep}", file=sys.stderr)
 
 
