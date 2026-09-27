@@ -156,16 +156,23 @@ def test_c5_7a_a_probe_record_is_appended_exactly_when_it_changed(saves):
 
 def test_c5_7a_probe_evidence_ignores_only_run_states():
     """The recheck's comparison: a pid's `stat` is not evidence; everything else is."""
+    identity = {"pid": 3, "boot_id": "boot", "proc_start": "Sun Sep 27 09:00:00 2026"}
     base = {"holder": "probe:a", "state": "quarantined", "child_pid": 9,
-            "containment": {"live_pids": [3], "errors": [], "unverifiable": False,
+            "owned_identities": {"3": identity},
+            "containment": {"group_pids": [], "descendant_pids": [], "marker_pids": [3], "live_pids": [3],
+                            "errors": [], "unverifiable": False, "identities": {"3": identity},
                             "shapes": {"3": {"ppid": 1, "pgid": 3, "stat": "S"}}}}
 
     def varied(**containment):
         return {**base, "containment": {**base["containment"], **containment}}
+    reused = {**identity, "proc_start": "Sun Sep 27 10:00:00 2026"}
     assert probe_evidence(base) == probe_evidence(varied(shapes={"3": {"ppid": 1, "pgid": 3, "stat": "R+"}}))
     for other in (varied(shapes={"3": {"ppid": 2, "pgid": 3, "stat": "S"}}),     # reparented
                   varied(live_pids=[3, 4]), varied(errors=["marker enumeration unavailable"]),
-                  varied(unverifiable=True), {**base, "state": "contained"}, {**base, "child_pid": 10}):
+                  varied(unverifiable=True), {**base, "state": "contained"}, {**base, "child_pid": 10},
+                  varied(identities={"3": reused}),                              # the pid was reused
+                  varied(marker_pids=[], group_pids=[3]),                        # same pid, another source
+                  {**base, "owned_identities": {}}):                             # authority changed
         assert probe_evidence(base) != probe_evidence(other)
     assert probe_evidence(None) is None
     assert probe_evidence({"holder": "probe:a", "containment": None}) == _json({"holder": "probe:a", "containment": None})

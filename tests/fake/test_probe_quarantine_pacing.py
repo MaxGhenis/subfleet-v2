@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -54,6 +55,7 @@ class World:
         self.now = 0.0
         self.table = table
         self.censuses: list[float] = []       # when a full C-5.5 census ran
+        self.seen: list[procs.Containment] = []  # what each census found
         self.identity_checks: list[float] = []  # when the guardian's identity was asked
         self.looks: list[float] = []          # when `_contain_probe` ran
         monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: self.now,
@@ -61,6 +63,7 @@ class World:
 
         def take_census(record):
             self.censuses.append(self.now)
+            self.seen.append(self.table)
             return self.table
 
         def same_process(*args):
@@ -87,7 +90,7 @@ def submitted(service, harness) -> str:
     return service.dispatch("submit", harness.submit_args(tier="hard"))["job_id"]
 
 
-def started_probe(service, job_id: str | None) -> dict:
+def started_probe(service, job_id: str | None, *, receipt: bool = True) -> dict:
     """A probe whose guardian started and exited, receipt on disk, lease held: what
     a restart finds. The first `_recover_probes` contains it; survivors quarantine it."""
     directory = service.root / "lanes" / "codex-1" / "probes" / HOLDER.rsplit(":", 1)[-1]
@@ -103,9 +106,14 @@ def started_probe(service, job_id: str | None) -> dict:
     value = dataclasses.asdict(launch)
     value.pop("env_add")
     (directory / "launch.json").write_text(json.dumps(value))
-    (directory / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "wall_s": .1,
-                                                     "child_pid": CHILD}))
+    if receipt:
+        write_receipt(record)
     return record
+
+
+def write_receipt(record: dict) -> None:
+    (Path(record["directory"]) / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "wall_s": .1,
+                                                                    "child_pid": CHILD}))
 
 
 def quarantine(service, world: World) -> None:
@@ -226,12 +234,13 @@ def test_c5_7a_a_run_state_flicker_is_not_a_change(routing_state, monkeypatch):
     started_probe(service, job_id)
     world = World(service, monkeypatch, census(SURVIVOR, stat="S"))
     quarantine(service, world)
-    rows = events(service)
+    rows, first = events(service), len(world.seen)
     for tick in range(1, 20 * 120 + 1):
         world.now = tick / 20
-        world.table = census(SURVIVOR, stat="R+" if tick % 2 else "S")
+        world.table = census(SURVIVOR, stat="R+" if len(world.looks) % 2 else "S")   # each look sees the other
         service._recover_probes()
-    assert len(world.looks) > 5
+    stats = [table.shapes[SURVIVOR]["stat"] for table in world.seen[first:]]
+    assert len(stats) > 5 and "R+" in stats and "S" in stats, stats
     assert events(service) == rows
 
 
@@ -281,6 +290,83 @@ def test_c5_7a_unverifiable_errors_that_change_are_evidence(routing_state, monke
     assert holder_records(service) == records + 1
     assert service._probe_record(HOLDER)["containment"]["errors"] == list(UNVERIFIABLE[2:])
     assert service.store.list_leases(HOLDER)
+
+
+def test_c5_7a_a_receipt_that_arrives_later_is_recorded(routing_state, monkeypatch):
+    """Quarantined with no receipt (its guardian could not be inspected, as in a
+    `ps` outage); the receipt appears before the next look, which reads its
+    child pid and records it: the comparison is with the record kept, not with
+    what the look was handed."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record = started_probe(service, job_id, receipt=False)
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantine(service, world)
+    assert "child_pid" not in service._probe_record(HOLDER)
+    records = holder_records(service)
+    write_receipt(record)
+    world.now = 1
+    service._recover_probes()
+    assert holder_records(service) == records + 1
+    assert service._probe_record(HOLDER)["child_pid"] == CHILD
+    world.now = 3
+    service._recover_probes()
+    assert holder_records(service) == records + 1
+
+
+def test_c5_7a_a_record_kept_without_its_hold_is_healed(routing_state, monkeypatch):
+    """A store an older daemon left half-written: the quarantined record was
+    committed and the job's hold was not. The next look finds the record
+    current and still holds the job; the look after that writes nothing."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    started_probe(service, job_id)
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantine(service, world)
+    service.store.update_job(job_id, state="queued", wait_reason=None, next_check_at=None)
+    records = holder_records(service)
+    quarantined = service.store.one("SELECT count(*) AS n FROM events WHERE kind='probe.quarantined'")["n"]
+    world.now = 1
+    service._recover_probes()
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+    assert holder_records(service) == records, "the record was current; only the hold was missing"
+    assert service.store.one("SELECT count(*) AS n FROM events WHERE kind='probe.quarantined'")["n"] == quarantined + 1
+    changes = service.store.connection.total_changes
+    world.now = 3
+    service._recover_probes()
+    assert service.store.connection.total_changes == changes
+
+
+def test_c5_7a_a_record_and_its_hold_commit_together(routing_state, monkeypatch):
+    """A quarantine transaction that fails keeps neither the record nor the
+    hold; the next look, on its clock, writes both."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    started_probe(service, job_id)
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantine(service, world)
+    world.table = census(SURVIVOR, OTHER)
+    service.store.update_job(job_id, state="queued", wait_reason=None, next_check_at=None)
+    records = holder_records(service)
+    real_after = daemon_module.after
+
+    def failing(seconds):
+        raise OSError("disk full")
+    monkeypatch.setattr(daemon_module, "after", failing)
+    world.now = 1
+    with pytest.raises(OSError):
+        service._recover_probes()
+    assert holder_records(service) == records
+    assert service.store.get_job(job_id)["wait_reason"] is None
+    monkeypatch.setattr(daemon_module, "after", real_after)
+    world.now = 2.95
+    service._recover_probes()
+    assert holder_records(service) == records, "the failed look still counted: the next is due at 3 s"
+    world.now = 3
+    service._recover_probes()
+    assert holder_records(service) == records + 1
+    assert service._probe_record(HOLDER)["containment"]["live_pids"] == [SURVIVOR, OTHER]
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
 
 
 # --- release, and never before ----------------------------------------------------
@@ -411,12 +497,13 @@ def test_c5_7a_admission_passes_over_a_quarantined_probe_change_no_row(routing_s
 
 # --- the property -------------------------------------------------------------------
 
-#: Passes a tick to a minute and a half apart; the process table mostly as it
-#: was, sometimes changed (a run state, a pid, which inspection failed), rarely
-#: emptied, so most examples run long enough to reach the 60 s ceiling.
-STEPS = st.lists(st.tuples(st.sampled_from([.05, .3, 1, 2.5, 7, 30, 61, 90]),
-                           st.sampled_from(["same"] * 5 + ["stat", "pid", "errors", "empty"])),
-                 min_size=10, max_size=60)
+#: Passes a tick to two minutes apart; the process table mostly as it was,
+#: sometimes changed (a run state, a pid, which inspection failed), and emptied
+#: about once in forty passes, so most examples stay quarantined long enough to
+#: reach the 60 s ceiling and many still end in a release.
+STEPS = st.lists(st.tuples(st.sampled_from([.05, .3, 1, 2.5, 7, 30, 61, 90, 120]),
+                           st.sampled_from(["same"] * 27 + ["stat"] * 4 + ["pid"] * 4 + ["errors"] * 4 + ["empty"])),
+                 min_size=15, max_size=60)
 
 
 @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.too_slow])

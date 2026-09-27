@@ -58,12 +58,13 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
-#: C-5.7a: a holder's newest probe record, newest first: the newest JSON payload
-#: naming it (`hit`, one step of `events_probe_holder`), and every probe.state
-#: payload SQLite does not read as JSON (`events_not_json`, normally none),
-#: which `_probe_record` parses as the old walk did. A NaN or an Infinity is one
-#: such payload: json.dumps writes it, json.loads reads it, json_valid refuses it.
-#: The release line's C-3.7 query, character for character.
+#: C-5.7a: a holder's newest probe record, newest first: the newest payload
+#: json_valid accepts that names it (`hit`, one step of `events_probe_holder`),
+#: and every probe.state payload json_valid refuses (`events_not_json`, normally
+#: none), which `_probe_record` parses as the old walk did. A NaN or an Infinity
+#: is one such payload: json.dumps writes it, json.loads reads it, json_valid
+#: refuses it (json_extract would read it, as JSON5). The release line's C-3.7
+#: query, character for character.
 PROBE_RECORD = (
     "SELECT event_id,hit,data_json FROM (SELECT event_id,1 AS hit,data_json FROM events "
     "WHERE kind='probe.state' AND json_valid(data_json) AND json_extract(data_json,'$.holder')=? "
@@ -2090,9 +2091,9 @@ class Daemon:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases.
 
         C-5.7a: whatever it finds starts or backs off the probe's recheck clock
-        when it is not verified empty, and it writes only what changes the
-        record: a quarantined probe found as it was adds no row and commits no
-        transaction.
+        when it is not verified empty, and it writes only what changes: a
+        quarantined probe found as it was, with its job held, adds no row and
+        commits no transaction.
         """
         census = self._probe_census(record)
         owned = {int(pid): procs.ProcessIdentity(**value)
@@ -2125,18 +2126,28 @@ class Daemon:
         record.update(state="contained" if census.verified_empty else "quarantined",
                       containment=census.to_dict())
         self._pace_probe(record["holder"], census.verified_empty)
-        if probe_evidence(record) == probe_evidence(self._probe_record(record["holder"])):
-            # C-5.7a: nothing the record says has changed, so neither does the
-            # store: no probe.state row, no probe.quarantined transaction, and
-            # nothing for a waiter to wake on. The job is already `uncertain`.
-            return census.verified_empty
-        self._save_probe(record)
-        if not census.verified_empty:
-            with self.store.transaction("probe.quarantined", job_id=record["job_id"],
-                                        lane_id=record["lane_id"], data={"containment": census.to_dict()}) as tx:
-                tx.execute("UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
-                           (after(60), record["job_id"]))
-        return census.verified_empty
+        changed = probe_evidence(record) != probe_evidence(self._probe_record(record["holder"]))
+        if census.verified_empty:
+            if changed:
+                self._save_probe(record)
+            return True
+        if not changed and not (record["job_id"] and self.store.one(
+                "SELECT 1 FROM jobs WHERE job_id=? AND state IN ('queued','waiting') "
+                "AND wait_reason IS NOT 'uncertain'", (record["job_id"],))):
+            # C-5.7a: nothing the record says has changed and its job is held,
+            # so neither does the store: no probe.state row, no transaction,
+            # nothing for a waiter to wake on.
+            return False
+        # The record and the job's hold commit together, so neither is kept
+        # without the other; a look that finds the record current but its job
+        # not held (a store an older daemon left half-written) holds the job.
+        with self.store.transaction("probe.quarantined", job_id=record["job_id"],
+                                    lane_id=record["lane_id"], data={"containment": census.to_dict()}) as tx:
+            if changed:
+                self._save_probe(record)
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
+                       (after(60), record["job_id"]))
+        return False
 
     def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | None]:
         """Re-adopt the same gated guardian, bounded by its durable deadline."""
