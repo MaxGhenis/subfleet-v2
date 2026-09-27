@@ -394,6 +394,22 @@ def test_pacing_state_is_dropped_once_an_attempt_is_no_longer_live(daemon, monke
     assert ATTEMPT not in daemon._inspect_next
 
 
+def test_retry_state_is_dropped_once_an_attempt_is_no_longer_live(daemon, monkeypatch):
+    """C-5.11: an attempt whose inspection raised is remembered until one runs to its end; if it ends first, the
+    control loop's pruning forgets it with the rest of its pacing state."""
+    monkeypatch.setattr(procs, "_read", FakePs())
+    failing_record(daemon, monkeypatch)
+    with pytest.raises(RuntimeError):
+        daemon._process_attempt(ATTEMPT)
+    assert ATTEMPT in daemon._inspect_retry
+    daemon._forget_paced({ATTEMPT})
+    assert ATTEMPT in daemon._inspect_retry                  # still live: kept
+    with daemon.store.transaction("test.finished") as tx:
+        tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (ATTEMPT,))
+    daemon._forget_paced({a["attempt_id"] for a in daemon.store.query(daemon_module.LIVE_ATTEMPTS)})
+    assert ATTEMPT not in daemon._inspect_retry
+
+
 # --- probes -------------------------------------------------------------------
 
 def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tmp_path):
