@@ -270,6 +270,66 @@ def test_c26_9_a_turn_held_off_a_lane_by_a_probe_is_looked_at_when_the_probe_end
         assert slot_of(service, turn[0]) == "lane:codex-1:slot:turn-0"
 
 
+def test_c26_9_both_passes_racing_keep_every_cap_detached_fifo_and_place_everything(tmp_path):
+    """The review's concurrency probe: 40 detached jobs and 24 turns on three measured
+    Codex lanes, four admission calls at once per wave (two `_admit`, two turn passes),
+    a random pause between each evaluation and its reservation, then every attempt ends.
+    No job has two attempts and no slot lease two holders; neither pool passes its fleet
+    or per-lane cap; each kind is placed in submission order; and everything is placed
+    within 20 waves."""
+    import random
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from tests.fake.test_admission_latency import measure
+    with fleet_daemon(tmp_path / "fleet") as (service, harness, patch):
+        service.policy["caps"].update(max_active_attempts=4, max_in_flight_per_lane=2, max_in_flight_unmeasured=1,
+                                      reading_ttl_s=3600)
+        service.policy["conversations"].update(max_active_turns=2, turn_slots_per_lane=1)
+        for lane_id in CODEX:
+            measure(service, lane_id)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        detached = [submit(service, harness, pinned_model="astra") for _ in range(40)]
+        turns = [submit_turn(service, harness, n) for n in range(24)]
+        picked, pauses, lock = service._pick, random.Random(927), threading.Lock()
+
+        def interleaved(job, **options):
+            decision = picked(job, **options)
+            with lock:
+                pause = pauses.uniform(0, .003)
+            time.sleep(pause)
+            return decision
+        patch.setattr(service, "_pick", interleaved)
+        admitted = {"detached": [], "turn": []}
+        for wave in range(20):
+            if len(admitted["detached"]) == len(detached) and len(admitted["turn"]) == len(turns):
+                break
+            with ThreadPoolExecutor(max_workers=4) as workers:
+                for future in [workers.submit(fn) for fn in (service._admit, service._admit_turns,
+                                                            service._admit, service._admit_turns)]:
+                    future.result(timeout=120)
+            active = service.store.query("SELECT a.*,j.kind FROM attempts a JOIN jobs j USING(job_id) "
+                                         "WHERE a.state IN ('reserved','starting','running','finalizing') "
+                                         "ORDER BY a.rowid")
+            assert active, wave
+            assert len({row["job_id"] for row in active}) == len(active)
+            slots = service.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%:slot:%'")
+            assert len(slots) == len(active) == len({row["lease_key"] for row in slots})
+            for turn, fleet_cap, lane_cap, label in ((False, 4, 2, "detached"), (True, 2, 1, "turn")):
+                pool = [row for row in active if (row["kind"] == "turn") == turn]
+                assert len(pool) <= fleet_cap
+                for lane_id in CODEX:
+                    assert sum(row["lane_id"] == lane_id for row in pool) <= lane_cap
+                admitted[label].extend(row["job_id"] for row in pool)
+            assert admitted["detached"] == detached[:len(admitted["detached"])]       # C-6.9 FIFO
+            with service.store.transaction("test.complete") as tx:
+                for attempt in active:
+                    tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (attempt["attempt_id"],))
+                    tx.execute("UPDATE jobs SET state='succeeded' WHERE job_id=?", (attempt["job_id"],))
+                    tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (attempt["attempt_id"], attempt["job_id"]))
+        assert admitted["detached"] == detached and admitted["turn"] == turns
+
+
 # --- the property: what e053b2c's admission places, this one places, pass for pass ----------------
 
 CODEX = ("codex-1", "codex-2", "codex-3")

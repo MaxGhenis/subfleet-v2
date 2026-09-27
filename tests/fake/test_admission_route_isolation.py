@@ -1277,8 +1277,27 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
     assert looks == before and service._holds[retry]["reason"] == "behind-older-job"
 
 
-def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet):
+class HeldClock(datetime):
+    """The daemon's and the scheduler's wall clock, held where the test puts it."""
+    at: datetime
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.at.astimezone(tz) if tz else cls.at.replace(tzinfo=None)
+
+
+@pytest.mark.parametrize("look", [-1, 0, 1], ids=["before-the-retry-is-due", "when-it-is-due", "after"])
+def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, monkeypatch, look):
+    """The retry's look let its pin go and set a one-second clock; a younger job that
+    competes for claude-b arrives. Until the clock is due the younger job waits behind
+    the retry; once it is due both are placed, the retry first (C-6.9). On a held clock:
+    this read the wall clock, and on a loaded machine the one second could run out before
+    the second pass, which then placed both, in order, and had no hold to assert on
+    (review of d04b8b3, which reproduced the three cases under a controlled clock)."""
     service, harness = fleet
+    HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
+    monkeypatch.setattr(daemon_module, "datetime", HeldClock)
+    monkeypatch.setattr(scheduler, "datetime", HeldClock)
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid", enabled=False))
     measured(service, "claude-b")
     for lane_id in ("claude-a", "codex-1"):
@@ -1287,11 +1306,23 @@ def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet):
     retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
     _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
     service._admit()                                                  # falls back; nothing admits it as submitted
-    assert service.store.get_job(retry)["state"] == "waiting" and service._retry_verdicts[retry][1] is False
+    first = service.store.get_job(retry)
+    assert first["state"] == "waiting" and service._retry_verdicts[retry][1] is False
+    due = datetime.fromisoformat(first["next_check_at"].replace("Z", "+00:00"))
+    assert due == HeldClock.at + timedelta(seconds=1)
     service.store.update_lane("claude-b", enabled=1)
     younger = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
-    service._admit()                                                  # the retry's clock runs; the younger job waits
-    assert service._holds[younger]["reason"] == "behind-older-job" and service._holds[younger]["behind"] == retry
+    HeldClock.at = due + timedelta(seconds=look)
+    service._admit()
+    placed = [row["job_id"] for row in service.store.query("SELECT job_id FROM attempts WHERE state='reserved' "
+                                                           "ORDER BY rowid")]
+    if look < 0:                                                      # the retry's clock runs; the younger job waits
+        assert service._holds[younger]["reason"] == "behind-older-job" and service._holds[younger]["behind"] == retry
+        assert placed == [] and service.store.get_job(younger)["state"] == "queued"
+    else:                                                             # due: the retry first, then the younger job
+        assert placed == [retry, younger] and younger not in service._holds
+        assert [row["lane_id"] for row in service.store.query("SELECT lane_id FROM attempts WHERE state='reserved' "
+                                                              "ORDER BY rowid")] == ["claude-b", "claude-b"]
 
 
 def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):
