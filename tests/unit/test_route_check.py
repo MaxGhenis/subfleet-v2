@@ -21,8 +21,8 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from subfleet import capacity, route_check, scheduler
-from tests.routing_strategies import (ACTIVE, BASE_POLICY, NOW, candidates_of, commits, event, exact, policies,
-                                     route_jobs, stores, view_of, walked_no_further)
+from tests.routing_strategies import (ACTIVE, BASE_POLICY, NOW, candidates_of, closure_rows, commits, event, exact,
+                                     policies, reading_rows, route_jobs, stores, view_of, walked_no_further)
 
 SETTINGS = settings(max_examples=1500, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large,
@@ -383,3 +383,66 @@ def test_c6_3_a_reading_past_its_reset_is_labelled_as_an_evaluation_now_labels_i
     assert verdict is None and standing.chosen_lane == "codex-1"
     assert [row["label"] for row in standing.evaluations[0]["readings"]] == ["stale-provider"]
     assert exact(standing) == exact(full)
+
+
+@st.composite
+def elsewhere(draw, store: dict, lanes: list[str], later) -> dict:
+    """Readings, closures and reset-credit overrides on `lanes` only, as they stand at `later`."""
+    after = copy.deepcopy(store)
+    next_reading = max((row["reading_id"] for row in after["readings"]), default=0) + 1
+    next_closure = max((row["closure_id"] for row in after["closures"]), default=0) + 1
+    for _ in range(draw(st.integers(1, 6))):
+        what, lane_id = draw(st.sampled_from(["reading", "reading", "closure", "override"])), draw(st.sampled_from(lanes))
+        if what == "reading":
+            after["readings"].append(draw(reading_rows(lane_id, next_reading, later)))
+            next_reading += 1
+        elif what == "closure":
+            after["closures"].append(draw(closure_rows(lane_id, next_closure, later)))
+            next_closure += 1
+        else:
+            after["overridden"] = set(after["overridden"]) ^ {lane_id}
+    return after
+
+
+@settings(SETTINGS, max_examples=500)
+@given(cases(), st.data())
+def test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it(case, data):
+    """Review of d04b8b3: a job's decision reads only the lanes of the models it walks
+    (`scheduler.model_lanes`: the model's provider's, or the one lane its pin names).
+    Readings, closures, overrides and clocks on any other lane (another provider's, a
+    lane the pin does not name, a disabled one) change nothing: `evaluate` at any clock
+    returns the same decision with them or without, and so does the check, which judges
+    none of them again and never refuses for them."""
+    policy, store, job = case
+    view = view_of(store, NOW)
+    try:
+        decision = scheduler.evaluate(policy, view, job)
+        setup = scheduler.prepare(policy, view, job)
+    except route_check.ROUTE_ERRORS:
+        return
+    looked = {lane["lane_id"] for short in decision.chain for lane in scheduler.model_lanes(setup, short)}
+    others = sorted(row["lane_id"] for row in store["lanes"] if row["lane_id"] not in looked)
+    assume(others)
+    seconds = data.draw(st.sampled_from([0, 0.7, 3, 30, 200]))
+    later = NOW + timedelta(seconds=seconds)
+    # Also on the early side: the others' rows at the early evaluation are the store's own.
+    after = data.draw(elsewhere(store, others, later))
+    try:
+        quiet = scheduler.evaluate(policy, view_of(store, later), job)
+    except route_check.ROUTE_ERRORS:
+        quiet = None
+    try:
+        busy = scheduler.evaluate(policy, view_of(after, later), job)
+    except route_check.ROUTE_ERRORS:
+        busy = None
+    assert (quiet and exact(quiet)) == (busy and exact(busy))
+    clocks = capacity.lane_horizons(view, reading_ttl_s=120)
+
+    def checked(now_store):
+        verdict, judged, standing = route_check.still_stands(
+            policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
+            overridden=store["overridden"], clocks=clocks, now=later, **now_rows(store, now_store))
+        return verdict, judged, standing and exact(standing)
+    assert checked(after) == checked(store)
+    event(f"other lanes: {min(len(others), 3)}; expired: "
+          f"{any(later >= horizon for lane_id, horizon in clocks.items() if lane_id in others)}")

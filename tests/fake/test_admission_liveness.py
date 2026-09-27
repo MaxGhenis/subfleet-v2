@@ -22,10 +22,15 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+from hypothesis import HealthCheck, given, settings, strategies as st
+
 from subfleet import capacity, scheduler
 from subfleet import daemon as daemon_module
-from subfleet.contracts import Credential, Lane, LaneOwner, Reading, ReadingLabel
-from tests.fake.test_admission_latency import fleet_daemon
+from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Reading,
+                                ReadingLabel)
+from subfleet.daemon import Daemon
+from tests.fake.test_admission_latency import fleet_daemon, submit, submit_turn
+from tests.routing_strategies import event
 
 
 class Clock(datetime):
@@ -199,7 +204,6 @@ def test_c26_9_a_stream_of_turns_never_keeps_an_older_writable_job_from_its_prob
     and it stayed `probe-pending` through all ten (e053b2c's one pass put the `easy` job
     before the turn, and placed both). Turns now take slots of their own: the job is probed
     and placed on the first pass, beside the first turn, and every turn is placed."""
-    from tests.fake.test_admission_latency import submit, submit_turn
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         one_unmeasured_lane(service, harness, patch)
         probes = []
@@ -223,7 +227,6 @@ def test_c26_9_a_turn_of_the_same_tier_never_keeps_a_writable_job_from_its_probe
     """The same with a `standard` writable job: e053b2c's one pass put a turn before a
     detached job of its own tier, so there too each turn took `slot:0` first, and the job
     waited for a gap between turns. It is placed on the first pass now."""
-    from tests.fake.test_admission_latency import submit, submit_turn
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         one_unmeasured_lane(service, harness, patch)
         probes = []
@@ -245,7 +248,6 @@ def test_c26_9_a_turn_held_off_a_lane_by_a_probe_is_looked_at_when_the_probe_end
     counted as freed capacity, so the turn waited out that clock after the probe had ended;
     under e053b2c's one pass the probe had always ended before the turn was looked at. The
     turn pass now counts the admission probes' leases, and looks again at once."""
-    from tests.fake.test_admission_latency import submit, submit_turn
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         one_unmeasured_lane(service, harness, patch)
         probes, turn = [], []
@@ -266,3 +268,176 @@ def test_c26_9_a_turn_held_off_a_lane_by_a_probe_is_looked_at_when_the_probe_end
         service._admit_turns()
         assert [row["lane_id"] for row in service.store.list_attempts(turn[0])] == ["codex-1"]
         assert slot_of(service, turn[0]) == "lane:codex-1:slot:turn-0"
+
+
+# --- the property: what e053b2c's admission places, this one places, pass for pass ----------------
+
+CODEX = ("codex-1", "codex-2", "codex-3")
+LIVENESS = settings(max_examples=40, deadline=None, derandomize=True,
+                    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture,
+                                           HealthCheck.data_too_large])
+
+
+def as_before(service, patch) -> None:
+    """e053b2c's admission, from this code: one pass over every queued job in `ordered_jobs`
+    order (a turn before the detached jobs of its own tier only), and the route evaluated
+    again, whole, inside the reserving transaction, at the reservation's clock, as e053b2c
+    did whenever a commit had landed since its early evaluation. Turn slots are numbered
+    apart from detached ones, as here: with one numbering e053b2c let turns of a writable
+    job's own tier keep it from its probe (the test above), which is a hold this change
+    removes, not a bar to hold it to."""
+    evaluate = Daemon._pick.__get__(service)
+
+    def numbered_apart(tx, lane_id, turn):
+        prefix = f"lane:{lane_id}:slot:" + ("turn-" if turn else "")
+        slot = 0
+        while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"{prefix}{slot}",)).fetchone():
+            slot += 1
+        return f"{prefix}{slot}"
+    patch.setattr(service, "_route_stands",
+                  lambda basis, decision: (None, 0, evaluate(basis["job"], desktop=basis["desktop"])))
+    patch.setattr(service, "_in_pass", lambda job, kind: True)
+    patch.setattr(service, "_slot_lease", numbered_apart)
+    patch.setattr(service, "_admit", lambda: service._admit_kind("detached"))
+
+
+def placements(service) -> dict[str, tuple[str, str]]:
+    """Every job admission has placed, by request id: the lane and model of its attempt."""
+    return {row["request_id"]: (row["lane_id"], row["model_requested"]) for row in service.store.query(
+        "SELECT j.request_id, a.lane_id, a.model_requested FROM attempts a JOIN jobs j USING(job_id)")}
+
+
+@LIVENESS
+@given(st.data())
+def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_factory, data):
+    """Over random schedules of readings (sensors on the Codex lanes and on up to 24 Claude
+    lanes no job here could take, refreshed on their own cycles, so readings age out
+    between an evaluation and its reservation), closures (some ending within a pass),
+    conversation turns, detached jobs (writable ones needing their probe on an unmeasured
+    lane, pins, every tier) and attempts ending, this admission and e053b2c's (`as_before`)
+    run side by side from the same fleet, on one clock: every evaluation of a pass at the
+    pass's instant, each job's reservation 0 to 3 s after it. After every pass both have
+    placed the same jobs, on the same lanes and models: for every N, every job the old
+    admission places within N passes this one places within N passes, and nothing else.
+    On d04b8b3 this fails both ways the review found: a job refused at every check for
+    another lane's clock, and a writable job kept from its probe by a turn."""
+    draw = data.draw
+    root = tmp_path_factory.mktemp("liveness")
+    start = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
+    caps = {"max_active_attempts": draw(st.sampled_from([1, 2, 4]), label="fleet cap"),
+            "max_in_flight_per_lane": draw(st.sampled_from([1, 2]), label="lane cap")}
+    turn_cap = draw(st.sampled_from([1, 2]), label="turn cap")
+    sensors = {}                                    # lane -> (cycle, phase, utilization)
+    for lane_id in CODEX:
+        if draw(st.sampled_from([True, False, False]), label=f"{lane_id} measured"):
+            sensors[lane_id] = (draw(st.sampled_from([60, 120]), label=f"{lane_id} cycle"),
+                                draw(st.integers(0, 119), label=f"{lane_id} phase"),
+                                draw(st.sampled_from([.1, .5, .9]), label=f"{lane_id} use"))
+    unrelated = draw(st.sampled_from([0, 8, 24]), label="unrelated Claude lanes")
+    for n in range(unrelated):
+        sensors[f"claude-{n}"] = (120, (n * 120) // max(unrelated, 1), .2)
+    disabled = draw(st.lists(st.sampled_from(CODEX), max_size=2, unique=True), label="disabled")
+    delays: dict[str, int] = {}
+    clock = [start]
+    published: dict[tuple[str, str], set] = {}
+    with fleet_daemon(root / "new") as (new, new_harness, new_patch), \
+            fleet_daemon(root / "old") as (old, old_harness, old_patch):
+        new_patch.setattr(daemon_module, "datetime", Clock)
+        Clock.at = start
+        fleets = {"new": (new, new_harness, new_patch), "old": (old, old_harness, old_patch)}
+        for name, (service, harness, patch) in fleets.items():
+            service.policy["caps"].update(caps)
+            service.policy.setdefault("conversations", {}).update(max_active_turns=turn_cap, turn_slots_per_lane=1)
+            one_unmeasured_lane(service, harness, patch)          # a committed workdir; codex-2, codex-3 off ...
+            for lane_id in CODEX:                                 # ... and back on unless drawn disabled
+                service.store.update_lane(lane_id, enabled=int(lane_id not in disabled))
+            for n in range(unrelated):
+                service.store.put_lane(Lane(f"claude-{n}", "claude", f"claude:fixture-{n}",
+                                            Credential("claude", f"fixture-{n}", "keychain-token"), None,
+                                            LaneOwner.V2, False))
+            patch.setattr(service.timers, "now", lambda: Clock.at)
+            patch.setattr(service, "_desktop_identity", lambda: capacity.DesktopIdentity("unverified"))
+            # Each job its own worktree, as admission cuts one (C-6.6), with no git here.
+            patch.setattr(service, "_workspace", lambda job, _root=harness.root: (
+                str(_root / "worktrees" / job["job_id"]) if job["sandbox"] == "workspace-write" else job["workdir"],
+                None, None))
+            probing(service, patch, [])
+            real = service._pick
+
+            def on_the_pass_clock(job, _real=real, **options):
+                Clock.at = clock[0]                               # every evaluation at the pass's instant
+                decision = _real(job, **options)
+                Clock.at = clock[0] + timedelta(seconds=delays.get(job["request_id"], 0))
+                return decision
+            patch.setattr(service, "_pick", on_the_pass_clock)
+            if name == "old":
+                as_before(service, patch)
+
+        def publish(service, name):
+            """Every sensor sample due by now, stamped when it was taken."""
+            for lane_id, (cycle, phase, use) in sensors.items():
+                taken = published.setdefault((name, lane_id), set())
+                sample = start - timedelta(seconds=cycle - phase)
+                while sample <= clock[0]:
+                    if sample not in taken:
+                        taken.add(sample)
+                        service.store.add_reading(Reading(lane_id, "account", "seven_day", use,
+                                                          stamp(start + timedelta(days=3)), ReadingLabel.PROVIDER,
+                                                          "fixture", stamp(sample)))
+                    sample += timedelta(seconds=cycle)
+
+        jobs, turns = 0, 0
+        passes = draw(st.integers(3, 7), label="passes")
+        for number in range(passes):
+            clock[0] += timedelta(seconds=draw(st.sampled_from([31, 47, 90]), label="step"))
+            Clock.at = clock[0]
+            submissions = []
+            for _ in range(draw(st.integers(0, 2), label="detached jobs")):
+                jobs += 1
+                request = f"job-{jobs}"
+                delays[request] = draw(st.sampled_from([0, 1, 3]), label="delay")
+                writable = draw(st.sampled_from([True, True, False]), label="writable")
+                submissions.append(("detached", request, {
+                    "request_id": request, "pinned_model": draw(st.sampled_from(["astra", "terra"]), label="model"),
+                    "tier": draw(st.sampled_from(["trivial", "easy", "standard", "hard"]), label="tier"),
+                    "sandbox": "workspace-write" if writable else "read-only", "caller_session": f"session-{jobs}",
+                    **({"pinned_lane": draw(st.sampled_from(CODEX), label="pin")}
+                       if draw(st.integers(0, 3), label="pinned") == 0 else {})}))
+            for _ in range(draw(st.integers(0, 2), label="turns")):
+                turns += 1
+                delays[f"turn:message-{turns}:0"] = draw(st.sampled_from([0, 1, 3]), label="delay")
+                submissions.append(("turn", turns, None))
+            closures = draw(st.lists(st.tuples(st.sampled_from(CODEX),
+                                               st.sampled_from(["account", "gpt-6-astra", "gpt-5.6-terra"]),
+                                               st.sampled_from([2, 40, 400])), max_size=1), label="closures")
+            running = sorted(request for request, _ in placements(new).items()
+                             if new.store.one("SELECT 1 FROM jobs WHERE request_id=? AND state='running'", (request,)))
+            ends = sorted({running[index % len(running)] for index in
+                           draw(st.lists(st.integers(0, 9), max_size=3), label="ends")} if running else set())
+            for name, (service, harness, _) in fleets.items():
+                publish(service, name)
+                for kind, request, args in submissions:
+                    if kind == "turn":
+                        submit_turn(service, harness, request)
+                    else:
+                        service.dispatch("submit", harness.submit_args(**args))
+                for lane_id, scope, seconds in closures:
+                    service.store.put_closure(Closure(lane_id, scope, stamp(clock[0] + timedelta(seconds=seconds)),
+                                                      ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "test"))
+                for request in ends:
+                    complete(service, service.store.get_job_by_request(request)["job_id"])
+                for row in service.store.query("SELECT job_id FROM jobs WHERE state='waiting'"):
+                    service.store.update_job(row["job_id"], next_check_at=stamp(clock[0]))   # every wait due
+            for name, (service, _, _) in fleets.items():
+                Clock.at = clock[0]
+                service._admit()
+            assert placements(new) == placements(old), (number, placements(old), placements(new))
+        placed = len(placements(new))
+        event(f"placed: {min(placed, 6)}{'+' if placed >= 6 else ''}")
+        probes = len(new.store.query("SELECT 1 FROM events WHERE kind='probe.completed'"))
+        event(f"probes: {min(probes, 2)}{'+' if probes >= 2 else ''}")
+        if probes and turns:
+            event("probes and turns in one run")
+        counts = new._route_evaluations
+        event("lanes judged again at a check" if counts["rejudged"] else "no lane judged again")
+        assert counts["again"] == 0 and counts["deferred"] == 0      # nothing here lands inside a pass
