@@ -696,6 +696,15 @@ def test_containment_finds_a_marker_under_a_root_that_is_not_ascii(monkeypatch):
     assert procs.containment(None, None, None, "job/a1", root="/tmp/subfleet-Jose-root").marker_pids == {100}
 
 
+def test_containment_looks_for_the_attempt_id_as_ps_prints_it_too(monkeypatch):
+    """C-5.5: the attempt marker is rendered like the root. Attempt ids are ASCII
+    today (a timestamp, a `[a-z0-9-]` slug, `probe:` and hex), where rendering changes
+    nothing; an id that were not would still be found."""
+    census(monkeypatch, parents="42 1 42 S\n",
+           markers="   99 python SUBFLEET_ATTEMPT=jM-CM-)b/a1 SUBFLEET_ROOT=/tmp/root\n")
+    assert procs.containment(None, None, None, "jéb/a1", root="/tmp/root").marker_pids == {99}
+
+
 def test_containment_keeps_the_space_a_root_ends_in(monkeypatch):
     """C-5.5: a root that ends in a space ends the row when SUBFLEET_ROOT is the last
     variable, so only the pid's padding is stripped from a row."""
