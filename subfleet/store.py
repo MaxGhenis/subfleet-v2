@@ -42,6 +42,9 @@ from .lockwatch import WatchedLock, thread_name
 SCHEMA_VERSION = 5
 Row = dict[str, Any]
 
+#: C-10.8: the event `disable_lane` writes with each disable, naming the reason.
+LANE_DISABLED = "lane.disabled"
+
 #: C-3.7: read connections no snapshot may hold, kept for one-statement reads.
 STATEMENT_RESERVE = 2
 #: C-3.7: the longest a read waits for a pooled connection before it opens one
@@ -580,6 +583,20 @@ class Store:
                 # C-10.6: only an operator re-enrolling the lane releases it.
                 raise ValueError("a mismatched lane is released only by re-enrolment")
         self._update("lanes", "lane_id", lane_id, {**values, "updated_at": utc_now()})
+
+    def disable_lane(self, lane_id: str, reason: str, *, source: str, at: str | None = None,
+                     detail: str | None = None) -> None:
+        """Disable a lane and record why, in one transaction (C-10.8).
+
+        `reason` is `auth-dead`, `identity-mismatch` or `non-canonical`; only the
+        first is ever re-checked, so the reason is written wherever the daemon
+        turns a lane off, never inferred later from what else happened to it.
+        """
+        # The transaction's own audit event is the record: written with the change.
+        with self.transaction(LANE_DISABLED, lane_id=lane_id, data={
+                "reason": reason, "source": source, "at": at or utc_now(),
+                **({"detail": str(detail)[:300]} if detail else {})}):
+            self.update_lane(lane_id, enabled=0)
 
     def get_lane(self, lane_id: str) -> Lane | None:
         row = self.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,))

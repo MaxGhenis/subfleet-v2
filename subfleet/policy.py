@@ -17,6 +17,7 @@ from .contracts import (
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
     Closure, Decision, Exit, Lane, Reading,
 )
+from .recheck import DEFAULTS as RECHECK_DEFAULTS, MIN_INTERVAL_S as RECHECK_MIN_INTERVAL_S
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
@@ -258,6 +259,24 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                   or not math.isfinite(item) or item <= 0):
                 fail(f"{section}.{key}", "must be a positive finite number")
         value[section] = settings
+
+    # C-10.8: the auth-dead re-check. Zero switches it off; otherwise no lane is
+    # re-checked more than once an hour, whatever the policy asks.
+    timers = value["timers"]
+    for key, default in RECHECK_DEFAULTS.items():
+        item = timers.setdefault(key, default)
+        if (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or not math.isfinite(item) or item < 0):
+            fail(f"timers.{key}", "must be a nonnegative finite number")
+    interval = timers["auth_recheck_interval_s"]
+    if 0 < interval < RECHECK_MIN_INTERVAL_S:
+        fail("timers.auth_recheck_interval_s",
+             f"must be 0 (off) or at least {RECHECK_MIN_INTERVAL_S} seconds")
+    if interval and timers["auth_recheck_max_interval_s"] < interval:
+        fail("timers.auth_recheck_max_interval_s", "must be at least timers.auth_recheck_interval_s")
+    for key in ("auth_recheck_tick_s", "auth_recheck_max_load_per_cpu"):
+        if timers[key] <= 0:
+            fail(f"timers.{key}", "must be a positive finite number")
 
     # `sessions` is validated on its own because zero is meaningful in it: every
     # cap, window and interval there switches OFF at zero — a mirror interval of

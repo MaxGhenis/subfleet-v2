@@ -121,7 +121,12 @@
   },
   "timers": {
     "probe_interval_s": 60,
-    "keepalive_interval_s": 18300
+    "keepalive_interval_s": 18300,
+    "auth_recheck_interval_s": 21600,
+    "auth_recheck_max_interval_s": 86400,
+    "auth_recheck_spacing_s": 900,
+    "auth_recheck_tick_s": 300,
+    "auth_recheck_max_load_per_cpu": 2.0
   },
   "alerts": {
     "realert_hours": 6,

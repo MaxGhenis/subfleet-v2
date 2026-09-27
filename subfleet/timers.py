@@ -14,12 +14,12 @@ import threading
 import time
 from uuid import uuid4
 
-from . import capacity
+from . import capacity, recheck
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential
 from .sessions.transcripts import read_regular
-from .store import Store
+from .store import LANE_DISABLED, Store
 
 
 def instant(value=None):
@@ -34,7 +34,7 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None):
+                 deliver=None, now=None, reenroll=None):
         from .actions import ResetCredits
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
@@ -49,6 +49,14 @@ class Timers:
         # probe or a keepalive behind it for minutes (C-23.28).
         self._mirror = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-mirror')
         self._session_mirror = None
+        # C-10.8: the auth-dead re-check has one worker of its own, so at most one
+        # runs at a time and its enrolment turn (up to three minutes) never holds a
+        # probe or keepalive behind it. `reenroll` is the daemon's one way back.
+        self._rechecks = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-recheck')
+        self.reenroll = reenroll
+        self.recheck = recheck.Settings.from_policy(policy)
+        self.recheck_deferral = recheck.Deferral()
+        self.load_per_cpu = recheck.host_load_per_cpu
         self._lanes = ThreadPoolExecutor(max_workers=min(4, policy.get('caps', {}).get('keepalive_workers', 4)),
                                          thread_name_prefix='subfleet-timer-lane')
         self._running = set()
@@ -80,9 +88,11 @@ class Timers:
             hot_interval = policy.get('sessions', {}).get('mirror_hot_interval_s', 2)
             if hot_interval:
                 self.intervals['mirror_hot'] = hot_interval
+        if self.recheck.enabled:
+            self.intervals['auth_recheck'] = self.recheck.tick_s
         self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
-                                     'retention', 'mirror', 'mirror_hot')}
+                                     'retention', 'mirror', 'mirror_hot', 'auth_recheck')}
         self.metadata = self._latest('timer.verdict')
         self.balances = self._latest('reset-credit.balance')
         self._cycle_error = None
@@ -138,7 +148,8 @@ class Timers:
                 # Timestamp precision is seconds in the store; monotonic deadlines
                 # below still bound fractional test intervals and per-lane work.
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
-                pool = self._mirror if name in ('mirror', 'mirror_hot') else self._cycles
+                pool = (self._mirror if name in ('mirror', 'mirror_hot') else
+                        self._rechecks if name == 'auth_recheck' else self._cycles)
                 pool.submit(self._run, name)
 
     def request(self, name, *, target=None):
@@ -200,9 +211,11 @@ class Timers:
                     self.store.add_event('timer.run', data=data)
             # A hot mirror pass runs every few seconds; the store keeps its
             # timer.run events forever and replays them at start, so only a
-            # pass that changed something or failed is recorded there.
+            # pass that changed something or failed is recorded there. The
+            # re-check looks every five minutes and records its own event
+            # whenever it asks a provider anything (C-10.8).
             self.mark(name, error=error,
-                      persist=name != 'mirror_hot' or error is not None or bool(result))
+                      persist=name not in ('mirror_hot', 'auth_recheck') or error is not None or bool(result))
             with self._lock:
                 self._running.discard(name)
 
@@ -280,6 +293,7 @@ class Timers:
         self._cycles.shutdown(wait=True, cancel_futures=True)
         self._lanes.shutdown(wait=True, cancel_futures=True)
         self._mirror.shutdown(wait=True, cancel_futures=True)
+        self._rechecks.shutdown(wait=True, cancel_futures=True)
 
     def record_auth_dead(self, lane_id):
         meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
@@ -300,7 +314,7 @@ class Timers:
         seen = {}
         for row in rows:
             if row['enabled'] and self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason='auth-dead' AND released_at IS NULL", (row['lane_id'],)):
-                self.store.update_lane(row['lane_id'], enabled=0)
+                self.store.disable_lane(row['lane_id'], 'auth-dead', source='closure', at=iso(self.now()))
                 row['enabled'] = False
                 data = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
                 self.store.add_event('timer.verdict', lane_id=row['lane_id'], data=data)
@@ -310,7 +324,8 @@ class Timers:
             first = seen.setdefault(row['account_key'], row)
             if first['lane_id'] != row['lane_id']:
                 with self.store.transaction('lane.noncanonical', lane_id=row['lane_id']):
-                    self.store.update_lane(row['lane_id'], enabled=0)
+                    self.store.disable_lane(row['lane_id'], 'non-canonical', source='probe-cycle', at=iso(self.now()),
+                                            detail=f"duplicate of {first['lane_id']}")
                     data = {'identity_status': 'non-canonical', 'duplicate_of': first['home'] or first['lane_id'],
                             'verdict': 'duplicate', 'home': row['home']}
                     self.store.add_event('timer.verdict', lane_id=row['lane_id'], data=data)
@@ -494,7 +509,9 @@ class Timers:
             self.actions.settle_by_usage(lane.lane_id, probe, now=self.now())
         with self.store.transaction('timer.probe', lane_id=lane.lane_id):
             if status in ('auth-dead', 'identity-mismatch'):
-                self.store.update_lane(lane.lane_id, enabled=0)
+                # C-10.8: the reason goes with the disable; only auth-dead is re-checked.
+                self.store.disable_lane(lane.lane_id, status, source='timer-probe', at=at,
+                                        detail=probe.get('error_code'))
             for reading in readings:
                 self.store.add_reading(replace(reading, attempt_id=None))
             if not readings:
@@ -671,7 +688,8 @@ class Timers:
             state = 'timed-out' if outcome.evidence.get('timed_out') else outcome.cls.value
             with self.store.transaction('timer.keepalive', lane_id=lane.lane_id):
                 if outcome.cls == OutcomeClass.AUTH_DEAD:
-                    self.store.update_lane(lane.lane_id, enabled=0)
+                    self.store.disable_lane(lane.lane_id, 'auth-dead', source='keepalive', at=iso(self.now()),
+                                            detail=outcome.detail)
                     self.record_auth_dead(lane.lane_id)
                 if sent and (outcome.cls == OutcomeClass.OK or outcome.native_session_id):
                     self.store.add_reading(Reading(lane.lane_id, self.policy['models']['haiku']['id'], 'admission',
@@ -689,3 +707,60 @@ class Timers:
         futures = [self._lanes.submit(self._keepalive_lane, lane) for lane in self.store.list_lanes()
                    if lane.provider == 'claude' and lane.enabled and lane.owner == 'v2' and not lane.desktop]
         return [future.result() for future in as_completed(futures)]
+
+    # --- C-10.8: the auth-dead re-check ------------------------------------
+
+    def recheck_rows(self):
+        """What a re-check decision reads, in one committed state (C-3.7): every
+        lane in binding order, and the latest `lane.disabled` and re-check event
+        of each lane. The verdicts are this object's own (`metadata`)."""
+        with self.store.snapshot():
+            lanes = self.store.query('SELECT * FROM lanes ORDER BY created_at,rowid')
+            disabled = self.store.query('SELECT lane_id,ts,data_json FROM events WHERE kind=? ORDER BY event_id',
+                                        (LANE_DISABLED,))
+            rechecks = self.store.query('SELECT lane_id,ts,data_json FROM events WHERE kind=? ORDER BY event_id',
+                                        (recheck.RECHECK_EVENT,))
+        return lanes, recheck.disables_by_lane(disabled), recheck.latest_by_lane(rechecks)
+
+    def recheck_standings(self):
+        """Every disabled lane's standing for the re-check (`recheck.standings`),
+        and the latest re-check event of each lane."""
+        lanes, disabled, rechecks = self.recheck_rows()
+        current = recheck.standings(lanes, disabled=disabled, verdicts=dict(self.metadata),
+                                    rechecks=rechecks, roster_off=recheck.roster_disabled(self.root),
+                                    settings=self.recheck)
+        return current, rechecks
+
+    def recheck_busy(self):
+        """Why the daemon has no attempt slot to spare for a re-check, or None: the
+        live detached attempts and the probe reservations fill
+        `caps.max_active_attempts`, as they do for admission (C-6.4)."""
+        cap = self.policy.get('caps', {}).get('max_active_attempts', 4)
+        live = self.store.one("SELECT count(*) AS n FROM attempts a JOIN jobs j ON j.job_id=a.job_id "
+                              "WHERE a.state IN ('reserved','starting','running','finalizing') "
+                              "AND COALESCE(j.kind,'')!='turn'")['n']
+        probes = self.store.one("SELECT count(*) AS n FROM leases WHERE holder LIKE 'probe:%'")['n']
+        return f'{live + probes} of {cap} attempt slots in use' if live + probes >= cap else None
+
+    def auth_recheck_cycle(self):
+        """C-10.8: re-check at most one lane disabled as auth-dead, if one is due.
+
+        The daemon's `reenroll` does the re-check itself and records it. A due
+        lane that must wait (spacing, no free slot, host load) is noted in memory
+        for `lanes list` and looked at again next tick; nothing is recorded, and
+        no provider hears of it."""
+        if self.cancel.is_set() or self.reenroll is None:
+            return None
+        current, rechecks = self.recheck_standings()
+        now = self.now()
+        due = sorted(s.lane_id for s in current.values()
+                     if s.eligible and s.next_at and instant(s.next_at) <= now)
+        busy = self.recheck_busy() if due else None
+        load = self.load_per_cpu() if due and not busy else None
+        lane_id, why = recheck.choose(current, now=now, settings=self.recheck,
+                                      started=recheck.last_started(rechecks), busy=busy, load_per_cpu=load)
+        with self._lock:
+            self.recheck_deferral = recheck.Deferral(why, iso(now), tuple(due)) if why else recheck.Deferral()
+        if lane_id is None or self.cancel.is_set():
+            return None
+        return self.reenroll(lane_id)

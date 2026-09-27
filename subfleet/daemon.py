@@ -34,14 +34,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
+from . import capacity, ids, lanes_transfer, procs, protocol, recheck, render, route_check, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
-    ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
+    ExitInfo, IdentityStatus, JobSpec, Lane, LaneInfo, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
 from .credentials import resolve_credential
@@ -518,7 +518,7 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
-                             deliver=self._timer_notice)
+                             deliver=self._timer_notice, reenroll=self._auth_recheck)
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -606,7 +606,7 @@ class Daemon:
         with self._enroll_lock:
             return self._enroll_lane_locked(a)
 
-    def _enroll_lane_locked(self, a: protocol.LanesArgs) -> dict:
+    def _enroll_lane_locked(self, a: protocol.LanesArgs, *, automatic: dict | None = None) -> dict:
         """`lanes enroll <credential>` (C-10.2): a Claude home directory (a config
         directory holding a `claude auth login`), a Codex home (holds `auth.json`),
         or a `claude-quota-<email>` keychain item. The adapter's enrol turn decides
@@ -614,28 +614,41 @@ class Daemon:
         the lane is stored, its enrol readings with it, and `lanes.json` follows.
         `owner` defaults to v2; an account v1 still dispatches on is enrolled `v1`
         or enrolled `v2` and held (`lanes hold`) until its transfer.
+
+        `automatic` is the lane row the auth-dead re-check (C-10.8) brings back by
+        this same path, with no operator watching: its own stored credential is
+        used as recorded (never re-parsed from text), it must still be the latest
+        binding of that credential, and the credential must answer with the
+        identity it was enrolled with (`_automatic_identity_refusal`).
         """
-        text = (a.credential or "").strip()
-        if not text:
-            raise protocol.ProtocolError("lanes enroll: name a credential (a home directory or a "
-                                         "claude-quota-<email> keychain item)", Exit.INVALID_INPUT)
-        path = Path(text).expanduser()
-        if path.is_dir():
-            path = path.resolve()
-            provider = "codex" if (path / "auth.json").is_file() else "claude"
-            credential = Credential(provider, str(path), "home")
-        elif text.startswith("claude-quota-"):
-            credential = Credential("claude", text, "keychain-token")
+        if automatic is not None:
+            credential = Credential(automatic["provider"], automatic["credential_ref"],
+                                    automatic["credential_kind"])
+            path = Path(credential.ref)
         else:
-            raise protocol.ProtocolError(
-                f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> item",
-                Exit.INVALID_INPUT)
+            text = (a.credential or "").strip()
+            if not text:
+                raise protocol.ProtocolError("lanes enroll: name a credential (a home directory or a "
+                                             "claude-quota-<email> keychain item)", Exit.INVALID_INPUT)
+            path = Path(text).expanduser()
+            if path.is_dir():
+                path = path.resolve()
+                provider = "codex" if (path / "auth.json").is_file() else "claude"
+                credential = Credential(provider, str(path), "home")
+            elif text.startswith("claude-quota-"):
+                credential = Credential("claude", text, "keychain-token")
+            else:
+                raise protocol.ProtocolError(
+                    f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> item",
+                    Exit.INVALID_INPUT)
         try:
             owner = LaneOwner(a.owner or "v2")
         except ValueError:
             raise protocol.ProtocolError("lanes enroll: owner must be v1 or v2", Exit.INVALID_INPUT) from None
         bindings = self.store.query("SELECT * FROM lanes WHERE credential_ref=? ORDER BY created_at,rowid", (credential.ref,))
         existing = bindings[-1] if bindings else None
+        if automatic is not None and (existing is None or existing["lane_id"] != automatic["lane_id"]):
+            raise protocol.ProtocolError("lane changed during re-enrollment", Exit.REFUSED)
         enrollment_holder = None
         if existing:
             if any(row['enabled'] for row in bindings):
@@ -683,6 +696,8 @@ class Daemon:
                 raise protocol.ProtocolError('re-enrollment could not verify the existing account identity', Exit.REFUSED)
             if existing and info.account_key != existing['account_key']:
                 raise protocol.ProtocolError('re-enrollment found a different account; use a separate credential reference', Exit.REFUSED)
+            if automatic is not None and (refusal := _automatic_identity_refusal(existing, info)):
+                raise protocol.ProtocolError(refusal, Exit.REFUSED)
             lane_id = self._next_lane_id(credential.provider)
             lane = Lane(lane_id, credential.provider, info.account_key, credential,
                         info.home or (str(path) if credential.kind == "home" else None), owner, False, True,
@@ -690,7 +705,8 @@ class Daemon:
             with self.store.transaction("lane.enrolled", lane_id=lane_id, data={
                     "account_key": info.account_key, "kind": credential.kind, "owner": owner.value,
                     "label": info.label, "identity_status": info.identity_status,
-                    "supersedes": existing['lane_id'] if existing else None}):
+                    "supersedes": existing['lane_id'] if existing else None,
+                    **({"automatic": "auth-recheck"} if automatic is not None else {})}):
                 # Keep the old binding fenced through publication, and re-read
                 # facts under the same transaction that creates its successor.
                 for row in bindings:
@@ -781,6 +797,142 @@ class Daemon:
         if rc is None:
             rc = -receipt['signal'] if receipt.get('signal') else 1
         return subprocess.CompletedProcess(argv, rc, _text(stdout), _text(stderr))
+
+    # --- C-10.8: bringing back a lane disabled as auth-dead -------------------
+
+    def _auth_recheck(self, lane_id: str) -> dict | None:
+        """One automatic re-check of `lane_id`, a lane disabled as auth-dead (C-10.8).
+
+        Runs on the timers' re-check worker, so one at a time. It never waits
+        behind an operator's `lanes enroll`: while one holds the enrollment lock
+        the re-check waits for the next tick. Under that lock the lane's standing
+        is judged again, then its own credential goes through
+        `_enroll_lane_locked`, the one way back (C-10.2): for Claude the enrolment
+        turn, which refuses every auth-dead signature `classify` knows
+        (`auth_dead_evidence`); for Codex, whose enrolment does not itself prove
+        the token authenticates, a usage read first (`_codex_authenticates`).
+
+        A `lane.auth-recheck` event is written before the provider is asked
+        (`started`), so the cadence holds across a crash, and again with the
+        result; each result is one daemon.log line, and a lane that comes back
+        also sends the operator a notice.
+        """
+        if not self._enroll_lock.acquire(blocking=False):
+            with self.timers._lock:
+                self.timers.recheck_deferral = recheck.Deferral("an enrollment is running", utcnow(), (lane_id,))
+            return None
+        try:
+            current, _ = self.timers.recheck_standings()
+            standing = current.get(lane_id)
+            if standing is None or not standing.eligible or self.timers.cancel.is_set():
+                return None
+            row = self.store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,))
+            lane = Store.lane_from_row(row)
+            started = self.timers.now()
+            self._record_recheck(lane, started, "started", standing.failures)
+            try:
+                if lane.provider == "codex":
+                    self._codex_authenticates(lane)
+                enrolled = self._enroll_lane_locked(
+                    protocol.LanesArgs(action="enroll", credential=lane.credential.ref), automatic=row)["enrolled"]
+            except Exception as exc:  # noqa: BLE001 - however it fails, the lane stays off and backs off
+                if self.timers.cancel.is_set() or self.stopping.is_set():
+                    return self._record_recheck(lane, started, "interrupted", standing.failures,
+                                                detail=_recheck_detail(exc))
+                code = getattr(exc, "code", None)
+                record = self._record_recheck(lane, started, "failed", standing.failures + 1,
+                                              code=int(code) if isinstance(code, int) else None,
+                                              detail=_recheck_detail(exc))
+                self.log.info("auth re-check: %s (%s) still does not authenticate: %s; "
+                              "%d failed in a row, next re-check %s (C-10.8)", lane.lane_id,
+                              lane.label or lane.account_key, record["detail"], record["failures"],
+                              record["next_at"])
+                return record
+            record = self._record_recheck(lane, started, "restored", 0, successor=enrolled["lane_id"])
+            self.log.info("auth re-check: %s (%s) authenticates again as the account it was enrolled as; "
+                          "re-enrolled as %s (C-10.8)", lane.lane_id, lane.label or lane.account_key,
+                          enrolled["lane_id"])
+            self._recheck_notice(lane, enrolled, standing)
+            return record
+        finally:
+            self._enroll_lock.release()
+
+    def _record_recheck(self, lane: Lane, started: datetime, result: str, failures: int, *,
+                        code: int | None = None, detail: str | None = None,
+                        successor: str | None = None) -> dict:
+        """The `lane.auth-recheck` event (C-10.8). `at` is when the re-check began,
+        the instant its cadence counts from; `next_at` is informational (the
+        schedule is computed from `at` and the policy each time it is read)."""
+        settings = self.timers.recheck
+        data: dict[str, Any] = {"at": recheck.iso(started), "result": result, "failures": failures,
+                                "provider": lane.provider, "label": lane.label}
+        if result not in ("restored",):
+            wait = recheck.backoff_s(failures, settings)
+            data["next_at"] = recheck.iso(started + timedelta(seconds=wait + recheck.jitter_s(lane.lane_id, wait)))
+        if code is not None:
+            data["code"] = code
+        if detail:
+            data["detail"] = detail
+        if successor:
+            data["successor"] = successor
+        self.store.add_event(recheck.RECHECK_EVENT, lane_id=lane.lane_id, data=data)
+        return data
+
+    def _codex_authenticates(self, lane: Lane) -> None:
+        """C-10.8: before the automatic path enrolls a Codex lane, its usage endpoint
+        must accept the home's token as the lane's own account. Codex enrolment reads
+        `auth.json` and records whatever the endpoint says, so on its own it would
+        restore a lane whose token still fails, and the next probe cycle would
+        disable it again. The read is the probe cycle's own, bounded and stoppable
+        (`Timers._read_probe`)."""
+        adapter = get_adapter("codex")
+        if hasattr(adapter, "timeout"):
+            adapter.timeout = min(15, self.policy.get("caps", {}).get("probe_timeout_s", 60))
+        probe = self.timers._read_probe(adapter, lane, resolve_credential(lane.credential))
+        status = probe.get("status")
+        if status not in ("ok", "limited"):
+            raise protocol.ProtocolError(
+                f"codex: the usage endpoint answered {status} for {lane.home or lane.credential.ref}",
+                Exit.AUTH_DEAD if status in ("auth-dead", "revoked", "no-auth") else Exit.REFUSED)
+        if probe.get("account_key") != lane.account_key:
+            raise protocol.ProtocolError(
+                f"codex: {lane.home or lane.credential.ref} now holds "
+                f"{probe.get('account_key') or 'no readable account'}, not {lane.account_key}", Exit.REFUSED)
+
+    def _recheck_notice(self, lane: Lane, enrolled: dict, standing: recheck.Standing) -> None:
+        label = lane.label or lane.account_key
+        notice = {"key": f"lane-restored:{lane.lane_id}", "severity": "info", "recovery": True,
+                  "home": lane.home or lane.credential.ref,
+                  "subject": f"{lane.provider}: {label} is back as {enrolled['lane_id']}",
+                  "body": (f"{lane.lane_id} ({label}), disabled as auth-dead since {standing.disabled_at}, "
+                           f"authenticates again as the account it was enrolled as. Subfleet re-enrolled it "
+                           f"automatically as {enrolled['lane_id']} (C-10.8); jobs pinned to {lane.lane_id} "
+                           f"follow it (C-11.2).")}
+        try:
+            self.timers.alerts.deliver(notice)
+        except Exception as exc:  # noqa: BLE001 - the lane is back whether or not the notice lands
+            self.log.warning("auth re-check: the notice for %s was not written: %s", enrolled["lane_id"],
+                             type(exc).__name__)
+
+    def _attach_rechecks(self, lanes: list[dict]) -> None:
+        """C-10.8, C-17.1: each disabled lane's re-check standing on its `lanes list` row."""
+        try:
+            current, _ = self.timers.recheck_standings()
+        except Exception as exc:  # noqa: BLE001 - the roster must still be answered
+            self.log.warning("lanes list: re-check standings unavailable: %s", type(exc).__name__)
+            return
+        with self.timers._lock:
+            deferral = self.timers.recheck_deferral
+        for row in lanes:
+            standing = current.get(row["lane_id"])
+            if standing is None:
+                continue
+            info = standing.as_dict()
+            if standing.eligible and not self.timers.recheck.enabled:
+                info.update(why="off", next_at=None)
+            elif standing.eligible and deferral.why and row["lane_id"] in deferral.lanes:
+                info["waiting"] = deferral.why
+            row["auth_recheck"] = info
 
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
@@ -1941,7 +2093,9 @@ class Daemon:
                 return self._enroll_lane(a)
             if a.action in ("hold", "release"):
                 return self._hold_lane(a)
-            return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
+            lanes = self._capacity_view(self._desktop_identity())["lanes"]
+            self._attach_rechecks(lanes)                    # C-10.8
+            return {"lanes": lanes,
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
             view = self._capacity_view(self._desktop_identity())
@@ -2921,7 +3075,8 @@ class Daemon:
                                     data={"model": record["model_id"], "class": outcome.cls.value,
                                           "evidence": outcome.evidence}) as tx:
             if outcome.cls == OutcomeClass.AUTH_DEAD:
-                self.store.update_lane(record["lane_id"], enabled=0)
+                self.store.disable_lane(record["lane_id"], "auth-dead", source="probe",
+                                        detail=outcome.detail)     # C-10.8: why, with the disable
                 self.timers.record_auth_dead(record["lane_id"])
             self._record_identity(record["lane_id"], outcome)
             for reading in outcome.readings:
@@ -4767,7 +4922,8 @@ class Daemon:
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
             if outcome.cls == OutcomeClass.AUTH_DEAD:
-                self.store.update_lane(a["lane_id"], enabled=0)
+                self.store.disable_lane(a["lane_id"], "auth-dead", source="attempt",
+                                        detail=outcome.detail)     # C-10.8: why, with the disable
                 self.timers.record_auth_dead(a["lane_id"])
             self._record_identity(a["lane_id"], outcome)   # C-10.6
             for reading in outcome.readings:
@@ -5149,6 +5305,39 @@ def _keychain_read(argv) -> bool:
     `<agent-secret> get <reference>` or `security find-generic-password -s <reference> -w`."""
     argv = list(argv)
     return len(argv) >= 2 and ((argv[1] == "get" and len(argv) == 3) or argv[1] == "find-generic-password")
+
+
+def _automatic_identity_refusal(existing: dict, info: LaneInfo) -> str | None:
+    """C-10.8: why an automatic re-enrolment may not restore `existing`, or None.
+
+    No operator watches it, so the credential must answer as the lane was
+    enrolled (C-10.6): a recorded identity comes back verified and equal (as it
+    must for an operator too); a setup-token lane (`enrolled`) is refused scope by
+    the profile endpoint again rather than now naming an account or going
+    unanswered; a Codex lane's account comes from the home's token claims, which
+    `_codex_authenticates` has just had the usage endpoint accept.
+    """
+    status = existing.get("identity_status")
+    if status == "mismatch":
+        return "automatic re-enrollment never releases an identity mismatch; an operator re-enrolls it (C-10.6)"
+    if existing.get("identity"):
+        if info.identity_status == IdentityStatus.VERIFIED.value and info.identity == existing["identity"]:
+            return None
+        return (f"automatic re-enrollment needs the enrolled identity verified again; the profile "
+                f"answered {info.identity_status or 'nothing'}")
+    if existing["provider"] != "claude":
+        return None
+    if status != IdentityStatus.ENROLLED.value:
+        return "the lane recorded no identity to compare the credential with; re-enroll it by hand"
+    if info.identity_status != IdentityStatus.ENROLLED.value or info.identity:
+        return (f"the setup token was enrolled without profile scope, and the profile now answered "
+                f"{info.identity_status or 'nothing'}; re-enroll it by hand if the credential changed")
+    return None
+
+
+def _recheck_detail(exc: BaseException) -> str:
+    text = str(exc) if isinstance(exc, protocol.ProtocolError) else f"{type(exc).__name__}: {exc}"
+    return " ".join(text.split())[:300] or type(exc).__name__
 
 
 def enrollment_runner(original: Callable[..., Any], turn: Callable[..., Any]) -> Callable[..., Any]:

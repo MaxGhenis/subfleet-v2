@@ -1880,6 +1880,45 @@ def cmd_resume(args: argparse.Namespace) -> int:
 
 # --- lanes, why, ping ---------------------------------------------------------
 
+#: C-10.8: why a disabled lane is not re-checked, as `lanes list` says it.
+RECHECK_EXCLUSIONS = {
+    "operator": "operator (lanes.json)", "roster-unreadable": "lanes.json unreadable",
+    "identity-mismatch": "identity mismatch", "identity-unverified": "identity never verified",
+    "non-canonical": "non-canonical duplicate", "unrecorded": "not disabled as auth-dead",
+    "owner-v1": "owned by v1", "desktop": "desktop lane", "account-enabled": "account enabled on another lane",
+}
+
+
+def _minute(value: Any) -> str | None:
+    text = str(value or "")
+    return text[:16] + "Z" if len(text) >= 16 else (text or None)
+
+
+def _recheck_cell(lane: dict[str, Any]) -> str:
+    """C-10.8: when a disabled lane was last re-checked, and what happens next."""
+    info = lane.get("auth_recheck")
+    if not isinstance(info, dict):
+        return "-"
+    last, result = _minute(info.get("last_at")), info.get("last_result")
+    if not info.get("eligible"):
+        why = str(info.get("why") or "-")
+        if why == "superseded":
+            successor = info.get("successor") or lane.get("superseded_by") or "a later lane"
+            return f"back as {successor} ({last})" if result == "restored" else f"superseded by {successor}"
+        text = f"not re-checked: {RECHECK_EXCLUSIONS.get(why, why)}"
+        return text + (f"; last {last} {result}" if last else "")
+    if info.get("why") == "off":
+        return "not re-checked: off in policy" + (f"; last {last} {result}" if last else "")
+    text = f"{last} {result}" if last else "never re-checked"
+    if info.get("failures"):
+        text += f" ({info['failures']} failed in a row)"
+    if info.get("next_at"):
+        text += f"; next {_minute(info['next_at'])}"
+    if info.get("waiting"):
+        text += f" (waiting: {info['waiting']})"
+    return text
+
+
 def _format_lanes(result: dict[str, Any]) -> str:
     if result.get("lanes") is None:
         return json.dumps(result, indent=1, sort_keys=True, default=str)
@@ -1887,7 +1926,7 @@ def _format_lanes(result: dict[str, Any]) -> str:
     if not lanes:
         return "no lanes enrolled — subfleet lanes enroll <credential>"
     lines = [f"{'lane':<12} {'provider':<8} {'account':<30} {'owner':<6} "
-             f"{'desktop':<8} {'enabled':<8} {'identity':<12} plan"]
+             f"{'desktop':<8} {'enabled':<8} {'identity':<12} {'plan':<10} re-check"]
     for lane in lanes:
         lines.append(
             f"{str(lane.get('lane_id') or '-'):<12.12} "
@@ -1897,7 +1936,8 @@ def _format_lanes(result: dict[str, Any]) -> str:
             f"{('yes' if lane.get('desktop') else 'no'):<8} "
             f"{('yes' if lane.get('enabled', True) else 'no'):<8} "
             f"{str(lane.get('identity_status') or '-'):<12.12} "     # C-10.6
-            f"{lane.get('plan') or '-'}")
+            f"{str(lane.get('plan') or '-'):<10} "
+            f"{_recheck_cell(lane)}")                                # C-10.8
     return "\n".join(lines)
 
 

@@ -871,12 +871,24 @@ class ClaudeAdapter(Adapter):
                     f"as the keychain item {credential.ref}"
                 ),
             )
-        if ORG_BLOCK_RE.search(corpus):
+        dead = auth_dead_evidence(summary, corpus)
+        if dead is not None and dead[1] == ORG_BLOCK_ANSWER:
             raise AdapterError(
                 "claude: the organisation has disabled Claude Code subscription access "
                 "for this account",
                 code=5,
                 fix="ask the account's admin to enable Claude Code access",
+            )
+        if dead is not None:
+            # C-10.2: the evidence `classify` would call auth-dead (C-9.3), after
+            # `system/init` too: an account on hold, an organisation OAuth refusal.
+            raise AdapterError(
+                f"claude: the credential did not authenticate ({dead[0]})",
+                code=5,
+                fix=(
+                    "renew the account's subscription, or claude setup-token while signed into "
+                    f"the lane account and store it as the keychain item {credential.ref}"
+                ),
             )
 
         home = env_add.get("CLAUDE_CONFIG_DIR")
@@ -1540,32 +1552,14 @@ class ClaudeAdapter(Adapter):
                 answered={"cli": "version gate in the provider's own output"},
             )
 
-        # 1. Authentication (C-9.3).
-        match = ORG_BLOCK_RE.search(corpus)
-        if match:
-            return finish(
-                OutcomeClass.AUTH_DEAD,
-                f"auth-dead: {_first_line_containing(corpus, match)}",
-                answered={"auth": "explicit organisation block"},
-            )
-        auth_kind = next(
-            (kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None
-        )
-        if auth_kind is not None:
-            return finish(
-                OutcomeClass.AUTH_DEAD,
-                f"auth-dead: the provider reported error {auth_kind}",
-                answered={"auth": f"provider error kind {auth_kind}"},
-            )
+        # 1. Authentication (C-9.3), judged as enrolment judges it (C-10.2).
+        dead = auth_dead_evidence(summary, corpus)
+        if dead is not None:
+            found, answered = dead
+            return finish(OutcomeClass.AUTH_DEAD, f"auth-dead: {found}", answered={"auth": answered})
         auth_signature = AUTH_SIGNATURE_RE.search(corpus)
         auth_false_positive: str | None = None
         if auth_signature is not None:
-            if not summary.has_init:
-                return finish(
-                    OutcomeClass.AUTH_DEAD,
-                    f"auth-dead: {_first_line_containing(corpus, auth_signature)}",
-                    answered={"auth": "no system/init and a credential failure signature"},
-                )
             # C-9.3: the credential authenticated. Something else answered 401.
             auth_false_positive = auth_signature.group(0)
             evidence["auth_signature_false_positive"] = auth_false_positive
@@ -1934,6 +1928,34 @@ def _first_auth_phrase(corpus: str) -> str | None:
     return _first_line_containing(corpus, match) if match else None
 
 
+#: What `auth_dead_evidence` says answered an organisation block.
+ORG_BLOCK_ANSWER = "explicit organisation block"
+
+
+def auth_dead_evidence(summary: StreamSummary, corpus: str) -> tuple[str, str] | None:
+    """C-9.3: the auth-dead evidence in one run's stream and stderr, or None.
+
+    Returns the evidence line and what answered it. `classify` and `enroll` both
+    ask this, so a credential enrolment accepts is never one its first run
+    classifies `auth-dead` (C-10.2), and an automatic re-enrolment of a lapsed
+    account (C-10.8) cannot restore a lane its next run disables again: the
+    organisation block and the auth error kinds (`oauth_org_not_allowed`,
+    `account_on_hold`) arrive after `system/init`, where `enroll` looked only
+    for the first.
+    """
+    match = ORG_BLOCK_RE.search(corpus)
+    if match:
+        return _first_line_containing(corpus, match), ORG_BLOCK_ANSWER
+    kind = next((kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None)
+    if kind is not None:
+        return f"the provider reported error {kind}", f"provider error kind {kind}"
+    signature = AUTH_SIGNATURE_RE.search(corpus)
+    if signature is not None and not summary.has_init:
+        return (_first_line_containing(corpus, signature),
+                "no system/init and a credential failure signature")
+    return None
+
+
 def _closure_clock(
     reported: str | datetime | None, now: datetime,
 ) -> tuple[str, ClockSource]:
@@ -2059,6 +2081,7 @@ __all__ = [
     "OAUTH_USAGE_URL",
     "SCOPED_MODEL_IDS",
     "apply_headless_block",
+    "auth_dead_evidence",
     "encode_project_dir",
     "iso_from_epoch",
     "iso_utc",
