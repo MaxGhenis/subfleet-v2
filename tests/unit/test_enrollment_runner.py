@@ -71,15 +71,16 @@ def test_c10_2_routing_every_call_through_the_fence_fails_as_it_did_live(tmp_pat
     assert fence.calls == []
 
 
-@pytest.mark.parametrize("kwargs,to_fence", [
-    ({"cwd": "/tmp/x", "env": {}, "timeout": 60, "capture_output": True}, True),
-    ({"capture_output": True, "text": True, "timeout": 15}, False),
-    ({"cwd": "/tmp/x", "capture_output": True}, False),
-    ({"env": {}, "capture_output": True}, False),
+@pytest.mark.parametrize("argv,to_fence", [
+    (["/Users/x/bin/agent-secret", "get", "claude-quota-max@axiom.org"], False),
+    (["security", "find-generic-password", "-s", "claude-quota-max@axiom.org", "-w"], False),
+    (["claude", "-p", "--model", "claude-haiku-4-5", "--output-format", "stream-json"], True),
+    (["/Users/x/bin/agent-secret", "get", "a", "b"], True),       # not a shape keychain_command builds
+    (["claude"], True),
 ])
-def test_c10_2_the_router_sends_only_calls_naming_cwd_and_env_to_the_fence(kwargs, to_fence):
+def test_c10_2_the_router_fails_closed_everything_but_a_keychain_read_is_fenced(argv, to_fence):
     seen = []
-    runner = enrollment_runner(lambda argv, **kw: seen.append("original"),
-                               lambda argv, **kw: seen.append("fence"))
-    runner(["x"], **kwargs)
+    runner = enrollment_runner(lambda a, **kw: seen.append("original"),
+                               lambda a, **kw: seen.append("fence"))
+    runner(argv, capture_output=True)
     assert seen == ["fence" if to_fence else "original"]

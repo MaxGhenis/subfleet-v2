@@ -5144,18 +5144,26 @@ class Daemon:
 _STACK_DUMPS: weakref.ref | None = None
 
 
+def _keychain_read(argv) -> bool:
+    """Whether `argv` is one of the two reads `credentials.keychain_command` builds:
+    `<agent-secret> get <reference>` or `security find-generic-password -s <reference> -w`."""
+    argv = list(argv)
+    return len(argv) >= 2 and ((argv[1] == "get" and len(argv) == 3) or argv[1] == "find-generic-password")
+
+
 def enrollment_runner(original: Callable[..., Any], turn: Callable[..., Any]) -> Callable[..., Any]:
-    """C-10.2: the adapter's runner during a re-enrollment. Only the login turn, the
-    one call that names a working directory and an environment, runs through the
-    enrollment fence (`Daemon._enrollment_turn`); every other call, the keychain reads
-    that resolve a keychain-token credential and its plan, stays with `original`.
-    Routing every call through the fence made each keychain-token re-enrollment raise
-    before its turn ("_enrollment_turn() missing 2 required keyword-only arguments:
-    'cwd' and 'env'", 2026-09-27), so a lapsed account could never be brought back."""
+    """C-10.2: the adapter's runner during a re-enrollment. The keychain reads that
+    resolve a keychain-token credential and its plan stay with `original`; every other
+    call, the login turn above all, runs through the enrollment fence
+    (`Daemon._enrollment_turn`). Routing every call through the fence made each
+    keychain-token re-enrollment raise before its turn ("_enrollment_turn() missing 2
+    required keyword-only arguments: 'cwd' and 'env'", 2026-09-27), so a lapsed
+    account could never be brought back. The fence is the default, so a call this does
+    not recognise is contained (or refused by the fence's signature), never run bare."""
     def runner(argv, **kwargs):
-        if "cwd" in kwargs and "env" in kwargs:
-            return turn(argv, **kwargs)
-        return original(argv, **kwargs)
+        if _keychain_read(argv):
+            return original(argv, **kwargs)
+        return turn(argv, **kwargs)
     return runner
 
 
