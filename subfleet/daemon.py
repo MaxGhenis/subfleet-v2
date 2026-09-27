@@ -56,7 +56,7 @@ from .salvage import (
 )
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store
+from .store import Store, _json
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -112,6 +112,10 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-5.7a: a probe a look left quarantined is looked at again this long after,
+#: doubling per consecutive such look to the ceiling.
+PROBE_RECHECK_BASE_S = 1
+PROBE_RECHECK_CEILING_S = 60
 #: C-26.14: tries at a turn's end snapshot while git fails transiently (C-6.8's
 #: kinds), before finalization records the failure and goes on without it, so a
 #: turn's finalization waits on its diff for at most a few capped git calls.
@@ -233,6 +237,31 @@ DEFERRED = object()
 def worker_retry_delay(failures: int) -> float:
     """C-5.10: seconds before a worker that has raised `failures` times in a row is tried again."""
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
+
+
+def probe_recheck_delay(looks: int) -> float:
+    """C-5.7a: seconds from the `looks`-th consecutive look that left a probe quarantined to the next."""
+    return min(PROBE_RECHECK_CEILING_S, PROBE_RECHECK_BASE_S * 2 ** min(max(looks, 1) - 1, 16))
+
+
+def probe_evidence(record: dict | None) -> str | None:
+    """C-5.7a: a probe record as a recheck compares it with the last one kept.
+
+    All of it except each live pid's run state (`ps` `stat`, C-5.5): a busy
+    survivor reads `R` on one look and `S` on the next, and neither says
+    anything about whether the probe is contained. Everything else a census
+    records (which pids are live, in which source, their identities, parents
+    and groups, whether it could look at all and what failed) is evidence.
+    """
+    if record is None:
+        return None
+    value = json.loads(_json(record))
+    containment = value.get("containment")
+    shapes = containment.get("shapes") if isinstance(containment, dict) else None
+    for shape in (shapes.values() if isinstance(shapes, dict) else ()):
+        if isinstance(shape, dict):
+            shape.pop("stat", None)
+    return _json(value)
 
 
 def utcnow() -> str:
@@ -429,6 +458,13 @@ class Daemon:
         # replaced whole; the lock is held while `ps` runs.
         self._table: tuple[procs.ProcessTable | None, float] = (None, 0.0)
         self._table_lock = threading.Lock()
+        # C-5.7a: probe holder -> (consecutive looks that left it quarantined,
+        # the monotonic time the next is due). Each entry is replaced whole, never
+        # updated in place: a timer turn or an enrollment can quarantine a probe
+        # on its own thread while the admission worker reads the clock. In memory
+        # as C-6.10's records are: a restart looks at every quarantined probe
+        # once, and that look writes nothing the record already says.
+        self._probe_rechecks: dict[str, tuple[int, float]] = {}
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -2735,15 +2771,40 @@ class Daemon:
                 return record
         return None
 
-    def _save_probe(self, record: dict) -> None:
+    def _save_probe(self, record: dict) -> bool:
+        """C-8.4: append the record as a `probe.state` event, and say whether it did.
+
+        C-5.7a: a record that is exactly the newest its holder already has is not
+        appended again; `_probe_record` would return the same thing either way.
+        Inside a transaction the comparison reads the transaction's own rows
+        (C-3.7), so a record saved earlier in it counts.
+        """
+        latest = self._probe_record(record["holder"])
+        if latest is not None and _json(latest) == _json(record):
+            return False
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
+        return True
+
+    def _pace_probe(self, holder: str, contained: bool) -> None:
+        """C-5.7a: a look that left the probe quarantined backs its clock off; a contained probe has none."""
+        if contained:
+            self._probe_rechecks.pop(holder, None)
+            return
+        looks = self._probe_rechecks.get(holder, (0, 0.0))[0] + 1
+        self._probe_rechecks[holder] = (looks, time.monotonic() + probe_recheck_delay(looks))
 
     def _probe_census(self, record: dict):
         return procs.containment(record.get("pgid"), record.get("guardian_pid"),
                                  record.get("child_pid"), record["holder"], root=str(self.root))
 
     def _contain_probe(self, record: dict) -> bool:
-        """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
+        """C-5.4–7: terminate only recorded identities and retain uncertain leases.
+
+        C-5.7a: whatever it finds starts or backs off the probe's recheck clock
+        when it is not verified empty, and it writes only what changes: a
+        quarantined probe found as it was, with its job held, adds no row and
+        commits no transaction.
+        """
         census = self._probe_census(record)
         owned = {int(pid): procs.ProcessIdentity(**value)
                  for pid, value in record.get("owned_identities", {}).items()}
@@ -2774,13 +2835,29 @@ class Daemon:
                 census = self._probe_census(record)
         record.update(state="contained" if census.verified_empty else "quarantined",
                       containment=census.to_dict())
-        self._save_probe(record)
-        if not census.verified_empty:
-            with self.store.transaction("probe.quarantined", job_id=record["job_id"],
-                                        lane_id=record["lane_id"], data={"containment": census.to_dict()}) as tx:
-                tx.execute("UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
-                           (after(60), record["job_id"]))
-        return census.verified_empty
+        self._pace_probe(record["holder"], census.verified_empty)
+        changed = probe_evidence(record) != probe_evidence(self._probe_record(record["holder"]))
+        if census.verified_empty:
+            if changed:
+                self._save_probe(record)
+            return True
+        if not changed and not (record["job_id"] and self.store.one(
+                "SELECT 1 FROM jobs WHERE job_id=? AND state IN ('queued','waiting') "
+                "AND wait_reason IS NOT 'uncertain'", (record["job_id"],))):
+            # C-5.7a: nothing the record says has changed and its job is held,
+            # so neither does the store: no probe.state row, no transaction,
+            # nothing for a waiter to wake on (the store's generation, C-5.11).
+            return False
+        # The record and the job's hold commit together, so neither is kept
+        # without the other; a look that finds the record current but its job
+        # not held (a store an older daemon left half-written) holds the job.
+        with self.store.transaction("probe.quarantined", job_id=record["job_id"],
+                                    lane_id=record["lane_id"], data={"containment": census.to_dict()}) as tx:
+            if changed:
+                self._save_probe(record)
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
+                       (after(60), record["job_id"]))
+        return False
 
     def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | None]:
         """Re-adopt the same gated guardian, bounded by its durable deadline."""
@@ -2941,10 +3018,22 @@ class Daemon:
         shutil.rmtree(record["directory"], ignore_errors=True)
 
     def _recover_probes(self) -> None:
-        """C-5.3–7, C-8.4: recover each durable probe before admitting more work."""
-        for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'"):
+        """C-5.3–7, C-8.4: recover each durable probe before admitting more work.
+
+        C-5.7a: every detached admission pass runs this (C-26.9), up to twenty a
+        second. A probe the last look left quarantined keeps its lease and is
+        looked at again only when its own clock is due, since a look is a full
+        census (C-5.5, which reads every process's environment) and a guardian
+        identity check.
+        """
+        leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
+        for gone in set(self._probe_rechecks) - {lease["holder"] for lease in leases}:
+            self._probe_rechecks.pop(gone, None)          # released: nothing left to look at
+        for lease in leases:
             if lease["holder"] in self.timers.active_holders:
                 continue
+            if time.monotonic() < self._probe_rechecks.get(lease["holder"], (0, 0.0))[1]:
+                continue                                  # quarantined, and not yet due
             record = self._probe_record(lease["holder"])
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
