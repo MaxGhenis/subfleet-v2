@@ -71,10 +71,10 @@ Read from the app bundle, 2.9939.2 (`app.asar`, `LocalSessionManager`), on
 
 **"The most active copy wins"** is the brief's rule. Because a pick never
 raises `lastActivityAt`, it overwrites any pick made in a folder that is not
-the most active. The live store has the case: in 10 open sessions, 120 copies
-last ran on Fable at about 00:52Z on 2026-09-23. A few minutes later, one
-account (`9921292e…/84eeaed7…`) picked `claude-opus-5-5` on its copy without a
-turn. The newest-activity rule would put Fable back into that copy too.
+the most active. The live store has the case: in 9 open sessions, 120 copies
+last ran on Fable at about 00:52Z on 2026-09-23. Later, without a turn, one
+account (`9921292e…/84eeaed7…`) picked `claude-opus-5-5` on its copy (minutes
+to hours after). The newest-activity rule would put Fable back into that copy too.
 
 **"Any change from the merge base wins"** is the flag protocol's rule. The app
 re-saves its whole record from memory on focus, on a PR poll and for any other
@@ -164,18 +164,27 @@ precisely.
 
 | Method | Where | Result |
 |---|---|---|
-| Exhaustive model check | `tests/mirror_settings_model.py`, explored by `tests/unit/test_mirror_settings_model.py` over three folders, every event and pass. The app has current memory (`honest`) or stale memory with parked folders | RESULTS_MODEL |
-| Differential | `tests/unit/test_mirror_settings_stateful.py`: a Hypothesis machine drives the real `Mirror` on real files in lockstep with the model: picks, turns, stale saves, switches, passes with writes between the read and the publish, cancellations, unreadable copies | RESULTS_STATEFUL |
+| Exhaustive model check | `tests/mirror_settings_model.py`, explored by `tests/unit/test_mirror_settings_model.py` over three folders, every event and pass. The app has current memory (`honest`) or stale memory with parked folders | App with current memory: 13,016 states, every property holds. Stale memory with parked folders: 22,640 states (407,966 at three app events deep), and only "no stale resurrection" fails, the known limit; its trace is a turn in a folder whose memory predates the mirror's write. First decisions: all 1,728 three-folder stores (each value, rank 0 or 1, written at or after its activity) keep every publish invariant in one pass for picked and place units alike, and explorations from 96 of them break only the known limit. Two mutants of the rule document the design: any-change-from-the-base breaks "never undo a settled value", and newest-activity-only breaks "intent wins" |
+| Differential | `tests/unit/test_mirror_settings_stateful.py`: a Hypothesis machine drives the real `Mirror` on real files in lockstep with the model: picks, turns, stale saves, switches, passes with writes between the read and the publish, cancellations, unreadable copies | 100 random traces of up to 30 steps from random first-decision stores; after every step every file's model, `lastActivityAt` and mtime, and the settings base, equal the model's |
 | Properties | `tests/unit/test_sessions_mirror_settings.py`: random three-copy stores (model, effort, place, activity, write times, flags) | convergence to a value some copy held; idempotence; first decision = the most active copy's place and model (or the later pick); flags equal to the same store with uniform settings |
 | Examples and faults | same file | first decision, ties, later picks, a pick in a less active account, stale saves, a stale-memory turn (the known limit), a turn during the pass, a save between two writes (rollback), a crash after the write-ahead, an unreadable copy, cancellation, the switch, a dry run, the journal, diverged ids |
-| Mutation | RESULTS_MUTANTS | RESULTS_MUTANTS_KILLED |
+| Mutation | 12 hand-written mutants of `decide_setting`, `_settle_settings` and the publish: each tier removed, later picks for every unit or none, a zero settle margin, rank-only ties, no rank or setting re-check, no write-ahead, `seen` without the values read, a frozen base rank | All 12 killed: 10 by the differential test, the other 2 (later picks for places, rank-only ties) by the example tests |
 
 ## The rollout
 
 A dry run of this code against the live store, with an empty state root (so
-every session is at its first decision, as after install), at RESULTS_DRYRUN_AT:
+every session is at its first decision, as after install), at 2026-09-27 02:55Z. Another session's stopgap had by then set 2,337 stale Fable copies to opus-5-5 by hand.
 
-RESULTS_DRYRUN
+- The pass took 44 s (cold, 1,980 openable sessions) and would write settings for 333 sessions.
+  - Open sessions: 13 get a model decision, 60 a place decision and 1 an effort decision. That is 1,370, 3,725 and 114 copies rewritten.
+  - The rest are archived sessions.
+- 11 of the 13 open model decisions go to `claude-opus-5-5`. 9 of those are picks made after the session's last activity, in account `9921292e…`, which the newest-activity rule alone would have undone.
+- 2 stay Fable, because Fable is what they last ran:
+  - `344c1562…` goes from `claude-fable-5` to `claude-fable-5-1`.
+  - `f1263913…` goes to `claude-fable-5-1` over 2 copies that ran on opus-5-5 earlier.
+- For the 38 open place decisions of the first dry run (2026-09-26 05:00Z), the transcript sat under the decided `cwd` in 37. The app's own scan finds the 38th.
+- 12 decided worktree directories no longer exist. The app's worktree recovery handles that on resume, as it already does in the account whose copy is newest.
+- `ids_diverged` is 12, with "Partner" the one open session.
 
 After install:
 - **Relaunch the desktop app once the first full pass has finished.** The
