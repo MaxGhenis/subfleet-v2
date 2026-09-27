@@ -130,7 +130,7 @@ The subprocess environment forces `PYTHON_GIL=1` so the GIL-shaped cases also te
 - a stop that finishes in time exits with its own status;
 - a daemon that is never stopped is never ended.
 
-The original one-second margin cut off an ordinary faulthandler dump during round-4 testing on the heavily loaded host. The strict exit-status, frame, line-count, ordering, and elapsed-time assertions were retained. The margin was raised to three seconds, within the existing grace-plus-five-second test bound and the 40 s external backstop. This mitigates that observed failure; no finite margin guarantees complete diagnostics under arbitrary delay. The [round-4 validation report](../../.review/REPORT.md) records the results, including the [retained one-second-margin failures](../../.review/results/314-repeat3-followup.md).
+The original one-second margin cut off an ordinary faulthandler dump during round-4 testing on the heavily loaded host. The strict exit-status, frame, line-count, ordering, and elapsed-time assertions were retained. The margin was raised to three seconds, within the existing grace-plus-five-second test bound and the 40 s external backstop. This mitigates that observed failure; no finite margin guarantees complete diagnostics under arbitrary delay. The round-4 validation report and its retained one-second-margin failures are kept outside the repository, in `~/reviews/c58a-bounded-shutdown/round4/` (`REPORT.md` and `results/314-repeat3-followup.md`), beside the round-4 review (`review-verdict.md`).
 
 Further tests pin the rest:
 
