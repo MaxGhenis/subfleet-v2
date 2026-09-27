@@ -69,6 +69,14 @@ _PEM_RE = re.compile(
     r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----",
     re.DOTALL,
 )
+#: Every PEM match ends at an END marker, so `_scrub_pem` applies `_PEM_RE` only
+#: up to the last one. Past it, each opening marker would rescan the rest of the
+#: text for an END that is not there, which is quadratic (PR #26 review: 11 s for
+#: 256 KB of repeated openings). The lookahead finds every END marker, also one
+#: whose leading dashes end the marker before it (`...KEY-----END PRIVATE
+#: KEY-----`). A plain search resumes after each match and never sees that one,
+#: so the block `_PEM_RE` closes there was kept (PR #26 review round 3).
+_PEM_END_RE = re.compile(r"(?=(-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----))")
 _JWT_RE = re.compile(
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\."
     r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
@@ -90,15 +98,47 @@ _DATA_URI_RE = re.compile(
 _LONG_BASE64_RE = re.compile(
     r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{160,}={0,2})(?![A-Za-z0-9+/])"
 )
-_URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)")
-_HEADER_RE = re.compile(r"(?im)^(\s*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
+# The scheme is matched from the start of its run of scheme characters, and
+# nowhere else. Starting at every letter after `\b` instead rescanned a run such
+# as `a-a-a-...` from each one, which is quadratic; it also missed a scheme after
+# `_` (`my_postgres://`), where there is no `\b`. The run is kept verbatim.
+_URL_PASSWORD_RE = re.compile(r"(?i)(?<![a-z0-9+.-])([a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)")
+# The leading whitespace stays on its line. `^\s*` also consumed the newlines
+# after every line start, so a run of blank lines was rescanned from each one:
+# 16 KB of newlines took 2 s and 64 KB over 20 s (PR #26 review sweep). A match
+# that `^\s*` began on an earlier blank line begins on the header's own line
+# instead, and the replacement keeps what it matched, so no output changes.
+_HEADER_RE = re.compile(r"(?im)^([^\S\n]*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
+# A header's value has a space in it (`Basic <credential>`), so a plain
+# assignment would stop one word early. `_HEADER_RE` takes the rest of a line the
+# header starts. Elsewhere on a line (an exception message, a `curl -H '...'`
+# argument, a command's repr, after an escaped `\n` in a repr) the value is
+# replaced to the closing quote when a quote opens the header, and otherwise to
+# the end of the line. A value starts where `_PLAIN_ASSIGN_RE` would start one,
+# at a character other than a space, a quote, `;` or `,`, so these rules only
+# lengthen a value the assignment rules replace. A header with no value
+# (`curl -H "Authorization:" ...`, `"cookie=; Max-Age=0"`, `export COOKIE=; make`)
+# is kept verbatim: a value starting at `;` took the rest of the line (PR #26
+# review round 3).
+_HEADER_NAME = r"(?:proxy-authorization|authorization|set-cookie|cookie)"
+_QUOTED_HEADER_RE = re.compile(
+    rf"(?i)(?P<quote>['\"])(?P<prefix>{_HEADER_NAME}[^\S\r\n]*[:=][^\S\r\n]*)"
+    r"(?P<value>(?!\[REDACTED\](?:(?P=quote)|[^\S\r\n]*$))[^\s'\",;](?:(?!(?P=quote))[^\r\n])*)", re.M)
+_INLINE_HEADER_RE = re.compile(
+    rf"(?im)(?:(?<![A-Za-z0-9_'\"])|(?<=\\[nrt]))(?P<prefix>{_HEADER_NAME}[^\S\r\n]*[:=][^\S\r\n]*)"
+    r"(?P<value>(?!\[REDACTED\][^\S\r\n]*$)[^\s'\",;].*)$")
+# The key names match anywhere, so `MY_API_KEY=` is found at `API_KEY=` and the
+# text before it is kept as it was. A compound-name alternative,
+# `[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*[_-](?:api[_-]?key|token|...)`, used to
+# match from the start of such a name. Every suffix it allowed is a key name
+# here, and a match ends at the same place from either start, so it changed no
+# output. It backtracked through every identifier-shaped run, though: a
+# 6,000-character one took over a second to scrub (2026-09-22, PR #26 review).
 _SENSITIVE_KEY = (
-    r"(?:(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
+    r"(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
     r"credential|credentials|private[_-]?key|signing[_-]?key|"
     r"secret[_-]?access[_-]?key|access[_-]?key[_-]?id|access[_-]?token|"
-    r"refresh[_-]?token|client[_-]?secret|oauth[_-]?token|auth[_-]?token)|"
-    r"(?:[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*)[_-](?:api[_-]?key|token|secret|"
-    r"password|passwd|private[_-]?key|signing[_-]?key))"
+    r"refresh[_-]?token|client[_-]?secret|oauth[_-]?token|auth[_-]?token)"
 )
 _QUOTED_ASSIGN_RE = re.compile(
     rf"(?im)(?P<prefix>[\"']?{_SENSITIVE_KEY}[\"']?\s*[:=]\s*)"
@@ -151,11 +191,19 @@ class HandoffError(ValueError):
         self.fix = fix
 
 
+def _scrub_pem(text: str) -> tuple[str, int]:
+    """`_PEM_RE.subn` over the text, applied only where a match can end."""
+    end = max((marker.end(1) for marker in _PEM_END_RE.finditer(text)), default=0)
+    if not end:
+        return text, 0
+    head, count = _PEM_RE.subn("[PRIVATE KEY REDACTED]", text[:end])
+    return head + text[end:], count
+
+
 def scrub_secrets(text: str) -> tuple[str, int]:
     """Remove credential values and encoded binary; retain ordinary text."""
-    total = 0
+    text, total = _scrub_pem(text)
     for pattern, replacement in (
-        (_PEM_RE, "[PRIVATE KEY REDACTED]"),
         (_DATA_URI_RE, "[BASE64 DATA OMITTED]"),
         (_JWT_RE, REDACTED),
         (_PREFIXED_TOKEN_RE, REDACTED),
@@ -167,6 +215,11 @@ def scrub_secrets(text: str) -> tuple[str, int]:
          lambda match: (match.group("prefix") + match.group("quote")
                         + REDACTED + match.group("quote"))),
         (_PLAIN_ASSIGN_RE, lambda match: match.group("prefix") + REDACTED),
+        # Last, so they only add to what the rules above replace: run earlier, one
+        # could take a key the assignment rules needed (a value after `Token :` on
+        # the next line). A value that is already exactly `[REDACTED]` is left.
+        (_QUOTED_HEADER_RE, lambda match: match.group("quote") + match.group("prefix") + REDACTED),
+        (_INLINE_HEADER_RE, lambda match: match.group("prefix") + REDACTED),
     ):
         text, count = pattern.subn(replacement, text)
         total += count

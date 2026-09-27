@@ -7,8 +7,11 @@ the daemon's text). `subfleet status` said `running jobs: 519`, the size of the
 whole store. `daemon.log` had not gained a line since the daemon started.
 """
 
+import linecache
 import logging
 import re
+import subprocess
+import threading
 import time
 
 import pytest
@@ -263,6 +266,28 @@ def test_c6_11_status_reports_admission_and_counts_only_live_jobs(fleet):
 
 # --- a worker that raises (C-5.10) --------------------------------------------------------------
 
+#: A secret-shaped value the C-23.14 scrub list removes. Nothing here is a real credential.
+FAKE_TOKEN = "sk-ant-FAKEFAKEFAKEFAKEFAKEFAKE1234"
+CAUSE = "Traceback (most recent call last)"
+
+
+def worker_log(service) -> str:
+    service._log_handler.flush()
+    return (service.root / "daemon.log").read_text()
+
+
+def summaries(text: str, key: str) -> list[int]:
+    """The consecutive-failure count on each `worker <key> failed` line, in order."""
+    return [int(m) for m in re.findall(rf"^worker {re.escape(key)} failed: \w+ \((\d+) in a row", text, re.M)]
+
+
+def fail_repeatedly(service, key, fn, times):
+    """Offer `key` once per failure, as the control loop does once each retry time comes."""
+    for _ in range(times):
+        service._worker_retry_at[key] = 0
+        service._schedule(key, fn, paced=True)
+
+
 def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(fleet, monkeypatch):
     """C-5.10 the control loop offers a live key every 50 ms; forty SalvageError lines were one attempt."""
     service, _ = fleet
@@ -273,7 +298,7 @@ def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(
 
     def boom():
         calls.append(len(calls))
-        raise RuntimeError("secret-bearing detail that must not be logged")
+        raise RuntimeError(f"provider refused: Authorization: Bearer {FAKE_TOKEN}\napi_key={FAKE_TOKEN}")
 
     for _ in range(40):
         service._schedule("fixture/a1", boom, paced=True)
@@ -283,11 +308,214 @@ def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(
         for _ in range(10):
             service._schedule("fixture/a1", boom, paced=True)
         assert len(calls) == expected
-    service._log_handler.flush()
-    lines = [line for line in (service.root / "daemon.log").read_text().splitlines() if "fixture/a1" in line]
-    assert [line.split("(")[1].split(",")[0] for line in lines] == ["1 in a row", "2 in a row", "4 in a row"]
-    assert "secret" not in "\n".join(lines) and all("RuntimeError" in line for line in lines)
+    text = worker_log(service)
+    assert summaries(text, "fixture/a1") == [1, 2, 4]
+    lines = [line for line in text.splitlines() if line.startswith("worker fixture/a1 failed")]
+    assert all("RuntimeError (" in line for line in lines)           # the summary line keeps its shape
+    # The cause rides the first failure only: its message and traceback, the credential scrubbed.
+    assert text.count(CAUSE) == 1 and "RuntimeError: provider refused" in text and "in boom" in text
+    assert FAKE_TOKEN not in text and "[REDACTED]" in text
     assert service._worker_failures["fixture/a1"] == 5 and "fixture/a1" not in service._busy
+
+
+def test_c5_10_the_cause_is_logged_on_the_first_failure_of_a_streak_and_every_32nd_after(fleet, monkeypatch):
+    """C-5.10 incident 2026-09-22: `worker admission failed: ValueError (128 in a row, ...)` for three hours,
+    and the message that named the cause appeared nowhere. Its message now reaches `daemon.log`,
+    on the 1st, 33rd, 65th ... failure, and not on every retry."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    monkeypatch.setattr(daemon_module, "worker_retry_delay", lambda failures: 3600.0)
+    incident = "pinned_lane: ambiguous lane 'max@example.org'; use a lane id"
+
+    def stalled_pass(holds, tally):
+        raise ValueError(incident)
+
+    monkeypatch.setattr(service, "_admit_pass", stalled_pass)
+    fail_repeatedly(service, "admission", service._admit, 70)
+    text = worker_log(service)
+    assert summaries(text, "admission") == [1, 2, 4, 8, 16, 32, 33, 64, 65]
+    records = re.split(r"^(?=worker admission failed)", text, flags=re.M)
+    with_cause = [int(re.search(r"\((\d+) in a row", r).group(1)) for r in records if CAUSE in r]
+    assert with_cause == [1, 33, 65]
+    assert text.count(f"ValueError: {incident}") == 3 and "in stalled_pass" in text
+    assert service._worker_failures["admission"] == 70
+
+
+def test_c5_10_a_success_starts_a_new_streak_that_logs_its_cause_again(fleet, monkeypatch):
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    monkeypatch.setattr(daemon_module, "worker_retry_delay", lambda failures: 3600.0)
+    state = {"fail": True}
+
+    def flaky():
+        if state["fail"]:
+            raise OSError("the store is locked")
+
+    fail_repeatedly(service, "fixture/a3", flaky, 3)
+    state["fail"] = False
+    fail_repeatedly(service, "fixture/a3", flaky, 1)
+    state["fail"] = True
+    fail_repeatedly(service, "fixture/a3", flaky, 2)
+    text = worker_log(service)
+    assert summaries(text, "fixture/a3") == [1, 2, 1, 2]
+    assert text.count(CAUSE) == 2 and text.count("OSError: the store is locked") == 2
+
+
+def test_c5_10_a_cause_that_cannot_be_rendered_is_logged_as_its_type(fleet, monkeypatch):
+    """The done callback must never raise: it releases the key in `finally`, and a lost key never runs again."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    monkeypatch.setattr(daemon_module.traceback, "format_exception",
+                        lambda exc: (_ for _ in ()).throw(RuntimeError("formatter broke")))
+
+    def boom():
+        raise KeyError("lane")
+
+    fail_repeatedly(service, "fixture/a4", boom, 1)
+    text = worker_log(service)
+    assert summaries(text, "fixture/a4") == [1]
+    assert "KeyError (cause could not be rendered)" in text and "fixture/a4" not in service._busy
+
+
+def test_c5_10_a_long_cause_is_bounded(fleet, monkeypatch):
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+
+    def boom():
+        raise ValueError("a lane row " * 5_000 + "end of message")      # words: no scrub pattern takes it
+
+    fail_repeatedly(service, "fixture/a5", boom, 1)
+    record = worker_log(service).split("worker fixture/a5 failed", 1)[1]
+    assert len(record) < daemon_module.WORKER_CAUSE_MAX_CHARS + 200
+    assert CAUSE in record and "end of message" in record and "characters omitted" in record
+
+
+#: A credential with no shape of its own: only the name before it marks it. Not a real one.
+PLAIN_CREDENTIAL = "q7Wd9Zk2Lp4Xv8Nm3Rt6Yh1Bs5Gc0Jf"
+
+
+def windows(secret: str, width: int = 8) -> list[str]:
+    return [secret[i:i + width] for i in range(len(secret) - width + 1)]
+
+
+def chained() -> Exception:
+    try:
+        try:
+            raise OSError(f"proxy said Authorization: Basic {PLAIN_CREDENTIAL}")
+        except OSError as inner:
+            raise RuntimeError("the provider call failed") from inner
+    except RuntimeError as outer:
+        return outer
+
+
+def grouped() -> Exception:
+    group = ExceptionGroup("two lanes failed", [ValueError("first"), KeyError("second")])
+    group.add_note(f"retry with Authorization: Token {PLAIN_CREDENTIAL}")
+    return group
+
+
+@pytest.mark.parametrize("make", [
+    lambda: RuntimeError(f"refused: Authorization: Basic {PLAIN_CREDENTIAL}"),
+    chained,
+    grouped,
+    lambda: subprocess.CalledProcessError(
+        22, ["curl", "-fsS", "-H", f"Authorization: Basic {PLAIN_CREDENTIAL}", "https://x.test"]),
+    lambda: OSError(f"git fetch https://max:{PLAIN_CREDENTIAL}@github.test/r.git: timed out"),
+    lambda: ValueError(f"lane config {{'client_secret': '{PLAIN_CREDENTIAL}', 'lane': 'codex-2'}}"),
+    lambda: ValueError(f"AUTHORIZATION={PLAIN_CREDENTIAL} COOKIE=session={PLAIN_CREDENTIAL}"),
+    lambda: KeyError(f"response headers\nAuthorization: Basic {PLAIN_CREDENTIAL}"),
+    lambda: subprocess.CalledProcessError(
+        22, ["curl", "-H", f"X-Request-ID: 7\nAuthorization: Basic {PLAIN_CREDENTIAL}", "https://x.test"]),
+], ids=["header-mid-line", "chained-cause", "group-note", "subprocess-command", "url-password",
+        "dict-repr", "env-style", "escaped-newline-repr", "escaped-newline-command"])
+def test_c5_10_a_credential_in_the_cause_never_reaches_the_log(fleet, make):
+    """C-5.10 review of PR #26: the scrub list matched a header only at the start of a line, and a
+    traceback puts `RuntimeError: ` (or a group's margin, or a command repr) in front of it."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    exc = make()
+
+    def boom():
+        raise exc
+
+    fail_repeatedly(service, "fixture/a6", boom, 1)
+    text = worker_log(service)
+    assert CAUSE in text and type(exc).__name__ in text
+    assert not [w for w in windows(PLAIN_CREDENTIAL) if w in text], text
+
+
+def test_c5_10_the_cause_is_scrubbed_before_it_is_cut():
+    """C-5.10 review of PR #26: cut first, and the cut at the start of the kept tail can split a
+    credential from its name, which leaves the rest of it bare. Scrubbed first, every copy is
+    replaced whole. The padding moves the cut through every part of the repeated assignment."""
+    credential = PLAIN_CREDENTIAL + PLAIN_CREDENTIAL[::-1]                 # 64 characters, no shape
+    unit = f"api_key={credential} "
+    for pad in range(0, len(unit), 4):
+        body = "p" * pad + unit * 700
+        assert daemon_module.WORKER_CAUSE_MAX_CHARS < len(body) < daemon_module.WORKER_CAUSE_SCRUB_MAX_CHARS
+        try:
+            raise ValueError(body)
+        except ValueError as exc:
+            cause = daemon_module.worker_failure_cause(exc)
+        assert "characters omitted" in cause and "api_key=[REDACTED]" in cause
+        assert not [w for w in windows(credential) if w in cause], pad
+
+
+@pytest.mark.parametrize("unit", ["x_", "a-", "a", "eyJa."])
+def test_c5_10_scrubbing_a_long_identifier_run_takes_milliseconds(unit):
+    """C-5.10 review of PR #26: `ValueError("x_" * 3000)` took 4.5 s to scrub on the worker's completion
+    path, and the time grew with the square of the length. Under the bound it is now linear."""
+    message = unit * ((daemon_module.WORKER_CAUSE_SCRUB_MAX_CHARS - 2000) // len(unit))
+    try:
+        raise ValueError(message)                                    # raised, so it has frames
+    except ValueError as exc:
+        error = exc
+    started = time.perf_counter()
+    cause = daemon_module.worker_failure_cause(error)
+    assert time.perf_counter() - started < 2.0                      # quadratic took minutes at this size
+    assert cause.startswith(CAUSE) and len(cause) <= daemon_module.WORKER_CAUSE_MAX_CHARS
+
+
+def test_c5_10_a_cause_over_the_scrub_bound_keeps_its_frames_and_omits_its_message(fleet):
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    message = "salvage stderr: " + "fatal: unable to read tree " * 5000 + f"password={PLAIN_CREDENTIAL}"
+
+    def recurse(depth):
+        if depth:
+            return recurse(depth - 1)
+        raise OSError(message)
+
+    fail_repeatedly(service, "fixture/a8", lambda: recurse(60), 1)
+    text = worker_log(service)
+    assert summaries(text, "fixture/a8") == [1]
+    assert "OSError: message omitted: the cause is" in text and "scrub bound" in text
+    assert "in recurse" in text and "frames omitted" in text          # 40 of the 60+ frames, and the gap said
+    assert "unable to read tree" not in text and PLAIN_CREDENTIAL not in text
+    assert "return recurse(depth - 1)" not in text                    # where, not what: no source lines
+
+
+def test_c5_10_a_huge_source_line_is_reduced_to_where_it_was_raised(fleet):
+    """C-5.10 review round 2 of PR #26: the reduced cause kept its frames' source lines and scrubbed them
+    whatever their size (23 s for a 256 KB generated line), and cutting frames before the scrub could
+    drop a private key's opening marker and keep its body. It now keeps file, line and function only."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+    filename = "<generated worker source>"
+    source = ("def boom():\n    raise ValueError('oversized source')  # "
+              + "-----BEGIN PRIVATE KEY-----" * 3000 + f" {PLAIN_CREDENTIAL}\n")
+    linecache.cache[filename] = (len(source), None, source.splitlines(True), filename)
+    try:
+        namespace = {}
+        exec(compile(source, filename, "exec"), namespace)
+        started = time.perf_counter()
+        fail_repeatedly(service, "fixture/a9", namespace["boom"], 1)
+        assert time.perf_counter() - started < 2.0
+    finally:
+        linecache.cache.pop(filename, None)
+    text = worker_log(service)
+    assert f'File "{filename}", line 2, in boom' in text and "message omitted" in text
+    assert "PRIVATE KEY" not in text and PLAIN_CREDENTIAL not in text
 
 
 @pytest.mark.parametrize("failures,expected", [(1, .5), (2, 1), (3, 2), (4, 4), (7, 32), (8, 60), (500, 60), (0, .5)])
@@ -331,6 +559,185 @@ def test_c5_10_a_one_shot_request_is_never_held_back(fleet):
         service._schedule("resolve:fixture", resolve)                # as `kill` calls it: not paced
     assert calls == [0, 1]                                           # the retry ran at once
     assert "resolve:fixture" not in service._worker_retry_at
+    text = worker_log(service)                                       # its failure logs its cause
+    assert "worker resolve:fixture failed: RuntimeError\n" + CAUSE in text
+    assert "RuntimeError: the first resolution fails" in text
+
+
+def test_c5_10_every_failure_of_a_one_shot_request_logs_its_cause(fleet):
+    """C-5.10 review of PR #26: nothing paces a one-shot key, so no failure of it is a retry."""
+    service, _ = fleet
+    service.workers = Inline(service.workers)
+
+    def resolve():
+        raise RuntimeError("the operator's resolution fails")
+
+    for _ in range(3):
+        service._schedule("resolve:fixture2", resolve)
+    text = worker_log(service)
+    assert text.count("worker resolve:fixture2 failed: RuntimeError\n" + CAUSE) == 3
+    assert text.count("RuntimeError: the operator's resolution fails") == 3
+    assert "resolve:fixture2" not in service._worker_failures
+
+
+# --- the control loop and requests (C-5.10) -----------------------------------------------------
+#
+# Folded in from `fix/worker-failure-tracebacks`, which found that `control iteration failed` and
+# `request <op> failed` named only a type too.
+
+def resolve_pin(detail):
+    raise ValueError(f"pinned_lane: ambiguous lane {detail!r}")
+
+
+def evaluate_job(detail):
+    resolve_pin(detail)
+
+
+def refresh_readings(detail):
+    raise ValueError(f"reading refused for {detail}")
+
+
+def records(text: str, prefix: str) -> list[str]:
+    """Each `daemon.log` record that starts with `prefix`, with the cause lines that follow it."""
+    return [record for record in re.split(rf"^(?={re.escape(prefix)})", text, flags=re.M)
+            if record.startswith(prefix)]
+
+
+def test_c5_10_a_control_iteration_logs_its_cause_once_per_place_until_one_completes(fleet, monkeypatch):
+    """C-5.10: the control loop logs `control iteration failed: <type>` on each failed tick, twenty a
+    second, and never said why. The cause now rides the first failure at each place it was raised,
+    again after an iteration completes, and never with a credential."""
+    service, _ = fleet
+    plan = ["pin", "pin", "pin", "ok", "pin", "readings", "pin"]
+    step = {"n": 0}
+
+    def query(sql, *args, **kwargs):
+        if plan[step["n"]] == "pin":
+            evaluate_job(FAKE_TOKEN)
+        if plan[step["n"]] == "readings":
+            refresh_readings(FAKE_TOKEN)
+        return []
+
+    def wait(timeout=None):
+        step["n"] += 1
+        if step["n"] == len(plan):
+            service.stopping.set()
+        return service.stopping.is_set()
+
+    monkeypatch.setattr(service.store, "query", query)
+    monkeypatch.setattr(service, "_schedule", lambda *args, **kwargs: None)
+    monkeypatch.setattr(service.stopping, "wait", wait)
+    service._control()
+    found = records(worker_log(service), "control iteration failed")
+    assert [record.splitlines()[0] for record in found] == ["control iteration failed: ValueError"] * 6
+    assert [CAUSE in record for record in found] == [True, False, False, True, True, False]
+    assert "ValueError: pinned_lane: ambiguous lane" in found[0] and "in resolve_pin" in found[0]
+    assert "ValueError: reading refused" in found[4] and "in refresh_readings" in found[4]
+    assert FAKE_TOKEN not in worker_log(service) and "[REDACTED]" in found[0]
+
+
+class Connection:
+    def __init__(self):
+        self.sent = b""
+
+    def sendall(self, data):
+        self.sent += data
+
+
+def read_view(detail):
+    raise RuntimeError(f"view unreadable: api_key={detail}")
+
+
+def write_snapshot(detail):
+    raise RuntimeError(f"snapshot unwritable: api_key={detail}")
+
+
+def test_c5_10_a_failed_request_logs_its_cause_once_per_operation_and_place(fleet, monkeypatch):
+    """C-5.10: `request <op> failed: <type>` said nothing more. A caller that polls a failing
+    operation adds a line per request and one cause in all, and the caller never sees the cause."""
+    service, _ = fleet
+
+    # ValueError, TypeError and KeyError are the caller's (`invalid arguments`); anything else is the daemon's.
+    calls = [("fixture.status", read_view), ("fixture.status", read_view), ("fixture.why", read_view),
+             ("fixture.status", write_snapshot), ("fixture.status", read_view)]
+    places = iter(place for _op, place in calls)
+    monkeypatch.setattr(service, "dispatch", lambda op, args: next(places)(FAKE_TOKEN))
+    for op, _place in calls:
+        conn = Connection()
+        service._respond(conn, threading.Lock(), protocol.Request(op=op, id="1"))
+        assert b"operation failed; inspect daemon status" in conn.sent and b"unreadable" not in conn.sent
+    found = records(worker_log(service), "request fixture.")
+    assert [record.splitlines()[0] for record in found] == [
+        f"request {op} failed: RuntimeError" for op, _place in calls]
+    assert [CAUSE in record for record in found] == [True, False, True, True, False]
+    assert "in write_snapshot" in found[3] and "in read_view" not in found[3]
+    assert "RuntimeError: view unreadable: api_key=[REDACTED]" in found[0]
+    assert FAKE_TOKEN not in worker_log(service)
+
+
+def raised(fn, *args) -> BaseException:
+    try:
+        fn(*args)
+    except BaseException as exc:            # noqa: BLE001  (the fixture is the exception)
+        return exc
+    raise AssertionError("fixture did not raise")
+
+
+def test_c5_10_a_signature_is_where_an_exception_was_raised_and_not_what_it_said():
+    first, second = raised(evaluate_job, "one message"), raised(evaluate_job, "another message")
+    assert daemon_module.raise_signature(first) == daemon_module.raise_signature(second)
+    assert daemon_module.raise_signature(first) != daemon_module.raise_signature(raised(refresh_readings, "x"))
+    assert "one message" not in repr(daemon_module.raise_signature(first))
+
+
+def test_c5_10_a_signature_covers_the_chain_and_ends_on_a_cycle():
+    def wrapped(inner):
+        try:
+            inner("x")
+        except ValueError as exc:
+            raise RuntimeError("wrapped") from exc
+
+    pin, readings = raised(wrapped, evaluate_job), raised(wrapped, refresh_readings)
+    assert daemon_module.raise_signature(pin) != daemon_module.raise_signature(readings)
+    assert [link[0] for link in daemon_module.raise_signature(pin)] == ["RuntimeError", "ValueError"]
+    looped = ValueError("loop")
+    looped.__context__ = RuntimeError("back")
+    looped.__context__.__context__ = looped
+    assert daemon_module.raise_signature(looped) == (("ValueError", ()), ("RuntimeError", ()))
+
+
+def test_c5_10_a_cause_that_cannot_be_read_still_leaves_the_control_loop_running(fleet, monkeypatch):
+    """The cause is rendered in the control loop's handler; a raise there would end the control thread."""
+    service, _ = fleet
+    steps = {"n": 0}
+
+    def unreadable(*args, **kwargs):
+        raise OSError("source unavailable")
+
+    def query(sql, *args, **kwargs):
+        evaluate_job(FAKE_TOKEN)
+
+    def wait(timeout=None):
+        steps["n"] += 1
+        if steps["n"] == 3:
+            service.stopping.set()
+        return service.stopping.is_set()
+
+    monkeypatch.setattr(daemon_module.traceback, "walk_tb", unreadable)
+    monkeypatch.setattr(daemon_module.traceback, "format_exception", unreadable)
+    monkeypatch.setattr(service.store, "query", query)
+    monkeypatch.setattr(service.stopping, "wait", wait)
+    service._control()                                               # returns only because stopping was set
+    found = records(worker_log(service), "control iteration failed")
+    assert len(found) == 3 and "ValueError (cause could not be rendered)" in found[0]
+    assert FAKE_TOKEN not in worker_log(service)
+
+
+def test_c5_10_the_causes_remembered_are_bounded():
+    traced: set[tuple] = set()
+    assert all(daemon_module.Daemon._first_trace(traced, (n,)) for n in range(daemon_module.TRACED_CAUSES_MAX))
+    assert not daemon_module.Daemon._first_trace(traced, (0,))
+    assert daemon_module.Daemon._first_trace(traced, ("one more",)) and traced == {("one more",)}
 
 
 # --- what another thread reads (C-6.11) ---------------------------------------------------------

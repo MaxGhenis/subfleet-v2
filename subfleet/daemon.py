@@ -23,6 +23,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import weakref
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
@@ -44,6 +45,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .policy import PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
+from .sessions.handoff import scrub_secrets, truncate
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
@@ -152,6 +154,89 @@ def worker_retry_delay(failures: int) -> float:
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
 
 
+#: C-5.10: a paced worker's failure streak logs its cause on the 1st failure and
+#: every 32nd after (the 33rd, the 65th, ...), and only its type on the others.
+WORKER_CAUSE_EVERY = 32
+#: C-5.10: the most of one cause that reaches `daemon.log`, its head and tail kept.
+WORKER_CAUSE_MAX_CHARS = 8000
+#: C-5.10: the longest cause scrubbed on a worker's completion path (tens of ms).
+#: A longer one is reduced to where it was raised: cutting it to fit would have
+#: to happen before the scrub, and a cut can separate a credential from the name
+#: that marks it.
+WORKER_CAUSE_SCRUB_MAX_CHARS = 65_536
+#: C-5.10: frames kept from each end of a cause reduced to where it was raised.
+WORKER_CAUSE_FRAMES = 20
+
+
+def worker_failure_cause(exc: BaseException) -> str:
+    """C-5.10: an exception's message and traceback for `daemon.log`, credentials scrubbed.
+
+    On 2026-09-22 admission failed for three hours and `daemon.log` said only
+    `worker admission failed: ValueError (128 in a row, ...)`; the message that
+    named the cause (`pinned_lane: ambiguous lane ...`) was nowhere. A traceback
+    carries source lines and never local values, but a provider or keychain
+    error can put a credential in its message, so the text goes through the
+    handoff scrub list (C-23.14) and is bounded. A cause too long to scrub on
+    the completion path is reduced to where it was raised. Formatting never
+    raises: a cause that cannot be rendered is logged as its type.
+    """
+    try:
+        text = "".join(traceback.format_exception(exc))
+        if len(text) > WORKER_CAUSE_SCRUB_MAX_CHARS:
+            text = worker_failure_location(exc, len(text))
+        return truncate(scrub_secrets(text)[0], WORKER_CAUSE_MAX_CHARS)
+    except Exception:
+        try:
+            return f"{type(exc).__name__} (cause could not be rendered)"
+        except Exception:
+            return "exception (cause could not be rendered)"
+
+
+def worker_failure_location(exc: BaseException, size: int) -> str:
+    """C-5.10: where a cause too long to scrub was raised, and nothing it said.
+
+    File, line and function of the outermost exception's frames, up to
+    WORKER_CAUSE_FRAMES from each end: no source line, message, note or chained
+    exception, so there is nothing to scrub and nothing a cut could split.
+    """
+    frames = traceback.extract_tb(exc.__traceback__)
+    keep = WORKER_CAUSE_FRAMES
+    shown = frames if len(frames) <= 2 * keep else [*frames[:keep], None, *frames[-keep:]]
+    lines = [f"  ... {len(frames) - 2 * keep} frames omitted ..." if frame is None else
+             f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}'[:400] for frame in shown]
+    return ("Traceback (most recent call last), source lines omitted:\n" + "\n".join(lines)
+            + f"\n{type(exc).__name__}: message omitted: the cause is {size:,} characters, "
+            f"over the {WORKER_CAUSE_SCRUB_MAX_CHARS:,}-character scrub bound")
+
+
+#: C-5.10: the most distinct causes a control-iteration streak, or the daemon's
+#: requests, remember having logged. Past it they start again.
+TRACED_CAUSES_MAX = 256
+
+
+def raise_signature(exc: BaseException) -> tuple:
+    """C-5.10: where `exc` was raised, whatever its message said.
+
+    The type and the file, line and function of every frame, for the exception
+    and each one in its chain. Two failures with the same signature came from the
+    same code path, so the control loop and the request handler log a cause once
+    per signature and not on every repeat. Reads no source file, and never raises:
+    it runs in the control loop's handler, which a raise would leave.
+    """
+    try:
+        links, seen, link = [], set(), exc
+        while link is not None and id(link) not in seen:
+            seen.add(id(link))
+            frames = tuple((frame.f_code.co_filename, lineno, frame.f_code.co_name)
+                           for frame, lineno in traceback.walk_tb(link.__traceback__))
+            links.append((type(link).__qualname__, frames))
+            link = (link.__cause__ if link.__cause__ is not None
+                    else None if link.__suppress_context__ else link.__context__)
+        return tuple(links)
+    except Exception:
+        return ((type(exc).__qualname__, ()),)
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -217,6 +302,12 @@ class Daemon:
         # C-5.10: worker key -> consecutive failures, and the earliest next try.
         self._worker_failures: dict[str, int] = {}
         self._worker_retry_at: dict[str, float] = {}
+        # C-5.10: the `raise_signature`s whose cause `daemon.log` already has, for
+        # control iterations since the last one that completed, and for failed
+        # requests, each with its operation, since the daemon started.
+        self._control_traced: set[tuple] = set()
+        self._request_traced: set[tuple] = set()
+        self._request_traced_lock = threading.Lock()
         self._last_maintenance = time.monotonic()
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
@@ -1755,10 +1846,13 @@ class Daemon:
                     self._worker_failures.pop(key, None)
                     self._worker_retry_at.pop(key, None)
             except Exception as exc:
-                # Provider/keychain errors can contain secrets; log the error
-                # type only. Safe details belong in structured outcome rows.
+                # C-5.10: every line names the error type. The cause, the message
+                # and traceback with credentials scrubbed, goes with the first
+                # failure of a streak and every 32nd after, never with every retry.
+                # A one-shot request's failure is each the first of its streak.
                 if not paced:
-                    self.log.error("worker %s failed: %s", key, type(exc).__name__)
+                    self.log.error("worker %s failed: %s\n%s", key, type(exc).__name__,
+                                   worker_failure_cause(exc))
                     return
                 # C-5.10: the control loop offers every live key again each tick,
                 # so a worker that raises at once would otherwise be retried, and
@@ -1769,9 +1863,11 @@ class Daemon:
                     self._worker_retry_at[key] = time.monotonic() + delay
                 if key == "retention":
                     self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))
-                if count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
-                    self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
-                                   key, type(exc).__name__, count, delay)
+                cause = count % WORKER_CAUSE_EVERY == 1          # 1, 33, 65, ...
+                if cause or count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
+                    self.log.error("worker %s failed: %s (%d in a row, next try in %g s)%s",
+                                   key, type(exc).__name__, count, delay,
+                                   "\n" + worker_failure_cause(exc) if cause else "")
             finally:
                 with self._busy_lock:
                     self._busy.discard(key)
@@ -1798,9 +1894,25 @@ class Daemon:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
                 if time.monotonic() - self._last_maintenance >= 3600:
                     self._schedule("retention", self._retention, paced=True)
+                self._control_traced.clear()
             except Exception as exc:
-                self.log.error("control iteration failed: %s", type(exc).__name__)
+                # C-5.10: the type on every failed iteration, and the cause, scrubbed,
+                # once for each place one was raised until an iteration completes. The
+                # loop runs every tick, so a cause on each failure would be twenty a second.
+                self.log.error("control iteration failed: %s%s", type(exc).__name__,
+                               "\n" + worker_failure_cause(exc)
+                               if self._first_trace(self._control_traced, raise_signature(exc)) else "")
             self.stopping.wait(self.tick_s)
+
+    @staticmethod
+    def _first_trace(traced: set[tuple], signature: tuple) -> bool:
+        """C-5.10: record `signature` in `traced`; True if it was not there yet."""
+        if signature in traced:
+            return False
+        if len(traced) >= TRACED_CAUSES_MAX:
+            traced.clear()
+        traced.add(signature)
+        return True
 
     def _timer_notice(self, notice: dict) -> bool:
         result = self.dispatch("ping", {"session_id": self.policy.get("alerts", {}).get("operator_session"),
@@ -3426,7 +3538,13 @@ class Daemon:
         except (ValueError, TypeError, KeyError) as exc:
             response = protocol.fail(req.id, 2, f"invalid arguments: {exc}")
         except Exception as exc:
-            self.log.error("request %s failed: %s", req.op, type(exc).__name__)
+            # C-5.10: the cause, scrubbed, once per operation and place it was raised
+            # while the daemon runs. A caller that polls a failing operation adds a
+            # line per request, not a traceback per request.
+            with self._request_traced_lock:
+                first = self._first_trace(self._request_traced, (req.op, raise_signature(exc)))
+            self.log.error("request %s failed: %s%s", req.op, type(exc).__name__,
+                           "\n" + worker_failure_cause(exc) if first else "")
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         try:
             with write_lock:
