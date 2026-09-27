@@ -826,6 +826,34 @@ def test_c4_2_start_grace_takes_an_exit_receipt_that_landed_alone_during_its_cen
     assert "attempt.no_launch" not in kinds and "attempt.quarantined" not in kinds
 
 
+@pytest.mark.parametrize(("name", "contents"), [("exit.json", "{\"rc\": 0"), ("start.json", "not json"),
+                                                 ("exit.json", "[0]"), ("start.json", "\"x\""),
+                                                 ("start.json", "{\"guardian_pid\": 4242}")],
+                         ids=["exit-not-json", "start-not-json", "exit-a-list", "start-a-string",
+                              "start-missing-fields"])
+def test_c4_2_a_corrupt_receipt_raises_decides_nothing_and_holds_back_a_kill(daemon, monkeypatch, name, contents):
+    """C-4.2 a receipt that is not JSON, holds a value that is not an object, or (`start.json`) lacks a field makes
+    a `starting` attempt's pass raise, which C-5.10 retries with backoff, and decides nothing; the cancel and
+    `max_wall_s` checks come after the receipts, so a `kill` is recorded but not acted on while it lasts.
+
+    Review of PR #37's port, 2026-09-27 (L3): C-4.2's row said such a receipt raised "on every tick", named no
+    file that is not JSON, and did not say that the pass stops there. The order is main's; reading the cancel
+    request before the receipts would be a change to the row, and to this test."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    with daemon.store.transaction("job.cancel_requested", job_id=JOB) as tx:
+        tx.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=?", ("2026-09-05T14:00:30Z", JOB))
+    atomic_publish(attempt_dir(daemon.root, JOB, 1) / name, contents.encode())
+    daemon._contain = never_census
+    daemon._kill_attempt = lambda *args, **kwargs: pytest.fail("the kill was reached")
+    before = len(daemon.store.list_events(JOB))
+    for _ in range(3):
+        with pytest.raises((ValueError, TypeError, KeyError, AttributeError)):
+            daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "starting"
+    assert len(daemon.store.list_events(JOB)) == before
+
+
 @pytest.mark.parametrize("census", [EMPTY, GUARDIAN_ONLY], ids=["empty", "guardian-alive"])
 @pytest.mark.parametrize("empty", ["{}", "[]", "null", "0", "false", '""'])
 def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monkeypatch, census, empty):
