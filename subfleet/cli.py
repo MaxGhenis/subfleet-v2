@@ -50,7 +50,8 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import REQUEST_ID_MAX, JobState, Sandbox, WAIT_POLL_MAX_S, Exit
+from .contracts import (REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState, Sandbox,
+                        WAIT_POLL_MAX_S, Exit)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
@@ -2068,14 +2069,50 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
     note(f"{PROG} daemon: SIGTERM sent to pid {pid}")
     # Wait on the identity we signalled, not on daemon.lock: a daemon that
     # cleans up removes the lock, and a missing lock is not evidence of an exit.
-    deadline = time.monotonic() + 15.0
+    # C-5.8a: a daemon whose stop cannot drain ends itself STOP_GRACE_S after it
+    # handles the signal, so wait past that before deciding it never will.
+    if _wait_for_exit(pid, info, DAEMON_STOP_WAIT_S):
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    # Still the process we signalled, so its own bound did not end it: it never
+    # armed (a thread held the GIL through the signal), it could not run, or the
+    # daemon predates C-5.8a. End it as launchd's ExitTimeOut would, after
+    # checking the identity again (C-5.4).
+    alive = same_process(pid, info.get("boot_id"), info.get("proc_start"))
+    if alive is False:
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    if alive is None:
+        return fail(Exit.OPERATIONAL,
+                    f"daemon stop: pid {pid} is still running {DAEMON_STOP_WAIT_S:g}s after "
+                    f"SIGTERM and its identity can no longer be verified (C-5.3); not killing it")
+    try:
+        os.kill(pid, _signal.SIGKILL)
+    except OSError as exc:
+        return fail(Exit.OPERATIONAL, f"daemon stop: SIGKILL to {pid} failed: {exc}")
+    note(f"{PROG} daemon: pid {pid} was still running {DAEMON_STOP_WAIT_S:g}s after SIGTERM; "
+         f"its own stop bound (C-5.8a) did not end it, so sent SIGKILL")
+    if _wait_for_exit(pid, info, DAEMON_KILL_WAIT_S):
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    note(f"{PROG} daemon: pid {pid} has not exited even after SIGKILL")
+    return int(Exit.OPERATIONAL)
+
+
+#: C-5.8a: how long `daemon stop` waits for a daemon to end itself, and then for
+#: the SIGKILL it sends when it has not.
+DAEMON_STOP_WAIT_S = STOP_GRACE_S + STOP_BACKSTOP_S
+DAEMON_KILL_WAIT_S = 5.0
+
+
+def _wait_for_exit(pid: int, info: dict, seconds: float) -> bool:
+    """True once the recorded identity is gone (C-5.3), False after `seconds`."""
+    deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if same_process(pid, info.get("boot_id"), info.get("proc_start")) is False:
-            note(f"{PROG} daemon: stopped")
-            return int(Exit.OK)
+            return True
         time.sleep(0.1)
-    note(f"{PROG} daemon: pid {pid} has not exited after 15s")
-    return int(Exit.OPERATIONAL)
+    return False
 
 
 def cmd_daemon_status(args: argparse.Namespace) -> int:
@@ -2153,6 +2190,9 @@ def _plist(root: Path) -> bytes:
         "StandardErrorPath": str(root / LOG_NAME),
         # Dispatch serves user requests, so use standard service resource limits.
         "ProcessType": "Standard",
+        # C-5.8a: with none set, `launchctl print` reports an exit timeout of
+        # 5 s, which SIGKILLs a stop before the daemon's bound can dump.
+        "ExitTimeOut": int(STOP_GRACE_S + STOP_BACKSTOP_S),
     }, sort_keys=True)
 
 

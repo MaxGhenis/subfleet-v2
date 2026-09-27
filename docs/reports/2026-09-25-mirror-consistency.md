@@ -34,8 +34,10 @@ The cancellations had one cause: the daemon was crashing, not the mirror.
   (the stopgap below ran from 19:41:58Z to 19:59:25Z).
 - **The fixes are elsewhere.** The EMFILE crash is fixed in PR #43, which
   raises the soft limit to 65536, caps connections and waits out a failed
-  accept. The shutdown wedge is PR #40's area. Neither has merged: GitHub
-  Actions billing blocks CI (`d193`).
+  accept. The shutdown wedge is bounded by C-5.8a
+  (`2026-09-25-daemon-stop-wedge.md`; PR #40 paces inspection and does not
+  bound `close()`). Neither has merged: GitHub Actions billing blocks CI
+  (`d193`).
 
 The mirror holds no descriptors in the session store (0 of the wedged
 process's 109), so it did not contribute to the exhaustion.

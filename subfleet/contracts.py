@@ -213,6 +213,18 @@ TERM_GRACE_S = 15
 # census; neither widens what counts as contained.
 KILL_SETTLE_S = 3
 EXIT_SETTLE_S = 3
+# C-5.8a: a stopping daemon that has not ended this long after its stop was armed
+# dumps its threads' stacks and ends. Longer than probe containment during a stop
+# (SIGTERM, up to TERM_GRACE_S of census polling, then SIGKILL and one census),
+# so that finishes first.
+STOP_GRACE_S = 30
+# C-5.8a: leave faulthandler time to dump before the kernel's SIGALRM ends a
+# process whose dump timer failed, was cancelled, or is still dumping.
+STOP_DUMP_MARGIN_S = 3.0
+# C-5.8a: how much longer launchd (the plist's ExitTimeOut) and `subfleet daemon
+# stop` wait before SIGKILL: time for the dump, and the backstop for a stop that
+# could not arm because a thread held the GIL through the signal.
+STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
