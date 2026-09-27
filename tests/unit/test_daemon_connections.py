@@ -506,6 +506,7 @@ def test_c16_7_busy_retries_stay_in_the_first_half_of_the_deadline(monkeypatch):
             assert started_at <= deadline / 2 + 1e-9, (case, deadline, tries)
             assert timeout >= deadline / 2 - 1e-9 and stated == deadline, (case, tries)
             assert timeout > 0, (case, tries)               # a socket timeout must be positive
+            assert started_at + timeout <= deadline + 1e-9, (case, tries)   # and ends by the deadline
         monkeypatch.undo()
 
 
@@ -645,8 +646,10 @@ def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(s
         send(sock, "daemon.status")
     until(lambda: service.requests._work_queue.qsize() == 3)
     # The reads are still queued when close() shuts the sockets down; the blocker
-    # is released only after that, so close()'s pool shutdown can finish.
-    threading.Timer(1.0, release.set).start()
+    # is released only once close() is shutting the request pool down (so none
+    # of them can reach a thread first), which lets that shutdown finish.
+    threading.Thread(target=lambda: (until(lambda: service.requests._shutdown, timeout=10),
+                                     release.set()), daemon=True).start()
     service.stopping.set()
     until(lambda: service._closed, timeout=10)
     assert counts(service)["abandoned"] == 0
@@ -679,3 +682,167 @@ def test_c16_7_a_stream_ended_after_a_broken_error_reply_carries_nothing_more(se
     sock.close()
     assert b'"slow"' not in data                            # nothing followed the broken line
     assert counts(service)["abandoned"] == 0                # our own shutdown is not a departure
+
+
+# --- final review of #43 at daca842e ------------------------------------------
+
+def test_c16_7_a_refused_connect_after_busy_reports_busy_not_an_absent_daemon(monkeypatch):
+    """C-16.7 a full listen backlog behind a busy daemon is not an absent daemon:
+    reported as busy, so no caller falls back to offline mode (an offline kill)."""
+    from subfleet import client as client_module
+    from subfleet.client import DaemonUnavailable
+    tries = []
+
+    def once(self, op, args, *, request_id, timeout, stated):
+        tries.append(op)
+        if len(tries) == 1:
+            raise DaemonError(69, "the daemon is busy: it holds 512 client connections, its limit",
+                              "try again shortly")
+        raise DaemonUnavailable("no daemon at daemon.sock: [Errno 61] Connection refused")
+    monkeypatch.setattr(Client, "_call_once", once)
+    monkeypatch.setattr(client_module, "_sleep", lambda s: None)
+    with pytest.raises(DaemonError) as caught:
+        Client("/nonexistent", timeout=5).call("kill", {"job_id": "j"})
+    assert caught.value.busy and not isinstance(caught.value, DaemonUnavailable)
+    assert tries == ["kill", "kill"]
+
+    def absent(self, op, args, **kw):
+        raise DaemonUnavailable("no daemon at daemon.sock: [Errno 2] No such file")
+    monkeypatch.setattr(Client, "_call_once", absent)
+    with pytest.raises(DaemonUnavailable):          # with no busy answer, absent is absent
+        Client("/nonexistent", timeout=5).call("kill", {"job_id": "j"})
+
+
+def test_c16_7_one_call_can_take_busy_at_once(serve):
+    """C-16.7 `retry_busy=False` on a call overrides the client's own setting."""
+    service = serve(max_connections=1)
+    idle = connect(service)
+    until(lambda: counts(service)["connections"] == 1)
+    client = Client(service.root, timeout=5)
+    client._checked = True
+    started = time.monotonic()
+    with pytest.raises(DaemonError) as caught:
+        client.call("ping", retry_busy=False)
+    assert caught.value.busy and time.monotonic() - started < 1
+    idle.close()
+
+
+def test_c16_7_subfleet_wait_takes_busy_as_an_empty_poll_with_its_whole_deadline(root, monkeypatch):
+    """C-16.7 `subfleet wait` asks again after a busy answer, and every poll is sent
+    with its whole deadline: a retry inside `call` would have less than the 60 s
+    poll it asks the daemon to hold (final review of #43, F1)."""
+    import argparse
+    from subfleet import cli
+    from subfleet import client as client_module
+    from subfleet.contracts import WAIT_POLL_MAX_S
+    job = "20260927-000000-done"
+    timeouts = []
+
+    def once(self, op, args, *, request_id, timeout, stated):
+        timeouts.append(timeout)
+        if len(timeouts) <= 3:
+            raise DaemonError(69, "the daemon is busy: it holds 512 client connections, its limit",
+                              "try again shortly")
+        return {"jobs": [{"job_id": job, "state": "succeeded", "rc": 0}], "timeout": False}
+    monkeypatch.setattr(Client, "_call_once", once)
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    monkeypatch.setattr(client_module, "_sleep", lambda s: None)
+    code = cli.wait_jobs(argparse.Namespace(json=True), [job], timeout=None, quiet=True)
+    assert code == 0
+    assert timeouts == [WAIT_POLL_MAX_S + 15] * 4                  # never a shortened retry
+
+
+def test_c16_3_the_cli_says_how_a_busy_resend_found_the_job():
+    """C-16.3 a job found by request id after a busy re-send is not "acknowledged on
+    re-query": the re-send was never read."""
+    from subfleet import cli
+    created, note = cli._submitted({"job_id": "J1", "created": False, "requeried": True,
+                                    "busy": "the daemon is busy"}, minted=True)
+    assert created is True and "met a busy daemon and was not read" in note
+
+
+def test_c16_7_a_stream_ended_here_frees_its_queued_reads_without_counting_a_departure(serve):
+    """C-16.7 after a reply fails part way the daemon ends the stream; a read queued
+    behind it can reach no one, so it is cancelled at once, freeing the place under
+    the cap while the pool is still busy, and it is not counted as a client hanging
+    up (final review of #43, F2)."""
+    service = serve(connection_idle_s=.5)
+    service.requests.shutdown(wait=True)
+    service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
+    release = threading.Event()
+    real = service.dispatch
+    ran = []
+
+    def dispatch(op, args, **kw):
+        ran.append(op)
+        if op == "wait":
+            return {"rows": ["x" * 1024] * 2048}             # 2 MiB: its send times out
+        if op == "list":
+            release.wait(30)                                 # holds the only request thread
+        return real(op, args, **kw)
+    service.dispatch = dispatch
+    blocker = connect(service)
+    send(blocker, "list")
+    until(lambda: ran == ["list"])
+    stuck = connect(service)
+    stuck.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    send(stuck, "wait", job_ids=[RUNNING], deadline_s=1)     # on the waiters pool; its reply breaks
+    send(stuck, "daemon.status")                             # queued behind the blocker
+    until(lambda: service.requests._work_queue.qsize() == 1)
+    # The stuck connection goes while the only request thread is still held.
+    until(lambda: counts(service)["connections"] == 1, timeout=5)
+    assert counts(service)["abandoned"] == 0
+    release.set()
+    assert "jobs" in reply(blocker)["result"]
+    assert "daemon.status" not in ran
+    assert stuck.fileno() >= 0                               # the client itself never left
+    stuck.close()
+    blocker.close()
+
+
+@pytest.mark.parametrize("line", [
+    b'{"v":1,"op":' + b"[" * 100000 + b"]" * 100000 + b"}\n",             # nests past repr or the parser
+    b'{"v":1,"op":"ping","args":{},"id":' + b"1" * 5000 + b"}\n",           # past int_max_str_digits
+    b'{"v":1,"op":"ping","args":{"x":"\xff\xfe"}}\n',                      # not UTF-8
+], ids=["deep-nesting", "5000-digit-integer", "not-utf8"])
+def test_c16_7_every_malformed_line_is_answered_and_the_connection_goes_on(serve, monkeypatch, line):
+    """C-16.7 no malformed line ends a reader: each is answered exit 2 and the next
+    request on the connection is still served (final review of #43, F1)."""
+    service = serve()
+    raised = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: raised.append(args.exc_type.__name__))
+    with connect(service) as sock:
+        sock.sendall(line)
+        send(sock, "ping")
+        first, second = reply_lines(sock, 2)
+    assert first["ok"] is False and first["error"]["code"] == 2
+    assert second["result"]["pong"] is True and raised == []
+
+
+def test_c16_7_a_read_reaching_a_thread_after_the_daemon_ended_its_stream_is_not_a_departure(serve):
+    """C-16.7 `_respond` and `wait` drop a read whose stream this daemon ended itself,
+    but count only a client that left (final review of #43, F2); the control, a
+    peer that closed, is counted."""
+    from subfleet import protocol
+    service = serve()
+    ran = []
+    real = service.dispatch
+    service.dispatch = lambda op, args, **kw: ran.append(op) or real(op, args, **kw)
+
+    ended, peer = socket.socketpair(socket.AF_UNIX)
+    service._end_stream(ended)                                # as after a broken reply
+    service._respond(ended, threading.Lock(), protocol.Request(op="daemon.status", args={}, id="a"))
+    assert ran == [] and counts(service)["abandoned"] == 0
+
+    def gone():
+        return True
+    gone.ended_here = lambda: True
+    assert service.wait(protocol.WaitArgs(job_ids=[RUNNING], deadline_s=5), client_gone=gone) == {"timeout": True}
+    assert counts(service)["abandoned"] == 0
+
+    left, other = socket.socketpair(socket.AF_UNIX)
+    other.close()                                             # the control: the client left
+    service._respond(left, threading.Lock(), protocol.Request(op="daemon.status", args={}, id="b"))
+    assert ran == [] and counts(service)["abandoned"] == 1
+    for sock in (ended, peer, left):
+        sock.close()

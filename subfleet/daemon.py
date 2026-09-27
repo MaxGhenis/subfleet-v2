@@ -1783,7 +1783,9 @@ class Daemon:
             if client_gone is not None and client_gone():
                 # C-16.7: no one is left to read the answer. Stop now, not at
                 # the deadline, and free this thread and the client's descriptor.
-                self._count_connection("abandoned", "wait")
+                # A stream this daemon ended itself is not a client leaving.
+                if not getattr(client_gone, "ended_here", lambda: False)():
+                    self._count_connection("abandoned", "wait")
                 return {"timeout": True}
             with self.changed:
                 self.changed.wait(min(remaining, .25))
@@ -3634,11 +3636,19 @@ class Daemon:
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request) -> None:
         def gone() -> bool:
             return descriptors.client_gone(conn)
+
+        def ended_here() -> bool:
+            # This daemon shut the stream down after a broken reply (C-16.7):
+            # no reply can go out, but no client left either.
+            with self._connection_lock:
+                return conn in self._shut_down
+        gone.ended_here = ended_here
         if descriptors.read_only(req.op, req.args) and gone():
             # C-16.7: its client timed out and hung up while this waited for a
             # thread. A read has no one to answer; a write still runs, because a
             # client disconnect cannot cancel its durable job.
-            self._count_connection("abandoned", req.op)
+            if not ended_here():
+                self._count_connection("abandoned", req.op)
             return
         try:
             response = protocol.ok(req.id, self.dispatch(req.op, req.args, client_gone=gone))
@@ -3665,10 +3675,17 @@ class Daemon:
             if line is descriptors.OVERSIZED:
                 raise protocol.ProtocolError("request exceeds 1 MiB")
             return protocol.decode_request(line)
-        except (protocol.ProtocolError, UnicodeDecodeError) as exc:
+        except (protocol.ProtocolError, ValueError, RecursionError) as exc:
+            # C-16.7: a malformed line is answered, never left to end the
+            # reader: ValueError covers bad UTF-8 and an integer past
+            # sys.int_max_str_digits, RecursionError nesting that parses but is
+            # too deep to render in an error message.
+            message = (str(exc) if isinstance(exc, (protocol.ProtocolError, UnicodeDecodeError))
+                       else "malformed request: nested too deeply" if isinstance(exc, RecursionError)
+                       else f"malformed request: {exc}")
             try:
                 with write_lock:
-                    conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
+                    conn.sendall(protocol.encode(protocol.fail("", 2, message)))
             except OSError:
                 # C-16.7: as in `_respond`, nothing may follow a reply that failed part way.
                 self._end_stream(conn)
@@ -3718,13 +3735,15 @@ class Daemon:
                     # peer look gone, and close() cancels what is queued itself.
                     with self._connection_lock:
                         ours = conn in self._shut_down
-                    if not self.stopping.is_set() and not ours and descriptors.client_gone(conn):
-                        # C-16.7: the client closed its whole socket. Its reads that
-                        # no thread has reached yet are cancelled now, so the
-                        # connection and its place under the cap go at once instead
-                        # of when a busy pool gets to them; its writes still run.
+                    if not self.stopping.is_set() and (ours or descriptors.client_gone(conn)):
+                        # C-16.7: the client closed its whole socket, or this daemon
+                        # ended the stream after a broken reply. Either way no reply
+                        # can reach it, so its reads no thread has reached yet are
+                        # cancelled now: the connection and its place under the cap
+                        # go at once instead of when a busy pool gets to them. Its
+                        # writes still run. Only a client that left is counted.
                         for future in pending:
-                            if future in reads and future.cancel():
+                            if future in reads and future.cancel() and not ours:
                                 self._count_connection("abandoned", "queued read")
                     break
         except OSError:
