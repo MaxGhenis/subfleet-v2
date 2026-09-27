@@ -674,3 +674,10 @@ def test_c5_12_an_attempt_recorded_with_the_uuid_never_waits_for_a_legacy_kern_b
     finally:
         release.set()
         legacy.join(10)
+
+
+def test_c5_5_the_whole_process_table_has_one_reader():
+    """C-5.5, C-5.12 `snapshot()` is the one reader of the whole process table, and a row that is not a process is
+    an `InspectionError` there. The merge of 2026-09-26 left a second, `_process_table()`, which nothing called and
+    which let a `ValueError` escape; it is gone, so no new caller can take it up."""
+    assert not hasattr(procs, "_process_table")
