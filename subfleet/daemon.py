@@ -3070,8 +3070,9 @@ class Daemon:
         # several subprocesses from a large, many-threaded process, and asking
         # it up to twenty times a second per running attempt stretched every
         # store-lock hold behind the daemon's requests (C-5.11, 2026-09-24).
-        # A guardian that dies without a receipt is found at most one
-        # interval later.
+        # A guardian that dies without a receipt is noticed at the first
+        # inspection due one interval after the last, once a worker takes
+        # this attempt; an `unknown` answer decides nothing (C-4.2).
         now = time.monotonic()
         if now < self._liveness_next.get(aid, 0):
             return
@@ -3153,8 +3154,10 @@ class Daemon:
         Only group members are ever recorded, so this reads C-5.5's group
         source alone: the marker scan reads every process's environment
         (`ps -axEww`, megabytes) and its pids were discarded here. A member
-        already recorded under the same start is not asked again, and a pid a
-        new process has taken is recorded afresh, as the full census did.
+        already recorded under the same start and the current boot identity is
+        not asked again; a pid a new process has taken, and a member recorded
+        under another boot identity, are recorded afresh, as the full census
+        did (`_new_group_identities`).
         """
         evidence = json.loads(a["evidence_json"] or "{}")
         before = dict(evidence.get("owned_identities", {}))

@@ -87,30 +87,48 @@ def test_pacing_asks_exactly_when_a_greedy_clock_allows(core, monkeypatch, gaps,
             expected.append(clock.now)
             last = clock.now
     assert asked == expected
-    assert all(b - a >= interval for a, b in zip(asked, asked[1:]))
+    assert all(b >= a + interval for a, b in zip(asked, asked[1:]))   # the gate's own arithmetic
 
 
 identities = st.fixed_dictionaries({"proc_start": st.sampled_from(STARTS),
                                     "boot_id": st.sampled_from([BOOT, OTHER_BOOT, LEGACY_BOOT])})
+# What `procs.identity` answers for a pid, independent of the snapshot: a start
+# (the snapshot's, or one a new process has since given the pid), no process, or
+# an inspection failure.
+answers = st.one_of(st.sampled_from(STARTS), st.none(), st.just("error"))
 
 
-@settings(max_examples=200, deadline=None, suppress_health_check=FIXTURE_HEALTH)   # every patch is re-set per input
+@settings(max_examples=300, deadline=None, suppress_health_check=FIXTURE_HEALTH)   # every patch is re-set per input
 @given(members=st.dictionaries(st.integers(4242, 4250), st.sampled_from(STARTS), max_size=9),
-       recorded=st.dictionaries(st.integers(4240, 4252), identities, max_size=13))
-def test_recording_asks_exactly_about_members_not_recorded_as_they_are(monkeypatch, members, recorded):
+       recorded=st.dictionaries(st.integers(4240, 4252), identities, max_size=13),
+       answered=st.dictionaries(st.integers(4242, 4250), answers, max_size=9),
+       booted=st.sampled_from([BOOT, LEGACY_BOOT]))
+def test_recording_asks_exactly_about_members_not_recorded_as_they_are(monkeypatch, members, recorded,
+                                                                         answered, booted):
     monkeypatch.setattr(procs, "group_members", lambda pgid: dict(members))
-    monkeypatch.setattr(procs, "boot_id", lambda: BOOT)
+    monkeypatch.setattr(procs, "boot_id", lambda: booted)   # a UUID machine, or a legacy-only one
     asked = []
-    monkeypatch.setattr(procs, "identity",
-                        lambda pid: asked.append(pid) or procs.ProcessIdentity(pid, BOOT, members[pid]))
+
+    def identity(pid):
+        asked.append(pid)
+        answer = answered.get(pid, members[pid])
+        if answer == "error":
+            raise procs.InspectionError("ps unavailable")
+        return None if answer is None else procs.ProcessIdentity(pid, booted, answer)
+
+    monkeypatch.setattr(procs, "identity", identity)
     as_recorded = {str(pid): {"pid": pid, **value} for pid, value in recorded.items()}
 
     fresh = Daemon._new_group_identities(4242, as_recorded)
 
     stale = {pid for pid, started in members.items()
-             if not (pid in recorded and recorded[pid] == {"proc_start": started, "boot_id": BOOT})}
+             if not (pid in recorded and recorded[pid] == {"proc_start": started, "boot_id": booted})}
     assert set(asked) == stale and len(asked) == len(stale)
-    assert fresh == {str(pid): {"pid": pid, "boot_id": BOOT, "proc_start": members[pid]} for pid in stale}
+    # What is recorded is what `identity` said, never the snapshot's start; a pid
+    # it could not identify (gone, or inspection failed) is not recorded at all.
+    recordable = {pid: answered.get(pid, members[pid]) for pid in stale}
+    assert fresh == {str(pid): {"pid": pid, "boot_id": booted, "proc_start": answer}
+                     for pid, answer in recordable.items() if answer not in (None, "error")}
 
 
 def old_export_sweep(store) -> list[str]:

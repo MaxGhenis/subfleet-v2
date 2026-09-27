@@ -119,16 +119,19 @@ not take the GIL to read or to time out.
   member's start time, from one `ps -axo pid=,pgid=,stat=,lstart=` snapshot.
   `_record_owned` asks for an identity only for a member not recorded under its
   current start and the current boot identity. A pid a new process has taken,
-  and a member recorded under legacy boot seconds, are recorded afresh while
-  still in the group, as the full census did. The snapshot's start time only
+  and a member recorded under another boot identity (legacy seconds once the
+  boot UUID can be read, or seconds a clock correction has moved), are recorded
+  afresh while still in the group, as the full census did. The snapshot's start time only
   detects the change; the identity is still captured by `procs.identity`
   (C-5.3), and on this machine the two renderings agreed for all 400 processes
   compared. The three-source census is unchanged and still decides every
   release, kill, loss and quarantine.
 - `_process_attempt` asks `ps` about a running guardian at most every
   `LIVENESS_INTERVAL_S` (1 s). The exit receipt, the cancel request and the wall
-  limit are still read every tick, so a finished attempt moves on at once; a
-  guardian that dies without a receipt is found at most a second later. The
+  limit are still read every tick, so a finished attempt moves on at once. A
+  guardian that dies without a receipt is noticed at the first inspection due
+  one interval after the last, once a worker takes the attempt (an `unknown`
+  answer decides nothing, C-4.2). The
   owned-member census runs inside the same paced branch, so it now runs at most
   once a second (it was every 0.5 s). A paced pass that raises clears its
   deadline, so the retry C-5.10 schedules repeats the inspection rather than
@@ -146,9 +149,13 @@ not take the GIL to read or to time out.
   comparison), and decides before it releases the key.
 - C-5.11 in `docs/acceptance-contract.md` states the budget.
 
-With the fix, the steady-state cost of a running attempt is three subprocesses a
-second (`lstart` and `stat` once a second, one group snapshot), plus two per new
-group member. The inspection reproduction, driving the fixed loop at seven
+With the fix, the steady-state cost of a running attempt, where the boot UUID
+is readable, is three subprocesses a second (`lstart` and `stat` once a second,
+one group snapshot). Where only legacy `kern.boottime` seconds are readable,
+the boot identity is not cached and each read costs two `sysctl` calls, twice a
+pass, so seven. An inspection
+that finds new or changed members adds two per member and two for the leader
+re-check that guards recording them, so finding one new child costs seven. The inspection reproduction, driving the fixed loop at seven
 attempts, kept the query p50 at 0.2 ms and p90 at 0.7 ms (7,038 queries in
 12 s). The eight-waiter herd fell from 2,834 store reads a second to 386, most of
 them the measuring client's own. The combined reproduction ran at 0.5 ms p50,

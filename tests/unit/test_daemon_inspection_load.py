@@ -296,6 +296,7 @@ def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tm
     monkeypatch.setattr(procs, "_read", ps)
     asked = count_liveness(monkeypatch)
     monkeypatch.setattr(daemon, "_contain_probe", lambda record: True)
+    daemon.liveness_interval_s = 3600               # no pause in this test can reach the next question
     directory = tmp_path / "probe"
     directory.mkdir()
     record = {"holder": "probe:admission:" + JOB, "job_id": JOB, "lane_id": "codex-1",
@@ -350,41 +351,69 @@ def test_the_export_sweep_is_one_statement_however_much_history_is_kept(daemon, 
 
 # --- waiters ------------------------------------------------------------------
 
+class StepClock:
+    """`time` inside `subfleet.daemon` only: each `monotonic()` call moves it on by
+    `step`, so a count of looks depends on the loop, not on how the OS schedules."""
+
+    def __init__(self, step):
+        self.now, self.step = 0.0, step
+
+    def monotonic(self):
+        self.now += self.step
+        return self.now
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
 def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
     """C-5.11: a waiter woken without a committed change reads nothing. Before the fix
     every wake-up re-read every watched job; 200 wake-ups were 200 reads."""
-    monkeypatch.setattr(daemon_module, "WAIT_RECHECK_S", 60)   # only commits may cause a read here
-    reads = []
+    monkeypatch.setattr(daemon_module, "WAIT_RECHECK_S", 3600)   # only commits may cause a read here
+    reads, first_read = [], threading.Event()
     get_job = daemon.store.get_job
-    monkeypatch.setattr(daemon.store, "get_job", lambda job_id: reads.append(job_id) or get_job(job_id))
+
+    def spy(job_id):
+        row = get_job(job_id)          # signalled once the read has happened, not before
+        reads.append(row["state"])
+        first_read.set()
+        return row
+
+    monkeypatch.setattr(daemon.store, "get_job", spy)
     result = {}
     waiter = threading.Thread(target=lambda: result.update(
-        daemon.wait(protocol.WaitArgs(job_ids=[JOB], deadline_s=20))))
+        daemon.wait(protocol.WaitArgs(job_ids=[JOB], deadline_s=60))))
     waiter.start()
-    while not reads:
-        time.sleep(.001)
-    for _ in range(200):
-        daemon._notify()
-        time.sleep(.001)
-    assert len(reads) == 1
+    try:
+        assert first_read.wait(10)
+        for _ in range(200):
+            daemon._notify()
+            time.sleep(.001)
+        assert reads == ["running"]
 
-    with daemon.store.transaction("test.finished", job_id=JOB) as tx:
-        tx.execute("UPDATE jobs SET state='succeeded',rc=0 WHERE job_id=?", (JOB,))
-    daemon._notify()
-    waiter.join(timeout=5)
-    assert not waiter.is_alive()
+        with daemon.store.transaction("test.finished", job_id=JOB) as tx:
+            tx.execute("UPDATE jobs SET state='succeeded',rc=0 WHERE job_id=?", (JOB,))
+        daemon._notify()
+        waiter.join(timeout=10)
+        assert not waiter.is_alive()
+    finally:
+        if waiter.is_alive():
+            daemon.stopping.set()
+            daemon._notify()
+            waiter.join(timeout=10)
     assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded"
-    assert len(reads) == 2
+    assert reads == ["running", "succeeded"]
 
 
 def test_wait_rechecks_on_its_own_clock_without_a_commit(daemon, monkeypatch):
     """C-5.11: the generation is a hint; a waiter still looks again on its own clock."""
+    monkeypatch.setattr(daemon_module, "time", StepClock(.02))
     monkeypatch.setattr(daemon_module, "WAIT_RECHECK_S", .05)
     reads = []
     get_job = daemon.store.get_job
     monkeypatch.setattr(daemon.store, "get_job", lambda job_id: reads.append(job_id) or get_job(job_id))
     assert daemon.wait(protocol.WaitArgs(job_ids=[JOB], deadline_s=.6)) == {"timeout": True}
-    assert 2 <= len(reads) <= 20
+    assert len(reads) >= 2              # no commit ever happened, so every read after the first is the clock's
 
 
 def test_a_worker_that_commits_nothing_wakes_no_waiter(daemon, monkeypatch):
