@@ -10,21 +10,91 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import selectors
 import signal
 import subprocess
 import sys
 import time
 
+import pytest
+
 from subfleet.procs import same_process
 
 
-#: Long enough that the lock check after the stopping line, and the guardian
-#: check after the exit, do not race the bound on a loaded machine.
+#: Give the held worker time to drain before faulthandler ends the process.
 GRACE_S = 5.0
 #: Scheduling slack past the grace on a loaded machine.
 SLACK_S = 10.0
-#: The provider outlives the old daemon's grace and the checks after it.
-PROVIDER_S = 30
+
+
+def _wait_for_exit_with_lock(process, path, deadline, timeout_message):
+    """Observe lock then liveness until exit, with no serving-time sample."""
+    fd = os.open(path, os.O_RDWR)
+    try:
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                held_while_stopping = True
+            else:
+                held_while_stopping = False
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            # Check the lock before polling: the process may exit between
+            # these observations, which is valid. A free lock followed by a
+            # live process proves it relinquished single-writer ownership early.
+            alive = process.poll() is None
+            assert held_while_stopping or not alive, "live stopping daemon released daemon.lock"
+            if not alive:
+                return
+            remaining = deadline - time.monotonic()
+            assert remaining > 0, timeout_message()
+            try:
+                process.wait(timeout=min(.02, remaining))
+            except subprocess.TimeoutExpired:
+                pass
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("early_unlock", [False, True], ids=["process-exit", "early-unlock"])
+def test_stop_lock_observer_detects_unlock_before_process_exit(tmp_path, early_unlock):
+    """Exercise the real observation loop even where ps/sysctl is unavailable."""
+    child = r'''
+import fcntl, os, sys
+lock = open(sys.argv[1], "w")
+fcntl.flock(lock, fcntl.LOCK_EX)
+if sys.argv[2] == "early":
+    fcntl.flock(lock, fcntl.LOCK_UN)
+print("stopping:", flush=True)
+sys.stdin.buffer.read(1)
+os._exit(0)
+'''
+    path = tmp_path / "daemon.lock"
+    process = subprocess.Popen([sys.executable, "-c", child, str(path),
+                                "early" if early_unlock else "exit"],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(process.stdout, selectors.EVENT_READ)
+            assert ready.select(timeout=10), "owned lock child did not acknowledge stopping"
+            assert process.stdout.readline() == b"stopping:\n"
+        if early_unlock:
+            # The child stays alive until cleanup, making the early-unlock
+            # interleaving deterministic even if pytest is descheduled.
+            with pytest.raises(AssertionError, match="live stopping daemon released"):
+                _wait_for_exit_with_lock(process, path, time.monotonic() + 10,
+                                         lambda: "owned lock child did not exit")
+        else:
+            process.stdin.write(b"1")
+            process.stdin.flush()
+            _wait_for_exit_with_lock(process, path, time.monotonic() + 10,
+                                     lambda: "owned lock child did not exit")
+            assert process.returncode == 0
+    finally:
+        if process.poll() is None:
+            process.communicate(input=b"1", timeout=10)
+        process.stdin.close()
+        process.stdout.close()
 
 
 def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
@@ -34,12 +104,14 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     the log. The lock is free, the guardian was not signalled, and the next
     daemon adopts the attempt and accepts it once.
     """
-    e2e.start(scenario="slow", delay_s=PROVIDER_S, env={
+    release_provider = e2e.root / "release-provider"
+    e2e.start(env={
         # Test-only sitecustomize instrumentation around the daemon's existing
         # crash_hook: the worker that commits `attempt.running` then parks
         # until `release-hook` exists, which this test never creates.
         "SUBFLEET_E2E_HOLD_AT": "running",
         "SUBFLEET_E2E_STOP_GRACE_S": str(GRACE_S),
+        "SUBFLEET_FAKE_RELEASE_PATH": str(release_provider),
     })
     submitted = e2e.cli(*e2e.run_args("astra", "-d"))
     assert submitted.rc == 0, submitted.stderr
@@ -58,28 +130,13 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     assert lock["pid"] == old.pid
     signalled = time.monotonic()
     old.send_signal(signal.SIGTERM)
-    # Single writer (C-5.8): while the old daemon is still stopping, its lock
-    # is still held; only the end of the process releases it. The accept loop
-    # sees the stop within 0.2 s; the check comes well inside the grace.
-    time.sleep(1.0)
-    fd = os.open(e2e.root / "daemon.lock", os.O_RDWR)
-    try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            held_while_stopping = True
-        else:
-            held_while_stopping = False
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        alive = old.poll() is None
-    finally:
-        os.close(fd)
-    assert alive and held_while_stopping, (alive, held_while_stopping)
-    try:
-        old.wait(timeout=GRACE_S + SLACK_S)
-    except subprocess.TimeoutExpired:
-        raise AssertionError("C-5.8a: the stopping daemon still holds daemon.lock "
-                             f"{GRACE_S + SLACK_S:g} s after SIGTERM\n{e2e.log_text()}") from None
+    # Acknowledge the stop before observing the single-writer property. An
+    # ordinary serving-time lock check says nothing about close()'s lifetime.
+    e2e.until(lambda: "stopping:" in (e2e.root / "daemon.log").read_text(),
+              timeout=GRACE_S + SLACK_S)
+    _wait_for_exit_with_lock(old, e2e.root / "daemon.lock", signalled + GRACE_S + SLACK_S,
+                             lambda: "C-5.8a: the stopping daemon still holds daemon.lock "
+                             f"{GRACE_S + SLACK_S:g} s after SIGTERM\n{e2e.log_text()}")
     elapsed = time.monotonic() - signalled
 
     # Bounded, and not early: the drain had its whole grace.
@@ -112,7 +169,8 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     # A fresh daemon starts on the freed lock and adopts the running attempt.
     e2e.start()
     assert e2e.process.pid != old.pid
-    waited = e2e.cli("wait", job_id, "--timeout", str(PROVIDER_S + 30), timeout=PROVIDER_S + 45)
+    release_provider.touch()
+    waited = e2e.cli("wait", job_id, "--timeout", "30", timeout=45)
     assert waited.rc == 0, waited.stderr
     job = e2e.job(job_id)
     assert job["state"] == "succeeded" and job["rc"] == 0
