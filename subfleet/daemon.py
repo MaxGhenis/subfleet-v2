@@ -4228,11 +4228,13 @@ class Daemon:
         was last given, and for a new attempt one read less than an interval
         before it asked. Otherwise it reads a table, and that is the only time a
         read begins, so reads begin at least `inspect_interval_s` apart however
-        many attempts ask and however long `ps` takes. Only the inspection that
-        reads waits for `ps`: one that finds a read running returns at once, so a
-        slow or hung `ps` holds one worker of the pool, not one per running
-        attempt, and every other attempt's receipts, cancel and clock are still
-        read each tick. A read that failed is rationed like one that worked.
+        many attempts ask and however long `ps` takes. A read is `ps` and then the
+        table's boot identity (`sysctl`, unless the module remembers the UUID).
+        Only the inspection that reads waits for them: one that finds a read
+        running returns at once, so a slow or hung `ps` or `sysctl` holds one
+        worker of the pool, not one per running attempt, and every other
+        attempt's receipts, cancel and clock are still read each tick. A read
+        that failed is rationed like one that worked.
         """
         if due < self._table[1]:
             return self._table
@@ -4246,6 +4248,14 @@ class Daemon:
                 table = procs.snapshot()
             except procs.InspectionError:
                 table = None
+            if table is not None:
+                try:
+                    # The reader waits for `sysctl` too, before any attempt is
+                    # given the table: an attempt that read it lazily held every
+                    # other attempt given the table on its lock for as long.
+                    table.boot()
+                except procs.InspectionError:
+                    pass                         # kept by the table: each attempt sees it
             self._table = (table, began + self.inspect_interval_s)
             return self._table
         finally:
