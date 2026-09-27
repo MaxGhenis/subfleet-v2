@@ -221,6 +221,13 @@ HEADLESS_PREAMBLE = (
     "autonomously, preserve the caller's work, and return a final deliverable.\n\n"
 )
 
+#: C-5.10, C-5.11: what `_process_attempt` returns when it is the retry of an
+#: inspection that raised and could not inspect this time (another attempt's
+#: `ps` read was running, or the table, its boot identity or the guardian could
+#: not be read). `_schedule` counts it as neither a success, which would clear
+#: the key's failure count, nor a failure.
+DEFERRED = object()
+
 
 def worker_retry_delay(failures: int) -> float:
     """C-5.10: seconds before a worker that has raised `failures` times in a row is tried again."""
@@ -402,6 +409,9 @@ class Daemon:
         # C-5.12: attempt id -> when its processes are next inspected, and the
         # one process table those inspections share.
         self._inspect_next: dict[str, float] = {}
+        # C-5.11: attempts whose last inspection raised and has not yet been
+        # repeated to its end; until it has, a pass that cannot inspect is DEFERRED.
+        self._inspect_retry: set[str] = set()
         # The last table read (None if the read failed) and when it expires,
         # replaced whole; the lock is held while `ps` runs.
         self._table: tuple[procs.ProcessTable | None, float] = (None, 0.0)
@@ -2372,9 +2382,10 @@ class Daemon:
         future = self.workers.submit(fn, *args)
         def done(f):
             try:
-                f.result()
+                deferred = f.result() is DEFERRED
                 with self._busy_lock:
-                    self._worker_failures.pop(key, None)
+                    if not deferred:            # C-5.11: a deferred retry keeps its count
+                        self._worker_failures.pop(key, None)
                     self._worker_retry_at.pop(key, None)
             except Exception as exc:
                 # Provider/keychain errors can contain secrets; log the error
@@ -2434,6 +2445,8 @@ class Daemon:
         for pacing in (self._inspect_next,):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
+        for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
+            self._inspect_retry.discard(aid)
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -4025,11 +4038,14 @@ class Daemon:
         except FileNotFoundError:
             return None
 
-    def _process_attempt(self, aid: str) -> None:
+    def _process_attempt(self, aid: str) -> object:
+        """One pass over a live attempt; `DEFERRED` when it is the retry of an
+        inspection that raised and could not inspect this time (C-5.11), else None."""
         a = self.store.get_attempt(aid)
         if not a or a["state"] not in LIVE:
             self._inspect_next.pop(aid, None)
-            return
+            self._inspect_retry.discard(aid)
+            return None
         child = self._children.get(aid)
         if child and child.poll() is not None:
             self._children.pop(aid, None)
@@ -4092,19 +4108,31 @@ class Daemon:
         # fell just short of that and took the same table again.
         now = time.monotonic()
         due = self._inspect_next.get(aid, now)
+        # C-5.11: until an inspection that raised has been repeated to its end,
+        # a pass that does not inspect is no recovery, so C-5.10's count stands.
+        retry = aid in self._inspect_retry
         if now < due:
-            return
+            return DEFERRED if retry else None
         try:
-            self._inspect_running(a, adir, due)
+            inspected = self._inspect_running(a, adir, due)
         except BaseException:
             # A pass that raised must be retried in full, not skipped at the
             # gate: a skipped pass returns normally, and C-5.10 would count it
             # as recovery and start its backoff over.
             self._inspect_next.pop(aid, None)
+            self._inspect_retry.add(aid)
             raise
+        if inspected:
+            self._inspect_retry.discard(aid)
+            return None
+        return DEFERRED if retry else None
 
-    def _inspect_running(self, a: dict, adir: Path, due: float) -> None:
-        """The paced half of `_process_attempt` (C-5.12): is the guardian still ours?"""
+    def _inspect_running(self, a: dict, adir: Path, due: float) -> bool:
+        """The paced half of `_process_attempt` (C-5.12): is the guardian still ours?
+
+        False when it could not say this time (another attempt's read is running,
+        or the table, its boot identity or the guardian cannot be read), which a
+        retry after a raise must not count as recovery (C-5.11)."""
         aid = a["attempt_id"]
         shared = self._process_table(due)
         if shared is None:
@@ -4112,7 +4140,7 @@ class Daemon:
             # from when it fell due (a new attempt, from now), so that it may be
             # given that read.
             self._inspect_next.setdefault(aid, due)
-            return
+            return False
         table, self._inspect_next[aid] = shared
         if table is None:
             # This interval's read failed. Asking about the guardian singly would
@@ -4120,17 +4148,17 @@ class Daemon:
             # the shared read exists to ration, and a guardian that cannot be
             # inspected decides nothing anyway (C-4.2, C-5.5).
             self.log.debug("process table unreadable; %s not inspected this interval", aid)
-            return
+            return False
         try:
             shown = table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
         except procs.InspectionError:
             # The table's boot identity could not be read, once for every attempt
             # that asks; asked singly, the guardian would need the same read.
             self.log.debug("boot identity unreadable; %s not inspected this interval", aid)
-            return
+            return False
         if shown:
             self._record_owned(a, table)
-            return  # Re-adopted solely by receipt identity, not parentage.
+            return True  # Re-adopted solely by receipt identity, not parentage.
         # A shared table can say "alive" and nothing else: a guardian it does
         # not show is asked about afresh before anything is decided from it.
         alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
@@ -4138,26 +4166,27 @@ class Daemon:
             try:
                 self._record_owned(a, procs.snapshot())
             except procs.InspectionError:
-                pass
-            return
+                return False
+            return True
         if alive == "unknown":
             # ps failed or timed out (load, or an inspection outage). A guardian
             # that cannot be inspected is neither dead nor an escape; nothing is
             # decided from it this tick (C-4.2, C-5.5).
             self.log.debug("guardian liveness of %s unknown this tick", aid)
-            return
+            return False
         # The guardian writes exit.json and then exits, so a receipt can appear
         # between the read above and the liveness check: a dead guardian with a
         # receipt is the normal end of an attempt, not a loss (C-4.2).
         receipt = self._read_json(adir / "exit.json")
         if receipt:
             self._begin_finalizing(a, receipt)
-            return
+            return True
         census = self._contain(a)
         if not census.verified_empty:
             self._kill_attempt(a, lost=True)
         else:
             self._lost(a)
+        return True
 
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
