@@ -48,6 +48,11 @@ OWNER_GONE = 3
 #: made (a descriptor never passed, or one a standard-stream redirect replaced), so it
 #: cannot tell whether that owner is open, and writes nothing.
 FENCE_BROKEN = 4
+#: How often, and how far apart, a run tries for `catalog.lock` before it leaves the
+#: catalog to the run holding it (`_take_lock`): a reader's probe (`refresh_running`)
+#: holds the lock for microseconds, and a run that met one had given up at once.
+LOCK_TRIES = 40
+LOCK_RETRY_S = 0.025
 #: Why a run stopped publishing, by its exit status, for its owner's log.
 DECLINED = {OWNER_GONE: "it found its owner gone (the fence closed, or the state root removed or replaced)",
             FENCE_BROKEN: "its fence descriptor was not the pipe it was given"}
@@ -550,14 +555,16 @@ def lock_fd(lock: Path) -> int:
 
 def refresh_running(root: Path) -> bool | None:
     """Whether a catalog run holds the lock now; None when the lock cannot be read.
-    A non-blocking probe: it never waits for a run."""
+    A non-blocking probe: it never waits for a run. It takes the lock shared, so
+    probes never exclude each other: one probe had read another (a list, and the
+    tick about to start a run) as a run, and no run started for an interval."""
     lock = Path(root) / "catalog.lock"
     try:
         fd = lock_fd(lock)
     except OSError:
         return None
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
         fcntl.flock(fd, fcntl.LOCK_UN)
         return False
     except BlockingIOError:
@@ -683,9 +690,7 @@ def main(argv: list[str] | None = None) -> int:
         fd = lock_fd(lock)
     except FileNotFoundError:
         return OWNER_GONE                   # no state root, and a run never makes one
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+    if not _take_lock(fd):
         return 0                            # another run holds the lock, and writes the catalog
     lanes = []
     try:
@@ -699,6 +704,23 @@ def main(argv: list[str] | None = None) -> int:
     owner = Owner(args.state_root, fd, args.fence_fd)
     build(args.state_root, lanes=lanes, may_write=owner)
     return OWNER_GONE if owner.gone else 0
+
+
+def _take_lock(fd: int) -> bool:
+    """Take `catalog.lock` for this run, trying `LOCK_TRIES` times: a probe's shared
+    hold ends at once, a run's lasts the run."""
+    for attempt in range(LOCK_TRIES):
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if attempt + 1 < LOCK_TRIES:
+                _lock_wait()
+    return False
+
+
+def _lock_wait() -> None:
+    time.sleep(LOCK_RETRY_S)
 
 
 def _terminated(signum, frame):
