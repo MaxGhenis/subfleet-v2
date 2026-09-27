@@ -223,18 +223,23 @@ class ProcessTable:
     _reading_seconds: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
     def boot(self) -> str:
-        """The boot identity of every row; `InspectionError` when it cannot be read."""
+        """The boot identity of every row; `InspectionError` when it cannot be read.
+
+        Read once, whatever the answer: anything else the read raises (a defect)
+        is kept and raised again to every caller, not read again by each."""
         if self.boot_id is not None:
             return self.boot_id
         with self._reading:
             if not self._boot:
                 try:
                     self._boot.append(boot_id())     # the module's reader, and its cache
-                except InspectionError as exc:
+                except Exception as exc:
                     self._boot.append(exc)
         found = self._boot[0]
         if isinstance(found, InspectionError):
             raise InspectionError(str(found)) from found
+        if isinstance(found, Exception):
+            raise found
         return found
 
     def legacy_seconds(self) -> str | None:
@@ -242,19 +247,22 @@ class ProcessTable:
         when they cannot be read.
 
         Read the first time a legacy record needs them, once, and kept for the
-        table's life, failed or not, so every legacy record asked about the table
-        shares one `sysctl`; one that asks while it runs waits for it (C-5.12).
-        The lock is this read's own, so no one waiting for `boot()` waits for it."""
+        table's life, whatever the answer (as `boot()` keeps its own), so every
+        legacy record asked about the table shares one `sysctl`; one that asks
+        while it runs waits for it (C-5.12). The lock is this read's own, so no
+        one waiting for `boot()` waits for it."""
         if not self._seconds:
             with self._reading_seconds:
                 if not self._seconds:
                     try:
                         self._seconds.append(boot_identity.boot_seconds(_read))
-                    except InspectionError as exc:
+                    except Exception as exc:
                         self._seconds.append(exc)
         found = self._seconds[0]
         if isinstance(found, InspectionError):
             raise InspectionError(str(found)) from found
+        if isinstance(found, Exception):
+            raise found
         return found
 
     def live(self, pid: int) -> bool:

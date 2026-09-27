@@ -3161,9 +3161,9 @@ class Daemon:
                 pass                             # kept by the table: each attempt sees it
             finally:
                 # Published however the boot read ends: anything else it raises
-                # fails the passes of the attempts given the table (C-5.10
-                # retries them, on this table while it lasts), and never costs
-                # a second `ps` this interval.
+                # is kept by the table and fails the passes of the attempts
+                # given it (C-5.10 retries them, on this table while it lasts),
+                # and never costs a second `ps` or `sysctl` this interval.
                 self._table = (table, began + self.inspect_interval_s)
             return self._table
         finally:

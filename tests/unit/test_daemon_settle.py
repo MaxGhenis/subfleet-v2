@@ -561,14 +561,16 @@ def test_c5_12_only_the_inspection_that_reads_waits_for_the_boot_identity(daemon
 def test_c5_12_a_table_is_published_however_its_boot_identity_read_ends(daemon, monkeypatch):
     """C-5.12, C-5.10 a boot-identity read that raises something other than an inspection failure costs the passes
     of the attempts given the table (C-5.10 retries them), not the interval's ration: the table is still published,
-    so the next attempt to ask is given it rather than reading `ps` again."""
+    so the next attempt to ask is given it rather than reading `ps` again. The table keeps what the read raised, so
+    neither that attempt nor the reader's retry reads `sysctl` again (review of PR #37's port, 2026-09-27, L2)."""
     del daemon._process_table                                  # the daemon's own shared table
     daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
     daemon.inspect_interval_s = 30
     other = add_running(daemon, JOB + "-b", 5252)
-    reads = []
+    reads, boot_reads = [], []
 
     def broken():
+        boot_reads.append(1)
         raise RuntimeError("not an inspection failure")
     monkeypatch.setattr(daemon_module.procs, "boot_id", broken)
     monkeypatch.setattr(daemon_module.procs, "snapshot",
@@ -579,7 +581,9 @@ def test_c5_12_a_table_is_published_however_its_boot_identity_read_ends(daemon, 
     assert reads == [1] and daemon._table[0] is not None
     with pytest.raises(RuntimeError):                          # the other asks the same table's boot identity
         daemon._process_attempt(other)
-    assert reads == [1]
+    with pytest.raises(RuntimeError):                          # and C-5.10's retry of the reader is given it too
+        daemon._process_attempt(ATTEMPT)
+    assert reads == [1] and boot_reads == [1]
 
 
 def test_c5_12_a_failed_shared_read_is_all_that_an_outage_costs_an_interval(daemon, monkeypatch):

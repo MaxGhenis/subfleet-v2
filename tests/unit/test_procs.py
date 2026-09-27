@@ -584,6 +584,42 @@ def test_c5_12_inspections_reading_a_table_s_boot_identity_at_once_share_one_sys
     assert reads == [1]
 
 
+def test_c5_12_a_table_keeps_whatever_its_boot_identity_read_raised(monkeypatch):
+    """C-5.12 a table's boot-identity read is made once, whatever it raises: an error that is not an inspection
+    failure (a defect) is raised again to every caller, as itself, and not read again by each of them one after
+    another on the table's lock.
+
+    Review of PR #37's port, 2026-09-27 (L2): only an `InspectionError` was kept, so each attempt given the table
+    read `sysctl` again, one after another (the review's probe: 1.15, 2.18 and 3.23 s, and 4 reads for one table)."""
+    reads = []
+
+    def broken():
+        reads.append(1)
+        raise RuntimeError("not an inspection failure")
+    monkeypatch.setattr(procs, "boot_id", broken)
+    table = procs.ProcessTable({42: (1, 42, "Ss", START)})
+    for ask in (table.boot, lambda: table.is_process(42, BOOT_A, START), lambda: table.identity(42)):
+        with pytest.raises(RuntimeError, match="not an inspection failure"):
+            ask()
+    assert reads == [1]
+
+
+def test_c5_12_a_table_keeps_whatever_its_kern_boottime_read_raised(monkeypatch):
+    """C-5.12 so is the `kern.boottime` read a legacy record needs: once per table, whatever it raises."""
+    reads = []
+
+    def read(argv, *, empty_ok=False):
+        assert argv[-1] == "kern.boottime", argv
+        reads.append(1)
+        raise RuntimeError("not an inspection failure")
+    monkeypatch.setattr(procs, "_read", read)
+    table = procs.ProcessTable({42: (1, 42, "Ss", START), 43: (1, 43, "Ss", START)}, BOOT_A)
+    for pid in (42, 43, 42):
+        with pytest.raises(RuntimeError, match="not an inspection failure"):
+            table.is_process(pid, "100", START, legacy=True)
+    assert reads == [1]
+
+
 def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypatch):
     """C-5.5, C-5.12 a marker process born after the snapshot and gone by the identity read leaves the census, which
     needs no `sysctl`: a failed one cannot make that census unverifiable.
