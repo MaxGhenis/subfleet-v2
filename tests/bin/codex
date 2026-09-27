@@ -140,6 +140,13 @@ def main() -> int:
     if os.environ.get("SUBFLEET_FAKE_DIRTY") == "1":
         Path("fake-dirty.txt").write_text("unfinished provider work\n")
 
+    # Let process-lifetime tests release the provider after their observations,
+    # independent of how long the machine takes to schedule the test parent.
+    release = os.environ.get("SUBFLEET_FAKE_RELEASE_PATH")
+    if release and not os.environ.get("SUBFLEET_PROBE"):
+        while not Path(release).exists():
+            time.sleep(.01)
+
     delay = max(0.0, float(os.environ.get("SUBFLEET_FAKE_DELAY_S", "0")))
     if scenario == "slow":
         delay = delay or 1.0
