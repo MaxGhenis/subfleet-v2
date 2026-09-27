@@ -52,6 +52,7 @@ from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, precondition, rule
 
 from subfleet import actions as actions_module
+from subfleet import ids as ids_module
 from subfleet import capacity, protocol, scheduler
 from subfleet import daemon as daemon_module
 from subfleet import policy as policy_module
@@ -272,8 +273,9 @@ class AdmissionMachine(RuleBasedStateMachine):
         self.last_verdict: dict[str, str] = {}      # job id -> C-6.10's verdict at its last look
         self.quarantine = False                     # probe containment cannot be verified (C-5.5)
         self.passes = 0
+        # `ids` too: job ids carry a timestamp, and a derandomized run should name its jobs alike.
         for module in (daemon_module, scheduler, capacity, store_module, timers_module,
-                       policy_module, actions_module):
+                       policy_module, actions_module, ids_module):
             self.patch.setattr(module, "datetime", self.clock.datetime)
         self.patch.setattr(daemon_module.procs, "boot_id", lambda: "stateful-boot")
         self.patch.setattr(daemon_module.procs, "proc_start", lambda pid: "stateful-start")
@@ -849,8 +851,10 @@ class AdmissionMachine(RuleBasedStateMachine):
         _, exclusions, retry = self.service._retry_pin(job)
         for candidate in ([retry] if retry else []) + [job]:
             try:
+                if exclusions:
+                    self.service._merged_exclusions(job, exclusions)
                 lane = self.service._pick(candidate, extra_exclusions=exclusions).chosen_lane
-            except daemon_module.ROUTE_ERRORS:
+            except (daemon_module.Unroutable, *daemon_module.ROUTE_ERRORS):
                 continue                    # its next look settles it (C-6.12); it is not placeable
             if lane:
                 return lane

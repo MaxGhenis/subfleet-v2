@@ -2520,6 +2520,10 @@ class Daemon:
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
             try:
+                if extra_exclusions:
+                    # C-6.12: checked where the route is prepared, so a failure here counts
+                    # toward the deferral backoff instead of following a reset of it.
+                    self._merged_exclusions(job, extra_exclusions)
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:
                 self._unroutable(job, exc, holds)
@@ -2561,12 +2565,7 @@ class Daemon:
                 if job["cancel_requested_at"] or job["state"] in TERMINAL:
                     continue
                 if extra_exclusions:
-                    try:
-                        job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
-                    except ROUTE_ERRORS as exc:
-                        # C-6.12: a stored exclusion that is not a lane name is this job's
-                        # problem (it waits on `route`), never the pass's.
-                        raise Unroutable(exc) from exc
+                    job["exclusions"] = self._merged_exclusions(job, extra_exclusions)
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
                 needs_probe = self._needs_probe(decision, job)
@@ -2682,6 +2681,18 @@ class Daemon:
                 with self._busy_lock:
                     self._busy.discard(aid)
             self._notify()
+
+    @staticmethod
+    def _merged_exclusions(job: dict, extra: tuple[str, ...]) -> str:
+        """C-4.5, C-6.12: the job's exclusions with the lanes its attempts added, as stored.
+
+        A stored exclusion that is not a lane name (submit refuses one; an older row
+        may hold one) cannot be merged. That is this job's problem, never the pass's.
+        """
+        try:
+            return json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra)))
+        except ROUTE_ERRORS as exc:
+            raise Unroutable(exc) from exc
 
     @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):

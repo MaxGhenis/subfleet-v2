@@ -121,6 +121,8 @@ def test_c6_9_a_full_fleet_stops_the_pass(fleet):
     ({"task": "review", "tier": None}, {"opus", "astra"}),                       # no tier is `standard`
     ({"task": "review", "tier": "trivial"}, {"haiku", "sonnet", "opus", "astra"}),
     ({"task": "authored-prose", "tier": "hard"}, {"fable"}),
+    ({"task": "review", "tier": "standard", "pinned_lane": "claude-3"}, {"opus"}),   # a pinned job walks one model
+    ({"task": "sweep", "tier": "hard", "pinned_lane": "codex-1"}, {"astra"}),
     ({"pinned_lane": "claude-3"}, None),
     ({"task": "not-a-task", "tier": "standard"}, None),
 ])
