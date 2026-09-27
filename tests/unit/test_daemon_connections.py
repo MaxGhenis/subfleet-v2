@@ -428,7 +428,12 @@ def test_c16_7_shutdown_leaves_no_client_connection_open(serve, monkeypatch):
     until(lambda: service._closed and not service._connections, timeout=5)
     assert time.monotonic() - started < 3                # the join was bounded
     for sock in held:
-        assert sock.recv(1) == b""                       # closed by the daemon, not left open
+        data = b""
+        while chunk := sock.recv(65536):                 # closed by the daemon, not left open
+            data += chunk
+        # C-16.8: a connection whose reader returned ends with the stopping
+        # answer (69, nothing was run); a wedged reader's is closed bare.
+        assert all(json.loads(line)["error"]["code"] == 69 for line in data.splitlines()), data
         sock.close()
     wedged.set()
 
@@ -560,7 +565,7 @@ def test_c16_3_a_busy_resend_settles_nothing_and_the_outcome_stays_unknown(monke
     args = {"job_id": "j"} if op == "kill" else {"request_id": "r-1"}
     with pytest.raises(OutcomeUnknown) as unknown:
         client.call_settled(op, args, request_id="r-1", minted=True, requery_timeout=.4)
-    assert "was not read" in str(unknown.value)
+    assert "was not run" in str(unknown.value)                     # busy or stopping: 69 (C-16.8)
     assert ("list" in sent) == (op == "submit")                     # a submit is looked up
 
 

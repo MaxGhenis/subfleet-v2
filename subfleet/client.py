@@ -109,9 +109,10 @@ class DaemonError(Exception):
 
     @property
     def busy(self) -> bool:
-        """C-16.7: the daemon was at its connection cap and answered before
-        reading the request. It sends 69 over the socket for nothing else, so
-        the request did nothing and may be sent again as it is."""
+        """C-16.7, C-16.8: the daemon did not run the request. It sends 69 over
+        the socket only when it was at its connection cap and answered before
+        reading the request, or was stopping and did not run it; either way the
+        request did nothing and may be sent again as it is."""
         return self.code == Exit.DAEMON_UNAVAILABLE
 
 
@@ -368,12 +369,15 @@ class Client:
 
         `DaemonUnavailable` before the request is sent, `ResponseLost` after it
         was sent and before a complete, decodable answer was read (C-16.3).
-        A busy answer (C-16.7) is not an outcome: the daemon read nothing, so the
-        same request is sent again after `busy_pause`. Retries happen only in the
-        first half of the deadline, so a retry the daemon does read still has at
-        least half the deadline to answer; one admitted with seconds left could
-        time out and turn a clean "busy" into an unknown outcome (C-16.3). The
-        first try has the whole deadline, and every message names it.
+        A busy answer (C-16.7) or a stopping one (C-16.8) is not an outcome: the
+        daemon ran nothing, so the same request is sent again after `busy_pause`.
+        Retries happen only in the first half of the deadline, so a retry the
+        daemon does read still has at least half the deadline to answer; one
+        admitted with seconds left could time out and turn a clean "busy" into an
+        unknown outcome (C-16.3). The first try has the whole deadline, and every
+        message names it. A try after a stopping answer reaches a restarted
+        daemon or is refused, and a refusal's `DaemonUnavailable` names the
+        answer that came before it.
         """
         deadline = self.timeout if timeout is None else timeout
         started = _clock()
@@ -389,6 +393,11 @@ class Client:
                 return self._call_once(op, args, request_id=request_id,
                                        timeout=deadline - elapsed if busy else deadline,
                                        stated=deadline)
+            except DaemonUnavailable as exc:
+                if busy is None:
+                    raise
+                raise DaemonUnavailable(f"{exc} (before that it answered: {busy})",
+                                        exc.fix) from exc
             except DaemonError as exc:
                 if not exc.busy or not self.retry_busy:
                     raise
@@ -532,14 +541,15 @@ class Client:
 
     def _settle_busy_resend(self, op: str, busy: DaemonError, request_id: str, *,
                             minted: bool, first: ResponseLost) -> dict[str, Any]:
-        """The re-send met only busy answers (C-16.7): it was never read, so it
-        settles nothing, and the first request's outcome is still unknown (C-16.3).
+        """The re-send met only busy or stopping answers (C-16.7, C-16.8): it was
+        never run, so it settles nothing, and the first request's outcome is still
+        unknown (C-16.3).
 
         A submit under a request id this call minted is answered by a job that
         carries the id, as for a refused re-send. Anything else is reported as
         unknown, never as busy: exit 69 would read as "nothing was sent".
         """
-        reasons = [str(first), f"the re-sent request was not read: {busy}"]
+        reasons = [str(first), f"the re-sent request was not run: {busy}"]
         if op == "submit" and request_id:
             try:
                 job = self.find_request(request_id)
