@@ -4291,18 +4291,23 @@ class Daemon:
         """C-5.11: identities for the group members `recorded` lacks.
 
         One group snapshot names the members and their start times. A member
-        recorded under the same start is not asked again; a new pid, or a pid a
-        new process now holds, is captured by `procs.identity` (C-5.3). The
-        caller re-checks the leader before recording anything (C-5.4).
+        recorded under the same start and the current boot identity is not
+        asked again. A new pid, a pid a new process now holds, and a member
+        recorded under another boot identity (legacy `kern.boottime` seconds
+        from before the boot UUID could be read, or seconds a clock correction
+        has since moved) are captured by `procs.identity` (C-5.3), as the full
+        census refreshed them. The caller re-checks the leader before recording
+        anything (C-5.4).
         """
         try:
             members = procs.group_members(pgid or 0)
+            booted = procs.boot_id()
         except procs.InspectionError:
             return {}
         fresh = {}
         for pid, started in sorted(members.items()):
             known = recorded.get(str(pid))
-            if known and known.get("proc_start") == started:
+            if known and known.get("proc_start") == started and known.get("boot_id") == booted:
                 continue
             try:
                 ident = procs.identity(pid)
