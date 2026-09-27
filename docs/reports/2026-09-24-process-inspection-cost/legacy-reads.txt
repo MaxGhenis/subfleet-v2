@@ -1,5 +1,6 @@
-# probe_legacy_reads.py (final review of PR #37, 2026-09-26), run on 2026-09-27: process starts one inspection interval costs an attempt whose guardian was recorded with the boot session UUID and one recorded with legacy kern.boottime seconds; procs._read is faked, so nothing real is started
-# base = 00a1239 (PR #37 as reviewed, with main merged); head = this branch once the final review's fixes are in; "interval" lines forget the 5 s boot-identity cache first, "warm" lines keep it
+# tools/probe_legacy_reads.py (final review of PR #37, 2026-09-26), run on 2026-09-27: process starts one inspection interval costs an attempt whose guardian was recorded with the boot session UUID and one recorded with legacy kern.boottime seconds; procs._read is faked, so nothing real is started
+# base = 00a1239 (PR #37 as reviewed, with main merged); head = 32c1835 (this branch once the final review's fixes are in; the probe ran on that tree just before it was committed); "interval" lines forget the 5 s boot-identity cache first, "warm" lines keep it
+# Usage: `uv run python tools/probe_legacy_reads.py`, which imports the tree it sits in; run again on 2026-09-27 with the committed probe in `git archive` copies of 00a1239 and 32c1835, the output was identical line for line
 ## base 2026-09-27T06:00:13Z
 uuid interval 0: 2 process starts; shared table reads=1; all=['ps -axo pid=,ppid=,pgid=,stat=,lstart=', 'sysctl -n kern.bootsessionuuid']
 uuid interval 1: 2 process starts; shared table reads=1; all=['ps -axo pid=,ppid=,pgid=,stat=,lstart=', 'sysctl -n kern.bootsessionuuid']
