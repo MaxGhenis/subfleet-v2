@@ -685,3 +685,23 @@ def test_c16_3_handoff_says_whether_it_minted_the_request_id(home, repo, policy,
                     stage_prompt=lambda text: (staged.write_text(text, encoding="utf-8"), staged)[1],
                     workdir=repo, request_id=request_id, **extra)
     assert daemon.minted == [minted]
+
+
+def test_a_bounded_read_is_bounded_by_the_file_it_reads(tmp_path, monkeypatch):
+    """C-25.3 (review of aa41312, finding 2): `_read_bounded` (a workspace's
+    PROGRESS.md) took the size from a stat of the path, then read the file it opened
+    whole when that size was small: a file grown or swapped in between was read
+    whole. The size is the open file's, and the read is capped either way."""
+    from subfleet.sessions import handoff as handoff_module
+    path = tmp_path / "PROGRESS.md"
+    path.write_text("a" * 400_000 + "z")
+    real_stat = Path.stat
+
+    def small(self, *args, **kwargs):                  # the path looked small when it was checked
+        info = real_stat(self, *args, **kwargs)
+        return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, info.st_uid, info.st_gid,
+                               10, info.st_atime, info.st_mtime, info.st_ctime)) if self == path else info
+
+    monkeypatch.setattr(Path, "stat", small)
+    text = handoff_module._read_bounded(path, max_bytes=1_000)
+    assert len(text) <= 1_000 + len("\n... [middle omitted] ...\n")

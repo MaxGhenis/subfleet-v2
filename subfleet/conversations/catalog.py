@@ -272,18 +272,27 @@ def _cached(cache: dict, fresh: dict, path: Path, reader, started: float, wall_s
     return record
 
 
-def _codex_names(home: Path, opener=transcripts.open_regular) -> dict[str, str]:
+#: The most of Codex's `session_index.jsonl` read (it had been read whole).
+INDEX_MAX = 64 * 1024 * 1024
+
+
+def _codex_names(home: Path, opener=transcripts.open_regular, only: str | None = None) -> dict[str, str]:
+    """Codex's thread names, scrubbed, from the first `INDEX_MAX` of its index. With
+    `only`, the one thread's: a line that does not name it is not parsed or
+    scrubbed (a 200,000-row index had taken 100 s to scrub for one name)."""
     names: dict[str, str] = {}
+    wanted = only.lower().encode() if only else None
     try:
-        with opener(home / "session_index.jsonl", "r") as stream:
-            index = stream.read()
-        for raw in index.splitlines():
-            try:
-                row = json.loads(raw)
-            except ValueError:
-                continue
-            if row.get("id") and row.get("thread_name"):
-                names[row["id"]] = scrub(row["thread_name"])[:200]
+        with opener(home / "session_index.jsonl", "rb") as stream:
+            for raw in transcripts.capped_lines(stream, INDEX_MAX):
+                if wanted is not None and wanted not in raw.lower():
+                    continue
+                try:
+                    row = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and row.get("id") and row.get("thread_name"):
+                    names[row["id"]] = scrub(row["thread_name"])[:200]
     except OSError:
         pass
     return names
@@ -609,7 +618,7 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
         record = _codex_record(matches[0])
         if lane_id is None:
             return {"continuable": False, "continue_blocker": "codex-app thread: continue by handoff"}
-        return {"cwd": record.get("cwd"), "title": _codex_names(Path.home() / ".codex").get(session_id)
+        return {"cwd": record.get("cwd"), "title": _codex_names(Path.home() / ".codex", only=session_id).get(session_id)
                 or record.get("first_prompt"), "model_value": record.get("model") or "",
                 "permission": "read-only", "continuable": True, "lane_id": lane_id}
     return None

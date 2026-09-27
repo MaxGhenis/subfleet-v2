@@ -40,6 +40,7 @@ Ported from v1 `subfleet/handoff.py`; the regexes and the section order are its.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import uuid
@@ -360,14 +361,15 @@ def looks_binary(text: str) -> bool:
 
 
 def first_task(path: Path, cap: int) -> tuple[str, str | None, int]:
-    """The session's original instruction: the first real human turn."""
+    """The session's original instruction: the first real human turn, looked for
+    in the transcript's first `FULL_SCAN_BYTES` (it had read a file of any size)."""
     try:
-        stream = transcripts.open_regular(path, "r", encoding="utf-8", errors="replace")
+        stream = transcripts.open_regular(path)
     except OSError as exc:
         raise HandoffError(f"cannot read transcript {path}: {exc}") from exc
     with stream:
-        for line in stream:
-            entry = _parse(line)
+        for raw in transcripts.capped_lines(stream, FULL_SCAN_BYTES):
+            entry = _parse(raw.decode("utf-8", "replace"))
             if not transcripts.is_main(entry) or entry.get("type") != "user":
                 continue
             origin = entry.get("origin") if isinstance(entry.get("origin"), dict) else {}
@@ -495,10 +497,10 @@ def select_segments(segments: list[tuple[str, int, str | None]],
 
 def _read_bounded(path: Path, max_bytes: int = PROGRESS_READ_BYTES) -> str:
     try:
-        size = path.stat().st_size
         with transcripts.open_regular(path) as stream:
+            size = os.fstat(stream.fileno()).st_size     # the file read, not the path's
             if size <= max_bytes:
-                raw = stream.read()
+                raw = stream.read(max_bytes)            # never more, however it grows meanwhile
             else:
                 half = max_bytes // 2
                 raw = stream.read(half)

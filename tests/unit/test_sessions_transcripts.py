@@ -454,3 +454,130 @@ def test_every_transcript_reader_skips_a_fifo_at_once(tmp_path):
         thread.join(10)
         assert not thread.is_alive(), f"{name} blocked on a FIFO"
         assert out and out[0] in ([], None, False, 0), (name, out)
+
+
+# --- what a reader reads is capped (C-25.3, review of aa41312, finding 2) --------------------
+
+class _Counted:
+    """A stream that counts the bytes read through it."""
+
+    def __init__(self, stream, counter):
+        self.stream, self.counter = stream, counter
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.stream.close()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+    def read(self, *args):
+        data = self.stream.read(*args)
+        self.counter[0] += len(data)
+        return data
+
+    def readline(self, *args):
+        data = self.stream.readline(*args)
+        self.counter[0] += len(data)
+        return data
+
+
+def _counting(monkeypatch) -> list[int]:
+    counter = [0]
+    real = transcripts.open_regular
+    monkeypatch.setattr(transcripts, "open_regular", lambda *a, **kw: _Counted(real(*a, **kw), counter))
+    return counter
+
+
+def test_capped_lines_reads_its_budget_and_skips_a_line_too_long_to_hold(tmp_path):
+    """Whole lines within the budget; a line longer than `max_line` is skipped, not
+    held; nothing past the budget is read."""
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b"one\n" + b"x" * 5000 + b"\ntwo\nthree\n" + b"y" * 10_000 + b"\n")
+    with path.open("rb") as stream:
+        assert list(transcripts.capped_lines(stream, 10**6, max_line=100)) == [b"one\n", b"two\n", b"three\n"]
+    with path.open("rb") as stream:                   # the budget ends inside "two"
+        assert list(transcripts.capped_lines(stream, 5_006, max_line=100)) == [b"one\n"]
+        assert stream.tell() <= 5_006
+    with path.open("rb") as stream:
+        assert list(transcripts.capped_lines(stream, 5_012, max_line=10**6)) == [b"one\n", b"x" * 5000 + b"\n", b"two\n"]
+
+
+def test_the_forward_reader_skips_a_line_longer_than_it_holds(tmp_path, monkeypatch):
+    """A history page reads forward from its cursor for calls' results. It returned a
+    line however long past its window (an 8 MiB window returned an 8 MiB + 1 KiB line);
+    it now skips a line longer than `max_line`, reading at most the window and one
+    line more, and keeps every other line's offset."""
+    path = tmp_path / "rollout.jsonl"
+    lines = [b"first", b"z" * 50_000, b"after", b"last"]
+    path.write_bytes(b"".join(line + b"\n" for line in lines))
+    counter = _counting(monkeypatch)
+    rows = list(transcripts.lines_forward_with_offsets(path, 0, 10**6, max_line=1_000))
+    assert rows == [(0, "first"), (50_007, "after"), (50_013, "last")]
+    counter[0] = 0
+    assert list(transcripts.lines_forward_with_offsets(path, 6, 2_000, max_line=1_000)) == []
+    assert counter[0] <= 2_000 + 1_001
+
+
+def test_finding_a_lines_start_reads_no_further_back_than_its_budget(tmp_path, monkeypatch):
+    """History's cursor recovery scanned back to the file's start for the row the
+    cursor falls in: past its budget, as far as the file is long. With `max_bytes` it
+    scans no further, and a row that starts further back is cut there."""
+    from subfleet.conversations import history
+    monkeypatch.setattr(history, "READ_BUDGET", 1_000_000)
+    path = tmp_path / "rollout.jsonl"
+    with path.open("wb") as stream:
+        stream.truncate(3_000_000)                         # one row, no newline
+    counter = _counting(monkeypatch)
+    assert transcripts.line_start(path, 2_999_999, max_bytes=1_000_000) == 1_999_999
+    assert counter[0] <= 1_000_000
+    counter[0] = 0
+    history._next_cursor(path, 3_000_000, None)
+    assert counter[0] <= 1_000_000 + history.BLANK_PROBE
+
+
+def test_a_first_task_is_looked_for_only_in_the_scan_budget(tmp_path, monkeypatch):
+    """Both first-task scanners (a Claude transcript, a Codex rollout) read on past
+    `FULL_SCAN_BYTES` (64 MiB) to a user turn however far in; each now looks no
+    further, and a transcript with no user turn within it has no task."""
+    from subfleet.conversations import codex_brief
+    from subfleet.sessions import handoff
+    monkeypatch.setattr(handoff, "FULL_SCAN_BYTES", 64 * 1024)
+    path = tmp_path / "native.jsonl"
+    with path.open("w") as stream:
+        for _ in range(100):
+            stream.write(json.dumps({"type": "system", "text": "x" * 1000}) + "\n")
+        stream.write(json.dumps({"type": "response_item", "payload": {"type": "message", "role": "user",
+                     "content": [{"type": "input_text", "text": "late user task"}]}}) + "\n")
+        stream.write(json.dumps({"type": "user", "uuid": "first", "message": {"content": "late user task"}}) + "\n")
+    for first_task in (handoff.first_task, codex_brief.first_task):
+        with pytest.raises(handoff.HandoffError, match="no user task"):
+            first_task(path, 256)
+
+
+def test_a_headless_check_reads_its_byte_budget_at_most(tmp_path, monkeypatch):
+    """`headless_transcript` read up to 5000 lines of any length; it also stops at
+    `max_bytes`, and decides on what it read, as it does at its line limit."""
+    path = tmp_path / "t.jsonl"
+    sdk = {"type": "user", "promptSource": "sdk", "message": {"content": "brief"}}
+    typed = {"type": "user", "promptSource": "typed", "message": {"content": "hello"}}
+    path.write_text(json.dumps(sdk) + "\n" + json.dumps({"type": "system", "text": "x" * 20_000}) + "\n"
+                    + json.dumps(typed) + "\n")
+    counter = _counting(monkeypatch)
+    assert transcripts.headless_transcript(path) is False                    # all read: a typed prompt
+    counter[0] = 0
+    assert transcripts.headless_transcript(path, max_bytes=10_000) is True   # stopped before it
+    assert counter[0] <= 10_000
+
+
+def test_a_registry_row_is_read_only_up_to_its_cap(tmp_path, monkeypatch):
+    """Each registry file was read whole on every dispatch check; one past
+    `ROW_MAX` reads as no row."""
+    monkeypatch.setattr(registry, "ROW_MAX", 4_096)
+    path = tmp_path / "123.json"
+    path.write_text(json.dumps({"sessionId": "s-1", "pid": 123}) + " " * 10_000)
+    assert registry._row(path) is None
+    path.write_text(json.dumps({"sessionId": "s-1", "pid": 123}))
+    assert registry._row(path).session_id == "s-1"
