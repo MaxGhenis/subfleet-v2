@@ -75,6 +75,10 @@ FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "co
                       "conversation.create", "conversation.handoff"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
 MAX_WAIT_S = 50.0
+# C-25.2: the same operational error (op and reason) is logged again at most this often,
+# as C-6.11 repeats a stalled admission's warning, so a client resending a stuck op
+# (the app does, with backoff to 30 s) cannot flood daemon.log.
+FAULT_LOG_REPEAT_S = 600.0
 RECEIPT_TEXT_CHARS = 20_000
 
 # How a message settles, and when it may be carried again, is `reconcile.py`'s.
@@ -141,6 +145,9 @@ class ConversationService:
         self._handovers = tuple(threading.Lock() for _ in range(HANDOVER_STRIPES))
         self.log = daemon.log
         self.clock = time.monotonic
+        # (op, reason) -> (monotonic time last logged, occurrences held back since)
+        self._faults: dict[tuple[str, str], tuple[float, int]] = {}
+        self._faults_lock = threading.Lock()
         # message id -> (refusals in a row, monotonic time of the next try)
         self._deferred: dict[str, tuple[int, float]] = {}
         self._catalog_lock = threading.RLock()
@@ -201,7 +208,7 @@ class ConversationService:
             response = protocol.ok(req.id, self.handle(req.op, req.args, peer))
         except ConversationError as exc:
             if exc.code == 1:                   # an operational fault, not a refusal: say it where it can be found
-                self.log.warning("conversation op %s: %s: %s", req.op, exc.reason, exc)
+                self._log_fault(req.op, exc)
             response = protocol.fail(req.id, exc.code, f"{exc.reason}: {exc}", exc.fix)
         except (protocol.ProtocolError, AdapterError) as exc:
             response = protocol.fail(req.id, exc.code, str(exc), exc.fix)
@@ -215,6 +222,21 @@ class ConversationService:
                 conn.sendall(protocol.encode(response))
         except OSError:
             pass
+
+    def _log_fault(self, op: str, exc: ConversationError) -> None:
+        """C-25.2: an operational error (exit 1) at warning, with its op and reason. The
+        same op and reason again within FAULT_LOG_REPEAT_S is counted, not written, and the
+        next line says how many were held back. A refusal (2, 7) is never logged: it is the
+        caller's to act on."""
+        key, now = (op, exc.reason), self.clock()
+        with self._faults_lock:
+            last, held = self._faults.get(key, (None, 0))
+            if last is not None and now - last < FAULT_LOG_REPEAT_S:
+                self._faults[key] = (last, held + 1)
+                return
+            self._faults[key] = (now, 0)
+        more = f" ({held} more held back since the last line)" if held else ""
+        self.log.warning("conversation op %s: %s: %s%s", op, exc.reason, exc, more)
 
     def handle(self, op: str, args: dict, peer: int | None) -> dict:
         if not isinstance(args, dict):
