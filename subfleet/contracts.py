@@ -213,6 +213,18 @@ TERM_GRACE_S = 15
 # census; neither widens what counts as contained.
 KILL_SETTLE_S = 3
 EXIT_SETTLE_S = 3
+# C-5.11 (C-5.3): how often a running attempt's guardian is asked by `ps` whether
+# it is still the recorded process. The exit receipt, the cancel request and the
+# wall limit are still read every tick; only the process inspection is paced.
+# On 2026-09-24 the per-tick inspection (three subprocesses per running attempt,
+# up to twenty times a second) was one of the loads that wedged the daemon.
+LIVENESS_INTERVAL_S = 1.0
+# C-5.11: how often a running attempt re-records the group members it owns
+# (C-5.4); it runs inside the paced liveness pass, so at most that often too.
+OWNED_CENSUS_INTERVAL_S = 0.5
+# C-5.11: `wait` re-reads the store when a transaction has committed since its
+# last look, and at least this often regardless.
+WAIT_RECHECK_S = 1.0
 # C-5.8a: a stopping daemon that has not ended this long after its stop was armed
 # dumps its threads' stacks and ends. Longer than probe containment during a stop
 # (SIGTERM, up to TERM_GRACE_S of census polling, then SIGKILL and one census),
