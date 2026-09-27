@@ -1038,13 +1038,23 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     had removed the state root, and made the root again, holding `attachments/<sha>.png`
     (a worktree create did the same with `worktrees/`). close() now returns only once
     the file ops already running have finished, while the root and the store are still
-    there, so removing the root afterwards leaves nothing to bring it back."""
+    there, so removing the root afterwards leaves nothing to bring it back.
+
+    The test lets the op go on only once close() is inside its wait, having handed it
+    the op with its full bound (reviews of 39223c9 and aa41312: a timer, then a signal
+    before the wait, let a close() that did not wait pass)."""
     root = svc.root
     future, go = held_file_op(svc, monkeypatch, tmp_path, repo, op)
-    running_at_return = []
-    shutting = threading.Event()
-    real_shutdown = svc.files.shutdown
-    monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (shutting.set(), real_shutdown(**kw))[1])
+    running_at_return, waits = [], []
+    waiting = threading.Event()
+    real_wait = svc._await_file_ops
+
+    def watched_wait(running, timeout):
+        waits.append((set(running), timeout))
+        waiting.set()
+        return real_wait(running, timeout)
+
+    monkeypatch.setattr(svc, "_await_file_ops", watched_wait)
 
     def owner():                            # as a daemon's owner does: close it, then remove its root
         svc.close()
@@ -1053,8 +1063,8 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
 
     closer = threading.Thread(target=owner)
     closer.start()
-    assert shutting.wait(30), "close() never reached the file pool"
-    closer.join(1.0)                        # a close() that does not wait has returned by now
+    assert waiting.wait(30), "close() never waited for the file ops"
+    assert waits == [({future}, service_module.FILE_OPS_STOP_WAIT_S)], waits
     go.set()
     closer.join(30)
     assert not closer.is_alive(), "close() did not return once the op had finished"
@@ -1073,6 +1083,31 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     if root.exists():
         problems.append(f"the removed state root came back holding {tree(root)}")
     assert problems == [], "\n".join(problems)
+
+
+def test_close_waits_for_a_file_op_only_so_long_and_the_op_still_makes_no_root(svc, repo, monkeypatch, tmp_path,
+                                                                             caplog):
+    """C-25.3 (reviews of 39223c9 and aa41312): close() waited for the file ops already
+    running without a bound, and one read that never returns (a FIFO, a stalled
+    filesystem) held it for good. It now waits FILE_OPS_STOP_WAIT_S, says how many ops
+    it outlasted, and closes the store under them. The op, once it goes on, fails and
+    leaves the root its owner removed gone."""
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 0.3)
+    root = svc.root
+    future, go = held_file_op(svc, monkeypatch, tmp_path, repo, "attachment.add")
+    closer = threading.Thread(target=svc.close)
+    with caplog.at_level(logging.WARNING, logger="test-conversations"):
+        closer.start()
+        closer.join(30)
+    try:
+        assert not closer.is_alive(), "close() waited for the held op past its bound"
+        assert not future.done() and "1 file op(s) still running 0.3 s into close()" in caplog.text
+        shutil.rmtree(root)                 # the owner, once close() has returned
+    finally:
+        go.set()
+    with pytest.raises(ConversationError) as err:
+        future.result(30)
+    assert err.value.reason == "state-root-gone" and not root.exists()
 
 
 def test_close_never_runs_a_file_op_it_had_not_started(svc, monkeypatch, tmp_path):

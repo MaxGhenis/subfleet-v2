@@ -93,6 +93,10 @@ DEFER_MAX_S = 300.0
 CATALOG_KILL_AFTER_S = 60.0
 # How long close() waits for a catalog run to end after SIGTERM, and again after SIGKILL.
 CATALOG_STOP_WAIT_S = 2.0
+# How long close() waits for the file ops already running (C-25.3). They take
+# milliseconds, git under its own caps longer; one held past this (a read that blocks,
+# a slow git call) is logged, and the store is closed under it.
+FILE_OPS_STOP_WAIT_S = 10.0
 # Attempt states that have ended; `quarantined` has not (its processes may live).
 ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 # The dispatcher's claim on a queued message while it creates the message's turn job
@@ -108,13 +112,41 @@ HANDOFF_KEEPS = ("unblock-note",)
 HANDOFF_FENCE = "handoff:"
 
 
+class FilePool(concurrent.futures.ThreadPoolExecutor):
+    """The file pool (C-25.3). It keeps its unfinished work, so close() can wait for
+    what is running with a bound: `shutdown(wait=True)` waits without one, and one op
+    blocked for good (a FIFO where a rollout belonged) held close() for good."""
+
+    def __init__(self, workers: int, name: str):
+        super().__init__(workers, thread_name_prefix=name)
+        self._unfinished: set[concurrent.futures.Future] = set()
+        self._guard = threading.RLock()      # re-entered: a cancel in stop() runs `_finished`
+
+    def submit(self, fn, /, *args, **kwargs):
+        with self._guard:                    # after stop() nothing is taken; before it, all is kept
+            future = super().submit(fn, *args, **kwargs)
+            self._unfinished.add(future)
+        future.add_done_callback(self._finished)
+        return future
+
+    def _finished(self, future: concurrent.futures.Future) -> None:
+        with self._guard:
+            self._unfinished.discard(future)
+
+    def stop(self) -> list[concurrent.futures.Future]:
+        """Cancel what has not started and take nothing more; return what still runs."""
+        with self._guard:
+            self.shutdown(wait=False, cancel_futures=True)
+            return [future for future in self._unfinished if not future.done()]
+
+
 class ConversationService:
     def __init__(self, daemon):
         self.daemon = daemon
         self.root: Path = daemon.root
         self.store = ConversationStore(self.root)
         self.polls = concurrent.futures.ThreadPoolExecutor(8, thread_name_prefix="subfleet-poll")
-        self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
+        self.files = FilePool(2, "subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
         self._handing_off: set[str] = set()          # source conversations mid-handoff (IR-28)
@@ -138,12 +170,21 @@ class ConversationService:
         self.polls.shutdown(wait=False, cancel_futures=True)
         # File ops write into the state root: an attachment's copy, a worktree. One
         # still running when close() returned finished after its owner had removed
-        # the root, and made it again (review of #47). The ones running finish here,
-        # while the root and the store are still there; queued ones never run, and
-        # the pool takes none after. Each is bounded (a capped file read, git under
-        # its caps), as the ops the daemon's own pools wait for are.
-        self.files.shutdown(wait=True, cancel_futures=True)
+        # the root, and made it again (review of #47). Queued ones never run and the
+        # pool takes none after; the ones running finish here, while the root and the
+        # store are still there. The wait has a bound: an op held for good held close()
+        # for good (reviews of 39223c9). One still running after it is logged; the store
+        # closes under it, and it cannot make the root (`store.subdirectory`).
+        late = self._await_file_ops(self.files.stop(), FILE_OPS_STOP_WAIT_S)
+        if late:
+            self.log.warning("%d file op(s) still running %g s into close(); closing the conversation store "
+                             "under them", len(late), FILE_OPS_STOP_WAIT_S)
         self.store.close()
+
+    @staticmethod
+    def _await_file_ops(running: list, timeout: float) -> set:
+        """close()'s bounded wait for the file ops still running; the ones it outlasted."""
+        return concurrent.futures.wait(running, timeout=timeout).not_done
 
     # --- the socket seam -------------------------------------------------------
 

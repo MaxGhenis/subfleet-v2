@@ -73,16 +73,29 @@ def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
     a writer, so a file op held there held the conversation service's close() for
     good (reviews of 39223c9). O_NONBLOCK lets open() return whatever the path is;
     the descriptor's own type then decides, so the file checked is the file read.
-    Anything else raises `NotRegularFile`, an OSError, as a missing file would."""
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
-        fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
-        return os.fdopen(fd, mode, **kwargs)
-    except BaseException:
-        os.close(fd)
-        raise
+    Anything else raises `NotRegularFile`, an OSError, as a missing file would.
+
+    The descriptor passes to `open()` at one point, its opener's return: from there
+    the file object owns it, and closes it once whatever goes wrong after (a bad
+    encoding, say), where `os.fdopen` had already closed it and a second close
+    could close another thread's descriptor (review of aa41312)."""
+    if set(mode) - set("rbt"):
+        raise ValueError(f"open_regular reads only; mode {mode!r}")
+
+    def opener(name: str, flags: int) -> int:
+        fd = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
+            fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+
+    return open(path, mode, opener=opener, **kwargs)
+
+
 _MAIN_ENTRY_LIMIT = 12
 _MODE_RE = re.compile(rb'"permissionMode"\s*:\s*"([A-Za-z]+)"')
 

@@ -405,23 +405,74 @@ def test_open_regular_reads_a_regular_file_or_a_link_to_one_as_open_would(tmp_pa
         transcripts.open_regular(tmp_path / "missing.jsonl")
 
 
+def open_fds() -> set[int]:
+    return {int(n) for n in os.listdir("/dev/fd")}
+
+
+@pytest.mark.parametrize("kwargs", [{"encoding": "no-such-codec"}, {"newline": "bad"}, {"buffering": 0}])
+def test_open_regular_hands_its_descriptor_over_once(tmp_path, kwargs):
+    """Review of aa41312: `os.fdopen` closes the descriptor when its options are bad,
+    and open_regular then closed it again, masking the error with EBADF and able to
+    close a descriptor another thread had just been given. Now `open()` owns it from
+    the opener's return: the caller sees the options' own error and no descriptor is
+    left open."""
+    path = tmp_path / "t.jsonl"
+    path.write_text("{}\n")
+    before = open_fds()
+    with pytest.raises((LookupError, ValueError)) as err:
+        transcripts.open_regular(path, "r", **kwargs)
+    assert not isinstance(err.value, OSError), err.value
+    assert open_fds() <= before
+
+
+def test_open_regular_only_reads(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_text("{}\n")
+    for mode in ("w", "a", "r+", "x"):
+        with pytest.raises(ValueError):
+            transcripts.open_regular(path, mode)
+    assert path.read_text() == "{}\n"
+
+
+def release_fifo(path) -> None:
+    """Let any reader still blocked opening `path` go on: a writer opens it, then leaves."""
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_NONBLOCK))
+    except OSError:
+        pass                                # no reader is waiting on it
+
+
 def test_every_transcript_reader_skips_a_fifo_at_once(tmp_path):
-    """The readers a file op uses answer as for an unreadable file (nothing), at once."""
+    """The readers a file op uses answer as for an unreadable file, at once: each
+    with what it answers when the file cannot be read. A reader that blocks is let
+    go before the test fails, so no thread outlives it (review of aa41312)."""
+    import threading
+
+    from subfleet.conversations import catalog, history
     fifo = tmp_path / "rollout.jsonl"
     os.mkfifo(fifo)
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    os.mkfifo(home / "session_index.jsonl")
     readers = {
-        "lines_reversed": lambda: list(transcripts.lines_reversed(fifo)),
-        "lines_reversed_with_offsets": lambda: list(transcripts.lines_reversed_with_offsets(fifo)),
-        "lines_forward_with_offsets": lambda: list(transcripts.lines_forward_with_offsets(fifo, 0, 1 << 20)),
-        "line_start": lambda: transcripts.line_start(fifo, 10),
-        "headless_transcript": lambda: transcripts.headless_transcript(str(fifo)),
-        "registry row": lambda: registry._row(fifo),
+        "lines_reversed": (lambda: list(transcripts.lines_reversed(fifo)), []),
+        "lines_reversed_with_offsets": (lambda: list(transcripts.lines_reversed_with_offsets(fifo)), []),
+        "lines_forward_with_offsets": (lambda: list(transcripts.lines_forward_with_offsets(fifo, 0, 1 << 20)), []),
+        "line_start": (lambda: transcripts.line_start(fifo, 10), 0),
+        "headless_transcript": (lambda: transcripts.headless_transcript(str(fifo)), False),
+        "registry row": (lambda: registry._row(fifo), None),
+        "history's cursor probe": (lambda: history._earlier(fifo, 5), 5),
+        "Codex's session index": (lambda: catalog._codex_names(home), {}),
     }
-    import threading
-    for name, read in readers.items():
+    for name, (read, unreadable) in readers.items():
         out: list = []
         thread = threading.Thread(target=lambda: out.append(read()), daemon=True)
         thread.start()
         thread.join(10)
-        assert not thread.is_alive(), f"{name} blocked on a FIFO"
-        assert out and out[0] in ([], None, False, 0), (name, out)
+        blocked = thread.is_alive()
+        if blocked:
+            for path in (fifo, home / "session_index.jsonl"):
+                release_fifo(path)
+            thread.join(10)
+        assert not blocked, f"{name} blocked on a FIFO"
+        assert out == [unreadable], (name, out)
