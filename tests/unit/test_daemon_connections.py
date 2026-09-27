@@ -270,10 +270,12 @@ def test_c16_7_a_departed_clients_read_is_not_run_but_its_write_still_is(serve):
     release.set()
     assert reply(blocker)["result"] == {"held": True}
     assert "jobs" in reply(live)["result"]
-    # Each connection has its own reader, so the queued two may run in either order.
-    assert ran[0] == "readings" and sorted(ran[1:]) == ["list", "ping"]    # not daemon.status
-    assert counts(service)["abandoned"] == 1
-    notes = service.store.query("SELECT text FROM service_notices")
+    # Each connection has its own reader, so the queued two may run in either order,
+    # and the departed write may finish after `live` is answered; the departed read
+    # is dropped by its reader or by the pool, neither ordered before that answer.
+    until(lambda: sorted(ran[1:]) == ["list", "ping"] and counts(service)["abandoned"] == 1)
+    assert ran[0] == "readings" and "daemon.status" not in ran
+    notes = until(lambda: service.store.query("SELECT text FROM service_notices"))
     assert [row["text"] for row in notes] == ["left before the reply"]
     blocker.close()
     live.close()
