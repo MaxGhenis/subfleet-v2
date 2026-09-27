@@ -87,6 +87,12 @@ def main() -> int:
                     ).fetchone()[0]
                 os.kill(guardian, signal.SIGKILL)
             os.kill(os.getpid(), signal.SIGKILL)
+            # kill() can return before the kernel has torn down every thread.
+            # This thread must never get past the boundary it simulates a crash
+            # at: returning let `reserved` record the pending launch, and the
+            # dying daemon launched the attempt about a quarter of the time.
+            while True:
+                time.sleep(1)
 
     try:
         daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,

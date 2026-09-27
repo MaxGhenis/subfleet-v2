@@ -218,6 +218,12 @@ EXIT_SETTLE_S = 3
 # wall clock are still read every tick; a death verdict is never taken from a
 # shared table.
 INSPECT_INTERVAL_S = 1.0
+# C-5.11: a probe records owned group members inside its paced liveness pass,
+# no more often than this even when its inspection interval is shorter.
+OWNED_CENSUS_INTERVAL_S = 0.5
+# C-5.11: `wait` re-reads the store when a transaction has committed since its
+# last look, and at least this often regardless.
+WAIT_RECHECK_S = 1.0
 # C-5.8a: a stopping daemon that has not ended this long after its stop was armed
 # dumps its threads' stacks and ends. Longer than probe containment during a stop
 # (SIGTERM, up to TERM_GRACE_S of census polling, then SIGKILL and one census),
