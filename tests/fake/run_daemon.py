@@ -90,6 +90,12 @@ def main() -> int:
                     ).fetchone()[0]
                 os.kill(guardian, signal.SIGKILL)
             os.kill(os.getpid(), signal.SIGKILL)
+            # kill() can return before the kernel has torn down every thread.
+            # This thread must never get past the boundary it simulates a crash
+            # at: returning let `reserved` record the pending launch, and the
+            # dying daemon launched the attempt about a quarter of the time.
+            while True:
+                time.sleep(1)
 
     # As `subfleet.daemon.main` does (C-16.6): raise the open-file limit first,
     # so the connection cap is derived from what the process can really open.

@@ -14,6 +14,14 @@ import time
 
 def main() -> int:
     if "--escaped-child" in sys.argv:
+        # Popen gave this process its own session, but it belonged to the
+        # attempt's group between fork() and setsid(), and a census landing
+        # there rightly records it as owned; the kill path then signals it and
+        # nothing escapes (a quarter of runs on a busy machine). Its child is
+        # born outside the group, so no census could ever have owned it: the
+        # escape the test means, marker environment and all.
+        if os.fork():
+            return 0
         marker = os.environ.get("SUBFLEET_FAKE_MARKER")
         if marker:
             Path(marker).write_text(str(os.getpid()), encoding="ascii")
