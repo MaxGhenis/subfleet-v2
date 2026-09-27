@@ -15,6 +15,7 @@ import pytest
 
 from subfleet.sessions import registry, transcripts
 from tests import sessions_fixtures as fx
+from tests.nonblocking import run_child
 
 SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 
@@ -345,24 +346,6 @@ def test_the_offset_readers_agree_with_a_plain_split_of_the_bytes(tmp_path):
 # --- opening a session file (reviews of 39223c9) --------------------------------------
 
 
-def _opened_in_thread(path, *args, **kwargs):
-    """`open_regular(path)` on a helper thread, so a regression that blocks in open()
-    fails the test instead of hanging it: (the result or the exception, finished)."""
-    import threading
-    out: list = []
-
-    def run():
-        try:
-            out.append(transcripts.open_regular(path, *args, **kwargs))
-        except Exception as exc:            # the outcome under test
-            out.append(exc)
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    thread.join(10)
-    return (out[0] if out else None), not thread.is_alive()
-
-
 def _open_fds() -> int:
     return len(os.listdir("/dev/fd"))
 
@@ -371,19 +354,29 @@ def _open_fds() -> int:
 def test_open_regular_refuses_anything_but_a_regular_file_at_once(tmp_path, kind):
     """A FIFO (no writer), a directory or a device is refused with `NotRegularFile`,
     an OSError, without blocking in open() and without leaking its descriptor. A
-    FIFO where a rollout belongs had blocked a file op, and with it close()."""
-    path = tmp_path / "entry"
-    if kind == "fifo":
-        os.mkfifo(path)
-    elif kind == "directory":
-        path.mkdir()
-    else:
-        path = Path(os.devnull)
-    before = _open_fds()
-    result, finished = _opened_in_thread(path)
-    assert finished, f"open_regular blocked on a {kind}"
-    assert isinstance(result, transcripts.NotRegularFile) and isinstance(result, OSError), result
-    assert _open_fds() == before
+    FIFO where a rollout belongs had blocked a file op, and with it close(). In a
+    child process (`tests.nonblocking`): a regression that blocks is killed and
+    reaped, where a helper thread had stayed blocked for the rest of the run."""
+    out = run_child(f"""
+        import os
+        from pathlib import Path
+        from subfleet.sessions import transcripts
+        kind, path = {kind!r}, Path({str(tmp_path / "entry")!r})
+        if kind == "fifo":
+            os.mkfifo(path)
+        elif kind == "directory":
+            path.mkdir()
+        else:
+            path = Path(os.devnull)
+        before = len(os.listdir("/dev/fd"))
+        try:
+            transcripts.open_regular(path)
+        except transcripts.NotRegularFile as exc:
+            print("refused", isinstance(exc, OSError), len(os.listdir("/dev/fd")) - before)
+        else:
+            print("opened")
+    """)
+    assert out.split() == ["refused", "True", "0"], out
 
 
 def test_open_regular_reads_a_regular_file_or_a_link_to_one_as_open_would(tmp_path):
@@ -434,26 +427,48 @@ def test_open_regular_only_reads_through_its_own_descriptor(tmp_path, mode, kwar
     assert path.read_text() == "one\n"
 
 
-def test_every_transcript_reader_skips_a_fifo_at_once(tmp_path):
-    """The readers a file op uses answer as for an unreadable file (nothing), at once."""
-    fifo = tmp_path / "rollout.jsonl"
-    os.mkfifo(fifo)
-    readers = {
-        "lines_reversed": lambda: list(transcripts.lines_reversed(fifo)),
-        "lines_reversed_with_offsets": lambda: list(transcripts.lines_reversed_with_offsets(fifo)),
-        "lines_forward_with_offsets": lambda: list(transcripts.lines_forward_with_offsets(fifo, 0, 1 << 20)),
-        "line_start": lambda: transcripts.line_start(fifo, 10),
-        "headless_transcript": lambda: transcripts.headless_transcript(str(fifo)),
-        "registry row": lambda: registry._row(fifo),
-    }
-    import threading
-    for name, read in readers.items():
-        out: list = []
-        thread = threading.Thread(target=lambda: out.append(read()), daemon=True)
-        thread.start()
-        thread.join(10)
-        assert not thread.is_alive(), f"{name} blocked on a FIFO"
-        assert out and out[0] in ([], None, False, 0), (name, out)
+#: Every reader of a native session's files, as a call on `fifo`, a FIFO named
+#: `session_index.jsonl`: each answers as for an unreadable file (nothing), at once.
+#: The last seven had no test of their own (review of aa41312, finding 4): reverting
+#: any one of them to a plain open() had failed nothing.
+FIFO_READERS = {
+    "lines_reversed": "list(transcripts.lines_reversed(fifo))",
+    "lines_reversed_with_offsets": "list(transcripts.lines_reversed_with_offsets(fifo))",
+    "lines_forward_with_offsets": "list(transcripts.lines_forward_with_offsets(fifo, 0, 1 << 20))",
+    "line_start": "transcripts.line_start(fifo, 10)",
+    "headless_transcript": "transcripts.headless_transcript(str(fifo))",
+    "registry row": "registry._row(fifo)",
+    "history._earlier": "history._earlier(fifo, 10)",            # unreadable: the cursor stays (10)
+    "catalog._codex_names": "catalog._codex_names(fifo.parent)",
+    "catalog._claude_record": "catalog._claude_record(fifo)",
+    "codex_brief._records": "list(codex_brief._records(fifo))",
+    "handoff.first_task": "handoff.first_task(fifo, 1024)",
+    "handoff._read_bounded": "handoff._read_bounded(fifo)",
+    "last_permission_mode": "transcripts.last_permission_mode(fifo)",
+}
+
+
+@pytest.mark.parametrize("reader", list(FIFO_READERS))
+def test_every_transcript_reader_skips_a_fifo_at_once(tmp_path, reader):
+    """The readers a file op uses answer as for an unreadable file (nothing, or the
+    handoff's own refusal), at once. Each in a child process of its own
+    (`tests.nonblocking`), killed and reaped if it blocks: on a helper thread a
+    regression had left the thread blocked for the rest of the run."""
+    out = run_child(f"""
+        import json, os
+        from pathlib import Path
+        from subfleet.conversations import catalog, codex_brief, history
+        from subfleet.sessions import handoff, registry, transcripts
+        fifo = Path({str(tmp_path / "session_index.jsonl")!r})
+        os.mkfifo(fifo)
+        try:
+            answer = {FIFO_READERS[reader]}
+        except handoff.HandoffError:
+            answer = "refused"
+        print(json.dumps(answer))
+    """)
+    nothing = (10,) if reader == "history._earlier" else ([], None, False, 0, "", {}, "refused")
+    assert json.loads(out) in nothing, out
 
 
 # --- what a reader reads is capped (C-25.3, review of aa41312, finding 2) --------------------

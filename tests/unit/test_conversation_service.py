@@ -44,6 +44,7 @@ from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
 from subfleet.store import Store
 from tests import spellings
+from tests.nonblocking import run_child
 from tests.unit.test_conversation_handoff import handoff, world  # noqa: F401 (a fixture)
 from tests.unit.test_conversation_handoff import source as handoff_source
 
@@ -1161,9 +1162,26 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     root = svc.root
     future, go = held_file_op(svc, monkeypatch, tmp_path, repo, op)
     running_at_return = []
-    shutting = threading.Event()
+    shutdowns: list[dict] = []
     real_shutdown = svc.files.shutdown
-    monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (shutting.set(), real_shutdown(**kw))[1])
+    monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (shutdowns.append(kw), real_shutdown(**kw))[1])
+    # The op is let go only once close() waits for its thread: a signal before the
+    # pool's shutdown call let a shutdown that does not wait, reached late, pass
+    # (review of aa41312, finding 5).
+    joining = threading.Event()
+
+    class Watched:
+        def __init__(self, thread):
+            self.thread = thread
+
+        def join(self, timeout=None):
+            joining.set()
+            return self.thread.join(timeout)
+
+        def __getattr__(self, name):
+            return getattr(self.thread, name)
+
+    svc.files._threads = {Watched(thread) for thread in svc.files._threads}
 
     def owner():                            # as a daemon's owner does: close it, then remove its root
         svc.close()
@@ -1172,12 +1190,13 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
 
     closer = threading.Thread(target=owner)
     closer.start()
-    assert shutting.wait(30), "close() never reached the file pool"
-    closer.join(1.0)                        # a close() that does not wait has returned by now
+    until_true(lambda: joining.is_set() or not closer.is_alive(), "close() to wait for the op or return")
     go.set()
     closer.join(30)
     assert not closer.is_alive(), "close() did not return once the op had finished"
     problems = []
+    if not joining.is_set() or [kw.get("wait") for kw in shutdowns] != [True]:
+        problems.append(f"close() never waited for the file pool's threads: shutdown{shutdowns}")
     if running_at_return != [False]:
         problems.append(f"close() returned while {op} was still running")
     try:
@@ -1247,17 +1266,8 @@ CODEX_SETTINGS = {"model": "gpt-6-astra", "effort": None, "fast": False, "permis
                   "auto_continue": True}
 
 
-def release_fifo(path: Path) -> None:
-    """Let a reader blocked opening `path` go on (a writer opens it, then leaves)."""
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
-    except OSError:
-        return                              # no reader is waiting on it
-    os.close(fd)
-
-
 @pytest.mark.parametrize("op", ["conversation.history", "conversation.handoff", "conversation.open"])
-def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(svc, tmp_path, monkeypatch, op):
+def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(tmp_path, op):
     """C-25.3 (both reviews of 39223c9, finding 1): close() waits for the file ops
     already running, so one blocked for good held close() for good. A Codex thread
     whose rollout was a FIFO did that: `conversation.history`, or a handoff reading
@@ -1265,44 +1275,51 @@ def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(svc, tmp_path, mo
     opens a transcript or rollout only as a regular file, without ever blocking in
     open(): each op answers at once, and close() returns. `conversation.open` runs on
     the requests pool, which `Daemon.close()` waits for too; it reads the thread
-    through the catalog's record reader."""
-    monkeypatch.setenv("HOME", str(tmp_path / "user-home"))   # no real ~/.codex or ~/.claude
-    home = tmp_path / "codex-home"
-    thread = str(uuid.uuid4())
-    day = home / "sessions" / "2026" / "09" / "26"
-    day.mkdir(parents=True)
-    fifo = day / f"rollout-2026-09-26T00-00-00-{thread}.jsonl"
-    os.mkfifo(fifo)
-    svc.daemon.store.put_lane(Lane("codex-1", "codex", "codex:one", Credential("codex", str(home), "home"), str(home),
-                                   LaneOwner.V2, False))
-    if op == "conversation.open":
-        args = {"native": {"provider": "codex", "session_id": thread}}
-    else:
-        cid = svc.store.create_conversation(provider="codex", workspace=svc.test_workspace, workspace_kind="in-place",
-                                            settings=CODEX_SETTINGS, origin="native", native_session_id=thread,
-                                            lane_id="codex-1")[0]["conversation_id"]
-        args = ({"conversation_id": cid} if op == "conversation.history" else
-                {"request_id": "h-fifo", "from": {"conversation_id": cid},
-                 "to": {"provider": "claude", "settings": SETTINGS}})
-    requests = concurrent.futures.ThreadPoolExecutor(1)       # the fake daemon has no requests pool
-    future = (svc.pool_for(op) or requests).submit(svc.handle, op, args, None)
-    closer = threading.Thread(target=svc.close)
-    try:
+    through the catalog's record reader. In a child process (`tests.nonblocking`),
+    killed and reaped if it blocks (review of aa41312, finding 4: the one release
+    this test sent could come before the op reached open(), and miss it)."""
+    out = run_child(f"""
+        import concurrent.futures, json, os, uuid
+        from pathlib import Path
+        from subfleet.contracts import Credential, Lane, LaneOwner
+        from subfleet.conversations.store import ConversationError
+        from tests.unit import test_conversation_service as fx
+        tmp, op = Path({str(tmp_path)!r}), {op!r}
+        os.environ["HOME"] = str(tmp / "user-home")        # no real ~/.codex or ~/.claude
+        root = tmp / "state"
+        root.mkdir()
+        svc = fx.ConversationService(fx.FakeDaemon(root))
+        svc.test_workspace = str(tmp)
+        home = tmp / "codex-home"
+        thread = str(uuid.uuid4())
+        day = home / "sessions" / "2026" / "09" / "26"
+        day.mkdir(parents=True)
+        os.mkfifo(day / f"rollout-2026-09-26T00-00-00-{{thread}}.jsonl")
+        svc.daemon.store.put_lane(Lane("codex-1", "codex", "codex:one", Credential("codex", str(home), "home"),
+                                       str(home), LaneOwner.V2, False))
+        if op == "conversation.open":
+            args = {{"native": {{"provider": "codex", "session_id": thread}}}}
+        else:
+            cid = svc.store.create_conversation(provider="codex", workspace=str(tmp), workspace_kind="in-place",
+                                                settings=fx.CODEX_SETTINGS, origin="native", native_session_id=thread,
+                                                lane_id="codex-1")[0]["conversation_id"]
+            args = ({{"conversation_id": cid}} if op == "conversation.history" else
+                    {{"request_id": "h-fifo", "from": {{"conversation_id": cid}},
+                     "to": {{"provider": "claude", "settings": fx.SETTINGS}}}})
+        requests = concurrent.futures.ThreadPoolExecutor(1)    # the fake daemon has no requests pool
+        future = (svc.pool_for(op) or requests).submit(svc.handle, op, args, None)
         try:
-            outcome = future.result(10)
-        except concurrent.futures.TimeoutError:
-            pytest.fail(f"{op} was still blocked on the FIFO after 10 s")
+            outcome = "answered" if future.result() is not None else "none"
         except ConversationError as exc:
             outcome = exc.reason
-        closer.start()
-        closer.join(10)
-        assert not closer.is_alive(), "close() was held by the file op"
-    finally:
-        release_fifo(fifo)
-        if closer.is_alive():
-            closer.join(30)
+        svc.close()
         requests.shutdown(wait=True)
-    assert outcome is not None
+        svc.daemon.store.close()
+        print(json.dumps(outcome))
+    """)
+    assert json.loads(out) is not None, out
+
+
 # --- close() and the turn runners (C-25.3, C-26.6) ---------------------------------------
 
 INIT_OK = json.dumps({"type": "control_response", "response": {
