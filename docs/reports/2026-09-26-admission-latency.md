@@ -242,7 +242,7 @@ What the 2026-09-27 runs show:
   - Baseline: p50 3.81 s, max 10.72 s.
   - Fix: p50 2.00–2.79 s, max 6.12–6.23 s.
   - d04b8b3, beside F6: p50 4.98 s, max 10.10 s.
-- **Turns never reserved.** One in each of F1, B2 and B4. Each was the last turn the rig queued, in the run's final 10 s, still queued when measurement ended (from the run's `admission.json`). None in the other runs.
+- **Turns never reserved.** One in each of F1, B2 and B4. Each was the last turn the rig queued, in the run's final 10 s, still queued when measurement ended (from the run's `<run>.admission.json`). None in the other runs.
 - **Client errors.**
   - The tool counts every request a hook emulator or probe could not complete over the whole run, the daemon's shutdown included.
   - The fix runs had 0 to 4, the baselines 0 to 10, d04b8b3 0 to 1.
@@ -464,4 +464,4 @@ Four of these made the check refuse by filling the fleet, which no longer refuse
 
 ## Raw evidence
 
-The runs listed above are in `docs/reports/2026-09-26-admission-latency/`, one `--report` JSON per run, named as in the tables. The 2026-09-27 runs are in its `2026-09-27/` folder, with `runner.log`.
+The runs listed above are in `docs/reports/2026-09-26-admission-latency/`, one `--report` JSON per run, named as in the tables. The 2026-09-27 runs are in its `2026-09-27/` folder, with `runner.log` and, per run, the rig's in-daemon record (`<run>.admission.json`: every hold, wait and turn, from which the tables' admission columns are computed).
