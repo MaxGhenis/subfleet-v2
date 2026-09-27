@@ -902,8 +902,9 @@ or `approval_wait_s` passes (D-7).
 - `attachment.add` opens without following symlinks, requires a regular file
   owned by the daemon's user, at most 20 MiB, PNG/JPEG/GIF/WebP magic,
   copies to `attachments/<sha256>.<ext>` (0600, fsync) through a temporary
-  file of its own renamed into place, so adds of the same bytes at once all
-  succeed, and re-hashes the copy.
+  file of its own (a random name, created exclusively and drawn again if
+  taken) renamed into place, so adds of the same bytes at once all succeed,
+  and re-hashes the copy.
   `message.submit` updates `last_used_at` for each hash in its transaction.
   Retention deletes an attachment row in one transaction that re-checks "no
   non-terminal message references it and last use ≥ 30 days ago", then

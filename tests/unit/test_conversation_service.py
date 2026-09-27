@@ -1074,7 +1074,7 @@ def test_close_never_runs_a_file_op_it_had_not_started(svc, monkeypatch, tmp_pat
     """C-25.3: close() drops the file ops still queued behind busy threads (they never
     run, so write nothing), and the pool accepts none after it."""
     # The queued image is neither running one, so a copy of it can come only from its own op.
-    running =[tmp_path / "one.png", tmp_path / "two.png"]
+    running = [tmp_path / "one.png", tmp_path / "two.png"]
     for n, path in enumerate(running):
         path.write_bytes(PNG + bytes([n]))
     second = tmp_path / "queued.png"
@@ -1119,13 +1119,14 @@ def test_a_file_op_never_makes_the_state_root(svc, repo, tmp_path, op):
 
 
 def test_two_adds_of_the_same_image_at_once_both_succeed(svc, monkeypatch, tmp_path):
-    """C-28.1: the app re-sending an image, or a retry, runs two `attachment.add` calls
-    of the same bytes on the file pool's two threads at once. Both wrote through the one
-    temporary name `.<sha>.<pid>.tmp`: the second open truncated the first's file, one
-    rename found it gone (FileNotFoundError) and the other could hash a copy the second
-    had emptied (copy-mismatch), in 40 of 40 trials; the stored copy was right and the
-    ops failed. Each add now writes a temporary file of its own and renames it onto the
-    content-addressed name, so both return the same receipt and one copy is left."""
+    """C-28.1: the app resending after its request timed out while the first add still
+    ran, or two clients, runs two `attachment.add` calls of the same bytes on the file
+    pool's two threads at once. Both wrote through the one temporary name
+    `.<sha>.<pid>.tmp`: the second open truncated the first's file, one rename found it
+    gone (FileNotFoundError) and the other could hash a copy the second had emptied
+    (copy-mismatch), in 40 of 40 trials; the stored copy was right and one op failed,
+    sometimes both. Each add now writes a temporary file of its own and renames it onto
+    the content-addressed name, so both return the same receipt and one copy is left."""
     image = tmp_path / "screenshot.png"
     data = PNG + bytes(range(256)) * 8192                  # 2 MiB: the writes take a while
     image.write_bytes(data)

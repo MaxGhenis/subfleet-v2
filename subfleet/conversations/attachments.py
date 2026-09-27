@@ -10,6 +10,7 @@ sees; the original can be deleted the moment the receipt arrives.
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import os
 import secrets
@@ -38,17 +39,27 @@ def sniff(head: bytes) -> tuple[str, str] | None:
 
 def _copy(data: bytes, target: Path) -> None:
     """Write `data` to `target` through a temporary file of this call's own, renamed
-    onto it. Two adds of the same bytes at once (the app re-sending an image, a retry)
-    each rename a whole copy into place; through one shared name, the second open
-    truncated the first's file and one rename found it gone. A copy that fails removes
-    its temporary file."""
-    tmp = target.with_name(f".{target.stem}.{secrets.token_hex(4)}.tmp")
-    out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    onto it. Two adds of the same bytes at once (the app resending after its request
+    timed out while the first add still ran, or two clients) each rename a whole copy
+    into place; through one shared name, the second open truncated the first's file
+    and one rename found it gone. A copy that fails removes its temporary file, if the
+    directory still lets it."""
+    for draw in range(8):                                 # a name another add holds is drawn again
+        tmp = target.with_name(f".{target.stem}.{secrets.token_hex(4)}.tmp")
+        try:
+            out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            break
+        except FileExistsError:
+            if draw == 7:
+                raise
     try:
         try:
             view = memoryview(data)
             while view:                                   # os.write may write less than asked
-                view = view[os.write(out, view):]
+                written = os.write(out, view)
+                if not written:                           # never loop without progress
+                    raise OSError(errno.EIO, "the attachment copy made no progress")
+                view = view[written:]
             os.fsync(out)
         finally:
             os.close(out)

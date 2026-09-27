@@ -141,24 +141,50 @@ def copies(store) -> list[str]:
     return names
 
 
-@pytest.mark.parametrize("step", ["write", "fsync", "rename"])
-def test_a_copy_that_fails_leaves_no_temporary_file(store, tmp_path, monkeypatch, step):
-    """C-28.1 a copy that fails part way (a full disk) removes its temporary file, whose
-    name is its own, so failed adds leave nothing behind, and the next add makes the copy."""
+def full(*args, **kwargs):
+    raise OSError(errno.ENOSPC, "No space left on device")
+
+
+@pytest.mark.parametrize("step,fake", [("write", full), ("fsync", full), ("rename", full),
+                                       ("write", lambda fd, buf: 0)],
+                         ids=["write", "fsync", "rename", "write-nothing"])
+def test_a_copy_that_fails_leaves_no_temporary_file(store, tmp_path, monkeypatch, step, fake):
+    """C-28.1 a copy that fails part way (a full disk, or a write that makes no progress
+    and would otherwise loop forever) removes its temporary file, whose name is its own,
+    so failed adds leave nothing behind, and the next add makes the copy."""
     src = tmp_path / "a.png"
     src.write_bytes(PNG)
     real = getattr(os, step)
-
-    def full(*args, **kwargs):
-        raise OSError(errno.ENOSPC, "No space left on device")
-
-    monkeypatch.setattr(os, step, full)
+    monkeypatch.setattr(os, step, fake)
     with pytest.raises(OSError):
         attachments.add(store, str(src))
     monkeypatch.setattr(os, step, real)
     assert copies(store) == []
     out = attachments.add(store, str(src))
     assert copies(store) == [f"{out['sha256']}.png"]
+
+
+def test_a_temporary_name_another_add_holds_is_drawn_again(store, tmp_path, monkeypatch):
+    """C-28.1 the temporary name is random and created exclusively; one that is already
+    taken (another add drew the same token) is drawn again, never truncated or unlinked,
+    even by an add that finds every name it draws taken and fails."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    digest = hashlib.sha256(PNG).hexdigest()
+    taken = store.subdirectory("attachments") / f".{digest}.aaaaaaaa.tmp"
+    taken.write_bytes(b"another add's copy, half written")
+    monkeypatch.setattr(attachments.secrets, "token_hex", lambda n: "aaaaaaaa")
+    with pytest.raises(FileExistsError):
+        attachments.add(store, str(src))
+    assert sorted(p.name for p in taken.parent.iterdir()) == [taken.name]
+    assert taken.read_bytes() == b"another add's copy, half written"
+    draws = iter(["aaaaaaaa", "aaaaaaaa", "bbbbbbbb"])
+    monkeypatch.setattr(attachments.secrets, "token_hex", lambda n: next(draws))
+    out = attachments.add(store, str(src))
+    assert out["sha256"] == digest and next(draws, None) is None
+    assert taken.read_bytes() == b"another add's copy, half written"
+    assert sorted(p.name for p in taken.parent.iterdir()) == [taken.name, f"{digest}.png"]
+    assert (taken.parent / f"{digest}.png").read_bytes() == PNG
 
 
 def test_a_short_write_still_makes_a_whole_copy(store, tmp_path, monkeypatch):
