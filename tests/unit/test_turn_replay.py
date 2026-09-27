@@ -394,8 +394,12 @@ def test_a_withheld_turn_is_readmitted_however_its_attempt_is_settled(ended, pat
         (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
         if path.startswith("restart-ended"):
             world.end_attempt()
-        world.svc._adopt_runners()                    # settle first; with the hold lifted a tick would redispatch
-        world.svc._replay_unsettled()
+        # Only the adoption steps: with the hold lifted a tick would dispatch the
+        # readmitted message at once.
+        if path.startswith("restart-ended"):
+            world.svc._replay_unsettled()
+        else:
+            world.svc._adopt_runners()
         for runner in list(world.svc.runners.values()):
             assert runner.join(60)
     assert world.message() == ("waiting", "readmit:legacy-owner")
