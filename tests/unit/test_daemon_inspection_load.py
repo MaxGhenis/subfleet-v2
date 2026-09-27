@@ -37,35 +37,43 @@ GUARDIAN, CHILD, PGID = 4242, 4243, 4242
 GROUP_SNAPSHOT = ["/bin/ps", "-axo", "pid=,pgid=,stat=,lstart="]
 TABLE = procs.TABLE_ARGV                      # C-5.12's shared table
 UUID_READ = ["/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"]
+BOOTTIME_READ = ["/usr/sbin/sysctl", "-n", "kern.boottime"]
 
 
 class FakePs:
     """Answers `procs._read` like macOS would for one guardian and its child.
 
     `starts` is each live pid's `lstart`; changing a pid's entry models a new
-    process that has taken that pid.
+    process that has taken that pid. `failing` names the reads that fail
+    ("table", "sysctl", "ps -p"), and `hidden` the pids the table does not show.
     """
 
     def __init__(self):
         self.calls: list[list[str]] = []
         self.starts = {GUARDIAN: STARTED, CHILD: STARTED, 4300: STARTED}
+        self.failing: set[str] = set()
+        self.hidden: set[int] = set()
 
     def __call__(self, argv, *, empty_ok=False):
         argv = [str(part) for part in argv]
         self.calls.append(argv)
         if argv[0].endswith("sysctl"):
+            if "sysctl" in self.failing:
+                raise procs.InspectionError("sysctl inspection unavailable")
             return BOOT + "\n" if argv[-1] == "kern.bootsessionuuid" else "{ sec = 1790255587, usec = 0 }\n"
         if argv == TABLE:
-            return (f"{GUARDIAN} 1 {PGID} Ss   {self.starts[GUARDIAN]}\n"
-                    f"{CHILD} {GUARDIAN} {PGID} R    {self.starts[CHILD]}\n"
-                    f"4300 1 4300 S    {self.starts[4300]}\n4301 4300 4300 Z    {STARTED}\n")
+            if "table" in self.failing:
+                raise procs.InspectionError("ps inspection unavailable")
+            rows = [(GUARDIAN, 1, PGID, "Ss"), (CHILD, GUARDIAN, PGID, "R"), (4300, 1, 4300, "S")]
+            return "".join(f"{pid} {ppid} {pgid} {stat:<4} {self.starts[pid]}\n"
+                           for pid, ppid, pgid, stat in rows if pid not in self.hidden) + \
+                f"4301 4300 4300 Z    {STARTED}\n"
+        if argv[1:2] == ["-p"] and "ps -p" in self.failing:
+            raise procs.InspectionError("ps inspection unavailable")
         if argv == GROUP_SNAPSHOT:
             return (f"{GUARDIAN} {PGID} Ss   {self.starts[GUARDIAN]}\n"
                     f"{CHILD} {PGID} R    {self.starts[CHILD]}\n"
                     f"4300 4300 S    {self.starts[4300]}\n4301 4300 Z    {STARTED}\n")
-        if "pid=,ppid=,pgid=,stat=" in argv:
-            return (f"{GUARDIAN} 1 {PGID} Ss\n{CHILD} {GUARDIAN} {PGID} R\n"
-                    "4300 1 4300 S\n4301 4300 4300 Z\n")
         if "pid=,command=" in argv:
             return ""
         if argv[1:2] == ["-p"] and argv[-1] == "lstart=":
@@ -195,6 +203,34 @@ def test_running_attempt_inspection_shares_one_table_and_never_dumps_environment
     assert asked == [] and ps.calls == [TABLE]
 
 
+def test_a_guardian_recorded_with_a_legacy_boot_timestamp_is_inspected_from_the_shared_table(daemon, monkeypatch):
+    """C-5.3, C-5.12: a guardian whose receipt holds `kern.boottime` seconds (its UUID `sysctl` failed once at start)
+    is shown alive by the shared table when C-5.3 matches the seconds, and its group is recorded from that table:
+    an interval costs the table, its boot identity and one `kern.boottime` read, and nothing is asked singly.
+
+    Final review of PR #37, 2026-09-26: the table was asked without the legacy match, so every interval such an
+    attempt was asked about afresh (two `ps -p` and a `kern.boottime`) and read a table of its own and
+    `kern.boottime` again to record its group: six processes against the UUID attempt's one."""
+    daemon.store.update_attempt(ATTEMPT, boot_id="1790255587")      # what FakePs's kern.boottime says
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    asked = count_liveness(monkeypatch)
+    daemon._process_attempt(ATTEMPT)
+    assert asked == []
+    assert ps.calls == [TABLE, UUID_READ, BOOTTIME_READ]
+    assert set(owned(daemon)) == {str(GUARDIAN), str(CHILD)}
+    assert daemon.store.get_attempt(ATTEMPT)["state"] == "running"
+    ps.calls.clear()
+    expire(daemon)                                           # the next interval: the UUID is remembered,
+    daemon._process_attempt(ATTEMPT)                         # the seconds are read again with the new table
+    assert asked == [] and ps.calls == [TABLE, BOOTTIME_READ]
+    ps.calls.clear()
+    daemon.store.update_attempt(ATTEMPT, boot_id="1790255500")      # a shifted timestamp: C-5.3 says unknown
+    expire(daemon)
+    daemon._process_attempt(ATTEMPT)
+    assert len(asked) == 1 and daemon.store.get_attempt(ATTEMPT)["state"] == "running"
+
+
 def test_a_pid_taken_by_a_new_group_member_is_recorded_afresh(daemon, monkeypatch):
     """C-5.4: a recorded pid now held by a different process in the group gets that
     process's identity, as the full census recorded it, so the kill path can
@@ -212,21 +248,143 @@ def test_a_pid_taken_by_a_new_group_member_is_recorded_afresh(daemon, monkeypatc
     assert owned(daemon)[str(GUARDIAN)]["proc_start"] == STARTED
 
 
+def failing_record(core, monkeypatch) -> list:
+    """Every inspection that finds the guardian alive raises as it records the group (a store write)."""
+    failures = []
+
+    def record(a, table):
+        failures.append(a["attempt_id"])
+        raise RuntimeError("database or disk is full")
+    monkeypatch.setattr(core, "_record_owned", record)
+    return failures
+
+
 def test_a_failing_inspection_is_retried_not_skipped(daemon, monkeypatch):
     """C-5.10 with C-5.11: a paced pass that raised leaves no pacing deadline, so the
     retry C-5.10 schedules repeats the inspection (and fails again, keeping its
-    backoff) instead of returning at the gate and reading as recovery."""
-    monkeypatch.setattr(procs, "_read", FakePs())
-    failures = []
-    def failing_record(a, table):
-        failures.append(a["attempt_id"])
-        raise RuntimeError("database or disk is full")
-    monkeypatch.setattr(daemon, "_record_owned", failing_record)
+    backoff) instead of returning at the gate and reading as recovery. It repeats
+    it on the table the failed pass had, which is less than an interval old, so a
+    failure costs no `ps` of its own."""
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    failures = failing_record(daemon, monkeypatch)
     for n in range(1, 4):
         with pytest.raises(RuntimeError):
             daemon._process_attempt(ATTEMPT)
         assert len(failures) == n
         assert ATTEMPT not in daemon._inspect_next
+    assert ps.tables() == [TABLE]
+
+
+def settle_key(core, key: str) -> None:
+    """Wait, bounded, until `_schedule`'s worker for `key` has finished and been counted."""
+    deadline = time.monotonic() + 30
+    while True:
+        with core._busy_lock:
+            if key not in core._busy:
+                return
+        assert time.monotonic() < deadline, f"{key} is still running"
+        time.sleep(.01)
+
+
+def scheduled(core) -> int:
+    """One pass of the attempt through C-5.10's `_schedule`, its retry due now; its failure count after."""
+    core._worker_retry_at[ATTEMPT] = 0
+    core._schedule(ATTEMPT, core._process_attempt, ATTEMPT, paced=True)
+    settle_key(core, ATTEMPT)
+    return core._worker_failures.get(ATTEMPT, 0)
+
+
+def test_a_retry_that_finds_another_read_running_keeps_its_backoff(daemon, monkeypatch):
+    """C-5.10, C-5.11: a retry that finds another attempt's `ps` read running has not repeated the inspection
+    that raised, so it neither clears C-5.10's count nor adds to it, and the next failure is the second.
+
+    Review of the merge, 2026-09-26: it returned normally, which `_schedule` counts as recovery. Whenever a
+    read took 0.5 s or more every retry landed inside the next read, so the count went 1, 0, 1, the backoff
+    never grew, and every failure was logged as the first (118 raises and log lines in 120 s at 0.72 s a read,
+    against 8 raises and 4 lines)."""
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    failures = failing_record(daemon, monkeypatch)
+    logged = []
+    monkeypatch.setattr(daemon.log, "error", lambda msg, *args: logged.append(msg % args))
+    counts = [scheduled(daemon)]                           # the inspection raises
+    daemon._table = (daemon._table[0], 0.0)                # the table has expired ...
+    assert daemon._table_lock.acquire(blocking=False)      # ... and another attempt is reading `ps`
+    try:
+        counts.append(scheduled(daemon))                   # the retry cannot inspect
+    finally:
+        daemon._table_lock.release()
+    counts.append(scheduled(daemon))                       # the next one inspects, and raises again
+    assert counts == [1, 1, 2]
+    assert len(failures) == 2 and len(ps.tables()) == 2
+    assert [line for line in logged if ATTEMPT in line] == [
+        f"worker {ATTEMPT} failed: RuntimeError (1 in a row, next try in 0.5 s)",
+        f"worker {ATTEMPT} failed: RuntimeError (2 in a row, next try in 1 s)"]
+
+
+
+def test_an_inspection_that_runs_to_its_end_ends_the_retry(daemon, monkeypatch):
+    """C-5.10, C-5.11: once an inspection that raised has been repeated to its end, the attempt's passes are ordinary
+    again: one that stops at the pacing gate is a success, so a later failure elsewhere in the pass is the first of
+    its run, not the next of the old one."""
+    monkeypatch.setattr(procs, "_read", FakePs())
+    failures = failing_record(daemon, monkeypatch)
+    counts = [scheduled(daemon)]                           # the inspection raises
+    monkeypatch.setattr(daemon, "_record_owned", lambda a, table: None)
+    counts.append(scheduled(daemon))                       # repeated to its end: recovered
+    assert ATTEMPT not in daemon._inspect_retry
+    read_json = daemon._read_json
+
+    def unreadable(path):
+        raise OSError("input/output error")                # the per-tick receipt read fails once
+    monkeypatch.setattr(daemon, "_read_json", unreadable)
+    counts.append(scheduled(daemon))
+    monkeypatch.setattr(daemon, "_read_json", read_json)
+    counts.append(scheduled(daemon))                       # the pacing gate: an ordinary success
+    assert counts == [1, 0, 1, 0] and len(failures) == 1
+
+@pytest.mark.parametrize("cannot", ["table", "boot identity", "guardian", "recording table"])
+def test_a_retry_that_cannot_inspect_keeps_its_backoff(daemon, monkeypatch, cannot):
+    """C-5.10, C-5.11, C-4.2: nor is it recovery when the retry is given a table whose read failed, or whose boot
+    identity cannot be read, or cannot inspect the guardian (its liveness is unknown), or cannot read a table
+    to record the group from. Each decides nothing, and until the interval ends the retry waits at the pacing
+    gate, which is no recovery either. The first pass that inspects to the end raises again: the second failure."""
+    ps = FakePs()
+    monkeypatch.setattr(procs, "_read", ps)
+    failures = failing_record(daemon, monkeypatch)
+    snapshot, liveness = procs.snapshot, procs.liveness
+    counts = [scheduled(daemon)]                           # the inspection raises
+    daemon._table = (daemon._table[0], 0.0)                # the next interval's read ...
+    if cannot == "table":
+        ps.failing.add("table")                            # ... fails
+    elif cannot == "boot identity":
+        procs.forget_boot_id()
+        ps.failing.add("sysctl")                           # ... cannot read its boot identity
+    elif cannot == "guardian":
+        ps.hidden.add(GUARDIAN)                            # ... does not show the guardian,
+        ps.failing.add("ps -p")                            # which cannot be asked about singly
+    else:
+        ps.hidden.add(GUARDIAN)                            # ... does not show the guardian, which is alive,
+        reads = []                                         # and no second table can be read to record from
+
+        def shared_read_only():
+            reads.append(1)
+            if len(reads) > 1:
+                raise procs.InspectionError("ps inspection unavailable")
+            return snapshot()
+        monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
+        monkeypatch.setattr(daemon_module.procs, "snapshot", shared_read_only)
+    counts.append(scheduled(daemon))                       # the retry cannot inspect
+    assert daemon.store.get_attempt(ATTEMPT)["state"] == "running" and len(failures) == 1
+    counts.append(scheduled(daemon))                       # inside the interval: the pacing gate
+    ps.failing.clear(), ps.hidden.clear()
+    monkeypatch.setattr(daemon_module.procs, "snapshot", snapshot)
+    monkeypatch.setattr(daemon_module.procs, "liveness", liveness)
+    expire(daemon)
+    counts.append(scheduled(daemon))                       # inspects, and raises again
+    assert counts == [1, 1, 1, 2]
+    assert len(failures) == 2
 
 
 def test_paced_inspection_still_reads_the_receipt_every_tick(daemon, monkeypatch):
@@ -255,6 +413,22 @@ def test_pacing_state_is_dropped_once_an_attempt_is_no_longer_live(daemon, monke
     live = {a["attempt_id"] for a in daemon.store.query(daemon_module.LIVE_ATTEMPTS)}
     daemon._forget_paced(live)
     assert ATTEMPT not in daemon._inspect_next
+
+
+def test_retry_state_is_dropped_once_an_attempt_is_no_longer_live(daemon, monkeypatch):
+    """C-5.11: an attempt whose inspection raised is remembered until one runs to its end; if it ends first, the
+    control loop's pruning forgets it with the rest of its pacing state."""
+    monkeypatch.setattr(procs, "_read", FakePs())
+    failing_record(daemon, monkeypatch)
+    with pytest.raises(RuntimeError):
+        daemon._process_attempt(ATTEMPT)
+    assert ATTEMPT in daemon._inspect_retry
+    daemon._forget_paced({ATTEMPT})
+    assert ATTEMPT in daemon._inspect_retry                  # still live: kept
+    with daemon.store.transaction("test.finished") as tx:
+        tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (ATTEMPT,))
+    daemon._forget_paced({a["attempt_id"] for a in daemon.store.query(daemon_module.LIVE_ATTEMPTS)})
+    assert ATTEMPT not in daemon._inspect_retry
 
 
 # --- probes -------------------------------------------------------------------

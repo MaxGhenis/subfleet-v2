@@ -50,7 +50,7 @@ def daemon(tmp_path, monkeypatch):
     core._exit_settle = {}
     core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
     # C-5.12: a shared process table that shows no process, so every verdict is the injected `liveness`.
-    core._inspect_next, core.inspect_interval_s = {}, .5
+    core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, .5, set()
     core._process_table = shared(ProcessTable({}, "boot"))
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
@@ -479,6 +479,109 @@ def test_c5_12_only_the_inspection_that_reads_waits_for_ps(daemon, monkeypatch):
         daemon._table_lock.release()
 
 
+
+def test_c5_12_a_read_that_ended_while_an_inspection_asked_is_taken_not_repeated(daemon, monkeypatch):
+    """C-5.12 an inspection that found the table expired and then waited its turn at the lock while another's read
+    ended takes that read's table: reads begin at least an interval apart, never back to back.
+
+    Final review of PR #37, 2026-09-26: dropping the re-check inside the lock survived every test (mutant M16)."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon.inspect_interval_s = 1.0
+    real = threading.Lock()
+    at_lock, other_done = threading.Event(), threading.Event()
+    reads = []
+
+    class Lock:
+        """The table's lock, reached just as another inspection's read ends."""
+        def acquire(self, blocking=True):
+            at_lock.set()
+            assert other_done.wait(5), "the other read never ended"
+            return real.acquire(blocking=blocking)
+
+        def release(self):
+            real.release()
+    daemon._table, daemon._table_lock = (None, 0.0), Lock()
+    monkeypatch.setattr(daemon_module.procs, "snapshot",
+                        lambda: reads.append(1) or table_showing((4242, 1, 4242, "Ss")))
+    result = []
+    worker = threading.Thread(target=lambda: result.append(Daemon._process_table(daemon, 100.0)), daemon=True)
+    worker.start()
+    assert at_lock.wait(5)
+    other = (table_showing((4242, 1, 4242, "Ss")), 100.0 + 1.0)   # its read began at 100 and has just ended
+    daemon._table = other
+    other_done.set()
+    worker.join(5)
+    assert not worker.is_alive()
+    assert reads == [], "a second read began as the other ended"
+    assert result == [other]
+
+def test_c5_12_only_the_inspection_that_reads_waits_for_the_boot_identity(daemon, monkeypatch):
+    """C-5.12 the reader reads the table's boot identity before any other attempt is given the table, so a slow
+    `sysctl` holds the reader's worker only: the others return at once and ask again next tick, and then share
+    that one read.
+
+    Final review of PR #37, 2026-09-26: each attempt given the table read its boot identity itself, behind the
+    table's lock, so one 2 s `sysctl` held all four inspecting workers for 1.8 to 2.2 s."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
+    daemon.inspect_interval_s = 30                             # one table serves the whole test
+    others = [add_running(daemon, JOB + "-b", 5252), add_running(daemon, JOB + "-c", 6262)]
+    reading, release, boot_reads = threading.Event(), threading.Event(), []
+
+    def slow_boot_id():
+        boot_reads.append(1)
+        reading.set()
+        assert release.wait(30), "the boot identity read was never released"
+        return "boot"
+    monkeypatch.setattr(daemon_module.procs, "boot_id", slow_boot_id)
+    monkeypatch.setattr(daemon_module.procs, "snapshot",
+                        lambda: ProcessTable({pid: (1, pid, "Ss", STARTED) for pid in (4242, 5252, 6262)}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("nothing is asked singly"))
+    daemon._contain = never_census
+    reader = threading.Thread(target=daemon._process_attempt, args=(ATTEMPT,), daemon=True)
+    reader.start()
+    try:
+        assert reading.wait(10), "the reader never read the boot identity"
+        for aid in others:                                     # they ask while its `sysctl` runs
+            worker = threading.Thread(target=daemon._process_attempt, args=(aid,), daemon=True)
+            worker.start()
+            worker.join(20)
+            assert not worker.is_alive(), f"{aid} waited for the reader's sysctl"
+    finally:
+        release.set()
+        reader.join(10)
+    assert not reader.is_alive()
+    for aid in others:                                         # their next tick: the table, its one boot read
+        daemon._process_attempt(aid)
+    assert boot_reads == [1]
+    for aid, pid in zip([ATTEMPT, *others], (4242, 5252, 6262)):
+        assert str(pid) in json.loads(daemon.store.get_attempt(aid)["evidence_json"])["owned_identities"]
+
+
+
+def test_c5_12_a_table_is_published_however_its_boot_identity_read_ends(daemon, monkeypatch):
+    """C-5.12, C-5.10 a boot-identity read that raises something other than an inspection failure costs the reader's
+    pass (C-5.10 retries it), not the interval's ration: the table is still published, so the next attempt to ask
+    is given it rather than reading `ps` again."""
+    del daemon._process_table                                  # the daemon's own shared table
+    daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
+    daemon.inspect_interval_s = 30
+    other = add_running(daemon, JOB + "-b", 5252)
+    reads = []
+
+    def broken():
+        raise RuntimeError("not an inspection failure")
+    monkeypatch.setattr(daemon_module.procs, "boot_id", broken)
+    monkeypatch.setattr(daemon_module.procs, "snapshot",
+                        lambda: reads.append(1) or ProcessTable({pid: (1, pid, "Ss", STARTED) for pid in (4242, 5252)}))
+    daemon._contain = never_census
+    with pytest.raises(RuntimeError):
+        daemon._process_attempt(ATTEMPT)
+    assert reads == [1] and daemon._table[0] is not None
+    with pytest.raises(RuntimeError):                          # the other asks the same table's boot identity
+        daemon._process_attempt(other)
+    assert reads == [1]
+
 def test_c5_12_a_failed_shared_read_is_all_that_an_outage_costs_an_interval(daemon, monkeypatch):
     """C-5.12, C-4.2 when this interval's table could not be read, no attempt asks about its guardian singly,
     and nothing is decided until a read works."""
@@ -548,8 +651,8 @@ def test_c5_12_a_table_whose_uuid_read_fell_back_decides_nothing_for_uuid_record
 
 
 def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_group_owned(daemon, monkeypatch):
-    """C-5.3, C-5.6, C-5.12 the shared table cannot say "alive" for a `kern.boottime` record, so the fresh reads
-    do; once they have, its group's members are recorded as owned, as `same_process` would allow."""
+    """C-5.3, C-5.6, C-5.12 the shared table says "alive" for a `kern.boottime` record that C-5.3 matches, with no
+    fresh read, and its group's members are recorded as owned from that table, as `same_process` would allow."""
     session = "11111111-1111-4111-8111-111111111111"
     daemon.store.update_attempt(ATTEMPT, boot_id="1726000000")
     table = ProcessTable({4242: (1, 4242, "Ss", STARTED), 4243: (4242, 4242, "S", STARTED)}, session)
@@ -559,8 +662,8 @@ def test_c5_12_a_guardian_recorded_with_a_legacy_boot_timestamp_still_has_its_gr
         return "{ sec = 1726000000, usec = 0 } Sat Sep 10 10:00:00 2024\n"
     monkeypatch.setattr(daemon_module.procs, "_read", read)
     daemon._process_table = shared(table)
-    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")   # C-5.3 matched the timestamp
-    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("the table matched it itself"))
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("no table of its own"))
     daemon._contain = never_census
     daemon._process_attempt(ATTEMPT)
     owned = json.loads(attempt(daemon)["evidence_json"])["owned_identities"]
@@ -615,6 +718,59 @@ def test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census(daemon
     else:
         assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
 
+
+
+def test_c4_2_start_grace_with_start_json_alone_is_a_running_attempt(daemon, monkeypatch):
+    """C-4.2 the guardian wrote `start.json` (only) while start grace ran its census, which shows it alive: its
+    provider is running, so the next tick reads `start.json` and the attempt runs; it is not quarantined.
+
+    Final review of PR #37, 2026-09-26: re-reading only `exit.json` after the census survived every test, and
+    quarantined the attempt that, under load, is the likely one: `start.json` late, the guardian alive."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0   # start grace is over
+
+    def contain(a):
+        publish_start(daemon)                                  # the provider is running; no exit.json yet
+        return GUARDIAN_ONLY
+    daemon._contain = contain
+    daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "starting"               # nothing decided from the census
+    daemon._contain = never_census
+    daemon._process_table = shared(table_showing((4242, 1, 4242, "Ss")))
+    daemon._process_attempt(ATTEMPT)                            # the next tick reads start.json
+    assert attempt(daemon)["state"] == "running"
+    kinds = [row["kind"] for row in daemon.store.list_events(JOB)]
+    assert "attempt.quarantined" not in kinds and "attempt.no_launch" not in kinds
+
+
+@pytest.mark.parametrize("census", [EMPTY, GUARDIAN_ONLY], ids=["empty", "guardian-alive"])
+@pytest.mark.parametrize("empty", ["{}", "[]", "null"])
+def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monkeypatch, census, empty):
+    """C-4.2 after its census, start grace counts a receipt as the tick does, only when it reads as a value:
+    `start.json` and `exit.json` holding `{}`, `[]` or `null` are no receipt, so the census decides at once.
+
+    Final review of PR #37, 2026-09-26: the re-read tested `.exists()`, and the tick then ignored such a file, so
+    the attempt stayed `starting` and took a full census, the environment scan included, on every tick."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
+    adir, censuses = attempt_dir(daemon.root, JOB, 1), []
+
+    def contain(a):
+        censuses.append(1)
+        atomic_publish(adir / "start.json", empty.encode())
+        atomic_publish(adir / "exit.json", empty.encode())
+        return census
+    daemon._contain = contain
+    daemon._process_attempt(ATTEMPT)
+    a = attempt(daemon)
+    assert censuses == [1]
+    if census is EMPTY:
+        assert a["state"] == "failed" and a["outcome_detail"] == "starting-no-receipt"
+    else:
+        assert a["state"] == "quarantined"
+        assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
 
 def test_c5_12_the_control_loop_forgets_the_inspection_clock_of_an_attempt_that_is_not_live(daemon):
     """C-5.12 `_inspect_next` keeps an entry only for a live attempt: each control tick drops the rest."""

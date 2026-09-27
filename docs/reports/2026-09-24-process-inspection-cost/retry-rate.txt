@@ -1,0 +1,10 @@
+# retry_rate.py (merge review of 2026-09-26), fake clock, 4 attempts, one whose inspection always raises, 120 s
+# base = f628b47, head = 9c38120
+r217-base read 0.02s over 120s: {'raises': 8, 'log_lines': 4, 'max_count': 8, 'table_reads': 118, 'skipped_retries': 0}
+r217-base read 0.30s over 120s: {'raises': 40, 'log_lines': 24, 'max_count': 5, 'table_reads': 115, 'skipped_retries': 7}
+r217-base read 0.72s over 120s: {'raises': 118, 'log_lines': 118, 'max_count': 1, 'table_reads': 118, 'skipped_retries': 117}
+r217-base read 1.50s over 120s: {'raises': 78, 'log_lines': 78, 'max_count': 1, 'table_reads': 78, 'skipped_retries': 77}
+r217-head read 0.02s over 120s: {'raises': 8, 'log_lines': 4, 'max_count': 8, 'table_reads': 118, 'skipped_retries': 0}
+r217-head read 0.30s over 120s: {'raises': 8, 'log_lines': 4, 'max_count': 8, 'table_reads': 115, 'skipped_retries': 6}
+r217-head read 0.72s over 120s: {'raises': 8, 'log_lines': 4, 'max_count': 8, 'table_reads': 118, 'skipped_retries': 35}
+r217-head read 1.50s over 120s: {'raises': 8, 'log_lines': 4, 'max_count': 8, 'table_reads': 78, 'skipped_retries': 125}
