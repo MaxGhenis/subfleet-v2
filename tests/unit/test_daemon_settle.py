@@ -659,6 +659,59 @@ def test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census(daemon
         assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
 
 
+
+def test_c4_2_start_grace_with_start_json_alone_is_a_running_attempt(daemon, monkeypatch):
+    """C-4.2 the guardian wrote `start.json` (only) while start grace ran its census, which shows it alive: its
+    provider is running, so the next tick reads `start.json` and the attempt runs; it is not quarantined.
+
+    Final review of PR #37, 2026-09-26: re-reading only `exit.json` after the census survived every test, and
+    quarantined the attempt that, under load, is the likely one: `start.json` late, the guardian alive."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0   # start grace is over
+
+    def contain(a):
+        publish_start(daemon)                                  # the provider is running; no exit.json yet
+        return GUARDIAN_ONLY
+    daemon._contain = contain
+    daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "starting"               # nothing decided from the census
+    daemon._contain = never_census
+    daemon._process_table = shared(table_showing((4242, 1, 4242, "Ss")))
+    daemon._process_attempt(ATTEMPT)                            # the next tick reads start.json
+    assert attempt(daemon)["state"] == "running"
+    kinds = [row["kind"] for row in daemon.store.list_events(JOB)]
+    assert "attempt.quarantined" not in kinds and "attempt.no_launch" not in kinds
+
+
+@pytest.mark.parametrize("census", [EMPTY, GUARDIAN_ONLY], ids=["empty", "guardian-alive"])
+@pytest.mark.parametrize("empty", ["{}", "[]", "null"])
+def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monkeypatch, census, empty):
+    """C-4.2 after its census, start grace counts a receipt as the tick does, only when it reads as a value:
+    `start.json` and `exit.json` holding `{}`, `[]` or `null` are no receipt, so the census decides at once.
+
+    Final review of PR #37, 2026-09-26: the re-read tested `.exists()`, and the tick then ignored such a file, so
+    the attempt stayed `starting` and took a full census, the environment scan included, on every tick."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
+    adir, censuses = attempt_dir(daemon.root, JOB, 1), []
+
+    def contain(a):
+        censuses.append(1)
+        atomic_publish(adir / "start.json", empty.encode())
+        atomic_publish(adir / "exit.json", empty.encode())
+        return census
+    daemon._contain = contain
+    daemon._process_attempt(ATTEMPT)
+    a = attempt(daemon)
+    assert censuses == [1]
+    if census is EMPTY:
+        assert a["state"] == "failed" and a["outcome_detail"] == "starting-no-receipt"
+    else:
+        assert a["state"] == "quarantined"
+        assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
+
 def test_c5_12_the_control_loop_forgets_the_inspection_clock_of_an_attempt_that_is_not_live(daemon):
     """C-5.12 `_inspect_next` keeps an entry only for a live attempt: each control tick drops the rest."""
     ended = add_running(daemon, JOB + "-b", 5252)
