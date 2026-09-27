@@ -144,6 +144,7 @@ class TurnRunner:
         self.handover_tried = False            # a send of the message frame whose answer was lost
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
+        self._stop_on_catch_up = False         # a replayed stop, sent once the replay has caught up (`_run`)
 
     # --- lifecycle -------------------------------------------------------------
 
@@ -193,17 +194,33 @@ class TurnRunner:
     def _run(self) -> None:
         try:
             message = self.store.message(self.message_id)
+            if self.sent.get("interrupt") == "written":
+                # Replay (C-26.6): an interrupt an earlier runner wrote reached the
+                # provider, so what followed it is read as that runner's driver read it.
+                self.driver.interrupted_earlier()
             if message.get("stop_requested_at"):
                 self.stop_at = self.clock()
                 # A person's stop that came before the message was handed over
                 # stands: the message is never written (C-24.7, IR-2).
                 self.withheld = self.withheld or "user-message" not in self.sent
+                if not self.withheld:
+                    # One that came after is this turn's stop too (D-13): a runner
+                    # adopted for it had sent no interrupt and settled the stopped
+                    # turn as failed. Its interrupt is sent once the replay has read
+                    # the stdout there is (below): a driver still behind the provider
+                    # would end a delivered turn as stopped before sending. A no-op
+                    # when one was written.
+                    self.stop_reason = self.stop_reason or "stopped"
+                    self._stop_on_catch_up = True
             self._apply(self.driver.start())
             if self.withheld:
                 self.stop_at = self.stop_at or self.clock()
                 self._apply(self.driver.interrupt())
             while not self._stopping.is_set():
                 progressed = self._read_stdout()
+                if self._stop_on_catch_up and not progressed:
+                    self._stop_on_catch_up = False
+                    self.commands.put(("interrupt",))
                 progressed |= self._drain_commands()
                 self._send_outbox()
                 self._timers()
