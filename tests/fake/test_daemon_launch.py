@@ -104,9 +104,10 @@ def test_c4_2_absent_guardian_identity_never_releases_launch_gate(launch_state, 
 
 def test_c5_12_a_new_attempt_is_first_inspected_with_a_table_read_after_its_guardian_started(launch_state,
                                                                                                monkeypatch):
-    """C-5.12 an attempt this daemon launches falls due one interval after its guardian started, so its first
-    inspection is given a table read after that, which shows the guardian: nothing is asked about it singly and
-    it reads no table of its own.
+    """C-5.12 an attempt this daemon launches falls due one interval after it opened its guardian's launch gate, so
+    its first inspection is given a table read after the guardian started, which shows the guardian: nothing is
+    asked about it singly and it reads no table of its own. Even a read that began as the guardian was being started
+    cannot serve it, and it is due one interval after the launch, not later.
 
     Reviews of 2026-09-26: it fell due as it first asked, just after `start.json`, and was usually given the table
     another running attempt had read before its guardian existed, so it paid a fresh `liveness` and a `ps -axo` of
@@ -115,11 +116,16 @@ def test_c5_12_a_new_attempt_is_first_inspected_with_a_table_read_after_its_guar
     daemon.inspect_interval_s = 30                           # longer than this launch takes, even under load
     a = reserve(daemon, harness)
     aid, guardian = a["attempt_id"], 987654321
-    before = time.monotonic()
-    # Another running attempt's table, read just before this launch: it cannot show the new guardian.
-    daemon._table = (procs.ProcessTable({1: (0, 1, "Ss", "fixture-start")}, "fixture-boot"),
-                     before + daemon.inspect_interval_s - .001)
+    popen = module.subprocess.Popen
+
+    def popen_as_another_attempt_reads(command, **kwargs):
+        # Another running attempt's table read begins as this guardian is started: it cannot show the guardian.
+        daemon._table = (procs.ProcessTable({1: (0, 1, "Ss", "fixture-start")}, "fixture-boot"),
+                         time.monotonic() + daemon.inspect_interval_s)
+        return popen(command, **kwargs)
+    monkeypatch.setattr(module.subprocess, "Popen", popen_as_another_attempt_reads)
     daemon._launch(a)
+    launched = time.monotonic()
     assert daemon.store.get_attempt(aid)["state"] == "starting"
     atomic_publish(attempt_dir(daemon.root, a["job_id"], a["seq"]) / "start.json", json.dumps(
         {"guardian_pid": guardian, "pgid": guardian, "boot_id": "fixture-boot", "proc_start": "fixture-start",
@@ -132,7 +138,8 @@ def test_c5_12_a_new_attempt_is_first_inspected_with_a_table_read_after_its_guar
     assert daemon.store.get_attempt(aid)["state"] == "running"
     assert asked == [] and tables == []
     due = daemon._inspect_next[aid]
-    assert due > daemon._table[1]                            # no table read before the launch can serve it
+    assert due > daemon._table[1]                            # no table read before the guardian started serves it
+    assert due <= launched + daemon.inspect_interval_s       # and it falls due one interval after, not later
     monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: due))
     daemon._process_attempt(aid)                             # due: it reads the table, which shows its guardian
     assert asked == [] and tables == [1]

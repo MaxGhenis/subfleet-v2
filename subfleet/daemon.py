@@ -3113,17 +3113,17 @@ class Daemon:
         An inspection is given the last table if it expires after the inspection
         fell due: for an attempt already inspected, one read after the table it
         was last given; for one this daemon launched, one read after its guardian
-        started (it falls due an interval after that); and for one it recovered,
-        one read less than an interval before it first asked. Otherwise it reads
-        a table, and that is the only time a read begins, so reads begin at least
-        `inspect_interval_s` apart however many attempts ask and however long
-        `ps` takes. A read is `ps` and then the table's boot identity (`sysctl`,
-        unless the module remembers the UUID). Only the inspection that reads
-        waits for them: one that finds a read running returns at once, so a slow
-        or hung `ps` or `sysctl` holds one worker of the pool, not one per
-        running attempt, and every other attempt's receipts, cancel and clock are
-        still read each tick. A read that failed is rationed like one that
-        worked.
+        started (it falls due an interval after its launch gate opened); and for
+        one it recovered, one read less than an interval before it first asked.
+        Otherwise it reads a table, and that is the only time a read begins, so
+        reads begin at least `inspect_interval_s` apart however many attempts ask
+        and however long `ps` takes. A read is `ps` and then the table's boot
+        identity (`sysctl`, unless the module remembers the UUID). Only the
+        inspection that reads waits for them: one that finds a read running
+        returns at once, so a slow or hung `ps` or `sysctl` holds one worker of
+        the pool, not one per running attempt, and every other attempt's
+        receipts, cancel and clock are still read each tick. A read that failed
+        is rationed like one that worked.
         """
         if due < self._table[1]:
             return self._table
@@ -3146,8 +3146,9 @@ class Daemon:
             except procs.InspectionError:
                 pass                             # kept by the table: each attempt sees it
             finally:
-                # Published however the boot read ends, so that anything else it
-                # raises costs this reader's pass, never the interval's ration.
+                # Published however the boot read ends: anything else it raises
+                # fails the passes of the attempts given the table (C-5.10
+                # retries them), never costs a second `ps` this interval.
                 self._table = (table, began + self.inspect_interval_s)
             return self._table
         finally:

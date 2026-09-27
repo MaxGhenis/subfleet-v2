@@ -559,9 +559,9 @@ def test_c5_12_only_the_inspection_that_reads_waits_for_the_boot_identity(daemon
 
 
 def test_c5_12_a_table_is_published_however_its_boot_identity_read_ends(daemon, monkeypatch):
-    """C-5.12, C-5.10 a boot-identity read that raises something other than an inspection failure costs the reader's
-    pass (C-5.10 retries it), not the interval's ration: the table is still published, so the next attempt to ask
-    is given it rather than reading `ps` again."""
+    """C-5.12, C-5.10 a boot-identity read that raises something other than an inspection failure costs the passes
+    of the attempts given the table (C-5.10 retries them), not the interval's ration: the table is still published,
+    so the next attempt to ask is given it rather than reading `ps` again."""
     del daemon._process_table                                  # the daemon's own shared table
     daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
     daemon.inspect_interval_s = 30
@@ -686,6 +686,7 @@ def test_c5_12_a_legacy_attempt_s_interval_costs_the_table_its_boot_identity_and
     del daemon._process_table                                  # the daemon's own shared table
     daemon._table, daemon._table_lock = (None, 0.0), threading.Lock()
     daemon.inspect_interval_s = 30                             # each interval below is begun by hand
+    monkeypatch.setattr(daemon_module.procs, "BOOT_ID_TTL_S", 3600)   # the UUID stays remembered, however slow
     daemon.store.update_attempt(ATTEMPT, boot_id="1726000000")
     calls = []
 

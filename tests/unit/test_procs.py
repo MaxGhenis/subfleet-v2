@@ -605,3 +605,36 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
     monkeypatch.setattr(procs, "_read", read)
     result = procs.containment(42, 42, None, "job/a1")
     assert result.verified_empty and result.errors == (), result
+
+
+def test_c5_12_an_attempt_recorded_with_the_uuid_never_waits_for_a_legacy_kern_boottime_read(monkeypatch):
+    """C-5.12 the `kern.boottime` read a legacy record needs takes a lock of its own: an attempt recorded with the
+    boot session UUID, given the same table while that read runs, is answered at once rather than waiting behind
+    it on the boot identity's lock, which would hold every inspecting worker again (B1).
+
+    Review of this port, 2026-09-27: taking `boot()`'s lock for that read survived every test."""
+    inside, release = threading.Event(), threading.Event()
+
+    def read(argv, *, empty_ok=False):
+        if argv[-1] == "kern.bootsessionuuid":
+            return BOOT_A + "\n"
+        assert argv[-1] == "kern.boottime", argv
+        inside.set()
+        assert release.wait(10), "the kern.boottime read was never released"
+        return "{ sec = 100, usec = 0 }\n"
+    monkeypatch.setattr(procs, "_read", read)
+    table = procs.ProcessTable({42: (1, 42, "Ss", START), 43: (1, 43, "Ss", START)})   # its boot identity on need
+    assert table.boot() == BOOT_A                                # the reader's read, as the daemon's shared table
+    legacy = threading.Thread(target=lambda: table.is_process(42, "100", START, legacy=True), daemon=True)
+    legacy.start()
+    try:
+        assert inside.wait(5), "the legacy record never read kern.boottime"
+        found = []
+        uuid = threading.Thread(target=lambda: found.append(table.is_process(43, BOOT_A, START, legacy=True)),
+                                daemon=True)
+        uuid.start()
+        uuid.join(5)
+        assert found == [True], "the UUID attempt waited for the legacy attempt's kern.boottime"
+    finally:
+        release.set()
+        legacy.join(10)
