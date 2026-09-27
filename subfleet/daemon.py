@@ -7,6 +7,7 @@ transactions contain only SQL (C-3.3, C-16.4).
 from __future__ import annotations
 
 import argparse
+import collections
 import contextlib
 import dataclasses
 import errno
@@ -39,7 +40,8 @@ from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
-    OWNED_CENSUS_INTERVAL_S, START_GRACE_S, TERM_GRACE_S,
+    OWNED_CENSUS_INTERVAL_S, PROBE_DEADLINE_CEILING_FACTOR, PROBE_LOAD_MEMORY_S, PROBE_LOAD_SAMPLES,
+    PROBE_WALL_MARGIN, START_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
@@ -230,6 +232,17 @@ HEADLESS_PREAMBLE = (
 DEFERRED = object()
 
 
+class CensusDeferred(Exception):
+    """C-5.5: a census that decides was inconclusive, so it decided nothing.
+
+    A source could not be read and none that could shows a live process: no
+    evidence of a writer, only a census still owed. The attempt keeps its state
+    and its leases; the pass raises this, and C-5.10 offers it again at its
+    backoff, until a census that can be read decides (incident: 2026-09-27, 44
+    probes quarantined in one hour on "marker enumeration unavailable" while the
+    same census, read by a process outside the daemon, was verified empty)."""
+
+
 def worker_retry_delay(failures: int) -> float:
     """C-5.10: seconds before a worker that has raised `failures` times in a row is tried again."""
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
@@ -393,6 +406,17 @@ class Daemon:
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
+        # C-5.5: attempt id -> inconclusive censuses in a row, which pace its
+        # `attempt.census_deferred` events (C-5.10 paces the retries), and the
+        # attempts whose kill protocol already signalled before its census was
+        # deferred, so a retry goes straight to the settle window.
+        self._census_deferrals: dict[str, int] = {}
+        self._kill_resumed: set[str] = set()
+        # C-5.5, C-11.4: probe holder -> (censuses in a row that did not find it
+        # contained, when recovery next takes one), paced as C-5.10 paces a worker.
+        self._probe_census_due: dict[str, tuple[int, float]] = {}
+        # C-11.4: what recent probes needed, as (monotonic time, seconds).
+        self._probe_needs: collections.deque = collections.deque(maxlen=PROBE_LOAD_SAMPLES)
         # C-26.14: attempt id -> transient failures of its end snapshot so far.
         self._tree_failures: dict[str, int] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
@@ -531,6 +555,9 @@ class Daemon:
         # is not the job's demand while its clock runs; the next due look
         # evaluates the pair again, so a restart, which forgets this, changes nothing.
         self._retry_verdicts: dict[str, tuple[str, bool]] = {}
+        # C-11.4: jobs whose last probe was killed at its deadline, which have had
+        # their one prompt retry; a probe that ends any other way clears it.
+        self._probe_retried: dict[str, bool] = {}
         # C-6.10: the leases the last pass of each kind saw that no probe holds.
         # One that has gone since is capacity that came free.
         self._leases_seen: dict[str, frozenset[tuple[str, str]]] = {}
@@ -767,6 +794,9 @@ class Daemon:
             os.close(write_fd)
         safe, receipt = self._await_probe(record, child)
         if not safe:
+            if record.get('state') == 'containing':
+                raise AdapterError('enrollment containment is deferred (its census could not be read); '
+                                   'its lane remains fenced until recovery verifies it', code=7)
             raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7)
         if not receipt:
             raise AdapterError('enrollment ended without an exit receipt', code=5)
@@ -2414,8 +2444,12 @@ class Daemon:
                 if key == "retention":
                     self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))
                 if count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
-                    self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
-                                   key, type(exc).__name__, count, delay)
+                    if isinstance(exc, CensusDeferred):          # C-5.5: owed, not failed
+                        self.log.warning("worker %s deferred: %s (%d in a row, next try in %g s)",
+                                         key, type(exc).__name__, count, delay)
+                    else:
+                        self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
+                                       key, type(exc).__name__, count, delay)
             finally:
                 # Waiters read only the store, so a pass during which nothing
                 # was committed (a running attempt's tick, an idle admission
@@ -2453,11 +2487,12 @@ class Daemon:
         itself raised "dictionary changed size during iteration" whenever a
         worker added an entry mid-walk (review of 5841d8b). Popping is safe.
         """
-        for pacing in (self._inspect_next,):
+        for pacing in (self._inspect_next, self._census_deferrals):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
-        for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
-            self._inspect_retry.discard(aid)
+        for kept in (self._inspect_retry, self._kill_resumed):
+            for aid in [aid for aid in kept.copy() if aid not in live]:
+                kept.discard(aid)
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -2595,10 +2630,11 @@ class Daemon:
         directory = self.root / "lanes" / lane.lane_id / "probes" / token
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         model = self.policy["models"]["haiku" if lane.provider == "claude" else "terra"]
+        seconds = max(0, deadline - time.monotonic())
         record = {"holder": holder, "job_id": None, "lane_id": lane.lane_id,
                   "timer_kind": purpose, "model_id": model["id"], "directory": str(directory),
                   "state": "reserved", "created_at": utcnow(), "owned_identities": {},
-                  "deadline_at": after(max(0, deadline - time.monotonic()))}
+                  "deadline_s": seconds, "deadline_at": after(seconds)}
         self._save_probe(record)
         job = {"job_id": "timer-" + token, "request_id": token, "kind": "probe",
                "workdir": str(directory), "prompt_path": str(directory / "prompt.md"),
@@ -2612,6 +2648,9 @@ class Daemon:
             current = self._probe_record(holder)
             safe = self._contain_probe(current)
             if not safe:
+                if current.get("state") == "containing":      # C-5.5: recovery finishes it
+                    return Outcome(OutcomeClass.UNKNOWN, "timer containment deferred",
+                                   evidence={"probe_deferred": True})
                 return Outcome(OutcomeClass.UNKNOWN, "timer quarantined", evidence={"probe_quarantined": True})
             raise
         requested = (self._read_json(directory / "request.json") or {}).get("requested_at")
@@ -2621,7 +2660,7 @@ class Daemon:
                                        "rc": outcome.evidence.get("rc"), "native_session_id": outcome.native_session_id})
         evidence = {**outcome.evidence, "requested_at": requested,
                     "timed_out": time.monotonic() >= deadline}
-        if not evidence.get("probe_quarantined"):
+        if not (evidence.get("probe_quarantined") or evidence.get("probe_deferred")):
             record = self._probe_record(holder)
             record.update(state="completed")
             self._save_probe(record)
@@ -2736,7 +2775,16 @@ class Daemon:
                                  record.get("child_pid"), record["holder"], root=str(self.root))
 
     def _contain_probe(self, record: dict) -> bool:
-        """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
+        """C-5.4–7: terminate only recorded identities and retain uncertain leases.
+
+        True once the census is verified empty (`contained`). Otherwise False, and
+        the lease stays: `quarantined` when the census shows a live process after
+        the kill protocol, or still `containing` when it is inconclusive (C-5.5),
+        which is no evidence of a writer. Either way recovery takes the census
+        again at C-5.10's backoff (`_probe_census_due`), never on every pass; a
+        retry goes on from the SIGKILL, since the SIGTERM and its grace have run.
+        A `quarantined` record leaves that state only on a verified-empty census."""
+        holder = record["holder"]
         census = self._probe_census(record)
         owned = {int(pid): procs.ProcessIdentity(**value)
                  for pid, value in record.get("owned_identities", {}).items()}
@@ -2746,16 +2794,24 @@ class Daemon:
             owned.update({p: ident for p, ident in census.identities.items() if p in census.group_pids})
             owned[pid] = procs.ProcessIdentity(pid, record["boot_id"], record["proc_start"])
         record["owned_identities"] = {str(p): dataclasses.asdict(ident) for p, ident in owned.items()}
-        if not census.verified_empty and record.get("state") != "quarantined":
+        was = record.get("state")
+        resumed = holder in self._probe_census_due
+        # The first containment runs the whole protocol, whose grace also gives a
+        # census that could not be read a chance to answer while the probe's
+        # approval can still be used in this pass. A retry goes on from the SIGKILL,
+        # and only when something is there to stop: a leader still ours, or a
+        # process the census shows; otherwise its one census is the retry.
+        if not census.verified_empty and was != "quarantined" and (not resumed or leader_live or census.live_pids):
             record["state"] = "containing"
             self._save_probe(record)  # Authority precedes every signal, including recovery.
-            if leader_live:
-                procs.signal_group(record["pgid"], signal.SIGTERM,
-                                   boot_id=record["boot_id"], proc_start=record["proc_start"])
-            deadline = time.monotonic() + self.term_grace_s
-            while not census.verified_empty and time.monotonic() < deadline:
-                time.sleep(.05)
-                census = self._probe_census(record)
+            if not resumed:
+                if leader_live:
+                    procs.signal_group(record["pgid"], signal.SIGTERM,
+                                       boot_id=record["boot_id"], proc_start=record["proc_start"])
+                deadline = time.monotonic() + self.term_grace_s
+                while not census.verified_empty and time.monotonic() < deadline:
+                    time.sleep(.05)
+                    census = self._probe_census(record)
             if not census.verified_empty:
                 if leader_live:
                     procs.signal_group(record["pgid"], signal.SIGKILL,
@@ -2765,15 +2821,38 @@ class Daemon:
                         procs.signal_process(owned[target], signal.SIGKILL)
                 time.sleep(.05)
                 census = self._probe_census(record)
-        record.update(state="contained" if census.verified_empty else "quarantined",
-                      containment=census.to_dict())
-        self._save_probe(record)
-        if not census.verified_empty:
+        if census.verified_empty:
+            self._probe_census_due.pop(holder, None)
+            record.update(state="contained", containment=census.to_dict())
+            self._save_probe(record)
+            return True
+        count = self._probe_census_due.get(holder, (0, 0.0))[0] + 1
+        delay = worker_retry_delay(count)
+        self._probe_census_due[holder] = (count, time.monotonic() + delay)
+        state = "containing" if census.inconclusive and was != "quarantined" else "quarantined"
+        record.update(state=state, containment=census.to_dict(), census_retries=count)
+        if state != was or count & (count - 1) == 0:      # 1, 2, 4, 8 ...: bounded, like C-5.10's log
+            self._save_probe(record)
+        # The job waits on its probe (`uncertain`, which holds no later job back)
+        # until `_finish_probe` hands it back to admission. A quarantine is an
+        # event once, when it begins; a deferral (C-5.5: not a quarantine) on its
+        # 1st, 2nd, 4th ... census in a row; a repeat only re-holds a job that
+        # something let go meanwhile. Each re-census used to add an event.
+        hold = "UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')"
+        if state == "quarantined" and was != "quarantined":
             with self.store.transaction("probe.quarantined", job_id=record["job_id"],
                                         lane_id=record["lane_id"], data={"containment": census.to_dict()}) as tx:
-                tx.execute("UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
-                           (after(60), record["job_id"]))
-        return census.verified_empty
+                tx.execute(hold, (after(60), record["job_id"]))
+        elif state == "containing" and count & (count - 1) == 0:
+            self.store.add_event("probe.census_deferred", job_id=record["job_id"], lane_id=record["lane_id"],
+                                 data={"holder": holder, "containment": census.to_dict(), "deferrals": count,
+                                       "next_census_s": delay})
+        job = self.store.get_job(record["job_id"]) if record.get("job_id") else None
+        if job and job["state"] in ("queued", "waiting") and job["wait_reason"] != "uncertain":
+            with self.store.transaction("probe.job_held", job_id=record["job_id"], lane_id=record["lane_id"],
+                                        data={"probe_state": state, "holder": holder}) as tx:
+                tx.execute(hold, (after(60 if state == "quarantined" else math.ceil(delay)), record["job_id"]))
+        return False
 
     def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | None]:
         """Re-adopt the same gated guardian, bounded by its durable deadline."""
@@ -2794,6 +2873,7 @@ class Daemon:
             if record.get("state") in ("reserved", "quarantined", "containing", "contained"):
                 break
             if record["deadline_at"] <= utcnow():
+                record["deadline_hit"] = True        # C-11.4: evidence for the next deadline
                 break
             # C-5.11, as for a running attempt: the receipt, the job and the
             # deadline are read every pass; `ps` is asked about the guardian at
@@ -2870,6 +2950,11 @@ class Daemon:
                 raise procs.InspectionError("probe guardian identity is absent")
             record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
+            if record.get("job_id") and record.get("deadline_s"):
+                # C-11.4: an admission probe's deadline runs from its gate, so what
+                # the launch cost under load (the credential, the spawn, the store)
+                # is not taken from the provider's time. Timer turns keep theirs.
+                record["deadline_at"] = after(record["deadline_s"])
             self._save_probe(record)
             if not record.get("timer_kind") or not self.timers.cancel.is_set():
                 os.write(write_fd, b"1")  # Committed ownership is required to open the gate.
@@ -2881,18 +2966,56 @@ class Daemon:
         if child is None:
             return Outcome(OutcomeClass.UNKNOWN, "probe guardian could not be spawned")
         safe, receipt = self._await_probe(record, child)
+        self._note_probe_need(record, receipt)
+        timing = {"deadline_s": record.get("deadline_s"), "deadline_hit": bool(record.get("deadline_hit"))}
         if not safe:
+            if record.get("state") == "containing":
+                # C-5.5: not quarantined; recovery takes the census again and
+                # finishes the probe from its receipt once one verifies it.
+                return Outcome(OutcomeClass.UNKNOWN, "probe containment deferred: its census could not be read",
+                               evidence={"probe_deferred": True, **timing})
             return Outcome(OutcomeClass.UNKNOWN, "probe containment is quarantined",
-                           evidence={"probe_quarantined": True})
+                           evidence={"probe_quarantined": True, **timing})
         if not receipt:
-            return Outcome(OutcomeClass.UNKNOWN, "probe ended without an exit receipt")
+            return Outcome(OutcomeClass.UNKNOWN, "probe ended without an exit receipt", evidence=timing)
         outcome = adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
                                 ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
         request = self._read_json(directory / "request.json") or {}
         return dataclasses.replace(outcome, evidence={**outcome.evidence, **request,
-                                   "rc": receipt.get("rc"), "signal": receipt.get("signal")})
+                                   "rc": receipt.get("rc"), "signal": receipt.get("signal"), **timing})
+
+    def _probe_deadline_s(self) -> float:
+        """C-11.4: how long an admission probe may run, counted from its launch gate.
+
+        `caps.probe_timeout_s` (60) at least; stretched to what recent probes
+        needed (`PROBE_WALL_MARGIN` times the wall of one that ended on its own,
+        twice the deadline of one killed at it), each remembered for
+        `PROBE_LOAD_MEMORY_S`; never past `PROBE_DEADLINE_CEILING_FACTOR` times
+        the cap. The load a probe meets is the machine's, so every probe's
+        evidence counts for every lane (incident: 2026-09-27, probes took 45.6 s
+        of the fixed 60 s at load 160 and were killed at load 200 and more)."""
+        base = float(self.policy["caps"].get("probe_timeout_s", 60))
+        now = time.monotonic()
+        needed = [seconds for at, seconds in list(self._probe_needs) if now - at < PROBE_LOAD_MEMORY_S]
+        return min(base * PROBE_DEADLINE_CEILING_FACTOR, max([base, *needed]))
+
+    def _note_probe_need(self, record: dict, receipt: dict | None) -> None:
+        """C-11.4: what this probe needed, as evidence for the next deadline.
+
+        A probe killed at its deadline needed more than it had: twice that. One
+        that ended on its own (a receipt with no signal) needed its wall time,
+        with `PROBE_WALL_MARGIN` to spare. A probe ended by a cancel says nothing."""
+        if record.get("deadline_hit") and record.get("deadline_s"):
+            needed = 2 * float(record["deadline_s"])
+        elif (receipt and not receipt.get("signal") and receipt.get("rc") is not None
+              and isinstance(receipt.get("wall_s"), (int, float))):
+            needed = PROBE_WALL_MARGIN * float(receipt["wall_s"])
+        else:
+            return
+        self._probe_needs.append((time.monotonic(), needed))
 
     def _finish_probe(self, record: dict, outcome: Outcome) -> None:
+        self._probe_census_due.pop(record["holder"], None)
         if outcome.cls == OutcomeClass.LIMITED and outcome.closure is None:
             outcome = dataclasses.replace(outcome, closure=Closure(
                 record["lane_id"], record["model_id"], after(3600), ClosureReason.PROVIDER_LIMIT,
@@ -2934,9 +3057,21 @@ class Daemon:
         shutil.rmtree(record["directory"], ignore_errors=True)
 
     def _recover_probes(self) -> None:
-        """C-5.3–7, C-8.4: recover each durable probe before admitting more work."""
-        for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'"):
+        """C-5.3–7, C-8.4: recover each durable probe before admitting more work.
+
+        C-5.5: a probe whose last census did not find it contained (inconclusive,
+        or showing a live process) is taken a census of again when C-5.10's
+        backoff says, not on every admission pass: each census reads every
+        process's environment, and under load that is what failed."""
+        leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
+        held = {lease["holder"] for lease in leases}
+        for holder in [holder for holder in self._probe_census_due.copy() if holder not in held]:
+            self._probe_census_due.pop(holder, None)
+        for lease in leases:
             if lease["holder"] in self.timers.active_holders:
+                continue
+            due = self._probe_census_due.get(lease["holder"])
+            if due and time.monotonic() < due[1]:
                 continue
             record = self._probe_record(lease["holder"])
             if not record:
@@ -2962,12 +3097,17 @@ class Daemon:
             outcome = Outcome(OutcomeClass.UNKNOWN, f"probe unavailable: {type(exc).__name__}")
             self._contain_probe(self._probe_record(holder))
         record = self._probe_record(holder)
-        if record["state"] not in ("reserved", "contained", "quarantined"):
+        if record["state"] not in ("reserved", "contained", "quarantined") and holder not in self._probe_census_due:
             self._contain_probe(record)
             record = self._probe_record(holder)
         if record["state"] == "quarantined":
             return Outcome(OutcomeClass.UNKNOWN, "probe containment is quarantined",
-                           evidence={"probe_quarantined": True})
+                           evidence={**outcome.evidence, "probe_quarantined": True})
+        if record["state"] == "containing":
+            # C-5.5: the census could not be read. The lease stays, and recovery
+            # finishes the probe from its receipt once a census verifies it.
+            return Outcome(OutcomeClass.UNKNOWN, "probe containment deferred: its census could not be read",
+                           evidence={**outcome.evidence, "probe_deferred": True})
         self._finish_probe(record, outcome)
         return outcome
 
@@ -2992,10 +3132,11 @@ class Daemon:
             holder = f"probe:{token}"
             directory = self.root / "lanes" / decision.chosen_lane / "probes" / token
             directory.mkdir(mode=0o700, parents=True)
+            deadline_s = self._probe_deadline_s()           # C-11.4: restarted when its gate opens
             record = {"holder": holder, "job_id": job["job_id"], "lane_id": decision.chosen_lane,
                       "model_id": self.policy["models"][decision.chosen_model]["id"],
                       "directory": str(directory), "state": "reserved", "created_at": utcnow(),
-                      "deadline_at": after(60), "owned_identities": {}}
+                      "deadline_s": deadline_s, "deadline_at": after(deadline_s), "owned_identities": {}}
             reserved = False
             try:
                 with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
@@ -3022,6 +3163,15 @@ class Daemon:
                     except OSError:
                         pass
             outcome = self._probe_candidate(job, decision, holder)
+            killed = bool(outcome.evidence.get("deadline_hit"))
+            # C-11.4: a probe killed at its deadline is tried again at once, once,
+            # with the longer deadline its kill earned (`_probe_deadline_s`); the
+            # retry that is killed too waits the 60 s below. Any other end clears it.
+            prompt = killed and not self._probe_retried.get(job["job_id"])
+            if killed:
+                self._probe_retried[job["job_id"]] = True
+            else:
+                self._probe_retried.pop(job["job_id"], None)
             if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
                 approved.add(pair)
             elif outcome.cls != OutcomeClass.LIMITED:
@@ -3030,12 +3180,15 @@ class Daemon:
                 # probe that ends the same way adds no second decision row.
                 repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
                                              {"reason": "probe-pending"}, expedite=False)
-                with self.store.transaction("job.probe_waiting", job_id=job["job_id"]) as tx:
+                held = outcome.evidence.get("probe_quarantined") or outcome.evidence.get("probe_deferred")
+                with self.store.transaction("job.probe_waiting", job_id=job["job_id"],
+                                            data={"deadline_s": outcome.evidence.get("deadline_s"),
+                                                  "deadline_hit": killed, "prompt_retry": prompt}) as tx:
                     if not repeat:
                         self.store.add_decision(job["job_id"], decision)
                     tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
-                               ("uncertain" if outcome.evidence.get("probe_quarantined") else "capacity",
-                                after(60), job["job_id"]))
+                               ("uncertain" if held else "capacity",
+                                after(1 if prompt and not held else 60), job["job_id"]))
                 return None, desktop
         return None, desktop
 
@@ -3194,7 +3347,8 @@ class Daemon:
         # whichever pass notices. Each dict is walked as a copy: the other kind's
         # pass writes its own jobs' entries meanwhile (`dict.copy` is one C call).
         pending = {job["job_id"] for job in queued}
-        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors)
+        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
+                  self._probe_retried)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
         if gone:
             # A job submitted after the read above, whose entry the other pass has
@@ -4179,6 +4333,9 @@ class Daemon:
             # every tick.
             if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
                 return
+            if census.inconclusive:
+                self._defer_census(a, census, "start grace")       # C-5.5: no writer seen, none ruled out
+            self._census_concluded(aid)
             if census.verified_empty:
                 self._unlaunched(a, "starting-no-receipt")
             else:
@@ -4271,6 +4428,11 @@ class Daemon:
             self._begin_finalizing(a, receipt)
             return True
         census = self._contain(a)
+        if census.inconclusive:
+            # C-5.5: nothing seen and nothing ruled out: neither a loss nor a
+            # reason to kill. The raise is C-5.10's to retry, in full (C-5.11).
+            self._defer_census(a, census, "dead guardian")
+        self._census_concluded(aid)
         if not census.verified_empty:
             self._kill_attempt(a, lost=True)
         else:
@@ -4413,14 +4575,17 @@ class Daemon:
         evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
-        if a.get("pgid"):
+        # C-5.5: a kill whose last census was inconclusive has already had its
+        # SIGTERM, its grace and its SIGKILL; its retry goes on from the SIGKILL.
+        resumed = a["attempt_id"] in self._kill_resumed
+        if a.get("pgid") and not resumed:
             procs.signal_group(a["pgid"], signal.SIGTERM, boot_id=a["boot_id"], proc_start=a["proc_start"])
-        deadline = time.monotonic() + self.term_grace_s
+        deadline = time.monotonic() + (0 if resumed else self.term_grace_s)
         while not census.verified_empty and time.monotonic() < deadline:
             if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
                 return
             census = self._contain(a)
-        escalated = not census.verified_empty
+        escalated = resumed or not census.verified_empty
         if escalated and a.get("pgid"):
             procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"], proc_start=a["proc_start"])
         census = self._contain(a)
@@ -4439,6 +4604,11 @@ class Daemon:
             census = self._contain(a)
             if census.verified_empty or time.monotonic() >= settle_until:
                 break
+        if census.inconclusive:
+            # C-5.5: past the window with no survivor seen and none ruled out.
+            self._kill_resumed.add(a["attempt_id"])
+            self._defer_census(a, census, "termination")
+        self._census_concluded(a["attempt_id"])
         if not census.verified_empty:
             self._quarantine(a, census, "termination could not verify containment")
             return
@@ -4453,6 +4623,26 @@ class Daemon:
                        "wall_s": age(a["started_at"]), "finished_at": utcnow(), "killed_by": a.get("killed_by") or "operator"}
             self._publish("exit", adir / "exit.json", json_bytes(receipt))
         self._begin_finalizing(a, receipt)
+
+    def _defer_census(self, a: dict, census, where: str):
+        """C-5.5: an inconclusive census decides nothing; raise `CensusDeferred`.
+
+        The attempt keeps its state and every lease. C-5.10 offers the pass again
+        at its backoff (0.5 s doubling to 60 s), and `daemon.log` names the key.
+        What the census could not read (C-5.5's causes, no ps text) is recorded
+        as an `attempt.census_deferred` event on the 1st, 2nd, 4th, 8th ...
+        deferral in a row, so a cause that lasts is on record and stays bounded."""
+        aid = a["attempt_id"]
+        count = self._census_deferrals[aid] = self._census_deferrals.get(aid, 0) + 1
+        if count & (count - 1) == 0:
+            self.store.add_event("attempt.census_deferred", job_id=a["job_id"], attempt_id=aid,
+                                 data={"where": where, "deferrals": count, "containment": census.to_dict()})
+        raise CensusDeferred(f"{where}: census inconclusive ({count} in a row)")
+
+    def _census_concluded(self, aid: str) -> None:
+        """A census that can decide has been read for `aid`: its deferral count and resumed kill end."""
+        self._census_deferrals.pop(aid, None)
+        self._kill_resumed.discard(aid)
 
     def _quarantine(self, a: dict, census, reason: str) -> None:
         detail = json.dumps({"reason": reason, **census.to_dict()}, sort_keys=True)
@@ -4628,10 +4818,17 @@ class Daemon:
             since = self._exit_settle.setdefault(a["attempt_id"], time.monotonic())
             if time.monotonic() - since < self.exit_settle_s:
                 return
+            if census.inconclusive:
+                # C-5.5, C-5.9: past the window, a census that could not be read
+                # is retried at C-5.10's backoff; the window stays spent, so the
+                # first census to show a writer quarantines at once.
+                self._defer_census(a, census, "exit receipt")
             self._exit_settle.pop(a["attempt_id"], None)
+            self._census_concluded(a["attempt_id"])
             self._quarantine(a, census, "writers remain after exit receipt")
             return
         self._exit_settle.pop(a["attempt_id"], None)
+        self._census_concluded(a["attempt_id"])
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
         # stream once after containment when no separate raw file was supplied.

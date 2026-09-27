@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from typing import Callable
 
+import errno
 import fcntl
 import os
 import re
+import selectors
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -27,17 +30,78 @@ from . import boot_identity
 #: kept. A mismatch is read again before `liveness` calls a process dead.
 BOOT_ID_TTL_S = 5.0
 
+#: C-5.12: the cap on one `ps` or `sysctl`: how long the reader may run, not how
+#: long this process takes to collect what it wrote. A reader that has exited
+#: by the cap has answered, however late its output is read.
+READ_TIMEOUT_S = 10.0
+
+#: C-5.5: the reader's standard output is one end of a socket pair with this
+#: much buffer (macOS allows up to `kern.ipc.maxsockbuf`, 8 MiB), so `ps` writes
+#: its whole answer and exits without waiting for this process to read any of
+#: it. A pipe holds 16 to 64 KiB, so `ps -axEww` (1.3 MB at 1,000 processes)
+#: had to be read back in some fifty pieces, each one a thread switch in a
+#: process where many threads want the interpreter lock.
+READ_BUFFER_BYTES = 8 << 20
+
+#: How long `_read` waits for output before asking whether its reader has exited.
+EXIT_CHECK_S = 1.0
+
+#: At most this much of a reader's standard error is kept, to name why it failed.
+STDERR_KEPT_BYTES = 4096
+STDERR_HEAD_CHARS = 160
+
 
 class InspectionError(RuntimeError):
-    """The operating system could not establish process ownership."""
+    """The operating system could not establish process ownership.
+
+    The message says why (a reader that could not start, one still running at
+    its cap, a non-zero exit with the head of its standard error, a row that is
+    not a process) and never carries a command or an environment (C-5.5)."""
+
+
+def _os_error(exc: BaseException) -> str:
+    """An OS error as its errno name (`EAGAIN`), never its message, which names paths."""
+    code = getattr(exc, "errno", None)
+    if code:
+        return errno.errorcode.get(code, str(code))
+    return type(exc).__name__
+
+
+_WORD = re.compile(r"\S+")
+
+
+def stderr_head(data: bytes) -> str:
+    """The first line of a reader's standard error, safe to keep as evidence (C-5.5).
+
+    `ps` and `sysctl` report their own failures there ("ps: ..."), not a process's
+    command or environment, but nothing here relies on that: every word holding
+    `=` (an environment entry) or `/` (a path, which a command begins with) is
+    replaced, and so is anything that is not printable ASCII."""
+    line = next((row for row in data.decode("ascii", "replace").splitlines() if row.strip()), "")
+    line = "".join(char if char.isprintable() and char.isascii() else "?" for char in line.strip())
+    line = _WORD.sub(lambda word: "<redacted>" if "=" in word[0] or "/" in word[0] else word[0], line)
+    return line[:STDERR_HEAD_CHARS]
+
+
+#: How `_read` starts its reader; tests stand a real child in for `ps` here.
+_spawn = subprocess.Popen
 
 
 def _read(argv: list[str], *, empty_ok: bool = False) -> str:
     # Match the CLI's rendering of ps lstart; ambient locale/timezone must not
-    # make the same live daemon or guardian appear to be a reused pid.
+    # make the same live daemon or guardian appear to be a reused pid. In the C
+    # locale `ps` also escapes every control and non-ASCII byte of a command or
+    # environment (`\012`, `M-^?`), so a row is always one line.
     env = {"LC_ALL": "C", "LANG": "C", "TZ": "UTC",
            "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    name = os.path.basename(argv[0])
+    output, output_end = socket.socketpair()
     try:
+        for end, option in ((output_end, socket.SO_SNDBUF), (output, socket.SO_RCVBUF)):
+            try:
+                end.setsockopt(socket.SOL_SOCKET, option, READ_BUFFER_BYTES)
+            except OSError:
+                pass                    # a smaller buffer is read in more pieces, never wrongly
         # C-5.12: `close_fds=False` is what lets CPython start the reader with
         # `posix_spawn` on macOS; with the default it forks, and a fork of the
         # daemon costs in proportion to its memory (measured 2026-09-21 at 1 GB
@@ -54,17 +118,90 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
         # guardian closes before it inspects anything, and the catalog run's
         # fence, which never reaches this function (the run's own `ps` reads
         # close descriptors). A third must do one or the other.
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=10, env=env,
-                                close_fds=False)
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise InspectionError(f"{os.path.basename(argv[0])} inspection unavailable") from exc
+        try:
+            child = _spawn(argv, stdin=subprocess.DEVNULL, stdout=output_end.fileno(),
+                           stderr=subprocess.PIPE, env=env, close_fds=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise InspectionError(f"{name} could not start ({_os_error(exc)})") from exc
+    except BaseException:
+        output.close()
+        raise
+    finally:
+        output_end.close()              # the reader holds its own copy; EOF follows its exit
+    try:
+        stdout, stderr = _collect(child, output, name)
+    except BaseException:
+        if child.returncode is None:    # as `subprocess.run` did: no reader outlives its caller
+            child.kill()
+            child.wait()
+        raise
+    finally:
+        output.close()
+        child.stderr.close()
+    rc = child.returncode
     # BSD ps returns 1 when a valid selector matches no processes.
-    if result.returncode and not (
-        empty_ok and result.returncode == 1 and not result.stdout.strip()
-        and not result.stderr.strip()
-    ):
-        raise InspectionError(f"{os.path.basename(argv[0])} inspection failed ({result.returncode})")
-    return result.stdout
+    if rc and not (empty_ok and rc == 1 and not stdout.strip() and not stderr.strip()):
+        head = stderr_head(stderr)
+        raise InspectionError(f"{name} exited {rc}" + (f": {head}" if head else ""))
+    return stdout.decode("utf-8", "surrogateescape")
+
+
+def _collect(child: subprocess.Popen, output: socket.socket, name: str) -> tuple[bytes, bytes]:
+    """Read everything `child` writes and reap it; `InspectionError` if it runs past its cap.
+
+    Each wake reads all that is buffered, so a reader starved of the interpreter
+    lock reads a whole answer in a few pieces, and the child never waits for it.
+    The cap is on the child: past it, a child that has exited has answered, and
+    what it wrote is read without waiting; only one still running is killed."""
+    deadline = time.monotonic() + READ_TIMEOUT_S
+    chunks: list[bytes] = []
+    errors = bytearray()
+    selector = selectors.DefaultSelector()
+    try:
+        selector.register(output, selectors.EVENT_READ, "out")
+        selector.register(child.stderr, selectors.EVENT_READ, "err")
+        exited = False
+        while selector.get_map():
+            left = deadline - time.monotonic()
+            if left <= 0 and not exited:
+                exited = child.poll() is not None
+                if not exited:
+                    child.kill()
+                    child.wait()
+                    raise InspectionError(f"{name} timed out: still running after {READ_TIMEOUT_S:g} s")
+            # Once the child has exited nothing more can arrive, but a copy of an
+            # end that another spawn inherited in its instant (C-5.12) can hold
+            # off end-of-file; what is buffered is read without waiting for it.
+            # A wait that finds nothing asks whether the child has exited, so
+            # such a copy costs at most `EXIT_CHECK_S`, not the cap.
+            ready = selector.select(0 if exited else min(left, EXIT_CHECK_S))
+            if not ready:
+                if exited:
+                    break
+                exited = child.poll() is not None
+                continue
+            for key, _ in ready:
+                try:
+                    data = os.read(key.fd, READ_BUFFER_BYTES if key.data == "out" else STDERR_KEPT_BYTES)
+                except BlockingIOError:
+                    continue
+                if not data:
+                    selector.unregister(key.fileobj)
+                elif key.data == "out":
+                    chunks.append(data)
+                elif len(errors) < STDERR_KEPT_BYTES:
+                    errors += data[:STDERR_KEPT_BYTES - len(errors)]
+    finally:
+        selector.close()
+    try:
+        # Both streams ended, so the child is exiting; the floor covers a starved
+        # reader that got here after the cap, when the child is long gone.
+        child.wait(max(1.0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        child.kill()
+        child.wait()
+        raise InspectionError(f"{name} timed out: still running after {READ_TIMEOUT_S:g} s") from None
+    return b"".join(chunks), bytes(errors)
 
 
 _boot_lock = threading.Lock()
@@ -307,15 +444,16 @@ def snapshot() -> ProcessTable:
 
     The boot identity is not read here but when the table first needs it."""
     rows: dict[int, tuple[int, int, str, str]] = {}
-    try:
-        for row in _read(TABLE_ARGV).splitlines():
-            parts = row.split(None, 4)
-            if len(parts) < 4:
-                continue
+    for number, row in enumerate(_read(TABLE_ARGV).splitlines(), 1):
+        parts = row.split(None, 4)
+        if len(parts) < 4:
+            continue
+        try:
             rows[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3],
                                    parts[4].strip() if len(parts) > 4 else "")
-    except ValueError as exc:
-        raise InspectionError("ps printed a row that is not a process") from exc
+        except ValueError as exc:
+            # Where, never what: a row is kept out of the evidence like any ps text.
+            raise InspectionError(f"ps printed a row that is not a process (row {number})") from exc
     return ProcessTable(rows)
 
 
@@ -338,6 +476,15 @@ class Containment:
     @property
     def verified_empty(self) -> bool:
         return not self.unverifiable and not self.live_pids
+
+    @property
+    def inconclusive(self) -> bool:
+        """A source could not be read and none that could shows a live process.
+
+        That is no evidence of a writer, only a census still owed: the daemon
+        decides nothing from it and asks again at C-5.10's backoff, where a
+        census that shows a live process decides as before (C-5.5)."""
+        return self.unverifiable and not self.live_pids
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -369,15 +516,15 @@ def group_members(pgid: int) -> dict[int, str]:
     if not pgid or pgid <= 0:
         return {}
     members: dict[int, str] = {}
-    try:
-        for row in _read(["/bin/ps", "-axo", "pid=,pgid=,stat=,lstart="]).splitlines():
-            parts = row.split(None, 3)
-            if len(parts) < 4:
-                continue
+    for number, row in enumerate(_read(["/bin/ps", "-axo", "pid=,pgid=,stat=,lstart="]).splitlines(), 1):
+        parts = row.split(None, 3)
+        if len(parts) < 4:
+            continue
+        try:
             if int(parts[1]) == pgid and not parts[2].startswith("Z"):
                 members[int(parts[0])] = parts[3].strip()
-    except ValueError as exc:
-        raise InspectionError("group enumeration unavailable") from exc
+        except ValueError as exc:
+            raise InspectionError(f"ps printed a row that is not a process (row {number})") from exc
     return members
 
 
@@ -404,10 +551,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     try:
         seen: ProcessTable | None = snapshot()
         table = seen.rows
-    except InspectionError:
+    except InspectionError as exc:
+        # C-5.5: why the source could not be read (the reader's cap, its exit
+        # status and the head of its error output, or a row that is not a
+        # process), which `InspectionError` says without any ps text.
         seen, table = None, {}
-        errors.append("group enumeration unavailable")
-        errors.append("descendant enumeration unavailable")
+        errors.append(f"group enumeration unavailable: {exc}")
+        errors.append(f"descendant enumeration unavailable: {exc}")
 
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
@@ -425,7 +575,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         descendants = {pid for pid in found if live(pid)}
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
-            raise ValueError("invalid attempt marker")
+            raise InspectionError("invalid attempt marker")
         marker = re.compile(r"(?:^|\s)SUBFLEET_ATTEMPT=" + re.escape(attempt_id) + r"(?=\s|$)")
         # C-5.5: attempt ids are a timestamp and a slug, so two daemons (or two
         # test state roots) can mint the same id in the same second. The state
@@ -433,15 +583,19 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         root_marker = (re.compile(r"(?:^|\s)SUBFLEET_ROOT=" + re.escape(root) + r"(?=\s|$)")
                        if root else None)
         # Never retain or report these command/environment strings.
-        for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
+        for number, row in enumerate(_read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines(), 1):
             pid_text, _, command = row.strip().partition(" ")
             if marker.search(command) and (root_marker is None or root_marker.search(command)):
-                pid = int(pid_text)
+                try:
+                    pid = int(pid_text)
+                except ValueError:
+                    raise InspectionError(f"ps printed a row that is not a process (row {number})") from None
                 state = table[pid][2] if pid in table else _stat(pid)
                 if state and not state.startswith("Z"):
                     markers.add(pid)
-    except (InspectionError, ValueError):
-        errors.append("marker enumeration unavailable")
+    except InspectionError as exc:
+        # The cause, never the row: C-5.5 keeps no command or environment text.
+        errors.append(f"marker enumeration unavailable: {exc}")
     identities: dict[int, ProcessIdentity] = {}
     for pid in groups | descendants | markers:
         try:

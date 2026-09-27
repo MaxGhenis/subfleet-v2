@@ -1,17 +1,31 @@
 """Probe supervision over mocked process identity and durable rows (C-5, C-11.4)."""
 
+import collections
 import dataclasses
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from subfleet import daemon as daemon_module, procs
 from subfleet.contracts import Launch, Outcome, OutcomeClass
 from subfleet.daemon import after, utcnow
 from tests.fake.test_routing_end_to_end import routing_state
 from tests.fake_adapter import FakeAdapter
+
+# C-5.5: the 2026-09-27 census: the environment scan timed out, and no source that could be read saw a process.
+MARKER_TIMED_OUT = procs.Containment(unverifiable=True, errors=(
+    "marker enumeration unavailable: ps timed out: still running after 10 s",))
+
+
+def events(service, kind):
+    """The records of `kind` (`add_event` also writes the kind's empty audit row, C-3.2)."""
+    rows = service.store.query("SELECT data_json FROM events WHERE kind=? ORDER BY event_id", (kind,))
+    return [data for data in (json.loads(row["data_json"]) for row in rows) if data]
 
 
 def reserved_probe(service, job_id, *, state="starting"):
@@ -129,7 +143,9 @@ def test_c5_probe_reservation_before_launch_recovers_without_dispatch(routing_st
 
 
 def test_c5_probe_exception_after_spawn_keeps_unverifiable_lease(routing_state, monkeypatch):
-    """C-5.5–7: an exception after guardian start never releases unverified probe ownership."""
+    """C-5.5–7: an exception after guardian start never releases unverified probe ownership. A census that could
+    not be read and saw nothing is deferred, not quarantined (C-5.5): the lease stays and the job waits `uncertain`
+    for recovery, with the census's cause on record (on release/217 this quarantined the probe)."""
     service, harness = routing_state
     job_id = submitted(service, harness)
     record = reserved_probe(service, job_id)
@@ -137,13 +153,17 @@ def test_c5_probe_exception_after_spawn_keeps_unverifiable_lease(routing_state, 
     def failed(*args):
         raise OSError("receipt unavailable")
     monkeypatch.setattr(service, "_execute_probe", failed)
-    monkeypatch.setattr(service, "_probe_census", lambda record: procs.Containment(unverifiable=True))
+    monkeypatch.setattr(service, "_probe_census", lambda record: MARKER_TIMED_OUT)
     monkeypatch.setattr(procs, "same_process", lambda *args: False)
     decision = SimpleNamespace(chosen_lane="codex-1", chosen_model="astra")
     outcome = service._probe_candidate(service.store.get_job(job_id), decision, record["holder"])
-    assert outcome.evidence["probe_quarantined"]
-    assert service._probe_record(record["holder"])["state"] == "quarantined"
+    assert outcome.evidence["probe_deferred"] and "probe_quarantined" not in outcome.evidence
+    stored = service._probe_record(record["holder"])
+    assert stored["state"] == "containing" and stored["containment"]["errors"] == list(MARKER_TIMED_OUT.errors)
     assert service.store.list_leases(record["holder"])
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+    assert events(service, "probe.quarantined") == []
+    assert [event["deferrals"] for event in events(service, "probe.census_deferred")] == [1]
 
 
 def test_c5_probe_gate_opens_after_durable_identity_and_readonly_launch(routing_state, monkeypatch):
@@ -206,3 +226,250 @@ def test_c6_capacity_waiter_cannot_be_bypassed_by_newer_same_tier(routing_state)
     service._admit()
     assert service.store.list_attempts(first)
     assert not service.store.list_attempts(second)
+
+
+# --- C-5.5: a probe whose census cannot be read is deferred, not quarantined (incident 2026-09-27) ----------------
+
+def test_c5_5_a_deferred_probe_is_contained_by_recovery_at_backoff_and_finished(routing_state, monkeypatch):
+    """C-5.5, C-5.10 recovery takes a deferred probe's census again only when its backoff is due, never on every
+    admission pass; the first census that verifies it contained finishes the probe from its receipt, releases the
+    lease and hands the job back to admission. On release/217 the probe was quarantined on the first census."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record = reserved_probe(service, job_id)
+    exit_receipts(record)
+    monkeypatch.setattr(procs, "same_process", lambda *args: False)
+    service.term_grace_s = 0                                  # the first containment's grace re-reads every 50 ms
+    censuses = []
+    answer = [MARKER_TIMED_OUT]
+    monkeypatch.setattr(service, "_probe_census", lambda value: censuses.append(1) or answer[0])
+    service._recover_probes()                                  # the whole protocol: a census, and one after SIGKILL
+    assert len(censuses) == 2 and service._probe_record(record["holder"])["state"] == "containing"
+    assert service.store.list_leases(record["holder"])
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+    service._recover_probes()                                  # not due yet: no census
+    service._recover_probes()
+    assert len(censuses) == 2
+    count, due = service._probe_census_due[record["holder"]]
+    assert count == 1 and 0 < due - time.monotonic() <= .5
+    service._probe_census_due[record["holder"]] = (count, 0.0)  # due
+    service._recover_probes()                                  # still unreadable: one census, the backoff doubles
+    assert len(censuses) == 3 and service._probe_census_due[record["holder"]][0] == 2
+    assert [event["deferrals"] for event in events(service, "probe.census_deferred")] == [1, 2]
+    answer[0] = procs.Containment()                            # `ps` answers again
+    service._probe_census_due[record["holder"]] = (2, 0.0)
+    service._recover_probes()
+    assert service._probe_record(record["holder"])["state"] == "completed"
+    assert not service.store.list_leases(record["holder"])
+    assert record["holder"] not in service._probe_census_due
+    job = service.store.get_job(job_id)
+    assert job["wait_reason"] == "capacity" and job["next_check_at"] <= utcnow()
+    assert events(service, "probe.quarantined") == []
+
+
+def test_c5_5_a_probe_census_that_shows_an_escape_still_quarantines_once_and_is_paced(routing_state, monkeypatch):
+    """C-5.4–7 unchanged where the census is evidence: an unowned live process quarantines. The quarantine is one
+    event, not one per admission pass, and its census is taken again at the backoff (release/217: every pass)."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record = reserved_probe(service, job_id)
+    exit_receipts(record)
+    escaped = procs.Containment(marker_pids=frozenset({900003}),
+                                identities={900003: procs.ProcessIdentity(900003, "boot", "escaped")})
+    monkeypatch.setattr(procs, "same_process", lambda *args: False)
+    monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: pytest.fail("no recorded leader is live"))
+    monkeypatch.setattr(procs, "signal_process", lambda *args, **kwargs: pytest.fail("the escape is not owned"))
+    service.term_grace_s = 0
+    censuses = []
+    monkeypatch.setattr(service, "_probe_census", lambda value: censuses.append(1) or escaped)
+    service._recover_probes()
+    assert service._probe_record(record["holder"])["state"] == "quarantined"
+    taken = len(censuses)
+    for _ in range(3):
+        service._recover_probes()
+    assert len(censuses) == taken
+    service._probe_census_due[record["holder"]] = (1, 0.0)
+    service._recover_probes()
+    assert len(censuses) == taken + 1
+    assert len(events(service, "probe.quarantined")) == 1
+    assert service.store.list_leases(record["holder"])
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+
+
+def test_c5_5_a_quarantined_probe_s_job_that_was_let_go_is_held_again(routing_state, monkeypatch):
+    """C-5.7 a job whose probe is still quarantined waits `uncertain`; if something let it go meanwhile (a restart
+    that found the record quarantined, an operator's edit) the next census holds it again, once."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record = reserved_probe(service, job_id, state="quarantined")
+    monkeypatch.setattr(procs, "same_process", lambda *args: False)
+    monkeypatch.setattr(service, "_probe_census", lambda value: MARKER_TIMED_OUT)
+    service._recover_probes()
+    stored = service._probe_record(record["holder"])
+    assert stored["state"] == "quarantined"                    # a quarantine ends only on a verified census
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+    kinds = [row["kind"] for row in service.store.query("SELECT kind FROM events WHERE kind='probe.job_held'")]
+    assert kinds == ["probe.job_held"]
+
+
+def test_c5_5_a_deferred_timer_turn_keeps_its_lease_for_recovery():
+    """C-5.5 a timer turn whose containment was deferred keeps its probe lease, as a quarantined one does."""
+    from subfleet.timers import held
+    assert held(Outcome(OutcomeClass.UNKNOWN, "timer containment deferred", evidence={"probe_deferred": True}))
+    assert held(Outcome(OutcomeClass.UNKNOWN, "timer quarantined", evidence={"probe_quarantined": True}))
+    assert not held(Outcome(OutcomeClass.OK, "ok"))
+
+
+# --- C-11.4: the probe deadline under load -----------------------------------------------------------------------
+
+def test_c11_4_the_probe_deadline_is_the_cap_until_probes_need_more(routing_state, monkeypatch):
+    """C-11.4 `caps.probe_timeout_s` with no evidence; then twice the slowest recent wall, or twice a deadline a probe
+    was killed at; never past four times the cap; evidence older than PROBE_LOAD_MEMORY_S is forgotten."""
+    service, _ = routing_state
+    clock = [1000.0]
+    monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: clock[0], sleep=time.sleep))
+    assert service._probe_deadline_s() == 60
+    service._note_probe_need({}, {"rc": 0, "signal": None, "wall_s": 20.0})
+    assert service._probe_deadline_s() == 60                   # 40 s is inside the cap
+    service._note_probe_need({}, {"rc": 0, "signal": None, "wall_s": 45.6})    # the incident's, at load 160
+    assert service._probe_deadline_s() == pytest.approx(91.2)
+    service._note_probe_need({"deadline_hit": True, "deadline_s": 91.2}, {"rc": 143, "signal": 15, "wall_s": 91})
+    assert service._probe_deadline_s() == pytest.approx(182.4)
+    service._note_probe_need({"deadline_hit": True, "deadline_s": 182.4}, None)
+    assert service._probe_deadline_s() == 240                  # the ceiling
+    service._note_probe_need({}, {"rc": 143, "signal": 15, "wall_s": 500})     # a cancelled probe says nothing
+    clock[0] += daemon_module.PROBE_LOAD_MEMORY_S + 1
+    assert service._probe_deadline_s() == 60
+
+
+@given(st.lists(st.one_of(st.tuples(st.just("wall"), st.floats(0, 10_000)),
+                          st.tuples(st.just("killed"), st.floats(1, 10_000)),
+                          st.tuples(st.just("cancelled"), st.floats(0, 10_000))), max_size=40),
+       st.floats(1, 600))
+@settings(max_examples=200, deadline=None)
+def test_c11_4_the_probe_deadline_is_bounded_and_follows_the_evidence(events_seen, cap):
+    """C-11.4, for every history of probes: the deadline is at least the cap and at most four times it, it is exactly
+    the largest recent need clamped to those bounds, it never shrinks when a need is added, and a cancelled probe
+    changes nothing."""
+    core = object.__new__(daemon_module.Daemon)
+    core.policy = {"caps": {"probe_timeout_s": cap}}
+    core._probe_needs = collections.deque(maxlen=daemon_module.PROBE_LOAD_SAMPLES)
+    needs = []
+    for kind, seconds in events_seen:
+        before = core._probe_deadline_s()
+        if kind == "wall":
+            core._note_probe_need({}, {"rc": 0, "signal": None, "wall_s": seconds})
+            needs.append(daemon_module.PROBE_WALL_MARGIN * seconds)
+        elif kind == "killed":
+            core._note_probe_need({"deadline_hit": True, "deadline_s": seconds}, None)
+            needs.append(2 * seconds)
+        else:
+            core._note_probe_need({}, {"rc": 143, "signal": 15, "wall_s": seconds})
+        after_ = core._probe_deadline_s()
+        assert cap <= after_ <= daemon_module.PROBE_DEADLINE_CEILING_FACTOR * cap
+        recent = needs[-daemon_module.PROBE_LOAD_SAMPLES:]
+        assert after_ == min(daemon_module.PROBE_DEADLINE_CEILING_FACTOR * cap, max([cap, *recent]))
+        if kind == "cancelled":
+            assert after_ == before
+
+
+def test_c11_4_a_probe_killed_at_its_deadline_is_retried_once_at_once_never_approved(routing_state, monkeypatch):
+    """C-11.4 a probe killed at its deadline leaves the job due again in about a second, once, with the longer deadline
+    its kill earned; a second kill in a row waits the usual 60 s; the pair is never approved without an `ok` probe;
+    any other end of a probe ends the streak."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    deadlines, answers = [], []
+
+    def probe(job, decision, holder):
+        record = service._probe_record(holder)
+        deadlines.append(record["deadline_s"])
+        record.update(state="contained")
+        service._save_probe(record)
+        outcome = answers.pop(0)
+        if outcome.evidence.get("deadline_hit"):
+            service._note_probe_need({"deadline_hit": True, "deadline_s": record["deadline_s"]}, None)
+        service._finish_probe(record, outcome)
+        return outcome
+    monkeypatch.setattr(service, "_probe_candidate", probe)
+    killed = Outcome(OutcomeClass.UNKNOWN, "rc 143", evidence={"deadline_hit": True})
+
+    def prepare():
+        job = service.store.get_job(job_id)
+        return service._prepare_route(job, job, ())[0]
+
+    def due_in() -> float:
+        due = datetime.fromisoformat(service.store.get_job(job_id)["next_check_at"].replace("Z", "+00:00"))
+        return (due - datetime.now(timezone.utc)).total_seconds()
+
+    answers.append(killed)
+    assert prepare() is None                                   # never approved on a killed probe
+    assert due_in() <= 2 and service._probe_retried[job_id]
+    answers.append(killed)
+    assert prepare() is None
+    assert 50 <= due_in() <= 61                                # the retry was killed too: the usual wait
+    assert deadlines == [60, 120]                              # the retry had the deadline the first kill earned
+    answers.append(Outcome(OutcomeClass.UNKNOWN, "no receipt"))
+    assert prepare() is None
+    assert job_id not in service._probe_retried                # the streak ended
+    assert deadlines[-1] == 240                                # and the second kill's evidence stands (ceiling)
+    waits = [json.loads(row["data_json"]) for row in service.store.list_events(job_id)
+             if row["kind"] == "job.probe_waiting"]
+    assert [(w["deadline_hit"], w["prompt_retry"]) for w in waits] == [(True, True), (True, False), (False, False)]
+
+
+def test_c11_4_an_admission_probe_s_deadline_runs_from_its_gate(routing_state, monkeypatch):
+    """C-11.4 what the launch costs under load (the credential, the spawn, the store) is not taken from the probe:
+    its deadline is set again as its gate opens. On release/217 it ran from the reservation."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record = reserved_probe(service, job_id, state="reserved")
+    record.update(deadline_s=90, deadline_at="2026-01-01T00:00:00Z")    # a launch that took far too long
+    service._save_probe(record)
+    job, lane = service.store.get_job(job_id), service.store.get_lane("codex-1")
+    model = service.policy["models"]["astra"]
+    original_close, original_write = daemon_module.os.close, daemon_module.os.write
+    monkeypatch.setattr(daemon_module.procs, "pipe_above_stdio", lambda: (800, 801))
+    monkeypatch.setattr(daemon_module.os, "close", lambda fd: None if fd in (800, 801) else original_close(fd))
+    at_gate = []
+
+    def gate(fd, value):
+        if fd != 801:
+            return original_write(fd, value)
+        at_gate.append(service._probe_record(record["holder"])["deadline_at"])
+    monkeypatch.setattr(daemon_module.os, "write", gate)
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", lambda command, **kwargs: SimpleNamespace(pid=900001))
+    monkeypatch.setattr(service, "_await_probe", lambda value, child: (True, {"rc": 0, "signal": None,
+                                                                               "wall_s": .1, "child_pid": 900002}))
+    before = datetime.now(timezone.utc)
+    service._execute_probe(job, lane, model, record["holder"])
+    opened = datetime.fromisoformat(at_gate[0].replace("Z", "+00:00"))
+    assert 89 <= (opened - before).total_seconds() <= 92
+
+
+def test_c5_5_a_probe_deferred_at_its_end_leaves_admission_without_a_second_census(routing_state, monkeypatch):
+    """C-5.5, C-6.9 a probe whose census could not be read as it ended: `_prepare_route` holds the job `uncertain`
+    (which holds no later job back), keeps the lease for recovery, finishes nothing, and takes no second census."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    service.term_grace_s = 0
+    monkeypatch.setattr(procs, "same_process", lambda *args: False)
+    censuses = []
+    monkeypatch.setattr(service, "_probe_census", lambda value: censuses.append(1) or MARKER_TIMED_OUT)
+
+    def execute(job, lane, model, holder):
+        record = service._probe_record(holder)
+        record.update(state="running", guardian_pid=900001, pgid=900001, boot_id="boot", proc_start="start")
+        service._save_probe(record)
+        exit_receipts(record)
+        service._contain_probe(record)                        # what `_await_probe` ends with
+        return Outcome(OutcomeClass.UNKNOWN, "probe containment deferred: its census could not be read",
+                       evidence={"probe_deferred": True, "deadline_s": 60, "deadline_hit": False})
+    monkeypatch.setattr(service, "_execute_probe", execute)
+    job = service.store.get_job(job_id)
+    assert service._prepare_route(job, job, ())[0] is None
+    assert len(censuses) == 2                                  # the protocol's two; `_probe_candidate` adds none
+    holder = next(iter(service._probe_census_due))
+    assert service._probe_record(holder)["state"] == "containing" and service.store.list_leases(holder)
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+    assert events(service, "probe.completed") == [] and events(service, "probe.quarantined") == []

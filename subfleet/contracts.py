@@ -218,6 +218,16 @@ EXIT_SETTLE_S = 3
 # wall clock are still read every tick; a death verdict is never taken from a
 # shared table.
 INSPECT_INTERVAL_S = 1.0
+# C-11.4: an admission probe's deadline runs from when its launch gate opens.
+# `caps.probe_timeout_s` (60) is the least it gets; under load it is stretched to
+# `PROBE_WALL_MARGIN` times the slowest recent probe, or twice a deadline a
+# recent probe was killed at, and never past `PROBE_DEADLINE_CEILING_FACTOR`
+# times the cap. What probes needed is remembered in memory, the last
+# `PROBE_LOAD_SAMPLES` of it, each for `PROBE_LOAD_MEMORY_S`.
+PROBE_WALL_MARGIN = 2.0
+PROBE_DEADLINE_CEILING_FACTOR = 4
+PROBE_LOAD_MEMORY_S = 1800
+PROBE_LOAD_SAMPLES = 16
 # C-5.11: how often a probe's guardian re-records the group members it owns
 # (C-5.4); it runs inside the probe monitor's paced liveness check, which uses
 # `INSPECT_INTERVAL_S`, so at most that often too. A running attempt records its

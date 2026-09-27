@@ -32,6 +32,12 @@ def iso(value):
     return instant(value).astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
 
+def held(outcome) -> bool:
+    """C-5.5, C-5.7: the turn's probe lease stays for the daemon's recovery: its
+    containment was quarantined, or deferred because its census could not be read."""
+    return bool(outcome.evidence.get('probe_quarantined') or outcome.evidence.get('probe_deferred'))
+
+
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
                  deliver=None, now=None):
@@ -416,7 +422,7 @@ class Timers:
                         # Commit the single allowance before launching the CLI.
                         self.store.add_event('timer.heal', lane_id=lane.lane_id, data={'epoch': epoch, 'at': iso(self.now())})
                         outcome = self._turn(lane, 'heal', holder, 60)
-                        quarantined = outcome.evidence.get('probe_quarantined', False)
+                        quarantined = held(outcome)
                         if 'revoked' in outcome.detail.lower():
                             probe = {'status': 'revoked', 'readings': (), 'revoked_epoch': epoch}
                         elif not quarantined:
@@ -440,7 +446,7 @@ class Timers:
                     if prior.get('epoch') != epoch or (not prior.get('at') or (self.now() - instant(prior['at'])).total_seconds() >= 1200):
                         self.store.add_event('timer.heal', lane_id=lane.lane_id, data={'epoch': epoch, 'at': iso(self.now())})
                         outcome = self._turn(lane, 'heal', holder, 60)
-                        quarantined = outcome.evidence.get('probe_quarantined', False)
+                        quarantined = held(outcome)
                         if not quarantined:
                             self._pace_usage()
                             probe = self._read_probe(adapter, lane, env)
@@ -666,7 +672,7 @@ class Timers:
         try:
             timeout = min(60, self.policy.get('caps', {}).get('keepalive_timeout_s', 60))
             outcome = self._turn(lane, 'keepalive', holder, timeout)
-            quarantined = outcome.evidence.get('probe_quarantined', False)
+            quarantined = held(outcome)
             sent = outcome.evidence.get('requested_at')
             state = 'timed-out' if outcome.evidence.get('timed_out') else outcome.cls.value
             with self.store.transaction('timer.keepalive', lane_id=lane.lane_id):

@@ -182,7 +182,8 @@ _HOLD_TEXT = {
     "probe-pending": "its lane is being probed before the job may start on it",
     "attempt-live": "an earlier attempt of this job is still live or quarantined; the next waits for it",
     "approval": "waiting for an operator's approval",
-    "uncertain": "a probe was quarantined; an operator must resolve it",
+    "uncertain": "its probe is not yet verified contained (quarantined, or its census could not be read); "
+                 "recovery takes the census again with backoff and the job continues once one verifies it (C-5.5)",
     "workspace": "its workspace could not be prepared; it is retried with backoff (C-6.8)",
     "route": "its route could not be evaluated ({error_type}: {error}); it is rechecked with backoff "
              "and holds no other job back (C-6.12)",
