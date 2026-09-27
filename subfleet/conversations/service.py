@@ -200,6 +200,8 @@ class ConversationService:
         try:
             response = protocol.ok(req.id, self.handle(req.op, req.args, peer))
         except ConversationError as exc:
+            if exc.code == 1:                   # an operational fault, not a refusal: say it where it can be found
+                self.log.warning("conversation op %s: %s: %s", req.op, exc.reason, exc)
             response = protocol.fail(req.id, exc.code, f"{exc.reason}: {exc}", exc.fix)
         except (protocol.ProtocolError, AdapterError) as exc:
             response = protocol.fail(req.id, exc.code, str(exc), exc.fix)

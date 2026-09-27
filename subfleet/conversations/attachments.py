@@ -22,6 +22,7 @@ from pathlib import Path
 from .store import ConversationError, ConversationStore
 
 MAX_BYTES = 20 * 1024 * 1024
+BLOCKED_FIX = "remove the directory at the stored copy's name, then add the image again"
 TYPES = (
     (b"\x89PNG\r\n\x1a\n", "image/png", "png"),
     (b"\xff\xd8\xff", "image/jpeg", "jpg"),
@@ -158,8 +159,8 @@ def add(store: ConversationStore, path: str, expected_sha256: str | None = None)
         try:
             _copy(data, target)
         except IsADirectoryError:                         # a rename cannot replace a directory
-            raise ConversationError("copy-blocked", f"a directory holds the stored copy's name {target}",
-                                    code=1, fix="remove that directory, then add the image again") from None
+            raise ConversationError("copy-blocked", f"a directory is in the way of the stored copy at {target}",
+                                    code=1, fix=BLOCKED_FIX) from None
         if not _holds(target, digest, len(data)):
             raise ConversationError("copy-mismatch", "the stored copy does not match; try again", code=1)
     # Published as C-8.1 says, its name on disk before its row, whichever add made the
@@ -178,8 +179,12 @@ def check(store: ConversationStore, sha256: str) -> tuple[str, str]:
     row = store.attachment(sha256)
     if row is None:
         raise ConversationError("attachment-missing", f"attachment {sha256} is not stored")
-    if not _holds(Path(row["path"]), sha256, row["bytes"]):
+    path = Path(row["path"])
+    if not _holds(path, sha256, row["bytes"]):
+        blocked = False
+        with contextlib.suppress(OSError):
+            blocked = stat.S_ISDIR(os.lstat(path).st_mode)  # a re-add would only say `copy-blocked`
         raise ConversationError("attachment-missing",
                                 f"attachment {sha256} is not the daemon's own stored copy (gone, changed, or not private)",
-                                fix="add the image again; that repairs the stored copy")
+                                fix=BLOCKED_FIX if blocked else "add the image again; that repairs the stored copy")
     return row["path"], row["media_type"]

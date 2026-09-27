@@ -544,35 +544,52 @@ def test_a_stored_copy_whose_read_fails_is_refused_and_repaired(store, tmp_path,
     assert attachments.check(store, out["sha256"]) == (str(copy), "image/png")
 
 
+@pytest.mark.parametrize("first", [False, True], ids=["re-add", "first add"])
 @pytest.mark.parametrize("contents", [[], ["kept.txt"]], ids=["empty", "not empty"])
-def test_a_directory_at_the_copys_name_is_named_and_left_alone(store, tmp_path, contents):
+def test_a_directory_at_the_copys_name_is_named_and_left_alone(store, tmp_path, contents, first):
     """C-28.1 (review of 1808f61): a rename cannot replace a directory, so a directory at
-    the copy's name failed every re-add with an unhandled IsADirectoryError ("operation
-    failed"). The add now says what is in the way (`copy-blocked`, with the fix), leaves
-    the directory and its contents alone and no temporary file behind; once the
-    directory is gone, the next add makes the copy."""
+    the copy's name failed every add of the image, the first or a re-add, with an
+    unhandled IsADirectoryError ("operation failed"). The add now says what is in the
+    way (`copy-blocked`, with the fix), leaves the directory and its contents alone and
+    no temporary file behind, and writes no row; the driver's check gives the same fix,
+    since a re-add would only say `copy-blocked`. Once the directory is gone, the next
+    add makes the copy."""
     src = tmp_path / "a.png"
     src.write_bytes(PNG)
-    out = attachments.add(store, str(src))
-    directory = store.root / "attachments"
-    copy = directory / f"{out['sha256']}.png"
-    copy.unlink()
+    digest = hashlib.sha256(PNG).hexdigest()
+    directory = store.subdirectory("attachments")
+    copy = directory / f"{digest}.png"
+    if not first:
+        attachments.add(store, str(src))
+        copy.unlink()
     copy.mkdir(mode=0o700)
     for name in contents:
         (copy / name).write_text("someone else's")
     with pytest.raises(ConversationError) as err:
         attachments.add(store, str(src))
-    assert (err.value.reason, err.value.code) == ("copy-blocked", 1)
-    assert "remove that directory" in err.value.fix
+    assert (err.value.reason, err.value.code, err.value.fix) == ("copy-blocked", 1, attachments.BLOCKED_FIX)
     assert sorted(os.listdir(directory)) == [copy.name] and sorted(os.listdir(copy)) == contents
-    with pytest.raises(ConversationError) as err:
-        attachments.check(store, out["sha256"])
-    assert err.value.reason == "attachment-missing"
+    assert (store.attachment(digest) is None) == first
+    if not first:
+        with pytest.raises(ConversationError) as err:
+            attachments.check(store, digest)
+        assert (err.value.reason, err.value.fix) == ("attachment-missing", attachments.BLOCKED_FIX)
     for name in contents:
         (copy / name).unlink()
     copy.rmdir()
-    assert attachments.add(store, str(src)) == out
+    assert attachments.add(store, str(src))["sha256"] == digest
     assert copies(store) == [copy.name]
+
+
+def test_the_drivers_check_offers_a_re_add_for_a_copy_a_re_add_repairs(store, tmp_path):
+    """C-28.1 for a stored copy that is not a directory, the check's fix is a re-add."""
+    src = tmp_path / "a.png"
+    src.write_bytes(PNG)
+    out = attachments.add(store, str(src))
+    (store.root / "attachments" / f"{out['sha256']}.png").write_bytes(b"garbage")
+    with pytest.raises(ConversationError) as err:
+        attachments.check(store, out["sha256"])
+    assert err.value.fix == "add the image again; that repairs the stored copy"
 
 
 def test_a_development_build_counts_as_the_app_only_on_a_development_state_root(tmp_path, monkeypatch):
