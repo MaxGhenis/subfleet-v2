@@ -491,6 +491,9 @@ class Daemon:
         self.lock_watch.add(self.conversations.store._lock)
         self.lock_watch.add(self.conversations.store._writes)
         self.lock_watch.watch_reads("store", self.store.read_holds)       # C-3.7
+        # C-16.7: connections this daemon shut down after a reply failed part
+        # way; their end of stream is not a client leaving.
+        self._shut_down: set[socket.socket] = set()
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
@@ -4905,7 +4908,7 @@ class Daemon:
         except Exception as exc:
             self.log.error("request %s failed: %s", req.op, type(exc).__name__)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
-        send_reply(conn, write_lock, response)
+        send_reply(conn, write_lock, response, end_stream=self._end_stream)
 
     def _decode(self, conn: socket.socket, write_lock: threading.Lock,
                 line: bytes | descriptors.Oversized) -> protocol.Request | None:
@@ -4915,7 +4918,7 @@ class Daemon:
                 raise protocol.ProtocolError("request exceeds 1 MiB")
             return protocol.decode_request(line)
         except (protocol.ProtocolError, UnicodeDecodeError) as exc:
-            if not send_reply(conn, write_lock, protocol.fail("", 2, str(exc))):
+            if not send_reply(conn, write_lock, protocol.fail("", 2, str(exc)), end_stream=self._end_stream):
                 raise OSError("the reply to an undecodable request failed part way")
             return None
 
@@ -4987,8 +4990,12 @@ class Daemon:
             pass
         finally:
             # Not while stopping: close()'s own SHUT_RDWR also makes the peer look
-            # gone, and close() cancels what is queued itself.
-            if not self.stopping.is_set() and descriptors.client_gone(conn):
+            # gone, and close() cancels what is queued itself. Nor after this
+            # daemon ended the stream itself (`_end_stream`): that is not a client
+            # leaving either.
+            with self._connection_lock:
+                ours = conn in self._shut_down
+            if not self.stopping.is_set() and not ours and descriptors.client_gone(conn):
                 # C-16.7: the client closed its whole socket. Its reads that no
                 # thread has reached yet are cancelled now, so the connection and
                 # its place under the cap go at once instead of when a busy pool
@@ -5003,6 +5010,8 @@ class Daemon:
                     conn.close()
                     with self._connection_lock:
                         self._connections.discard(conn)
+                        self._shut_down.discard(conn)
+                        self._shut_down.discard(conn)
             for f in pending:
                 f.add_done_callback(finish)
             finish()
@@ -5040,7 +5049,8 @@ class Daemon:
                 self._connections.add(conn)       # close() shuts down whatever is here
                 self._connection_counts["accepted"] += 1
         if not admitted:
-            self._refuse(conn, f"it holds {held} client connections, its limit", "connection over the cap")
+            self._refuse(conn, f"the daemon is busy: it holds {held} client connections, its limit",
+                         "connection over the cap")
             return
         reader = threading.Thread(target=self._read_connection, args=(conn,),
                                   name="subfleet-socket", daemon=True)
@@ -5052,7 +5062,10 @@ class Daemon:
             with self._connection_lock:
                 self._readers.discard(reader)
                 self._connections.discard(conn)
-            self._refuse(conn, "it cannot start a reader for this connection",
+            # Nothing was read, so the answer is busy, and the client may try again.
+            # Logged through the refusal count (1st, 2nd, 4th ...), not once per
+            # connection: out of threads, every client would add a line.
+            self._refuse(conn, f"the daemon is busy: it could not start a thread for this connection ({exc})",
                          f"connection no reader thread could start for ({exc})")
 
     def _read_connection(self, conn: socket.socket) -> None:
@@ -5062,7 +5075,14 @@ class Daemon:
             with self._connection_lock:
                 self._readers.discard(threading.current_thread())
 
-    def _refuse(self, conn: socket.socket, why: str, detail: str) -> None:
+    def _end_stream(self, conn: socket.socket) -> None:
+        """C-16.7: shut a connection down after a reply that failed part way."""
+        with self._connection_lock:
+            self._shut_down.add(conn)
+        with contextlib.suppress(OSError):
+            conn.shutdown(socket.SHUT_RDWR)
+
+    def _refuse(self, conn: socket.socket, message: str, detail: str) -> None:
         """C-16.7: answer busy (exit 69) before reading anything, and close."""
         if self.stopping.is_set():
             conn.close()                       # shutting down: not busy, just gone
@@ -5070,7 +5090,7 @@ class Daemon:
         self._count_connection("refused", detail)
         try:
             conn.setblocking(False)            # a fresh socket's buffer takes one line
-            conn.send(busy_answer(f"the daemon is busy: {why}"))
+            conn.send(busy_answer(message))
         except OSError:
             pass
         finally:
@@ -5154,10 +5174,13 @@ class Daemon:
                         self.log.error("accept failed: %s (%d in a row, %d connections open, %s descriptors, next try in %g s)",
                                        errno.errorcode.get(exc.errno, exc.errno), failures,
                                        len(self._connections), descriptors.open_descriptors() or "unknown", delay)
-                    # Not `stopping.wait`: this is the main thread, whose SIGTERM
-                    # handler sets that event, and a signal arriving while this
-                    # thread holds the event's lock would deadlock (review of the
-                    # descriptor hotfix, F5). The loop checks `stopping` next.
+                    # A sleep, not `self.stopping.wait`: this is the main thread,
+                    # where the SIGTERM/SIGINT handler runs and calls
+                    # `stopping.set()`. `Event.wait` holds the event's
+                    # non-reentrant lock except while it blocks, so a signal in
+                    # that window would leave `set()` waiting on its own thread
+                    # for ever. The loop sees `stopping` on its next pass, at
+                    # most one pause (2 s) late. (Release line's hotfix review, F5.)
                     time.sleep(delay)
                     continue
                 if failures:

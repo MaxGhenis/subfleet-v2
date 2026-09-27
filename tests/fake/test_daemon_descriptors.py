@@ -497,7 +497,7 @@ def test_a_reader_that_cannot_start_is_answered_busy_and_the_daemon_serves_on(se
     monkeypatch.setattr(module.threading, "Thread", NoReader)
     refused = [ping(path) for _ in range(2)]
     assert [(r["ok"], r["error"]["code"]) for r in refused] == [(False, 69)] * 2
-    assert "cannot start a reader" in refused[0]["error"]["message"]
+    assert "could not start a thread for this connection" in refused[0]["error"]["message"]
     assert "try again shortly" in refused[0]["error"]["fix"]
     assert dispatched == [], "a request ran on a connection refused busy"
     monkeypatch.setattr(module.threading, "Thread", real_thread)

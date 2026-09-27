@@ -431,7 +431,9 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
                     # nudge is recoverable and a blocked session is not.
     marked = True
     try:
-        client = Client(root, verify_lock=False) if client is None else client     # C-15.6
+        # C-15.6: no lock check. C-16.7: a busy daemon is read offline below at
+        # once; waiting out busy answers would only delay the prompt or the start.
+        client = Client(root, verify_lock=False, retry_busy=False) if client is None else client
         rows = _pending(client, session)
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows, marked = _offline_pending(root, session), False

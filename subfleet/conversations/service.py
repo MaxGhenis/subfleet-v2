@@ -226,7 +226,7 @@ class ConversationService:
         except Exception as exc:
             self.log.error("conversation op %s failed: %s: %s", req.op, type(exc).__name__, exc)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
-        descriptors.send_reply(conn, write_lock, response)
+        descriptors.send_reply(conn, write_lock, response, end_stream=getattr(self.daemon, "_end_stream", None))
 
     def handle(self, op: str, args: dict, peer: int | None, *,
                client_gone: Callable[[], bool] | None = None) -> dict:

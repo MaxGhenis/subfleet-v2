@@ -1405,9 +1405,9 @@ def test_a_daemon_busy_to_the_end_is_a_wait_timeout(daemon, capsys):
     started = _time.monotonic()
     assert run_cli(["wait", JOB, "--timeout", "2"]) == 124
     assert _time.monotonic() - started < 5
-    # `Client.call` asks again inside each poll's budget (C-16.7), 50 ms doubling,
-    # and the loop again after it: backed off, not a spin.
-    assert 2 <= len(poll.calls) <= 16, len(poll.calls)
+    # `Client.call` asks again in the first half of each poll's budget (C-16.7), 50 ms
+    # doubling, and the loop again after it: backed off, a few dozen tries, not a spin.
+    assert 2 <= len(poll.calls) <= 40, len(poll.calls)
     err = capsys.readouterr().err
     assert "still busy" in err and "still running" in err
 
@@ -1427,7 +1427,7 @@ class GateClient(cli.Client):
         super().__init__(Path("/nonexistent-gate-root"))
         self.busy, self.polls, self.budgets = busy, 0, []
 
-    def _call_once(self, op, args, *, request_id, timeout):
+    def _call_once(self, op, args, *, request_id, timeout, stated):
         from subfleet.client import DaemonError
         if op == "gate.start":
             return {"gate_id": "gate-1", "job_id": "job-1", "code": None}
@@ -1487,9 +1487,9 @@ def poll_clock(monkeypatch):
         clock.sleeps.append(seconds)
         clock.now += seconds
 
-    fake = SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep)
-    monkeypatch.setattr(gate_cli, "time", fake)
-    monkeypatch.setattr(client_module, "time", fake)
+    monkeypatch.setattr(gate_cli, "time", SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep))
+    monkeypatch.setattr(client_module, "_clock", lambda: clock.now)
+    monkeypatch.setattr(client_module, "_sleep", sleep)
     monkeypatch.setattr(client_module, "random", SimpleNamespace(random=lambda: 0.0))
     return clock
 
@@ -1563,17 +1563,18 @@ def test_gate_busy_retries_share_one_poll_budget(unmanaged, monkeypatch, poll_cl
 
 
 def test_gate_busy_deadline_prevents_an_extra_poll(unmanaged, monkeypatch, poll_clock):
-    """C-16.7/F8: a pause that would reach the deadline starts no other request; the
-    busy answer is reported with the budget still unspent by any sleep."""
+    """C-16.7/F8: a retry starts only in the first half of the poll's budget, so one
+    the daemon reads still has half the budget to answer; a pause past that half
+    starts no other request, and the busy answer is reported."""
     from subfleet.client import DaemonError
 
     monkeypatch.setattr(unmanaged, "POLL_TIMEOUT_S", 1.0)
     client = GateClient(busy=10**6)
     with pytest.raises(DaemonError, match="serving 512 connections"):
         unmanaged._poll(client, "gate-1")
-    assert client.polls == 5                                      # at 0, .05, .15, .35, .75 s
-    assert poll_clock.now == pytest.approx(.75) and poll_clock.now < 1.0
-    assert poll_clock.sleeps == pytest.approx([0.05, 0.1, 0.2, 0.4])
+    assert client.polls == 4                                      # at 0, .05, .15, .35 s
+    assert poll_clock.now == pytest.approx(.35) and poll_clock.now <= .5
+    assert poll_clock.sleeps == pytest.approx([0.05, 0.1, 0.2])
 
 
 def test_daemon_status_reads_a_busy_answer_as_running(daemon, capsys):

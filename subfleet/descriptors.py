@@ -25,6 +25,7 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 from . import protocol
 from .contracts import Exit
@@ -171,23 +172,29 @@ def busy_answer(message: str) -> bytes:
         "try again shortly; `subfleet doctor --live` reports its connections and descriptors"))
 
 
-def send_reply(conn: socket.socket, write_lock, response: dict) -> bool:
+def send_reply(conn: socket.socket, write_lock, response: dict, *,
+               end_stream: Callable[[socket.socket], None] | None = None) -> bool:
     """Write one reply line on a client connection; False when it could not be.
 
     A client disconnect cannot cancel a durable job, so a failed send is not an
     error of the request. A reply that failed part way (the client stopped
     reading, C-16.7) leaves a broken line, so nothing more may follow it: the
-    connection is shut down, and its reader and any later reply see that.
+    connection is shut down, by `end_stream` when given (the daemon's
+    `_end_stream`, which also records that the daemon ended it), and its reader
+    and any later reply see that.
     """
     try:
         with write_lock:
             conn.sendall(protocol.encode(response))
         return True
     except OSError:
-        try:
-            conn.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
+        if end_stream is not None:
+            end_stream(conn)
+        else:
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
         return False
 
 

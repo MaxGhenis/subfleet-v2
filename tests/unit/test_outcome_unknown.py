@@ -210,17 +210,19 @@ def busy():
 
 
 class ScriptedWire(Client):
-    """A client whose every send plays a script, below `call`'s busy retry (C-16.7):
-    each step is a result or an exception, as one exchange on the socket would be."""
+    """A client whose every send plays a script per op, below `call`'s busy retry
+    (C-16.7): each step is a result or an exception, as one exchange on the socket
+    would be; an op's last step repeats."""
 
-    def __init__(self, root, *script):
+    def __init__(self, root, **script):
         super().__init__(root)
-        self.script = list(script)
+        self.script = {op: list(steps) for op, steps in script.items()}
         self.sent: list[tuple] = []
 
-    def _call_once(self, op, args, *, request_id, timeout):
-        self.sent.append((op, args, request_id, timeout))
-        step = self.script.pop(0)
+    def _call_once(self, op, args, *, request_id, timeout, stated):
+        self.sent.append((op, args, request_id, timeout, stated))
+        steps = self.script[op]
+        step = steps.pop(0) if len(steps) > 1 else steps[0]
         if isinstance(step, BaseException):
             raise step
         return step
@@ -233,33 +235,52 @@ def test_c16_3_a_busy_re_send_is_asked_again_then_answered(root, monkeypatch, op
     busy backoff (50 ms doubling), the same request each time, and the answer that
     comes is the outcome."""
     slept = []
-    monkeypatch.setattr(client_module.time, "sleep", slept.append)
+    monkeypatch.setattr(client_module, "_sleep", slept.append)
     monkeypatch.setattr(client_module.random, "random", lambda: 0.0)      # the backoff's full length
-    client = ScriptedWire(root, lost(), busy(), busy(), {"job_id": JOB, "created": False})
+    client = ScriptedWire(root, **{op: [lost(), busy(), busy(), {"job_id": JOB, "created": False}]})
     result = client.call_settled(op, {"job_id": JOB}, request_id="rid")
     assert result == {"job_id": JOB, "created": False, "requeried": True}
     assert len(client.sent) == 4 and slept == [0.05, 0.1]
     assert len({(step[0], json.dumps(step[1]), step[2]) for step in client.sent}) == 1   # one request, sent again
-    assert all(0 < step[3] <= client_module.REQUERY_TIMEOUT_S for step in client.sent[1:])
+    assert all(0 < step[3] <= step[4] == client_module.REQUERY_TIMEOUT_S for step in client.sent[1:])
+
+
+@pytest.fixture
+def frozen(monkeypatch):
+    """`call`'s clock, which only its busy pauses move."""
+    clock = [0.0]
+    monkeypatch.setattr(client_module, "_clock", lambda: clock[0])
+    monkeypatch.setattr(client_module, "_sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+    return clock
 
 
 @pytest.mark.parametrize("op", ["submit", "kill"])
-def test_c16_3_busy_to_the_end_is_an_unknown_outcome_never_refused(root, monkeypatch, op):
-    """C-16.3, C-17.3 (merge review 1): a daemon busy through the whole re-send deadline
-    leaves the first request's outcome unknown. Before, a busy `submit` was looked up,
-    found nowhere (the first had not committed yet) and reported "NOT submitted".
-    `call` asks again until the deadline is spent, and never past it."""
-    clock = [0.0]
-    monkeypatch.setattr(client_module.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(client_module.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
-    client = ScriptedWire(root, lost(), *[busy() for _ in range(200)])
+def test_c16_3_busy_to_the_end_is_an_unknown_outcome_never_refused(root, frozen, op):
+    """C-16.3, C-17.3 (merge review 1): a daemon busy through the re-send's retries
+    leaves the first request's outcome unknown, never busy (exit 69 reads as nothing
+    sent) and never refused. Before, a busy `submit` was looked up, found nowhere
+    (the first had not committed yet) and reported "NOT submitted". `call` asks
+    again only in the first half of the re-send's deadline."""
+    client = ScriptedWire(root, **{op: [lost(), busy()], "list": [{"jobs": []}]})
     with pytest.raises(OutcomeUnknown) as unknown:
         client.call_settled(op, {"job_id": JOB}, request_id="rid", minted=True)
-    assert unknown.value.request_id == "rid" and "busy" in unknown.value.reasons[-1]
-    assert not any(step[0] == "list" for step in client.sent)       # no lookup settles it
-    assert clock[0] < client_module.REQUERY_TIMEOUT_S
-    assert len(client.sent) > 3                                     # asked again, within the deadline
-    assert all(step[3] <= client_module.REQUERY_TIMEOUT_S for step in client.sent[1:])
+    assert unknown.value.request_id == "rid" and "not read" in unknown.value.reasons[1]
+    re_sends = [step for step in client.sent if step[0] == op][1:]
+    assert len(re_sends) > 3 and frozen[0] <= client_module.REQUERY_TIMEOUT_S / 2
+    assert all(step[3] <= client_module.REQUERY_TIMEOUT_S for step in re_sends)
+    # A submit is looked up by its request id; nothing carries it, so still unknown.
+    assert any(step[0] == "list" for step in client.sent) == (op == "submit")
+
+
+def test_c16_3_a_busy_re_send_of_a_minted_submit_finds_the_job_the_first_made(root, frozen):
+    """C-16.3: the first submit committed and its answer was lost; the re-send met only
+    busy answers. The request id this call minted is carried by a job, which is the
+    answer, never an unknown outcome or a second job."""
+    job = {"job_id": JOB, "request_id": "rid", "state": "queued"}
+    client = ScriptedWire(root, submit=[lost(), busy()], list=[{"jobs": [job]}])
+    result = client.call_settled("submit", {"request_id": "rid"}, request_id="rid", minted=True)
+    assert result["job_id"] == JOB and result["created"] is False and result["requeried"] is True
+    assert "busy" in result
 
 
 def test_c16_3_lost_twice_is_an_unknown_outcome(root):
