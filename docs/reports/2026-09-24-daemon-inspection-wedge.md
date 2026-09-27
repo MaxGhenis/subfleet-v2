@@ -65,8 +65,8 @@ two hours after the restart.
 The store serializes every request on one connection and one lock
 (`Store._lock`, held across `execute` and `fetchall`), and every thread must
 retake the GIL after each SQLite step and each subprocess wait. A measured
-reproduction (`.rca/census_storm*.py` in the fix branch's working tree, not
-committed) ran the same inspection loop in one to seven threads beside sixteen
+reproduction (`census_storm.py` and `census_storm_bigheap.py` in
+`2026-09-24-daemon-inspection-wedge/`) ran the same inspection loop in one to seven threads beside sixteen
 threads issuing a 300-row query under an `RLock`:
 
 | running attempts | subprocesses/s | query p50 | query p90 | queries in 12 s |
@@ -212,3 +212,31 @@ each defect fails its test.
   `daemon start` treats a 3 s ping miss as no daemon and launches a second
   `subfleetd`, which exits on the lock ("another daemon holds daemon.lock").
   That exit is harmless: the flock is taken before the socket is touched.
+
+## Measurement scripts
+
+The scripts behind this report's numbers are in
+`2026-09-24-daemon-inspection-wedge/`. Each runs on its own with the installed
+subfleet (`~/.local/share/subfleet/current/venv/bin/python`) or `uv run python`
+from a checkout. They only read the live machine: they call `ps`, `sysctl` and
+`os.stat`, and they build throwaway stores and daemons in temporary
+directories.
+
+- `gil_convoy.py`: one CPU-bound thread against lock-serialized SQLite reads
+  (1.5 ms to 101 ms for 2,000 rows; p50 2 ms to 310 ms with sixteen clients).
+- `retention_hog.py`: `retention._size` over the real worktrees (19.6 s warm,
+  10.59 GB), and its effect on a locked query.
+- `census_storm.py` and `census_storm_bigheap.py`: the unfixed per-attempt
+  inspection loop at 0 to 7 simulated attempts, with a small heap and then a
+  1 GB heap (the table under Cause). Run `census_storm_bigheap.py` from its
+  own directory: it reads `census_storm.py` by relative path.
+- `census_storm_fixed.py`: the fixed loop at the same loads.
+- `waiter_herd.py`: eight waiters on the real `Daemon.wait` woken at 60 Hz
+  (2,834 store reads a second unfixed, 386 fixed). Run it from a checkout of
+  each revision.
+- `combined.py`: the combined reproduction (`list` plus `show` at 4.8 ms p50
+  and 62 ms p90 unfixed, against 0.5 ms and 1.5 ms fixed). Pass `unfixed` or
+  `fixed` to match the checkout it runs from.
+
+The independent reviews of PR #40 are kept outside the repository in
+`~/reviews/subfleet-daemon-wedge-2026-09-24/`.
