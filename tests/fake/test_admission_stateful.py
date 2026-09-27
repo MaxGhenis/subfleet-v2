@@ -101,6 +101,8 @@ JOB = st.fixed_dictionaries({
     "tier": st.one_of(st.just("standard"), st.sampled_from(TIERS)),
     "model": st.sampled_from((None,) + MODELS), "task": st.sampled_from((None,) + TASKS),
     "pin": st.none() | st.integers(0, 15), "legacy": st.booleans(), "authorize": st.booleans(),
+    # C-6.12: a stored exclusion that is not a lane name (submit refuses one now; an older row may hold one).
+    "exclusions": st.sampled_from(("[]", '["a@example.invalid"]', "[1]", "[null]")),
 })
 #: One change in capacity, as (kind, lane index, details).
 CAPACITY = st.one_of(
@@ -301,6 +303,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         try:
             if self.service is not None:
                 self.service.close()
+                self.harness.check_notices()             # C-15.1: every notice agrees with its job row
         finally:
             self.patch.undo()
             shutil.rmtree(self.tmp, ignore_errors=True)
@@ -447,17 +450,21 @@ class AdmissionMachine(RuleBasedStateMachine):
         if spec["authorize"] and name and model and not legacy:
             changes["unmeasured_reserve_reason"] = "stateful fixture: operator authorizes; quota unverified"
         submitted = changes if not legacy else {**changes, "pinned_model": model or (None if task else "astra")}
+        exclusions = json.loads(spec["exclusions"])
         try:
             job_id = self.service.dispatch("submit", self.harness.submit_args(
-                **submitted, pinned_lane=None if legacy else name))["job_id"]
+                **submitted, pinned_lane=None if legacy else name, exclusions=[] if legacy else exclusions))["job_id"]
         except (protocol.ProtocolError, AdapterError) as exc:
             event(f"submit refused: {type(exc).__name__}")
             note(f"submit {changes} pin={name!r} refused: {exc}")
             return
+        assert all(isinstance(value, str) for value in exclusions) or legacy, \
+            f"C-6.12: submit accepted exclusions {exclusions} that are not lane names"
         if legacy:
-            self.store.update_job(job_id, pinned_model=model, pinned_lane=name)
+            self.store.update_job(job_id, pinned_model=model, pinned_lane=name, exclusions=spec["exclusions"])
         self.seq[job_id] = len(self.seq)
-        note(f"submitted {job_id}: {changes} pin={name!r}{' (legacy)' if legacy else ''}")
+        note(f"submitted {job_id}: {changes} pin={name!r} exclusions={spec['exclusions']}"
+             f"{' (legacy)' if legacy else ''}")
 
     @rule(jobs=st.lists(JOB, min_size=1, max_size=3), tick=st.booleans())
     def submit(self, jobs, tick):

@@ -840,6 +840,9 @@ class Daemon:
             args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
             try:
                 ids.request_id(args.request_id)
+                if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
+                    # C-6.12: admission merges these with lane ids, so each must be a name.
+                    raise ValueError("exclusions must be a list of lane names")
                 sandbox = Sandbox(args.sandbox)
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
@@ -2524,11 +2527,18 @@ class Daemon:
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
+                current = self._job(job["job_id"])
+                if current["state"] in TERMINAL or current["cancel_requested_at"]:
+                    continue
+                if current["wait_reason"] in ("approval", "uncertain"):
+                    # C-4.1, C-6.11: preparing the route quarantined its probe, so the job now
+                    # waits on a person. It holds back nobody and says so on this pass too.
+                    holds[job["job_id"]] = {"reason": current["wait_reason"]}
+                    continue
                 waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                 holds[job["job_id"]] = {"reason": "probe-pending"}
-                current = self._job(job["job_id"])
                 clocked = current["next_check_at"] and current["next_check_at"] > utcnow()
-                if current["state"] not in TERMINAL and not current["cancel_requested_at"] and not clocked:
+                if not clocked:
                     # C-6.10: the route could not be prepared and nothing set a
                     # clock (the probe's slot is held, the lane changed hands). The
                     # job would otherwise be prepared, and a probe directory made,
@@ -2551,7 +2561,12 @@ class Daemon:
                 if job["cancel_requested_at"] or job["state"] in TERMINAL:
                     continue
                 if extra_exclusions:
-                    job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                    try:
+                        job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                    except ROUTE_ERRORS as exc:
+                        # C-6.12: a stored exclusion that is not a lane name is this job's
+                        # problem (it waits on `route`), never the pass's.
+                        raise Unroutable(exc) from exc
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
                 needs_probe = self._needs_probe(decision, job)
