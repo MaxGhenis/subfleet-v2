@@ -618,12 +618,19 @@ class ConversationService:
         return self._receipt(message, created=created)
 
     def op_message_status(self, args, peer) -> dict:
+        """Each message's receipt; `unknown` only for an id the store has no message
+        by. A store that refuses (closed while the op ran) fails the op: an
+        `unknown` there told the app the daemon never had a message it holds."""
         out = []
         for mid in list(args.get("message_ids") or [])[:200]:
             try:
-                out.append(self._receipt(self.store.message(canonical_uuid(mid)), text=True))
-            except ConversationError:
-                out.append({"message_id": mid, "state": "unknown"})
+                message = self.store.find_message(canonical_uuid(mid))
+            except ConversationError as exc:
+                if exc.reason != "bad-message-id":
+                    raise
+                message = None
+            out.append({"message_id": mid, "state": "unknown"} if message is None
+                       else self._receipt(message, text=True))
         return {"messages": out}
 
     def op_message_cancel(self, args, peer) -> dict:
@@ -633,9 +640,8 @@ class ConversationService:
 
     def _cancel(self, args) -> dict:
         message_id = canonical_uuid(args["message_id"])
-        try:
-            message = self.store.message(message_id)
-        except ConversationError:
+        message = self.store.find_message(message_id)
+        if message is None:                     # never received (a store that refuses fails the op)
             return self._tombstone(message_id, args.get("conversation_id"))
         if message["state"] in (QUEUED, WAITING) and not message["job_id"] and not self._turn_job(message):
             # No job carries it (queued, or waiting to be submitted again): the
@@ -1874,10 +1880,21 @@ class ConversationService:
     # --- outcomes --------------------------------------------------------------
 
     def _runner_for_message(self, message_id: str) -> TurnRunner | None:
-        return next((r for r in self.runners.values() if r.message_id == message_id and not r.finished.is_set()), None)
+        # A copy: the control loop adds and forgets runners meanwhile, and iterating
+        # the live dict raised "dictionary changed size during iteration" after a
+        # person's stop was recorded, so the runner was never interrupted.
+        return next((r for r in list(self.runners.values())
+                     if r.message_id == message_id and not r.finished.is_set()), None)
 
     def _on_contain(self, attempt_id: str) -> None:
-        """D-13 step 4: escalation reached containment; the daemon's kill path runs."""
+        """D-13 step 4: escalation reached containment; the daemon's kill path runs.
+
+        Refused (`store-closed`) once the conversation store has closed, as every
+        other write of a runner still going then is: `Daemon.close()` closes the
+        main store after it, and the write had reached a closed handle there
+        (`ProgrammingError`, logged as a runner failure). A later daemon's runner
+        escalates again from the stop it reads."""
+        self.store.check_open()
         runner = self.runners.get(attempt_id)
         if runner is not None:
             runner.contained = True

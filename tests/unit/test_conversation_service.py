@@ -1553,6 +1553,10 @@ def test_a_runner_whose_thread_cannot_start_is_adopted_again_and_close_still_clo
     with pytest.raises(RuntimeError, match="can't start new thread"):
         svc._adopt_runners()
     assert aid not in svc.runners
+    # Nothing owns a stop meanwhile: the daemon's wall limit and a kill reach the
+    # attempt, where a dead runner kept registered answered True for good.
+    job_id = aid.rsplit("/", 1)[0]
+    assert svc.stop({"attempt_id": aid}, {"job_id": job_id}, "wall-limit") is False
     monkeypatch.setattr(threading.Thread, "start", real_start)
     svc._adopt_runners()                    # the next tick
     runner = svc.runners[aid]
@@ -1588,6 +1592,92 @@ def test_a_tick_step_close_overtook_is_logged_as_stopped_not_failed(svc, tmp_pat
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
     assert any(r.levelno == logging.INFO and "_adopt_runners stopped: the service closed" in r.getMessage()
                for r in caplog.records), [r.getMessage() for r in caplog.records]
+
+
+def test_a_closed_store_is_never_read_as_a_message_the_daemon_never_had(svc):
+    """C-25.3: `message.status` and `message.cancel` read every refusal of
+    `store.message` as "no such message". Once close() had closed the store, an op
+    still running answered `unknown` for a message the daemon holds (the app reads
+    that as never received) and a cancel without its conversation id failed
+    `unknown-message`, exit 2. Only a missing message is unknown; a store that
+    refuses fails the op (`store-closed`, exit 1). A malformed id is still unknown."""
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    answer = svc.handle("message.status", {"message_ids": ["not-a-uuid", mid]}, None)
+    assert [m["state"] for m in answer["messages"]] == ["unknown", "queued"]
+    svc.close()
+    calls = {"status": lambda: svc.handle("message.status", {"message_ids": [mid]}, None),
+             "cancel": lambda: svc.handle("message.cancel", {"message_id": mid}, None),
+             "cancel naming its conversation": lambda: svc.handle(
+                 "message.cancel", {"message_id": mid, "conversation_id": cid}, None)}
+    refused = {}
+    for name, call in calls.items():
+        try:
+            refused[name] = ("answered", call())
+        except ConversationError as exc:
+            refused[name] = (exc.reason, exc.code)
+    assert refused == {name: ("store-closed", 1) for name in calls}, refused
+
+
+def test_containment_after_the_store_closed_is_refused_like_every_other_late_write(svc, tmp_path):
+    """C-25.3: a runner still going when close() stops waiting reaches D-13's
+    containment through `_on_contain`, which writes only the main store. Every other
+    write of such a runner is refused (`store-closed`, logged at info); this one went
+    on, and after `Daemon.close()` had closed the main store it raised
+    ProgrammingError, logged as a runner failure at ERROR. It is refused once the
+    conversation store has closed, which `Daemon.close()` does before the main store;
+    before that it is recorded as ever."""
+    aid = launched_turn(svc, tmp_path, [INIT_OK])
+    svc._on_contain(aid)
+    job_id = aid.rsplit("/", 1)[0]
+    assert svc.daemon.store.one("SELECT killed_by FROM attempts WHERE attempt_id=?", (aid,))["killed_by"]
+    later = launched_turn(svc, tmp_path, [INIT_OK], n=1)
+    svc.close()
+    with pytest.raises(ConversationError) as err:
+        svc._on_contain(later)
+    assert err.value.reason == "store-closed"
+    assert svc.daemon.store.one("SELECT killed_by FROM attempts WHERE attempt_id=?", (later,))["killed_by"] is None
+    assert svc.daemon.store.one("SELECT cancel_requested_at FROM jobs WHERE job_id=?",
+                                (later.rsplit("/", 1)[0],))["cancel_requested_at"] is None
+    assert job_id != later.rsplit("/", 1)[0]
+
+
+def test_a_persons_stop_finds_its_runner_while_the_control_loop_adds_and_forgets_others(svc):
+    """C-24.7: `turn.interrupt` looks for the message's runner while the control loop
+    registers runners (under the service lock) and forgets finished ones. The lookup
+    iterated the live dict, so on the free-threaded build it raised "dictionary
+    changed size during iteration" after the stop was recorded, and the runner was
+    never interrupted. It looks through a copy."""
+    class Live(FakeRunner):
+        message_id = "the-message"
+
+    live = Live()
+    svc.runners["live/a1"] = live
+    stop = threading.Event()
+
+    def churn():
+        n = 0
+        while not stop.is_set():
+            with svc._lock:
+                svc.runners[f"churn-{n}/a1"] = FakeRunner(finished=True)
+            svc.runners.pop(f"churn-{n - 8}/a1", None)
+            n += 1
+
+    churner = threading.Thread(target=churn)
+    churner.start()
+    errors, found = [], 0
+    try:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                found += svc._runner_for_message("the-message") is live
+            except RuntimeError as exc:
+                errors.append(str(exc))
+    finally:
+        stop.set()
+        churner.join(30)
+        svc.runners.clear()
+    assert errors == [] and found > 0, (errors[:3], len(errors), found)
 
 
 def test_a_closed_store_refuses_every_read_and_write_and_writes_no_file(svc):

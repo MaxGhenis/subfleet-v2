@@ -366,6 +366,11 @@ class ConversationStore:
         if self._closed:
             raise ConversationError("store-closed", "the conversation store is closed", code=1)
 
+    def check_open(self) -> None:
+        """Raise `store-closed` once the store has closed: for a write elsewhere
+        (the main store) that must end with this store, as a runner's own do."""
+        self._open()
+
     @contextlib.contextmanager
     def writing(self) -> Iterator[None]:
         """Hold the store open across a write of files under the state root: close()
@@ -927,10 +932,16 @@ class ConversationStore:
         return self.message(message_id), True
 
     def message(self, message_id: str) -> dict:
-        row = self.one("SELECT * FROM messages WHERE message_id=?", (message_id,))
-        if row is None:
+        message = self.find_message(message_id)
+        if message is None:
             raise ConversationError("unknown-message", f"no message {message_id}")
-        return _decode_message(row)
+        return message
+
+    def find_message(self, message_id: str) -> dict | None:
+        """The message, or None when the store has none by that id. Any other
+        refusal (`store-closed`) is raised: it says nothing of the message."""
+        row = self.one("SELECT * FROM messages WHERE message_id=?", (message_id,))
+        return None if row is None else _decode_message(row)
 
     def messages(self, conversation_id: str, *, limit: int = 50) -> list[dict]:
         rows = self.query("SELECT * FROM messages WHERE conversation_id=? ORDER BY seq DESC LIMIT ?",
