@@ -896,3 +896,23 @@ def test_c5_12_the_reader_returns_exactly_what_ps_wrote_and_always_reaps_it(size
     finally:
         procs._spawn = original
     assert seen and seen[0].returncode == rc
+
+
+def test_c5_5_an_error_after_blank_output_is_never_read_as_an_empty_selection():
+    """C-5.5 BSD ps's empty selection is rc 1 with nothing at all on either stream. An error that follows 4 KiB or
+    more of blank output is still an error, and its head names it (review of 2133efd, Astra finding 1: only the kept
+    prefix was checked, so this read as empty and a census with a live writer could be verified empty)."""
+    script = "import sys; sys.stderr.write(' ' * 5000 + '\\n\\n' + 'permission denied\\n'); sys.exit(1)"
+    with pytest.raises(procs.InspectionError, match=rf"^{re.escape(READER)} exited 1: permission denied$"):
+        procs._read(writer(script), empty_ok=True)
+
+
+def test_c5_12_a_reader_that_closed_its_streams_is_still_capped(monkeypatch):
+    """C-5.12 a reader that closes its output early and is still running at its cap is killed at the cap, not
+    given more time (review of 2133efd, Astra finding 4: a 1 s floor let it run to 10.8 s and answer)."""
+    monkeypatch.setattr(procs, "READ_TIMEOUT_S", .6)
+    script = "import os, time; time.sleep(.3); os.close(1); os.close(2); time.sleep(.6)"
+    started = time.monotonic()
+    with pytest.raises(procs.InspectionError, match="still running after 0.6 s"):
+        procs._read(writer(script))
+    assert time.monotonic() - started < .6 + .25

@@ -2950,12 +2950,15 @@ class Daemon:
                 raise procs.InspectionError("probe guardian identity is absent")
             record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
-            if record.get("job_id") and record.get("deadline_s"):
+            gated = bool(record.get("job_id") and record.get("deadline_s"))
+            if gated:
                 # C-11.4: an admission probe's deadline runs from its gate, so what
                 # the launch cost under load (the credential, the spawn, the store)
                 # is not taken from the provider's time. Timer turns keep theirs.
-                record["deadline_at"] = after(record["deadline_s"])
+                record["deadline_at"] = after(record["deadline_s"])   # what recovery reads
             self._save_probe(record)
+            if gated:
+                record["deadline_at"] = after(record["deadline_s"])   # and the wait, past the commit
             if not record.get("timer_kind") or not self.timers.cancel.is_set():
                 os.write(write_fd, b"1")  # Committed ownership is required to open the gate.
         except (OSError, procs.InspectionError) as exc:
@@ -4432,7 +4435,8 @@ class Daemon:
             # C-5.5: nothing seen and nothing ruled out: neither a loss nor a
             # reason to kill. The raise is C-5.10's to retry, in full (C-5.11).
             self._defer_census(a, census, "dead guardian")
-        self._census_concluded(aid)
+        # Not concluded here: the kill or the loss that follows decides, and a
+        # kill whose own census was deferred resumes from its SIGKILL.
         if not census.verified_empty:
             self._kill_attempt(a, lost=True)
         else:

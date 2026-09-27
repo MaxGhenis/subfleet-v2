@@ -536,3 +536,29 @@ def test_c29_6_a_conversation_reader_failure_never_stops_the_status_write(rig, m
     assert payload["conversations"]["available"] is False and payload["conversations"]["error"] == error
     assert payload["conversations"]["counts"] is None
     assert "claude" in payload and "jobs" in payload
+
+
+@pytest.mark.parametrize("flag", ["probe_deferred", "probe_quarantined"])
+def test_c5_5_a_heal_turn_whose_probe_is_held_keeps_its_lease_and_reads_nothing_more(rig, tmp_path, flag):
+    """C-5.5, C-5.7, C-23.47 at both heal call sites (a Codex home, a Claude home): a heal turn whose containment was
+    deferred, like one quarantined, leaves its probe lease for the daemon's recovery and is not followed by a second
+    usage read, which would publish a verdict while the turn's processes are not known to be gone."""
+    timer, store, clock, adapter, enroll = rig
+    codex = enroll()
+    home = tmp_path / "claude-home"
+    home.mkdir()
+    store.put_lane(Lane("claude-1", "claude", "claude:uuid-a:uuid-o", Credential("claude", str(home), "home"),
+                        str(home), LaneOwner.V2, False, True))
+    adapter.responses[codex.lane_id] = [{"status": "expired-token", "readings": ()}]
+    adapter.responses["claude-1"] = [{"status": "expired-token", "readings": ()}]
+    holders = []
+
+    def turn(lane, purpose, holder, *, cancel, deadline):
+        holders.append((lane.lane_id, purpose, holder))
+        return Outcome(OutcomeClass.UNKNOWN, "held", evidence={flag: True})
+    timer.turn = turn
+    timer.probe_cycle()
+    assert sorted((lane, purpose) for lane, purpose, _ in holders) == [("claude-1", "heal"), (codex.lane_id, "heal")]
+    assert sorted(adapter.calls) == sorted(["claude-1", codex.lane_id])      # one read each: no re-read after the heal
+    for _, _, holder in holders:
+        assert store.one("SELECT 1 FROM leases WHERE holder=?", (holder,)), holder

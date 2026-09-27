@@ -1010,3 +1010,26 @@ def test_c5_5_a_census_decides_only_on_evidence_whatever_came_before(daemon, mon
                 assert state == "quarantined" and core.store.get_job(JOB)["state"] == "lost"
         finally:
             core.store.close()
+
+
+def test_c5_5_a_dead_guardian_whose_kill_was_deferred_resumes_it_from_its_sigkill(daemon, monkeypatch):
+    """C-4.2, C-5.5, C-5.6 a dead guardian's census shows a survivor, and the kill it starts ends inconclusive. The
+    next pass finds the survivor again and resumes that kill from its SIGKILL: no second SIGTERM and grace, and the
+    deferral count goes on (review of 2133efd, Astra finding 2: the dead-guardian path cleared the resumed kill, so
+    every pass signalled SIGTERM again, waited the whole grace, and recorded deferral 1)."""
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+    signals = []
+    monkeypatch.setattr(daemon_module.procs, "signal_group", lambda pgid, sig, **identity: signals.append(sig) or True)
+    reads = []
+
+    def contain(a):
+        reads.append(1)
+        return BUSY if len(reads) == 1 else MARKER_TIMED_OUT     # the pass's first census sees the survivor
+    daemon._contain = contain
+    for n in (1, 2):
+        reads.clear()
+        with pytest.raises(daemon_module.CensusDeferred, match=rf"termination: census inconclusive \({n} in a row\)"):
+            daemon._process_attempt(ATTEMPT)
+    assert signals == [signal.SIGTERM, signal.SIGKILL, signal.SIGKILL]
+    assert [event["deferrals"] for event in deferred_events(daemon)] == [1, 2]
+    assert attempt(daemon)["state"] == "running"

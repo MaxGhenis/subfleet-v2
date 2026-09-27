@@ -14,7 +14,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import daemon as daemon_module, procs
-from subfleet.contracts import Launch, Outcome, OutcomeClass
+from subfleet.contracts import Credential, Lane, LaneOwner, Launch, Outcome, OutcomeClass
 from subfleet.daemon import after, utcnow
 from tests.fake.test_routing_end_to_end import routing_state
 from tests.fake_adapter import FakeAdapter
@@ -550,3 +550,65 @@ def test_c5_5_a_probe_lease_goes_only_with_a_verified_census_whatever_came_befor
     assert len([row for row in holder_rows if row["data_json"] != "{}"]) <= 1
     if not released:
         assert service.store.list_leases(record["holder"])
+
+
+def test_c11_4_the_gate_s_deadline_is_set_after_the_ownership_commit(routing_state, monkeypatch):
+    """C-11.4 the store's commits are not taken from the probe: a slow commit of the gate's ownership record leaves
+    the wait its whole deadline from when the gate opens (review of 2133efd, Astra finding 3: the deadline was set
+    before that commit, so a 120 s commit opened an expired gate on a 90 s probe)."""
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    record = reserved_probe(service, job_id, state="reserved")
+    record.update(deadline_s=90)
+    service._save_probe(record)
+    job, lane = service.store.get_job(job_id), service.store.get_lane("codex-1")
+    model = service.policy["models"]["astra"]
+    original_close, original_write, original_save = daemon_module.os.close, daemon_module.os.write, service._save_probe
+    monkeypatch.setattr(daemon_module.procs, "pipe_above_stdio", lambda: (800, 801))
+    monkeypatch.setattr(daemon_module.os, "close", lambda fd: None if fd in (800, 801) else original_close(fd))
+    opened = []
+    monkeypatch.setattr(daemon_module.os, "write",
+                        lambda fd, value: opened.append(datetime.now(timezone.utc)) if fd == 801 else original_write(fd, value))
+
+    def slow_save(value):
+        if value.get("state") == "starting":
+            time.sleep(2.2)                                   # the ownership commit, under load
+        original_save(value)
+    monkeypatch.setattr(service, "_save_probe", slow_save)
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", lambda command, **kwargs: SimpleNamespace(pid=900001))
+    waited = []
+
+    def awaited(value, child):
+        waited.append(value["deadline_at"])
+        return True, {"rc": 0, "signal": None, "wall_s": .1, "child_pid": 900002}
+    monkeypatch.setattr(service, "_await_probe", awaited)
+    service._execute_probe(job, lane, model, record["holder"])
+    deadline = datetime.fromisoformat(waited[0].replace("Z", "+00:00"))
+    assert (deadline - opened[0]).total_seconds() >= 89
+
+
+@pytest.mark.parametrize("flag", ["probe_deferred", "probe_quarantined"])
+def test_c5_5_a_keepalive_whose_probe_is_held_keeps_its_lease_for_recovery(tmp_path, flag):
+    """C-5.5, C-5.7 at the keepalive's own call site: a turn whose containment was deferred, like one quarantined,
+    leaves its probe lease for the daemon's recovery (review of 2133efd: only `held()` was tested directly)."""
+    from subfleet.store import Store
+    from subfleet.timers import Timers
+    policy = {"models": {"haiku": {"id": "claude-haiku-4-5-20251001"}},
+              "timers": {"probe_interval_s": 300, "keepalive_interval_s": 18300},
+              "reset_credits": {"enabled": False}, "alerts": {}, "caps": {}}
+    home = tmp_path / "claude-1"
+    home.mkdir()
+    with Store(tmp_path / "state.sqlite3") as store:
+        store.put_lane(Lane("claude-1", "claude", "claude:claude-1", Credential("claude", str(home), "home"),
+                            str(home), LaneOwner.V2, False, True))
+        turns = []
+
+        def turn(lane, purpose, holder, *, cancel, deadline):
+            turns.append(holder)
+            return Outcome(OutcomeClass.UNKNOWN, "held", evidence={flag: True})
+        timer = Timers(store, tmp_path, policy, turn=turn)
+        try:
+            timer.keepalive_cycle()
+        finally:
+            timer.stop()
+        assert turns and store.list_leases(turns[0])

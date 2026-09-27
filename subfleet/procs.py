@@ -83,8 +83,10 @@ def stderr_head(data: bytes) -> str:
     return line[:STDERR_HEAD_CHARS]
 
 
-#: How `_read` starts its reader; tests stand a real child in for `ps` here.
-_spawn = subprocess.Popen
+def _spawn(argv: list[str], **kwargs) -> subprocess.Popen:
+    """How `_read` starts its reader: `subprocess.Popen`, looked up at each call, so a
+    test's stand-in for `ps` here, or one that counts every `Popen`, sees it."""
+    return subprocess.Popen(argv, **kwargs)
 
 
 def _read(argv: list[str], *, empty_ok: bool = False) -> str:
@@ -189,18 +191,24 @@ def _collect(child: subprocess.Popen, output: socket.socket, name: str) -> tuple
                     selector.unregister(key.fileobj)
                 elif key.data == "out":
                     chunks.append(data)
-                elif len(errors) < STDERR_KEPT_BYTES:
+                else:
+                    # Kept from its first byte that is not blank, so a failure that
+                    # says anything is never read as BSD ps's silent empty answer
+                    # (`empty_ok`), however much blank output comes first.
+                    if not errors:
+                        data = data.lstrip()
                     errors += data[:STDERR_KEPT_BYTES - len(errors)]
     finally:
         selector.close()
     try:
-        # Both streams ended, so the child is exiting; the floor covers a starved
-        # reader that got here after the cap, when the child is long gone.
-        child.wait(max(1.0, deadline - time.monotonic()))
+        # Both streams have ended, so the child is exiting; it still has only until
+        # its cap. One that is still running then is killed like any other.
+        child.wait(max(0.0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
-        child.kill()
-        child.wait()
-        raise InspectionError(f"{name} timed out: still running after {READ_TIMEOUT_S:g} s") from None
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+            raise InspectionError(f"{name} timed out: still running after {READ_TIMEOUT_S:g} s") from None
     return b"".join(chunks), bytes(errors)
 
 

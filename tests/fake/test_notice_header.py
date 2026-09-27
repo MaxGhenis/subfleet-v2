@@ -23,7 +23,7 @@ import pytest
 
 from subfleet import daemon as daemon_module
 from subfleet import hooks, render
-from subfleet.procs import Containment
+from subfleet.procs import Containment, ProcessIdentity
 from tests.fake.notice_invariant import notice_mismatches
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
 
@@ -169,11 +169,14 @@ def test_c15_1_c5_7_a_quarantined_attempt_names_the_jobs_state_not_the_attempts_
         daemon.store.update_job(job_id, cancel_requested_at=daemon_module.utcnow())
     daemon.store.update_attempt(attempt["attempt_id"], state="starting", guardian_pid=42001)
     daemon._starting_deadlines[attempt["attempt_id"]] = 0
-    # A cancelled attempt is killed first, and an uninspectable group ends that
-    # kill in quarantine; nothing here needs the grace windows to pass.
+    # A cancelled attempt is killed first, and a census that shows an unowned
+    # process (one source unread) ends that kill in quarantine; nothing here needs
+    # the grace windows to pass. An inconclusive census would defer instead (C-5.5).
     daemon.term_grace_s = daemon.kill_settle_s = 0
-    monkeypatch.setattr(daemon_module.procs, "containment",
-                        lambda *args, **kwargs: Containment(unverifiable=True))
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment(
+        group_pids=frozenset({42002}), unverifiable=True,
+        identities={42002: ProcessIdentity(42002, "boot", "start")},
+        errors=("marker enumeration unavailable: ps timed out: still running after 10 s",)))
     daemon._process_attempt(attempt["attempt_id"])
     header, summary = notice_lines(daemon, job_id)
     assert header == (dashes(job_id, "cancelled", 130) if cancel else dashes(job_id, "lost", 125))

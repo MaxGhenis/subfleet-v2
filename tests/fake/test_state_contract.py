@@ -288,17 +288,41 @@ def test_c4_2_state_starting_uses_receipt_or_verified_empty_retry(state_daemon, 
 
 
 def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_daemon, monkeypatch):
-    """C-4.2 starting, C-5.5, C-5.7 failed containment inspection quarantines and retains output ownership."""
+    """C-4.2 starting, C-5.5, C-5.7 a census that shows a process, with a source it could not read, quarantines and
+    retains output ownership."""
     daemon, harness = state_daemon
     job_id, attempt, _ = reserve(daemon, harness, out_path=str(harness.root / "export.md"))
     daemon.store.update_attempt(attempt["attempt_id"], state="starting", guardian_pid=42001)
     daemon._starting_deadlines[attempt["attempt_id"]] = time.monotonic() - 1
-    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment(unverifiable=True))
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment(
+        group_pids=frozenset({42001}), unverifiable=True,
+        identities={42001: ProcessIdentity(42001, "boot", "start")},
+        errors=("marker enumeration unavailable: ps timed out: still running after 10 s",)))
     daemon._process_attempt(attempt["attempt_id"])
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"
     assert daemon.store.query("SELECT * FROM leases WHERE lease_key LIKE 'out:%'")
     assert not daemon.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")
     assert "unverifiable" in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
+
+
+def test_c4_2_c5_5_state_inconclusive_starting_decides_nothing_and_keeps_every_lease(state_daemon, monkeypatch):
+    """C-4.2 starting, C-5.5 a census that could not be read and saw nothing decides nothing: the attempt stays
+    `starting` with its lane and output leases, the pass raises for C-5.10's retry, and `show` carries the census's
+    cause (on release/217 this quarantined the attempt and ended the job `lost`)."""
+    daemon, harness = state_daemon
+    job_id, attempt, _ = reserve(daemon, harness, out_path=str(harness.root / "export.md"))
+    daemon.store.update_attempt(attempt["attempt_id"], state="starting", guardian_pid=42001)
+    daemon._starting_deadlines[attempt["attempt_id"]] = time.monotonic() - 1
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment(
+        unverifiable=True, errors=("marker enumeration unavailable: ps timed out: still running after 10 s",)))
+    with pytest.raises(daemon_module.CensusDeferred, match="start grace"):
+        daemon._process_attempt(attempt["attempt_id"])
+    assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "starting"
+    assert daemon.store.get_job(job_id)["state"] == "running"
+    assert daemon.store.query("SELECT * FROM leases WHERE lease_key LIKE 'out:%'")
+    assert daemon.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")
+    kinds = [row["kind"] for row in daemon.store.list_events(job_id)]
+    assert "attempt.census_deferred" in kinds and "attempt.quarantined" not in kinds
 
 
 def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):

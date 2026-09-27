@@ -53,7 +53,7 @@ The census's marker source is `ps -axEww -o pid=,command=`. It was read in one p
 ## What changed
 
 1. **The reader (C-5.5, C-5.12).**
-   - `procs._read` gives the reader one end of a socket pair with an 8 MiB buffer (`READ_BUFFER_BYTES`), so `ps` writes its whole answer and exits without waiting.
+   - `procs._read` gives the reader one end of a socket pair with an 8 MiB buffer (`READ_BUFFER_BYTES`), so `ps` writes an answer up to that size (six times the incident's) and exits without waiting; a larger one is read while it is written.
    - Each wake of the daemon reads everything buffered: 3 reads in place of 43.
    - The 10 s cap (`READ_TIMEOUT_S`) is on the reader. A reader that exited in time has answered however late its output is read; one still running at the cap is killed, reaped and named.
    - Output is decoded without failing on a stray byte. `close_fds=False` stays, so the reader is still started with `posix_spawn`.
@@ -107,6 +107,17 @@ Beside the tests, the incident's census (`marker enumeration unavailable`, nothi
 | C-4.2 start grace | attempt `quarantined`, job `lost` rc 125 | attempt `starting`, `CensusDeferred` |
 | C-4.2 dead guardian | attempt `quarantined`, job `lost` rc 125 | attempt `running`, `CensusDeferred` |
 | C-5.6 kill protocol | attempt `quarantined`, job `lost` rc 125 | attempt `running`, `CensusDeferred` |
+
+## Review
+
+Two independent lane reviews read `2133efd`. The Astra review (`20260927-081407-probe-load-review-astra`, `~/reviews/probe-under-load-2026-09-27/review-astra.md`) asked for four changes, each reproduced before it was reported, and all four are fixed:
+
+1. **High: blank output hid an error.** `_read` kept only the first 4 KiB of `ps`'s error output and read `empty_ok` from it. An exit 1 whose error followed 4 KiB of blank output read as an empty selection, and a census with a live writer could then be verified empty. The error output is now kept from its first byte that is not blank.
+2. **Medium: a resumed kill started over.** The dead-guardian path marked the census concluded before the kill it started, so a kill deferred on its own census began again with SIGTERM and the whole grace on every pass, and its deferral count restarted at 1. The kill or the loss that follows now concludes it.
+3. **Medium: the ownership commit still ate the deadline.** The gate's deadline was set before the commit of the probe's ownership, so a slow commit still shortened the probe. It is now set again after the commit; the committed value, which only recovery reads, is the one from before it.
+4. **Low: the final wait ran past the cap.** A 1 s floor let a reader that had closed its streams run past its cap and still answer. The cap now holds.
+
+Its mutation run also left the timer call sites of `held()` uncovered; they now have caller-level tests. The mutation script (`~/reviews/probe-under-load-2026-09-27/mutate.py`) kills all 30 of its mutants.
 
 ## Not changed, and why
 
