@@ -10,6 +10,7 @@ ref and the worktree is kept.
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -23,7 +24,7 @@ from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemo
 from tests.fake_adapter import FakeAdapter
 from tests.fake.test_workspace_contract import repository
 from tests.unit.test_salvage import git
-from tests.unit.test_salvage_unindexable import fake_add, on_a_branch_whose_name_is_not_utf8
+from tests.unit.test_salvage_unindexable import ROOT, committed_repository, fake_add, on_a_branch_whose_name_is_not_utf8
 
 #: What git's `error()` prints for a file it cannot read whose name is not UTF-8
 #: (Linux allows such names; APFS refuses them, so `add -A` is faked for these).
@@ -490,3 +491,99 @@ def test_c13_1_a_baseline_that_cannot_be_held_is_a_workspace_failure(state_daemo
         assert (job["state"], job["rc"]) == ("failed", 1)
         assert "workspace preparation failed: SalvageError: git update-ref failed" in job_notices(daemon, job_id)[0]
     assert (workdir / "new-by-a1.txt").read_text() == "a1 work\n"
+
+
+# --- the causes in the live daemon.log (2026-09-28) ------------------------------------
+#
+# The installed daemon (b053e3de) re-raised every salvage failure, so each of these held
+# its attempt in `finalizing`, and its lane, for as long as it lasted. Each was reproduced
+# read-only against the stuck attempt's own worktree (new objects and the index in /tmp);
+# each test below is that worktree's shape, with real git.
+
+
+@ROOT
+def test_c13_1_live_a_file_git_cannot_read_is_recorded_at_once(state_daemon):
+    """r218-conv-opus/a2 (live, `finalizing` for hours, 128 tries): a reviewer's fixture left
+    a mode-000 file under untracked scratch, `error: open(".review-scratch/…/stdin.jsonl"):
+    Permission denied`. No retry reads it, so it is recorded on the first try."""
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = finalizing(daemon, harness)
+    locked = workdir / ".review-scratch/r2/adopt/tmp/a1-mode000-adopt-x/state/jobs/turn-job-0/a1/stdin.jsonl"
+    locked.parent.mkdir(parents=True)
+    locked.write_text("{}\n")
+    locked.chmod(0)
+    try:
+        daemon._finalize(attempt)
+    finally:
+        locked.chmod(0o600)
+    error = json.loads((adir / "salvage.json").read_text())["error"]
+    assert error.startswith("salvage failed: git add failed: error: open(") and "Permission denied" in error
+    assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
+    assert (workdir / "tracked.txt").read_text() == "provider progress\n"
+
+
+def test_c13_1_live_an_empty_repository_beside_a_committed_one_is_left_out(state_daemon):
+    """c68r2-a/a1 and receipt-spent-budget-r1/a1 (live): `.pt/elsewhere0` (a repository with a
+    commit, which git adds as a gitlink) beside `.pt/elsewhere1/`, which `does not have a
+    commit checked out`, and one inside an untracked virtualenv. Only the empty ones are
+    left out; the committed one is in the snapshot."""
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = finalizing(daemon, harness)
+    committed_repository(workdir / ".pt" / "elsewhere0")
+    empty_repository(workdir / ".pt" / "elsewhere1")
+    empty_repository(workdir / "scratch/bt/.venv312/snapshot-acceptance0/repository")
+    daemon._finalize(attempt)
+    receipt = json.loads((adir / "salvage.json").read_text())
+    assert receipt["error"] is None
+    assert sorted(receipt["skipped"]) == [".pt/elsewhere1/", "scratch/bt/.venv312/snapshot-acceptance0/repository/"]
+    ref = receipt["result"]["ref"]
+    assert git(workdir, "ls-tree", ref, ".pt/").split()[:2] == ["160000", "commit"]    # the gitlink
+    assert git(workdir, "show", f"{ref}:tracked.txt") == "provider progress"
+    assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
+
+
+def test_c13_1_live_a_worktree_whose_repository_was_deleted_is_recorded_at_once(state_daemon):
+    """thesis-prepush-guard-r21/a1 and thesis-resolver-exit3-merge-review/a1 (live): the
+    repository the worktree was cut from was deleted, so every git call in it says `not a
+    git repository`. Recorded on the first try; the files are left alone."""
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = finalizing(daemon, harness)
+    (workdir / ".git").rename(workdir.parent / "moved-away.git")
+    (workdir / ".git").write_text(f"gitdir: {workdir.parent / 'deleted-repository' / '.git' / 'worktrees' / 'x'}\n")
+    try:
+        daemon._finalize(attempt)
+    finally:
+        (workdir / ".git").unlink()
+        (workdir.parent / "moved-away.git").rename(workdir / ".git")
+    error = json.loads((adir / "salvage.json").read_text())["error"]
+    assert error.startswith("salvage failed: git rev-parse failed: fatal: not a git repository")
+    assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
+    assert (workdir / "tracked.txt").read_text() == "provider progress\n"
+
+
+def test_c13_1_live_git_past_its_cap_is_tried_again_then_recorded(state_daemon, tmp_path, monkeypatch):
+    """receipt-crash-refusal-r1b/a2, rac-review-astra/a1, the r218 jobs and the microcosm and
+    policyengine-us jobs (live): `add -A` over thousands of untracked scratch files, or a large
+    checkout, at a load average of 200 to 350, ran past `workspace_git_timeout_s` (60 s) on
+    every try. Here a real `git add` really runs past a 1 s cap and is killed: tried
+    `SALVAGE_TRIES` times, then recorded, and the attempt ends and frees its lane."""
+    import shutil
+    import stat
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = finalizing(daemon, harness)
+    bindir = tmp_path / "slow-add-bin"
+    bindir.mkdir()
+    script = bindir / "git"
+    # `git -C <dir> add …` sleeps past the cap (`exec`: the sleep is what the cap kills).
+    script.write_text(f'#!/bin/sh\nif [ "$3" = "add" ]; then exec sleep 30; fi\nexec "{shutil.which("git")}" "$@"\n')
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    daemon.policy["caps"]["workspace_git_timeout_s"] = 1
+    for tries in range(1, SALVAGE_TRIES):
+        with pytest.raises(SalvageError, match="git add timed out after 1 s") as caught:
+            daemon._finalize(attempt)
+        assert caught.value.transient and not (adir / "salvage.json").exists()
+        assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "finalizing"
+    daemon._finalize(attempt)
+    assert json.loads((adir / "salvage.json").read_text())["error"] == "salvage failed: git add timed out after 1 s"
+    assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
