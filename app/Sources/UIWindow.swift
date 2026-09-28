@@ -141,7 +141,12 @@ struct SidebarView: View {
             ForEach(model.state.sidebar()) { section in
                 Section(section.title) {
                     ForEach(section.entries) { entry in
-                        SidebarRow(entry: entry).tag(entry.id)
+                        SidebarRow(entry: entry) {
+                            // The hand badge opens the conversation at its oldest waiting card.
+                            if case .conversation(let id) = entry.target { model.approvalReveal = id }
+                            selection = entry.id
+                        }
+                        .tag(entry.id)
                     }
                 }
             }
@@ -160,6 +165,8 @@ struct SidebarView: View {
 
 struct SidebarRow: View {
     let entry: SidebarEntry
+    /// The hand badge's action: show the conversation's waiting cards.
+    let showApprovals: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -176,8 +183,13 @@ struct SidebarRow: View {
             }
             Spacer(minLength: 4)
             if entry.pendingApprovals > 0 {
-                Label("\(entry.pendingApprovals)", systemImage: "hand.raised.fill").labelStyle(.titleAndIcon)
-                    .font(.caption).foregroundStyle(.orange).help("Waiting for your approval")
+                Button(action: showApprovals) {
+                    Label("\(entry.pendingApprovals)", systemImage: "hand.raised.fill").labelStyle(.titleAndIcon)
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                .buttonStyle(.borderless)
+                .help("Waiting for your approval; click to show it")
+                .accessibilityLabel(approvalsWaitingWords(entry.pendingApprovals))
             }
             if entry.blockedBy != nil {
                 Image(systemName: "exclamationmark.octagon").foregroundStyle(.red).help("Needs your decision")
@@ -218,6 +230,8 @@ struct ConversationView: View {
     /// Whether the end of the timeline is on screen: streamed text is followed
     /// only then, so reading further up is not interrupted.
     @State private var atBottom = true
+    /// The waiting cards already brought into view, so each is scrolled to once.
+    @State private var approvals = ApprovalFollower()
 
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
@@ -244,16 +258,8 @@ struct ConversationView: View {
                             }.buttonStyle(.link)
                         }
                         ForEach(timeline?.items ?? []) { item in
-                            TimelineRow(model: model, conversation: conversation, item: item) { card in
-                                Task {
-                                    if let id = await model.approvalID(for: card, conversationID: conversation.conversation_id) {
-                                        approval = (card, id)
-                                    } else {
-                                        model.problem = "That approval is no longer pending."
-                                    }
-                                }
-                            }
-                            .id(item.id)
+                            TimelineRow(model: model, conversation: conversation, item: item, review: review)
+                                .id(item.id)
                         }
                         Color.clear.frame(height: 1).id("bottom")
                             .onAppear { atBottom = true }
@@ -272,16 +278,28 @@ struct ConversationView: View {
                         withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
                 }
-                .onChange(of: timeline?.items.last.map(streamedLength) ?? 0) { _, _ in
+                .onChange(of: timeline?.followedItem?.id) { _, _ in
+                    // A new row of a turn that has started, above the messages still
+                    // queued: followed while the end is on screen.
+                    if atBottom { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) } }
+                }
+                .onChange(of: timeline?.followedItem.map(streamedLength) ?? 0) { _, _ in
                     // A text or thinking block growing in place adds no row.
                     if atBottom { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
-                .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: approvalKey) { _, _ in followApprovals(proxy) }
+                .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
+                .onAppear {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                    followApprovals(proxy)
+                }
             }
             Divider()
-            if let timeline, let live = timeline.liveMessageID, let turn = timeline.turn(live), turn.outcome == nil {
-                // The live turn's strip stays in view however far the timeline scrolls.
-                LiveTurnStrip(model: model, conversation: conversation, turn: turn)
+            if let timeline, let turn = timeline.pinnedTurn {
+                // The live turn's strip stays in view however far the timeline scrolls,
+                // and with it a Review for every card waiting on the person.
+                LiveTurnStrip(turn: turn, pendingApprovals: timeline.pendingApprovalItems.count, review: reviewOldest,
+                              stop: { model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil)) })
                     .padding(.horizontal, 14).padding(.top, 6)
             }
             if conversation.live_elsewhere == true {
@@ -323,6 +341,48 @@ struct ConversationView: View {
             if let scope = model.changesScope, scope.conversationID == conversation.conversation_id {
                 Task { await model.loadChanges(scope) }
             }
+        }
+    }
+
+    /// Opens a card's request for the person to answer.
+    private func review(_ card: ApprovalCard) {
+        Task {
+            if let id = await model.approvalID(for: card, conversationID: conversation.conversation_id) {
+                approval = (card, id)
+            } else {
+                model.problem = "That approval is no longer pending."
+            }
+        }
+    }
+
+    /// The strip's Review: the oldest waiting card, brought into view and opened.
+    private func reviewOldest() {
+        guard let card = model.state.timelines[conversation.conversation_id]?.pendingApprovalItems.first?.pendingCard
+        else { return }
+        model.approvalReveal = conversation.conversation_id
+        review(card)
+    }
+
+    /// What moves the view to a card: the conversation, and its waiting cards.
+    private var approvalKey: [String] {
+        [conversation.conversation_id]
+            + (model.state.timelines[conversation.conversation_id]?.pendingApprovalItems.map(\.id) ?? [])
+    }
+
+    /// Brings a waiting card into view: each new one once, when it appears,
+    /// wherever the person was reading (it had sat far above the end, under
+    /// queued messages and a later turn: 2026-09-27); the oldest when the
+    /// person asks.
+    private func followApprovals(_ proxy: ScrollViewProxy) {
+        let id = conversation.conversation_id
+        guard let timeline = model.state.timelines[id] else { return }
+        let reveal = model.approvalReveal == id
+        guard let target = approvals.target(in: timeline, reveal: reveal) else { return }
+        if reveal { model.approvalReveal = nil }
+        // After this update's own scrolling (to the end, for a row that just
+        // arrived), so the view settles on the card.
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
         }
     }
 
@@ -699,10 +759,14 @@ struct DiffLineRow: View {
 
 /// The live turn's status above the composer: where the model is and for how
 /// long, counting up, so a long think, a compaction or a slow tool reads as work.
+/// While cards wait on the person, its Review opens the oldest: the timeline
+/// may hold them far out of view (2026-09-27).
 struct LiveTurnStrip: View {
-    @ObservedObject var model: UIModel
-    let conversation: Conversation
     let turn: TurnTimeline
+    /// Cards waiting on the person in this conversation; with none, no Review.
+    var pendingApprovals = 0
+    var review: () -> Void = {}
+    let stop: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -716,9 +780,12 @@ struct LiveTurnStrip: View {
                 Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Stop") {
-                model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
-            }.buttonStyle(.link).font(.caption)
+            if let label = reviewButtonLabel(pending: pendingApprovals) {
+                Button(action: review) { Label(label, systemImage: "hand.raised.fill") }
+                    .buttonStyle(.borderedProminent).tint(.orange).controlSize(.small)
+                    .help("Open the oldest request waiting for your approval")
+            }
+            Button("Stop", action: stop).buttonStyle(.link).font(.caption)
         }
     }
 }

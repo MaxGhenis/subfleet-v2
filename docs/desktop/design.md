@@ -1022,6 +1022,21 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   Finishing with no clock.
 - The live turn's status strip is pinned above the composer, with the
   elapsed time; the strip under each person bubble keeps the words only.
+- A pending approval is always within reach (C-27.5). While a card waits the
+  pinned strip carries Review, or Review (N) when several do, which opens the
+  oldest (by when it was asked); answering it moves Review to the next. The
+  strip is shown whenever a card is pending, even when no turn is live. The
+  conversation scrolls each new card into view once when it appears, wherever
+  the person was reading, and the sidebar's hand badge opens its conversation
+  at the oldest card. On 2026-09-27 a card sat above five queued messages and
+  a failover turn, and the strip said "Needs your approval" with only a Stop.
+- Display order is the daemon's message order with two exceptions. A
+  continuation (D-6's failover message) shows under the message it continues,
+  where it ran, rather than after the messages queued meanwhile (C-26.7 sends
+  it ahead of them). A message still queued (or not yet received) shows below
+  every turn that has started, in the order the daemon sends the queue (an
+  unblock note first, C-24.8), and the view follows the newest row of a
+  started turn rather than the last queued bubble.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
 

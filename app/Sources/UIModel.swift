@@ -29,6 +29,9 @@ final class UIModel: ObservableObject {
     /// A finished turn's changed-file counts, for its status line.
     @Published var turnChanges: [String: DiffStats] = [:]
     private var turnChangesAsked: Set<String> = []
+    /// A conversation whose oldest waiting card the person asked to see (the
+    /// sidebar's hand badge, the strip's Review); cleared once it is in view.
+    @Published var approvalReveal: String?
 
     let paths: AppPaths
     let drafts: DraftStore

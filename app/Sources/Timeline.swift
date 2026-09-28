@@ -86,6 +86,23 @@ struct TimelineItem: Identifiable, Equatable {
     var messageID: String?
     var content: TimelineContent
     var ts: String?
+
+    /// The card, when this row is an approval still waiting for the person.
+    var pendingCard: ApprovalCard? {
+        if case .approval(let card) = content, card.isPending { return card }
+        return nil
+    }
+}
+
+/// The pinned strip's Review button: "Review", or "Review (N)" while several
+/// cards wait; nil, and no button, while none does.
+func reviewButtonLabel(pending: Int) -> String? {
+    pending <= 0 ? nil : pending == 1 ? "Review" : "Review (\(pending))"
+}
+
+/// The sidebar's hand badge, spoken: "1 approval waiting", "3 approvals waiting".
+func approvalsWaitingWords(_ count: Int) -> String {
+    "\(count) approval\(count == 1 ? "" : "s") waiting"
 }
 
 /// One message and its turn.
@@ -606,6 +623,44 @@ struct Timeline: Equatable {
     /// Every card still waiting for the person.
     var pendingApprovalCards: [ApprovalCard] { order.flatMap { turns[$0]?.pendingApprovals ?? [] } }
 
+    // MARK: Pending approvals within reach
+
+    /// Every pending card's row, oldest asked first (by its time, then where it
+    /// sits; a row with no time after those with one): the rows the pinned
+    /// strip's Review opens in turn, and the ones the view scrolls to.
+    var pendingApprovalItems: [TimelineItem] {
+        let rows = displayOrder.flatMap { id in (turns[id]?.items ?? []).filter { $0.pendingCard != nil } }
+        return rows.enumerated()
+            .map { (row: $0.element, place: $0.offset, at: $0.element.ts.flatMap(parseTimestamp)) }
+            .sorted { a, b in
+                switch (a.at, b.at) {
+                case let (x?, y?) where x != y: return x < y
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default: return a.place < b.place
+                }
+            }
+            .map(\.row)
+    }
+
+    /// The turn the strip pinned above the composer shows: the newest live turn
+    /// the provider has not answered, or else the turn of the oldest pending
+    /// card, so a card waiting on the person always has the strip's Review.
+    var pinnedTurn: TurnTimeline? {
+        if let live = liveMessageID, let turn = turns[live], turn.outcome == nil { return turn }
+        return pendingApprovalItems.first?.messageID.flatMap { turns[$0] }
+    }
+
+    /// The row the conversation scrolls to for an approval: the oldest pending
+    /// card not yet brought into view (`shown`), so each card is scrolled to
+    /// once, when it appears, wherever the person was reading; or, when the
+    /// person asked (`reveal`: the strip's Review, the sidebar badge), the
+    /// oldest pending card. Nil when no card waits.
+    func approvalScrollTarget(shown: Set<String>, reveal: Bool) -> String? {
+        let pending = pendingApprovalItems.map(\.id)
+        return reveal ? pending.first : pending.first { !shown.contains($0) }
+    }
+
     // MARK: History
 
     var needsHistory: Bool { !historyComplete }
@@ -692,12 +747,70 @@ struct Timeline: Equatable {
     /// followed by what its turn did.
     var items: [TimelineItem] {
         var out = history
-        for id in order {
+        for id in displayOrder {
             guard let turn = turns[id] else { continue }
             if let person = personItem(turn) { out.append(person) }
             out += turn.items
         }
         return out
+    }
+
+    /// Message ids in the order the timeline shows them: by daemon sequence,
+    /// with two exceptions. A continuation (a failover after a usage limit)
+    /// follows the message it continues, where it ran: its sequence is later
+    /// than every message queued before the limit, so it showed last, under
+    /// them and under the next turn's approval card, although it ran first
+    /// (2026-09-27). And a message still waiting in the queue comes after every
+    /// turn that has started, so nothing a turn does sits above a message the
+    /// provider has not been sent; the queue shows in the order the daemon sends
+    /// it, a repair message (an unblock note) first (C-24.8, C-26.7).
+    var displayOrder: [String] {
+        let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        let queue = order.filter { turns[$0].map(Timeline.waitsInQueue) ?? false }
+        let repair = { (id: String) in Timeline.repairOrigins.contains(self.turns[id]?.origin ?? "") }
+        let waiting = queue.filter(repair) + queue.filter { !repair($0) }
+        let queued = Set(waiting)
+        var continuations: [String: [String]] = [:]
+        var roots: [String] = []
+        for id in order where !queued.contains(id) {
+            // Only under an earlier message, so a chain of continuations has no cycle.
+            if let parent = turns[id]?.continues, !queued.contains(parent),
+               let above = position[parent], let here = position[id], above < here {
+                continuations[parent, default: []].append(id)
+            } else {
+                roots.append(id)
+            }
+        }
+        var out: [String] = []
+        func place(_ id: String) {
+            out.append(id)
+            for next in continuations[id] ?? [] { place(next) }
+        }
+        for id in roots { place(id) }
+        return out + waiting
+    }
+
+    /// The origins the daemon sends ahead of queued person messages
+    /// (`REPAIR_ORIGINS`, `next_dispatchable`).
+    static let repairOrigins: Set<String> = ["unblock-note", "failover"]
+
+    /// A message not yet sent to the provider: still queued (or not yet
+    /// received by the daemon), nothing done for it. A continuation belongs
+    /// with the message it continues.
+    static func waitsInQueue(_ turn: TurnTimeline) -> Bool {
+        turn.messageID != conversationKey && turn.continues == nil && turn.items.isEmpty
+            && (turn.state == MessageState.queued.rawValue || turn.state == "sending")
+    }
+
+    /// The newest row of a turn that has started: what the view follows while
+    /// the end is on screen. Queued messages sit below it and do not change
+    /// while a turn streams.
+    var followedItem: TimelineItem? {
+        for id in displayOrder.reversed() {
+            guard let turn = turns[id], !Timeline.waitsInQueue(turn) else { continue }
+            if let last = turn.items.last ?? personItem(turn) { return last }
+        }
+        return history.last
     }
 
     private func personItem(_ turn: TurnTimeline) -> TimelineItem? {
@@ -729,6 +842,26 @@ struct Timeline: Equatable {
             guard let state = turns[id]?.messageState else { return false }
             return [.waiting, .starting, .running, .approvalNeeded].contains(state)
         }
+    }
+}
+
+/// What the conversation view remembers so each waiting card is brought into
+/// view once, when it appears, and again whenever the person asks. Opening
+/// another conversation starts afresh, so its waiting cards are shown too.
+struct ApprovalFollower: Equatable {
+    private(set) var conversationID: String?
+    private(set) var shown: Set<String> = []
+
+    /// The row to scroll to now, if any, after `timeline` changed or the person
+    /// asked (`reveal`).
+    mutating func target(in timeline: Timeline, reveal: Bool) -> String? {
+        if conversationID != timeline.conversationID {
+            conversationID = timeline.conversationID
+            shown = []
+        }
+        let target = timeline.approvalScrollTarget(shown: shown, reveal: reveal)
+        shown.formUnion(timeline.pendingApprovalItems.map(\.id))
+        return target
     }
 }
 
