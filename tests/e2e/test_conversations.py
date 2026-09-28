@@ -392,6 +392,50 @@ def test_a_denied_question_and_an_answered_question(conv):
     assert text == 'You chose {"Which color?": "Blue"}.'
 
 
+def test_multiple_question_answers_reach_the_provider_once_and_a_new_message_keeps_them_pending(conv):
+    """C-27.2: AskUserQuestion keeps every question and multiSelect flag; a queued
+    composer message leaves the request pending, and one combined answer reaches the CLI."""
+    cid = conv.create()
+    mid = conv.submit(cid, "[fake:questions]")
+    conv.until_state(mid, "approval-needed")
+    question = pending_approval(conv, cid)
+    detail = conv.as_person("approval.get", approval_id=question["approval_id"])["result"]
+    questions = detail["request"]["input"]["questions"]
+    assert [item["multiSelect"] for item in questions] == [False, True, False]
+
+    later = conv.submit(cid, "One more thing: keep the explanation brief.", after_message_id=mid)
+    assert conv.message(later)["state"] in ("queued", "waiting")
+    assert conv.message(mid)["state"] == "approval-needed"
+    assert [item["approval_id"] for item in conv.call("approval.list", conversation_id=cid)["approvals"]] == [
+        question["approval_id"]]
+    assert not [row for row in conv.stdin_rows() if row.get("type") == "control_response"]
+
+    answers = {"Which color?": "Blue", "Which features?": "Fast, Thorough", "When is it needed?": "Next week"}
+    result = conv.as_person("approval.respond", approval_id=question["approval_id"], decision="answer",
+                            answers=answers, nonce=detail["nonce"], request_sha256=detail["request_sha256"])
+    assert result["ok"], result
+    assert conv.until_state(mid, "complete", "failed")["state"] == "complete"
+    assert conv.until_state(later, "complete", "failed")["state"] == "complete"
+    responses = [row for row in conv.stdin_rows() if row.get("type") == "control_response"]
+    assert len(responses) == 1
+    assert responses[0]["response"]["response"]["updatedInput"] == {"questions": questions, "answers": answers}
+
+
+def test_a_tool_approval_obeys_an_explicit_timeout(e2e):
+    """C-26.9: the shipped null is optional; an explicit finite policy still stops
+    unanswered tool approvals, without manufacturing an answer to the request."""
+    e2e.policy_update(lambda policy: policy["conversations"].update(approval_wait_s=0.2))
+    e2e.env["SUBFLEET_FAKE_TURN_LOG"] = str(e2e.root / "turns.jsonl")
+    e2e.start()
+    conv = Conversations(e2e)
+    cid = conv.create()
+    mid = conv.submit(cid, "[fake:approval]")
+    done = conv.until_state(mid, "interrupted", "failed")
+    assert done["state_reason"] == "approval-timeout", done
+    assert conv.call("approval.list", conversation_id=cid)["approvals"] == []
+    assert not [row for row in conv.stdin_rows() if row.get("type") == "control_response"]
+
+
 def test_interrupt_ends_a_running_turn_with_the_providers_own_stop(conv):
     """C-24.7, D-13: the control interrupt ends the turn; no signal, no containment."""
     cid = conv.create()
@@ -636,7 +680,7 @@ def test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_cl
     provider child through the guardian's relay at `stop_sigint_after_s`, before stdin is
     closed and with no containment. A provider that answers SIGINT with a `result` (as the
     real CLI did) ends interrupted and leaves the conversation free; one that dies without a
-    result ends interrupted and blocks it `unfinished-turn`, its delivery proven.
+    result also settles the person's stop and lets queued messages run next.
 
     The policy clock is the one used: each stop ends well inside the default 10 s SIGINT
     delay (C-24.7), so a runner built with the default clocks fails this test."""
@@ -661,27 +705,33 @@ def test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_cl
     conv.until_state(second, "running")
     conv.e2e.until(lambda: sum(e["kind"] == "text.delta" and e["message_id"] == second
                                for e in conv.events(cid)) > 0, timeout=20)
+    queued = conv.submit(cid, "continue after the stopped turn", after_message_id=second)
+    assert conv.message(queued)["state"] == "queued"
     asked = time.monotonic()
     conv.call("turn.interrupt", message_id=second)
     ended = conv.until_state(second, "interrupted", "failed", "complete", "delivery-unknown", timeout=20)
     assert time.monotonic() - asked < 6, "SIGINT came on the default clock, not the policy's"
     assert (ended["state"], ended["state_reason"]) == ("interrupted", "stopped")
     assert [r["tag"] for r in relay_log(conv, second)][-1] == "signal:int"   # stdin never closed
-    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] == "unfinished-turn"
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None
     evidence = reconciled(conv, cid, second)
     assert evidence["delivery"] == "delivered" and evidence["evidence"]["acknowledged"] is True
     assert evidence["evidence"]["native"] == "found"
     assert conv.attempt(second)["killed_by"] is None
+    assert conv.until_state(queued, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    assert [r["uuid"] for r in conv.stdin_rows() if r.get("type") == "user"] == [first, second, queued]
 
 
 def test_a_turn_that_ignores_every_stop_is_contained_on_the_policy_clock(conv_with):
     """C-24.7, D-13 step 4, IR-3: interrupt, SIGINT and closing stdin all fail; containment
-    follows at `stop_contain_after_s`, well inside the default 30 s, and the delivered turn
-    blocks its conversation (C-24.8)."""
+    follows at `stop_contain_after_s`, well inside the default 30 s. The person's Stop
+    settles the delivered turn without a block, even after containment."""
     conv = conv_with(clocks={"stop_sigint_after_s": 0.3, "stop_close_after_s": 0.6, "stop_contain_after_s": 1.0})
     cid = conv.create()
     mid = conv.submit(cid, "[fake:immovable]")
     conv.until_state(mid, "running")
+    queued = conv.submit(cid, "continue after containment", after_message_id=mid)
+    assert conv.message(queued)["state"] == "queued"
     asked = time.monotonic()
     conv.call("turn.interrupt", message_id=mid)
     ended = conv.until_state(mid, "interrupted", "failed", "complete", "delivery-unknown", timeout=30)
@@ -690,7 +740,9 @@ def test_a_turn_that_ignores_every_stop_is_contained_on_the_policy_clock(conv_wi
     assert [r["tag"] for r in relay_log(conv, mid)][-3:] == ["interrupt", "signal:int", "close"]
     attempt = conv.attempt(mid)
     assert attempt["killed_by"] == "stopped" and attempt["state"] == "interrupted"
-    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] == "unfinished-turn"
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None
+    assert conv.until_state(queued, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    assert [r["uuid"] for r in conv.stdin_rows() if r.get("type") == "user"] == [mid, queued]
 
 
 def test_a_claude_turn_on_the_wrong_model_fails_model_mismatch(conv):
@@ -735,6 +787,21 @@ def test_a_message_read_but_never_acknowledged_is_delivery_unknown_until_a_perso
     assert [r["uuid"] for r in conv.stdin_rows() if r.get("type") == "user"] == [mid, nxt]
     launches = [row["argv"] for row in conv.turn_log() if "argv" in row]
     assert "--session-id" in launches[1] and "--resume" not in launches[1]
+
+
+def test_a_persons_stop_without_delivery_evidence_still_blocks_as_unknown(conv):
+    """C-24.6/7: Stop cannot prove whether a frame reached the provider. Only a
+    genuinely known delivery can settle without blocking the next queued message."""
+    cid = conv.create()
+    mid = conv.submit(cid, "[fake:stop-before-ack]")
+    conv.e2e.until(lambda: any(r.get("stop_before_ack") == mid for r in conv.turn_log()), timeout=30)
+    queued = conv.submit(cid, "wait for the unknown delivery", after_message_id=mid)
+    conv.call("turn.interrupt", message_id=mid)
+    ended = conv.until_state(mid, "delivery-unknown", "interrupted", "failed")
+    assert ended["state"] == "delivery-unknown"
+    assert reconciled(conv, cid, mid)["delivery"] == "delivery-unknown"
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] == "delivery-unknown"
+    assert conv.message(queued)["state"] == "queued"
 
 
 def test_fast_unavailable_is_readmitted_at_most_max_readmits_times_then_fails(conv_with):

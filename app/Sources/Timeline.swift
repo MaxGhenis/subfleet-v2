@@ -391,14 +391,16 @@ struct Timeline: Equatable {
             let display = ApprovalDisplay(fields: fields)
             if let requestID, turn.items.contains(where: { $0.id == "approval:\(id):\(requestID)" }) { break }
             if let index = turn.items.firstIndex(where: {
-                if case .approval(let card) = $0.content { return card.requestID == nil && card.display == display && card.kind == kind }
+                if case .approval(let card) = $0.content {
+                    return requestID != nil && card.requestID == requestID && card.display == display && card.kind == kind
+                }
                 return false
             }), case .approval(var card) = turn.items[index].content {
                 card.requestID = requestID
                 turn.items[index].content = .approval(card)
             } else {
                 let card = ApprovalCard(requestID: requestID,
-                                        approvalID: knownApprovalID(in: turn, kind: kind, display: display),
+                                        approvalID: knownApprovalID(in: turn, requestID: requestID, kind: kind, display: display),
                                         kind: kind, display: display, options: options, state: .pending)
                 turn.items.append(TimelineItem(id: "approval:\(id):\(requestID ?? "seq\(event.seq)")", messageID: id,
                                                content: .approval(card), ts: event.ts))
@@ -554,8 +556,8 @@ struct Timeline: Equatable {
     // MARK: Approvals
 
     /// Join the daemon's approvals (which carry `approval_id`) to the cards the
-    /// events made (which carry the provider's request id), by message, kind and
-    /// display; an approval with no card yet gets one.
+    /// events made, by message and exact provider request id. Summaries alone
+    /// cannot distinguish a withdrawn request from its replacement.
     mutating func attach(approvals: [ApprovalView]) {
         for approval in approvals where approval.conversation_id == conversationID {
             knownApprovals[approval.approval_id] = approval
@@ -567,11 +569,14 @@ struct Timeline: Equatable {
                 if case .approval(let card) = $0.content { return card.approvalID == approval.approval_id }
                 return false
             }), case .approval(var card) = turn.items[index].content {
+                if card.requestID == nil { card.requestID = approval.provider_request_id }
                 if card.isPending { card.state = state }
                 turn.items[index].content = .approval(card)
             } else if let index = turn.items.firstIndex(where: {
                 if case .approval(let card) = $0.content {
-                    return card.approvalID == nil && card.kind == approval.kind && card.display == approval.display
+                    return card.approvalID == nil && approval.provider_request_id != nil
+                        && card.requestID == approval.provider_request_id
+                        && card.kind == approval.kind && card.display == approval.display
                 }
                 return false
             }), case .approval(var card) = turn.items[index].content {
@@ -579,7 +584,7 @@ struct Timeline: Equatable {
                 if card.isPending { card.state = state }
                 turn.items[index].content = .approval(card)
             } else if approval.state == "pending" {
-                let card = ApprovalCard(requestID: nil, approvalID: approval.approval_id, kind: approval.kind,
+                let card = ApprovalCard(requestID: approval.provider_request_id, approvalID: approval.approval_id, kind: approval.kind,
                                         display: approval.display, options: approval.options, state: .pending)
                 turn.items.append(TimelineItem(id: "approval:\(approval.message_id):\(approval.approval_id)",
                                                messageID: approval.message_id, content: .approval(card),
@@ -589,15 +594,16 @@ struct Timeline: Equatable {
         }
     }
 
-    /// The id of a known approval for a card an event is making: same message,
-    /// kind and display, not yet held by another card of the turn; the oldest first.
-    private func knownApprovalID(in turn: TurnTimeline, kind: String, display: ApprovalDisplay) -> String? {
+    /// Replay preserves an id only for the same message and provider request.
+    private func knownApprovalID(in turn: TurnTimeline, requestID: String?, kind: String, display: ApprovalDisplay) -> String? {
+        guard let requestID else { return nil }
         let held = Set(turn.items.compactMap { item -> String? in
             if case .approval(let card) = item.content { return card.approvalID }
             return nil
         })
         return knownApprovals.values
-            .filter { $0.message_id == turn.messageID && $0.kind == kind && $0.display == display
+            .filter { $0.message_id == turn.messageID && $0.provider_request_id == requestID
+                && $0.kind == kind && $0.display == display
                 && !held.contains($0.approval_id) }
             .min { ($0.created_at, $0.approval_id) < ($1.created_at, $1.approval_id) }?
             .approval_id

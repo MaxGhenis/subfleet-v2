@@ -2110,6 +2110,38 @@ class EndedRunner(FakeRunner):
         self.offset, self.next_seq = 0, 1          # what settling reads to stamp its reconcile event
 
 
+@pytest.mark.parametrize("person_stopped", [False, True])
+@pytest.mark.parametrize("resolution", ["delivered", "not-delivered"])
+def test_resolving_unknown_delivery_honors_a_recorded_personal_stop(svc, tmp_path, monkeypatch,
+                                                                  person_stopped, resolution):
+    """C-24.6/7/8: resolution preserves the Stop the person already requested;
+    other delivered Claude turns still need an unfinished-turn choice."""
+    from subfleet.conversations.peers import Verdict
+
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "running")
+    if person_stopped:
+        svc.op_turn_interrupt({"message_id": mid}, None)
+    adir = tmp_path / "outcome"
+    adir.mkdir()
+    (adir / "turn.json").write_text(json.dumps({"state": "failed", "ended_by": "eof",
+                                                "reason": "ended-without-result"}))
+    monkeypatch.setattr(service_module.reconcile, "gather", lambda *a, **k: service_module.reconcile.Evidence(
+        acknowledged=False, frame="written", process_gone=True, native="absent"))
+    svc._on_outcome(EndedRunner(adir, mid, cid))
+    assert svc.store.message(mid)["state"] == "delivery-unknown"
+    assert svc.store.conversation(cid)["blocked_by"] == "delivery-unknown"
+    monkeypatch.setattr(svc, "_person", lambda *a: Verdict(True, "test-person", 4242))
+    svc.op_message_resolve({"message_id": mid, "resolution": resolution, "confirm": True}, None)
+    message = svc.store.message(mid)
+    expected = ("interrupted", "stopped") if person_stopped else ("failed", f"resolved-{resolution}")
+    assert (message["state"], message["state_reason"]) == expected
+    assert message["resolution"]["resolution"] == resolution
+    assert svc.store.conversation(cid)["blocked_by"] == (
+        "unfinished-turn" if resolution == "delivered" and not person_stopped else None)
+
+
 def test_another_writer_at_launch_is_decided_once_and_never_uses_up_readmissions(svc, tmp_path, monkeypatch):
     """C-26.3: the launch looks again (a job can wait in admission while the
     Claude app takes the session), records its answer for a replay, and an

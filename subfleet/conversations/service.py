@@ -796,17 +796,21 @@ class ConversationService:
             raise ConversationError("not-ambiguous", f"the message is {message['state']}")
         record = {"resolution": args["resolution"], "by": {"pid": verdict.pid, "as": verdict.reason},
                   "at": utcnow()}
-        if not self.store.set_state(message_id, FAILED, reason=f"resolved-{args['resolution']}",
+        person_stopped = bool(message.get("stop_requested_at"))
+        state = INTERRUPTED if person_stopped else FAILED
+        reason = "stopped" if person_stopped else f"resolved-{args['resolution']}"
+        if not self.store.set_state(message_id, state, reason=reason,
                                     expect=(DELIVERY_UNKNOWN,), resolution=record):
             raise ConversationError("not-ambiguous", "the message was resolved meanwhile")
         conversation = self.store.conversation(message["conversation_id"])
         if conversation["blocked_by"] == "delivery-unknown":
             fields: dict[str, Any] = {"blocked_by": None}
             if args["resolution"] == "delivered" and conversation["provider"] == "claude":
-                # C-24.8: the person says Claude has the message and its turn ended
-                # with no `result`, so the next resume could continue it: the person
-                # chooses next (`conversation.unblock`). The session it named exists.
-                fields["blocked_by"] = "unfinished-turn"
+                # C-24.7/8: an unexpected end still needs a choice about the
+                # unfinished turn. A recorded personal stop already made that
+                # choice. Either way, the session the delivered turn named exists.
+                if not person_stopped:
+                    fields["blocked_by"] = "unfinished-turn"
                 attempt = self.daemon.store.one("SELECT job_id, seq FROM attempts WHERE job_id=? ORDER BY seq DESC "
                                                 "LIMIT 1", (message.get("job_id"),)) if message.get("job_id") else None
                 turn = (read_turn(self.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}") if attempt else None) or {}
@@ -836,7 +840,7 @@ class ConversationService:
     # --- ops: approvals --------------------------------------------------------
 
     def _approval_view(self, approval: dict) -> dict:
-        return {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "kind", "display",
+        return {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "provider_request_id", "kind", "display",
                                          "options", "created_at", "state")}
 
     def op_approval_list(self, args, peer) -> dict:
@@ -2006,6 +2010,12 @@ class ConversationService:
         return True
 
     def _on_outcome(self, runner: TurnRunner) -> None:
+        # Serialize settlement with the person's stop, so an outcome cannot read
+        # the message before the stop and apply an unfinished block after it.
+        with self._stop_lock(runner.message_id):
+            self._settle_outcome(runner)
+
+    def _settle_outcome(self, runner: TurnRunner) -> None:
         """Settle a message from its turn (D-12, D-14, C-24.6, C-24.8, C-26.7).
         The decision is `reconcile.settle`'s; this applies it."""
         turn = read_turn(runner.adir) or {}

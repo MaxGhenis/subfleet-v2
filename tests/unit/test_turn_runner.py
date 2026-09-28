@@ -69,9 +69,9 @@ def test_the_stop_escalation_follows_the_policy_clocks(make_runner):
 
 def test_the_default_clocks_are_the_contract_defaults(make_runner):
     """C-24.7, C-26.5, C-26.9: 10, 20 and 30 s after a stop; 135 s after the terminal event;
-    3600 s for an approval."""
+    no limit for an approval."""
     assert Clocks() == Clocks(sigint_after_s=10, close_after_s=20, contain_after_s=30, after_result_s=135,
-                              approval_wait_s=3600)
+                              approval_wait_s=None)
     runner, clock, contained = make_runner(Clocks())
     runner.stop_at = clock.now
     clock.now += 9.9
@@ -351,7 +351,7 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
     logged, and the runner reads the log again then: the frame is written, nothing
     fails, and the driver's same frame is not sent a second time."""
     import threading
-    import time
+    finish_write = threading.Event()
 
     def in_flight(server, adir):
         server._lock.acquire()                       # `apply` holds it for the whole frame
@@ -360,14 +360,17 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
         server._records.append({**intent, "status": "pending"})
 
         def finish():
-            time.sleep(0.3)
+            finish_write.wait()
             server._append({"kind": "written", "seq": 1})
             server._records[-1]["status"] = "written"
             server._lock.release()
         threading.Thread(target=finish, daemon=True).start()
 
-    runner, clock, server, adir = relayed(before_runner=in_flight)
-    assert runner.sent == {"init": "pending"}           # read while the write was in flight
+    try:
+        runner, clock, server, adir = relayed(before_runner=in_flight)
+        assert runner.sent == {"init": "pending"}       # read while the write was in flight
+    finally:
+        finish_write.set()
     runner._apply(runner.driver.start())
     assert runner.handshaken and not runner.relay_failed and runner.stop_reason is None
     assert runner.sent == {"init": "written"} and runner.outbox == [] and runner.next_seq == 2
@@ -553,19 +556,21 @@ def test_a_message_the_handshake_finds_written_is_not_followed_by_get_settings(m
     assert runner._handshake() is True and runner.replayed_message is True
 
 
-@pytest.mark.parametrize("kind,timed", [("question", False), ("tool", True)])
-def test_a_question_waits_for_its_answer_with_no_limit(make_runner, monkeypatch, kind, timed):
-    """C-26.9 (2026-09-28): only a tool approval starts the approval clock; an agent's
-    question waits for the person however long it takes."""
+@pytest.mark.parametrize("kind", ["question", "tool", "command"])
+@pytest.mark.parametrize("limit", [None, 2])
+def test_approvals_wait_without_limit_unless_policy_caps_tool_approvals(make_runner, monkeypatch, kind, limit):
+    """C-26.9: approvals remain pending overnight by default. A configured limit
+    stops tool approvals, including Codex command approvals, but never questions."""
     from subfleet.conversations.turn import Approval, Step
-    runner, clock, _ = make_runner(Clocks(approval_wait_s=2))
+    runner, clock, contained = make_runner(Clocks(approval_wait_s=limit))
     monkeypatch.setattr(runner.store, "add_approval", lambda **kw: None)
     monkeypatch.setattr(runner.store, "set_state", lambda *a, **kw: None)
     runner._apply(Step(approvals=[Approval("req-1", kind, {"tool": "AskUserQuestion"}, ("answer", "deny"))]))
-    assert ("req-1" in runner.approval_seen) is timed
+    assert ("req-1" in runner.approval_seen) is (kind != "question")
     clock.now += 3600 * 24
     runner._timers()
-    if timed:
+    if limit is not None and kind != "question":
         assert runner.stop_reason == "approval-timeout" and runner.commands.get_nowait() == ("interrupt",)
     else:
         assert runner.stop_reason is None and runner.commands.empty()
+        assert queued(runner) == [] and contained == []

@@ -297,6 +297,12 @@ struct ConversationView: View {
                 }
                 .padding(.horizontal, 14).padding(.top, 6)
             }
+            if timeline?.pendingApprovalCards.contains(where: { $0.kind == "question" }) == true {
+                Text("The agent is waiting on you. Pick a reply in the question card or type your own there.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.top, 6)
+            }
             ComposerView(model: model, conversation: conversation)
         }
         .task(id: conversation.conversation_id) {
@@ -392,7 +398,8 @@ struct TimelineRow: View {
         case .tool(let activity):
             ToolRow(activity: activity)
         case .approval(let card):
-            ApprovalCardView(card: card, review: { review(card) })
+            ApprovalCardView(model: model, conversationID: conversation.conversation_id, card: card,
+                             review: { review(card) })
         case .error(let message, let kind, let willRetry):
             Label((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""),
                   systemImage: "exclamationmark.triangle")
@@ -864,167 +871,6 @@ struct ToolRow: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
-    }
-}
-
-struct ApprovalCardView: View {
-    let card: ApprovalCard
-    let review: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
-                Text(title).bold()
-                Spacer()
-                switch card.state {
-                case .pending: Button("Review", action: review).buttonStyle(.borderedProminent)
-                case .answered(let decision): Text(decision.map { "Answered: \($0)" } ?? "Answered").font(.caption)
-                case .withdrawn: Text("Withdrawn").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if let command = card.display.command ?? card.display.input {
-                Text(command).font(.system(.callout, design: .monospaced)).lineLimit(6).textSelection(.enabled)
-            }
-            if let reason = card.display.reason ?? card.display.description {
-                Text(reason).font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(card.isPending ? 0.12 : 0.05)))
-    }
-
-    private var title: String {
-        switch card.kind {
-        case "question": return "Question"
-        case "command": return "Run a command?"
-        case "file-change": return "Change files?"
-        case "permissions": return "Grant permissions?"
-        default: return "Use \(card.display.tool ?? "a tool")?"
-        }
-    }
-}
-
-// MARK: - Approval sheet
-
-struct ApprovalSheet: View {
-    @ObservedObject var model: UIModel
-    let card: ApprovalCard
-    let approvalID: String
-    let done: () -> Void
-    @State private var detail: ApprovalDetail?
-    @State private var revealed = false
-    @State private var confirmMasked = false
-    @State private var answers: [String: String] = [:]
-    @State private var note = ""
-    @State private var sending = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(card.kind == "question" ? "Answer the question" : "Approve this request?").font(.title3.bold())
-            if let detail {
-                if card.kind == "question" {
-                    ForEach(Array(card.questions.enumerated()), id: \.offset) { _, question in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(question.question).bold()
-                            if let options = question.options, !options.isEmpty {
-                                Picker(question.header ?? "Choice", selection: Binding(
-                                    get: { answers[question.question] ?? "" },
-                                    set: { answers[question.question] = $0 })) {
-                                    Text("Choose…").tag("")
-                                    ForEach(options, id: \.label) { option in
-                                        Text(option.label + (option.description.map { " — \($0)" } ?? "")).tag(option.label)
-                                    }
-                                }.labelsHidden()
-                            }
-                            TextField("Or type an answer", text: Binding(get: { answers[question.question] ?? "" },
-                                                                        set: { answers[question.question] = $0 }))
-                        }
-                    }
-                } else {
-                    ScrollView {
-                        Text(pretty(detail.request)).font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(minHeight: 120, maxHeight: 320)
-                    .padding(6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
-                    if !detail.masked.isEmpty && !revealed {
-                        HStack {
-                            Label("\(detail.masked.count) value(s) that look like secrets are masked",
-                                  systemImage: "eye.slash").font(.callout)
-                            Spacer()
-                            Button("Reveal") { Task { await load(reveal: true) } }
-                        }
-                        Toggle("I have reviewed the masked values", isOn: $confirmMasked).font(.callout)
-                    }
-                }
-                TextField("Note to the agent (optional)", text: $note)
-                HStack {
-                    Button("Cancel", role: .cancel, action: done).keyboardShortcut(.cancelAction)
-                    Spacer()
-                    ForEach(detail.approval.options.reversed(), id: \.self) { option in
-                        Button(label(option)) { Task { await answer(option, detail: detail) } }
-                            .disabled(sending || !canChoose(option, detail: detail))
-                            .buttonStyle(.bordered)
-                            .tint(option == primaryOption(detail) ? Color.accentColor : nil)
-                    }
-                }
-            } else {
-                ProgressView("Loading the request…")
-            }
-        }
-        .padding(18)
-        .frame(width: 560)
-        .task { await load(reveal: false) }
-    }
-
-    private func load(reveal: Bool) async {
-        if let fresh = await model.approvalDetail(approvalID, reveal: reveal) {
-            detail = fresh
-            if reveal { revealed = true }
-        } else if detail == nil {
-            done()
-        }
-    }
-
-    private func primaryOption(_ detail: ApprovalDetail) -> String {
-        detail.approval.options.first { ["allow", "answer", "allow-turn"].contains($0) } ?? detail.approval.options.first ?? ""
-    }
-
-    private func canChoose(_ option: String, detail: ApprovalDetail) -> Bool {
-        let allowing = ["allow", "allow-session", "allow-turn", "answer"].contains(option)
-        if allowing && !detail.masked.isEmpty && !revealed && !confirmMasked { return false }
-        if option == "answer" { return !answers.values.allSatisfy { $0.isEmpty } }
-        return true
-    }
-
-    private func answer(_ option: String, detail: ApprovalDetail) async {
-        sending = true
-        defer { sending = false }
-        let chosen = option == "answer" ? answers.filter { !$0.value.isEmpty } : nil
-        if await model.respond(detail, decision: option, answers: chosen, message: note.isEmpty ? nil : note,
-                               reviewedMasked: revealed || confirmMasked) {
-            done()
-        }
-    }
-
-    private func label(_ option: String) -> String {
-        switch option {
-        case "allow": return "Allow"
-        case "allow-session": return "Allow for this session"
-        case "allow-turn": return "Allow for this turn"
-        case "deny": return "Deny"
-        case "cancel-turn": return "Deny and stop"
-        case "answer": return "Answer"
-        default: return option
-        }
-    }
-
-    private func pretty(_ value: JSONValue) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) } ?? "\(value)"
     }
 }
 

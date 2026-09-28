@@ -45,6 +45,9 @@ final class UIModel: ObservableObject {
     private var availabilityChecks = 0
     /// What `lostDaemon` put in the status line, cleared when the daemon is back.
     private var lostProblem: String?
+    private lazy var notificationDelegate = ApprovalNotificationDelegate { [weak self] action, userInfo in
+        self?.handleNotification(action: action, userInfo: userInfo)
+    }
 
     init() {
         paths = AppPaths.standard()
@@ -67,6 +70,7 @@ final class UIModel: ObservableObject {
     func start() {
         guard !started, engine != nil else { return }
         started = true
+        notificationDelegate.register()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         Task { await connect() }
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -521,14 +525,40 @@ final class UIModel: ObservableObject {
 
     /// The approval id for a card the events made before `approval.list` was read.
     func approvalID(for card: ApprovalCard, conversationID: String) async -> String? {
+        guard card.isPending else {
+            problem = "That approval is no longer pending."
+            return nil
+        }
         if let id = card.approvalID { return id }
+        guard let requestID = card.requestID else { return nil }
+        // Provider request ids can repeat across turns. Keep the original
+        // message as well as the request when the approval list fills its id.
+        let owners = state.timelines[conversationID]?.turns.values.filter { turn in
+            turn.pendingApprovals.contains {
+                $0.requestID == requestID && $0.kind == card.kind && $0.display == card.display
+            }
+        } ?? []
+        guard owners.count == 1, let messageID = owners.first?.messageID else {
+            problem = "That approval is no longer pending."
+            return nil
+        }
         guard let engine, let approvals = try? await onOutbox({ try engine.approvals(conversationID: conversationID) }) else {
             return nil
         }
         state.apply(approvals: approvals, conversationID: conversationID)
-        return state.timelines[conversationID]?.turns.values.flatMap(\.pendingApprovals)
-            .first { $0.requestID == card.requestID }?.approvalID
-            ?? approvals.first { $0.state == "pending" && $0.kind == card.kind }?.approval_id
+        let matches = state.timelines[conversationID]?.turns[messageID]?.pendingApprovals.filter {
+            $0.requestID == requestID && $0.kind == card.kind && $0.display == card.display
+        } ?? []
+        guard matches.count == 1, let id = matches.first?.approvalID,
+              approvals.contains(where: {
+                  $0.approval_id == id && $0.message_id == messageID && $0.conversation_id == conversationID
+                      && $0.provider_request_id == requestID
+                      && $0.state == "pending" && $0.kind == card.kind && $0.display == card.display
+              }) else {
+            problem = "That approval is no longer pending."
+            return nil
+        }
+        return id
     }
 
     // MARK: Sidebar settings
@@ -599,12 +629,52 @@ final class UIModel: ObservableObject {
     }
 
     private func post(_ intent: NotificationIntent) {
-        let content = UNMutableNotificationContent()
-        content.title = intent.title
-        content.body = intent.body
-        content.userInfo = ["conversation_id": intent.conversationID]
-        let request = UNNotificationRequest(identifier: intent.id, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        Task {
+            let content = UNMutableNotificationContent()
+            content.title = intent.title
+            content.body = intent.body
+            content.userInfo = ["conversation_id": intent.conversationID]
+            if intent.kind == .approval, let engine {
+                let detail: ApprovalDetail? = try? await onOutbox {
+                    let approvals = try engine.approvals(conversationID: intent.conversationID)
+                    guard let approval = ApprovalNotificationTarget.candidate(
+                        from: approvals, conversationID: intent.conversationID, messageID: intent.messageID) else { return nil }
+                    return try engine.approvalDetail(approval.approval_id)
+                }
+                if let detail, let target = ApprovalNotificationTarget(detail: detail) {
+                    content.categoryIdentifier = ApprovalNotificationDelegate.categoryID
+                    content.userInfo = target.userInfo
+                    let display = detail.approval.display
+                    let summary = display.command ?? display.input ?? display.description ?? display.tool
+                    if let summary { content.body += "\n" + summary }
+                }
+            }
+            let request = UNNotificationRequest(identifier: intent.id, content: content, trigger: nil)
+            try? await UNUserNotificationCenter.current().add(request)
+        }
+    }
+
+    private func handleNotification(action: String, userInfo: [AnyHashable: Any]) {
+        guard action != UNNotificationDismissActionIdentifier,
+              let conversationID = userInfo["conversation_id"] as? String, !conversationID.isEmpty else { return }
+        #if !SUBFLEET_VIEW_TEST
+        SubfleetAppDelegate.openMain?()
+        #endif
+        NSApp?.activate(ignoringOtherApps: true)
+        focus(conversationID)
+        guard action == ApprovalNotificationDelegate.allowOnceID else { return }
+        guard let target = ApprovalNotificationTarget(userInfo: userInfo) else {
+            problem = "Review the pending request in the conversation."
+            return
+        }
+        Task {
+            guard let detail = await approvalDetail(target.approvalID, reveal: false) else { return }
+            guard target.canAllow(detail) else {
+                problem = "This request needs review. Use the approval card's details in the conversation."
+                return
+            }
+            _ = await respond(detail, decision: "allow", answers: nil, message: nil, reviewedMasked: false)
+        }
     }
 }
 #endif
