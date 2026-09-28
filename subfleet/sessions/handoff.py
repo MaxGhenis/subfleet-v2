@@ -374,10 +374,11 @@ def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False
     of the whole text resolves them (`_resolve_blocks`: linear scans). If it is
     still too long, the other rules run only on its head and its tail, each the
     whole lines within EXCERPT_CHARS, joined by a marker giving the characters
-    left out. Those rules match within a line, except that a key, header or
-    `Bearer` may name a value on a later line: the scrubbed tail therefore gives
-    up its first nonblank line, which may hold such a value named above it. A
-    text whose first or last line is longer than an excerpt keeps nothing of it.
+    left out. Those rules match within a line, except where a key, `Bearer` or
+    separator (`:`, `=`, a key's quote) ends the text before a line break: an
+    excerpt is cut only at a break no such text precedes (`_neutral_break`), so
+    no match spans a cut and each excerpt scrubs exactly as the whole text does
+    there. An excerpt with no such break in reach keeps nothing.
     """
     original, count = len(text), 0
     if original > MAX_SCRUB_CHARS:
@@ -387,11 +388,8 @@ def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False
     if len(text) <= MAX_SCRUB_CHARS:
         scrubbed, found = _scrub(text, strip_reminders)
         return (scrubbed if limit is None else truncate(scrubbed, limit)), count + found
-    head = text[:EXCERPT_CHARS]
-    head, head_count = _scrub(head[:head.rfind("\n") + 1], False)
-    newline = text.find("\n", len(text) - EXCERPT_CHARS - 1)
-    tail, tail_count = _scrub(text[newline + 1:] if newline >= 0 else "", False)
-    tail = tail[_LEADING_VALUE_RE.match(tail).end():]
+    head, head_count = _scrub(text[:_head_cut(text)], False)
+    tail, tail_count = _scrub(text[_tail_cut(text):], False)
     head, tail, count = head.strip(), tail.strip(), count + head_count + tail_count
     if limit is not None:
         usable = limit - len(f"\n… [{original:,} characters omitted] …\n")   # the longest marker
@@ -404,10 +402,78 @@ def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False
     return (head + marker + tail).strip(), count
 
 
-#: What begins a scrubbed tail excerpt that may be the value of a key, header or
-#: `Bearer` above the cut: blank lines, a `:` or `=`, and the rest of that line
-#: (`password =` / `  hunter2`, `Authorization:` / `  token`).
-_LEADING_VALUE_RE = re.compile(r"\s*(?:[:=]\s*)?[^\n]*\n?")
+def _identifier_char(char: str) -> bool:
+    """A character of a key as the scrubber reads one (`_IDENTIFIER_RE`, which
+    ignores case, so `ſ` and the Kelvin sign are letters too)."""
+    return _IDENTIFIER_RE.fullmatch(char) is not None
+
+
+def _last_visible(text: str, end: int) -> int:
+    """The position of the last non-whitespace character before `end`, or -1."""
+    at = end - 1
+    while at >= 0 and text[at].isspace():   # `\s` in these patterns is `str.isspace`
+        at -= 1
+    return at
+
+
+def _neutral_break(text: str, visible: int) -> bool:
+    """Whether a line break whose last visible character before it is at
+    `visible` can be a cut: no rule could continue past the break from what ends
+    there. Only these can, each followed by whitespace (line breaks included) and
+    then a value: a key, an identifier with a sensitive ending (`Authorization`,
+    `Cookie` and `Set-Cookie` headers among them); a key's closing quote
+    (`"password"`); a `:` or `=` after a key, its quote and whitespace; and
+    `Bearer`. A quote or separator after anything else is ordinary text."""
+    if visible < 0:
+        return True
+    at = visible
+    if text[at] in ":=":
+        at = _last_visible(text, at)        # the separator may follow blank lines
+        if at < 0:
+            return True
+    if text[at] in "\"'":
+        at -= 1                             # a quoted key's closing quote
+    return not _key_ends_at(text, at)
+
+
+def _key_ends_at(text: str, end: int) -> bool:
+    """Whether an identifier the scrubber reads as a key, or `Bearer`, ends at
+    `end`. Only its last 17 characters are read, as `_scrub_named_values` does."""
+    if end < 0 or not _identifier_char(text[end]):
+        return False
+    start = end
+    while start > 0 and end - start < 16 and _identifier_char(text[start - 1]):
+        start -= 1
+    word = text[start:end + 1]
+    return bool(_SENSITIVE_SUFFIX_RE.search(word)) or word.lower().endswith("bearer")
+
+
+def _head_cut(text: str) -> int:
+    """The end of the head excerpt: the last neutral line break within
+    EXCERPT_CHARS (0 if none). A break that is not neutral is passed over
+    together with every break back to its visible character."""
+    end = EXCERPT_CHARS
+    while (newline := text.rfind("\n", 0, end)) >= 0:
+        visible = _last_visible(text, newline + 1)
+        if _neutral_break(text, visible):
+            return newline + 1
+        end = visible
+    return 0
+
+
+def _tail_cut(text: str) -> int:
+    """The start of the tail excerpt: the first neutral line break in the last
+    EXCERPT_CHARS (the end of the text if none)."""
+    at = text.find("\n", len(text) - EXCERPT_CHARS - 1)
+    while at >= 0:
+        visible = _last_visible(text, at + 1)
+        if _neutral_break(text, visible):
+            return at + 1
+        rest = at + 1
+        while rest < len(text) and text[rest].isspace():
+            rest += 1                       # breaks before the next visible character share its verdict
+        at = text.find("\n", rest)
+    return len(text)
 
 
 class _Tally:

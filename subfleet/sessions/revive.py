@@ -216,7 +216,10 @@ def _store_records(base: Path) -> tuple[list[Path], list[str]]:
     def is_dir(entry: os.DirEntry) -> bool:
         try:
             return entry.is_dir()
+        except FileNotFoundError:
+            return False
         except OSError:
+            unlisted.append(entry.path)     # a directory that cannot be looked into, perhaps
             return False
 
     for account in filter(is_dir, entries(str(base))):

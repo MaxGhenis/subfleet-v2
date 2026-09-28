@@ -143,21 +143,30 @@ def test_an_unreadable_desktop_record_leaves_ownership_unknown_and_revival_refus
     assert attempt(daemon, policy, COLD, tmp_path, opt_in=True).admitted is True
 
 
-def test_a_store_directory_that_cannot_be_listed_leaves_ownership_unknown(world, policy, tmp_path):
-    """C-23.35 (review of the round-2 fixes, F4): `Path.glob` skipped a directory it
-    could not list, and the session whose record it held read as not owned. The
-    directory is now reported, and ownership is unknown until it can be read."""
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a directory whatever its mode")
+@pytest.mark.parametrize("how", ["unlistable", "linked-behind-an-unsearchable-directory"])
+def test_a_store_directory_that_cannot_be_listed_leaves_ownership_unknown(world, policy, tmp_path, how):
+    """C-23.35 (review of the round-2 fixes, F4 and its second pass): `Path.glob`
+    skipped a directory it could not list or look into, and the session whose
+    record it held read as not owned. The directory is now reported, and ownership
+    is unknown until it can be read."""
     _home, store = world
     cold_session(world)
-    locked = store / ACCOUNT / ORG
+    if how == "unlistable":
+        locked = reported = store / ACCOUNT / ORG
+    else:
+        hidden = tmp_path / "elsewhere" / ACCOUNT
+        (store / ACCOUNT).rename(hidden.parent.mkdir() or hidden)
+        (store / ACCOUNT).symlink_to(hidden)
+        locked, reported = hidden.parent, store / ACCOUNT
     locked.chmod(0)
     try:
         daemon = fx.FakeSessions()
         result = attempt(daemon, policy, COLD, tmp_path)
         assert result.admitted is False and daemon.submits == []
         assert result.candidate.desktop_owned is None
-        assert result.candidate.unreadable_records == (str(locked),)
-        assert str(locked) in result.reason
+        assert result.candidate.unreadable_records == (str(reported),)
+        assert str(reported) in result.reason
     finally:
         locked.chmod(0o700)
     assert attempt(fx.FakeSessions(), policy, COLD, tmp_path).candidate.desktop_owned is True

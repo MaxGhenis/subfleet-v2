@@ -203,6 +203,55 @@ def test_blocks_that_shrink_a_text_within_the_budget_leave_it_whole():
     assert "start\n[BASE64 DATA OMITTED]" in handoff.scrub_bounded(text, None)[0]
 
 
+def exactly(n: int) -> str:
+    """`n` characters of prose lines, ending at a line break (for n > 0)."""
+    return prose(n - 1) + "\n" if n > 0 else ""
+
+
+#: Values named on an earlier line, as YAML, headers and wrapped `Bearer` values
+#: are written; the scrub of the whole text removes every `Zq` value here.
+CHAINED = {
+    "yaml-chain": ["db:\n", "  password:\n", "  api_key:\n", "  secret: Zq1s3cret99\n", "  host: x\n"],
+    "separator-lines": ["password =\n", "token\n", "=\n", "apikey\n", "=\n", "Zq2s3cret99\n"],
+    "header-lines": ["Authorization:\n", "Authorization\n", ":\n", "x password\n", "=\n", "Zq3hunter42\n"],
+    "quoted-lines": ["password=\n", '"x token"\n', "=\n", '"password="Zq4s3cret77"\n'],
+    "bearer-joins-a-quote": ['password="Zq5hunter2x Bearer\n', 'abcdefgh12345" and more\n'],
+    "bearer-below": ["Authorization: Bearer\n", "  Zq7tokenvalue99\n"],
+}
+
+
+@pytest.mark.parametrize("edge", ["head-end", "tail-start"])
+@pytest.mark.parametrize("name", sorted(CHAINED))
+def test_no_cut_splits_a_value_from_what_names_it_above(name, edge):
+    """C-23.14 (review of the round-2 fixes, second pass): a tail that began below a
+    key read its first line as a key, whose separator then swallowed the next key
+    (`password:` / `api_key:` / `secret: …` showed the secret), and a head that ended
+    at `Bearer` missed the quote the whole scrub closes across the break. Excerpts
+    are now cut only at a break nothing a rule continues ends before; here every
+    break inside each shape is where an excerpt would otherwise be cut."""
+    lines = CHAINED[name]
+    total = 300_000
+    for k in range(1, len(lines)):
+        above = "".join(lines[:k])
+        at = (HEAD if edge == "head-end" else total - TAIL) - len(above)
+        text = exactly(at) + "".join(lines)
+        text += exactly(total - len(text))
+        values = set(re.findall(r"Zq\d\w+", text))
+        whole = handoff.scrub_secrets(text, whole=True)[0]
+        assert values and not any(value in whole for value in values), (k, whole[at - 5:at + 200])
+        out = handoff.scrub_bounded(text, None)[0]
+        assert not any(value in out for value in values), (k, name, edge)
+
+
+def test_ordinary_lines_ending_in_a_colon_or_quote_are_still_cut_points():
+    """C-23.14: a quote or separator ends a line harmlessly unless a key precedes
+    it, so code and YAML keep their head and tail (a cut refused at every quote
+    or colon had kept nothing of them)."""
+    code = "".join(f'def f{i}():\n    return "value {i}"\nconfig{i}:\n  name: "x{i}"\n' for i in range(8_000))
+    out = handoff.scrub_bounded(code, 2_000)[0]
+    assert out.startswith("def f0():") and out.endswith('name: "x7999"')
+
+
 # --- the differential property: never more than a whole scrub shows ---------------------
 
 SHAPES = [
@@ -223,6 +272,9 @@ SHAPES = [
     "data:image/png;base64,\n" + ("QUJD" * 19 + "\n") * 3,                              # a run the filler may go on
     "<system-reminder>\n" + "body\n" * 5_000 + "{s}\n",                                   # long and still open
     "-----BEGIN PRIVATE KEY-----\n" + "QUJD\n" * 5_000 + "{s}\n",
+    "db:\n  password:\n  api_key:\n  secret: {s}\n", "password =\ntoken\n=\napikey\n=\n{s}\n",
+    'password="{s} Bearer\nabcdefgh1234" x\n', "api_key:\n  token:\n  {s}\n",
+    "Authorization:\nAuthorization\n:\nx password\n=\n{s}\n",
 ]
 
 
