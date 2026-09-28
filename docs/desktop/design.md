@@ -510,6 +510,12 @@ client's previous message in that conversation, or null); the daemon refuses
 `out-of-order` (exit 2) until the predecessor is committed. A journaled send
 that has no receipt can be withdrawn locally only after a `message.status`
 lookup shows the daemon never received it (review F10).
+A send with no answer, or answered exit 1 or 69, is sent again with a
+backoff and no cap on tries. It stops for the person only on a refusal on
+its merits or an exit-1 reason whose fix is theirs (`copy-blocked`). Each
+failure keeps the daemon's fix and the count of failures in a row, and the
+conversation shows a send that is not going through (C-28.3, C-29.12, §12;
+`docs/decisions/2026-09-27-app-send-failures.md`).
 
 **D-23. Catalog runs out of process.** Discovery of existing native sessions
 runs as `python -m subfleet.conversations.catalog`, started by the daemon every
@@ -1048,6 +1054,25 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   not the last row, which may be a queued bubble.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
+- A send that is not going through (C-29.12) shows where its row is. From
+  its second failed answer in a row (`retrying`), or at once when it stopped
+  (`needs-person`, `refused`), it carries a notice (`SendNotice`): the daemon's
+  words, its fix, and Send now or Try again, plus Withdraw for a message. The
+  notice is orange while the app keeps trying and red once the send stopped.
+  The head send, the waiting message with nothing ahead of it, shows the
+  notice under its bubble at the timeline's end, and its status line says the
+  notice's status instead of "Sending". A send that waits behind something
+  is a queue-tray row. The notice's status becomes the row's status, a second
+  caption gives "To fix: …" or the daemon's words, and Send now or Try again
+  sits beside the row's Withdraw (`ConversationStoreState.layout` attaches it).
+  The messages behind a stuck one are tray rows that say they wait. A note
+  above the composer says that what the person sends now waits behind the
+  stuck message. A create that is not going through is a banner in the main
+  window, and the sidebar row carries an `exclamationmark.bubble`. Messages a
+  previous run left unsent get their rows back when their conversation opens,
+  so their notices have a place. A notice shows only until the daemon's
+  receipt for the message arrives. Before this change (found 2026-09-27),
+  such a send said "Sending" for good.
 
 ### `status.json` (C-18.2, C-29.6; review IR-18, IR-34)
 

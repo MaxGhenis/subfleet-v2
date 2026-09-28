@@ -201,6 +201,22 @@
       "notes": ""
     },
     {
+      "id": "M-15",
+      "requirement": "A send that is not going through says so where the message is, with the daemon's words and fix, and he can send it now, try again or withdraw it; it is never shown as \"Sending\" for good",
+      "source": "Max, 2026-09-27 (sends that are not going through)",
+      "clauses": [
+        "C-29.12",
+        "C-28.3",
+        "C-29.7"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_send_failures.py: the outbox through the core probe, with Hypothesis properties against a reference model. Covered: each answer's classification (transient failures retried with no cap, copy-blocked and refusals stop), the count of failures in a row across Send now, Try again and a reload, the notice's kind, status and actions from the second failure or at once when stopped, waiting messages, an older journal, the reason prefix, needsPerson",
+        "tests/frontend/test_core_send_failure_placement.py: the store's layout over generated conversations. Covered: a message whose notice shows is a row in exactly one of the timeline and the queue tray; a tray row carries its notice, status, Send now or Try again and the outbox's Withdraw; a send with a notice is in the timeline only with nothing ahead of it; a waiting message is always a tray row; rows without a notice are unchanged; unsent messages are restored; stuckSend, sendProblem and createNotices"
+      ],
+      "notes": "Decision record docs/decisions/2026-09-27-app-send-failures.md. The notice shows under the head sending bubble in the timeline, or on the message's queue-tray row when it waits behind something (C-29.7, 2026-09-28). Until fix/attachment-followups (5402c681) lands, the daemon on release/217 and integrate/219 answers a directory at a stored image's name with its generic exit 1 and no fix, so the app shows that case as retrying, with no fix, rather than as needs-person. Not yet exercised in an installed build."
+    },
+    {
       "id": "P-1",
       "requirement": "Project selection and compose with workspace choice, settings and errors",
       "source": "transition plan capability map",
