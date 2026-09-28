@@ -20,4 +20,4 @@ export PATH=/usr/sbin:/sbin:$PATH
 uv run pytest -q
 ```
 
-A sandboxed shell without `/usr/sbin` makes every process-inspection test skip. Failed daemon tests keep their state root under `/tmp/sf-failed/<test name>/` (both the fake-daemon and the end-to-end harness): `daemon.log`, the store, receipts, and any quarantine census live there.
+A sandboxed shell without `/usr/sbin` makes every process-inspection test skip. Failed daemon tests keep their state root under `/tmp/sf-failed/<test name>/` (the fake-daemon and end-to-end harnesses, and the app core's live test, `tests/frontend/test_core_live.py`): `daemon.log`, the store, receipts, and any quarantine census live there. The live test adds the probe's record under `probe/` (`live-checks.json`, `exchanges.jsonl`, the app's outbox). CI uploads `/tmp/sf-failed` as the artifact `sf-failed-python-<version>-attempt-<n>` when a run fails or is cancelled.
