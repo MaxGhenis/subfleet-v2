@@ -104,6 +104,8 @@ enum Ops {
     static let messageSubmit = DaemonOperation<MessageSubmitArgs, Receipt>(name: "message.submit")
     static let messageStatus = DaemonOperation<MessageStatusArgs, MessageStatusResult>(name: "message.status")
     static let messageCancel = DaemonOperation<MessageCancelArgs, Receipt>(name: "message.cancel")
+    /// Deliver a queued message into the running turn (C-24.9, `steer.v1`).
+    static let messageSteer = DaemonOperation<MessageSteerArgs, Receipt>(name: "message.steer")
     static let turnInterrupt = DaemonOperation<TurnInterruptArgs, Receipt>(name: "turn.interrupt")
     static let messageResolve = DaemonOperation<MessageResolveArgs, Receipt>(name: "message.resolve")
     static let approvalList = DaemonOperation<ApprovalListArgs, ApprovalListResult>(name: "approval.list")
@@ -125,15 +127,15 @@ enum Ops {
     static let names = [
         capabilities.name, conversationList.name, conversationOpen.name, conversationCreate.name,
         conversationSettings.name, conversationUnblock.name, conversationHistory.name, conversationEvents.name,
-        conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, turnInterrupt.name,
-        messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
+        conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, messageSteer.name,
+        turnInterrupt.name, messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
         conversationHandoff.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
     static let personOnly: Set<String> = [
-        approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name,
+        approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name, messageSteer.name,
     ]
 }
 
@@ -220,13 +222,29 @@ enum MessageState: String, CaseIterable {
     case approvalNeeded = "approval-needed"
     case complete, failed, interrupted, cancelled
     case deliveryUnknown = "delivery-unknown"
+    /// C-24.9: handed to the running turn, not yet settled (`steer:<host>`).
+    case steering
+    /// C-24.9: settled inside another message's turn (`steered:<host>`, `steered-unanswered:<host>`).
+    case steered
     /// `message.status` for an id the daemon does not have.
     case unknown
 
-    static let live: Set<MessageState> = [.waiting, .starting, .running, .approvalNeeded, .deliveryUnknown]
-    static let terminal: Set<MessageState> = [.complete, .failed, .interrupted, .cancelled]
+    static let live: Set<MessageState> = [.waiting, .starting, .running, .approvalNeeded, .deliveryUnknown, .steering]
+    static let terminal: Set<MessageState> = [.complete, .failed, .interrupted, .cancelled, .steered]
 
     var isTerminal: Bool { MessageState.terminal.contains(self) }
+}
+
+/// The host a steered message joined, from its `state_reason` (`steer:<host>`,
+/// `steered:<host>`, `steered-unanswered:<host>`), for a receipt or change that
+/// does not carry `steered_into` (C-24.9).
+func steeredInto(stateReason: String?) -> String? {
+    guard let reason = stateReason else { return nil }
+    for prefix in ["steer:", "steered:", "steered-unanswered:"] where reason.hasPrefix(prefix) {
+        let host = reason.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        return host.isEmpty ? nil : host
+    }
+    return nil
 }
 
 /// A conversation as `_view` returns it.
@@ -283,6 +301,8 @@ struct Receipt: Codable, Equatable {
     /// The person's text (`conversation.open`, `message.status`), at most 20,000 characters.
     var text: String?
     var text_truncated: Bool?
+    /// C-24.9: the running turn's message this one was steered into, or null.
+    var steered_into: String?
 
     var messageState: MessageState? { MessageState(rawValue: state) }
     /// A tombstone left by withdrawing a message the daemon never received.
@@ -327,8 +347,16 @@ struct Capabilities: Codable, Equatable {
     var capabilities: [String]
     var limits: CapabilityLimits?
     var codex_writable: Bool?
+    /// `steer.v1`: the providers whose running turns take a steered message.
+    var steer_providers: [String]?
 
     func has(_ capability: String) -> Bool { capabilities.contains(capability) }
+
+    /// C-25.1: steer intent goes only to a daemon that advertises `steer.v1` for
+    /// the provider (it ignores argument keys it does not know).
+    func canSteer(_ provider: String) -> Bool {
+        has(steerCapability) && (steer_providers ?? []).contains(provider)
+    }
 }
 
 struct CapabilityLimits: Codable, Equatable {
@@ -509,6 +537,9 @@ struct ConversationUnblockArgs: Codable, Equatable {
 
 /// The daemon advertises the two diff ops with this capability (C-25.2).
 let diffCapability = "diff.v1"
+
+/// `message.steer` and the `steering`/`steered` states (C-24.9, C-25.2).
+let steerCapability = "steer.v1"
 
 struct TurnDiffArgs: Codable, Equatable {
     var message_id: String
@@ -717,6 +748,8 @@ struct ConversationChange: Codable, Equatable {
     var ts: String?
     /// Why a message is in its state (a waiting message's hold, a failure).
     var state_reason: String?
+    /// C-24.9: the host a steered message joined, or null.
+    var steered_into: String?
 }
 
 // MARK: - messages
@@ -782,6 +815,11 @@ struct MessageCancelArgs: Codable, Equatable {
 }
 
 struct TurnInterruptArgs: Codable, Equatable {
+    var message_id: String
+}
+
+/// `message.steer`: a queued message, by its canonical lowercase id (C-24.9).
+struct MessageSteerArgs: Codable, Equatable {
     var message_id: String
 }
 

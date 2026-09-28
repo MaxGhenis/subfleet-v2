@@ -17,6 +17,10 @@
 //   `approval.resolved` answers or withdraws it;
 //   `turn.completed` records the outcome and withdraws what is still pending
 //   (the driver withdraws pending requests when a turn ends without an event).
+// - `steer.delivered` (on the host turn, `data.message_id` the steered message,
+//   C-24.9) marks where the provider took a steered message: its bubble is drawn
+//   there, once, while it is steering or steered. `steer.sent`, `steer.missed`
+//   and `steer.refused` change nothing shown; the message's receipts do.
 // - `reset: true` means compacted deltas were missed: the event-derived state is
 //   dropped and the log is read again from 0 (C-25.4).
 //
@@ -79,6 +83,9 @@ enum TimelineContent: Equatable {
     case approval(ApprovalCard)
     case error(message: String, kind: String?, willRetry: Bool)
     case notice(String)
+    /// Where the provider took a steered message into this turn (`steer.delivered`).
+    /// `Timeline.items` draws that message's bubble here instead, so it is never shown.
+    case steered(messageID: String)
 }
 
 struct TimelineItem: Identifiable, Equatable {
@@ -111,6 +118,15 @@ struct TurnTimeline: Equatable {
     var limits: JSONValue?
     var diff: String?
     var items: [TimelineItem] = []
+    /// C-24.9: the host this message was steered into (`steered_into`, or its
+    /// `state_reason`), while it is steering or steered.
+    var steeredInto: String?
+    /// The host whose `steer.delivered` placed this message: the provider has it.
+    var steerDeliveredIn: String?
+    /// This app journaled a steer of it and the daemon has not answered yet.
+    var steerRequested = false
+    /// The daemon's refusal of this app's last steer of it (the message stayed queued).
+    var steerRefusal: OutboxFailure?
 
     /// Events first, then the settled receipt's facts (lane, served model).
     var served: Served { eventServed.merging(receiptServed) }
@@ -159,10 +175,28 @@ struct TurnTimeline: Equatable {
         return phases.last?.ts.flatMap(parseTimestamp)
     }
 
+    /// Drawn inside its host turn: the host's `steer.delivered` placed it, and it
+    /// is steering or steered (or has no receipt yet). One sent back to the queue
+    /// is drawn in its own place, where it runs next.
+    var isPlacedSteer: Bool {
+        steerDeliveredIn != nil && (messageState == .steering || messageState == .steered || state == "sending")
+    }
+
     /// The status strip's words for where this turn is (design §12).
     var statusText: String {
         switch messageState {
-        case .queued: return "Queued behind the current turn"
+        case .queued:
+            // C-24.9, design §1: a steer on its way, one that missed the turn, one refused.
+            if steerRequested { return "Steering… it joins at the next step" }
+            if stateReason?.hasPrefix("steer-missed:") == true { return "Runs next: the turn ended before it could take this" }
+            if let refusal = steerRefusal { return "Queued, not steered: " + steerRefusalWords(refusal) }
+            return "Queued behind the current turn"
+        case .steering:
+            return steerDeliveredIn != nil ? "Added to the running turn" : "Steering… it joins at the next step"
+        case .steered:
+            // Codex recorded it after the model's last step: nothing answered it.
+            return stateReason?.hasPrefix("steered-unanswered:") == true
+                ? "Added after the turn's last step; ask again for a reply" : "Added to the running turn"
         case .waiting:
             if let reason = stateReason, reason.contains("external-writer") {
                 // C-26.3, D-17: another Claude process holds the session.
@@ -196,8 +230,25 @@ struct TurnTimeline: Equatable {
         case .cancelled: return "Withdrawn"
         case .deliveryUnknown: return "Delivery unknown: choose whether it was delivered"
         case .unknown: return "Not received by the daemon"
-        case nil: return state == "sending" ? "Sending" : state
+        case nil:
+            guard state == "sending" else { return state }
+            if steerDeliveredIn != nil { return "Added to the running turn" }
+            return steerRequested ? "Steering… it joins at the next step" : "Sending"
         }
+    }
+}
+
+/// Why the daemon would not steer a message, as its status line says it (design §6).
+func steerRefusalWords(_ failure: OutboxFailure) -> String {
+    switch failure.reason {
+    case "not-queued": return "it had already left the queue"
+    case "not-next": return "an earlier message goes first"
+    case "no-live-turn": return "no turn was running to take it"
+    case "settings-narrower": return "it asks for a narrower permission than the running turn has"
+    case "not-steerable": return "the running turn could not take it"
+    case "unsupported": return "this daemon cannot steer"
+    case "no-answer": return "the daemon did not answer"
+    default: return failure.message
     }
 }
 
@@ -277,6 +328,7 @@ struct Timeline: Equatable {
             turn.limits = nil
             turn.diff = nil
             turn.items = []
+            turn.steerDeliveredIn = nil
             turns[id] = turn
         }
         order.removeAll { $0 == Timeline.conversationKey }
@@ -319,6 +371,8 @@ struct Timeline: Equatable {
             trimHistory()
         }
         let data = event.data
+        // A message this event placed in this turn (`steer.delivered`).
+        var delivered: String?
         switch event.kind {
         case "status":
             // A new attempt starts its own clock, even after one that never got further.
@@ -458,10 +512,27 @@ struct Timeline: Equatable {
             }
         case "diff":
             turn.diff = data["diff"]?.string
+        case "steer.delivered":
+            // C-24.9: the provider took the steered message at this point of the turn.
+            guard let steered = data["message_id"]?.string, steered != id, steered != Timeline.conversationKey else { break }
+            let itemID = "steer:\(steered)"
+            if !turn.items.contains(where: { $0.id == itemID }) {
+                turn.items.append(TimelineItem(id: itemID, messageID: steered, content: .steered(messageID: steered),
+                                               ts: event.ts))
+            }
+            delivered = steered
+        case "steer.sent", "steer.missed", "steer.refused":
+            // Where the steered message is comes from its own receipts (it is queued
+            // again, with `steer-missed:`, when it missed the turn).
+            break
         default:
             unknownKinds[event.kind, default: 0] += 1
         }
         turns[id] = turn
+        if let delivered {
+            ensureTurn(delivered)
+            turns[delivered]?.steerDeliveredIn = id
+        }
     }
 
     private func stream(_ turn: inout TurnTimeline, kind: String, block: String, text: String, final: Bool, ts: String?) {
@@ -509,6 +580,10 @@ struct Timeline: Equatable {
         if receipt.messageState != .unknown {
             turn.state = receipt.state
             turn.stateReason = receipt.state_reason
+            turn.steeredInto = receipt.steered_into ?? steeredInto(stateReason: receipt.state_reason)
+            // A queued receipt may be its submit's, ahead of its steer's answer.
+            if receipt.messageState != .queued { turn.steerRequested = false }
+            if receipt.messageState == .steering || receipt.messageState == .steered { turn.steerRefusal = nil }
         }
         turn.seq = receipt.seq ?? turn.seq
         turn.origin = receipt.origin ?? turn.origin
@@ -524,15 +599,34 @@ struct Timeline: Equatable {
     }
 
     /// A message this app is sending: shown at once, before its receipt (the
-    /// composer's optimistic row).
+    /// composer's optimistic row). With `steer`, sent to steer the running turn.
     mutating func addLocal(messageID: String, text: String, attachments: [String] = [],
-                           settings: ConversationSettings? = nil) {
+                           settings: ConversationSettings? = nil, steer: Bool = false) {
         ensureTurn(messageID)
         guard var turn = turns[messageID] else { return }
         turn.personText = text
         turn.attachments = attachments
         turn.origin = turn.origin ?? "person"
         turn.settings = turn.settings ?? settings
+        if steer { turn.steerRequested = true }
+        turns[messageID] = turn
+    }
+
+    /// The person asked to steer this message (C-24.9): its status line says so
+    /// until the daemon answers.
+    mutating func requestSteer(messageID: String) {
+        guard var turn = turns[messageID] else { return }
+        turn.steerRequested = true
+        turn.steerRefusal = nil
+        turns[messageID] = turn
+    }
+
+    /// The daemon answered this app's steer: `refusal` nil when it took the
+    /// message (or the steer was taken back), else why not (the message stays queued).
+    mutating func noteSteer(messageID: String, refusal: OutboxFailure?) {
+        guard var turn = turns[messageID] else { return }
+        turn.steerRequested = false
+        turn.steerRefusal = refusal
         turns[messageID] = turn
     }
 
@@ -689,15 +783,48 @@ struct Timeline: Equatable {
     // MARK: Display
 
     /// Everything in display order: older transcript rows, then each message
-    /// followed by what its turn did.
+    /// followed by what its turn did. A steered message's bubble is drawn once:
+    /// inside its host turn where the provider took it, or else in its own place.
     var items: [TimelineItem] {
         var out = history
+        let placed = placedSteers
+        var drawn: Set<String> = []
         for id in order {
             guard let turn = turns[id] else { continue }
-            if let person = personItem(turn) { out.append(person) }
-            out += turn.items
+            if !placed.contains(id), let person = personItem(turn) { out.append(person) }
+            for item in turn.items {
+                guard case .steered(let steered) = item.content else {
+                    out.append(item)
+                    continue
+                }
+                guard placed.contains(steered), drawn.insert(steered).inserted, let message = turns[steered],
+                      let person = personItem(message) else { continue }
+                out.append(person)
+            }
         }
         return out
+    }
+
+    /// Messages drawn inside a host turn rather than in their own place.
+    var placedSteers: Set<String> {
+        var out: Set<String> = []
+        for id in order {
+            for item in turns[id]?.items ?? [] {
+                if case .steered(let steered) = item.content, turns[steered]?.isPlacedSteer == true { out.insert(steered) }
+            }
+        }
+        return out
+    }
+
+    /// Messages waiting behind the live turn: queued in the daemon, or sent from
+    /// here to queue and not answered yet. A new message cannot be steered past
+    /// them: the daemon steers only the head of the queue (C-24.9, `not-next`).
+    var waitingMessageIDs: [String] {
+        order.filter { id in
+            guard id != Timeline.conversationKey, let turn = turns[id] else { return false }
+            if turn.messageState == .queued { return !turn.steerRequested }
+            return turn.state == "sending" && turn.origin == "person" && !turn.steerRequested
+        }
     }
 
     private func personItem(_ turn: TurnTimeline) -> TimelineItem? {

@@ -1,6 +1,8 @@
 // Subfleet: the composer. Return sends, Shift-Return (or Option-Return) inserts
 // a newline, pasted or dropped images are staged for `attachment.add`, and the
 // field stays editable while a turn runs: a message sent then queues behind it.
+// While the running turn takes steers (C-24.9, `steer.v1` for this provider),
+// Return steers the text into it and Tab queues it instead, as the Codex CLI does.
 
 #if !SUBFLEET_MODEL_TEST
 import AppKit
@@ -9,6 +11,8 @@ import UniformTypeIdentifiers
 
 final class ComposerNSTextView: NSTextView {
     var onSubmit: () -> Void = {}
+    /// Set only while the composer steers: Tab queues the text instead.
+    var onQueue: (() -> Void)?
     var onImage: (Data) -> Void = { _ in }
 
     override func keyDown(with event: NSEvent) {
@@ -16,6 +20,12 @@ final class ComposerNSTextView: NSTextView {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if isReturn && !modifiers.contains(.shift) && !modifiers.contains(.option) && !hasMarkedText() {
             onSubmit()
+            return
+        }
+        // Tab is taken only while a turn takes steers and there is text; otherwise it types a tab.
+        if event.keyCode == 48, modifiers.isDisjoint(with: [.shift, .option, .command, .control]), !hasMarkedText(),
+           let onQueue, !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            onQueue()
             return
         }
         super.keyDown(with: event)
@@ -62,6 +72,7 @@ final class ComposerNSTextView: NSTextView {
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     var onSubmit: () -> Void
+    var onQueue: (() -> Void)? = nil
     var onImage: (Data) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -88,6 +99,7 @@ struct ComposerTextView: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = scroll.documentView as? ComposerNSTextView else { return }
         textView.onSubmit = onSubmit
+        textView.onQueue = onQueue
         textView.onImage = onImage
         if textView.string != text { textView.string = text }
     }
@@ -120,6 +132,9 @@ struct ComposerView: View {
         let options = model.state.composerOptions(for: conversation.conversation_id, settings: current)
         let timeline = model.state.timelines[conversation.conversation_id]
         let live = timeline?.liveMessageID
+        // C-24.9: while this is set, Return steers into that turn and Tab queues.
+        let steerHost = model.state.steerHost(forComposerOf: conversation.conversation_id)
+        let empty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && staged.isEmpty
         VStack(alignment: .leading, spacing: 6) {
             if !staged.isEmpty {
                 ScrollView(.horizontal) {
@@ -137,16 +152,21 @@ struct ComposerView: View {
                 }
             }
             ZStack(alignment: .topLeading) {
-                ComposerTextView(text: $text, onSubmit: submit, onImage: addImage)
+                ComposerTextView(text: $text, onSubmit: { submit() },
+                                 onQueue: steerHost == nil ? nil : { submit(queue: true) }, onImage: addImage)
                     .frame(height: composerHeight)
                 if text.isEmpty {
-                    Text(live == nil ? "Message \(conversation.provider == "codex" ? "Codex" : "Claude")"
-                                     : "Queue a follow-up while this turn runs")
+                    Text(steerHost != nil ? "Steer the running turn · Tab to queue"
+                         : live == nil ? "Message \(conversation.provider == "codex" ? "Codex" : "Claude")"
+                         : "Queue a follow-up while this turn runs")
                         .foregroundStyle(.tertiary).padding(.leading, 9).padding(.top, 6).allowsHitTesting(false)
                 }
             }
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
+            if let steerHost, let hint = steerSettingsHint(picked: outgoing(current), host: steerHost) {
+                Label(hint, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
             HStack(spacing: 10) {
                 if let options {
                     Picker("Model", selection: Binding(get: { current.model }, set: { value in
@@ -201,9 +221,21 @@ struct ComposerView: View {
                     } label: { Label("Stop", systemImage: "stop.circle") }
                         .help("Stop the running turn")
                 }
-                Button(action: submit) { Label("Send", systemImage: "arrow.up.circle.fill") }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && staged.isEmpty)
+                if steerHost != nil {
+                    Button { submit(queue: true) } label: { Label("Queue", systemImage: "text.append") }
+                        .help("Queue it as the next turn, with your settings (Tab)")
+                        .accessibilityLabel("Queue as the next turn")
+                        .disabled(empty)
+                    Button { submit() } label: { Label("Steer", systemImage: "arrow.turn.down.right") }
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .help("Add it to the running turn at its next step (Return)")
+                        .accessibilityLabel("Steer the running turn")
+                        .disabled(empty)
+                } else {
+                    Button { submit() } label: { Label("Send", systemImage: "arrow.up.circle.fill") }
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(empty)
+                }
             }
             .controlSize(.small)
         }
@@ -230,12 +262,22 @@ struct ComposerView: View {
         return min(200, max(44, CGFloat(lines) * 18 + 14))
     }
 
-    private func submit() {
+    /// The message's own settings: the composer's picks, under the conversation's permission.
+    private func outgoing(_ picked: ConversationSettings) -> ConversationSettings {
+        var outgoing = picked
+        outgoing.permission = conversation.settings.permission
+        return outgoing
+    }
+
+    /// Send the text: steered into the running turn when the composer steers and
+    /// `queue` is false, else queued as the next turn (C-24.9). A steer the turn
+    /// can no longer take is refused, and the message stays queued.
+    private func submit(queue: Bool = false) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !staged.isEmpty else { return }
-        var outgoing = settings ?? conversation.settings
-        outgoing.permission = conversation.settings.permission
-        model.send(conversationID: conversation.conversation_id, text: trimmed, staged: staged, settings: outgoing)
+        let steer = !queue && model.state.steerHost(forComposerOf: conversation.conversation_id) != nil
+        model.send(conversationID: conversation.conversation_id, text: trimmed, staged: staged,
+                   settings: outgoing(settings ?? conversation.settings), steer: steer)
         text = ""
         staged = []
         model.drafts.delete(conversation.conversation_id)
