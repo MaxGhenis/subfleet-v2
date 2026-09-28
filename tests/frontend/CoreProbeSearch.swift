@@ -155,8 +155,9 @@ func probeDouble(_ value: JSONValue) -> Double? {
 
 /// `text-scale <input.json>`: `{"values", "scales", "suite", "stored"}`: clamp,
 /// Bigger and Smaller for each value; every reading size at each scale; and
-/// the setting saved and loaded through a throwaway UserDefaults suite, also
-/// when what is stored there is not a scale.
+/// the setting saved and loaded through a throwaway UserDefaults suite (a path,
+/// so its plist stays in the test's directory), also when what is stored there
+/// is not a scale.
 func runTextScale(_ data: Data) throws -> [String: Any] {
     let input = try JSONValue.parse(data)
     let values = (input["values"]?.array ?? []).compactMap(probeDouble)

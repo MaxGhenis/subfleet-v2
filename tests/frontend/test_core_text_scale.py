@@ -108,7 +108,8 @@ def test_c29_13_step_properties(core_probe, tmp_path, values):
 
 
 def test_c29_13_the_setting_persists_in_user_defaults(core_probe, tmp_path):
-    suite = f"org.maxghenis.subfleet.probe.{uuid.uuid4().hex}"
+    # A suite named by a path keeps its plist there, not in ~/Library/Preferences.
+    suite = str(tmp_path / "defaults")
     out = scale_probe(core_probe, tmp_path, suite=suite, stored=["big", True, 9.5, 0.1, 1.5, 1, None])["persisted"]
     assert out["missing"] == 1.0
     assert out["saved"] == 1.25 and out["raw_after_save"] == 1.25
