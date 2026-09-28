@@ -480,21 +480,50 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
         # worktree dirty, so retention keeps it (C-13.4): it removes a dirty
         # worktree only when a salvage ref holds exactly its current tree.
         return None
+    ref, commit = _hold(workdir, ref, tree, baseline, f"subfleet salvage attempt a{seq}", timeout_s=timeout_s)
+    return SalvageResult(ref, commit, tree, baseline, skipped)
+
+
+def pin_baseline(workdir: str | Path, job_id: str, seq: int, tree: str, head: str, *,
+                 timeout_s: float | None = None) -> tuple[str, str]:
+    """C-13.1: hold attempt `seq`'s start snapshot `tree` (on `head`, its parent) under
+    `refs/subfleet-salvage/<job id>-a<seq>-baseline`; the ref and its commit.
+
+    Admission calls it when the job's previous attempt's salvage failed: that
+    attempt's work is then only in this snapshot, a tree object no ref holds,
+    which `gc` may prune and the new attempt goes on to edit (review of cda4c161,
+    N2). Idempotent, as salvage is: a later admission pass that finds the ref
+    holding the same tree on the same parent reuses it, and one that finds
+    different bytes there writes beside it, never over it.
+    """
+    name = re.sub(r"[^A-Za-z0-9_-]+", "-", job_id).strip("-") or "job"
+    return _hold(workdir, f"refs/subfleet-salvage/{name}-a{seq}-baseline", tree, head,
+                 f"subfleet baseline of attempt a{seq}", timeout_s=timeout_s)
+
+
+def _hold(workdir: str | Path, ref: str, tree: str, parent: str, message: str, *,
+          timeout_s: float | None = None) -> tuple[str, str]:
+    """Commit `tree` on `parent` beneath `ref`; the ref written and its commit.
+
+    A ref that already holds `tree` on `parent` (a replay) is reused. One that
+    holds other bytes is never overwritten: the snapshot goes beside it, under
+    `<ref>-<first 12 of the tree>`, and `update-ref` creates only (its old value
+    is all zeros), so a ref another writer made meanwhile fails the call."""
     previous = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
     if previous:
         previous_tree = _git(workdir, "rev-parse", f"{previous}^{{tree}}", timeout_s=timeout_s)
         previous_parent = _git(workdir, "rev-parse", f"{previous}^", optional=True, timeout_s=timeout_s)
-        if previous_tree == tree and previous_parent == baseline:
-            return SalvageResult(ref, previous, tree, baseline, skipped)
+        if previous_tree == tree and previous_parent == parent:
+            return ref, previous
         # Never overwrite a previous snapshot with different bytes.
         ref = f"{ref}-{tree[:12]}"
     commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
-                  "commit-tree", tree, "-p", baseline, "-m", f"subfleet salvage attempt a{seq}", timeout_s=timeout_s)
+                  "commit-tree", tree, "-p", parent, "-m", message, timeout_s=timeout_s)
     existing = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
     if existing:
         if (_git(workdir, "rev-parse", f"{existing}^{{tree}}", timeout_s=timeout_s) == tree
-                and _git(workdir, "rev-parse", f"{existing}^", timeout_s=timeout_s) == baseline):
-            return SalvageResult(ref, existing, tree, baseline, skipped)
+                and _git(workdir, "rev-parse", f"{existing}^", timeout_s=timeout_s) == parent):
+            return ref, existing
         raise SalvageError("salvage reference already names a different snapshot")
     _git(workdir, "update-ref", ref, commit, "0" * 40, timeout_s=timeout_s)
-    return SalvageResult(ref, commit, tree, baseline, skipped)
+    return ref, commit

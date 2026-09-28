@@ -15,9 +15,12 @@ import pytest
 
 from subfleet import daemon as daemon_module
 from subfleet import salvage as salvage_module
+from subfleet.adapters.registry import register
+from subfleet.contracts import Outcome, OutcomeClass
 from subfleet.daemon import SALVAGE_SKIPPED_SHOWN, SALVAGE_TRIES
 from subfleet.salvage import SalvageError, SalvageResult
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401 (a fixture)
+from tests.fake_adapter import FakeAdapter
 from tests.fake.test_workspace_contract import repository
 from tests.unit.test_salvage import git
 from tests.unit.test_salvage_unindexable import fake_add, on_a_branch_whose_name_is_not_utf8
@@ -391,3 +394,99 @@ def test_c13_1_a_quarantine_release_says_what_its_snapshot_left_out(state_daemon
     daemon._resolve_quarantine(daemon.store.get_attempt(attempt2["attempt_id"]),
                                protocol.KillArgs(job2, confirm_dead=True))
     assert len(job_notices(daemon, job2)) == 1                                # the quarantine's own
+
+
+# --- a retry after a failed salvage (review of cda4c161, N2) ---------------------------
+
+
+class TransientAdapter(FakeAdapter):
+    def classify(self, attempt_dir, launch, exit_info):
+        return Outcome(OutcomeClass.TRANSIENT, "fixture transport disconnected")
+
+
+def retried(daemon, harness, monkeypatch, *, salvage_fails=True):
+    """a1 wrote work and ended transient, so the job waits to try again; its salvage failed
+    (timed out `SALVAGE_TRIES` times) or not. Returns what a2's admission needs."""
+    workdir, job_id, attempt, _ = finalizing(daemon, harness)
+    (workdir / "new-by-a1.txt").write_text("a1 work\n")
+    register("codex", TransientAdapter)
+    if salvage_fails:
+        def slow(*args, **kwargs):
+            raise SalvageError("git add timed out after 60 s", transient=True)
+        monkeypatch.setattr(daemon_module, "salvage", slow)
+        for _ in range(1, SALVAGE_TRIES):
+            with pytest.raises(SalvageError):
+                daemon._finalize(attempt)
+    daemon._finalize(attempt)
+    monkeypatch.setattr(daemon_module, "salvage", salvage_module.salvage)
+    assert daemon.store.get_job(job_id)["state"] == "waiting"
+    assert ("salvage_error" in json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])) \
+        == salvage_fails
+    daemon.store.update_job(job_id, next_check_at=None)
+    return workdir, job_id
+
+
+def test_c13_1_a_retry_after_a_failed_salvage_starts_from_a_held_snapshot(state_daemon, monkeypatch):
+    """a1's work is then only a2's start snapshot, a tree object no ref held, which `gc` may
+    prune and a2 goes on to edit, with nobody told. Admission holds it under
+    `refs/subfleet-salvage/<job id>-a2-baseline` (a commit on a2's HEAD), names it in a2's
+    evidence and records it as a2's salvage artifact; HEAD, the index and the files are
+    untouched."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    status = git(workdir, "status", "--porcelain")
+    head = git(workdir, "rev-parse", "HEAD")
+    daemon._admit()
+    a1, a2 = daemon.store.list_attempts(job_id)
+    assert (a2["seq"], a2["state"]) == (2, "reserved")
+    ref = f"refs/subfleet-salvage/{job_id}-a2-baseline"
+    evidence = json.loads(a2["evidence_json"])
+    assert evidence["baseline_ref"] == ref and evidence["baseline_commit"] == head
+    [artifact] = daemon.store.list_artifacts(a2["attempt_id"])
+    assert (artifact["role"], artifact["path"]) == ("salvage", ref)
+    assert git(workdir, "rev-parse", f"{ref}^{{tree}}") == a2["baseline_tree"]
+    assert git(workdir, "rev-parse", f"{ref}^") == head
+    assert git(workdir, "show", f"{ref}:new-by-a1.txt") == "a1 work"
+    assert git(workdir, "show", f"{ref}:tracked.txt") == "provider progress"
+    assert git(workdir, "status", "--porcelain") == status and git(workdir, "rev-parse", "HEAD") == head
+    assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == ref
+
+    # A later admission pass (one rolled back, say) reuses the ref; different bytes go beside it.
+    job = daemon._job(job_id)
+    again = daemon._pin_baseline(job, [a1], str(workdir), head, a2["baseline_tree"])
+    assert again == {key: artifact[key] for key in ("role", "path", "sha256", "bytes")}
+    other = git(workdir, "rev-parse", "HEAD^{tree}")
+    beside = daemon._pin_baseline(job, [a1], str(workdir), head, other)
+    assert beside["path"] == f"{ref}-{other[:12]}"
+    assert git(workdir, "rev-parse", f"{ref}^{{tree}}") == a2["baseline_tree"]
+
+
+def test_c13_1_a_retry_after_a_salvage_that_succeeded_holds_nothing_more(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch, salvage_fails=False)
+    daemon._admit()
+    a1, a2 = daemon.store.list_attempts(job_id)
+    assert a2["state"] == "reserved" and "baseline_ref" not in json.loads(a2["evidence_json"])
+    assert daemon.store.list_artifacts(a2["attempt_id"]) == []
+    [salvaged] = [r for r in daemon.store.list_artifacts(a1["attempt_id"]) if r["role"] == "salvage"]
+    assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == salvaged["path"]
+
+
+@pytest.mark.parametrize("transient", [True, False])
+def test_c13_1_a_baseline_that_cannot_be_held_is_a_workspace_failure(state_daemon, monkeypatch, transient):
+    """C-6.8: nothing runs in the worktree unheld; the job waits, or fails with the cause."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+
+    def refuse(*args, **kwargs):
+        raise SalvageError("git update-ref failed: fatal: refused", transient=transient)
+    monkeypatch.setattr(daemon_module, "pin_baseline", refuse)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert len(daemon.store.list_attempts(job_id)) == 1
+    if transient:
+        assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+    else:
+        assert (job["state"], job["rc"]) == ("failed", 1)
+        assert "workspace preparation failed: SalvageError: git update-ref failed" in job_notices(daemon, job_id)[0]
+    assert (workdir / "new-by-a1.txt").read_text() == "a1 work\n"

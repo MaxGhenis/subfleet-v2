@@ -51,8 +51,8 @@ from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
-    SalvageError, git_head, git_toplevel, git_tree, path_text, salvage, transient_os_error, utf8_text,
-    validate_writable_workdir, working_tree,
+    SalvageError, git_head, git_toplevel, git_tree, path_text, pin_baseline, salvage, transient_os_error,
+    utf8_text, validate_writable_workdir, working_tree,
 )
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
@@ -2698,6 +2698,29 @@ class Daemon:
             baseline = git_tree(workdir, head, timeout_s=cap)
         return workdir, head, baseline
 
+    def _pin_baseline(self, job: dict, previous: list, workspace: str, head: str | None,
+                      baseline: str | None) -> dict | None:
+        """C-13.1: the salvage artifact holding the next attempt's start snapshot, when
+        the job's last attempt's salvage failed; else None.
+
+        That attempt's work is then only in this snapshot (`baseline`, from
+        `_workspace`): a tree object no ref holds, which `gc` may prune and the
+        next attempt goes on to edit, with nobody told (review of cda4c161, N2).
+        So it is held under `refs/subfleet-salvage/<job id>-a<seq>-baseline`
+        before the attempt is reserved, and recorded as that attempt's artifact
+        (role `salvage`), which retention keeps like any salvage ref (C-13.4).
+        A failure to hold it is C-6.8's, as the snapshot's own is: the job waits
+        or fails, and nothing runs in the worktree meanwhile.
+        """
+        if (job["sandbox"] != "workspace-write" or job["kind"] == "turn" or not previous
+                or not head or not baseline):
+            return None
+        if not json.loads(previous[-1]["evidence_json"] or "{}").get("salvage_error"):
+            return None
+        ref, commit = pin_baseline(workspace, job["job_id"], len(previous) + 1, baseline, head,
+                                   timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+        return {"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}
+
     def _where_it_writes(self, job_id: str, sandbox: str) -> dict:
         """For the caller (review of d261): the sandbox the job got, and for a
         writable job that is not in place, the worktree it will write in."""
@@ -3342,6 +3365,7 @@ class Daemon:
                 continue
             try:
                 workspace, head, baseline = self._workspace(job)
+                pinned = self._pin_baseline(job, previous, workspace, head, baseline)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
                 if job["kind"] == "resume":
                     manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -3608,9 +3632,13 @@ class Daemon:
                             break
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
+                        evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
+                                    **({"baseline_ref": pinned["path"]} if pinned else {})}
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
-                                    json.dumps({"baseline_commit": head, "model_short": decision.chosen_model}), utcnow()))
+                                    json.dumps(evidence), utcnow()))
+                        if pinned:
+                            self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
                                    (job["job_id"], aid, utcnow(), self.policy_digest, json.dumps(dataclasses.asdict(decision))))
                         tx.execute("UPDATE jobs SET state='running',wait_reason=NULL,next_check_at=NULL,worktree=?,started_at=COALESCE(started_at,?) WHERE job_id=?",
