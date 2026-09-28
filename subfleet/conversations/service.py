@@ -280,10 +280,9 @@ class ConversationService:
             if provider and entry["provider"] != provider:
                 continue
             seen = observed.get(entry["provider"], {}).get(entry["id"], {})
-            # `default` is whatever one account's settings pick; a conversation names a model.
-            values = [v for v in seen.get("values") or [] if v != "default"]
+            values = _catalog_values(observed, entry)
             models.append({"short": short, "id": entry["id"], "provider": entry["provider"],
-                           "value": values[0] if values else entry["id"], "values": values or [entry["id"]],
+                           "value": values[0], "values": values,
                            "efforts": (claude_turn.offered_efforts([str(x) for x in seen["efforts"]])
                                        if entry["provider"] == "claude" and isinstance(seen.get("efforts"), list)
                                        else seen.get("efforts")),
@@ -1787,9 +1786,14 @@ class ConversationService:
         provider = conversation["provider"]
         settings = message["settings"]
         short = policy_model(daemon.policy, provider, settings["model"])
+        entry = daemon.policy["models"][short]
+        if _base_model(settings["model"]) not in (short, entry["id"]):
+            # A retired model (C-11.1, C-17.2): the turn runs its successor, spelled as
+            # `models.list` offers it. The message keeps the model the person picked.
+            settings = {**settings, "model": _catalog_values(self._catalog_cache(), entry)[0]}
         effort_default = None
         if not settings.get("effort"):
-            effort_default = self._default_effort(provider, daemon.policy["models"][short]["id"])
+            effort_default = self._default_effort(provider, entry["id"])
             if effort_default:
                 settings = {**settings, "effort": effort_default}
         images = []
@@ -2125,15 +2129,36 @@ class ConversationService:
         return TurnAdapter(provider)
 
 
+def _base_model(value: str) -> str:
+    """A conversation's model value without its context-window suffix (`opus[1m]`)."""
+    return value[:-4] if value.endswith("[1m]") else value
+
+
+def _catalog_values(observed: dict, entry: dict) -> list[str]:
+    """The values a conversation may store for a policy model: what its provider's
+    catalog last listed, else its id (design D-19). `default` is whatever one
+    account's settings pick; a conversation names a model."""
+    seen = observed.get(entry["provider"], {}).get(entry["id"], {})
+    values = [v for v in seen.get("values") or [] if v != "default"]
+    return values or [entry["id"]]
+
+
 def policy_model(policy: dict, provider: str, value: str) -> str:
-    """A conversation's model value to the policy model admission routes (D-19)."""
-    base = value[:-4] if value.endswith("[1m]") else value
+    """A conversation's model value to the policy model admission routes (D-19).
+
+    A name or id the policy lists under `retired` routes to its successor
+    (C-11.1): a conversation picked on Fable continues on Opus once the running
+    policy retires Fable, rather than failing every message as an unknown model."""
+    base = _base_model(value)
     models = policy["models"]
     if base in models and models[base]["provider"] == provider:
         return base
     for short, entry in models.items():
         if entry["provider"] == provider and entry["id"] == base:
             return short
+    successor = (policy.get("retired") or {}).get(base)
+    if successor in models and models[successor]["provider"] == provider:
+        return successor
     raise ConversationError("unknown-model", f"{value!r} is not a {provider} model this fleet routes",
                             fix="pick a model from models.list")
 
