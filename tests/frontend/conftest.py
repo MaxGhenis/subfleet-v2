@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unittest
 
 import pytest
 
@@ -71,16 +72,20 @@ def state_root(request, prefix: str):
     fixtures, so a fixture learns of one only from the call's report
     (`pytest_runtest_makereport` above): a flag set after its `yield` is set
     whether the test passed or failed. A skip or xfail raised inside the block is
-    not a failure. A root that cannot be copied stays where it is.
+    judged by that report too, so it keeps the root only of a test whose call
+    failed. A root that cannot be copied stays where it is.
     """
+    def call_failed() -> bool:
+        report = getattr(request.node, "rep_call", None)
+        return report is not None and report.failed
+
     root = Path(tempfile.mkdtemp(prefix=prefix, dir="/tmp"))
     failed = True
     try:
         yield root
-        report = getattr(request.node, "rep_call", None)
-        failed = report is not None and report.failed
-    except (pytest.skip.Exception, pytest.xfail.Exception):
-        failed = False
+        failed = call_failed()
+    except (pytest.skip.Exception, pytest.xfail.Exception, unittest.SkipTest):
+        failed = call_failed()
         raise
     finally:
         if failed:

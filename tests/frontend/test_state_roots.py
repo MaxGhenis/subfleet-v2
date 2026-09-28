@@ -73,6 +73,7 @@ def test_fails_{token}({fixture}):
 
 STATE_ROOT_TESTS = """
 from pathlib import Path
+import unittest
 
 import pytest
 
@@ -98,12 +99,25 @@ def skipping(request):
         yield root
 
 
+@pytest.fixture
+def skipping_after(request):
+    with state_root(request, "sf-app-x-") as root:
+        RECORD.joinpath("teardown-skipped").write_text(str(root))
+        (root / "evidence.txt").write_text("kept")
+        yield root
+        pytest.skip("skips on purpose while tearing down")
+
+
 def test_setup_fails_{token}(broken):
     pass
 
 
 def test_setup_skips_{token}(skipping):
     pass
+
+
+def test_fails_then_skips_while_tearing_down_{token}(skipping_after):
+    assert False, "fails on purpose"
 
 
 def test_inline_passes_{token}(request):
@@ -128,6 +142,12 @@ def test_inline_xfails_{token}(request):
     with state_root(request, "sf-app-x-") as root:
         RECORD.joinpath("inline-xfailed").write_text(str(root))
         pytest.xfail("xfails on purpose")
+
+
+def test_inline_unittest_skips_{token}(request):
+    with state_root(request, "sf-app-x-") as root:
+        RECORD.joinpath("inline-unittest-skipped").write_text(str(root))
+        raise unittest.SkipTest("skips on purpose")
 """
 
 LEFTOVER_TESTS = """
@@ -203,16 +223,19 @@ def test_a_fixture_removes_its_root_after_a_pass_and_keeps_it_after_a_failure(in
 
 
 def test_a_root_whose_fixture_raised_or_whose_test_body_failed_is_kept(inner):
-    """`state_root` used by a fixture whose setup raises or skips, and inline in a test
-    body that passes, fails, skips or xfails: only the raise and the failure are kept."""
+    """`state_root` used by a fixture whose setup raises or skips, or that skips while
+    tearing down after a failed test, and inline in a test body that passes, fails,
+    skips (pytest's or unittest's) or xfails: only the raise and the failures are kept."""
     result = inner.run(STATE_ROOT_TESTS)
-    result.assert_outcomes(passed=1, failed=1, errors=1, skipped=2, xfailed=1)
-    for name in ("setup", "setup-skipped", "inline-passed", "inline-failed", "inline-skipped", "inline-xfailed"):
+    result.assert_outcomes(passed=1, failed=2, errors=1, skipped=4, xfailed=1)
+    for name in ("setup", "setup-skipped", "teardown-skipped", "inline-passed", "inline-failed",
+                 "inline-skipped", "inline-xfailed", "inline-unittest-skipped"):
         assert not recorded(inner, name).exists(), name
-    assert (FAILED / f"test_setup_fails_{inner.token}" / "evidence.txt").read_text() == "kept"
-    assert (FAILED / f"test_inline_fails_{inner.token}" / "evidence.txt").read_text() == "kept"
-    assert sorted(kept.name for kept in FAILED.glob(f"*_{inner.token}")) == [
-        f"test_inline_fails_{inner.token}", f"test_setup_fails_{inner.token}"]
+    kept = [f"test_fails_then_skips_while_tearing_down_{inner.token}", f"test_inline_fails_{inner.token}",
+            f"test_setup_fails_{inner.token}"]
+    assert sorted(path.name for path in FAILED.glob(f"*_{inner.token}")) == kept
+    for name in kept:
+        assert (FAILED / name / "evidence.txt").read_text() == "kept", name
 
 
 def test_a_passing_test_that_leaves_a_directory_behind_errors(inner):
