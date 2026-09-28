@@ -245,3 +245,22 @@ def write(store: ConversationStore, cid: str, mid: str, batches: list[tuple], af
                                        for rid in asked])
         made = after_commit[before:]
         assert made and all(found == [] for found in made), (batch, made)
+
+
+@pytest.mark.parametrize("provider,tool,timed", [("claude", "AskUserQuestion", False), ("claude", "Bash", True),
+                                                  ("codex", None, True)])
+def test_only_a_tool_approval_starts_the_clock_through_the_store(store, tmp_path, provider, tool, timed):
+    """C-26.9 with C-27.1: through the store's one write, a question starts no approval
+    clock and a tool approval does; either way the message is approval-needed."""
+    cid, mid = running_message(store, provider)
+    runner = runner_for(store, tmp_path, provider, cid, mid)
+    line = request_line(provider)
+    if tool == "Bash":
+        row = json.loads(line)
+        row["request"].update(tool_name="Bash", input={"command": "echo hi", "description": "Say hi"})
+        line = json.dumps(row)
+    runner._apply(runner.driver.feed(line, 0))
+    [approval] = store.approvals(conversation_id=cid)
+    assert (approval["kind"] == "question") is (tool == "AskUserQuestion"), approval["kind"]
+    assert (approval["provider_request_id"] in runner.approval_seen) is timed, approval["kind"]
+    assert store.message(mid)["state"] == "approval-needed"
