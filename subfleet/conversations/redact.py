@@ -15,7 +15,7 @@ import json
 from typing import Any
 
 from ..sessions.handoff import (
-    _SYSTEM_REMINDER_RE, looks_binary, scrub_secrets, sensitive_tool_call, truncate,
+    looks_binary, scrub_secrets, sensitive_tool_call, truncate,
 )
 
 INPUT_MAX = 500
@@ -32,8 +32,7 @@ _PREFERRED_FIELDS = (
 
 def scrub(text: str) -> str:
     """Remove credentials, reminders and encoded blobs from displayable text."""
-    text = _SYSTEM_REMINDER_RE.sub("", text)
-    return scrub_secrets(text)[0]
+    return scrub_secrets(text, strip_reminders=True)[0]
 
 
 def _summary_text(name: str, value: Any) -> str:
@@ -127,7 +126,7 @@ def mask_approval(request: Any) -> tuple[Any, list[dict]]:
     Each masked span is reported so the app can show it and offer a reveal.
     """
     import hashlib
-    from ..sessions.handoff import _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_PASSWORD_RE
+    from ..sessions.handoff import _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_PASSWORD_RE, _linear_sub
     spans: list[dict] = []
 
     def mask_text(text: str, path: str) -> str:
@@ -141,7 +140,7 @@ def mask_approval(request: Any) -> tuple[Any, list[dict]]:
                               "sha256": hashlib.sha256(value.encode()).hexdigest()})
                 hidden = f"[masked {rule}, {len(value)} chars]"
                 return hidden if rule != "url-password" else match.group(1) + hidden + match.group(3)
-            text = pattern.sub(repl, text)
+            text = _linear_sub(pattern, repl, text)
         return text
 
     def walk(value: Any, path: str) -> Any:

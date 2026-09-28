@@ -26,9 +26,9 @@ from pathlib import Path
 import pytest
 
 from subfleet.conversations import runner as runner_module
-from subfleet.conversations.launch import TURN_MANIFEST_KEY
+from subfleet.conversations.launch import TURN_MANIFEST_KEY, spec_from_manifest
 from subfleet.conversations.service import ConversationService
-from subfleet.relay import RelayServer, read_log
+from subfleet.relay import RelayError, RelayServer, read_log
 from tests.unit.test_conversation_service import (INIT_OK, SETTINGS, Clock, FakeDaemon, conversation, submit,
                                                   turn_attempt)
 
@@ -170,6 +170,199 @@ def test_a_stop_recorded_after_close_stopped_the_runner_is_sent_by_the_next_daem
     assert world.logged().count("interrupt") == 1
 
 
+@pytest.mark.parametrize("large_init", [False, True], ids=["16-byte-chunks", "large-init-default-chunk"])
+def test_a_legacy_stop_waits_for_the_delivered_turn_to_replay(world, monkeypatch, large_init):
+    """C-26.6, C-30.4: a legacy hold stops a delivered turn only after replay
+    reconstructs delivery, even when initialization crosses a production read chunk."""
+    first = world.runner()
+    until(lambda: world.logged() == ["init"], "the init frame")
+    initialization = json.loads(INIT_OK)
+    if large_init:
+        initialization["response"]["response"]["padding"] = "x" * (runner_module.READ_CHUNK + 1024)
+    world.say(json.dumps(initialization))
+    until(lambda: world.logged() == ["init", "user-message"], "the message frame")
+    world.say(json.dumps({"type": "command_lifecycle", "command_uuid": world.mid, "state": "started"}))
+    until(lambda: first.driver.accepted, "acceptance")
+    world.restart()
+    cid = world.svc.store.message(world.mid)["conversation_id"]
+    world.svc.store.set_legacy_hold(cid, "the legacy cockpit owns the session")
+    if not large_init:
+        monkeypatch.setattr(runner_module, "READ_CHUNK", 16)
+    replay = world.runner()
+    until(lambda: "interrupt" in world.logged() or "close" in world.logged(), "the legacy stop")
+    assert world.logged() == ["init", "user-message", "interrupt"]
+    assert replay.driver.accepted
+    world.say(RECEIPT, ABORTED)
+    assert world.settle(replay, result=True) == ("interrupted", "stopped")
+    outcome = json.loads((world.adir / "turn.json").read_text())
+    assert outcome["accepted"] is True
+    assert outcome["stop_reason"] == "legacy-owner"
+
+
+def test_a_saved_no_send_outcome_keeps_a_live_relay_from_sending_after_the_hold_lifts(world, monkeypatch):
+    """C-26.6: crash after durable withhold, before close; the surviving relay
+    must never receive the withheld message when a later daemon replays init."""
+    cid = world.svc.store.message(world.mid)["conversation_id"]
+    projects = world.root.parent / "projects"
+    projects.mkdir()
+    (world.adir / "launch.json").write_text(json.dumps({"notes": {"projects_dir": str(projects)}}))
+    world.svc.store.set_legacy_hold(cid, "the legacy cockpit owns the session")
+    world.say(INIT_OK)
+    write_outcome = runner_module.TurnRunner._write_outcome
+
+    def crash_after_outcome(self):
+        write_outcome(self)
+        raise RuntimeError("simulated daemon crash before the relay close")
+
+    monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", crash_after_outcome)
+    first = world.runner()
+    assert first.join(60)
+    recorded = json.loads((world.adir / "turn.json").read_text())
+    assert (recorded["state"], recorded["reason"], recorded["stop_reason"]) == (
+        "interrupted", "stopped-before-send", "legacy-owner")
+    assert world.logged() == ["init"]
+    assert not first.outcome_reported
+    world.restart()
+    world.svc.store.set_legacy_hold(cid, None)
+    monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", write_outcome)
+    replay = world.runner()
+    until(lambda: "user-message" in world.logged() or "close" in world.logged(), "the replay boundary")
+    assert world.logged() == ["init", "close"]
+    assert world.settle(replay, result=True) == ("waiting", "readmit:legacy-owner")
+    assert world.svc.store.conversation(cid)["blocked_by"] is None
+    assert world.svc.store.conversation(cid)["legacy_hold"] is None
+    final = json.loads((world.adir / "turn.json").read_text())
+    assert (final["state"], final["reason"], final["stop_reason"]) == (
+        "interrupted", "stopped-before-send", "legacy-owner")
+    assert final["user_frame_written"] is False
+
+
+def test_replay_waits_for_status_to_confirm_a_user_frame_missing_from_its_first_log(world, monkeypatch):
+    """A status timeout leaves the first log stale; replay cannot conclude that
+    the missing image still needs sending before the relay confirms its handover."""
+    from subfleet.conversations import attachments
+    original = world.ws / "image.png"
+    original.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    receipt = attachments.add(world.svc.store, str(original))
+    path, media = attachments.check(world.svc.store, receipt["sha256"])
+    manifest = world.adir.parent / "manifest.json"
+    data = json.loads(manifest.read_text())
+    data[TURN_MANIFEST_KEY]["images"] = [{"sha256": receipt["sha256"], "media_type": media, "path": path}]
+    manifest.write_text(json.dumps(data))
+    first = world.runner()
+    world.deliver(first)
+    first.stop()
+    assert first.join(10)
+    Path(path).unlink()
+    world.say(SUCCESS)
+    world.restart()
+    load_log, status = runner_module.TurnRunner._load_log, runner_module.RelayClient.status
+    statuses = []
+
+    def stale_initial_log(self):
+        if not hasattr(self, "sent"):
+            self.logged, self.sent, self.next_seq = 0, {}, 1
+            return False
+        return load_log(self)
+
+    def first_status_times_out(self):
+        statuses.append(True)
+        if len(statuses) == 1:
+            raise RelayError("simulated first status timeout")
+        return status(self)
+
+    monkeypatch.setattr(runner_module.TurnRunner, "_load_log", stale_initial_log)
+    monkeypatch.setattr(runner_module.RelayClient, "status", first_status_times_out)
+    replay = world.runner()
+    until(lambda: replay.driver.outcome is not None or replay.finished.is_set(), "the replay's outcome")
+    assert replay.driver.outcome is not None
+    assert replay.driver.outcome.state == "complete"
+    assert world.settle(replay, result=True) == ("complete", None)
+    assert len(statuses) >= 2
+    assert world.logged() == ["init", "user-message", "close"]
+
+
+@pytest.mark.parametrize("stop", ["legacy", "person", "during-handshake", "during-successful-status"])
+def test_a_stale_initial_log_cannot_withhold_a_turn_the_relay_already_received(world, monkeypatch, stop):
+    """C-26.6: after status repairs a stale absent-frame snapshot, both stop
+    sources must interrupt the delivered turn after replay restores acceptance."""
+    first = world.runner()
+    world.deliver(first)
+    first.stop()
+    assert first.join(10)
+    if stop == "person":
+        assert world.svc.op_turn_interrupt({"message_id": world.mid}, None)["stop_requested"]
+    elif stop == "legacy":
+        cid = world.svc.store.message(world.mid)["conversation_id"]
+        world.svc.store.set_legacy_hold(cid, "the legacy cockpit owns the session")
+    world.restart()
+    load_log, status = runner_module.TurnRunner._load_log, runner_module.RelayClient.status
+    statuses = []
+
+    def stale_initial_log(self):
+        if not hasattr(self, "sent"):
+            self.logged, self.sent, self.next_seq = 0, {}, 1
+            return False
+        return load_log(self)
+
+    def first_status_times_out(self):
+        statuses.append(True)
+        if len(statuses) == 1:
+            if stop == "during-handshake":
+                assert world.svc.op_turn_interrupt({"message_id": world.mid}, None)["stop_requested"]
+            raise RelayError("simulated first status timeout")
+        if len(statuses) == 2 and stop == "during-successful-status":
+            assert world.svc.op_turn_interrupt({"message_id": world.mid}, None)["stop_requested"]
+        return status(self)
+
+    monkeypatch.setattr(runner_module.TurnRunner, "_load_log", stale_initial_log)
+    monkeypatch.setattr(runner_module.RelayClient, "status", first_status_times_out)
+    monkeypatch.setattr(runner_module, "READ_CHUNK", 16)
+    replay = world.runner()
+    until(lambda: "interrupt" in world.logged() or "close" in world.logged(), "the reconstructed turn's stop")
+    assert world.logged() == ["init", "user-message", "interrupt"]
+    assert replay.driver.accepted
+    world.say(RECEIPT, ABORTED)
+    assert world.settle(replay, result=True) == ("interrupted", "stopped")
+    assert len(statuses) >= 2
+    assert json.loads((world.adir / "turn.json").read_text())["accepted"] is True
+
+
+def test_a_stop_escalates_while_status_is_unavailable_without_classifying_before_replay(world, monkeypatch):
+    """The status gate defers the driver's interrupt, not the stop's clock;
+    containment still happens at its policy deadline without exhausting retries."""
+    from types import SimpleNamespace
+    clock, contained, statuses = Clock(), [], []
+    turn = json.loads((world.adir.parent / "manifest.json").read_text())[TURN_MANIFEST_KEY]
+    runner = runner_module.TurnRunner(
+        store=world.svc.store, attempt={"attempt_id": world.aid}, spec=spec_from_manifest(turn, lane_email=None),
+        conversation_id=turn["conversation_id"], attempt_dir=world.adir, control_socket="unused.sock",
+        on_outcome=lambda r: None, on_contain=lambda aid: (contained.append((aid, clock.now)), runner.stop()),
+        clock=clock)
+
+    def unavailable():
+        statuses.append(clock.now)
+        if len(statuses) == 1:             # the stop arrived after _run read the message
+            runner.interrupt()
+        raise RelayError("status unavailable")
+
+    def advance(_seconds):
+        clock.now += 1.0
+        assert clock.now < 1040, "containment did not follow the stop's clock"
+
+    monkeypatch.setattr(runner.relay, "status", unavailable)
+    monkeypatch.setattr(runner_module, "time", SimpleNamespace(sleep=advance))
+    monkeypatch.setattr(runner_module, "RESEND_MAX", 1000)
+    runner._run()
+    assert runner.finished.is_set()
+    assert contained == [(world.aid, 1030.0)]
+    assert runner.stop_at == 1000.0
+    assert not runner.handshaken and not runner.relay_failed
+    assert runner.driver.outcome is None
+    assert not runner.driver.interrupt_requested
+    assert runner.escalated == {"sigint", "close", "contain"}
+
+
 # --- a message whose attempt ended with no runner to settle it -----------------------------
 
 LIFECYCLE = '{"type": "command_lifecycle", "command_uuid": "<mid>", "state": "started"}'
@@ -185,6 +378,10 @@ class Ended:
 
     def __init__(self, tmp: Path, monkeypatch, stdout: list[str], logged: list[dict] = WRITTEN):
         monkeypatch.setattr(runner_module, "RESEND_MAX", 10**6)   # no relay listens: not "relay-failed"
+        # This fixture supplies immutable relay records instead of a surviving
+        # server. A v1 status answer lets live replays confirm those records;
+        # World above exercises the real status handshake and its timeouts.
+        monkeypatch.setattr(runner_module.RelayClient, "status", lambda self: None)
         self.root, self.ws = tmp / "state", tmp / "work"
         self.root.mkdir()
         self.ws.mkdir()

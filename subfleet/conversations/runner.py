@@ -19,19 +19,19 @@ import json
 import queue
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Callable
 
 from ..policy import CONVERSATION_DEFAULTS
 from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
-from ..sessions import transcripts
+from ..state_files import open_state
 from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
 from .reconcile import USER_FRAME
 from .store import ConversationError, ConversationStore
-from .turn import APPROVAL_NEEDED, RUNNING, Frame, Step, TurnSpec
+from .turn import APPROVAL_NEEDED, RUNNING, Frame, Outcome, Step, TurnSpec
 
 FLUSH_S = 0.25
 FLUSH_BYTES = 64 * 1024
@@ -78,8 +78,11 @@ class Clocks:
                    approval_wait_s=float(section["approval_wait_s"]))
 
 
-def make_driver(spec: TurnSpec, read_bytes: Callable[[str], bytes]):
-    return ClaudeTurn(spec, read_bytes=read_bytes) if spec.provider == "claude" else CodexTurn(spec)
+def make_driver(spec: TurnSpec, read_bytes: Callable[[str], bytes], *,
+                frame_recorded: Callable[[str], bool] = lambda tag: False,
+                image_path: Callable[[str], str] = lambda path: path):
+    return (ClaudeTurn(spec, read_bytes=read_bytes, frame_recorded=frame_recorded) if spec.provider == "claude"
+            else CodexTurn(spec, frame_recorded=frame_recorded, image_path=image_path))
 
 
 class TurnRunner:
@@ -109,7 +112,9 @@ class TurnRunner:
         self.clock = clock
         self.log = log
         self.commands: "queue.Queue[tuple]" = queue.Queue()
-        self.driver = make_driver(spec, self._read_attachment)
+        self.driver = make_driver(spec, self._read_attachment,
+                                  frame_recorded=lambda tag: tag in self.sent,
+                                  image_path=self._attachment_path)
         self.relay = RelayClient(control_socket, timeout_s=30)
         # What the relay applied, from its log; confirmed by the status handshake
         # before anything is sent (`_handshake`, review IR-27). Until then a
@@ -177,6 +182,8 @@ class TurnRunner:
 
     def interrupt(self, reason: str = "stopped") -> None:
         self.stop_reason = self.stop_reason or reason
+        if not self.handshaken:
+            self._stop_on_catch_up = True
         self.commands.put(("interrupt",))
 
     def withhold(self, reason: str) -> None:
@@ -189,7 +196,8 @@ class TurnRunner:
         stopped like any other, after the replay (D-13).
         """
         if "user-message" in self.sent:
-            self.interrupt(reason)
+            self.stop_reason = self.stop_reason or reason
+            self._stop_on_catch_up = True
             return
         self.stop_reason = self.stop_reason or reason
         self.withheld = True
@@ -220,11 +228,53 @@ class TurnRunner:
                     # when one was written.
                     self.stop_reason = self.stop_reason or "stopped"
                     self._stop_on_catch_up = True
-            self._apply(self.driver.start())
-            if self.withheld:
-                self.stop_at = self.stop_at or self.clock()
-                self._apply(self.driver.interrupt())
+            if self.recorded is not None and USER_FRAME not in self.sent:
+                # A durable no-send outcome is also an execution boundary. The
+                # first runner may have died after writing it but before closing
+                # stdin, and its hold may since have lifted. Starting the driver
+                # again would let an old initialization answer send the message.
+                self.driver.outcome = Outcome(**{field.name: self.recorded[field.name]
+                                                 for field in fields(Outcome) if field.name in self.recorded})
+                self.driver.phase = "ended"
+                self.stop_reason = self.recorded.get("stop_reason") or self.stop_reason
+                for name in ("accepted", "answered", "limited", "served_model"):
+                    setattr(self.driver, name, getattr(self.driver.outcome, name))
+                self._apply(Step(frames=[Frame("close", "close")], outcome=self.driver.outcome))
+            else:
+                self._apply(self.driver.start())
+            withhold_pending = self.withheld
             while not self._stopping.is_set():
+                if not (self.handshaken or self.relay_failed or self._process_gone()):
+                    if self.stop_reason is not None:
+                        # Commands wait for reconstruction, but escalation must
+                        # start now rather than after all status retries expire.
+                        if self.stop_at is None:
+                            self.stop_at = self.clock()
+                        self._stop_on_catch_up = True
+                    # The initial log may precede an older runner's in-flight
+                    # handover. Until status confirms it, replay must not rebuild
+                    # that frame (or fail because its image has since disappeared).
+                    # A gone provider has no live relay to confirm; its final log
+                    # and stdout are sufficient for reconciliation.
+                    self._send_outbox()
+                    if not (self.handshaken or self.relay_failed or self._process_gone()):
+                        self._timers()
+                        if self._flush_due():
+                            self._flush()
+                        time.sleep(POLL_S)
+                        continue
+                if withhold_pending:
+                    withhold_pending = False
+                    if USER_FRAME in self.sent and self.recorded is None:
+                        # The first log may have missed an in-flight message. A
+                        # confirmed handover makes this a delivered turn's stop,
+                        # applied after reconstruction, never stopped-before-send.
+                        self.withheld = False
+                        self.stop_reason = self.stop_reason or "stopped"
+                        self._stop_on_catch_up = True
+                    else:
+                        self.stop_at = self.stop_at or self.clock()
+                        self._apply(self.driver.interrupt())
                 progressed = self._read_stdout()
                 if self._stop_on_catch_up and not progressed:
                     self._stop_on_catch_up = False
@@ -273,7 +323,7 @@ class TurnRunner:
     def _read_stdout(self) -> bool:
         path = self.adir / "stdout"
         try:
-            with transcripts.open_regular(path) as stream:      # a FIFO here fails the runner, never holds it
+            with open_state(path) as stream:      # a FIFO here fails the runner, never holds it
                 stream.seek(self.offset + len(self.partial))
                 chunk = stream.read(READ_CHUNK)
         except FileNotFoundError:
@@ -307,6 +357,8 @@ class TurnRunner:
             if command[0] == "interrupt":
                 if self.stop_at is None:
                     self.stop_at = self.clock()
+                if self._stop_on_catch_up:
+                    continue             # requeued once replay restores delivery
                 self._apply(self.driver.interrupt())
             elif command[0] == "respond":
                 _, request_id, decision, message, answers = command
@@ -440,6 +492,12 @@ class TurnRunner:
                 return
             if self.sent.get(frame.tag) == "written":
                 self.outbox.pop(0)            # replayed: already delivered to the provider
+                continue
+            if self.recorded is not None and frame.op == "write":
+                # Reconstruct a delivered turn's earlier state, but a saved
+                # terminal outcome cannot authorize new provider work (including
+                # an approval response whose write the crash interrupted).
+                self.outbox.pop(0)
                 continue
             if frame.tag == USER_FRAME:
                 with self.handover:
@@ -633,13 +691,26 @@ class TurnRunner:
             self.on_outcome(self)
 
     def _read_attachment(self, path: str) -> bytes:
-        # Images are read at frame time from the daemon's own copy (C-28.1), only as
-        # a regular file of at most 20 MiB.
-        return transcripts.read_regular(path, attachment_store.MAX_BYTES)
+        image = next(image for image in self.spec.images if image.path == path)
+        # The digest is the identity; a persisted manifest's absolute path may
+        # predate a move of the state root. Verify and use bytes from one descriptor.
+        return attachment_store.read_verified(self.store, image.sha256)[0]
+
+    def _attachment_path(self, path: str) -> str:
+        image = next(image for image in self.spec.images if image.path == path)
+        data, ext = attachment_store.read_verified(self.store, image.sha256)
+        with self.store.writing():
+            # Publish directly under the existing attempt directory. Accepting
+            # an `images` subdirectory could follow a replaced directory symlink.
+            target = self.adir / f"image-{image.sha256}.{ext}"
+            attachment_store._copy(data, target, mode=0o400)
+            attachment_store._sync_directory(self.adir)
+        return str(target)
 
 
 def _read_json(path: Path) -> dict | None:
     try:
-        return json.loads(transcripts.read_regular(path))
+        with open_state(path) as source:
+            return json.load(source)
     except (OSError, ValueError):
         return None

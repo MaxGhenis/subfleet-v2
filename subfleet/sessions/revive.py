@@ -51,6 +51,7 @@ from typing import Any, Sequence
 
 from ..contracts import Sandbox
 from ..protocol import SubmitArgs
+from ..state_files import read_state
 from . import registry, transcripts
 from .transcripts import TurnState
 
@@ -166,7 +167,7 @@ def store_metadata(session_id: str) -> dict[str, Any]:
         return {}
     for path in paths:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(read_state(path, limit=1024 * 1024).decode("utf-8"))
         except (OSError, ValueError):
             continue
         if not isinstance(data, dict) or data.get("cliSessionId") != session_id:

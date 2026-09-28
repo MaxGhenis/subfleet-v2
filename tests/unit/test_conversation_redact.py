@@ -51,6 +51,19 @@ def test_system_reminders_never_reach_events():
     assert "secret" not in bounded_text("a <system-reminder>secret</system-reminder> b")
 
 
+def test_oversized_text_is_omitted_before_reminder_matching(monkeypatch):
+    """C-25.5: bound redaction work before any regex, without cutting secrets."""
+    from subfleet.sessions import handoff
+    class NoMatching:
+        def sub(self, *_args):
+            raise AssertionError("oversized input reached reminder matching")
+    monkeypatch.setattr(handoff, "_SYSTEM_REMINDER_RE", NoMatching())
+    text = 'password="' + "private value " * 25_000 + '"'
+    expected = "[text omitted: redaction input exceeds 262,144 characters]"
+    assert bounded_text(text) == expected
+    assert handoff.clean(text, 500) == (expected, 0)
+
+
 def test_approval_masking_hides_tokens_but_never_a_command():
     """C-27.1, IR-20: a token is masked and reported; command substitution, pipes
     and separators are never hidden, whatever key they sit under."""

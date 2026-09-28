@@ -46,7 +46,7 @@ import subprocess
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..contracts import Sandbox
 from ..protocol import SubmitArgs
@@ -62,6 +62,10 @@ MAX_JSON_LINE_CHARS = 4 * 1024 * 1024
 FULL_SCAN_BYTES = 64 * 1024 * 1024
 LAST_SCAN_BYTES = 2 * 1024 * 1024
 PROGRESS_READ_BYTES = 128 * 1024
+# Bound work before any content matching. Omitting the whole block, rather than
+# slicing it, cannot expose a credential whose name/armour is outside a slice.
+MAX_SCRUB_CHARS = 256 * 1024
+OMITTED_OVERSIZE = "[text omitted: redaction input exceeds 262,144 characters]"
 
 # --- the scrub list (C-23.14) -------------------------------------------------
 
@@ -70,6 +74,8 @@ _PEM_RE = re.compile(
     r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----",
     re.DOTALL,
 )
+_PEM_START_RE = re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----")
+_PEM_END_RE = re.compile(r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----")
 _JWT_RE = re.compile(
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\."
     r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
@@ -92,32 +98,35 @@ _LONG_BASE64_RE = re.compile(
     r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{160,}={0,2})(?![A-Za-z0-9+/])"
 )
 _URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)")
-_HEADER_RE = re.compile(r"(?im)^(\s*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
-_SENSITIVE_KEY = (
-    r"(?:(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
+_URL_SCHEME_RE = re.compile(r"[a-z0-9+.-]+", re.IGNORECASE)
+_URL_START_RE = re.compile(r"\b[a-z]", re.IGNORECASE)
+_HEADER_RE = re.compile(r"(?im)^([^\S\n]*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
+_SENSITIVE_WORD = (
+    r"(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
     r"credential|credentials|private[_-]?key|signing[_-]?key|"
     r"secret[_-]?access[_-]?key|access[_-]?key[_-]?id|access[_-]?token|"
-    r"refresh[_-]?token|client[_-]?secret|oauth[_-]?token|auth[_-]?token)|"
+    r"refresh[_-]?token|client[_-]?secret|oauth[_-]?token|auth[_-]?token)"
+)
+_SENSITIVE_KEY = (
+    rf"(?:{_SENSITIVE_WORD}|"
     r"(?:[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*)[_-](?:api[_-]?key|token|secret|"
     r"password|passwd|private[_-]?key|signing[_-]?key))"
 )
-_QUOTED_ASSIGN_RE = re.compile(
-    rf"(?im)(?P<prefix>[\"']?{_SENSITIVE_KEY}[\"']?\s*[:=]\s*)"
-    # An escaped quote inside the value is part of it (`"abc\\"def"`).
-    r"(?P<quote>[\"'])(?P<value>(?:\\.|[^\\\r\n])*?)(?P=quote)"
-)
-#: A credential given as a command-line flag's separate argument
-#: (`mysql --password hunter2`, `--token s3cr3t`); `--flag=value` is an assignment.
-_FLAG_VALUE_RE = re.compile(
-    rf"(?i)(?P<prefix>--{_SENSITIVE_KEY}[ \t]+)(?P<value>[^\s-][^\s]*)"
-)
-_PLAIN_ASSIGN_RE = re.compile(
-    rf"(?im)(?P<prefix>[\"']?{_SENSITIVE_KEY}[\"']?\s*[:=]\s*)"
-    r"(?P<value>[^\s,;\"']+)"
-)
+# Consume each identifier once, including ordinary long names such as a_a_a_.
+# Searching the old optional-prefix expression from every character retried all
+# suffixes of such names. The longest sensitive word is only 17 characters.
+_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9_-]+", re.IGNORECASE)
+_SENSITIVE_SUFFIX_RE = re.compile(_SENSITIVE_WORD + r"\Z", re.IGNORECASE)
+_SENSITIVE_FLAG_RE = re.compile(_SENSITIVE_KEY, re.IGNORECASE)
+_ASSIGN_SEPARATOR_RE = re.compile(r"[\"']?\s*[:=]\s*")
+_PLAIN_VALUE_RE = re.compile(r"[^\s,;\"']+")
+_FLAG_VALUE_RE = re.compile(r"[ \t]+(?P<value>[^\s-][^\s]*)")
+_QUOTE_EVENT_RE = re.compile(r"\\[^\n]|[\"'\r\n]")
 _SYSTEM_REMINDER_RE = re.compile(
     r"<system-reminder>.*?</system-reminder>", re.DOTALL | re.IGNORECASE
 )
+_REMINDER_START_RE = re.compile(r"<system-reminder>", re.IGNORECASE)
+_REMINDER_END_RE = re.compile(r"</system-reminder>", re.IGNORECASE)
 
 #: Tool calls whose RESULT is omitted by pattern rather than redacted (C-23.14).
 #: Suppression beats redaction here because the value a keychain read returns has
@@ -136,7 +145,9 @@ _SENSITIVE_TOOL_PATTERNS = tuple(
         # `printenv` does nothing but print the environment: any mention of the
         # command, bare or by path (`/usr/bin/printenv`), inside an executor's
         # input (`tools.exec_command({cmd: "printenv"})`) or a wrapper's.
-        r"(?<![\w.-])(?:[\w.~-]*/)*printenv(?![\w.-])",
+        # A slash already supplies the basename's left boundary. Matching the
+        # optional path here would retry every suffix of a long ordinary path.
+        r"(?<![\w.-])printenv(?![\w.-])",
         # `env` is also a word, so only where a command starts: a line, after a
         # separator or backquote, after a wrapper (`sudo -E`, `nice`, `xargs`),
         # inside `sh -c '...'`, or as a `command`/`cmd` value; bare or by path.
@@ -171,7 +182,14 @@ class HandoffError(ValueError):
 _PLACEHOLDERS = (REDACTED, "[PRIVATE KEY REDACTED]", "[BASE64 DATA OMITTED]", "[BASE64 OMITTED]")
 #: A run that looks like a secret value rather than a word or a key name: six or
 #: more of `[A-Za-z0-9_-]`, with a letter and a digit.
-_VALUE_RUN_RE = re.compile(r"(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{6,}")
+_VALUE_RUN_RE = re.compile(r"[\w-]{6,}")
+
+
+def _value_runs(text: str) -> set[str]:
+    # The old unanchored lookaheads also retried every suffix of ordinary names.
+    return {run for run in _VALUE_RUN_RE.findall(text)
+            if any(ch.isdecimal() for ch in run)
+            and any("a" <= ch <= "z" or "A" <= ch <= "Z" for ch in run)}
 
 
 def _values_removed(matched: str, out: str) -> int:
@@ -179,15 +197,148 @@ def _values_removed(matched: str, out: str) -> int:
     had: the runs of `matched`, placeholders aside, that `out` no longer holds."""
     for mark in _PLACEHOLDERS:
         matched = matched.replace(mark, " ")
-    kept = set(_VALUE_RUN_RE.findall(out))
-    return len({run for run in _VALUE_RUN_RE.findall(matched) if run not in kept})
+    return len(_value_runs(matched) - _value_runs(out))
 
 
-def scrub_secrets(text: str) -> tuple[str, int]:
+def _linear_sub(pattern: re.Pattern, replacement, text: str) -> str:
+    """Avoid retrying an unmatched delimiter or scheme from every suffix.
+
+    Keep genuine regex matches for the approval masker's grouped replacements.
+    Once an end delimiter exists, the original anchored match scans its block
+    once; without an end, no later opener can match either.
+    """
+    if pattern not in (_PEM_RE, _SYSTEM_REMINDER_RE, _URL_PASSWORD_RE):
+        return pattern.sub(replacement, text)
+
+    def matches():
+        if pattern is _URL_PASSWORD_RE:
+            for token in _URL_SCHEME_RE.finditer(text):
+                start = _URL_START_RE.search(text, token.start(), token.end())
+                if start is not None:
+                    match = pattern.match(text, start.start())
+                    if match is not None:
+                        yield match
+            return
+        opening, closing = ((_PEM_START_RE, _PEM_END_RE) if pattern is _PEM_RE
+                            else (_REMINDER_START_RE, _REMINDER_END_RE))
+        cursor = 0
+        while (start := opening.search(text, cursor)) is not None:
+            end = closing.search(text, start.end())
+            if end is None:
+                return
+            match = pattern.match(text, start.start())
+            assert match is not None
+            yield match
+            cursor = match.end()
+
+    parts: list[str] = []
+    cursor = 0
+    for match in matches():
+        if match.start() < cursor:
+            continue
+        out = replacement(match) if callable(replacement) else match.expand(replacement)
+        parts.extend((text[cursor:match.start()], out))
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _quoted_ends(text: str) -> dict[int, int]:
+    """Index matching quotes once, respecting escapes and line boundaries.
+
+    A failed quoted assignment must not rescan the rest of its line for each
+    later candidate. Unescaped quotes can close the previous quote of their
+    own kind; escaped characters consume both characters, as the old rule did.
+    """
+    ends: dict[int, int] = {}
+    previous: dict[str, int] = {}
+    for match in _QUOTE_EVENT_RE.finditer(text):
+        char = match.group()
+        if len(char) > 1:
+            continue
+        if char in "\r\n":
+            previous.clear()
+        else:
+            if char in previous:
+                ends[previous[char]] = match.start()
+            previous[char] = match.start()
+    return ends
+
+
+def _scrub_named_values(text: str, replace: Callable[[str, str], str],
+                       *, quoted: bool = False, flags: bool = False) -> str:
+    """Replace assignment/flag values in linear scans, preserving rule order."""
+    parts: list[str] = []
+    cursor = 0
+    quote_ends: dict[int, int] | None = None
+    for token in _IDENTIFIER_RE.finditer(text):
+        if token.start() < cursor:
+            continue
+        key = token.group()
+        if not _SENSITIVE_SUFFIX_RE.search(key[-17:]):
+            continue
+        start = token.start()
+        if flags:
+            flag_start = key.rfind("--")
+            if flag_start < 0 or not _SENSITIVE_FLAG_RE.fullmatch(key[flag_start + 2:]):
+                continue
+            start += flag_start
+            value = _FLAG_VALUE_RE.match(text, token.end())
+            if value is None:
+                continue
+            value_start, end = value.start("value"), value.end()
+            out = text[start:value_start] + REDACTED
+        else:
+            separator = _ASSIGN_SEPARATOR_RE.match(text, token.end())
+            if separator is None:
+                continue
+            if start > cursor and text[start - 1] in "\"'":
+                start -= 1
+            value_start = separator.end()
+            if quoted:
+                if value_start == len(text) or text[value_start] not in "\"'":
+                    continue
+                if quote_ends is None:
+                    quote_ends = _quoted_ends(text)
+                closing = quote_ends.get(value_start)
+                if closing is None:
+                    continue
+                end = closing + 1
+                out = text[start:value_start + 1] + REDACTED + text[closing]
+            else:
+                value = _PLAIN_VALUE_RE.match(text, value_start)
+                if value is None:
+                    continue
+                end = value.end()
+                out = text[start:value_start] + REDACTED
+        parts.extend((text[cursor:start], replace(text[start:end], out)))
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def scrub_secrets(text: str, *, strip_reminders: bool = False) -> tuple[str, int]:
     """Remove credential values and encoded binary; retain ordinary text. The
     count is of values replaced: one credential two rules match counts once, and
     a header that held several values (`Cookie: a=...; b=...`) counts each."""
+    if len(text) > MAX_SCRUB_CHARS:
+        return OMITTED_OVERSIZE, 0
+    if strip_reminders:
+        text = _linear_sub(_SYSTEM_REMINDER_RE, "", text)
     total = 0
+
+    def replace_value(matched: str, out: str, *, header: bool = False) -> str:
+        nonlocal total
+        if out == matched:
+            return out
+        # Count a credential matched by an earlier rule only once.
+        earlier = any(mark in matched for mark in _PLACEHOLDERS)
+        if header:
+            total += _values_removed(matched, out) or (0 if earlier else 1)
+        else:
+            total += 1 if not earlier else min(1, _values_removed(matched, out))
+        return out
+
     for pattern, replacement in (
         (_PEM_RE, "[PRIVATE KEY REDACTED]"),
         (_DATA_URI_RE, "[BASE64 DATA OMITTED]"),
@@ -197,32 +348,16 @@ def scrub_secrets(text: str) -> tuple[str, int]:
         (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
         (_HEADER_RE, lambda match: match.group(1) + REDACTED),
         (_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),
-        (_QUOTED_ASSIGN_RE,
-         lambda match: (match.group("prefix") + match.group("quote")
-                        + REDACTED + match.group("quote"))),
-        (_PLAIN_ASSIGN_RE, lambda match: match.group("prefix") + REDACTED),
-        (_FLAG_VALUE_RE, lambda match: match.group("prefix") + REDACTED),
     ):
-        changed = 0
-
         def replace(match, replacement=replacement, pattern=pattern):
-            nonlocal changed
             matched = match.group(0)
             out = replacement(match) if callable(replacement) else match.expand(replacement)
-            if out == matched:
-                return out
-            # A match that holds what an earlier rule put in (`Authorization:
-            # Bearer [REDACTED]` after the bearer rule) is that credential again;
-            # what it removed besides is counted only if it held a value.
-            earlier = any(mark in matched for mark in _PLACEHOLDERS)
-            if pattern is _HEADER_RE:
-                changed += _values_removed(matched, out) or (0 if earlier else 1)
-            else:
-                changed += 1 if not earlier else min(1, _values_removed(matched, out))
-            return out
+            return replace_value(matched, out, header=pattern is _HEADER_RE)
 
-        text = pattern.sub(replace, text)
-        total += changed
+        text = _linear_sub(pattern, replace, text)
+    text = _scrub_named_values(text, replace_value, quoted=True)
+    text = _scrub_named_values(text, replace_value)
+    text = _scrub_named_values(text, replace_value, flags=True)
     return text, total
 
 
@@ -256,8 +391,7 @@ def truncate(text: str, limit: int) -> str:
 
 
 def clean(text: str, limit: int) -> tuple[str, int]:
-    text = _SYSTEM_REMINDER_RE.sub("", text)
-    text, redactions = scrub_secrets(text)
+    text, redactions = scrub_secrets(text, strip_reminders=True)
     return truncate(text, limit), redactions
 
 
@@ -319,7 +453,11 @@ def sensitive_tool_call(name: str, value: Any) -> bool:
     """C-23.14: does this tool call read a credential?"""
     if "agent-secret" in name.casefold() or "keychain" in name.casefold():
         return True
-    return any(pattern.search(_tool_corpus(value))
+    corpus = _tool_corpus(value)
+    if len(corpus) > MAX_SCRUB_CHARS:
+        # We cannot establish that this input is safe within the work budget.
+        return True
+    return any(pattern.search(corpus)
                for pattern in _SENSITIVE_TOOL_PATTERNS)
 
 

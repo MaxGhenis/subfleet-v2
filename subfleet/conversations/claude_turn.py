@@ -145,9 +145,11 @@ def _line(value: dict) -> str:
 
 
 class ClaudeTurn:
-    def __init__(self, spec: TurnSpec, *, read_bytes: Callable[[str], bytes]):
+    def __init__(self, spec: TurnSpec, *, read_bytes: Callable[[str], bytes],
+                 frame_recorded: Callable[[str], bool] = lambda tag: False):
         self.spec = spec
         self._read_bytes = read_bytes
+        self._frame_recorded = frame_recorded
         self.phase = "new"            # new → initializing → sent → ended
         self.accepted = False
         self.answered = False
@@ -349,10 +351,20 @@ class ClaudeTurn:
                   "fast_mode_disabled_reason": body.get("fast_mode_disabled_reason"),
                   "permission_mode": body.get("current_permission_mode")}
         self.phase = "sent"
-        message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
-                   "session_id": self.spec.native_session_id or self.spec.new_session_id,
-                   "message": {"role": "user", "content": self._content()}}
-        return Step(frames=[Frame("user-message", "write", _line(message))],
+        frames = []
+        if not self._frame_recorded("user-message"):
+            try:
+                content = self._content()
+            except OSError:
+                return self._end(FAILED, "attachment-missing", source=source.next(),
+                                 detail="an image is missing, changed, or not private; add it again")
+            message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
+                       "session_id": self.spec.native_session_id or self.spec.new_session_id,
+                       "message": {"role": "user", "content": content}}
+            frames.append(Frame("user-message", "write", _line(message)))
+        # Replay the state transition and events without reconstructing a payload
+        # the relay already wrote. Its attachment may have been removed since.
+        return Step(frames=frames,
                     events=[Event("served", served, source.next()),
                             Event("status", {"phase": "sent"}, source.next())])
 
