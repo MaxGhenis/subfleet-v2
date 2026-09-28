@@ -540,6 +540,146 @@ def test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice(conv)
     assert conv.attempt(mid)["outcome_class"] == "ok"
 
 
+def steer_as_person(conv, mid):
+    """Wait through the short interval between host acknowledgement and system/init."""
+    def accepted():
+        answer = conv.as_person("message.steer", message_id=mid)
+        if answer["ok"]:
+            return answer["result"]
+        assert answer["error"]["message"].startswith(("not-steerable", "no-live-turn")), answer
+        return None
+    return conv.e2e.until(accepted, timeout=20)
+
+
+def steer_frames(conv, mid):
+    return [r for r in conv.stdin_rows() if (r.get("type") == "user" and r.get("uuid") == mid)
+            or (r.get("method") == "turn/steer" and r["params"].get("clientUserMessageId") == mid)]
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_steer_joins_the_running_turn_once_without_its_own_job(conv, provider):
+    """C-24.9: the provider consumes the steer inside the host; both settle once."""
+    cid = conv.create(provider=provider, model="opus[1m]" if provider == "claude" else "gpt-6-astra",
+                      permission="read-only")
+    host = conv.submit(cid, "wait for my correction [fake:steer]")
+    conv.until_state(host, "running")
+    mid = conv.submit(cid, "include the correction", after_message_id=host)
+    receipt = steer_as_person(conv, mid)
+    assert receipt["state"] in ("steering", "steered") and receipt["steered_into"] == host
+    assert conv.until_state(host, "complete", "failed")["state"] == "complete"
+    result = conv.until_state(mid, "steered", "complete", "delivery-unknown")
+    assert result["state"] == "steered" and result["served"]["steered_into"] == host
+    assert len(steer_frames(conv, mid)) == 1
+    assert conv.e2e.rows("SELECT job_id FROM jobs WHERE request_id=?", (f"turn:{mid}:0",)) == []
+    delivered = [e for e in conv.events(cid) if e["kind"] == "steer.delivered"]
+    assert [(e["message_id"], e["data"]["message_id"]) for e in delivered] == [(host, mid)]
+    assert conv.as_person("message.steer", message_id=mid)["result"]["state"] == "steered"
+
+
+def test_a_claude_steer_after_the_last_boundary_runs_in_the_same_process(conv):
+    """C-24.9: Claude can run its queued command after the first result; do not close early."""
+    cid = conv.create()
+    host = conv.submit(cid, "finish before the next boundary [fake:steer-late]")
+    conv.until_state(host, "running")
+    mid = conv.submit(cid, "answer this next", after_message_id=host)
+    steer_as_person(conv, mid)
+    assert conv.until_state(host, "complete", "failed")["state"] == "complete"
+    assert conv.until_state(mid, "steered", "complete", "delivery-unknown")["state"] == "steered"
+    assert len(steer_frames(conv, mid)) == 1
+    assert len([r for r in conv.turn_log() if "argv" in r]) == 1
+    texts = [e["data"]["text"] for e in conv.events(cid) if e["kind"] == "text"]
+    assert texts[-1] == "Fake Claude read 16 characters."
+
+
+def test_a_codex_steer_that_misses_returns_to_its_original_queue_place(conv):
+    """C-24.9: a refusal requeues the same message ahead of later submissions."""
+    cid = conv.create(provider="codex", model="gpt-6-astra", permission="read-only")
+    host = conv.submit(cid, "end as the steer arrives [fake:steer-refuse]")
+    conv.until_state(host, "running")
+    mid = conv.submit(cid, "run next", after_message_id=host)
+    later = conv.submit(cid, "run last", after_message_id=mid)
+    seq = conv.message(mid)["seq"]
+    steer_as_person(conv, mid)
+    for message in (host, mid, later):
+        assert conv.until_state(message, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    assert conv.message(mid)["seq"] == seq
+    starts = [r["params"]["clientUserMessageId"] for r in conv.stdin_rows() if r.get("method") == "turn/start"]
+    assert starts == [host, mid, later]
+    assert len(steer_frames(conv, mid)) == 1
+    assert any(e["kind"] == "steer.missed" and e["data"]["message_id"] == mid for e in conv.events(cid))
+
+
+def test_a_person_can_cancel_a_steer_before_handover(e2e):
+    """C-24.9: pause only the runner outbox; cancellation commits before its write lock."""
+    observer = e2e.root / "observers" / "sitecustomize.py"
+    with observer.open("a") as stream:
+        stream.write('''
+if Path(sys.argv[0]).name == "subfleetd":
+    from subfleet.conversations.runner import TurnRunner
+    original_send = TurnRunner._send_outbox
+    def held_steer_send(self):
+        if any(frame.tag.startswith("steer:") for frame in self.outbox) and not (root / "release-steer").exists():
+            (root / "steer-held").touch()
+            return
+        return original_send(self)
+    TurnRunner._send_outbox = held_steer_send
+''')
+    e2e.env["SUBFLEET_FAKE_TURN_LOG"] = str(e2e.root / "turns.jsonl")
+    e2e.start()
+    conv = Conversations(e2e)
+    cid = conv.create()
+    host = conv.submit(cid, "keep working [fake:slow]")
+    conv.until_state(host, "running")
+    mid = conv.submit(cid, "withdraw this", after_message_id=host)
+    steer_as_person(conv, mid)
+    e2e.until(lambda: (e2e.root / "steer-held").exists())
+    assert conv.call("message.cancel", message_id=mid)["state"] == "cancelled"
+    (e2e.root / "release-steer").touch()
+    conv.call("turn.interrupt", message_id=host)
+    assert conv.until_state(host, "interrupted", "failed")["state"] == "interrupted"
+    assert conv.message(mid)["state"] == "cancelled" and steer_frames(conv, mid) == []
+
+
+def test_stopping_a_host_cancels_its_provider_queue_and_requeues_pending_steers(conv):
+    """C-24.9: a pending Claude command must not execute behind an interrupted host."""
+    cid = conv.create()
+    host = conv.submit(cid, "working [fake:slow]")
+    conv.until_state(host, "running")
+    mid = conv.submit(cid, "run after the stop", after_message_id=host)
+    steer_as_person(conv, mid)
+    conv.e2e.until(lambda: steer_frames(conv, mid))
+    conv.call("turn.interrupt", message_id=host)
+    assert conv.until_state(host, "interrupted", "failed")["state"] == "interrupted"
+    assert conv.until_state(mid, "complete", "failed", "steered", "delivery-unknown")["state"] == "complete"
+    frames = steer_frames(conv, mid)
+    assert len(frames) == 2 and frames[0]["priority"] == "next" and "priority" not in frames[1]
+    interrupt = next(r for r in conv.stdin_rows() if (r.get("request") or {}).get("subtype") == "interrupt")
+    assert interrupt["request"]["cancel_queued"] is True
+
+
+def test_a_daemon_restart_with_a_steer_in_flight_replays_without_resending(conv):
+    """C-26.6, C-24.9: a queued native command survives restart and is folded once."""
+    cid = conv.create()
+    host = conv.submit(cid, "[fake:approval]")
+    conv.until_state(host, "approval-needed")
+    approval = pending_approval(conv, cid)
+    mid = conv.submit(cid, "remember this correction", after_message_id=host)
+    steer_as_person(conv, mid)
+    conv.e2e.until(lambda: steer_frames(conv, mid))
+    conv.e2e.crash()
+    conv.e2e.start()
+    detail = conv.as_person("approval.get", approval_id=approval["approval_id"])
+    assert detail["ok"], detail
+    answer = conv.as_person("approval.respond", approval_id=approval["approval_id"], decision="allow",
+                            nonce=detail["result"]["nonce"], request_sha256=detail["result"]["request_sha256"])
+    assert answer["ok"], answer
+    assert conv.until_state(host, "complete", "failed", timeout=40)["state"] == "complete"
+    assert conv.until_state(mid, "steered", "complete", "delivery-unknown")["state"] == "steered"
+    assert len(steer_frames(conv, mid)) == 1
+    delivered = [e for e in conv.events(cid) if e["kind"] == "steer.delivered" and e["data"]["message_id"] == mid]
+    assert len(delivered) == 1 and delivered[0]["message_id"] == host
+
+
 def test_a_worktree_conversation_runs_its_turns_in_its_own_worktree(conv):
     """D-16, D-25, C-24.1, C-26.12: `conversation.create` with a worktree cuts one on its
     own branch, records and returns its path and branch, and every turn runs there; the

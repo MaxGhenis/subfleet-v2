@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "statuses": [
     "open",
     "recovered",
@@ -129,6 +129,18 @@
       "status": "open",
       "evidence": [],
       "notes": ""
+    },
+    {
+      "id": "M-9b",
+      "requirement": "Offer steering a queued follow-up into the running Claude or Codex turn",
+      "source": "Max, steer request (2026-09-27)",
+      "clauses": [
+        "C-24.9",
+        "C-29.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon-side steer.v1 is implemented with driver, runner, settlement, replay and invariant tests; see docs/steer-implementation-report.md. App UI integration and live provider verification remain pending."
     },
     {
       "id": "M-10",

@@ -550,3 +550,146 @@ def test_each_outcome_says_what_ended_the_turn():
     assert not mismatch.terminal_after_end
     mismatch.feed(line(type="result", subtype="error_during_execution", is_error=True), 9)
     assert mismatch.terminal_after_end and mismatch.outcome.reason == "model-mismatch"
+
+
+STEER = "7f1c9a0e-2222-4222-8333-444455556666"
+
+
+def steer_running():
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"image")
+    started(turn)
+    turn.feed(line(type="system", subtype="init", capabilities=["msg_lifecycle_v1", "interrupt_receipt_v1",
+                                                               "interrupt_cancel_queued_v1"]), 1)
+    return turn
+
+
+def steer_result(turn, mids, offset=30, queued=0):
+    return turn.feed(line(type="result", subtype="success", is_error=False, result="done",
+                          user_message_uuids=mids, queued_turn_count=queued, result_index=offset), offset)
+
+
+def test_steer_requires_lifecycle_capability_and_preserves_host_content_shape():
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"image")
+    started(turn)
+    assert not turn.steerable
+    assert not turn.steer(STEER, "too early").frames
+    assert turn.steers[STEER]["fate"] == "refused"
+    turn = steer_running()
+    step = turn.steer(STEER, "change direction", (Image("a" * 64, "image/png", "/x.png"),))
+    wire = json.loads(step.frames[0].line)
+    assert step.frames[0].tag == "steer:" + STEER
+    assert wire["uuid"] == STEER and wire["priority"] == "next"
+    assert wire["session_id"] == SID and wire["parent_tool_use_id"] is None
+    assert wire["message"]["content"] == [{"type": "text", "text": "change direction"},
+                                          {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                                          "data": "aW1hZ2U="}}]
+    assert not turn.steer(STEER, "duplicate").frames
+
+
+def test_fold_consumption_and_late_cancel_never_requeues_delivered_message():
+    turn = steer_running()
+    turn.steer(STEER, "fold this")
+    turn.steer_written(STEER)
+    queued = turn.feed(line(type="command_lifecycle", command_uuid=STEER, state="queued"), 10)
+    assert queued.events == []
+    started_step = turn.feed(line(type="command_lifecycle", command_uuid=STEER, state="started"), 11)
+    assert [e.kind for e in started_step.events] == ["steer.delivered"]
+    assert not turn.feed(line(type="user", uuid=STEER, message={}), 12).events
+    turn.feed(line(type="command_lifecycle", command_uuid=STEER, state="completed"), 13)
+    end = steer_result(turn, [MID, STEER])
+    assert end.outcome.state == "complete"
+    assert end.outcome.steers[STEER] == {"frame": "written", "fate": "consumed", "detail": None}
+    turn.feed(line(type="command_lifecycle", command_uuid=STEER, state="cancelled"), 40)
+    assert end.outcome.steers[STEER]["fate"] == "consumed"
+
+
+def test_late_steer_gets_own_turn_and_final_result_controls_outcome():
+    turn = steer_running()
+    turn.steer(STEER, "run next")
+    turn.steer_written(STEER)
+    assert steer_result(turn, [MID], queued=1).outcome is None
+    assert turn.steer_waiting and turn.phase == "sent"
+    turn.feed(line(type="command_lifecycle", command_uuid=STEER, state="started"), 31)
+    assert not turn.steer_waiting  # an active follow-up is allowed to use tools longer than 15 seconds
+    approval = turn.feed(line(type="control_request", request_id="second-approval", request={
+        "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "echo next"}}), 32)
+    assert approval.approvals
+    end = steer_result(turn, [STEER], offset=40)
+    assert end.outcome.state == "complete" and end.outcome.steers[STEER]["fate"] == "consumed"
+    late = turn.feed(line(type="command_lifecycle", command_uuid=STEER, state="completed"), 41)
+    assert not late.events and not late.frames
+
+
+@pytest.mark.parametrize("state", ["cancelled", "discarded", "refused"])
+def test_unconsumed_lifecycle_terminal_is_missed(state):
+    turn = steer_running()
+    turn.steer(STEER, "pending")
+    turn.steer_written(STEER)
+    step = turn.feed(line(type="command_lifecycle", command_uuid=STEER, state=state), 10)
+    assert step.events[0].kind == "steer.missed"
+    end = steer_result(turn, [MID])
+    assert end.outcome.steers[STEER]["fate"] in ("cancelled", "refused")
+
+
+def test_unseen_steer_is_cancelled_after_result_and_only_receipt_proves_missed():
+    turn = steer_running()
+    turn.steer(STEER, "silently dropped")
+    turn.steer_written(STEER)
+    assert steer_result(turn, [MID]).outcome is None
+    cancellation = turn.expire_steers()
+    assert json.loads(cancellation.frames[0].line)["request"] == {
+        "subtype": "cancel_async_message", "message_uuid": STEER}
+    assert not turn.steerable
+    done = turn.feed(line(type="control_response", response={"subtype": "success", "request_id": "cancel-steer:" + STEER,
+                                                             "response": {"cancelled": True}}), 50)
+    assert done.outcome.state == "complete"
+    assert done.outcome.steers[STEER]["fate"] == "cancelled"
+
+
+@pytest.mark.parametrize("reply", [None, False])
+def test_silent_or_negative_cancel_receipt_bounds_wait_without_inventing_nondelivery(reply):
+    turn = steer_running()
+    turn.steer(STEER, "unknown")
+    turn.steer_written(STEER)
+    steer_result(turn, [MID])
+    turn.expire_steers()
+    if reply is not None:
+        turn.feed(line(type="control_response", response={"subtype": "success", "request_id": "cancel-steer:" + STEER,
+                                                          "response": {"cancelled": reply}}), 50)
+    done = turn.expire_steers()
+    assert done.outcome.state == "complete" and not turn.steer_waiting
+    assert done.outcome.steers[STEER]["fate"] == "unknown"
+
+
+def test_interrupt_sweeps_queued_steers_and_reads_receipt_even_after_result():
+    turn = steer_running()
+    turn.steer(STEER, "pending")
+    turn.steer_written(STEER)
+    interrupt = turn.interrupt()
+    assert json.loads(interrupt.frames[0].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}
+    turn.feed(line(type="control_response", response={"subtype": "success", "request_id": INTERRUPT_REQUEST_ID,
+                                                     "response": {"cancelled": [STEER], "still_queued": []}}), 20)
+    end = steer_result(turn, [MID])
+    assert end.outcome.steers[STEER]["fate"] == "cancelled"
+    assert not turn.steer("another", "after stop").frames
+
+
+def test_replay_primes_steer_fates_without_emitting_input():
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    assert turn.restore_steer(STEER) is None
+    started(turn)
+    end = steer_result(turn, [MID, STEER])
+    assert end.outcome.steers[STEER]["frame"] == "written"
+    assert end.outcome.steers[STEER]["fate"] == "consumed"
+    assert [f.tag for f in end.frames] == ["close"]
+
+
+def test_cancel_turn_approval_also_cancels_queued_steers():
+    turn = steer_running()
+    turn.steer(STEER, "queued")
+    turn.steer_written(STEER)
+    turn.feed(line(type="control_request", request_id="approve", request={
+        "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "echo wait"}}), 5)
+    step = turn.respond("approve", "cancel-turn")
+    assert [f.tag for f in step.frames] == ["approval:approve", "interrupt"]
+    assert json.loads(step.frames[1].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}

@@ -1036,6 +1036,43 @@ class ConversationStore:
             "ORDER BY m.created_at", ((conversation_id,) if conversation_id is not None else ()) + LIVE_STATES)
         return [_decode_message(r) for r in rows]
 
+    def steers(self, host_message_id: str) -> list[dict]:
+        """Unsettled steers bound to a host; they never own a turn job."""
+        return [_decode_message(r) for r in self.query(
+            "SELECT * FROM messages WHERE state='steering' AND state_reason=? ORDER BY seq",
+            (f"steer:{host_message_id}",))]
+
+    def claim_steer(self, message_id: str, host_message_id: str) -> None:
+        """C-24.9: validate queue order and publish the binding in one transaction.
+
+        The service holds the message handover lock and excludes host settlement.
+        Checking the queue here also serializes a repair message arriving meanwhile.
+        """
+        with self.transaction() as tx:
+            message = tx.execute("SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone()
+            if not message or message["state"] != QUEUED or message["job_id"] or message["stop_requested_at"]:
+                raise ConversationError("not-queued", "the message is no longer queued", code=7)
+            if message["origin"] != "person":
+                raise ConversationError("not-queued", "only a person's queued message can steer", code=7)
+            cid = message["conversation_id"]
+            repair = ",".join("?" for _ in REPAIR_ORIGINS)
+            head = tx.execute("SELECT message_id FROM messages WHERE conversation_id=? AND state='queued' "
+                              f"ORDER BY origin IN ({repair}) DESC, seq LIMIT 1", (cid, *REPAIR_ORIGINS)).fetchone()
+            if not head or head["message_id"] != message_id:
+                raise ConversationError("not-next", "an earlier message must run or steer first", code=7)
+            host = tx.execute("SELECT * FROM messages WHERE message_id=? AND conversation_id=?",
+                              (host_message_id, cid)).fetchone()
+            conversation = tx.execute("SELECT * FROM conversations WHERE conversation_id=?", (cid,)).fetchone()
+            if (not host or host["state"] not in ("running", "approval-needed") or host["stop_requested_at"]
+                    or conversation["blocked_by"] or conversation["legacy_hold"] or conversation["archived_at"]):
+                raise ConversationError("no-live-turn", "the conversation has no steerable live turn", code=7)
+            if widens(json.loads(message["settings_json"]), json.loads(host["settings_json"])):
+                raise ConversationError("settings-narrower", "steering would widen this message's permission", code=7)
+            reason = f"steer:{host_message_id}"
+            tx.execute("UPDATE messages SET state='steering',state_reason=?,updated_at=? WHERE message_id=?",
+                       (reason, utcnow(), message_id))
+            self._change(tx, cid, message_id, "steering", reason=reason)
+
     def readmittable(self) -> list[dict]:
         """Waiting messages whose turn is re-admitted (`readmit:*`, design D-12),
         of conversations that are not blocked (C-24.5)."""
@@ -1276,6 +1313,8 @@ class ConversationStore:
 
     def changes_after(self, after: int, *, limit: int = 500) -> dict:
         rows = self.query("SELECT * FROM changes WHERE seq>? ORDER BY seq LIMIT ?", (after, max(1, min(limit, 1000))))
+        for row in rows:
+            row["steered_into"] = steered_into(row.get("state_reason"))
         return {"changes": rows, "next": rows[-1]["seq"] if rows else after}
 
     def wait(self, predicate, timeout_s: float) -> bool:
@@ -1427,7 +1466,14 @@ def _decode_message(row: dict) -> dict:
     out["attachments"] = json.loads(out.pop("attachments_json"))
     out["served"] = json.loads(out.pop("served_json")) if out.get("served_json") else None
     out["resolution"] = json.loads(out.pop("resolution_json")) if out.get("resolution_json") else None
+    out["steered_into"] = steered_into(out.get("state_reason"))
     return out
+
+
+def steered_into(reason: str | None) -> str | None:
+    """The fixed steer.v1 binding; no new store column or schema version."""
+    prefix, _, host = (reason or "").partition(":")
+    return host if prefix in ("steer", "steered", "steered-unanswered") and host else None
 
 
 def _decode_trees(row: dict) -> dict:
