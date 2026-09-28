@@ -32,6 +32,8 @@ struct SidebarEntry: Identifiable, Equatable {
     var liveElsewhere: Bool
     var continuable: Bool
     var continueBlocker: String?
+    /// A message of this conversation is not going through (C-29.12): the worst kind.
+    var sendProblem: SendNotice.Kind? = nil
 }
 
 struct SidebarSection: Identifiable, Equatable {
@@ -271,6 +273,10 @@ struct ConversationStoreState: Equatable {
     var providerFilter: String?
     var grouping: SidebarGrouping = .recency
     var laneLabels: [String: String] = [:]
+    /// The outbox's open entries by key, as its queue last reported them.
+    private(set) var sends: [String: OutboxEntry] = [:]
+    /// Their notices (C-29.12), by key.
+    private(set) var sendNotices: [String: SendNotice] = [:]
 
     /// The Dock badge.
     var pendingApprovalCount: Int { pendingApprovals.values.reduce(0, +) }
@@ -380,6 +386,60 @@ struct ConversationStoreState: Equatable {
     /// The person's text for a message this app sent (the receipt carries none).
     mutating func setPersonText(_ text: String, conversationID: String, messageID: String) {
         timelines[conversationID]?.setPersonText(text, for: messageID)
+    }
+
+    // MARK: Sends not going through
+
+    /// Whether `entries` (the outbox's open ones) differ from what the state shows;
+    /// the app sets them only then, so an unchanged pump redraws nothing.
+    func differs(sends entries: [OutboxEntry]) -> Bool {
+        let open = entries.filter(\.isOpen)
+        return open.count != sends.count || open.contains { sends[$0.key] != $0 }
+    }
+
+    mutating func apply(sends entries: [OutboxEntry]) {
+        let open = entries.filter(\.isOpen)
+        sends = Dictionary(open.map { ($0.key, $0) }, uniquingKeysWith: { $1 })
+        sendNotices = Outbox.notices(open)
+    }
+
+    /// A message's notice while the app has seen no receipt for it: once the
+    /// daemon has it (a receipt from the feed or an open), its state says more.
+    func sendNotice(conversationID: String, messageID: String) -> SendNotice? {
+        guard let notice = sendNotices[messageID] else { return nil }
+        if let turn = timelines[conversationID]?.turn(messageID), turn.messageState != nil { return nil }
+        return notice
+    }
+
+    /// The first message of a conversation that is not going through (not one
+    /// that only waits behind it): what the composer warns about.
+    func stuckSend(in conversationID: String) -> SendNotice? {
+        sends.values.filter { $0.kind == .messageSubmit && $0.conversation == conversationID }
+            .sorted { $0.order < $1.order }
+            .lazy.compactMap { self.sendNotice(conversationID: conversationID, messageID: $0.key) }
+            .first { $0.kind != .waiting }
+    }
+
+    /// New conversations whose create is not going through, oldest first: they
+    /// have no conversation to show it in yet.
+    var createNotices: [SendNotice] {
+        sends.values.filter { $0.kind == .conversationCreate }.sorted { $0.order < $1.order }
+            .compactMap { sendNotices[$0.key] }
+    }
+
+    /// The worst notice among a conversation's messages, for its sidebar row.
+    func sendProblem(in conversationID: String) -> SendNotice.Kind? {
+        let kinds = sends.values.filter { $0.kind == .messageSubmit && $0.conversation == conversationID }
+            .compactMap { sendNotice(conversationID: conversationID, messageID: $0.key)?.kind }
+        for kind in [SendNotice.Kind.needsPerson, .refused, .retrying] where kinds.contains(kind) { return kind }
+        return nil
+    }
+
+    /// A message the person withdrew before the daemon had it: no receipt comes.
+    mutating func withdrawLocal(messageID: String) {
+        for key in timelines.keys where timelines[key]?.turn(messageID) != nil {
+            timelines[key]?.withdrawLocal(messageID: messageID)
+        }
     }
 
     /// Fold an outbox report: receipts, and the conversations creates made.
@@ -502,7 +562,8 @@ struct ConversationStoreState: Equatable {
                 pendingApprovals: pendingApprovals[conversation.conversation_id] ?? conversation.pending_approvals,
                 active: conversation.active, blockedBy: conversation.blocked_by,
                 liveElsewhere: conversation.live_elsewhere ?? false,
-                continuable: true, continueBlocker: nil))
+                continuable: true, continueBlocker: nil,
+                sendProblem: sendProblem(in: conversation.conversation_id)))
         }
         let bound = Set(conversations.compactMap { c in c.native_session_id.map { "\(c.provider):\($0)" } })
         for item in catalog?.items ?? [] where providerFilter == nil || item.provider == providerFilter {
@@ -711,15 +772,38 @@ final class ConversationEngine {
         try sender.withdraw(messageID)
     }
 
+    /// The outbox's open entries, for the conversation views (C-29.12).
+    func openSends() -> [OutboxEntry] { outbox.entries.filter(\.isOpen) }
+
+    /// The person's "Send now" or "Try again" on a journaled send; `pump` sends it.
+    func sendNow(_ key: String) throws { try outbox.sendNow(key) }
+
+    enum WithdrawResult: Equatable {
+        /// Gone: with the tombstone's receipt when it had been sent, none when never.
+        case withdrawn(Receipt?)
+        /// The daemon had it: Stop acted there (the receipt, or nil when nothing was left to stop).
+        case stopped(Receipt?)
+        /// A send is under way; ask again when it has an answer.
+        case inFlight
+    }
+
+    /// Withdraw a journaled message (D-22), or stop it where the daemon has it.
+    func withdrawSend(_ messageID: String) throws -> WithdrawResult {
+        switch try withdraw(messageID) {
+        case .withdrawn(let receipt): return .withdrawn(receipt)
+        case .inDaemon(let receipt):
+            return .stopped(try stop(stopAction(for: messageID, state: receipt.state, outboxEntry: nil)))
+        case .inFlight: return .inFlight
+        }
+    }
+
     /// Stop a message: cancel it while queued, interrupt it once it runs.
     func stop(_ action: StopAction) throws -> Receipt? {
         switch action {
         case .none: return nil
         case .withdraw(let messageID):
-            switch try withdraw(messageID) {
-            case .withdrawn(let receipt): return receipt
-            case .inDaemon(let receipt):
-                return try stop(stopAction(for: messageID, state: receipt.state, outboxEntry: nil))
+            switch try withdrawSend(messageID) {
+            case .withdrawn(let receipt), .stopped(let receipt): return receipt
             case .inFlight: return nil
             }
         case .cancel(let messageID):
