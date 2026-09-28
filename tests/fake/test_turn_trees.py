@@ -93,6 +93,26 @@ def test_c26_13_finalization_takes_the_end_snapshot_while_the_turn_holds_its_lea
     assert daemon._turn_trees(daemon._job(job_id), attempt) == receipt
 
 
+def test_c13_1_a_turns_end_snapshot_lists_the_nested_repositories_it_left_out(state_daemon):
+    """C-13.1, C-26.14 (review of c1f95838, F7): a turn's snapshots leave out a nested
+    repository with no commit, as salvage does, so its diff does not show one; the
+    receipt and the attempt's evidence list what the end snapshot left out."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    nested = harness.workdir / "scratch" / "repo "
+    nested.mkdir(parents=True)
+    git(nested, "init", "-q")
+    (nested / "inside.txt").write_text("never committed\n")
+    (harness.workdir / "made-by-the-turn.txt").write_text("one\n")
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    receipt = json.loads((adir / "trees.json").read_text())
+    assert receipt["skipped"] == ["scratch/repo /"] and receipt["error"] is None and receipt["end_tree"]
+    evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert evidence["turn_trees"]["skipped"] == ["scratch/repo /"]
+    result = daemon.conversations.op_turn_diff({"message_id": mid}, None)
+    assert [f["path"] for f in result["files"]] == ["made-by-the-turn.txt"]
+
+
 def test_c26_13_transient_snapshot_failures_retry_then_the_failure_is_recorded(state_daemon, monkeypatch):
     """C-6.8, C-26.14: a transient git failure is retried by the worker (the call raises)
     up to TURN_TREE_TRIES tries, then recorded; any other failure is recorded at once;

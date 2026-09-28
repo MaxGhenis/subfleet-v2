@@ -51,7 +51,7 @@ from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
-    SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
+    SalvageError, git_head, git_toplevel, git_tree, path_text, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
 from .sessions.registry import CONVERSATION_FIX
@@ -123,6 +123,9 @@ TURN_TREE_TRIES = 3
 #: finished attempts held Codex lanes for hours on a snapshot that could not
 #: succeed). The worktree is kept either way (C-13.4).
 SALVAGE_TRIES = 3
+#: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
+#: job's notice name; both give the count of all of them.
+SALVAGE_SKIPPED_SHOWN = 5
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -2366,7 +2369,7 @@ class Daemon:
         self._notify()
         return {"job_id": args.job_id, "status": "cancel requested"}
 
-    def _notice(self, tx, job: dict, summary: str) -> None:
+    def _notice(self, tx, job: dict, summary: str, *, again: bool = False) -> None:
         """C-15.1: the notice of a job the same transaction has just made terminal.
 
         The header is read here, from the job row as this transaction left it,
@@ -2378,6 +2381,10 @@ class Daemon:
         job ended without one (incident: 2026-09-24, the header came from the
         attempt, so cancelled jobs were announced `ok; rc=0` with an `-o` path
         that was never written).
+
+        `again` writes one more notice for a job that already has one: a
+        quarantine's release whose salvage failed or left paths out (C-13.1),
+        found after the job's notice went out at the quarantine.
         """
         row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session,kind "
                          "FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
@@ -2386,7 +2393,7 @@ class Daemon:
         if row is None or row["state"] not in TERMINAL:
             raise RuntimeError(f"notice for {job['job_id']} before its terminal state "
                                f"({row['state'] if row else 'no job row'})")
-        if tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
+        if not again and tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
         text = render.notice_header(dict(row), self.root) + "\n" + summary
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
@@ -4492,7 +4499,7 @@ class Daemon:
             with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
                 tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
             return
-        artifacts, salvage_error = [], None
+        artifacts, salvage_evidence = [], {}
         job = self._job(a["job_id"])
         if job["kind"] == "turn":
             # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
@@ -4501,11 +4508,20 @@ class Daemon:
             self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
                              "released from quarantine with writers still live; no end snapshot")
         elif census.verified_empty:
-            artifacts, _, salvage_error = self._salvage(job, a, retry=False)
-        with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release, **({"salvage_error": salvage_error} if salvage_error else {})}) as tx:
+            artifacts, _, salvage_evidence = self._salvage(job, a, retry=False)
+        with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release, **salvage_evidence}) as tx:
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))
+            actual = self.store.get_attempt(a["attempt_id"])
+            if salvage_evidence and actual["state"] == "quarantined":
+                # C-13.1: `kill --confirm-dead` answered before this ran, and the
+                # job's notice went out when it was quarantined, so what salvage
+                # could not save is told in the evidence and in one more notice.
+                evidence = {**json.loads(actual["evidence_json"] or "{}"), **salvage_evidence}
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
+                self._notice(tx, job, f"released from quarantine (attempt a{a['seq']})"
+                             + self._salvage_summary(job, artifacts, salvage_evidence), again=True)
             tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
         self._notify()
 
@@ -4543,9 +4559,12 @@ class Daemon:
         job = self._job(a["job_id"])
         return Launch((), {}, (), job.get("worktree") or job["workdir"], job["prompt_path"], str(adir / "stdout"), str(adir / "stderr"), None, None)
 
-    def _salvage(self, job: dict, a: dict, *, retry: bool = True) -> tuple[list[dict], str | None, str | None]:
+    def _salvage(self, job: dict, a: dict, *, retry: bool = True) -> tuple[list[dict], str | None, dict]:
         """C-13.1: a writable job's salvage at finalization; the artifacts, the
-        checkpoint (HEAD after) and the error, if salvage failed.
+        checkpoint (HEAD after) and what the attempt's evidence records of it:
+        `salvage_error` when salvage failed, and `salvage_skipped` (how many, and
+        the first `SALVAGE_SKIPPED_SHOWN`) when the snapshot left out nested
+        repositories with no commit, which then exist only in the worktree.
 
         The receipt `salvage.json` makes a replayed finalization take nothing
         twice. A transient git failure raises, so the worker tries again with
@@ -4557,7 +4576,7 @@ class Daemon:
         one-shot request is never offered again, so it records at once.
         """
         if job["sandbox"] != "workspace-write":
-            return [], None, None
+            return [], None, {}
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         receipt_path = adir / "salvage.json"
         receipt = self._read_json(receipt_path)
@@ -4566,10 +4585,11 @@ class Daemon:
             baseline = json.loads(a["evidence_json"] or "{}").get("baseline_commit") or job["workdir_head"]
             cap = self.policy["caps"]["workspace_git_timeout_s"]
             result = checkpoint = error = None
+            skipped: list[str] = []
             try:
                 result = salvage(workspace, baseline, a["seq"],
                                  writable=True, state="finalizing", timestamp=a["reserved_at"],
-                                 baseline_tree=a.get("baseline_tree"), timeout_s=cap)
+                                 baseline_tree=a.get("baseline_tree"), timeout_s=cap, left_out=skipped)
                 checkpoint = git_head(workspace, timeout_s=cap)
             except (SalvageError, OSError) as exc:
                 failures = self._salvage_failures[a["attempt_id"]] = self._salvage_failures.get(a["attempt_id"], 0) + 1
@@ -4582,20 +4602,43 @@ class Daemon:
                 error = f"{stage} failed: {exc}"[:500]
                 self.log.warning("attempt %s %s", a["attempt_id"], error)
             self._salvage_failures.pop(a["attempt_id"], None)
-            receipt = {"result": dataclasses.asdict(result) if result else None,
-                       "checkpoint": checkpoint, "error": error}
+            # Every path as valid UTF-8: `json_bytes` cannot encode the surrogates
+            # `os.fsdecode` carries a name that is not UTF-8 in, and a receipt that
+            # cannot be written is a finalization that raises on every try.
+            skipped = [path_text(path) for path in skipped]
+            receipt = {"result": {**dataclasses.asdict(result), "skipped": skipped} if result else None,
+                       "checkpoint": checkpoint, "error": error, "skipped": skipped}
             self._publish("salvage", receipt_path, json_bytes(receipt))
             self._boundary("salvage", job["job_id"], a["attempt_id"])
         result = receipt["result"]
+        evidence = {"salvage_error": receipt["error"]} if receipt.get("error") else {}
+        # A receipt written before `skipped` had its own key lists them in the result.
+        skipped = receipt.get("skipped", (result or {}).get("skipped")) or []
+        if skipped:
+            evidence["salvage_skipped"] = {"count": len(skipped), "paths": skipped[:SALVAGE_SKIPPED_SHOWN]}
+            self.log.warning("attempt %s salvage left out %d nested repositor%s with no commit, first %r",
+                             a["attempt_id"], len(skipped), "y" if len(skipped) == 1 else "ies", skipped[0])
         if not result:
-            return [], receipt["checkpoint"], receipt.get("error")
-        if result.get("skipped"):
-            self.log.warning("attempt %s salvage left out %d path(s) git could not index, first %r",
-                             a["attempt_id"], len(result["skipped"]), result["skipped"][0])
+            return [], receipt["checkpoint"], evidence
         ref = result.get("ref") or result.get("ref_name")
         commit = result.get("commit") or result.get("commit_sha")
         return ([{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}],
-                receipt["checkpoint"], receipt.get("error"))
+                receipt["checkpoint"], evidence)
+
+    @staticmethod
+    def _salvage_summary(job: dict, artifacts: list[dict], evidence: dict) -> str:
+        """C-13.1: the notice's lines for what salvage could not save ("" when it saved
+        everything): its error, the paths it left out, and where they still are."""
+        lines = [evidence["salvage_error"]] if evidence.get("salvage_error") else []
+        skipped = evidence.get("salvage_skipped")
+        if skipped:
+            count, paths = skipped["count"], skipped["paths"]
+            shown = ", ".join(f"'{path}'" for path in paths) + (", ..." if count > len(paths) else "")
+            lines.append(f"salvage left out {count} nested repositor{'y' if count == 1 else 'ies'} "
+                         f"with no commit, kept only in the worktree: {shown}")
+        if lines and (skipped or not artifacts):
+            lines[-1] += f"; the worktree is kept: {job.get('worktree') or job['workdir']}"
+        return "".join("\n" + line for line in lines)
 
     def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
         """C-26.10, C-26.14 (design D-25): a turn's end, taken while its leases are held.
@@ -4623,7 +4666,7 @@ class Daemon:
             receipt = {"workspace": job.get("worktree") or job["workdir"], "writable": writable,
                        "head_before": evidence.get("baseline_commit"),
                        "start_tree": a.get("baseline_tree") if writable else None,
-                       "head_after": None, "end_tree": None, "error": error}
+                       "head_after": None, "end_tree": None, "skipped": [], "error": error}
             if error is None:
                 try:
                     receipt.update(turn_diff.end_snapshot(
@@ -4766,12 +4809,12 @@ class Daemon:
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
         # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
         # its receipt records HEAD after and its end snapshot (C-26.14).
-        trees = salvage_error = None
+        trees, salvage_evidence = None, {}
         if job["kind"] == "turn":
             salvage_artifacts, checkpoint = [], None
             trees = self._turn_trees(job, a)
         else:
-            salvage_artifacts, checkpoint, salvage_error = self._salvage(job, a)
+            salvage_artifacts, checkpoint, salvage_evidence = self._salvage(job, a)
         artifacts.extend(salvage_artifacts)
         with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             job = self._job(a["job_id"])
@@ -4795,12 +4838,10 @@ class Daemon:
             attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
             evidence = json.loads(a["evidence_json"] or "{}")
-            evidence.update(classification=outcome.evidence, checkpoint=checkpoint)
-            if salvage_error:
-                evidence["salvage_error"] = salvage_error
+            evidence.update(classification=outcome.evidence, checkpoint=checkpoint, **salvage_evidence)
             if trees is not None:
                 evidence["turn_trees"] = {k: trees.get(k) for k in ("head_before", "head_after", "start_tree",
-                                                                     "end_tree", "error")}
+                                                                     "end_tree", "skipped", "error")}
             if provider_verdict["class"] != outcome.cls.value:
                 evidence["provider_verdict"] = {**provider_verdict, "killed_by": actual.get("killed_by")}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
@@ -4838,10 +4879,7 @@ class Daemon:
                     summary += f"\noutput kept, not accepted: {deliverable_path}"
                     if job["out_path"]:
                         summary += f"; -o {job['out_path']} was not written"
-                if salvage_error:
-                    summary += f"\n{salvage_error}"
-                    if not salvage_artifacts:
-                        summary += f"; the worktree is kept: {job.get('worktree') or job['workdir']}"
+                summary += self._salvage_summary(job, salvage_artifacts, salvage_evidence)
                 self._notice(tx, job, summary)
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])

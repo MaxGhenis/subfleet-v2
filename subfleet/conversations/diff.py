@@ -40,7 +40,8 @@ import threading
 from pathlib import Path
 
 from ..salvage import (
-    SalvageError, _git, git_head, git_timeout_s, git_toplevel, transient_os_error, working_tree,
+    SalvageError, _git, git_head, git_timeout_s, git_toplevel, path_text, snapshot_tree, transient_os_error,
+    working_tree,
 )
 from ..sessions.handoff import scrub_secrets
 
@@ -111,15 +112,18 @@ def snapshot(workdir: str | Path, *, timeout_s: float | None = None) -> tuple[st
 def end_snapshot(workdir: str | Path, *, head_before: str | None, start_tree: str | None,
                  timeout_s: float | None = None) -> dict:
     """A turn's end (C-26.10): HEAD after, and the working tree's end snapshot when the
-    turn has a start snapshot to compare it with. Raises `SalvageError` when git fails."""
+    turn has a start snapshot to compare it with. Raises `SalvageError` when git fails.
+
+    Like every C-6.8 snapshot, the end one leaves out a nested repository with no
+    commit (C-13.1), so the turn's diff does not show it; `skipped` lists them."""
     head_after = git_head(workdir, timeout_s=timeout_s)
-    end_tree = None
+    end_tree, skipped = None, ()
     if start_tree is not None:
         base = head_after or head_before
         if base is None:
             raise SalvageError("the workspace has no commit to snapshot against")
-        end_tree = working_tree(workdir, base, timeout_s=timeout_s)
-    return {"head_after": head_after, "end_tree": end_tree}
+        end_tree, skipped = snapshot_tree(workdir, base, timeout_s=timeout_s)
+    return {"head_after": head_after, "end_tree": end_tree, "skipped": [path_text(path) for path in skipped]}
 
 
 def have_tree(workdir: str | Path, tree: str, *, timeout_s: float | None = None) -> bool:

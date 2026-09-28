@@ -27,15 +27,23 @@ GIT_TIMEOUT_ENV = "SUBFLEET_GIT_TIMEOUT_S"
 #: same call is expected to succeed once the pressure passes.
 TRANSIENT_ERRNOS = frozenset({
     errno.EAGAIN, errno.EINTR, errno.ENOMEM, errno.EMFILE, errno.ENFILE,
-    errno.EBUSY, errno.ETIMEDOUT, errno.ENOBUFS,
+    errno.EBUSY, errno.ETIMEDOUT, errno.ENOBUFS, errno.ENOSPC,
 })
+
+#: git's own words for the same kind of failure (C-13.1): a lock file another
+#: git process holds (a concurrent `gc`, `fetch` or `update-ref` in the same
+#: repository; `cannot lock ref` alone also covers a ref that exists or a
+#: name that conflicts, which no retry changes), and a full disk. Read only
+#: under the C locale (`_git_env`), where git does not translate them.
+_TRANSIENT_GIT = re.compile(r"Unable to create '[^\n]*\.lock': File exists|: No space left on device$", re.M)
 
 
 class SalvageError(RuntimeError):
     """A snapshot failed; callers must retain the workspace for reconciliation.
 
     ``transient`` is true when the failure says nothing about the repository (a
-    timeout, or an `OSError` in `TRANSIENT_ERRNOS`), so the caller may retry.
+    timeout, an `OSError` in `TRANSIENT_ERRNOS`, or git naming a held lock file
+    or a full disk, `_TRANSIENT_GIT`), so the caller may retry.
     """
 
     def __init__(self, message: str, *, transient: bool = False):
@@ -58,11 +66,31 @@ def transient_os_error(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and exc.errno in TRANSIENT_ERRNOS
 
 
+def _transient_git(stderr: str | bytes) -> bool:
+    """Whether git's stderr names a failure another try may not meet (`_TRANSIENT_GIT`)."""
+    return bool(_TRANSIENT_GIT.search(os.fsdecode(stderr) if isinstance(stderr, bytes) else stderr))
+
+
+def _git_env(env: dict[str, str] | None) -> dict[str, str]:
+    """`env` (the daemon's own when None) with git's messages untranslated.
+
+    What git prints is read (`_transient_git`), and under another locale git
+    translates its messages and even its `error:` and `fatal:` prefixes (review
+    of c1f95838: under `de_DE.UTF-8` a nested repository with no commit was
+    reported in German and not recognised). `LANGUAGE` is removed too, since
+    gettext reads it before `LC_ALL` everywhere but under the C locale.
+    """
+    env = dict(os.environ if env is None else env)
+    env["LC_ALL"] = "C"
+    env.pop("LANGUAGE", None)
+    return env
+
+
 def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
          optional: bool = False, timeout_s: float | None = None) -> str | None:
     cap = git_timeout_s(timeout_s)
     try:
-        result = subprocess.run(["git", "-C", str(workdir), *args], env=env,
+        result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
                                 capture_output=True, text=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
         # Never `optional`: a call that did not finish has not said "no HEAD" or
@@ -78,7 +106,8 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
     if result.returncode:
         if optional:
             return None
-        raise SalvageError(f"git {args[0]} failed: {result.stderr.strip()}")
+        raise SalvageError(f"git {args[0]} failed: {result.stderr.strip()}",
+                           transient=_transient_git(result.stderr))
     return result.stdout.strip()
 
 
@@ -88,7 +117,7 @@ def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = Non
     exit. Timeouts and transient OS errors raise exactly as in ``_git``."""
     cap = git_timeout_s(timeout_s)
     try:
-        result = subprocess.run(["git", "-C", str(workdir), *args], env=env, input=stdin,
+        result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env), input=stdin,
                                 capture_output=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git {args[0]} timed out after {cap:g} s", transient=True) from exc
@@ -155,8 +184,8 @@ def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
     file rewritten with the same size, mtime and inode is read as unchanged,
     where the empty-index read would hash it.
 
-    Returns the tree and the paths git could not index (`_add_all`), which the
-    tree leaves out.
+    Returns the tree and the nested repositories with no commit that it leaves
+    out (`_add_all`).
     """
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
@@ -173,40 +202,113 @@ def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
         return _git(workdir, "write-tree", env=env, timeout_s=timeout_s), skipped
 
 
-#: The line `git add --ignore-errors` writes for each path it could not index.
-_UNINDEXABLE = re.compile(r"^error: unable to index file '(.*)'$")
-
-
 def _add_all(workdir: str | Path, env: dict[str, str], *,
              timeout_s: float | None = None) -> tuple[str, ...]:
-    """`add -A` into the temporary index, leaving out what git cannot index.
+    """`add -A` into the temporary index, leaving out nested repositories with no commit.
 
-    A path git cannot index (a nested repository with no commit checked out, a
-    file that cannot be read) used to fail the whole snapshot, and every retry
-    in the same way: on 2026-09-27 two finished attempts held their Codex lanes
-    for hours in `finalizing`, their salvage failing on a test fixture's empty
-    repository under an untracked scratch directory. `--ignore-errors` indexes
-    everything else and still exits non-zero; the snapshot goes on when every
-    error names a path git could not index, and returns those paths. Any other
-    failure (a `fatal:` line, or a non-zero exit that names no path) fails as
-    before. Paths are decoded as the file system names them (`os.fsdecode`), so
-    a name that is not UTF-8 is carried, not a decoding error.
+    git cannot index a nested repository with no commit checked out (a gitlink
+    names a commit, and there is none), and `add -A` then fails the whole
+    snapshot, and every retry in the same way: on 2026-09-27 two finished
+    attempts held their Codex lanes for hours in `finalizing`, their salvage
+    failing on a test fixture's empty repository under an untracked scratch
+    directory. So when `add -A` fails, the untracked nested repositories are
+    listed (`ls-files -o` names each as `path/`, inside an untracked directory
+    too, and honours `.gitignore` as `add -A` does), each whose HEAD does not
+    resolve is excluded by a literal pathspec, and `add -A` runs once more.
+
+    Nothing git prints decides what is left out, and any other failure fails
+    the snapshot as before, including one beside such a repository: an
+    unreadable file, or an object git could not write (a read-only
+    `.git/objects/xx`, a full disk), which `--ignore-errors` had let through
+    as a path left out (review of c1f95838). The listing runs only after a
+    failure: it walks the untracked tree again, 0.1 to 1.1 s on large checkouts
+    (2026-09-27), and a snapshot that succeeds needs none.
+
+    Returns the excluded paths relative to the top level, as `ls-files` names
+    them, decoded as the file system names them (`os.fsdecode`), so a name that
+    is not UTF-8 is carried, not a decoding error.
     """
+    failure = _add(workdir, env, None, timeout_s)
+    if failure is None:
+        return ()
+    excluded = _uncommitted_repositories(workdir, env, timeout_s=timeout_s)
+    if not excluded:
+        raise failure
+    spec = b"".join(b":(top,exclude,literal)" + path + b"\0" for path in excluded)
+    failure = _add(workdir, env, b":/\0" + spec, timeout_s)
+    if failure is not None:
+        raise failure
+    return tuple(os.fsdecode(path) for path in excluded)
+
+
+def _add(workdir: str | Path, env: dict[str, str], pathspec: bytes | None,
+         timeout_s: float | None) -> SalvageError | None:
+    """One `add -A` (limited to NUL-separated `pathspec` when given): None when it
+    succeeds, else the error to raise. A timeout raises at once, as a transient one."""
     cap = git_timeout_s(timeout_s)
+    limit = ("--pathspec-from-file=-", "--pathspec-file-nul") if pathspec is not None else ()
     try:
-        result = subprocess.run(["git", "-C", str(workdir), "add", "-A", "--ignore-errors"], env=env,
-                                capture_output=True, timeout=cap)
+        result = subprocess.run(["git", "-C", str(workdir), "add", "-A", *limit], env=_git_env(env),
+                                input=pathspec, capture_output=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git add timed out after {cap:g} s", transient=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise SalvageError(f"git add could not run: {exc}", transient=transient_os_error(exc)) from exc
     if not result.returncode:
-        return ()
-    lines = [os.fsdecode(line) for line in result.stderr.splitlines()]
-    skipped = tuple(match.group(1) for line in lines if (match := _UNINDEXABLE.match(line)))
-    if not skipped or any(line.startswith("fatal:") for line in lines):
-        raise SalvageError(f"git add failed: {os.fsdecode(result.stderr).strip()}")
-    return skipped
+        return None
+    return SalvageError(f"git add failed: {os.fsdecode(result.stderr).strip()}",
+                        transient=_transient_git(result.stderr))
+
+
+def _uncommitted_repositories(workdir: str | Path, env: dict[str, str], *,
+                              timeout_s: float | None = None) -> list[bytes]:
+    """The untracked nested repositories whose HEAD does not resolve, as `ls-files`
+    names them (relative to the top level, ending in `/`).
+
+    `ls-files -o` (not `--directory`, which names only an untracked directory's
+    top and would hide a repository inside it) lists a nested repository as one
+    `path/` entry, by the test `add -A` itself uses, and it reads the temporary
+    index, so "untracked" is what it is to `add -A`. A repository is excluded
+    only when `rev-parse --verify HEAD` in it exits 1 (HEAD does not resolve):
+    one git cannot open (exit 128) is left for `add -A` to judge.
+    """
+    listed = _git_bytes(workdir, "ls-files", "-o", "--exclude-standard", "-z", "--full-name", "--", ":/",
+                        env=env, timeout_s=timeout_s)
+    candidates = [path for path in (listed or b"").split(b"\0") if path.endswith(b"/")]
+    if not candidates:
+        return []
+    top = _git_bytes(workdir, "rev-parse", "--show-toplevel", env=env, timeout_s=timeout_s)
+    if not top:
+        return []
+    top = top[:-1] if top.endswith(b"\n") else top
+    # The nested repository's own git directory, never the temporary index.
+    nested = {key: value for key, value in env.items() if key != "GIT_INDEX_FILE"}
+    return [path for path in candidates
+            if _head_status(os.path.join(top, path, b".git"), nested, timeout_s) == 1]
+
+
+def _head_status(gitdir: bytes, env: dict[str, str], timeout_s: float | None) -> int:
+    """`rev-parse -q --verify HEAD`'s exit status in the repository at `gitdir`:
+    0 when HEAD names a commit, 1 when it does not resolve, 128 when git cannot
+    open the repository. `--git-dir` never lets git look above `gitdir`."""
+    cap = git_timeout_s(timeout_s)
+    try:
+        result = subprocess.run(["git", b"--git-dir=" + gitdir, "rev-parse", "-q", "--verify", "HEAD"],
+                                env=_git_env(env), capture_output=True, timeout=cap)
+    except subprocess.TimeoutExpired as exc:
+        raise SalvageError(f"git rev-parse timed out after {cap:g} s", transient=True) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SalvageError(f"git rev-parse could not run: {exc}", transient=transient_os_error(exc)) from exc
+    return result.returncode
+
+
+def path_text(path: str) -> str:
+    """A path left out of a snapshot, as one line of valid UTF-8 for a receipt,
+    the evidence or a notice: bytes that are not UTF-8 (`os.fsdecode` carries
+    them as surrogates, which `json_bytes` cannot encode) and control characters
+    (a newline would start a line of its own in a notice) are escaped."""
+    text = os.fsencode(path).decode("utf-8", "backslashreplace")
+    return "".join(char if char.isprintable() else ascii(char)[1:-1] for char in text)
 
 
 def _seed_index(workdir: str | Path, index: Path, *,
@@ -291,7 +393,7 @@ class SalvageResult:
     commit: str
     tree: str
     baseline: str
-    #: Paths git could not index, left out of the snapshot (`snapshot_tree`).
+    #: Nested repositories with no commit, left out of the snapshot (`_add_all`).
     skipped: tuple[str, ...] = ()
 
 
@@ -310,7 +412,7 @@ def _stamp(timestamp: str | datetime | None) -> str:
 def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bool = True,
             state: str = "finalizing", timestamp: str | datetime | None = None,
             baseline_tree: str | None = None,
-            timeout_s: float | None = None) -> SalvageResult | None:
+            timeout_s: float | None = None, left_out: list[str] | None = None) -> SalvageResult | None:
     """C-13.1: commit a differing working tree beneath a private salvage ref.
 
     ``baseline_commit`` is the HEAD recorded at reservation and always the
@@ -318,7 +420,9 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
     including any pre-existing dirty files; older callers default to HEAD. Supply
     the recorded attempt timestamp to make a finalization replay idempotent.
     Private refs are permitted even when the current branch is main (C-13.2).
-    ``timeout_s`` caps each git call (`git_timeout_s`).
+    ``timeout_s`` caps each git call (`git_timeout_s`). ``left_out``, when given,
+    receives the paths the snapshot left out (`_add_all`) even when no ref is
+    written: a worktree whose only change is such a path returns None.
     """
     if not writable:
         return None
@@ -333,10 +437,12 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
     # A private temporary directory avoids index-name races and never points
     # git at the user's real index, including in linked worktrees.
     tree, skipped = snapshot_tree(workdir, baseline, timeout_s=timeout_s)
+    if left_out is not None:
+        left_out.extend(skipped)
     if tree == baseline_tree:
-        # Nothing to commit. Paths it could not index still make the worktree
-        # dirty, so retention keeps it (C-13.4): it removes a dirty worktree
-        # only when a salvage ref holds exactly its current tree.
+        # Nothing to commit. A nested repository left out still makes the
+        # worktree dirty, so retention keeps it (C-13.4): it removes a dirty
+        # worktree only when a salvage ref holds exactly its current tree.
         return None
     previous = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
     if previous:
