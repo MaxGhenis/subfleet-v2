@@ -276,3 +276,52 @@ def test_every_steer_settles_before_its_host(svc, live, monkeypatch, fate, expec
     monkeypatch.setattr(svc.store, "set_state", observe)
     svc._on_outcome(EndedRunner(adir, host, cid))
     assert svc.store.message(host)["state"] == "complete"
+
+
+def test_settlement_reads_its_evidence_outside_the_service_lock_and_holds_it_over_the_steer_snapshot(
+        svc, live, monkeypatch):
+    """Steer review, finding 14: `reconcile.gather` (a scan of the provider's transcripts)
+    runs with the service lock free, so polls, dispatch and ops go on meanwhile. The lock
+    covers the host's steer snapshot through the host's settlement: no claim lands between."""
+    import json
+    from subfleet.conversations import service as service_module
+    from tests.unit.test_conversation_service import EndedRunner
+    cid, host, mid, _ = live
+    steer(svc, mid)
+    adir = svc.root / "outcome"
+    adir.mkdir()
+    (adir / "turn.json").write_text(json.dumps({"state": "interrupted", "reason": "stopped", "accepted": True,
+                                                "ended_by": "eof",
+                                                "steers": {mid: {"frame": "written", "fate": "consumed"}}}))
+
+    def lock_free_elsewhere() -> bool:
+        got = []
+
+        def take():
+            if svc._lock.acquire(timeout=2):
+                svc._lock.release()
+                got.append(True)
+        other = threading.Thread(target=take)
+        other.start()
+        other.join(10)
+        return got == [True]
+
+    seen = {}
+
+    def gather(*args, **kwargs):
+        seen["gather"] = lock_free_elsewhere()
+        return service_module.reconcile.Evidence(acknowledged=True, frame="written", process_gone=True,
+                                                 native="found", session_exists=True)
+
+    steers = svc.store.steers
+
+    def snapshot(host_id):
+        seen["snapshot"] = lock_free_elsewhere()
+        return steers(host_id)
+
+    monkeypatch.setattr(service_module.reconcile, "gather", gather)
+    monkeypatch.setattr(svc.store, "steers", snapshot)
+    svc._on_outcome(EndedRunner(adir, host, cid))
+    assert seen == {"gather": True, "snapshot": False}
+    assert svc.store.message(mid)["state"] == "steered"
+    assert svc.store.message(host)["state"] == "interrupted"

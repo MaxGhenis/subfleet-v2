@@ -2094,18 +2094,23 @@ class ConversationService:
         return True
 
     def _on_outcome(self, runner: TurnRunner) -> None:
-        # A request cannot claim a steer between our children snapshot and the
-        # host's settlement. The runner never takes message handover locks here.
+        # The evidence is read first, outside the service lock: `reconcile.gather` may
+        # list the provider's projects and scan transcripts, and every poll, dispatch,
+        # adoption and op that takes the lock would wait behind it (steer review,
+        # finding 14). The lock is held from the snapshot of the host's steers through
+        # the host's own settlement, so no steer is claimed for a host that is settling
+        # (C-24.9); once the driver has an outcome none can be anyway, as its runner is
+        # no longer steerable. The runner never takes message handover locks here.
+        turn, settlement = self._settlement(runner)
         with self._lock:
-            self._settle_outcome(runner)
+            self._settle_outcome(runner, turn, settlement)
 
-    def _settle_outcome(self, runner: TurnRunner) -> None:
-        """Settle a message from its turn (D-12, D-14, C-24.6, C-24.8, C-26.7).
-        The decision is `reconcile.settle`'s; this applies it."""
+    def _settlement(self, runner: TurnRunner) -> tuple[dict, reconcile.Settlement]:
+        """A turn's outcome (`turn.json`) and what it settles its message as
+        (D-12, D-14, C-24.6, C-24.8, C-26.7). The decision is `reconcile.settle`'s."""
         turn = read_turn(runner.adir) or {}
         message = self.store.message(runner.message_id)
-        conversation = self.store.conversation(runner.conversation_id)
-        provider = conversation["provider"]
+        provider = self.store.conversation(runner.conversation_id)["provider"]
         # The readmissions used up so far: this message's other turn jobs a provider
         # reached, less its waits for another writer (reviews of 6290a51, finding 3,
         # and of 3c1a34e, finding 4).
@@ -2114,6 +2119,13 @@ class ConversationService:
             turn, provider=provider, turn_seq=used,
             gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn),
             person_stopped=bool(message.get("stop_requested_at")))
+        return turn, settlement
+
+    def _settle_outcome(self, runner: TurnRunner, turn: dict, settlement: reconcile.Settlement) -> None:
+        """Apply a settlement: the host's steers first, then the host (C-24.6, C-24.9)."""
+        message = self.store.message(runner.message_id)
+        conversation = self.store.conversation(runner.conversation_id)
+        provider = conversation["provider"]
         served = {**(message.get("served") or {}), **(turn.get("served") or {}),
                   "lane_id": runner.attempt.get("lane_id"), "model": turn.get("served_model")}
         steer_unknown = self._settle_steers(runner, turn, served, host_block=settlement.block)
