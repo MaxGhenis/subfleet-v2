@@ -264,11 +264,13 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
             state: str = "finalizing", timestamp: str | datetime | None = None,
             baseline_tree: str | None = None,
             timeout_s: float | None = None) -> SalvageResult | None:
-    """C-13.1: commit a differing working tree beneath a private salvage ref.
+    """C-13.1: preserve changed files and history beneath a private salvage ref.
 
     ``baseline_commit`` is the HEAD recorded at reservation and always the
-    snapshot's parent. ``baseline_tree`` is the reservation's working tree,
-    including any pre-existing dirty files; older callers default to HEAD. Supply
+    snapshot's first parent. A differing current HEAD is the second parent,
+    retaining the job's commits as well as its final files. ``baseline_tree`` is
+    the reservation's working tree, including pre-existing dirty files; older
+    callers default to HEAD. Supply
     the recorded attempt timestamp to make a finalization replay idempotent.
     Private refs are permitted even when the current branch is main (C-13.2).
     ``timeout_s`` caps each git call (`git_timeout_s`).
@@ -280,28 +282,36 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
     if seq < 1:
         raise ValueError("attempt sequence must be positive")
     baseline = _git(workdir, "rev-parse", "--verify", f"{baseline_commit}^{{commit}}", timeout_s=timeout_s)
+    head = _git(workdir, "rev-parse", "--verify", "HEAD^{commit}", timeout_s=timeout_s)
     baseline_tree = _git(workdir, "rev-parse", "--verify", f"{baseline_tree or baseline}^{{tree}}", timeout_s=timeout_s)
     branch = re.sub(r"[^A-Za-z0-9_-]+", "-", git_branch(workdir, timeout_s=timeout_s) or "detached").strip("-") or "detached"
     ref = f"refs/subfleet-salvage/{branch}-{_stamp(timestamp)}-a{seq}"
     # A private temporary directory avoids index-name races and never points
     # git at the user's real index, including in linked worktrees.
     tree = working_tree(workdir, baseline, timeout_s=timeout_s)
-    if tree == baseline_tree:
+    if tree == baseline_tree and head == baseline:
         return None
+
+    def matches_snapshot(commit: str) -> bool:
+        return (_git(workdir, "rev-parse", f"{commit}^{{tree}}", timeout_s=timeout_s) == tree
+                and _git(workdir, "rev-parse", f"{commit}^", optional=True,
+                         timeout_s=timeout_s) == baseline
+                and _git(workdir, "--no-replace-objects", "merge-base", "--is-ancestor",
+                         head, commit, optional=True, timeout_s=timeout_s) is not None)
+
     previous = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
     if previous:
-        previous_tree = _git(workdir, "rev-parse", f"{previous}^{{tree}}", timeout_s=timeout_s)
-        previous_parent = _git(workdir, "rev-parse", f"{previous}^", optional=True, timeout_s=timeout_s)
-        if previous_tree == tree and previous_parent == baseline:
+        if matches_snapshot(previous):
             return SalvageResult(ref, previous, tree, baseline)
-        # Never overwrite a previous snapshot with different bytes.
-        ref = f"{ref}-{tree[:12]}"
+        # Equal final bytes can have different histories (for example a
+        # committed edit followed by a revert). Keep both snapshots.
+        ref = f"{ref}-{tree[:12]}-{head[:12]}"
+    parents = ("-p", baseline) if head == baseline else ("-p", baseline, "-p", head)
     commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
-                  "commit-tree", tree, "-p", baseline, "-m", f"subfleet salvage attempt a{seq}", timeout_s=timeout_s)
+                  "commit-tree", tree, *parents, "-m", f"subfleet salvage attempt a{seq}", timeout_s=timeout_s)
     existing = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
     if existing:
-        if (_git(workdir, "rev-parse", f"{existing}^{{tree}}", timeout_s=timeout_s) == tree
-                and _git(workdir, "rev-parse", f"{existing}^", timeout_s=timeout_s) == baseline):
+        if matches_snapshot(existing):
             return SalvageResult(ref, existing, tree, baseline)
         raise SalvageError("salvage reference already names a different snapshot")
     _git(workdir, "update-ref", ref, commit, "0" * 40, timeout_s=timeout_s)
