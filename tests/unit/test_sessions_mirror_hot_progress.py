@@ -10,6 +10,7 @@ from __future__ import annotations
 import errno
 import json
 import threading
+from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 
@@ -63,15 +64,42 @@ def warm(running):
     assert running.run_hot().state == "ok"
 
 
-@pytest.mark.parametrize("cold", [False, True], ids=["warm", "cold"])
-def test_slow_full_inventory_services_archive_before_its_next_entry(world, monkeypatch, cold):
+def test_cold_inventory_reads_each_copy_once_when_hot_service_would_be_due(world, monkeypatch):
+    """C-23.28: a cold pass completes its only inventory before forking a hot
+    worker, even when every entry read spans the configured service interval.
+    """
+    running = engine(world)
+    clock = [0.0]
+    monkeypatch.setattr(mirror.time, "monotonic", lambda: clock[0])
+    original_read = mirror._read_entry
+    reads = []
+
+    def slow_read(path):
+        reads.append(Path(path))
+        clock[0] += 3
+        return original_read(path)
+
+    def premature_fork():
+        pytest.fail("a cold process forked a second whole-store inventory")
+
+    monkeypatch.setattr(mirror, "_read_entry", slow_read)
+    monkeypatch.setattr(running, "_fork_hot", premature_fork)
+    result = running.run_once()
+    expected = {entry(world, account, identity)
+                for account in range(2) for identity in (ONE, TWO)}
+    assert result.state == "ok", result.error
+    assert Counter(reads) == Counter({path: 1 for path in expected})
+    assert result.entries_scanned == len(expected)
+    assert running._inventoried and running._hot_services == 0
+
+
+def test_slow_full_inventory_services_archive_before_its_next_entry(world, monkeypatch):
     """C-23.28: an elapsed hot interval is served at the next read checkpoint,
-    even before a cold full inventory completes, with both sidecars truthful.
+    once a prior full inventory exists, with both sidecars truthful.
     The full snapshot already read the old value and must not regress the base.
     """
     running = engine(world)
-    if not cold:
-        warm(running)
+    warm(running)
     previous_ok = running.sidecar().get("last_ok_at")
     source, target = entry(world), entry(world, 1)
     offset = [0.0]
@@ -141,7 +169,8 @@ def test_hot_pass_syncs_existing_flags_in_both_directions(world, field, initial,
 @pytest.mark.parametrize("failure", ["read", "listing"])
 def test_hot_flag_holds_unknown_copies_and_retries_without_another_edit(world, monkeypatch, failure):
     """C-23.28: an unreadable copy or changed unlisted folder holds flags and
-    records its cause, then retries when readable even without another edit.
+    records its cause. Known held sessions retry hot without another edit;
+    blind listing holds wait for the next full inventory.
     """
     running = engine(world)
     warm(running)
@@ -173,7 +202,7 @@ def test_hot_flag_holds_unknown_copies_and_retries_without_another_edit(world, m
     sidecar = running.sidecar()["hot"]
     assert sidecar["flags_held"] == result.flags_held
     assert sidecar["held_by"] == result.held_by
-    retried = running.run_hot()
+    retried = running.run_hot() if failure == "read" else running.run_once()
     assert retried.state == "ok" and retried.flags_held == 0
     assert read(target)["isArchived"]
     assert read(running.flags_path)[ONE]["isArchived"]

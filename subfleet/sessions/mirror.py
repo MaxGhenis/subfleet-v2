@@ -35,8 +35,9 @@ the mirror, whose passes were then taking up to two hours, copied them at
   using a separate inventory; an archive, star, title or setting edit does
   not wait for the full inventory to finish. A hot pass gathers every copy
   of each changed session and retries held candidates. New-session spreading
-  waits for the worker; revival, pruning, in-place sweep detection and
-  transcript-title discovery remain the full pass's work.
+  waits for the worker; revival, pruning and in-place sweep detection remain
+  the full pass's work. Both passes read candidate transcripts' title tails;
+  the full pass also discovers transcript-only title changes.
 * **Stay incremental.** A pass that re-parsed every file could not keep up:
   its payload cache held 128 MB of the ~300 MB of distinct parsed records,
   so warm passes re-read most of 218k files, and a daemon restart threw away
@@ -173,6 +174,8 @@ JOURNAL_WINDOW_S = 900.0
 #: (the daemon) still needs.
 JOURNAL_UNSURE_S = 48 * 3600.0
 JOURNAL_LIMIT = 50_000
+#: Sample idle hot progress at most this often; changes and errors record at once.
+HOT_RECORD_S = 60.0
 
 #: The fields a pass reads from an index entry; the cache keeps nothing else.
 #: Records average 12 KB, three quarters of it MCP configuration the mirror
@@ -770,6 +773,7 @@ class Mirror:
         #: Flag candidates held by the previous pass must be retried even if
         #: no directory changes again.
         self._flag_retry: set[str] = set()
+        self._hot_recorded: tuple[float, tuple] | None = None
         #: A full pass services flags synchronously under its existing flock.
         #: Its helper has separate inventory bookkeeping, never another writer.
         self._hot_worker: Mirror | None = None
@@ -778,6 +782,8 @@ class Mirror:
         self._hot_due = 0.0
         self._hot_services = 0
         self._hot_epoch = 0
+        #: A published flag decision or copy write left standing this hot pass.
+        self._flags_moved = False
         self._flags_active = False
 
     @staticmethod
@@ -854,7 +860,7 @@ class Mirror:
             if not _permanent(exc):
                 # Unknown, not absent (EMFILE on 2026-09-25): flag sync holds
                 # the session it belongs to.
-                self._unread[key] = str(known)
+                self._unread[key] = str(known) or self._unread.get(key, "")
                 self._why[key] = f"unreadable ({errno.errorcode.get(exc.errno or 0, exc)})"
             return {}
         try:
@@ -918,6 +924,7 @@ class Mirror:
         worker._account_orgs = dict(self._account_orgs)
         worker._stems = dict(self._stems)
         worker._flag_retry = set(self._flag_retry)
+        worker._hot_recorded = self._hot_recorded
         worker._desktop = self._desktop
         worker.journal = self.journal
         return worker
@@ -933,11 +940,12 @@ class Mirror:
         if worker is None or options is None:
             return
         worker.now, worker.cancel = self.now, self.cancel
-        result = worker._run_hot_locked(options, spread=False)
+        worker._run_hot_locked(options, spread=False)
+        self._hot_recorded = worker._hot_recorded
         self._hot_services += 1
-        if result.sessions:
-            # Even a candidate whose copies already agree can advance its base.
-            # An older full snapshot must not put that base back.
+        if worker._flags_moved:
+            # A no-op or held candidate does not invalidate a refresh. A base
+            # can advance even when every copy already agrees and none is written.
             self._hot_epoch += 1
         interval = float(self.policy.get("sessions", {}).get("mirror_hot_interval_s", 2))
         # Completion-based: a slow hot pass cannot recursively starve the full
@@ -978,12 +986,23 @@ class Mirror:
         """The hot pass's own block; never the heartbeat C-23.28 judges by."""
         if current.dry_run:
             return
+        instant = time.monotonic()
+        seen = (current.state, current.flags_held, current.held_by,
+                (load_gap or {}).get("status"), (load_gap or {}).get("pending"))
+        last = self._hot_recorded
+        if last is not None and instant - last[0] < HOT_RECORD_S:
+            if current.state == "running":
+                return
+            if (current.state == "ok" and not current.changed and not self._flags_moved
+                    and last[1] == seen):
+                return
         self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
         value = self.sidecar()
         value["hot"] = current.to_dict()
         if load_gap is not None:
             value["load_gap"] = load_gap
         _write_json(self.sidecar_path, value)
+        self._hot_recorded = (instant, seen)
 
     # --- the store -----------------------------------------------------------
 
@@ -1298,9 +1317,16 @@ class Mirror:
         try:
             info = os.stat(destination)
         except OSError:
+            # A failed observation cannot prove the write no longer stands.
+            if kind == "updated":
+                self._flags_moved = True
             return
         if inode is not None and info.st_ino != inode:
             return
+        if kind == "updated":
+            # Includes a write left standing when its put-back failed; an app
+            # replacement rejected above is not one of our surviving writes.
+            self._flags_moved = True
         folder = f"{destination.parent.parent.name}/{destination.parent.name}"
         self.journal.add(_Write(folder, destination.name, identity,
                                 str(data.get("title") or ""), kind,
@@ -1553,7 +1579,8 @@ class Mirror:
     def sync_flags(self, folder_files: dict[Path, dict[str, dict]],
                    stems: dict[str, Path], options: Options,
                    current: Pass, *, unread: dict[str, str] | None = None,
-                   blind: bool = False, complete: bool = True) -> set[tuple[Path, str]]:
+                   blind: bool = False, complete: bool = True,
+                   retry: set[str] | None = None) -> set[tuple[Path, str]]:
         """Propagate `isArchived`, `isStarred` and the title across every copy.
 
         The merge base in `mirror-flags.json` holds each session's last synced
@@ -1584,6 +1611,8 @@ class Mirror:
         nothing and keeps its base. Bases of sessions this pass did not see
         are kept unless the inventory was `complete`. A directory or file the
         user may not read is no one's sidebar and holds nothing.
+        `retry` collects only identified held sessions; blind holds wait for
+        the full pass instead of enrolling the whole store in hot retries.
 
         Known limit: the app saves a record from memory, so a folder it holds
         (the loaded one, or one where an earlier account's session still runs)
@@ -1607,6 +1636,8 @@ class Mirror:
                 blind = True                    # whose copy it is, nobody can say
         if blind:
             waiting = set(groups)
+        elif retry is not None:
+            retry.update(waiting.intersection(groups))
         # Unseen sessions keep their base unless every copy was read.
         fresh: dict[str, dict] = {} if complete else dict(base_all)
         dirty: set[tuple[Path, str]] = set()
@@ -1812,11 +1843,21 @@ class Mirror:
                     fresh[identity] = base_all[identity]
                 else:
                     fresh.pop(identity, None)
-            self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
-            # Synced like the records it describes: a base lost to a crash would
-            # hand every divergent session to the bootstrap rule. A base that
-            # cannot be written fails the pass rather than pass for synced.
-            _write_json(self.flags_path, fresh, sync=True)
+            if retry is not None:
+                retry.update(held)
+            if fresh != base_all:
+                self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+                # Synced like the records it describes: a base lost to a crash
+                # would hand every divergent session to the bootstrap rule.
+                published = _write_json(self.flags_path, fresh, sync=True)
+                def decision(row):
+                    return (None if row is None else
+                            (row.get("isArchived"), row.get("isStarred"), row.get("title")))
+                if published is not None and any(
+                    decision(fresh.get(identity)) != decision(base_all.get(identity))
+                    for identity in fresh.keys() | base_all.keys()
+                ):
+                    self._flags_moved = True
         return dirty
 
     # --- one pass ------------------------------------------------------------
@@ -1854,7 +1895,7 @@ class Mirror:
             interval = float(self.policy.get("sessions", {}).get("mirror_hot_interval_s", 2))
             self._hot_services = 0
             self._hot_epoch = 0
-            if interval > 0 and options.flag_sync:
+            if self._inventoried and interval > 0 and options.flag_sync:
                 self._hot_worker = self._fork_hot()
                 self._hot_options = options
                 self._hot_due = time.monotonic() + interval
@@ -1872,8 +1913,6 @@ class Mirror:
             if lock is not None:
                 # Only the pass that holds the lock owns the per-pass payloads.
                 self._pass_payloads = {}
-                if self._hot_worker is not None:
-                    self._flag_retry.update(self._hot_worker._flag_retry)
                 self._hot_worker = None
                 self._hot_options = None
                 try:
@@ -1923,11 +1962,12 @@ class Mirror:
         acquires or releases a lock and never marks a full pass successful.
         """
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run, kind="hot")
+        self._flags_moved = False
         try:
             self.journal.refresh()
             self._pass_payloads = {}
-            # Even a usually quiet hot pass may hang on its next read. Record
-            # its start as well as its finish without moving the full heartbeat.
+            # Sample starts so a slow hot read can be visible without rewriting
+            # the sidecar twice per idle tick. A recorded start always finishes.
             self._record_hot(current, None)
             self._hot(current, options, spread=spread)
             current.stage = "complete"
@@ -2067,7 +2107,7 @@ class Mirror:
                     # An inline hot pass may have advanced the base while this
                     # pass retained old projections. Decide again from a fresh
                     # inventory. Its scan still services hot checkpoints; if
-                    # one processed candidates, refresh again before deciding.
+                    # one changed a decision, refresh again before deciding.
                     epoch = self._hot_epoch
                     flag_files, unlisted, unknown, failed = self._flag_inventory(current, options)
                     if epoch == self._hot_epoch:
@@ -2081,7 +2121,6 @@ class Mirror:
                     current.flags_held += len(identities)
                     current.held_by = [{"path": str(store_dir()),
                                         "reason": "hot sync advanced during flag inventory; retry next pass"}]
-                    self._flag_retry.update(identities)
                     flag_files = None
             if flag_files is not None:
                 self._flags_active = True
@@ -2169,15 +2208,21 @@ class Mirror:
                           for path, files in flag_files.items()}
         identities = {data["cliSessionId"] for files in flag_files.values()
                       for data in files.values() if data.get("cliSessionId")}
+        retry: set[str] = set()
         self.sync_flags(flag_files, stems, options, current, unread=dict(self._unread),
                         blind=blind, complete=candidates is None and not unlisted
-                        and not failed and not self._unread)
+                        and not failed and not self._unread, retry=retry)
+        self._update_flag_retry(identities if candidates is None else candidates, retry)
         if current.flags_held:
-            self._flag_retry.update(identities)
             current.held_by = [{"path": where, "reason": reason}
                                for where, reason in list(self._why.items())[:HELD_BY_LIMIT]]
-        else:
-            self._flag_retry.difference_update(identities)
+
+    def _update_flag_retry(self, considered: set[str], held: set[str]) -> None:
+        """Keep both serial inventories' retries limited to identified holds."""
+        for inventory in (self, self._hot_worker, self._hot_parent):
+            if inventory is not None:
+                inventory._flag_retry.difference_update(considered)
+                inventory._flag_retry.update(held)
 
     def _hot(self, current: Pass, options: Options, *, spread: bool = True) -> None:
         self._checkpoint(current, "reading entries")
@@ -2209,6 +2254,12 @@ class Mirror:
             identity = self._file(path, name).get("cliSessionId") or ""
             if identity:
                 identities.setdefault(identity, instant)
+        # Deleted sessions must not live forever in either hot retry queue.
+        gone = {identity for identity in self._flag_retry | self._retry.keys()
+                if not any(identity in state.ids for state in self._folders.values())}
+        self._update_flag_retry(gone, set())
+        for identity in gone:
+            self._retry.pop(identity, None)
         for identity, since in list(self._retry.items()):
             if instant - since > UNRESOLVED_RETRY_S:
                 del self._retry[identity]

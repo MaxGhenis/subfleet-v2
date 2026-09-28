@@ -93,9 +93,7 @@ def test_large_mirror_reuses_unchanged_entries_and_propagates_one_edit(world, mo
             fx.index_entry(store, account, org, identity, settings={"ultracode": True},
                            metadata={"preview": "retained conversation metadata " * 400})
     reads = count_entry_reads(monkeypatch)
-    # Count one full inventory: cooperative hot service has its own inventory
-    # and its cadence is exercised by test_sessions_mirror_hot_progress.py.
-    running = engine(world, mirror_hot_interval_s=0)
+    running = engine(world)
     assert running.run_once().state == "ok"
     assert len(reads) == 640
     assert len(running._entries) == 640
@@ -123,8 +121,7 @@ def test_atomic_replacement_invalidates_cache_even_with_same_mtime_and_size(worl
     home, store, _root = world
     path = openable(home, store, ONE, ACCOUNT_A, ORG_A,
                     title="old title", title_source="manual", settings={"ultracode": True})
-    # These counts describe one full inventory; hot cadence has separate tests.
-    running = engine(world, mirror_hot_interval_s=0)
+    running = engine(world)
     running.run_once()
     running.run_once()  # also cache the new account copy
     before = path.stat()

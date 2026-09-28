@@ -61,15 +61,15 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         self.root.mkdir()
         ticks = itertools.count()
         # Each rule models exactly one flag transaction and injects its races
-        # once. Cooperative hot scheduling is checked separately; a wall-clock
-        # service here would apply these hooks to extra unmodeled transactions.
+        # once. test_sessions_mirror_safety.py exercises embedded services with
+        # a separate interleaving model; these hooks describe one transaction.
         self.running = mirror.Mirror(
             self.root, fx.policy(mirror_hot_interval_s=0),
             now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
         self.state: model.State | None = None
         self.focus = itertools.count(1)
-        #: Folders some earlier pass listed (the code reads an unlisted
-        #: folder's copies by name from its last listing).
+        #: Folders whose SESSION copy an earlier pass successfully read. A
+        #: listing alone does not establish an unreadable copy's owner.
         self.listed: set[int] = set()
 
     # --- the two worlds -------------------------------------------------------
@@ -241,7 +241,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             # (whose session nobody can name), holds both sessions.
             everything = mode != "unreadable" or account not in self.listed
             assert result.flags_held == (2 if everything else 1)
-        self.listed.update(a for a in range(len(FOLDERS)) if a != account or mode == "unreadable")
+        self.listed.update(a for a in range(len(FOLDERS)) if a != account)
 
     @rule()
     def pass_cancelled_before_publish(self):
@@ -275,6 +275,23 @@ class _Always:
 
     def is_set(self) -> bool:
         return True
+
+
+def test_a_listing_does_not_teach_the_model_an_unreadable_copys_owner(tmp_path, monkeypatch):
+    """C-23.28: repeated first-read failures keep the hold blind in both worlds."""
+    machine = MirrorAgainstModel(tmp_path, monkeypatch)
+    try:
+        machine.seed(False)
+        for _ in range(2):
+            machine.pass_that_cannot_read_a_copy(0, "unreadable")
+            assert 0 not in machine.listed
+            machine.files_and_base_match_the_model()
+        machine.full_pass()
+        assert 0 in machine.listed
+        machine.pass_that_cannot_read_a_copy(0, "unreadable")
+        machine.files_and_base_match_the_model()
+    finally:
+        machine.teardown()
 
 
 @pytest.mark.parametrize("seed", [0])
