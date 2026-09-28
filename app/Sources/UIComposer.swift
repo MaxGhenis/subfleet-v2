@@ -12,7 +12,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-final class ComposerNSTextView: NSTextView {
+class ComposerNSTextView: NSTextView {
     var onSubmit: () -> Void = {}
     /// Set only while the composer steers: ⌘Return queues the text for later.
     var onQueue: (() -> Void)?

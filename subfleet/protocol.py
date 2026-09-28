@@ -18,7 +18,7 @@ PROTOCOL_VERSION = 1
 # C-29: the conversation ops (design §5), answered by subfleet/conversations/service.py.
 CONVERSATION_OPS = (
     "capabilities", "conversation.list", "conversation.open", "conversation.create", "conversation.settings",
-    "conversation.unblock", "conversation.history", "conversation.events", "conversation.watch",
+    "conversation.rename", "conversation.unblock", "conversation.history", "conversation.events", "conversation.watch",
     "message.submit", "message.status", "message.cancel", "message.steer", "turn.interrupt", "message.resolve",
     "approval.list", "approval.get", "approval.respond", "attachment.add", "catalog.refresh", "models.list",
     "conversation.runs",

@@ -48,7 +48,8 @@ struct SubfleetApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New conversation") {
-                    NotificationCenter.default.post(name: .subfleetNewConversation, object: nil)
+                    SubfleetAppDelegate.openMain?()
+                    model.openNewDraft()
                 }.keyboardShortcut("n")
                 Button("Search…") {
                     SubfleetAppDelegate.openMain?()

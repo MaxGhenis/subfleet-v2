@@ -20,6 +20,7 @@ its text; `[fake:write]` combines with any other:
     question          AskUserQuestion; the chosen answers are echoed back
     questions         AskUserQuestion with several questions, including multiSelect
     slow              streams until interrupted; the interrupt ends the turn
+    quiet-slow        waits without assistant output until interrupted
     stubborn          acknowledges interrupts and keeps going; SIGINT ends it with no result
     stubborn-result   acknowledges interrupts and keeps going; SIGINT ends the turn with an
                       `error_during_execution` result, as Claude Code 2.1.280 did in the
@@ -34,6 +35,11 @@ its text; `[fake:write]` combines with any other:
     bash              runs SUBFLEET_FAKE_BASH_COMMAND as its Bash tool, then succeeds
     steer             waits for a queued message, folds it at a tool boundary, then replies
     steer-late        waits for a queued message, ends without another boundary; it runs next
+
+Title directives combine with turn scenarios: `title-error` answers the
+`generate_session_title` control with an error, `title-null` returns no title,
+`title-timeout` never answers, and `title-delayed` answers after 1.5 seconds.
+Otherwise that control returns "Fixture session title", even during a turn.
 
 Environment:
 
@@ -183,6 +189,11 @@ class Fake:
             except ValueError:
                 continue
             request = row.get("request") or {}
+            if row.get("type") == "control_request" and request.get("subtype") == "generate_session_title":
+                # 2.1.280 dispatches this control asynchronously; a turn or a
+                # slow titler must not prevent the reader handling an interrupt.
+                threading.Thread(target=self.generate_title, args=(row,), daemon=True).start()
+                continue
             if row.get("type") == "user":
                 self.lifecycle(row.get("uuid"), "queued")
                 if row.get("priority") is not None:
@@ -220,6 +231,26 @@ class Fake:
                 continue
             self.inbox.put(row)
         self.inbox.put(None)
+
+    def generate_title(self, row: dict) -> None:
+        """The installed CLI's `{description, persist?}` -> `{title: str|null}` control."""
+        request = row["request"]
+        description = request.get("description")
+        response = {"subtype": "success", "request_id": row.get("request_id")}
+        if not isinstance(description, str) or not isinstance(request.get("persist", True), bool):
+            response.update(subtype="error", error="fake: invalid title request")
+        else:
+            directives = DIRECTIVE.findall(description)
+            if "title-timeout" in directives:
+                return
+            if "title-delayed" in directives:
+                time.sleep(1.5)
+            if "title-error" in directives:
+                response.update(subtype="error", error="fake: titler unavailable")
+            else:
+                response["response"] = {"title": None if "title-null" in directives else "Fixture session title"}
+        self.log({"title_response": response, "pid": os.getpid()})
+        self.emit({"type": "control_response", "response": response})
 
     def applied(self) -> dict:
         """`get_settings`'s `applied`, from the launch flags: ultracode is on where the
@@ -307,7 +338,7 @@ class Fake:
             if isinstance(content, list) else []
         self.hook("UserPromptSubmit", prompt=text)
         directives = DIRECTIVE.findall(text)
-        scenario = next((d for d in directives if d != "write"), "reply")
+        scenario = next((d for d in directives if d != "write" and not d.startswith("title-")), "reply")
         self.interrupted.clear()
         if scenario == "stop-before-ack":
             self.log({"stop_before_ack": row.get("uuid")})
@@ -422,6 +453,11 @@ class Fake:
             return self.result(False, "error_during_execution", text="interrupted")
         self.say(model, reply)
         return self.result(True, text=reply)
+
+    def scenario_quiet_slow(self, model: str, reply: str):
+        if self.interrupted.wait(timeout=60):
+            return self.result(False, "error_during_execution", text="interrupted")
+        return self.scenario_reply(model, reply)
 
     def scenario_background(self, model: str, reply: str):
         self.say(model, reply)

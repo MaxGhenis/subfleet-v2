@@ -550,6 +550,10 @@ struct ConversationStoreState: Equatable {
             }
             if let index = conversations.firstIndex(where: { $0.conversation_id == cid }) {
                 conversations[index].pending_approvals = change.pending_approvals
+                if let title = change.title {
+                    conversations[index].title = title
+                    conversations[index].title_source = change.title_source
+                }
                 if let mid = change.message_id, let state = change.state {
                     // A message first appears as `queued`, so a queued change names the newest one.
                     let previous = conversations[index].last_message
@@ -1008,6 +1012,11 @@ final class ConversationEngine {
 
     func refreshCatalog() throws -> CatalogRefreshResult {
         try client.call(Ops.catalogRefresh, NoArgs())
+    }
+
+    func renameConversation(conversationID: String, title: String) throws -> Conversation {
+        try client.call(Ops.conversationRename, ConversationRenameArgs(
+            conversation_id: conversationID, title: title)).conversation
     }
 
     // MARK: Synchronous helpers (the frontend probes, and simple callers)
