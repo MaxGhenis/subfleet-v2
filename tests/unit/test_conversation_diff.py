@@ -161,17 +161,18 @@ def test_the_end_snapshot_records_head_after_and_only_brackets_a_started_snapsho
     a commit made by the turn is part of its changes."""
     head, start = diff.snapshot(repository)
     assert diff.end_snapshot(repository, head_before=head, start_tree=None) == {"head_after": head,
-                                                                                 "end_tree": None}
+                                                                                 "end_tree": None, "skipped": []}
     (repository / "tracked.txt").write_text("committed by the turn\n")
     git(repository, "commit", "-am", "turn work")
     end = diff.end_snapshot(repository, head_before=head, start_tree=start)
-    assert end["head_after"] != head and end["end_tree"]
+    assert end["head_after"] != head and end["end_tree"] and end["skipped"] == []
     files = diff.build(repository, start, end["end_tree"])["files"]
     assert [f["path"] for f in files] == ["tracked.txt"]
     plain = tmp_path / "plain"
     plain.mkdir()
     assert diff.snapshot(plain) is None
-    assert diff.end_snapshot(plain, head_before=None, start_tree=None) == {"head_after": None, "end_tree": None}
+    assert diff.end_snapshot(plain, head_before=None, start_tree=None) == {"head_after": None, "end_tree": None,
+                                                                           "skipped": []}
     with pytest.raises(SalvageError):
         diff.end_snapshot(plain, head_before=None, start_tree=start)
 
