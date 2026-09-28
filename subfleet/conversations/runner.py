@@ -358,7 +358,9 @@ class TurnRunner:
                 if self.stop_at is None:
                     self.stop_at = self.clock()
                 if self._stop_on_catch_up:
-                    continue             # requeued once replay restores delivery
+                    # Dropped: `_run` queues a fresh interrupt once the replay
+                    # has caught up; the stop's clock has already started.
+                    continue
                 self._apply(self.driver.interrupt())
             elif command[0] == "respond":
                 _, request_id, decision, message, answers = command
@@ -493,10 +495,12 @@ class TurnRunner:
             if self.sent.get(frame.tag) == "written":
                 self.outbox.pop(0)            # replayed: already delivered to the provider
                 continue
-            if self.recorded is not None and frame.op == "write":
+            if self.recorded is not None and (frame.tag == USER_FRAME or frame.tag.startswith("approval:")):
                 # Reconstruct a delivered turn's earlier state, but a saved
-                # terminal outcome cannot authorize new provider work (including
-                # an approval response whose write the crash interrupted).
+                # terminal outcome cannot authorize new provider work: the
+                # message, or a person's answer whose write the crash interrupted.
+                # What stops work still goes: the driver's interrupt (a model
+                # mismatch's, C-26.8), the close and the escalation's signals.
                 self.outbox.pop(0)
                 continue
             if frame.tag == USER_FRAME:

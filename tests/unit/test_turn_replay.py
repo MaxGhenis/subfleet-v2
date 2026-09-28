@@ -29,7 +29,7 @@ from subfleet.conversations import runner as runner_module
 from subfleet.conversations.launch import TURN_MANIFEST_KEY, spec_from_manifest
 from subfleet.conversations.service import ConversationService
 from subfleet.relay import RelayError, RelayServer, read_log
-from tests.unit.test_conversation_service import (INIT_OK, SETTINGS, Clock, FakeDaemon, conversation, submit,
+from tests.unit.test_conversation_service import (ASK, INIT_OK, SETTINGS, Clock, FakeDaemon, conversation, submit,
                                                   turn_attempt)
 
 RECEIPT = json.dumps({"type": "control_response", "response": {"subtype": "success",
@@ -235,6 +235,75 @@ def test_a_saved_no_send_outcome_keeps_a_live_relay_from_sending_after_the_hold_
     assert (final["state"], final["reason"], final["stop_reason"]) == (
         "interrupted", "stopped-before-send", "legacy-owner")
     assert final["user_frame_written"] is False
+
+
+WRONG_MODEL = json.dumps({"type": "assistant", "message": {
+    "id": "msg-wrong", "role": "assistant", "model": "claude-haiku-4-5",
+    "content": [{"type": "text", "text": "answered on the wrong model"}]}})
+
+
+def test_a_recorded_model_mismatch_still_sends_its_interrupt_on_replay(world, monkeypatch):
+    """C-26.6, C-26.8: the daemon died after publishing a model mismatch's outcome and
+    before sending the driver's interrupt. A recorded terminal outcome authorizes no
+    new provider work, but an interrupt stops work: the replay sends it before the
+    close, rather than leaving the wrong-model turn running until the late SIGINT
+    (`after_result_s`, 135 s). Review of 7da13417, finding 1."""
+    first = world.runner()
+    world.deliver(first)
+    write_outcome = runner_module.TurnRunner._write_outcome
+
+    def crash_after_outcome(self):
+        write_outcome(self)
+        raise RuntimeError("simulated daemon crash before the interrupt was sent")
+
+    monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", crash_after_outcome)
+    world.say(WRONG_MODEL)
+    assert first.join(60)
+    recorded = json.loads((world.adir / "turn.json").read_text())
+    assert (recorded["state"], recorded["reason"], recorded["ended_by"]) == ("failed", "model-mismatch", "driver")
+    assert world.logged() == ["init", "user-message"]
+    world.restart()
+    monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", write_outcome)
+    replay = world.runner()
+    until(lambda: "close" in world.logged(), "the replay's close")
+    assert world.logged() == ["init", "user-message", "interrupt", "close"]
+    assert replay.stop_at is None and "late" not in replay.escalated     # not the late SIGINT's doing
+    world.say(RECEIPT, ABORTED)
+    assert world.settle(replay, result=True) == ("failed", "model-mismatch")
+    final = json.loads((world.adir / "turn.json").read_text())
+    assert (final["state"], final["reason"], final["ended_by"]) == ("failed", "model-mismatch", "driver")
+
+
+def test_a_recorded_terminal_turn_never_replays_a_persons_answer(world, monkeypatch):
+    """C-26.6, C-27.1: a person's answer the store holds but the relay log does not
+    is new provider work. After the turn's outcome is recorded, a replay that
+    rebuilds the approval (read a few bytes at a time, so the answer is applied
+    before the terminal row is read again) never writes it; its close still goes."""
+    first = world.runner()
+    world.deliver(first)
+    world.say(ASK)
+    until(lambda: world.svc.store.approvals(message_id=world.mid), "the approval")
+    [approval] = world.svc.store.approvals(message_id=world.mid)
+    # The answer reached the store; the runner that would have written it never did.
+    assert world.svc.store.answer_approval(approval["approval_id"], {"decision": "allow"})
+    world.say(ABORTED)
+    until(lambda: "close" in world.logged(), "the first runner's close")
+    first.stop()
+    assert first.join(10)
+    assert json.loads((world.adir / "turn.json").read_text())["state"] == "failed"
+    assert world.logged() == ["init", "user-message", "close"]
+    world.restart()
+    monkeypatch.setattr(runner_module, "READ_CHUNK", 16)
+    answers = []
+    respond = runner_module.ClaudeTurn.respond
+    monkeypatch.setattr(runner_module.ClaudeTurn, "respond",
+                        lambda self, *args, **kwargs: answers.append(args[0]) or respond(self, *args, **kwargs))
+    replay = world.runner()
+    until(lambda: replay.driver.outcome is not None, "the replay's outcome")
+    assert answers == [approval["provider_request_id"]]         # the replay did rebuild the answer
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 1}))
+    assert replay.join(60)
+    assert world.logged() == ["init", "user-message", "close"]
 
 
 def test_replay_waits_for_status_to_confirm_a_user_frame_missing_from_its_first_log(world, monkeypatch):
