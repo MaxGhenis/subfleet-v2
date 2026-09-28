@@ -276,9 +276,10 @@ def test_a_recorded_model_mismatch_still_sends_its_interrupt_on_replay(world, mo
 
 def test_a_recorded_terminal_turn_never_replays_a_persons_answer(world, monkeypatch):
     """C-26.6, C-27.1: a person's answer the store holds but the relay log does not
-    is new provider work. After the turn's outcome is recorded, a replay that
-    rebuilds the approval (read a few bytes at a time, so the answer is applied
-    before the terminal row is read again) never writes it; its close still goes."""
+    is new provider work. The daemon died after publishing the turn's outcome and
+    before closing stdin, so the relay would still write. A replay that rebuilds
+    the answer (read a few bytes at a time, so it is applied before the terminal
+    row is read again) never writes it; its close still goes."""
     first = world.runner()
     world.deliver(first)
     world.say(ASK)
@@ -286,24 +287,34 @@ def test_a_recorded_terminal_turn_never_replays_a_persons_answer(world, monkeypa
     [approval] = world.svc.store.approvals(message_id=world.mid)
     # The answer reached the store; the runner that would have written it never did.
     assert world.svc.store.answer_approval(approval["approval_id"], {"decision": "allow"})
+    write_outcome = runner_module.TurnRunner._write_outcome
+
+    def crash_after_outcome(self):
+        write_outcome(self)
+        raise RuntimeError("simulated daemon crash before the relay close")
+
+    monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", crash_after_outcome)
     world.say(ABORTED)
-    until(lambda: "close" in world.logged(), "the first runner's close")
-    first.stop()
-    assert first.join(10)
+    assert first.join(60)
     assert json.loads((world.adir / "turn.json").read_text())["state"] == "failed"
-    assert world.logged() == ["init", "user-message", "close"]
+    assert world.logged() == ["init", "user-message"]
     world.restart()
+    monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", write_outcome)
     monkeypatch.setattr(runner_module, "READ_CHUNK", 16)
-    answers = []
+    rebuilt = []
     respond = runner_module.ClaudeTurn.respond
-    monkeypatch.setattr(runner_module.ClaudeTurn, "respond",
-                        lambda self, *args, **kwargs: answers.append(args[0]) or respond(self, *args, **kwargs))
+
+    def recording(self, *args, **kwargs):
+        step = respond(self, *args, **kwargs)
+        rebuilt.extend(frame.tag for frame in step.frames)
+        return step
+
+    monkeypatch.setattr(runner_module.ClaudeTurn, "respond", recording)
     replay = world.runner()
-    until(lambda: replay.driver.outcome is not None, "the replay's outcome")
-    assert answers == [approval["provider_request_id"]]         # the replay did rebuild the answer
-    (world.adir / "exit.json").write_text(json.dumps({"rc": 1}))
-    assert replay.join(60)
+    until(lambda: "close" in world.logged(), "the replay's close")
+    assert rebuilt == [f"approval:{approval['provider_request_id']}"]     # the replay did rebuild it
     assert world.logged() == ["init", "user-message", "close"]
+    assert world.settle(replay, result=True)[0] == "failed"
 
 
 def test_replay_waits_for_status_to_confirm_a_user_frame_missing_from_its_first_log(world, monkeypatch):
