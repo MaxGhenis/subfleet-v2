@@ -51,7 +51,7 @@ from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
-    SalvageError, git_head, git_toplevel, git_tree, path_text, salvage, transient_os_error,
+    SalvageError, git_head, git_toplevel, git_tree, path_text, salvage, transient_os_error, utf8_text,
     validate_writable_workdir, working_tree,
 )
 from .sessions.registry import CONVERSATION_FIX
@@ -2676,8 +2676,11 @@ class Daemon:
                 self._discard_worktree(job["workdir"], workdir, cap)
             if not Path(workdir).exists():
                 try:
+                    # `backslashreplace`: git's messages can quote a file name that is
+                    # not UTF-8, which a strict read raised as `UnicodeDecodeError`
+                    # out of the admission pass on every try (review of cda4c161, N1).
                     result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                            capture_output=True, text=True,
+                                            capture_output=True, text=True, errors="backslashreplace",
                                             timeout=self.policy["caps"]["worktree_add_timeout_s"])
                 except (OSError, subprocess.SubprocessError):
                     self._discard_worktree(job["workdir"], workdir, cap)
@@ -3936,7 +3939,10 @@ class Daemon:
             verb = next((part for part in command[3:] if not str(part).startswith("-")), "git")
             message = f"git {verb} timed out after {exc.timeout:g} s"
         else:
-            message = str(exc) or type(exc).__name__
+            # Valid UTF-8, as C-13.1's: the record reaches an event and the job's notice,
+            # which SQLite writes as strict UTF-8 (review of cda4c161, N1; a `SalvageError`
+            # already is, and this holds for any other error's text).
+            message = utf8_text(str(exc)) or type(exc).__name__
         return transient, {"error_type": type(cause).__name__, "error": message[:500]}
 
     def _workspace_failed(self, job: dict, exc: BaseException) -> None:
@@ -4598,8 +4604,11 @@ class Daemon:
                     raise
                 # git's own words: paths and refs, never a credential. A snapshot
                 # already written stands when only reading HEAD after it failed.
+                # Valid UTF-8 whatever it quotes, or the receipt could not be
+                # written, on this try or any other (N1; a `SalvageError` already
+                # is, and this holds for any other error's text).
                 stage = "checkpoint" if result else "salvage"
-                error = f"{stage} failed: {exc}"[:500]
+                error = utf8_text(f"{stage} failed: {exc}")[:500]
                 self.log.warning("attempt %s %s", a["attempt_id"], error)
             self._salvage_failures.pop(a["attempt_id"], None)
             # Every path as valid UTF-8: `json_bytes` cannot encode the surrogates
@@ -4677,7 +4686,7 @@ class Daemon:
                     transient = getattr(exc, "transient", False) or transient_os_error(exc)
                     if retry and transient and failures < TURN_TREE_TRIES:
                         raise
-                    receipt["error"] = f"end snapshot failed: {exc}"[:500]
+                    receipt["error"] = utf8_text(f"end snapshot failed: {exc}")[:500]     # as `_salvage`'s
             self._tree_failures.pop(a["attempt_id"], None)
             receipt["at"] = utcnow()
             self._publish("trees", path, json_bytes(receipt))

@@ -46,11 +46,36 @@ class SalvageError(RuntimeError):
     ``transient`` is true when the failure says nothing about the repository (a
     timeout, an `OSError` in `TRANSIENT_ERRNOS`, or git naming a held lock file
     or a full disk, `_TRANSIENT_GIT`), so the caller may retry.
+
+    The message is valid UTF-8 (`utf8_text`) whatever git quoted in it: it
+    reaches receipts, the evidence, notices and replies.
     """
 
     def __init__(self, message: str, *, transient: bool = False):
-        super().__init__(message)
+        super().__init__(utf8_text(message))
         self.transient = transient
+
+
+def utf8_text(text: str) -> str:
+    """`text` as valid UTF-8, for a receipt, the evidence, a notice or a reply.
+
+    A file or branch name that is not UTF-8, in what git prints (read with
+    `os.fsdecode`), is carried as surrogates, which `json_bytes` and SQLite
+    cannot encode: a salvage error that quoted one made its receipt unwritable,
+    so finalization raised on every try and the attempt held its lane (review of
+    cda4c161, N1). (An `OSError`'s own text is safe: it quotes a file name with
+    `repr`.) Such bytes become `\\xNN`, any other
+    lone surrogate `\\udNNN`; everything else, line breaks included, is kept.
+    """
+    return _SURROGATE.sub(_escape_surrogate, text)
+
+
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _escape_surrogate(match: re.Match) -> str:
+    code = ord(match[0])
+    return f"\\x{code - 0xDC00:02x}" if 0xDC80 <= code <= 0xDCFF else f"\\u{code:04x}"
 
 
 def git_timeout_s(timeout_s: float | None = None) -> float:
@@ -90,10 +115,14 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
 
 def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
          optional: bool = False, timeout_s: float | None = None) -> str | None:
+    """One capped git call's stdout, stripped. Both streams are read as the file
+    system names things (`os.fsdecode`), never as strict UTF-8: a path or ref name
+    that is not UTF-8 is carried, where `text=True` raised `UnicodeDecodeError`,
+    which no caller catches (review of cda4c161, N1)."""
     cap = git_timeout_s(timeout_s)
     try:
         result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
-                                capture_output=True, text=True, timeout=cap)
+                                capture_output=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
         # Never `optional`: a call that did not finish has not said "no HEAD" or
         # "no branch", and reading it that way admits a writable job with no
@@ -108,9 +137,9 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
     if result.returncode:
         if optional:
             return None
-        raise SalvageError(f"git {args[0]} failed: {result.stderr.strip()}",
+        raise SalvageError(f"git {args[0]} failed: {os.fsdecode(result.stderr).strip()}",
                            transient=_transient_git(result.stderr))
-    return result.stdout.strip()
+    return os.fsdecode(result.stdout).strip()
 
 
 def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
@@ -307,10 +336,9 @@ def _head_status(gitdir: bytes, env: dict[str, str], timeout_s: float | None) ->
 def path_text(path: str) -> str:
     """A path left out of a snapshot, as one line of valid UTF-8 for a receipt,
     the evidence or a notice: bytes that are not UTF-8 (`os.fsdecode` carries
-    them as surrogates, which `json_bytes` cannot encode) and control characters
-    (a newline would start a line of its own in a notice) are escaped."""
-    text = os.fsencode(path).decode("utf-8", "backslashreplace")
-    return "".join(char if char.isprintable() else ascii(char)[1:-1] for char in text)
+    them as surrogates, which `json_bytes` cannot encode, `utf8_text`) and control
+    characters (a newline would start a line of its own in a notice) are escaped."""
+    return "".join(char if char.isprintable() else ascii(char)[1:-1] for char in utf8_text(path))
 
 
 def _seed_index(workdir: str | Path, index: Path, *,

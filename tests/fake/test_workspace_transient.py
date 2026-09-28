@@ -176,6 +176,48 @@ def test_c6_8_a_failure_that_says_something_about_the_repository_fails_at_once(s
     assert failed["transient"] is False and failed["deferrals"] == 0
 
 
+def test_c6_8_a_snapshot_failure_that_quotes_a_name_that_is_not_utf8_fails_the_job_with_it(state_daemon, monkeypatch):
+    """Review of cda4c161, N1, at admission: the baseline snapshot's `add -A` quotes such a
+    name (faked, as APFS refuses it; every other git call is real). Carried as a surrogate,
+    it reached the job's notice, which SQLite could not encode: the admission pass raised
+    on every try, holding every job behind it."""
+    from tests.unit.test_salvage_unindexable import fake_add
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", in_place=True))["job_id"]
+    fake_add(monkeypatch, 128, b'error: open("caf\xe9.txt"): Permission denied\nfatal: adding files failed\n')
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 1) and daemon.store.list_attempts(job_id) == []
+    error = 'git add failed: error: open("caf\\xe9.txt"): Permission denied\nfatal: adding files failed'
+    assert f"workspace preparation failed: SalvageError: {error}" in daemon.store.list_notices()[0]["text"]
+    [failed] = events(daemon, job_id, "job.workspace_failed")
+    assert failed["error"] == error and failed["transient"] is False
+
+
+def test_c6_8_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(state_daemon, monkeypatch):
+    """`git worktree add` prints a file it could not check out in its own bytes; read as
+    strict UTF-8 that raised `UnicodeDecodeError` out of the admission pass on every try.
+    The call is faked (APFS refuses such names) and decodes as `subprocess` would."""
+    import subfleet.daemon as daemon_module
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if "worktree" in cmd and "add" in cmd:
+            stderr = b"error: unable to create file caf\xe9.txt: Permission denied\nfatal: could not reset\n"
+            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
+            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    daemon._admit()
+    assert daemon.store.get_job(job_id)["state"] == "failed"
+    assert ("could not allocate worktree: error: unable to create file caf\\xe9.txt: Permission denied"
+            in daemon.store.list_notices()[0]["text"])
+
+
 def test_c6_8_a_wrapped_timeout_is_transient_and_names_the_underlying_type(state_daemon, monkeypatch):
     """C-6.8 salvage wraps git's timeout; the record still says TimeoutExpired."""
     daemon, harness = state_daemon

@@ -20,6 +20,14 @@ from subfleet.salvage import SalvageError, SalvageResult
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401 (a fixture)
 from tests.fake.test_workspace_contract import repository
 from tests.unit.test_salvage import git
+from tests.unit.test_salvage_unindexable import fake_add, on_a_branch_whose_name_is_not_utf8
+
+#: What git's `error()` prints for a file it cannot read whose name is not UTF-8
+#: (Linux allows such names; APFS refuses them, so `add -A` is faked for these).
+NOT_UTF8_STDERR = (b'error: open("caf\xe9.txt"): Permission denied\n'
+                   b"error: unable to index file 'caf\xe9.txt'\nfatal: adding files failed\n")
+NOT_UTF8_ERROR = ('salvage failed: git add failed: error: open("caf\\xe9.txt"): Permission denied\n'
+                  "error: unable to index file 'caf\\xe9.txt'\nfatal: adding files failed")
 
 
 def lane_leases(daemon):
@@ -184,6 +192,64 @@ def test_c13_1_a_left_out_name_that_is_not_utf8_does_not_stop_the_receipt(state_
     assert receipt["skipped"] == receipt["result"]["skipped"] == ["caf\\xe9/"]
     evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
     assert evidence["salvage_skipped"]["paths"] == ["caf\\xe9/"]
+    assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
+
+
+def test_c13_1_a_failure_that_quotes_a_name_that_is_not_utf8_is_recorded(state_daemon, monkeypatch):
+    """Review of cda4c161, N1: only `add -A` is faked; every other git call, the receipt,
+    the evidence and the notice are real. git quotes the name in its own bytes, the
+    error carried it as a surrogate, and `json_bytes` could not write the receipt: the
+    worker tried again for ever, the attempt held its lane, the incident again."""
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = finalizing(daemon, harness)
+    fake_add(monkeypatch, 128, NOT_UTF8_STDERR)
+    daemon._finalize(attempt)
+    receipt = json.loads((adir / "salvage.json").read_text())
+    assert receipt == {"result": None, "checkpoint": None, "error": NOT_UTF8_ERROR, "skipped": []}
+    assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
+    evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert evidence["salvage_error"] == NOT_UTF8_ERROR
+    [notice] = job_notices(daemon, job_id)
+    assert notice.endswith(f"\n{NOT_UTF8_ERROR}; the worktree is kept: {workdir}")
+
+
+def test_c13_1_a_quarantine_release_records_a_failure_that_quotes_such_a_name(state_daemon, monkeypatch):
+    """Review of cda4c161, N1: the release's salvage (`retry=False`) failed the same way,
+    so `kill --confirm-dead` could never finish."""
+    from subfleet import protocol
+    from subfleet.procs import Containment
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    job_id, attempt, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True)
+    (workdir / "tracked.txt").write_text("provider progress\n")
+    daemon._quarantine(attempt, Containment(marker_pids=frozenset({42099})), "escaped fixture")
+    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    fake_add(monkeypatch, 128, NOT_UTF8_STDERR)
+    daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
+                               protocol.KillArgs(job_id, confirm_dead=True))
+    assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "lost"
+    event = json.loads(daemon.store.one("SELECT * FROM events WHERE kind='quarantine.confirmed_dead'")["data_json"])
+    assert event["salvage_error"] == NOT_UTF8_ERROR
+    _, released = job_notices(daemon, job_id)
+    assert released.split("\n", 2)[1:] == ["released from quarantine (attempt a1)",
+                                            f"{NOT_UTF8_ERROR}; the worktree is kept: {workdir}"]
+
+
+def test_c13_1_a_job_on_a_branch_whose_name_is_not_utf8_is_admitted_and_salvaged(state_daemon):
+    """Real git, no fake: `git_branch` read `symbolic-ref`'s output as strict UTF-8 and raised
+    `UnicodeDecodeError`, at admission's main/master check and in salvage, and neither
+    catches it: the admission pass, then finalization, raised on every try."""
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    on_a_branch_whose_name_is_not_utf8(workdir)
+    job_id, attempt, adir = reserve(daemon, harness, sandbox="workspace-write", in_place=True)
+    assert attempt["state"] == "reserved"
+    (workdir / "tracked.txt").write_text("provider progress\n")
+    attempt = receipt_fixture(daemon, attempt, adir)
+    daemon._finalize(attempt)
+    [artifact] = [r for r in daemon.store.list_artifacts(attempt["attempt_id"]) if r["role"] == "salvage"]
+    assert artifact["path"].startswith("refs/subfleet-salvage/caf-")
+    assert git(workdir, "show", f"{artifact['path']}:tracked.txt") == "provider progress"
     assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
 
 

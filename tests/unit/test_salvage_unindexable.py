@@ -26,7 +26,7 @@ import pytest
 from subfleet import retention
 from subfleet import salvage as salvage_module
 from subfleet.salvage import (
-    SalvageError, _add_all, _git, git_head, path_text, salvage, snapshot_tree, working_tree,
+    SalvageError, _add_all, _git, git_head, path_text, salvage, snapshot_tree, utf8_text, working_tree,
 )
 from tests.unit.test_retention_worktrees import owned  # noqa: F401 (a fixture)
 from tests.unit.test_salvage import git, repository  # noqa: F401 (a fixture)
@@ -347,6 +347,7 @@ def test_a_name_that_is_not_utf8_is_carried_and_excluded_byte_for_byte(repositor
     assert path_text(skipped[0]) == "caf\\xe9/"
 
 
+@hypothesis.settings(deadline=None)
 @hypothesis.given(st.one_of(st.binary(max_size=16), st.text(max_size=12).map(os.fsencode)))
 def test_path_text_is_one_line_of_valid_utf8_and_leaves_a_printable_name_alone(raw):
     """Invariants over any file name, as `os.fsdecode` carries it (bytes that are not
@@ -361,6 +362,86 @@ def test_path_text_is_one_line_of_valid_utf8_and_leaves_a_printable_name_alone(r
         return
     if name.isprintable():
         assert text == name
+
+
+# --- error text that is not UTF-8 (review of cda4c161, N1) ----------------------------
+
+
+def on_a_branch_whose_name_is_not_utf8(repository) -> str:
+    """Check out `caf\\xe9`: git allows any byte above 0x7f in a ref name, and APFS
+    refuses it only as a file name, so the ref is packed. Returns the name as
+    `os.fsdecode` carries it."""
+    head = git_head(repository)
+    with open(repository / ".git" / "packed-refs", "ab") as packed:
+        packed.write(head.encode() + b" refs/heads/caf\xe9\n")
+    (repository / ".git" / "HEAD").write_bytes(b"ref: refs/heads/caf\xe9\n")
+    return os.fsdecode(b"caf\xe9")
+
+
+def test_git_carries_a_name_that_is_not_utf8_in_what_it_prints(repository):
+    """Real git: `_git` read both streams as strict UTF-8 (`text=True`), so a branch name,
+    or a name git quoted in an error, that is not UTF-8 raised `UnicodeDecodeError`,
+    which no caller catches (not a `SalvageError`, not an `OSError`): finalization
+    raised on every try, and admission too. Both are read as `os.fsdecode` reads them."""
+    name = on_a_branch_whose_name_is_not_utf8(repository)
+    assert salvage_module.git_branch(repository) == name
+    with pytest.raises(SalvageError) as caught:
+        _git(repository, "cat-file", "-t", os.fsdecode(b"no-caf\xe9"))    # git echoes the name
+    assert str(caught.value) == "git cat-file failed: fatal: Not a valid object name no-caf\\xe9"
+    assert not caught.value.transient
+
+
+def test_a_salvage_on_a_branch_whose_name_is_not_utf8_writes_its_ref(repository):
+    baseline = git_head(repository)
+    on_a_branch_whose_name_is_not_utf8(repository)
+    (repository / "tracked.txt").write_text("provider progress\n")
+    result = salvage(repository, baseline, 1, timestamp="2026-09-28T12:00:00Z")
+    assert result.ref == "refs/subfleet-salvage/caf-20260928T120000Z-a1"
+    assert git(repository, "show", f"{result.ref}:tracked.txt") == "provider progress"
+
+
+def test_an_add_that_quotes_a_name_that_is_not_utf8_fails_with_valid_utf8(repository, monkeypatch):
+    """git's `error()` prints a path in its own bytes (Linux allows such names; APFS does
+    not, so only `add -A` is faked). The message carried it as a surrogate, which
+    `json_bytes` could not encode: the receipt could not be written, on any try."""
+    from subfleet.daemon import json_bytes
+    (repository / "new.txt").write_text("work\n")
+    fake_add(monkeypatch, 128, b'error: open("caf\xe9.txt"): Permission denied\n'
+                               b"error: unable to index file 'caf\xe9.txt'\nfatal: adding files failed\n")
+    with pytest.raises(SalvageError) as caught:
+        snapshot_tree(repository, git_head(repository))
+    assert str(caught.value) == ('git add failed: error: open("caf\\xe9.txt"): Permission denied\n'
+                                 "error: unable to index file 'caf\\xe9.txt'\nfatal: adding files failed")
+    assert not caught.value.transient
+    json_bytes({"error": str(caught.value)})                   # never raises
+
+
+@hypothesis.settings(deadline=None)
+@hypothesis.given(st.binary(max_size=24))
+def test_utf8_text_of_what_the_file_system_names_is_pythons_own_backslashreplace(raw):
+    """Differential, over any bytes: `utf8_text(os.fsdecode(raw))` is what Python's own
+    codec makes of them, `raw.decode("utf-8", "backslashreplace")`: valid UTF-8, each
+    byte that is not escaped as `\\xNN`, every valid character (line breaks too) kept."""
+    assert utf8_text(os.fsdecode(raw)) == raw.decode("utf-8", "backslashreplace")
+
+
+#: Any `str`: every code point, lone surrogates included (`st.characters` leaves them out).
+ANY_TEXT = st.lists(st.one_of(st.integers(0xD800, 0xDFFF), st.integers(0, 0x10FFFF)), max_size=24).map(
+    lambda points: "".join(map(chr, points)))
+
+
+@hypothesis.settings(deadline=None)
+@hypothesis.given(ANY_TEXT)
+def test_utf8_text_is_always_valid_utf8_and_leaves_valid_text_alone(text):
+    """Invariants over any `str`, lone surrogates of every kind included: the result
+    encodes as strict UTF-8, so does any `SalvageError`'s message, and text with no
+    surrogate is returned unchanged (so is the result: it is idempotent)."""
+    result = utf8_text(text)
+    result.encode("utf-8")                                     # never raises
+    str(SalvageError(text)).encode("utf-8")
+    assert utf8_text(result) == result
+    if not any(0xD800 <= ord(char) <= 0xDFFF for char in text):
+        assert result == text
 
 
 # --- the rule, against git's own outcome (property) -----------------------------------

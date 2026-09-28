@@ -151,6 +151,30 @@ def test_c26_13_transient_snapshot_failures_retry_then_the_failure_is_recorded(s
     assert len(calls) == 1
 
 
+def test_c26_14_an_end_snapshot_failure_that_quotes_a_name_that_is_not_utf8_is_recorded(state_daemon, monkeypatch):
+    """Review of cda4c161, N1, for turns: the end snapshot's error reaches `trees.json`, the
+    attempt's evidence and the conversation store, and a live diff's error reaches the
+    caller; git quoted the name in its own bytes, carried as a surrogate, which none of
+    them could encode, so the turn's finalization raised on every try. Only `add -A` is
+    faked (APFS refuses such names); the rest is real."""
+    from subfleet.conversations.store import ConversationError
+    from tests.unit.test_salvage_unindexable import fake_add
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    (harness.workdir / "made-by-the-turn.txt").write_text("one\n")
+    fake_add(monkeypatch, 128, b'error: open("caf\xe9.txt"): Permission denied\nfatal: adding files failed\n')
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    error = 'end snapshot failed: git add failed: error: open("caf\\xe9.txt"): Permission denied\nfatal: adding files failed'
+    receipt = json.loads((adir / "trees.json").read_text())
+    assert receipt["error"] == error and receipt["end_tree"] is None
+    assert json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])["turn_trees"]["error"] == error
+    assert daemon.conversations.store.turn_trees(mid)["error"] == error
+    cid = daemon.conversations.store.message(mid)["conversation_id"]
+    with pytest.raises(ConversationError) as caught:
+        daemon.conversations.op_conversation_diff({"conversation_id": cid}, None)
+    assert str(caught.value) == error.removeprefix("end snapshot failed: ")
+
+
 def writable_turn_again(daemon, harness):
     """A second turn attempt in the same checkout (for tests that need two)."""
     job_id, attempt, adir = reserve(daemon, harness)
