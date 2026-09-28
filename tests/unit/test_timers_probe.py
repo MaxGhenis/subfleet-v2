@@ -152,21 +152,80 @@ def test_revoked_token_stays_latched_until_auth_epoch_changes(rig):
     assert store.get_lane(lane.lane_id).enabled
 
 
-@pytest.mark.parametrize("busy", ["lease", "attempt", "desktop"])
-def test_busy_or_desktop_lane_does_not_probe(rig, busy):
-    """C-18.1, C-10.3: occupied and protected desktop lanes send no monitoring request."""
-    timer, store, _, adapter, enroll = rig
-    lane = enroll(desktop=busy == "desktop")
-    if busy == "lease":
-        store.acquire_lease(f"lane:{lane.lane_id}:slot:1", "active-probe")
-    elif busy == "attempt":
+def occupy(timer, store, lane, how):
+    """A lane busy the way admission leaves one: a slot lease, or a live attempt."""
+    if how == "lease":
+        store.acquire_lease(f"lane:{lane.lane_id}:slot:1", "job/a1")
+    else:
         store.add_job(job_id="job", request_id="request", payload_digest="digest", kind="dispatch",
                       state="running", workdir=str(timer.root), prompt_path="/prompt", sandbox="read-only")
         store.add_attempt(attempt_id="job/a1", job_id="job", seq=1, lane_id=lane.lane_id,
                           model_requested="gpt-6-astra", state="running")
+
+
+def test_a_desktop_lane_sends_no_monitoring_request(rig):
+    """C-18.1, C-10.3: the protected desktop lane is never probed."""
+    timer, store, _, adapter, enroll = rig
+    enroll(desktop=True)
     timer.probe_cycle()
     assert adapter.calls == []
-    assert store.list_readings(lane.lane_id) == []
+
+
+@pytest.mark.parametrize("busy", ["lease", "attempt"])
+def test_a_busy_lane_is_read_beside_its_attempts_without_a_slot(rig, busy):
+    """C-18.1 (2026-09-27): with no per-lane cap a lane is seldom idle, so its usage
+    read, which costs no turn, runs beside the attempts, takes no lease and leaves
+    a fresh reading for the floor and the ranking (C-11.3)."""
+    timer, store, _, adapter, enroll = rig
+    lane = enroll()
+    occupy(timer, store, lane, busy)
+    before = {row["lease_key"] for row in store.list_leases()}
+    seen = []
+    original = timer._persist
+
+    def persist(lane, result):
+        seen.append({row["lease_key"] for row in store.list_leases()})
+        original(lane, result)
+    timer._persist = persist
+    timer.probe_cycle()
+    assert adapter.calls == [lane.lane_id]
+    assert [row["scope"] for row in store.list_readings(lane.lane_id)] == ["account"]
+    assert seen == [before] and {row["lease_key"] for row in store.list_leases()} == before
+    reservation, = events(store, "timer.reservation", lane.lane_id)
+    assert reservation["purpose"] == "usage" and reservation["holder"].startswith("probe:timer:usage:")
+
+
+@pytest.mark.parametrize("status", ["auth-dead", "revoked", "expired-token"])
+def test_a_busy_lane_found_dead_is_fenced_until_its_verdict_is_published(rig, status):
+    """C-23.44: a verdict that takes a lane out is published before admission may
+    place work there again; a busy lane's read takes `slot:0`, which no attempt holds,
+    for that, and spends no heal turn under its attempts."""
+    timer, store, _, adapter, enroll = rig
+    lane = enroll()
+    occupy(timer, store, lane, "lease")
+    adapter.responses[lane.lane_id] = [{"status": status, "readings": ()}]
+    turns = []
+    timer.turn = lambda *args, **kwargs: turns.append(args)
+    fenced = []
+    original = timer._persist
+
+    def persist(lane, result):
+        fenced.append(store.one("SELECT holder FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:0",)))
+        original(lane, result)
+    timer._persist = persist
+    timer.probe_cycle()
+    assert fenced and fenced[0]["holder"].startswith("probe:timer:usage:")
+    assert not store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:0",))
+    assert turns == []
+
+
+def test_a_keepalive_still_waits_for_an_idle_lane(rig):
+    """C-23.29: a keepalive spends a turn, so it never runs beside an attempt."""
+    timer, store, _, adapter, enroll = rig
+    lane = enroll()
+    occupy(timer, store, lane, "lease")
+    assert timer._reserve(lane, "keepalive") is None
+    assert timer._reserve(lane, "probe").startswith("probe:timer:usage:")
 
 
 def test_probe_lane_reservation_covers_verdict_publication(rig, monkeypatch):

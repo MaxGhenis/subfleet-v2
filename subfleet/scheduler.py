@@ -9,14 +9,15 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .capacity import fresh_provider, identity_blocked
+from .capacity import desktop_excluded, fresh_provider, identity_blocked
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
-from .policy import PolicyError, resolve_model, turn_cap
+from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, lane_slot_cap,
+                     resolve_model, turn_cap)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -152,19 +153,115 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
     return None
 
 
-def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any]) -> list[dict[str, Any]]:
-    """C-4.1, C-6.4; plan amendment 11: FIFO within each policy tier.
+#: C-6.9: who gets the next lane, first to last. `attended` is a conversation
+#: turn from the Subfleet app; `session` a detached job someone is waiting on
+#: now; `background` one nobody is (Max, 2026-09-27: "uncap everything and
+#: instead use prioritization").
+PRIORITY_CLASSES = ("attended", "session", "background")
 
-    Tiers follow the policy's declared order. Stable sorting preserves the
-    store's submission order when second-precision timestamps are tied.
+
+@dataclass(frozen=True)
+class Liveness:
+    """C-6.9: who is waiting, read once per pass (`Daemon._liveness`).
+
+    `sessions` are the Claude Code session ids (lower case) that a registry row
+    names whose pid is still the process that wrote it (`registry.validated`);
+    `jobs` the ids of jobs not yet finished, for a job's parent."""
+
+    sessions: frozenset[str] = frozenset()
+    jobs: frozenset[str] = frozenset()
+
+
+def priority_class(job: Any, live: Liveness | None = None) -> str:
+    """C-6.9: a job's class, from what it records and who is live now.
+
+    A turn is `attended`. A gate round is `session`: a gate is always waited on
+    by the `subfleet gate` that asked for it. Any other job is `session` while its
+    caller's Claude Code session is live (a validated registry row names
+    `caller_session`) or its parent job is unfinished; otherwise `background`. A
+    caller's pid alone is not evidence: a live pid proves a process, not the
+    caller. With no liveness to read (`live` None) every detached job is
+    `session`, which orders as before.
+    """
+    job = _row(job)
+    kind = job.get("kind")
+    if kind == "turn":
+        return "attended"
+    if kind == "gate-review" or live is None:
+        return "session"
+    session = str(job.get("caller_session") or "").strip().lower()
+    if session and session in live.sessions:
+        return "session"
+    if job.get("parent_job_id") and job["parent_job_id"] in live.jobs:
+        return "session"
+    return "background"
+
+
+def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness | None = None) -> list[dict[str, Any]]:
+    """C-4.1, C-6.9, C-26.9; plan amendment 11: class, then tier, then FIFO.
+
+    Classes go `attended`, `session`, `background` (`priority_class`); tiers
+    follow the policy's declared order; within both, oldest first. Stable
+    sorting preserves the store's submission order when second-precision
+    timestamps are tied.
     """
     tiers = policy["tiers"]
     default = "standard" if "standard" in tiers else tiers[0]
     rank = {tier: index for index, tier in enumerate(tiers)}
-    # C-26.9: within a tier, attended conversation turns go before detached jobs.
+    classes = {name: index for index, name in enumerate(PRIORITY_CLASSES)}
     return sorted((_row(job) for job in jobs), key=lambda job: (
-        rank.get(job.get("tier") or default, len(tiers)), job.get("kind") != "turn",
+        classes[priority_class(job, live)], rank.get(job.get("tier") or default, len(tiers)),
         job.get("created_at") or ""))
+
+
+def pool_capped(policy: Mapping[str, Any], job: Any) -> bool:
+    """C-6.9: whether the job's pool has a count one job could take from another.
+
+    Only then does a job that cannot be placed hold back the later jobs that
+    compete with it: in an uncapped pool a later job never takes a slot an
+    older one needs, because there are no slots to take. A turn's pool is capped
+    by the two turn caps (C-26.9), a detached job's by the fleet and per-lane
+    caps, and a job with a parent also by the parent cap.
+    """
+    job = _row(job)
+    caps = policy.get("caps") or {}
+    if job.get("kind") == "turn":
+        conversations = policy.get("conversations") or {}
+        capped = (turn_cap(conversations, "max_active_turns") is not None
+                  or turn_cap(conversations, "turn_slots_per_lane") is not None)
+    else:
+        capped = any(cap(caps, key) is not None for key in
+                     ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))
+    return capped or bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None
+
+
+def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, klass: str) -> dict[str, Any] | None:
+    """C-6.13: the `machine-busy` hold for a job of `klass`, or None to go on.
+
+    A class's threshold is met while the larger of the 1- and 5-minute load
+    averages per logical CPU is at or above its `load_per_cpu`, or the kernel's
+    memory pressure is at or above its `memory_pressure`. The larger average
+    holds quickly and lets go slowly, so a dip does not release a burst. A turn
+    is never held, nor is any class the guard does not name, and nothing is
+    held on a reading that is missing.
+    """
+    guard = admission_settings(policy).get("machine_guard")
+    limits = (guard or {}).get(klass) if klass != "attended" else None
+    if not limits or not machine:
+        return None
+    hold: dict[str, Any] = {}
+    loads = [value for value in (machine.get("load1"), machine.get("load5")) if isinstance(value, (int, float))]
+    cpus = machine.get("cpus")
+    threshold = limits.get("load_per_cpu")
+    if threshold is not None and loads and isinstance(cpus, int) and cpus > 0:
+        per_cpu = round(max(loads) / cpus, 2)
+        if per_cpu >= threshold:
+            hold.update(load_per_cpu=per_cpu, load_threshold=threshold)
+    level = machine.get("memory_pressure")
+    named = limits.get("memory_pressure")
+    if named is not None and isinstance(level, int) and level >= MEMORY_PRESSURE_LEVELS[named]:
+        hold.update(memory_pressure=level, memory_threshold=named)
+    return {"reason": "machine-busy", "class": klass, **hold} if hold else None
 
 
 def waiter_class(job: Any, tier: str) -> str:
@@ -224,8 +321,12 @@ def competes(models: frozenset[str] | None, other: frozenset[str] | None,
 
 
 def _parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:
-    """All descendants of every ancestor share that ancestor's concurrency cap."""
-    limit = policy.get("caps", {}).get("max_active_attempts_per_parent", 1)
+    """All descendants of every ancestor share that ancestor's concurrency cap,
+    `max_active_attempts_per_parent`, which is none unless the policy sets one
+    (C-6.4; until 2026-09-27 it was a hidden 1)."""
+    limit = cap(policy.get("caps"), "max_active_attempts_per_parent")
+    if limit is None:
+        return []
     jobs = {_row(item)["job_id"]: _row(item) for item in view.get("jobs", ())}
     if job.get("job_id"):
         jobs[job["job_id"]] = job
@@ -308,7 +409,7 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
 #: can reject it. A lane whose values of these, readings, closures, attempts in
 #: flight and slot block are what they were is judged as it was.
 LANE_FACTS = ("lane_id", "provider", "account_key", "credential_ref", "credential_kind", "home", "owner",
-              "enabled", "desktop", "identity_status", "label", "email")
+              "enabled", "desktop", "desktop_in_use", "identity_status", "label", "email")
 
 
 def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any]:
@@ -381,16 +482,15 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
                 identity = attempt["lane_id"]
                 in_flight[identity] = in_flight.get(identity, 0) + 1
     capacity_blocks = _parent_blocks(policy, view, job)
-    if is_turn:
-        fleet_cap = turn_cap(conversation_caps, "max_active_turns")
-        if fleet_cap is not None and sum(in_flight.values()) >= fleet_cap:
-            capacity_blocks.append("fleet")
-    elif sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
+    # C-6.4: each fleet cap is none unless the policy sets one.
+    fleet_cap = turn_cap(conversation_caps, "max_active_turns") if is_turn else cap(caps, "max_active_attempts")
+    if fleet_cap is not None and sum(in_flight.values()) + (0 if is_turn else view.get("reserved_probes", 0)) >= fleet_cap:
         capacity_blocks.append("fleet")
     return {"policy": policy, "job": job, "authorization_reason": authorization_reason, "now": now,
             "lanes": lanes, "caps": caps, "floor": floor, "excluded": excluded, "pin": pin,
             "selected": selected, "chain": chain, "is_turn": is_turn, "conversation_caps": conversation_caps,
-            "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {}}
+            "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {},
+            "lane_spread": admission_settings(policy)["lane_spread"]}
 
 
 def model_lanes(setup: Mapping[str, Any], short: str) -> list[dict[str, Any]]:
@@ -432,9 +532,13 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     if model["provider"] == "claude":
         detail["stranded_scopes"] = sorted({row["scope"] for row in closures
             if row["scope"] in higher_scopes and _future_closure(row, now)})
+    if lane.get("desktop"):
+        # C-10.3, C-11.3: a desktop lane that is a candidate sorts after every other.
+        detail["desktop"] = True
     if _identities(lane) & setup["excluded"]:
         reasons.append("excluded")
-    if lane.get("desktop") and not job.get("allow_desktop"):
+    if desktop_excluded(lane) and not job.get("allow_desktop"):
+        # C-10.3: only while Claude Code is using the desktop login (or that is unknown).
         reasons.append("desktop")
     if (job.get("kind") == "turn" and model["provider"] == "claude"
             and lane.get("credential_kind") == "home"):
@@ -452,10 +556,9 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in closures
                    if row["scope"] in ("account", model["id"]) and _future_closure(row, now))
     lane_measured = any(fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
-    # C-26.9: None for a turn when the policy sets no per-lane turn cap.
+    # C-6.4, C-26.9: None when the policy sets no per-lane cap for the job's pool.
     slot_cap = (turn_cap(setup["conversation_caps"], "turn_slots_per_lane") if setup["is_turn"] else
-                caps["max_in_flight_per_lane"] if lane_measured else
-                min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
+                lane_slot_cap(caps, lane_measured))
     if identity in unavailable:
         detail["slot_block"] = unavailable[identity]
     if setup["capacity_blocks"] or (slot_cap is not None and in_flight >= slot_cap) or detail.get("slot_block"):
@@ -487,26 +590,35 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
 
 
 def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mapping[str, Any]) -> tuple:
-    """C-11.3, C-11.7, C-26.2: where a candidate lane stands; the least is chosen.
+    """C-11.3, C-11.7, C-26.2, C-10.3: where a candidate lane stands; the least is chosen.
 
-    Every key ends with the lane id, so no two candidates tie."""
+    The desktop login's lane sorts after every other (C-10.3), then a turn's
+    affinity lane first (C-26.2), then the load band: attempts in flight in the
+    job's pool divided by `admission.lane_spread`, so with no per-lane cap lanes
+    fill evenly, that many at a time, instead of one lane taking every job
+    (C-11.3, 2026-09-27). Within a band the provider's comparator decides. Every
+    key ends with the lane id, so no two candidates tie."""
     job, provider = setup["job"], setup["policy"]["models"][short]["provider"]
+    spread = setup.get("lane_spread")
+    band = detail["in_flight"] // spread if spread else 0
     if provider == "codex":
-        base = (not detail["measured"], detail["seven_day_reset"] or "9999", identity)
+        base = (band, not detail["measured"], detail["seven_day_reset"] or "9999", identity)
     else:
         reserve = detail.get("reserve") or {}
         stranded = bool(detail.get("stranded_scopes"))
         if reserve.get("slack") is not None:
             # C-11.7: non-reserved work lands where the reserved bucket is most spent.
-            base = (not stranded, not detail["measured"], -reserve["slack"], detail["in_flight"], identity)
+            base = (band, not stranded, not detail["measured"], -reserve["slack"], detail["in_flight"], identity)
         else:
-            base = (not stranded, not detail["measured"], -(detail["headroom"] or 0), detail["in_flight"], identity)
+            base = (band, not stranded, not detail["measured"], -(detail["headroom"] or 0), detail["in_flight"],
+                    identity)
+    desktop = bool(detail.get("desktop"))
     affinity = job.get("affinity_lane") if job.get("kind") == "turn" else None
     if affinity is not None:
         # C-26.2: a conversation keeps the account that served its last
         # turn while that account stays a candidate (prompt cache).
-        return (identity != affinity, *base)
-    return base
+        return (desktop, identity != affinity, *base)
+    return (desktop, *base)
 
 
 def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: list[str],

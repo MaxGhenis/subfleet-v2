@@ -12,12 +12,13 @@ from tests.unit.test_scheduler import (  # noqa: F401  (fixtures)
 )
 
 
-def test_turns_go_first_within_their_tier(policy):
-    """C-26.9 a turn sorts ahead of older detached jobs of its tier, and tiers still order."""
+def test_turns_go_first_as_the_attended_class(policy):
+    """C-6.9, C-26.9: a turn is the `attended` class, which sorts ahead of every
+    detached job whatever its tier; among detached jobs tiers still order."""
     jobs = [dict(job(), job_id="old", created_at="2026-09-24T10:00:00Z"),
             dict(job(), job_id="turn", kind="turn", created_at="2026-09-24T11:00:00Z"),
             dict(job(tier="trivial"), job_id="trivial", created_at="2026-09-24T12:00:00Z")]
-    assert [j["job_id"] for j in ordered_jobs(policy, jobs)] == ["trivial", "turn", "old"]
+    assert [j["job_id"] for j in ordered_jobs(policy, jobs)] == ["turn", "trivial", "old"]
 
 
 def test_turns_and_detached_jobs_wait_in_separate_queues():

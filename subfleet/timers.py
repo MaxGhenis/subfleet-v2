@@ -15,6 +15,7 @@ import time
 from uuid import uuid4
 
 from . import capacity
+from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential
@@ -31,6 +32,11 @@ def instant(value=None):
 def iso(value):
     return instant(value).astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
+
+
+#: C-18.1, C-23.44: probe verdicts that take a lane out until its credential heals
+#: or is re-enrolled; one found by a read beside running attempts fences the lane.
+DEAD_CREDENTIAL = frozenset({'auth-dead', 'revoked', 'auth-revoked', 'expired-token', 'no-auth'})
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
@@ -324,20 +330,33 @@ class Timers:
             self._app_account = None
 
     def _reserve(self, lane, purpose):
+        """A timer's hold on a lane, or None when it may not run there now.
+
+        An idle lane is reserved (`slot:0`), so nothing starts beside a
+        keepalive or a probe that may spend a turn. A busy lane is not, and a
+        keepalive skips it, but a usage probe still reads it (C-18.1,
+        2026-09-27): with no per-lane cap (C-6.4) a lane is seldom idle, and a
+        lane never read keeps no fresh reading for the floor and the ranking
+        (C-11.3). That read costs no model turn and takes no slot: its holder
+        (`probe:timer:usage:`) holds no lease unless the read finds the
+        credential dead, and `_probe_lane` spends no heal turn under it."""
         holder = 'probe:timer:' + str(uuid4())
         with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
             current = self.store.get_lane(lane.lane_id)
             if not current or not current.enabled or current.owner != 'v2' or current.desktop:
                 return None
-            if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,)):
-                return None
-            if self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',)):
-                return None
             if self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason IN ('auth-dead','operator-hold') AND released_at IS NULL AND until_at>?", (lane.lane_id, iso(self.now()))):
                 return None
-            self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
+            busy = (self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,))
+                    or self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',)))
+            if busy and purpose != 'probe':
+                return None
+            if busy:
+                holder = 'probe:timer:usage:' + str(uuid4())
+            else:
+                self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
             self.store.add_event('timer.reservation', lane_id=lane.lane_id,
-                                 data={'holder': holder, 'purpose': purpose})
+                                 data={'holder': holder, 'purpose': purpose if not busy else 'usage'})
         with self._lock:
             self.active_holders.add(holder)
         return holder
@@ -402,6 +421,8 @@ class Timers:
         if not holder:
             return None
         quarantined = False
+        # C-18.1: a read beside running attempts, which holds no slot (`_reserve`).
+        shared = holder.startswith('probe:timer:usage:')
         try:
             if lane.provider == 'codex':
                 adapter = self.adapter_factory('codex')
@@ -409,7 +430,7 @@ class Timers:
                     adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
                 env = resolve_credential(lane.credential)
                 probe = self._read_probe(adapter, lane, env)
-                if probe.get('status') == 'expired-token':
+                if probe.get('status') == 'expired-token' and not shared:
                     heals = self._latest('timer.heal')
                     prior = heals.get(lane.lane_id, {})
                     if prior.get('epoch') != epoch and (not prior.get('at') or (self.now() - instant(prior['at'])).total_seconds() >= 1200):
@@ -431,7 +452,8 @@ class Timers:
                 env = resolve_credential(lane.credential)
                 self._pace_usage()
                 probe = self._read_probe(adapter, lane, env)
-                if probe.get('status') == 'expired-token' and lane.credential.kind == 'home':
+                if (probe.get('status') == 'expired-token' and lane.credential.kind == 'home'
+                        and not shared):
                     # C-23.47 for Claude homes: the CLI refreshes its own keychain
                     # login when it runs, so one minimal turn under this home heals
                     # it; at most one such turn per 20 minutes per credential epoch.
@@ -446,6 +468,12 @@ class Timers:
                             probe = self._read_probe(adapter, lane, env)
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
+            if shared and probe.get('status') in DEAD_CREDENTIAL:
+                # C-23.44: a verdict that takes the lane out is published before
+                # admission may place work there again. `slot:0` is never an
+                # attempt's (C-26.9, C-11.4), so this waits for no job; it is
+                # released with every holder of the cycle, after publication.
+                self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
             return lane, {**probe, 'probed_at': iso(self.now())}
         except (TimeoutError, OSError) as exc:
             return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
@@ -582,12 +610,15 @@ class Timers:
                         reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))]
             headroom_ok = override or not any(r['utilization'] >= 1 - self.policy.get('headroom_floor', .15) for r in measured if r['scope'] == 'account')
             caps = self.policy.get('caps', {})
-            slot_cap = caps.get('max_in_flight_per_lane', 2) if measured and not override else min(caps.get('max_in_flight_per_lane', 2), caps.get('max_in_flight_unmeasured', 1))
-            row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not row['desktop'] and
+            # C-6.4: no count caps unless the policy sets them; C-10.3: the desktop
+            # login's lane is dispatchable while Claude Code is not using it.
+            slot_cap = lane_slot_cap(caps, bool(measured) and not override)
+            fleet_cap = policy_cap(caps, 'max_active_attempts')
+            row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not capacity.desktop_excluded(row) and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and
-                                       row['in_flight'] < slot_cap and
-                                       sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) < caps.get('max_active_attempts', 4))
+                                       (slot_cap is None or row['in_flight'] < slot_cap) and
+                                       (fleet_cap is None or sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) < fleet_cap))
         return view
 
     def probe_cycle(self):

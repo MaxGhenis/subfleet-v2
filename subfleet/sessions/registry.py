@@ -43,9 +43,9 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from . import transcripts
 from .client import SessionsUnsupported
@@ -143,6 +143,14 @@ class SessionRow:
     socket_present: bool
     registry_path: str
     proc_start: str | None = None   # the process's start, as `TZ=UTC ps -o lstart=` prints it
+    # C-10.3: what the desktop login's in-use signal reads. `entrypoint` is the
+    # surface that started the process (`claude-desktop`, `cli`, `sdk-cli`, ...),
+    # `status` is `busy` or `idle`, and the times are Claude Code's epoch
+    # milliseconds (`statusUpdatedAt`, `updatedAt`).
+    entrypoint: str | None = None
+    status: str | None = None
+    status_updated_at: float | None = None
+    updated_at: float | None = None
 
     @property
     def rank(self) -> tuple[bool, bool, float]:
@@ -169,11 +177,7 @@ def _row(path: Path) -> SessionRow | None:
     pid = data.get("pid") if isinstance(data.get("pid"), int) else None
     sock = data.get("messagingSocketPath")
     sock = sock if isinstance(sock, str) else None
-    started = data.get("startedAt")
-    try:
-        started = float(started) if isinstance(started, (int, float)) and not isinstance(started, bool) else None
-    except OverflowError:
-        started = None
+    started = _millis(data.get("startedAt"))
     return SessionRow(
         session_id=data["sessionId"],
         pid=pid,
@@ -185,7 +189,78 @@ def _row(path: Path) -> SessionRow | None:
         socket_present=_is_socket(sock),
         registry_path=str(path),
         proc_start=data.get("procStart") if isinstance(data.get("procStart"), str) else None,
+        entrypoint=data.get("entrypoint") if isinstance(data.get("entrypoint"), str) else None,
+        status=data.get("status") if isinstance(data.get("status"), str) else None,
+        status_updated_at=_millis(data.get("statusUpdatedAt")),
+        updated_at=_millis(data.get("updatedAt")),
     )
+
+
+def _millis(value: Any) -> float | None:
+    """A registry time (epoch milliseconds) as a float, or None."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if number == number and abs(number) != float("inf") else None
+
+
+#: C-10.3: the entrypoints of headless SDK runs. Subfleet's lane runs and
+#: conversation turns are among them, each on its own lane's token, so they
+#: never make the desktop login busy. Every other entrypoint (`claude-desktop`,
+#: the Claude app's Code sessions; `cli`, a terminal; or none) runs on it.
+HEADLESS_ENTRYPOINT_PREFIX = "sdk-"
+
+
+def desktop_login_in_use(rows: Iterable[SessionRow], *, now_ms: float, recent_s: float,
+                         owned_pids: Iterable[int] = (), owned_sessions: Iterable[str] = (),
+                         unreadable: int = 0) -> tuple[bool, dict[str, Any]]:
+    """C-10.3: is Claude Code using the desktop login now, and on what evidence.
+
+    Each live row (`validated`) counts unless it is a Subfleet run: an `sdk-*`
+    row whose process is one of a live attempt's (`owned_pids`, by process group
+    or pid) or whose session a live attempt runs (`owned_sessions`). Those run on
+    their lanes' own tokens. An entrypoint alone proves nothing about the
+    credential: any other headless run may use the desktop login, so it counts
+    like the Claude app's rows (`claude-desktop`) and a terminal's (`cli`)
+    (review of the uncap plan). A counted row is use while its `status` is
+    `busy`, or its status time (`statusUpdatedAt`, else `updatedAt`) is within
+    `recent_s`. A row with no status, or a status and no time to judge it by, is
+    unknown and counts, whatever its start (review: a legacy row working for an
+    hour read as idle); so does each row file whose process is live but whose
+    content could not be read (`unreadable`). This answer only ever keeps a lane
+    out, so what it cannot read it treats as use.
+
+    The evidence counts the rows that decided it, so a placement on the desktop
+    lane can be explained (`desktop.in_use` events).
+    """
+    mine_pids, mine_sessions = set(owned_pids), {item.lower() for item in owned_sessions}
+    busy = recent = subfleet = 0
+    unknown = max(0, int(unreadable))
+    newest: float | None = None
+    for row in rows:
+        if not row.alive:
+            continue
+        if ((row.entrypoint or "").startswith(HEADLESS_ENTRYPOINT_PREFIX)
+                and (row.pid in mine_pids or row.session_id.lower() in mine_sessions)):
+            subfleet += 1
+            continue
+        at = row.status_updated_at if row.status_updated_at is not None else row.updated_at
+        if row.status == "busy":
+            busy += 1
+        elif row.status is None or at is None:
+            unknown += 1
+        elif now_ms - at <= recent_s * 1000:
+            recent += 1
+        else:
+            continue
+        if at is not None:
+            newest = at if newest is None else max(newest, at)
+    in_use = bool(busy or recent or unknown)
+    return in_use, {"busy": busy, "recent": recent, "unknown": unknown, "subfleet": subfleet,
+                    "newest_activity_ms": newest, "recent_s": recent_s}
 
 
 def rows(directory: Path | None = None) -> list[SessionRow]:
@@ -200,6 +275,58 @@ def rows(directory: Path | None = None) -> list[SessionRow]:
         return []
     found = [_row(path) for path in paths]
     return [row for row in found if row is not None]
+
+
+@dataclass(frozen=True)
+class Listing:
+    """The registry as read: its readable rows, and the pids its row files name
+    (`<pid>.json`) whose content could not be read as a row."""
+
+    rows: tuple[SessionRow, ...] = ()
+    unreadable: tuple[int, ...] = ()
+
+
+def listing(directory: Path | None = None) -> Listing | None:
+    """Every registry row file, read, or None when the directory exists and
+    cannot be listed. An absent directory is an empty listing: nothing has run.
+
+    C-10.3's in-use signal needs both differences, because it treats what it
+    cannot read as use; `rows` reads an unlistable directory and a row it cannot
+    parse as nothing at all.
+    """
+    try:
+        with os.scandir(directory if directory is not None else sessions_dir()) as entries:
+            paths = sorted(Path(entry.path) for entry in entries if entry.name.endswith(".json"))
+    except FileNotFoundError:
+        return Listing()
+    except OSError:
+        return None
+    found, unreadable = [], []
+    for path in paths:
+        row = _row(path)
+        if row is not None:
+            found.append(row)
+        elif path.stem.isdigit():
+            unreadable.append(int(path.stem))
+    return Listing(tuple(found), tuple(unreadable))
+
+
+def validated(found: Iterable[SessionRow], starts: Mapping[int, str]) -> list[SessionRow]:
+    """The rows whose pid is still the process that wrote them.
+
+    `starts` is every live process's start as `TZ=UTC ps -o lstart=` prints it
+    (`procs.snapshot`). A row is alive when its pid is there and, where the row
+    records `procStart`, started then: a stale row whose pid a later process
+    reuses is dead (review of the uncap plan), and one without `procStart` (an
+    older Claude Code) is alive on its pid alone.
+    """
+    return [replace(row, alive=row.pid in starts and (not row.proc_start or starts[row.pid] == row.proc_start))
+            for row in found]
+
+
+def pid_alive(pid: int | None) -> bool:
+    """Whether a process with this pid exists (another user's counts)."""
+    return _pid_alive(pid)
 
 
 def grouped(all_rows: Iterable[SessionRow] | None = None) -> dict[str, list[SessionRow]]:
