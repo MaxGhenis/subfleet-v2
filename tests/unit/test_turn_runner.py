@@ -551,3 +551,21 @@ def test_a_message_the_handshake_finds_written_is_not_followed_by_get_settings(m
         return False
     monkeypatch.setattr(runner, "_load_log", load)
     assert runner._handshake() is True and runner.replayed_message is True
+
+
+@pytest.mark.parametrize("kind,timed", [("question", False), ("tool", True)])
+def test_a_question_waits_for_its_answer_with_no_limit(make_runner, monkeypatch, kind, timed):
+    """C-26.9 (2026-09-28): only a tool approval starts the approval clock; an agent's
+    question waits for the person however long it takes."""
+    from subfleet.conversations.turn import Approval, Step
+    runner, clock, _ = make_runner(Clocks(approval_wait_s=2))
+    monkeypatch.setattr(runner.store, "add_approval", lambda **kw: None)
+    monkeypatch.setattr(runner.store, "set_state", lambda *a, **kw: None)
+    runner._apply(Step(approvals=[Approval("req-1", kind, {"tool": "AskUserQuestion"}, ("answer", "deny"))]))
+    assert ("req-1" in runner.approval_seen) is timed
+    clock.now += 3600 * 24
+    runner._timers()
+    if timed:
+        assert runner.stop_reason == "approval-timeout" and runner.commands.get_nowait() == ("interrupt",)
+    else:
+        assert runner.stop_reason is None and runner.commands.empty()
