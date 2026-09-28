@@ -525,6 +525,7 @@ class Daemon:
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
                              deliver=self._timer_notice)
+        self.timers.desktop_in_use = self._desktop_in_use        # C-10.3: status.json as admission sees it
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -931,6 +932,8 @@ class Daemon:
         listed = registry.listing()
         if listed is None:
             found = None
+        elif not listed.rows and not listed.unreadable:
+            found = {"rows": [], "unreadable": [], "groups": {}}      # nothing to validate: no `ps`
         else:
             try:
                 table = procs.snapshot()
@@ -995,6 +998,21 @@ class Daemon:
             self.store.add_event("desktop.in_use", data={"in_use": in_use, "was": self._desktop_use_recorded,
                                                          **(evidence or {}), "observed_at": utcnow()})
             self._desktop_use_recorded = in_use
+
+    def _ancestors(self, job: dict | str, known: dict[str, frozenset[str]]) -> frozenset[str]:
+        """C-6.9: a job's ancestors, its parent first, read by id and kept in `known`."""
+        job_id = job if isinstance(job, str) else job["job_id"]
+        if job_id in known:
+            return known[job_id]
+        found: list[str] = []
+        row = self.store.one("SELECT parent_job_id FROM jobs WHERE job_id=?", (job_id,)) if isinstance(job, str) else job
+        parent = row["parent_job_id"] if row else None
+        while parent and parent not in found:
+            found.append(parent)
+            row = self.store.one("SELECT parent_job_id FROM jobs WHERE job_id=?", (parent,))
+            parent = row["parent_job_id"] if row else None
+        known[job_id] = frozenset(found)
+        return known[job_id]
 
     def _liveness(self, jobs: list[dict]) -> scheduler.Liveness:
         """C-6.9: who is waiting on these jobs now (`scheduler.priority_class`).
@@ -1214,24 +1232,6 @@ class Daemon:
         rejections = [row for evaluation in decision.evaluations for row in evaluation["rejections"]]
         return len(rejections) == 1 and set(rejections[0]["reasons"]) == {"no-slot"} \
             and rejections[0].get("slot_block") != "credential-latched"
-
-    @staticmethod
-    def _spent_attempts(conn, attempt: dict, *, limited: bool, max_attempts: int) -> int:
-        """C-4.5: the attempts that count toward the job's `max_attempts`, this one
-        included: every one a provider limit did not end.
-
-        Uncapped (C-6.4), a lane holds more jobs when its window runs out, and each
-        would otherwise lose one of its attempts to a limit it did not cause. A
-        limit still excludes its lane for the job (`_retry_pin`), so a job is
-        limited at most once per lane, and `max_wall_s` bounds it whole. A job of
-        one attempt keeps one: a turn (C-26.1; C-26.7 answers its limit with a
-        continuation message), a gate round, `--max-attempts 1`.
-        """
-        if max_attempts <= 1:
-            return attempt["seq"]
-        earlier = conn.execute("SELECT count(*) FROM attempts WHERE job_id=? AND seq<? AND outcome_class='limited'",
-                               (attempt["job_id"], attempt["seq"])).fetchone()[0]
-        return attempt["seq"] - earlier - (1 if limited else 0)
 
     def _earlier_transients(self, conn, job_id: str, attempt: dict) -> int:
         """C-4.5: the job's earlier transient attempts on this attempt's lane.
@@ -3146,6 +3146,10 @@ class Daemon:
                       "directory": str(directory), "state": "reserved", "created_at": utcnow(),
                       "deadline_at": after(60), "owned_identities": {}}
             reserved = False
+            # C-10.3: refreshed off the lock, and read inside it as `_route_rows`
+            # reads it, so a probe never runs a turn on the desktop login that
+            # Claude Code began using after the evaluation (review of PR #72).
+            self._desktop_in_use()
             try:
                 with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
                     # Selection precedes this transaction. Ownership transfer and
@@ -3158,7 +3162,8 @@ class Daemon:
                         is_desktop = desktop.owns(dataclasses.asdict(lane))
                     # C-10.3: refused only while Claude Code uses the desktop login,
                     # as the decision it probes for was judged (`basis`).
-                    if (is_desktop and basis.get("desktop_in_use") is not False
+                    in_use = self._desktop_use[1]
+                    if (is_desktop and (basis.get("desktop_in_use") if in_use is None else in_use) is not False
                             and not decision_job.get("allow_desktop")):
                         return None, desktop
                     if not self.store.acquire_lease(f"lane:{decision.chosen_lane}:slot:0", holder):
@@ -3389,6 +3394,9 @@ class Daemon:
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
+        # C-6.9: job id -> its ancestors, for holds scoped to a family (`hold_scope`).
+        ancestry: dict[str, frozenset[str]] = {job["job_id"]: frozenset() for job in queued
+                                               if not job.get("parent_job_id")}
         # C-6.9, C-26.9: FIFO on a lease. A job held waiting for a lease (a writable
         # checkout, an output path, a conversation, a native session) queues for it
         # here, first in the pass's order, and no later job of this pass takes it:
@@ -3478,9 +3486,17 @@ class Daemon:
             # job waits for a slot, and an older job that cannot be placed (its lane
             # closed, its checkout leased) would otherwise keep every later one
             # waiting while lanes were free. A lease keeps its FIFO below.
-            ordered = scheduler.pool_capped(self.policy, job)
-            behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                           if scheduler.competes(models, theirs, lanes, their_lanes)), None) if ordered else None
+            scope = scheduler.hold_scope(self.policy, job)
+            family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
+
+            def ahead(models, lanes):
+                """The oldest waiter this job may not pass (C-6.9), or None."""
+                if scope is None:
+                    return None
+                return next((older for older, theirs, their_lanes in waiters.get(tier, ())
+                             if scheduler.competes(models, theirs, lanes, their_lanes)
+                             and (scope == "pool" or family & self._ancestors(older, ancestry))), None)
+            behind = ahead(models, lanes)
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
@@ -3561,8 +3577,7 @@ class Daemon:
                     # and as submitted it keeps C-6.9's place behind older jobs.
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
-                    behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                                   if scheduler.competes(models, theirs, lanes, their_lanes)), None) if ordered else None
+                    behind = ahead(models, lanes)
                     if behind:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
@@ -4610,8 +4625,7 @@ class Daemon:
             tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,finished_at=? WHERE attempt_id=?",
                        ("interrupted" if cancel else "failed", detail, utcnow(), a["attempt_id"]))
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["attempt_id"], job["job_id"]))
-            retry = not cancel and self._spent_attempts(tx, a, limited=False,
-                                                        max_attempts=job["max_attempts"]) < job["max_attempts"]
+            retry = not cancel and a["seq"] < job["max_attempts"]
             state = "queued" if retry else "cancelled" if cancel else "failed"
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
@@ -4962,9 +4976,7 @@ class Daemon:
                 ok = not lost and outcome.cls == OutcomeClass.OK
                 cancel = cancel and not ok
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
-            limited = outcome.cls == OutcomeClass.LIMITED
-            retry = (not cancel and self._spent_attempts(tx, a, limited=limited, max_attempts=job["max_attempts"])
-                     < job["max_attempts"] and
+            retry = (not cancel and a["seq"] < job["max_attempts"] and
                      ((lost and job["sandbox"] == "read-only") or
                       (outcome.cls == OutcomeClass.LIMITED and not job["pinned_lane"]) or
                       (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient))))

@@ -415,6 +415,37 @@ def test_a_pool_holds_back_only_while_it_has_a_count():
     assert scheduler.pool_capped(turns, {"kind": "turn"}) and not scheduler.pool_capped(turns, {"kind": "dispatch"})
 
 
+def test_with_only_a_parent_cap_a_job_waits_only_behind_its_family():
+    """Review of PR #72: with every cap null but the parent cap, a child was held
+    `behind-older-job` behind an unrelated job waiting on a closed lane, though the
+    parent cap cannot let it take anything that job needs. It waits only behind a
+    job that shares an ancestor with it."""
+    from subfleet import capacity
+    policy = quiet(uncapped(load_policy(DEFAULT_POLICY_PATH)))
+    policy["reserve"] = {**policy.get("reserve", {}), "models": []}
+    policy["caps"]["max_active_attempts_per_parent"] = 2
+    assert scheduler.hold_scope(policy, {"kind": "dispatch", "parent_job_id": "p"}) == "family"
+    assert scheduler.hold_scope(policy, {"kind": "dispatch"}) is None
+    assert scheduler.hold_scope(capped(copy.deepcopy(policy)), {"kind": "dispatch", "parent_job_id": "p"}) == "pool"
+    lanes = _twin_lanes(2, "claude")
+    closed = {"closure_id": 1, "lane_id": "claude-1", "scope": "account", "until_at": "2026-09-27T00:00:00Z",
+              "released_at": None}
+    view = capacity.build_view(lanes, closures=[closed], now=NOW, desktop_in_use=False)
+    base = {"kind": "dispatch", "task": "review", "tier": "standard", "sandbox": "read-only", "exclusions": (),
+            "allow_desktop": 0}
+    stranger = {**base, "job_id": "q", "pinned_lane": "claude-1", "pinned_model": "opus",
+                "created_at": "2026-09-26T11:00:00Z", "parent_job_id": "other-parent"}
+    sibling = {**base, "job_id": "s", "pinned_lane": "claude-1", "pinned_model": "opus",
+               "created_at": "2026-09-26T11:00:30Z", "parent_job_id": "p"}
+    child = {**base, "job_id": "c", "created_at": "2026-09-26T11:01:00Z", "parent_job_id": "p"}
+    view["jobs"] = [{"job_id": "p", "kind": "dispatch", "parent_job_id": None},
+                    {"job_id": "other-parent", "kind": "dispatch", "parent_job_id": None}]
+    alone = run_pass(policy, view, [stranger, child]).by_job()
+    assert alone["q"].placed is None and alone["c"].placed == "claude-2"
+    family = run_pass(policy, view, [stranger, sibling, child]).by_job()
+    assert family["s"].placed is None and family["c"].hold == "behind-older-job"
+
+
 def test_the_2026_09_27_jam_places_everything_uncapped():
     """20:26 EDT: four open Claude lanes each at 2, six Codex lanes each at 1, 35
     jobs behind one head job. With no cap every one of them has a lane."""

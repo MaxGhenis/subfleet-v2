@@ -195,24 +195,20 @@ class Limited(FakeAdapter):
         return Outcome(OutcomeClass.LIMITED, "provider limit fixture")
 
 
-@pytest.mark.parametrize("max_attempts,retries", [(2, True), (1, False)])
-def test_c4_5_a_limit_spends_no_attempt_unless_the_job_has_only_one(state_daemon, monkeypatch, max_attempts,
-                                                                      retries):
-    """Two attempts limited in a row, on two lanes, still leave a two-attempt job
-    its retry, which excludes both lanes; a job of one attempt (a turn, a gate
-    round, `--max-attempts 1`) keeps one."""
+def test_c4_5_c17_3_a_job_limited_on_every_lane_still_fails_with_rc_4(state_daemon, monkeypatch):
+    """Uncapped, a limit still spends an attempt (C-4.5 unchanged; the uncap plan's
+    revision 4 dropped the change that stopped counting it): a job limited on its
+    two lanes with `max_attempts` 2 fails at once with rc 4 (C-17.3), rather than
+    waiting out `max_wall_s` with every lane excluded (review of PR #72)."""
     from dataclasses import replace
 
     daemon, harness = state_daemon
     monkeypatch.setattr(daemon_module, "get_adapter", lambda _: Limited())
     lane = daemon.store.get_lane("codex-1")
     daemon.store.put_lane(replace(lane, lane_id="codex-2", account_key="codex:fake-2"))
-    job_id, attempt, adir = reserve(daemon, harness, max_attempts=max_attempts)
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=2)
     daemon._finalize(receipt_fixture(daemon, attempt, adir, rc=1))
-    assert (daemon.store.get_job(job_id)["state"] == "waiting") is retries
-    if not retries:
-        assert daemon.store.get_job(job_id)["state"] == "failed"
-        return
+    assert daemon.store.get_job(job_id)["state"] == "waiting"
     daemon._admit()
     second = daemon.store.list_attempts(job_id)[-1]
     assert second["seq"] == 2 and second["lane_id"] != attempt["lane_id"]
@@ -220,10 +216,8 @@ def test_c4_5_a_limit_spends_no_attempt_unless_the_job_has_only_one(state_daemon
     second_dir = daemon.root / "jobs" / job_id / "a2"
     second_dir.mkdir(mode=0o700)
     daemon._finalize(receipt_fixture(daemon, second, second_dir, rc=1))
-    assert daemon.store.get_job(job_id)["state"] == "waiting"        # two limits, no attempt spent
-    daemon._admit()
-    assert len(daemon.store.list_attempts(job_id)) == 2              # both lanes excluded for it now
-    assert daemon._holds[job_id]["reason"] == "excluded"
+    job = daemon.store.get_job(job_id)
+    assert job["state"] == "failed" and job["finished_at"]
 
 
 def test_c10_3_c6_3_the_reservation_sees_claude_code_become_active(state_daemon, tmp_path, monkeypatch):
@@ -263,3 +257,35 @@ def test_c10_3_c6_3_the_reservation_sees_claude_code_become_active(state_daemon,
         tx.execute("UPDATE jobs SET next_check_at=? WHERE job_id=?", ("2000-01-01T00:00:00Z", second))
     daemon._admit()                                               # and idle again: placed
     assert [row["lane_id"] for row in daemon.store.list_attempts(second)] == ["claude-4"]
+
+
+def test_c10_3_c11_4_a_probe_never_starts_on_a_desktop_login_that_became_busy(state_daemon, tmp_path,
+                                                                            monkeypatch):
+    """Review of PR #72: the admission-probe reservation read the early evaluation's
+    desktop answer, so a `hard` job's probe could run a model turn on the desktop
+    login that Claude Code began using after the evaluation. The answer is read
+    again, off the lock, just before the probe's transaction."""
+    from subfleet.adapters.registry import register
+    from subfleet.contracts import Credential, Lane, LaneOwner
+
+    daemon, harness = state_daemon
+    register("claude", FakeAdapter)
+    monkeypatch.setattr(daemon_module, "DESKTOP_IN_USE_TTL_S", 0)
+    monkeypatch.setattr(daemon_module, "LIVENESS_TTL_S", 0)
+    daemon.store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
+                               Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
+    _registry(tmp_path, monkeypatch, status="idle", statusUpdatedAt=time.time() * 1000 - 40 * 60_000)
+    probes = []
+    monkeypatch.setattr(daemon, "_execute_probe", lambda job, lane, model, holder: probes.append(lane.lane_id)
+                        or Outcome(OutcomeClass.OK, "admitted", {"rc": 0, "signal": None}))
+    route = daemon._route
+
+    def then_active(job, **options):
+        decision = route(job, **options)
+        _registry(tmp_path, monkeypatch)                          # busy, from now on
+        return decision
+    monkeypatch.setattr(daemon, "_route", then_active)
+    job = submit(daemon, harness, "hard", pinned_model="opus", tier="hard")
+    daemon._admit()
+    assert probes == [] and daemon.store.list_attempts(job) == []
+    assert not daemon.store.one("SELECT 1 FROM leases WHERE lease_key='lane:claude-4:slot:0'")

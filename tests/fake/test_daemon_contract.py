@@ -31,7 +31,11 @@ def test_c6_2_request_id_is_idempotent_and_digest_conflicts_are_code_2(daemon):
 
 
 def test_c6_3_concurrent_submits_take_exactly_one_unmeasured_lane_slot(daemon):
-    """C-6.3, C-6.4 concurrent one-slot admission leaves the other job at capacity."""
+    """C-6.3, C-6.4 concurrent one-slot admission leaves the other job at capacity,
+    under the caps of before 2026-09-27 (tests/caps.py); with none, both run."""
+    policy = json.loads((daemon.root / "policy.json").read_text())
+    capped(policy)
+    (daemon.root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
     daemon.start()
     barrier = threading.Barrier(2)
 

@@ -195,14 +195,19 @@ def test_a_busy_lane_is_read_beside_its_attempts_without_a_slot(rig, busy):
     assert reservation["purpose"] == "usage" and reservation["holder"].startswith("probe:timer:usage:")
 
 
-@pytest.mark.parametrize("status", ["auth-dead", "revoked", "expired-token"])
-def test_a_busy_lane_found_dead_is_fenced_until_its_verdict_is_published(rig, status):
+@pytest.mark.parametrize("probe_on_slot0", [False, True])
+@pytest.mark.parametrize("status", ["auth-dead", "revoked", "no-auth"])
+def test_a_busy_lane_found_dead_is_fenced_until_its_verdict_is_published(rig, status, probe_on_slot0):
     """C-23.44: a verdict that takes a lane out is published before admission may
-    place work there again; a busy lane's read takes `slot:0`, which no attempt holds,
-    for that, and spends no heal turn under its attempts."""
+    place work there again. A busy lane's read fences it with a key of its own,
+    `slot:fence`, since an admission probe may hold `slot:0` (review of PR #72:
+    fencing on `slot:0` failed then and the lane took work before publication);
+    and it spends no heal turn under its attempts."""
     timer, store, _, adapter, enroll = rig
     lane = enroll()
     occupy(timer, store, lane, "lease")
+    if probe_on_slot0:
+        store.acquire_lease(f"lane:{lane.lane_id}:slot:0", "probe:admission-fixture")
     adapter.responses[lane.lane_id] = [{"status": status, "readings": ()}]
     turns = []
     timer.turn = lambda *args, **kwargs: turns.append(args)
@@ -210,13 +215,49 @@ def test_a_busy_lane_found_dead_is_fenced_until_its_verdict_is_published(rig, st
     original = timer._persist
 
     def persist(lane, result):
-        fenced.append(store.one("SELECT holder FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:0",)))
+        fenced.append(store.one("SELECT holder FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:fence",)))
         original(lane, result)
     timer._persist = persist
     timer.probe_cycle()
     assert fenced and fenced[0]["holder"].startswith("probe:timer:usage:")
-    assert not store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:0",))
+    assert not store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:fence",))
+    assert bool(store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:0",))) is probe_on_slot0
     assert turns == []
+
+
+def test_a_busy_lane_with_an_expired_token_publishes_nothing(rig):
+    """C-18.1: on a busy lane the running attempts renew the token themselves; a read
+    beside them that finds it expired neither heals, fences nor publishes a latch
+    (review of PR #72: publishing it shut a working lane out until it drained)."""
+    timer, store, _, adapter, enroll = rig
+    lane = enroll()
+    occupy(timer, store, lane, "lease")
+    adapter.responses[lane.lane_id] = [{"status": "expired-token", "readings": ()}]
+    turns, persisted = [], []
+    timer.turn = lambda *args, **kwargs: turns.append(args)
+    original = timer._persist
+    timer._persist = lambda lane, result: (persisted.append(result), original(lane, result))
+    timer.probe_cycle()
+    assert adapter.calls == [lane.lane_id] and turns == [] and persisted == []
+    assert {row["lease_key"] for row in store.list_leases()} == {f"lane:{lane.lane_id}:slot:1"}
+
+
+def test_a_lane_that_raises_never_leaves_another_lanes_hold(rig, monkeypatch):
+    """Review of PR #72: a probe future that raised before the cycle's `finally`
+    left every other lane's `slot:0` held until a restart. Every holder is
+    released, and the error still surfaces."""
+    timer, store, _, adapter, enroll = rig
+    first, second = enroll("codex-1"), enroll("codex-2")
+    original = timer._probe_lane
+
+    def probe(lane):
+        if lane.lane_id == second.lane_id:
+            raise RuntimeError("database is locked")
+        return original(lane)
+    monkeypatch.setattr(timer, "_probe_lane", probe)
+    with pytest.raises(RuntimeError, match="database is locked"):
+        timer.probe_cycle()
+    assert store.list_leases() == [] and not timer.active_holders
 
 
 def test_a_keepalive_still_waits_for_an_idle_lane(rig):
@@ -595,3 +636,16 @@ def test_c29_6_a_conversation_reader_failure_never_stops_the_status_write(rig, m
     assert payload["conversations"]["available"] is False and payload["conversations"]["error"] == error
     assert payload["conversations"]["counts"] is None
     assert "claude" in payload and "jobs" in payload
+
+
+@pytest.mark.parametrize("in_use,dispatchable", [(None, False), (True, False), (False, True)])
+def test_published_capacity_judges_the_desktop_lane_as_admission_does(rig, in_use, dispatchable):
+    """C-10.3, C-18.2: `status.json` is built from the timers' snapshot; it judges the
+    desktop login's lane with the daemon's in-use signal (review of PR #72's plan: it
+    read the lane excluded while admission placed work there). No signal is use."""
+    timer, store, _, _, _ = rig
+    store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
+                        Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
+    timer.desktop_in_use = None if in_use is None else (lambda: in_use)
+    row, = [lane for lane in timer.snapshot()["lanes"] if lane["lane_id"] == "claude-4"]
+    assert row["dispatchable"] is dispatchable

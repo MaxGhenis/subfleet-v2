@@ -6,8 +6,8 @@ kinds of pass around it. This model keeps only what decides placement:
 
 - the order (`scheduler.ordered_jobs`: class, tier, oldest first);
 - the machine guard at the door (`scheduler.machine_hold`), never for a turn;
-- C-6.9's hold-back and kept slot, only in a pool with a count cap
-  (`scheduler.pool_capped`);
+- C-6.9's hold-back and kept slot, only in a pool with a count cap, and with
+  only a parent cap only within a family (`scheduler.hold_scope`);
 - one `scheduler.evaluate` per job on the view as it stands, and a placement
   counted in its lane's pool, as the reservation counts it.
 
@@ -80,6 +80,14 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
         {"job_id": job["job_id"], "kind": job.get("kind"), "parent_job_id": job.get("parent_job_id")}
         for job in jobs if job["job_id"] not in known]
     result = Pass(view=view)
+    parents = {row["job_id"]: row.get("parent_job_id") for row in view["jobs"]}
+
+    def ancestors(job_id: str) -> frozenset[str]:
+        found, parent = [], parents.get(job_id)
+        while parent and parent not in found:
+            found.append(parent)
+            parent = parents.get(parent)
+        return frozenset(found)
     waiters: dict[str, list[tuple[str, Any, Any]]] = {}
     saturated: dict[str, bool] = {}
     lanes = view.get("lanes", ())
@@ -95,9 +103,11 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
                 continue
         models = scheduler.demand_models(policy, job)
         demand = scheduler.demand_lanes(lanes, job, policy)
-        capped = scheduler.pool_capped(policy, job)
+        scope = scheduler.hold_scope(policy, job)
+        family = ancestors(job["job_id"])
         behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                       if scheduler.competes(models, theirs, demand, their_lanes)), None) if capped else None
+                       if scheduler.competes(models, theirs, demand, their_lanes)
+                       and (scope == "pool" or family & ancestors(older))), None) if scope else None
         if saturated.get(pool) or behind:
             result.outcomes.append(Outcome(job["job_id"], None, "fleet-full" if saturated.get(pool)
                                            else "behind-older-job", klass=klass))

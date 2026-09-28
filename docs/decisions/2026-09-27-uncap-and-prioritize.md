@@ -1,4 +1,4 @@
-# Uncap admission and place by priority (plan, 2026-09-27, revision 3)
+# Uncap admission and place by priority (plan, 2026-09-27, revision 4)
 
 Max's ruling, 2026-09-27, in chat: "we should uncap everything and instead use
 prioritization." On the desktop account, excluding it "makes sense if we're using
@@ -174,21 +174,22 @@ The floor only works on a fresh reading. The periodic usage read (C-9.9's
 read too.** The read costs no model turn and takes no slot. Its holder
 (`probe:timer:usage:<uuid>`) holds no lease, and it spends no heal turn
 (C-23.47). A heal waits for an idle lane, and on a busy one the running attempts
-renew the token themselves. If the read finds the credential dead (`auth-dead`,
-`revoked`, `expired-token`, `no-auth`), it takes `slot:0` until the verdict is
-published (C-23.44). That slot never holds an attempt (A3), so admission cannot
-place work on the lane in between, and no job waits for it. A keepalive, which
-spends a turn, still waits for an idle lane.
+renew the token themselves; so a busy lane's `expired-token` is not published at
+all (publishing it would latch a working lane until it drained). If the read finds
+the credential dead (`auth-dead`, `revoked`, `auth-revoked`, `no-auth`), it takes
+a fence of its own, `lane:<id>:slot:fence`, until the cycle publishes the verdict
+(C-23.44). The fence is never contended: an admission probe may hold `slot:0`.
+Admission reads any `probe:` lease on a lane as a slot block, so it cannot place
+work there in between, and no job waits for the fence. The cycle releases every
+holder it took, whatever raised. A keepalive, which spends a turn, still waits for
+an idle lane.
 
-One accounting change: **a `limited` attempt no longer counts toward
-`max_attempts`.** Uncapped, a lane holds more jobs when its window runs out, and
-each of them would lose one of its three attempts to a limit it did not cause.
-Retries after a limit stay bounded: the job excludes each lane it was limited
-on, so it can be limited at most once per lane, and `max_wall_s` bounds the whole
-job. `transient`, `lost` and every other class count as before. A job with
-`max_attempts` 1 still gets exactly one attempt: a conversation turn (C-26.1,
-whose limit C-26.7 answers with a continuation message, never a retry), a gate
-round, and `--max-attempts 1`.
+`max_attempts` counts every attempt, as before, `limited` ones included.
+Revision 3 stopped counting limits. Review showed that a job limited on every
+lane that serves its model then had no candidate and waited out `max_wall_s` (6
+hours), ending `cancelled` with rc 130, where it had failed at once with rc 4
+(C-17.3). Uncapping is not a reason to change retry accounting, and the brief said
+to keep `max_attempts`.
 
 ### A5. C-10.3, the desktop login
 
@@ -336,8 +337,8 @@ with fake providers.
    parent caps. The reference implements each of those in its own words.
    `route_check.still_stands` equals an evaluation now (the C-6.3 suite), with
    the desktop signal flipping between the two.
-10. **Limits and readings.** A `limited` attempt never reduces the attempts a job
-    has left, unless the job has `max_attempts` 1. A busy lane gets a usage
+10. **Limits and readings.** A job limited on every lane still fails at once with
+    rc 4. A busy lane gets a usage
     reading with no lease. A dead verdict on a busy lane fences it until
     published, and a keepalive still waits for an idle lane.
 
@@ -369,6 +370,27 @@ with fake providers.
   only decides when that lane is excluded.
 - It adds no knob for per-job priority. A terminal `subfleet run` outside a Claude
   Code session is `background` unless its parent is live.
+
+## Changes since revision 3 (Astra round 2 on revision 3; Opus review of PR #72)
+
+- Every attempt counts toward `max_attempts` again (A4). Opus finding 1 showed the
+  job limited on every lane that then waits six hours; CI's
+  `test_credits_rejection_closes_model_and_retry_explains_exclusion` failed on
+  it.
+- A busy lane's dead verdict is fenced by `lane:<id>:slot:fence`, never contended.
+  This answers Astra finding 1 and Opus finding 3.
+- A busy lane's `expired-token` is not published (Opus finding 4).
+- The probe cycle releases every holder it took, whatever raised (Opus finding 2).
+- A registry row whose `pid` is missing, not a number, or not its file's is
+  unknown, and counts as use (Astra finding 2).
+- `status.json` judges the desktop lane with the in-use signal (Astra finding 3):
+  the daemon hands `Timers` its `_desktop_in_use`.
+- The admission-probe reservation reads the in-use answer fresh, as the attempt
+  reservation does (Opus finding 6).
+- With only the parent cap set, a job waits only behind an older job that shares
+  an ancestor with it (`scheduler.hold_scope`, Opus finding 5). The parent cap is
+  counted per family, so an unrelated waiter cannot take anything the job needs.
+- An empty registry costs no process-table read.
 
 ## Changes since revision 2 (Max, 2026-09-28: "remove *all* caps")
 

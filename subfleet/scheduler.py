@@ -235,6 +235,25 @@ def pool_capped(policy: Mapping[str, Any], job: Any) -> bool:
     return capped or bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None
 
 
+def hold_scope(policy: Mapping[str, Any], job: Any) -> str | None:
+    """C-6.9: which older jobs a job may wait behind. `pool`: any that compete with
+    it (its pool has a fleet or per-lane count); `family`: only those that share
+    an ancestor with it (the parent cap is its pool's only count, and that count is
+    shared only within a family, review of PR #72); None: none."""
+    job = _row(job)
+    if not pool_capped(policy, job):
+        return None
+    caps = policy.get("caps") or {}
+    if job.get("kind") == "turn":
+        conversations = policy.get("conversations") or {}
+        pooled = (turn_cap(conversations, "max_active_turns") is not None
+                  or turn_cap(conversations, "turn_slots_per_lane") is not None)
+    else:
+        pooled = any(cap(caps, key) is not None for key in
+                     ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))
+    return "pool" if pooled else "family"
+
+
 def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, klass: str) -> dict[str, Any] | None:
     """C-6.13: the `machine-busy` hold for a job of `klass`, or None to go on.
 

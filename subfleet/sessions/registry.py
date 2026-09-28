@@ -304,10 +304,14 @@ def listing(directory: Path | None = None) -> Listing | None:
     found, unreadable = [], []
     for path in paths:
         row = _row(path)
-        if row is not None:
+        named = int(path.stem) if path.stem.isdigit() else None
+        if row is not None and (named is None or row.pid == named):
             found.append(row)
-        elif path.stem.isdigit():
-            unreadable.append(int(path.stem))
+        elif named is not None:
+            # Unparsable, or a row whose `pid` is missing, not a number, or not the
+            # one its file is named for: its identity cannot be trusted, so the
+            # file's own pid stands for it, as unknown (review of PR #72's plan).
+            unreadable.append(named)
     return Listing(tuple(found), tuple(unreadable))
 
 

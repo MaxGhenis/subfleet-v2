@@ -146,3 +146,22 @@ def test_listing_tells_absent_unreadable_and_unparsable_apart(tmp_path):
         assert registry.listing(directory) is None
     finally:
         directory.chmod(stat.S_IRWXU)
+
+
+@pytest.mark.parametrize("pid", ["missing", "text", "another"])
+def test_a_row_whose_pid_is_not_its_files_is_unknown(tmp_path, pid):
+    """Review of PR #72's plan: a live `<pid>.json` with a busy session but a missing,
+    non-numeric or different `pid` was read as a dead row and freed the login. Its
+    identity cannot be trusted, so its file's pid stands for it, as unknown."""
+    directory = tmp_path / "sessions"
+    directory.mkdir()
+    body = {"sessionId": "abc", "entrypoint": "claude-desktop", "status": "busy", "statusUpdatedAt": NOW_MS}
+    if pid == "text":
+        body["pid"] = "not-a-pid"
+    elif pid == "another":
+        body["pid"] = os.getpid() + 1
+    (directory / f"{os.getpid()}.json").write_text(json.dumps(body))
+    found = registry.listing(directory)
+    assert found.rows == () and found.unreadable == (os.getpid(),)
+    assert registry.desktop_login_in_use(found.rows, now_ms=NOW_MS, recent_s=1800,
+                                         unreadable=len(found.unreadable))[0]
