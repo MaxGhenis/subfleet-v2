@@ -41,7 +41,6 @@ from pathlib import Path
 
 from ..salvage import (
     SalvageError, _git, git_head, git_timeout_s, git_toplevel, path_text, snapshot_tree, transient_os_error,
-    working_tree,
 )
 from ..sessions.handoff import scrub_secrets
 
@@ -101,12 +100,20 @@ def pathspec(value) -> str | None:
     return value
 
 
-def snapshot(workdir: str | Path, *, timeout_s: float | None = None) -> tuple[str, str] | None:
-    """`(HEAD, tree)` of the working tree now, or None outside a checkout with a commit."""
+def snapshot(workdir: str | Path, *, timeout_s: float | None = None,
+             left_out: list[str] | None = None) -> tuple[str, str] | None:
+    """`(HEAD, tree)` of the working tree now, or None outside a checkout with a commit.
+
+    `left_out`, when given, receives the nested repositories with no commit that the
+    tree leaves out (C-13.1), as `path_text` writes them, so a live diff can say what
+    it cannot show (review of cda4c161, N3)."""
     head = git_head(workdir, timeout_s=timeout_s)
     if head is None:
         return None
-    return head, working_tree(workdir, head, timeout_s=timeout_s)
+    tree, skipped = snapshot_tree(workdir, head, timeout_s=timeout_s)
+    if left_out is not None:
+        left_out.extend(path_text(path) for path in skipped)
+    return head, tree
 
 
 def end_snapshot(workdir: str | Path, *, head_before: str | None, start_tree: str | None,

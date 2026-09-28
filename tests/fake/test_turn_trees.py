@@ -10,6 +10,7 @@ under test is the daemon's, not a copy of it.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import uuid
 
@@ -173,6 +174,29 @@ def test_c26_14_an_end_snapshot_failure_that_quotes_a_name_that_is_not_utf8_is_r
     with pytest.raises(ConversationError) as caught:
         daemon.conversations.op_conversation_diff({"conversation_id": cid}, None)
     assert str(caught.value) == error.removeprefix("end snapshot failed: ")
+
+
+def test_c26_14_a_live_diff_says_which_nested_repositories_it_does_not_show(state_daemon):
+    """C-13.1, C-26.14 (review of cda4c161, N3): the live `to` (conversation.diff, and
+    turn.diff before a turn's end exists; both go through `_compare`) is a snapshot that
+    leaves out a nested repository with no commit, and it said nothing. It lists them."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    service = daemon.conversations
+    cid = service.store.message(mid)["conversation_id"]
+    nested = harness.workdir / "scratch" / "repo "
+    nested.mkdir(parents=True)
+    git(nested, "init", "-q")
+    (nested / "inside.txt").write_text("never committed\n")
+    (harness.workdir / "after-the-turn.txt").write_text("one\n")
+    live = service.op_conversation_diff({"conversation_id": cid}, None)
+    assert live["to"]["live"] is True and live["to"]["skipped"] == ["scratch/repo /"]
+    assert [f["path"] for f in live["files"]] == ["after-the-turn.txt"]
+    ended = service.op_turn_diff({"message_id": mid}, None)
+    assert ended["to"]["live"] is False and "skipped" not in ended["to"]    # the receipt lists the end's
+    shutil.rmtree(nested)
+    assert service.op_conversation_diff({"conversation_id": cid}, None)["to"]["skipped"] == []
 
 
 def writable_turn_again(daemon, harness):

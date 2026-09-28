@@ -177,6 +177,28 @@ def test_the_end_snapshot_records_head_after_and_only_brackets_a_started_snapsho
         diff.end_snapshot(plain, head_before=None, start_tree=start)
 
 
+def test_a_live_snapshot_says_which_nested_repositories_it_left_out(repository):
+    """C-13.1, C-26.14 (review of cda4c161, N3): a live `to` is this snapshot, and it leaves
+    out a nested repository with no commit, as every C-6.8 snapshot does; `left_out` names
+    it, so the live diff can say what it does not show. The tree is the one without it."""
+    head, start = diff.snapshot(repository)
+    nested = repository / "scratch" / "repo "
+    nested.mkdir(parents=True)
+    git(nested, "init", "-q")
+    (nested / "inside.txt").write_text("never committed\n")
+    (repository / "new.txt").write_text("fresh\n")
+    skipped: list[str] = []
+    assert diff.snapshot(repository, left_out=skipped)[0] == head
+    assert skipped == ["scratch/repo /"]
+    shutil.rmtree(nested)
+    unnamed: list[str] = []
+    _, without = diff.snapshot(repository, left_out=unnamed)
+    assert unnamed == []
+    nested.mkdir(parents=True)
+    git(nested, "init", "-q")
+    assert diff.snapshot(repository)[1] == without           # the same tree, with or without it
+
+
 def test_a_git_call_past_its_cap_is_killed_and_transient(repository, monkeypatch):
     """C-6.8, C-26.14: every diff call is capped; a call past the cap is a transient
     failure, never a partial answer."""
