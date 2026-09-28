@@ -165,7 +165,8 @@ def test_d19_composer_options_follow_models_and_capabilities(core_probe, tmp_pat
     ])
     options = observed["composer"][claude["conversation_id"]]
     assert {"label": "Opus", "value": "opus[1m]"} in options["models"]
-    assert options["selected"] == "opus" and options["efforts"] == ["low", "medium", "high", "xhigh", "max"]
+    # C-26.8: ultracode is offered wherever xhigh is.
+    assert options["selected"] == "opus" and options["efforts"] == ["low", "medium", "high", "xhigh", "max", "ultracode"]
     assert options["efforts_observed"] is True and options["fast_supported"] is True
     assert all(p["enabled"] for p in observed["composer"][codex["conversation_id"]]["permissions"])
 
