@@ -432,8 +432,11 @@ def test_c26_9_with_no_turn_cap_no_turn_waits_behind_another(tmp_path, newer_pin
     for. With no turn cap there is none: an older turn waiting on its closed lane holds a
     later turn neither `behind-older-job` nor `slot-kept`. With a cap set, FIFO holds."""
     from tests.fake.test_admission_latency import commit, measure
-    for caps, placed in (({}, True), ({"max_active_turns": 3, "turn_slots_per_lane": 1}, newer_pin is not None)):
-        with fleet_daemon(tmp_path / f"fleet-{bool(caps)}") as (service, harness, patch):
+    # Either cap alone turns FIFO on (review of 1b38d641: each half of the rule untested).
+    for caps, placed in (({}, True), ({"max_active_turns": 3, "turn_slots_per_lane": 1}, newer_pin is not None),
+                         ({"turn_slots_per_lane": 1}, newer_pin is not None),
+                         ({"max_active_turns": 3}, newer_pin is not None)):
+        with fleet_daemon(tmp_path / ("fleet-" + "-".join(sorted(caps)))) as (service, harness, patch):
             service.policy["conversations"].update(caps)
             for lane_id in CODEX:
                 measure(service, lane_id)
@@ -449,42 +452,101 @@ def test_c26_9_with_no_turn_cap_no_turn_waits_behind_another(tmp_path, newer_pin
                 assert service._holds[newer]["reason"] == "behind-older-job"
 
 
+def _turn_in(service, harness, n, *, workdir, sandbox="workspace-write", model="astra"):
+    """A conversation turn's job in `workdir`, as the dispatcher submits it."""
+    from subfleet import protocol
+    prompt = harness.root / f"turn-{n}.md"
+    prompt.write_text("turn")
+    args = protocol.SubmitArgs(request_id=f"turn:message-{n}:0", kind="turn", workdir=str(workdir),
+                               prompt_path=str(prompt), sandbox=sandbox, pinned_model=model,
+                               name=f"turn-conversation-{n}", in_place=True, independent=True,
+                               no_preamble=True, max_attempts=1, allow_tmp=True)
+    turn = {"conversation_id": f"conversation-{n}", "message_id": f"message-{n}", "provider": "codex",
+            "digest": f"digest-{n}"}
+    return service.submit(args, turn=turn)["job_id"]
+
+
+def _checkout(harness):
+    """Make the harness's workdir a git checkout with one commit, so writable turns lease it."""
+    from tests.unit.test_salvage import git
+    for argv in (("init", "-b", "task/x"), ("config", "user.name", "T"), ("config", "user.email", "t@example.invalid")):
+        git(harness.workdir, *argv)
+    (harness.workdir / "f.txt").write_text("x\n")
+    git(harness.workdir, "add", ".")
+    git(harness.workdir, "commit", "-m", "base")
+
+
+def _end(service, job_id):
+    """The job's attempts end and release their leases, as a finished turn's do."""
+    with service.store.transaction("test.end") as tx:
+        for (attempt_id,) in tx.execute("SELECT attempt_id FROM attempts WHERE job_id=?", (job_id,)).fetchall():
+            tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (attempt_id,))
+            tx.execute("DELETE FROM leases WHERE holder=?", (attempt_id,))
+        tx.execute("UPDATE jobs SET state='succeeded' WHERE job_id=?", (job_id,))
+        tx.execute("DELETE FROM leases WHERE holder=?", (job_id,))
+
+
 def test_c26_9_with_no_turn_cap_a_turn_never_waits_behind_another_checkout_lease(tmp_path):
     """Two writable turns in one checkout take turns on its lease; with no turn cap, a
     read-only turn of a third conversation elsewhere is placed while one of them waits."""
-    from subfleet import protocol
-    from tests.unit.test_salvage import git
-
-    def turn_job(service, harness, n, *, workdir, sandbox):
-        prompt = harness.root / f"turn-{n}.md"
-        prompt.write_text("turn")
-        args = protocol.SubmitArgs(request_id=f"turn:message-{n}:0", kind="turn", workdir=str(workdir),
-                                   prompt_path=str(prompt), sandbox=sandbox, pinned_model="astra",
-                                   name=f"turn-conversation-{n}", in_place=True, independent=True,
-                                   no_preamble=True, max_attempts=1, allow_tmp=True)
-        turn = {"conversation_id": f"conversation-{n}", "message_id": f"message-{n}", "provider": "codex",
-                "digest": f"digest-{n}"}
-        return service.submit(args, turn=turn)["job_id"]
-
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
-        for argv in (("init", "-b", "task/x"), ("config", "user.name", "T"), ("config", "user.email", "t@example.invalid")):
-            git(harness.workdir, *argv)
-        (harness.workdir / "f.txt").write_text("x\n")
-        git(harness.workdir, "add", ".")
-        git(harness.workdir, "commit", "-m", "base")
+        _checkout(harness)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
         elsewhere = harness.root / "elsewhere"
         elsewhere.mkdir()
-        first = turn_job(service, harness, 0, workdir=harness.workdir, sandbox="workspace-write")
+        first = _turn_in(service, harness, 0, workdir=harness.workdir)
         service._admit_turns()
         assert service.store.list_attempts(first)
-        second = turn_job(service, harness, 1, workdir=harness.workdir, sandbox="workspace-write")
-        third = turn_job(service, harness, 2, workdir=elsewhere, sandbox="read-only")
+        second = _turn_in(service, harness, 1, workdir=harness.workdir)
+        third = _turn_in(service, harness, 2, workdir=elsewhere, sandbox="read-only")
         for _ in range(3):
             service._admit_turns()
         assert not service.store.list_attempts(second)
         assert service._holds[second]["reason"] == "lease-held"
         assert service.store.list_attempts(third), service._holds.get(third)
+
+
+@pytest.mark.parametrize("caps,newer_model", [
+    ({}, "astra"),                                                   # no cap: no C-6.9 hold among turns
+    ({"max_active_turns": 3, "turn_slots_per_lane": 1}, "terra"),   # capped, but the two do not compete
+    ({"max_active_turns": 50, "turn_slots_per_lane": 50}, "terra"),
+])
+def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_path, caps, newer_model):
+    """FIFO on a lease (review of 1b38d641). An older turn waits on its clock for a checkout
+    another turn holds; that turn ends after the pass has passed the older one, and a newer
+    turn wanting the same checkout is looked at next. The newer turn waits, queued behind
+    the older one, which takes the checkout on the next pass. Without the queue the newer
+    turn took it: with no turn cap nothing else holds one turn behind another, and a turn
+    of another model never competed (C-6.9) even with caps set."""
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        service.policy["conversations"].update(caps)
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        first = _turn_in(service, harness, 0, workdir=harness.workdir)
+        service._admit_turns()
+        assert service.store.list_attempts(first)
+        older = _turn_in(service, harness, 1, workdir=harness.workdir)
+        service._admit_turns()
+        assert service._holds[older]["reason"] == "lease-held"
+        newer = _turn_in(service, harness, 2, workdir=harness.workdir, model=newer_model)
+        real = service._workspace
+
+        def first_ends_now(job):
+            if job["job_id"] == newer:
+                _end(service, first)
+            return real(job)
+        patch.setattr(service, "_workspace", first_ends_now)
+        service._admit_turns()
+        assert not service.store.list_attempts(newer), service._holds.get(newer)
+        assert service._holds[newer]["reason"] == "lease-held"
+        assert service._holds[newer]["queued_behind"] == [older]
+        patch.setattr(service, "_workspace", real)
+        service._admit_turns()
+        assert service.store.list_attempts(older), service._holds.get(older)
+        assert not service.store.list_attempts(newer)
+        _end(service, older)
+        service._admit_turns()
+        assert service.store.list_attempts(newer), service._holds.get(newer)
 
 
 # --- the property: what e053b2c's admission places, this one places, pass for pass ----------------

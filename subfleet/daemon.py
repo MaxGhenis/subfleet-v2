@@ -3236,6 +3236,18 @@ class Daemon:
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
+        # C-26.9: FIFO on a lease. A turn held waiting for a lease (a writable checkout,
+        # a conversation, a native session) queues for it here, oldest first, and no
+        # later turn of this pass takes it: without this, a lease released after the
+        # pass began went to whichever turn looked next, and with no turn cap nothing
+        # else keeps a later turn behind an older one (review of 1b38d641).
+        lease_queue: dict[str, str] = {}
+
+        def queue_for(keys, job_id):
+            # A lane slot is never queued for: each turn takes the lowest free one.
+            for key in keys:
+                if not key.startswith("lane:"):
+                    lease_queue.setdefault(key, job_id)
         roster = self._pin_roster()              # C-6.9: lane pins are compared by lane id (C-11.2)
         # C-26.9: turns and detached jobs fill separate pools, so one being full
         # holds back only its own kind. The turn pool has no cap unless the policy
@@ -3324,6 +3336,8 @@ class Daemon:
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 if job["wait_reason"] == "capacity":
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                if pool == "turn" and known and known["hold"].get("reason") == "lease-held":
+                    queue_for(known["hold"].get("leases") or (), job["job_id"])
                 holds[job["job_id"]] = {**(known["hold"] if known else {"reason": job["wait_reason"] or "waiting"}),
                                         "next_check_at": job["next_check_at"]}
                 continue
@@ -3589,10 +3603,15 @@ class Daemon:
                             leases.append((revive_key, job["job_id"]))
                         contested = [key for key, holder in leases
                                      if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder]
-                        if contested:
+                        queued = [key for key, _ in leases if key not in contested
+                                  and lease_queue.get(key, job["job_id"]) != job["job_id"]] if pool == "turn" else []
+                        if contested or queued:
                             waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
-                            hold = {"reason": "lease-held", "leases": contested}
-                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested)), hold)
+                            hold = {"reason": "lease-held", "leases": contested + queued,
+                                    **({"queued_behind": sorted({lease_queue[key] for key in queued})} if queued else {})}
+                            if pool == "turn":
+                                queue_for(contested + queued, job["job_id"])
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + queued)), hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}

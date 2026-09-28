@@ -121,6 +121,8 @@ def test_c6_11_the_full_fleet_is_named(fleet):
 
 @pytest.mark.parametrize("hold,expected", [
     ({"reason": "lease-held", "leases": ["out:/r.md"]}, "a lease this job needs is held by another job: out:/r.md"),
+    ({"reason": "lease-held", "leases": ["worktree:/w"], "queued_behind": ["t1"]},   # C-26.9: FIFO on a lease
+     "Queued behind: t1 (an older turn waiting for the same lease takes it first)"),
     ({"reason": "probe-pending"}, "its lane is being probed"),
     ({"reason": "reserve:fable:unmeasured"}, "no lane admits it (reserve:fable:unmeasured)"),
     ({"reason": "behind-older-job"}, "held behind ?"),                # a hold missing its fields still renders

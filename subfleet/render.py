@@ -231,6 +231,10 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
                  "conversation_id", "native_session_id", "tries"), "?"), **{k: v for k, v in fields.items() if v is not None}}))
+            if reason == "lease-held" and hold.get("queued_behind"):
+                # C-26.9: FIFO on a lease; a lease an older turn waits for is kept for it.
+                lines.append("Queued behind: " + ", ".join(hold["queued_behind"])
+                             + " (an older turn waiting for the same lease takes it first)")
         else:
             lines.append(f"Held: no lane admits it ({reason})")
     else:
