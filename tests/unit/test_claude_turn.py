@@ -66,8 +66,10 @@ def test_the_message_is_sent_only_after_initialize_and_carries_its_uuid():
     message id as its uuid; `accepted` needs the provider's replay of that uuid."""
     turn = ClaudeTurn(spec(images=(Image("ab" * 32, "image/png", "/x.png"),)), read_bytes=lambda p: b"\x89PNG")
     step = started(turn)
+    # C-26.8: `get_settings` goes just ahead of the message, so the served effort is the provider's.
+    assert [f.tag for f in step.frames] == ["user-message", "settings"]
+    assert json.loads(step.frames[1].line)["request"] == {"subtype": "get_settings"}
     frame = step.frames[0]
-    assert frame.tag == "user-message"
     body = json.loads(frame.line)
     assert body["uuid"] == MID and body["message"]["content"][0] == {"type": "text", "text": "fix the bug"}
     assert body["message"]["content"][1]["source"] == {"type": "base64", "media_type": "image/png", "data": "iVBORw=="}
@@ -234,7 +236,7 @@ def test_replay_produces_the_same_events_and_frames():
 
     assert run() == run()
     events, frames = run()
-    assert frames == ["init", "user-message", "close"]
+    assert frames == ["init", "user-message", "settings", "close"]
     assert len({source for _, source in events}) == len(events)
 
 
@@ -491,7 +493,7 @@ def test_a_model_id_resolves_through_the_routed_model_when_the_catalog_has_no_su
                       read_bytes=lambda p: b"")
     turn.start()
     step = turn.feed(observed_init(), 0)
-    assert step.outcome is None and [f.tag for f in step.frames] == ["user-message"]
+    assert step.outcome is None and [f.tag for f in step.frames] == ["user-message", "settings"]
     assert turn.expected_model == "claude-opus-5-5"
     # Without the routed model, the same value is not in the catalog.
     bare = ClaudeTurn(spec(model_id="claude-opus-5-5", effort=None), read_bytes=lambda p: b"")
@@ -515,7 +517,9 @@ def test_the_catalog_is_kept_for_models_json():
     turn.feed(observed_init(), 0)
     by_value = {entry["value"]: entry for entry in turn.catalog}
     assert by_value["opus[1m]"] == {"value": "opus[1m]", "model": "claude-opus-5-5", "context_1m": True,
-                                    "display": None, "efforts": ["low", "medium", "high", "xhigh", "max"],
+                                    "display": None,
+                                    # C-26.8: ultracode is offered wherever xhigh is.
+                                    "efforts": ["low", "medium", "high", "xhigh", "max", "ultracode"],
                                     "fast": True}
     assert by_value["haiku"]["efforts"] == [] and by_value["claude-fable-5-1[1m]"]["fast"] is False
 

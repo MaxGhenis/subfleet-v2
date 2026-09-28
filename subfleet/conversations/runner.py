@@ -29,7 +29,7 @@ from ..sessions import transcripts
 from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
-from .reconcile import USER_FRAME
+from .reconcile import SETTINGS_FRAME, USER_FRAME
 from .store import ConversationError, ConversationStore
 from .turn import APPROVAL_NEEDED, RUNNING, Frame, Step, TurnSpec
 
@@ -115,6 +115,10 @@ class TurnRunner:
         # before anything is sent (`_handshake`, review IR-27). Until then a
         # `pending` record may be a write still in flight, not a failure.
         self._load_log()
+        # C-26.8: after a message an earlier runner sent (or began to send), this one
+        # does not ask `get_settings`; that includes attempts from before it existed.
+        self.replayed_message = USER_FRAME in self.sent
+        self.handshake_done_once = False
         self.relay_failed = False
         self.handshaken = False
         self.relay_version: int | None = None
@@ -402,6 +406,12 @@ class TurnRunner:
             return False                    # asked again later; nothing is sent meanwhile
         self.resends = 0
         unwritten = self._load_log()
+        # C-26.8 (review of b0b3f153): the first handshake's log is final, so a message
+        # the previous daemon had in flight counts as sent by an earlier runner. A later
+        # handshake (after a lost answer) finds this runner's own message, not one.
+        if not self.handshake_done_once:
+            self.replayed_message = self.replayed_message or USER_FRAME in self.sent
+        self.handshake_done_once = True
         self.handshaken = True
         if status is not None:
             self.relay_version = status.get("version")
@@ -441,6 +451,9 @@ class TurnRunner:
             if self.sent.get(frame.tag) == "written":
                 self.outbox.pop(0)            # replayed: already delivered to the provider
                 continue
+            if frame.tag == SETTINGS_FRAME and self.replayed_message:
+                self.outbox.pop(0)            # C-26.8: an earlier runner sent the message and did
+                continue                      # not ask (or its ask is lost); not worth a late write
             if frame.tag == USER_FRAME:
                 with self.handover:
                     verdict = self._handover_verdict()

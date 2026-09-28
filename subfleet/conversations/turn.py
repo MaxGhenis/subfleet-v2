@@ -53,6 +53,7 @@ class TurnSpec:
     native_session_id: str | None      # None: a new native session
     new_session_id: str | None = None  # Claude: the uuid minted for a new session
     effort: str | None = None
+    effort_default: bool = False       # the effort is the policy's default, not the person's (C-26.8)
     fast: bool = False
     images: tuple[Image, ...] = ()
     cwd: str = ""

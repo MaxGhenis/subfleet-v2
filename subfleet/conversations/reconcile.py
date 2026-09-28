@@ -63,6 +63,9 @@ UNKNOWN = "delivery-unknown"
 # The tag both drivers give the message frame (`claude_turn.py` `_control_response`,
 # `codex_turn.py` `_thread`).
 USER_FRAME = "user-message"
+#: Claude's `get_settings`, asked right after the message so the turn records the
+#: effort the provider applied (C-26.8).
+SETTINGS_FRAME = "settings"
 
 # Refusals before the message was sent that another admission may get past (review
 # IR-23: Fast on another account; an external writer that has gone; a provider or
