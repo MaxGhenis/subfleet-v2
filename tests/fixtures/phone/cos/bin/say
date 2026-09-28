@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Hermetic CoS say double: its file transport has the real gateway's API shape.
+
+Never reaches Telegram, credentials, email, or the network. SAY_ARGV_FILE records
+CLI invocations when a test also needs to check classes, dedupe keys, or markup.
+"""
+import datetime as dt
+import json
+import os
+from pathlib import Path
+import sys
+
+
+def chat_id():
+    return os.environ.get("SAY_CHAT_ID", "42")
+
+
+def append(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(value, ensure_ascii=False) + "\n")
+
+
+def api(method, params, file_field=None, file_path=None):
+    transport = os.environ.get("SAY_TRANSPORT", "")
+    if not transport.startswith("file:"):
+        raise RuntimeError("fake say requires SAY_TRANSPORT=file:/temporary/path")
+    path = Path(transport[5:])
+    count = len(path.read_text().splitlines()) if path.exists() else 0
+    append(path, {"method": method, "params": params, "file": file_path})
+    return {"ok": True, "result": {"message_id": 1001 + count}}
+
+
+def send_text(text, markup=None, silent=False):
+    params = {"chat_id": chat_id(), "text": text,
+              "disable_web_page_preview": True}
+    if markup:
+        params["reply_markup"] = markup
+    if silent:
+        params["disable_notification"] = True
+    return api("sendMessage", params)
+
+
+def main(argv):
+    if not os.environ.get("SAY_TRANSPORT", "").startswith("file:"):
+        raise RuntimeError("fake say requires SAY_TRANSPORT=file:/temporary/path")
+    if os.environ.get("SAY_ARGV_FILE"):
+        append(os.environ["SAY_ARGV_FILE"], argv)
+    if os.environ.get("SAY_RESULT"):
+        print(os.environ["SAY_RESULT"])
+        return int(os.environ.get("SAY_RETURN_CODE", "0"))
+    cls, key, markup, edit_id, rest = "log", None, None, None, []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg in ("--class", "--key", "--markup", "--edit"):
+            value = argv[index + 1]
+            if arg == "--class":
+                cls = value
+            elif arg == "--key":
+                key = value
+            elif arg == "--markup":
+                markup = json.loads(value)
+            else:
+                edit_id = int(value)
+            index += 2
+        elif arg == "--":
+            rest.extend(argv[index + 1:])
+            break
+        else:
+            rest.append(arg)
+            index += 1
+    text = "\n\n".join(rest)
+    if text.endswith("\n\n-"):
+        text = text[:-1] + sys.stdin.read()
+    if edit_id is not None:
+        params = {"chat_id": chat_id(), "message_id": edit_id, "text": text,
+                  "disable_web_page_preview": True}
+        if markup:
+            params["reply_markup"] = markup
+        api("editMessageText", params)
+        print("edited")
+        return 0
+    if cls == "log":
+        print("logged -> fixture")
+        return 0
+    now = dt.datetime.fromisoformat(os.environ.get("SAY_NOW", "2026-09-28T12:00:00"))
+    if cls == "alert" and (now.hour >= 22 or now.hour < 7):
+        print("held for the next morning card (quiet hours)")
+        return 0
+    result = send_text(text, markup=markup)
+    print(f"sent message_id {result['result']['message_id']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

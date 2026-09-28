@@ -22,6 +22,15 @@ TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures" / "claude"
 FAKE_CLAUDE = TESTS / "bin" / "claude"
 
+
+@pytest.fixture(autouse=True)
+def isolate_phone_transport(monkeypatch, tmp_path):
+    """Any daemon constructed by a test uses a file-only Telegram gateway."""
+    monkeypatch.setenv("SUBFLEET_SAY", str(TESTS / "fixtures" / "phone" / "cos" / "bin" / "say"))
+    monkeypatch.setenv("SAY_TRANSPORT", "file:" + str(tmp_path / "telegram.jsonl"))
+    monkeypatch.setenv("SAY_CHAT_ID", "42")
+    monkeypatch.setenv("COS_HOME", str(tmp_path / "cos"))
+
 #: The instant every fixture-driven assertion is pinned to. Matches `NOW_ISO` in
 #: `tests/fixtures/claude/make_fixtures.py`; all experiment-0 reset epochs are later,
 #: so a "reported" clock is always in the future and a "guessed" one is unambiguous.

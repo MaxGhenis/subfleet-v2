@@ -1,0 +1,70 @@
+--- a/bin/tg-poller
++++ b/bin/tg-poller
+@@ -4,6 +4,8 @@
+ Runs under launchd (com.maxghenis.cos.tg-poller, KeepAlive). Only Max's chat is
+ honored; everything else is ignored. It never runs a model.
+ 
++  button tap  sf:<token>:<action>   -> `subfleet phone tap <data>`
++  reply       to a Subfleet card   -> `subfleet phone reply <message_id> <text>`
+   button tap  dec:<id>:yes|no|park   -> `decisions decide <id> <action>`, refresh the card
+               dec:<id>:more          -> send that decision's full text (silent)
+   text        "d011 <your call>"     -> `decisions decide d011 "<your call>"` (reply or not)
+@@ -62,6 +64,18 @@
+     return r.returncode, (r.stdout + r.stderr).strip()
+ 
+ 
++def run_subfleet(*args):
++    """The existing owner-chat check authenticates this local CLI bridge."""
++    try:
++        r = subprocess.run([os.environ.get("SUBFLEET_BIN", "subfleet"), "phone", *args],
++                           capture_output=True, text=True, timeout=30)
++        return r.returncode, (r.stdout + r.stderr).strip()
++    except subprocess.TimeoutExpired:
++        return 69, "timed out; check the conversation before retrying"
++    except OSError as e:
++        return 69, str(e)
++
++
+ def reply(text):
+     return load_say().send_text(text, silent=True)
+ 
+@@ -106,6 +120,14 @@
+ 
+ 
+ def handle_callback(cq):
++    if cq.get("data", "").startswith("sf:"):
++        rc, out = run_subfleet("tap", cq["data"])
++        detail = out.splitlines()[0] if out else "no acknowledgment"
++        note = f"Subfleet: {detail}" if rc == 0 else f"Subfleet could not confirm this action: {detail}"
++        if rc != 0:
++            reply(note[:3500])
++        load_say().api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": note[:190]})
++        return note
+     m = re.fullmatch(r"dec:(d\d+):(yes|no|park|more)", cq.get("data", ""))
+     note = "not understood"
+     if m:
+@@ -170,6 +192,24 @@
+     text = (msg.get("text") or caption).strip()
+     if not text:
+         return "ignored (no text)"
++    # Route a Subfleet reply before CoS commands/rulings: its text belongs to
++    # that conversation even when it starts with /brief or "d011 ...".
++    message_id = (msg.get("reply_to_message") or {}).get("message_id")
++    if message_id is not None:
++        rc, out = run_subfleet("owns", str(message_id))
++        if rc == 0:
++            if edited:
++                return "ignored (edited Subfleet reply)"
++            rc, out = run_subfleet("reply", str(message_id), "--update-id", str(update_id), "--", text)
++            detail = out.splitlines()[0] if out else "no acknowledgment"
++            note = f"Subfleet: {detail}" if rc == 0 else f"Subfleet could not confirm this reply: {detail}"
++            reply(note[:3500])
++            return note
++        if rc != 1:  # 1 means unknown; operational errors must never become a CoS ruling.
++            detail = out.splitlines()[0] if out else "ownership lookup failed"
++            note = f"Subfleet could not check this reply: {detail}"
++            reply(note[:3500])
++            return note
+     cmd = text.split()[0].lower().split("@")[0]
+     if cmd in ("/decisions", "/card"):
+         out = run("decisions", "card", "--force")[1]

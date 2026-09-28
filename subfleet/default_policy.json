@@ -1,4 +1,10 @@
 {
+  "phone": {
+    "telegram": {
+      "enabled": true,
+      "events": ["approvals", "questions", "blocks"]
+    }
+  },
   "tiers": [
     "trivial",
     "easy",

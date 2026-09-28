@@ -377,23 +377,24 @@ def test_a_schema_1_store_is_migrated_to_2_in_place(tmp_path):
                      "INSERT INTO schema_version VALUES (1, '2026-09-24T00:00:00Z');")
     db.close()
     s = ConversationStore(root)
-    assert [r["version"] for r in s.query("SELECT version FROM schema_version ORDER BY version")] == [1, 2]
+    assert [r["version"] for r in s.query("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3]
     assert s.conversation(c["conversation_id"])["workspace"] == "/w"
     assert {r["name"] for r in s.query("PRAGMA table_info(turn_trees)")} >= {"start_tree", "end_tree", "head_after"}
     s.close()
     s = ConversationStore(root)
-    assert [r["version"] for r in s.query("SELECT version FROM schema_version ORDER BY version")] == [1, 2]
+    assert [r["version"] for r in s.query("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3]
     s.close()
-    assert store_module.SCHEMA_VERSION == 2
+    assert store_module.SCHEMA_VERSION == 3
 
 
 def test_a_newer_store_is_refused(tmp_path):
     """C-26.14: a build never opens a store written by a newer schema."""
     import sqlite3
+    from subfleet.conversations.store import SCHEMA_VERSION
     root = tmp_path / "state"
     ConversationStore(root).close()
     db = sqlite3.connect(root / "conversations.sqlite3")
-    db.execute("INSERT INTO schema_version VALUES (3, 'later')")
+    db.execute("INSERT INTO schema_version VALUES (?, 'later')", (SCHEMA_VERSION + 1,))
     db.commit()
     db.close()
     with pytest.raises(ConversationError) as err:

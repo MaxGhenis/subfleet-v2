@@ -20,6 +20,9 @@ from .contracts import (
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
+PHONE_TELEGRAM_DEFAULTS = {"enabled": True, "events": ["approvals", "questions", "blocks"]}
+PHONE_TELEGRAM_EVENTS = frozenset({"approvals", "questions", "blocks", "done"})
+
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
 #: size it always was. `recent_records` is a count of main-chain entries, not
@@ -383,6 +386,26 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("conversations.stop_close_after_s",
              "the stop escalation must keep its order: "
              "stop_sigint_after_s < stop_close_after_s < stop_contain_after_s")
+
+    # C-31.1: missing phone policy enables only the moments needing the person.
+    phone = value.get("phone", {})
+    if not isinstance(phone, dict):
+        fail("phone", "must be an object")
+    telegram = phone.get("telegram", {})
+    if not isinstance(telegram, dict):
+        fail("phone.telegram", "must be an object")
+    for key in telegram:
+        if key not in PHONE_TELEGRAM_DEFAULTS:
+            fail(f"phone.telegram.{key}", "is not a Telegram setting (enabled, events)")
+    telegram = {**PHONE_TELEGRAM_DEFAULTS, **telegram}
+    if not isinstance(telegram["enabled"], bool):
+        fail("phone.telegram.enabled", "must be true or false")
+    events = telegram["events"]
+    if not isinstance(events, list) or any(not isinstance(e, str) or e not in PHONE_TELEGRAM_EVENTS for e in events):
+        fail("phone.telegram.events", "must list approvals, questions, blocks, or done")
+    if len(events) != len(set(events)):
+        fail("phone.telegram.events", "must not repeat an event")
+    value["phone"] = {**phone, "telegram": {**telegram, "events": list(events)}}
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()

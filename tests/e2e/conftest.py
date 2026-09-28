@@ -104,6 +104,7 @@ class E2E:
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith(("SUBFLEET_", "CLAUDE", "CODEX", "ANTHROPIC", "GIT_"))}
         self.env.update({
+            "SUBFLEET_SAY": str(REPO / "tests/fixtures/phone/cos/bin/say"),
             "HOME": str(user_home), "SUBFLEET_HOME": str(self.root),
             "PATH": os.pathsep.join((str(binary_dir), "/usr/sbin", "/sbin", "/bin",
                                      os.environ.get("PATH", "/usr/bin"))),

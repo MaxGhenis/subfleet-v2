@@ -63,7 +63,7 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "runs.v1",
-                "handoff.v1")
+                "handoff.v1", "phone.telegram.v1")
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -74,7 +74,8 @@ POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # worktree conversation's create cuts) run here, never on a request thread.
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
                       "conversation.create", "conversation.handoff"})
-PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
+PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
+                         "phone.owns", "phone.tap", "phone.reply", "phone.notify"})
 MAX_WAIT_S = 50.0
 RECEIPT_TEXT_CHARS = 20_000
 
@@ -124,6 +125,7 @@ class ConversationService:
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
+        self._phone_actions = threading.RLock()
         # Merges into `conversations/models.json` (`_on_catalog`), one at a time. Not
         # the service lock: a merge waits for the store's write guard, which another
         # file write can hold across two fsyncs, and every poll, dispatch claim and
@@ -152,9 +154,12 @@ class ConversationService:
         self._catalog_fence: tuple[int, int] | None = None   # (read, write): catalog.Owner
         self._replayed: set[str] = set()       # ended attempts `_replay_unsettled` has replayed
         self._closed = False
+        from ..phone import PhoneBridge
+        self.phone = PhoneBridge(self)
 
     def close(self) -> None:
         self._stop_catalog()                    # from here `_closed`: no runner is adopted after
+        self.phone.close()
         with self._lock:
             runners = list(self.runners.values())
         for runner in runners:
@@ -230,8 +235,12 @@ class ConversationService:
         return APP_EXECUTABLES
 
     def _person(self, peer: int | None, what: str):
-        """C-25.6: refuse agents Subfleet launched; accept the app or a terminal."""
-        verdict = judge(peer, root=str(self.root), app_executables=self._app_executables())
+        """C-25.6/C-31.1: accept the app, a terminal, or the owner-chat gateway."""
+        gateway = str(Path.home() / "chief-of-staff" / "bin" / "tg-poller")
+        if self.root.resolve() != (Path.home() / ".subfleet").resolve():
+            gateway = os.environ.get("SUBFLEET_PHONE_POLLER", gateway)
+        verdict = judge(peer, root=str(self.root), app_executables=self._app_executables(),
+                        gateway_script=gateway)
         if not verdict.person:
             raise ConversationError("person-only", f"{what} is a person's decision: {verdict.reason}", code=7,
                                     fix="answer it in the Subfleet app")
@@ -835,6 +844,22 @@ class ConversationService:
 
     # --- ops: approvals --------------------------------------------------------
 
+    def op_phone_owns(self, args, peer) -> dict:
+        from .phone import owns
+        return owns(self, args, peer)
+
+    def op_phone_tap(self, args, peer) -> dict:
+        from .phone import tap
+        return tap(self, args, peer)
+
+    def op_phone_reply(self, args, peer) -> dict:
+        from .phone import reply
+        return reply(self, args, peer)
+
+    def op_phone_notify(self, args, peer) -> dict:
+        from .phone import notify
+        return notify(self, args, peer)
+
     def _approval_view(self, approval: dict) -> dict:
         return {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "kind", "display",
                                          "options", "created_at", "state")}
@@ -857,7 +882,10 @@ class ConversationService:
         verdict = self._person(peer, "answering an approval")
         approval = self.store.approval(args["approval_id"])
         if approval["state"] != "pending":
-            if approval["decision"] and approval["decision"].get("decision") == args.get("decision"):
+            same = approval["decision"] and approval["decision"].get("decision") == args.get("decision")
+            if args.get("source") == "phone" and same:
+                same = all(approval["decision"].get(key) == args.get(key) for key in ("answers", "message"))
+            if same:
                 return {"approval": self._approval_view(approval), "duplicate": True}
             raise ConversationError("not-pending", f"the approval is {approval['state']}")
         if args.get("nonce") != approval["nonce"] or args.get("request_sha256") != approval["request_sha256"]:
@@ -870,6 +898,8 @@ class ConversationService:
             raise ConversationError("turn-ended", "the turn that asked has ended")
         record = {"decision": decision, "message": args.get("message"), "answers": args.get("answers"),
                   "by": {"pid": verdict.pid, "as": verdict.reason}, "at": utcnow()}
+        if args.get("source") == "phone":
+            record["source"] = "phone"
         if not self.store.answer_approval(approval["approval_id"], record):
             raise ConversationError("not-pending", "the approval was answered or withdrawn meanwhile")
         runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
@@ -1368,7 +1398,7 @@ class ConversationService:
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
         for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners,
-                     self._replay_unsettled, self._settle_unstarted, self._reap_runners, self._compact):
+                     self._replay_unsettled, self._settle_unstarted, self._reap_runners, self._compact, self.phone.tick):
             if self._closed:
                 return                          # a tick close() overtook: its store is gone
             try:

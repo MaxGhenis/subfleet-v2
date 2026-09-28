@@ -5,8 +5,9 @@ policy, setting `allow_main` and unblocking an unfinished turn are a person's
 decisions. The daemon reads the caller's pid from the socket
 (`LOCAL_PEERPID`) and refuses when the caller, or any ancestor, is a process
 Subfleet launched (a guardian's descendant, or one carrying the C-5.1
-markers), and accepts only the installed app's executable or a process with a
-controlling terminal. Any other process of the same user is outside this
+markers), and accepts the installed app's executable, a process with a
+controlling terminal, or a child of the exact owner-chat gateway (C-31.1).
+Any other process of the same user is outside this
 check, as it is outside `daemon.sock`'s: it is a boundary against the agents
 Subfleet runs and headless agents, not against the user.
 """
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import shlex
 import socket
 import subprocess
 from dataclasses import dataclass
@@ -88,7 +90,8 @@ def process_chain(pid: int) -> list[Proc]:
 
 def judge(pid: int | None, *, chain: Callable[[int], list[Proc]] = process_chain,
           app_executables: tuple[str, ...] = APP_EXECUTABLES, root: str | None = None,
-          executable: Callable[[int], str | None] = executable_path) -> Verdict:
+          executable: Callable[[int], str | None] = executable_path,
+          gateway_script: str | None = None) -> Verdict:
     if pid is None:
         return Verdict(False, "the caller's process could not be identified", None)
     procs = chain(pid)
@@ -101,6 +104,27 @@ def judge(pid: int | None, *, chain: Callable[[int], list[Proc]] = process_chain
         if any(marker in proc.command for marker in MARKERS) or (root_marker and root_marker in proc.command):
             return Verdict(False, "the caller carries Subfleet's attempt markers", pid)
     caller = procs[0]
+    # C-31.1: the one owner-filtering gateway is a person surface even under
+    # launchd. Check its actual parent position and script argument, never a
+    # substring or a client-supplied flag. The agent ancestry refusals above
+    # still apply. This is the same-user boundary, not a sandbox against Max.
+    if gateway_script and len(procs) > 1 and procs[1].pid == caller.ppid:
+        parent = procs[1]
+        try:
+            # ps -E appends unquoted environment values. Only parse the two
+            # argv fields needed here; a quote in a later value is not part of
+            # the interpreter or script name and must not reject the gateway.
+            lexer = shlex.shlex(parent.command, posix=True)
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            argv = [lexer.get_token(), lexer.get_token()]
+        except ValueError:
+            argv = []
+        parent_executable = executable(parent.pid)
+        if (len(argv) > 1 and all(argv) and os.path.basename(argv[0]).lower().startswith("python")
+                and parent_executable and os.path.basename(parent_executable).lower().startswith("python")
+                and os.path.isabs(argv[1]) and os.path.realpath(argv[1]) == os.path.realpath(gateway_script)):
+            return Verdict(True, "the owner-filtering Telegram gateway", pid)
     path = executable(caller.pid)
     allowed = {os.path.realpath(p) for p in app_executables}
     if path and (path in app_executables or os.path.realpath(path) in allowed):

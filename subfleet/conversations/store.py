@@ -29,7 +29,7 @@ from ..sessions.transcripts import NotRegularFile
 from ..state_files import read_state
 from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 PROVIDERS = ("claude", "codex")
 EVENT_ROW_MAX = 64 * 1024
 #: A message's text, in UTF-8 bytes (C-24.3, `LIMITS['message_bytes']`).
@@ -155,12 +155,51 @@ CREATE INDEX IF NOT EXISTS turn_trees_by_conversation ON turn_trees(conversation
 """
 SCHEMA += TURN_TREES
 
+# C-31.1: opaque phone card identities and receipts live with their conversation.
+# A recorded send claim is never silently replayed after a crash: Telegram does
+# not accept an idempotency key for sendMessage, and say only dedupes alerts.
+PHONE = """
+CREATE TABLE IF NOT EXISTS phone_cards (
+  token TEXT PRIMARY KEY,
+  event_key TEXT NOT NULL UNIQUE,
+  conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+  message_id TEXT REFERENCES messages(message_id),
+  approval_id TEXT REFERENCES approvals(approval_id),
+  kind TEXT NOT NULL,
+  telegram_message_id INTEGER UNIQUE,
+  state TEXT NOT NULL,
+  actions_json TEXT NOT NULL,
+  progress_json TEXT NOT NULL,
+  rendered_hash TEXT,
+  outcome TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS phone_cards_by_approval ON phone_cards(approval_id);
+CREATE TABLE IF NOT EXISTS phone_replies (
+  update_id TEXT PRIMARY KEY,
+  telegram_message_id INTEGER NOT NULL,
+  conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+  message_id TEXT,
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS phone_notify (
+  conversation_id TEXT PRIMARY KEY REFERENCES conversations(conversation_id),
+  after_seq INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+"""
+SCHEMA += PHONE
+
 #: Each step carries a store of the version before it forward (the main store's
 #: rule, C-3.1). Every statement is idempotent, so an interrupted upgrade re-runs
 #: safely; the whole upgrade is one transaction, so a store is either migrated or
 #: untouched.
 MIGRATIONS: dict[int, tuple[str, ...]] = {
     2: tuple(statement.strip() for statement in TURN_TREES.split(";") if statement.strip()),
+    3: tuple(statement.strip() for statement in PHONE.split(";") if statement.strip()),
 }
 
 

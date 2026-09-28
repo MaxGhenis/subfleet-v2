@@ -2902,6 +2902,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_handoff.set_defaults(handler=cmd_handoff)
     from . import operations
     operations.add_verbs(sub)
+    from . import phone_cli
+    phone_cli.add_verbs(sub)
     return parser
 
 

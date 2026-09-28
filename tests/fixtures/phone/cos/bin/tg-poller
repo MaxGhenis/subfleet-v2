@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""tg-poller: the single consumer of the CoS bot's incoming updates (plan §3 inbound).
+
+Runs under launchd (com.maxghenis.cos.tg-poller, KeepAlive). Only Max's chat is
+honored; everything else is ignored. It never runs a model.
+
+  button tap  dec:<id>:yes|no|park   -> `decisions decide <id> <action>`, refresh the card
+              dec:<id>:more          -> send that decision's full text (silent)
+  text        "d011 <your call>"     -> `decisions decide d011 "<your call>"` (reply or not)
+              /decisions             -> post a fresh decision card
+              /brief                 -> today's morning brief, in parts (silent)
+              /log                   -> subjects logged or held today instead of sent (silent)
+              /held                  -> alerts held by quiet hours or budget, in full (silent)
+  photo       downloaded to ~/.openclaw/media/inbound/, where the face-photo filer
+              (~/clawd/data/face_photos/watch_gateway.py) picks it up, as it did from OpenClaw
+  anything    appended to state/telegram/updates.jsonl, which `tg updates` reads
+
+state/telegram/poller.alive is touched only after a successful getUpdates; last-error holds
+the most recent failure. Test mode: tg-poller --once --updates FILE processes a JSON list.
+"""
+import datetime as dt
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+sys.dont_write_bytecode = True  # loading bin/say must not leave bin/__pycache__ behind
+COS = os.environ.get("COS_HOME", os.path.expanduser("~/chief-of-staff"))
+BIN = os.path.dirname(os.path.abspath(__file__))
+DIR = os.path.join(COS, "state", "telegram")
+OFFSET = os.path.join(DIR, "offset")
+UPDATES = os.path.join(DIR, "updates.jsonl")
+ALIVE = os.path.join(DIR, "poller.alive")
+LAST_ERROR = os.path.join(DIR, "last-error")
+PHOTOS_SEEN = os.path.join(DIR, "photos-seen.json")
+FAIL_ALERT_AFTER = 30 * 60  # seconds of continuous getUpdates failure before emailing Max
+INBOUND = os.environ.get("TG_INBOUND_DIR", os.path.expanduser("~/.openclaw/media/inbound"))
+SAY_PATH = os.path.join(BIN, "say")
+RULING_RE = re.compile(r"^\s*(d\d{3,})\b[\s:,-]*(.+)$", re.I | re.S)
+
+say, _say_mtime, OWNER = None, 0.0, None
+
+
+def load_say():
+    """(Re)load bin/say when it changes on disk, so the poller never runs stale gateway code."""
+    global say, _say_mtime
+    m = os.path.getmtime(SAY_PATH)
+    if say is None or m != _say_mtime:
+        loader = importlib.machinery.SourceFileLoader("say", SAY_PATH)
+        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("say", loader))
+        loader.exec_module(mod)
+        say, _say_mtime = mod, m
+    return say
+
+
+def run(*args):
+    r = subprocess.run([os.path.join(BIN, args[0]), *args[1:]], capture_output=True, text=True, timeout=180)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def reply(text):
+    return load_say().send_text(text, silent=True)
+
+
+def write_atomic(path, text):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def record_update(u):
+    os.makedirs(DIR, exist_ok=True)
+    with open(UPDATES, "a", encoding="utf-8") as f:
+        f.write(json.dumps(u, ensure_ascii=False) + "\n")
+
+
+def decision_text(did):
+    rc, out = run("decisions", "show", did)
+    try:
+        d = json.loads(out)
+    except Exception:
+        return out[:3500]
+    # Mirrors bin/decisions default_class(): a security item has no default whatever its record says,
+    # and only park is automated.
+    cls = "none" if d.get("priority") == "security" else d.get("default_class", "none")
+    dflt = (f"{d['default']} (on {d.get('deadline')})" if cls == "park" else "none, stays until ruled" if cls == "none"
+            else f"{cls}, not automated; stays until ruled")
+    return f"{d['id']} [{d['priority']}] {d['decision']}\n\nWhy: {d.get('why', '')}\n\nDefault: {dflt}"
+
+
+def decide(did, ruling, card_message_id=None):
+    rc, out = run("decisions", "decide", did, ruling)
+    first = out.splitlines()[0] if out else ""
+    if rc != 0:
+        return False, f"NOT recorded ({first or 'error'}). Try again, or run: cos decide {did} \"{ruling}\""
+    if card_message_id:
+        run("decisions", "card", "--refresh", "--message-id", str(card_message_id))
+    else:
+        run("decisions", "card", "--refresh")
+    return True, first or f"{did} -> {ruling}"
+
+
+def handle_callback(cq):
+    m = re.fullmatch(r"dec:(d\d+):(yes|no|park|more)", cq.get("data", ""))
+    note = "not understood"
+    if m:
+        did, action = m.groups()
+        if action == "more":
+            reply(decision_text(did))
+            note = f"{did}: details sent"
+        else:
+            ok, note = decide(did, action, (cq.get("message") or {}).get("message_id"))
+            if not ok:
+                reply(note)
+    load_say().api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": note[:190]})
+    return note
+
+
+def save_photo(msg, update_id):
+    """Download the largest size of a photo (or an image sent as a file) for the face-photo filer.
+    Deduped on Telegram's file_unique_id; non-JPEG/PNG images (HEIC, WebP) are converted with sips,
+    because the filer only files .jpg/.jpeg/.png. Returns (path or None, note)."""
+    if msg.get("photo"):
+        best = max(msg["photo"], key=lambda p: p.get("file_size", 0) or p.get("width", 0))
+    elif (msg.get("document") or {}).get("mime_type", "").startswith("image/"):
+        best = msg["document"]
+    else:
+        return None, "no image"
+    uid = best.get("file_unique_id") or best["file_id"]
+    seen = set(json.load(open(PHOTOS_SEEN))) if os.path.exists(PHOTOS_SEEN) else set()
+    if uid in seen:
+        return None, "duplicate photo (already saved)"
+    r = load_say().api("getFile", {"file_id": best["file_id"]})
+    path = (r.get("result") or {}).get("file_path")
+    if not r.get("ok") or not path:
+        return None, "getFile failed"
+    os.makedirs(INBOUND, exist_ok=True)
+    ext = os.path.splitext(path)[1].lower() or ".jpg"
+    stem = os.path.join(INBOUND, f"tg-{dt.date.today().isoformat()}-{update_id}")
+    raw = stem + (ext if ext in (".jpg", ".jpeg", ".png") else ".download" + ext)
+    if not load_say().download(path, raw):
+        return None, "download failed"
+    dest = raw
+    if ext not in (".jpg", ".jpeg", ".png"):
+        dest = stem + ".jpg"
+        c = subprocess.run(["/usr/bin/sips", "-s", "format", "jpeg", raw, "--out", dest], capture_output=True, text=True)
+        os.remove(raw)
+        if c.returncode != 0:
+            return None, f"could not convert {ext} to JPEG"
+    seen.add(uid)
+    write_atomic(PHOTOS_SEEN, json.dumps(sorted(seen)))
+    return dest, "saved"
+
+
+def handle_message(msg, update_id, edited=False):
+    is_image = bool(msg.get("photo")) or (msg.get("document") or {}).get("mime_type", "").startswith("image/")
+    caption = (msg.get("caption") or "").strip()
+    if is_image and not RULING_RE.match(caption):
+        if edited:
+            return "ignored (edited media: caption change, not a new photo)"
+        saved, note = save_photo(msg, update_id)
+        if not saved and note != "duplicate photo (already saved)":
+            reply(f"Couldn't save that photo ({note}); please send it again.")
+        return f"photo saved {saved}" if saved else f"photo not saved: {note}"
+    text = (msg.get("text") or caption).strip()
+    if not text:
+        return "ignored (no text)"
+    cmd = text.split()[0].lower().split("@")[0]
+    if cmd in ("/decisions", "/card"):
+        out = run("decisions", "card", "--force")[1]
+        if out.startswith("nothing to decide"):
+            reply("Nothing to decide and nothing held right now.")
+        return out
+    if cmd == "/held":
+        hs = load_say().held()
+        if not hs:
+            reply("No held alerts.")
+            return "held: none"
+        reply("\n\n".join(f"{h.get('ts', '')[:16]} ({h.get('reason', 'held')}) {h['subject']}\n{(h.get('body') or '').strip()}" for h in hs))
+        return f"held: {len(hs)}"
+    if cmd == "/brief":
+        path = os.path.join(COS, "state", "out", f"morning-brief-{dt.date.today():%Y%m%d}.md")
+        if os.path.exists(path):
+            reply(open(path, encoding="utf-8", errors="replace").read())  # send_text splits into parts
+            return "brief sent"
+        reply("No morning brief yet today.")
+        return "no brief"
+    if cmd == "/log":
+        s = load_say()
+        rows = [f"- {e['subject']}" + (" (held)" if e.get("action") == "held" else "") for e in s.events()
+                if e.get("action") in ("logged", "held", "deduped")]
+        reply(f"Logged or held today instead of sent ({len(rows)}):\n" + ("\n".join(rows[-40:]) or "Nothing."))
+        return "log sent"
+    m = RULING_RE.match(text)
+    if m:
+        ok, note = decide(m.group(1).lower(), m.group(2).strip())
+        reply(("Recorded: " if ok else "") + note)
+        return f"ruling {m.group(1).lower()} {'ok' if ok else 'FAILED'}"
+    if msg.get("reply_to_message"):
+        reply("To rule, start with the decision id, e.g. \"d011 send the draft\".")
+        return "hint sent"
+    return "stored"
+
+
+def handle(u):
+    if "callback_query" in u:
+        cq = u["callback_query"]
+        if str(((cq.get("message") or {}).get("chat") or {}).get("id")) != OWNER:
+            return "ignored (not owner)"
+        record_update({"update_id": u["update_id"], "date": int(time.time()), "kind": "tap", "data": cq.get("data")})
+        return handle_callback(cq)
+    edited = "message" not in u
+    msg = u.get("message") or u.get("edited_message")
+    if not msg:
+        return "ignored"
+    if str(msg.get("chat", {}).get("id")) != OWNER:
+        return "ignored (not owner)"
+    record_update({"update_id": u["update_id"], "date": msg.get("date"), "kind": "message",
+                   "text": msg.get("text") or msg.get("caption") or ("[photo]" if msg.get("photo") else "[media]"),
+                   "reply_to": (msg.get("reply_to_message") or {}).get("message_id")})
+    return handle_message(msg, u["update_id"], edited=edited)
+
+
+def loop():
+    os.makedirs(DIR, exist_ok=True)
+    try:
+        offset = int(open(OFFSET).read().strip())
+    except (FileNotFoundError, ValueError):
+        offset = 0  # 0 = Telegram resends unconfirmed updates; nothing is skipped
+    backoff = 5
+    failing_since, alerted = None, False
+    while True:
+        r = load_say().api("getUpdates", {"offset": offset, "timeout": 50, "allowed_updates": ["message", "edited_message", "callback_query"]})
+        if not r.get("ok"):
+            desc = r.get("description", "")
+            write_atomic(LAST_ERROR, f"{dt.datetime.now().isoformat(timespec='seconds')} {desc}\n")
+            print(f"{dt.datetime.now():%F %T} getUpdates failed: {desc}", flush=True)
+            failing_since = failing_since or time.time()
+            if not alerted and time.time() - failing_since > FAIL_ALERT_AFTER:
+                # Telegram itself may be the problem, so this rides say's email fallback.
+                load_say().deliver("alert", "CoS Telegram poller failing for 30+ min",
+                                   f"getUpdates keeps failing: {desc}\nButtons and replies are not being read. "
+                                   "Check: launchctl list | grep tg-poller; ~/chief-of-staff/state/logs/tg-poller.log",
+                                   key="tg-poller-failing", urgent=True)
+                alerted = True
+            time.sleep(60 if "Conflict" in desc else backoff)
+            backoff = min(backoff * 2, 300)
+            continue
+        write_atomic(ALIVE, dt.datetime.now().isoformat(timespec="seconds"))
+        failing_since, alerted, backoff = None, False, 5
+        for u in r.get("result", []):
+            try:
+                result = handle(u)
+            except Exception as e:  # one bad update must not stop the loop
+                result = f"error: {e}"
+            print(f"{dt.datetime.now():%F %T} update {u.get('update_id')}: {result}", flush=True)
+            offset = u["update_id"] + 1
+            write_atomic(OFFSET, str(offset))
+
+
+def main(argv):
+    global OWNER
+    OWNER = str(load_say().chat_id() or "")
+    if not OWNER:
+        print("tg-poller: telegram-cos-chat-id is empty; refusing to run (would ignore Max's own updates)", file=sys.stderr)
+        time.sleep(0 if "--once" in argv else 60)
+        return 1
+    if "--once" in argv:
+        for u in json.load(open(argv[argv.index("--updates") + 1])):
+            print(json.dumps({"update_id": u.get("update_id"), "result": handle(u)}))
+        return 0
+    loop()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

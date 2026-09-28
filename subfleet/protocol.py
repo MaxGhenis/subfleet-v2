@@ -24,6 +24,7 @@ CONVERSATION_OPS = (
     "conversation.runs",
     "turn.diff", "conversation.diff",
     "conversation.handoff",
+    "phone.owns", "phone.tap", "phone.reply", "phone.notify",
 )
 
 #: What `decode_request` answers for an op this daemon does not serve. A client
