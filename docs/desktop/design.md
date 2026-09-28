@@ -535,7 +535,22 @@ on a dedicated bounded pool (8 threads) with at most one of each per client;
 the `requests` pool that `message.submit` and the session hooks use is never
 held by a poll (review U-F3). A turn that completes, fails, needs approval, or
 becomes `delivery-unknown` while its conversation is not focused posts a local
-notification; the Dock badge counts pending approvals.
+notification; the Dock badge counts pending approvals. A notification carries
+its conversation and its kind. Clicking it opens the main window on that
+conversation, and an approval's brings the conversation's oldest waiting card
+into view (C-27.5) while one still waits. A click that comes before the app
+has its first conversation list and feed baseline (the click that launched
+the app) waits for them, and is dropped if the person opens something else
+meanwhile; with the daemon's endpoint refused there is nothing to open. A
+click that replaces the conversation on screen closes an approval request
+open there, so an answer never goes to a conversation the window no longer
+shows. The app delegate becomes the notification center's delegate before
+launch ends, as the system requires for the click that launched the app to
+reach it. While the app is frontmost the system shows a notification only if
+the app asks. The app asks for every one whose conversation is still not the
+one open: the window shows at most a sidebar badge for it (a count of waiting
+approvals, a turn no longer running), and each kind is something the person
+acts on.
 
 **D-25. Changes are shown per turn and per conversation.** At the start and
 end of each writable turn (any permission but `read-only`) in a workspace that

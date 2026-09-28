@@ -101,12 +101,16 @@ final class UIModel: ObservableObject {
         state = baseline
         state.watchBaselined = true
         startWatchLoop()
+        // A notification clicked before now (the click that launched the app).
+        let clicked = clicks.baselineLanded(navigation: navigation, pendingApprovals: state.pendingApprovals)
         if let focused = state.focusedConversationID {
             startEventsLoop(focused)
-        } else if let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
-            // A launch that names a conversation opens it (notifications and links reuse this).
+        } else if clicked == nil, let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"],
+                  !requested.isEmpty {
+            // A launch that names a conversation opens it.
             focus(requested)
         }
+        if let clicked { openClicked(clicked) }
     }
 
     func refreshList() async {
@@ -312,6 +316,26 @@ final class UIModel: ObservableObject {
         if let found = try? await onOutbox({ try engine.runs(conversationID: conversationID) }), runs[conversationID] != found {
             runs[conversationID] = found
         }
+    }
+
+    // MARK: Notifications
+
+    /// Clicks, one held until `connect` has its baseline.
+    private var clicks = NotificationClicks()
+
+    /// A clicked notification (C-29.9): its conversation, and for an approval
+    /// still waiting that conversation's oldest card (C-27.5), which the
+    /// conversation view scrolls to once the card is in its timeline.
+    func show(_ target: NotificationTarget) {
+        if let opening = clicks.click(target, baselined: state.watchBaselined, navigation: navigation,
+                                      pendingApprovals: state.pendingApprovals) {
+            openClicked(opening)
+        }
+    }
+
+    private func openClicked(_ opening: NotificationOpening) {
+        if opening.revealsCard { approvalReveal = opening.conversationID }
+        focus(opening.conversationID)
     }
 
     // MARK: Changes
@@ -621,7 +645,7 @@ final class UIModel: ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = intent.title
         content.body = intent.body
-        content.userInfo = ["conversation_id": intent.conversationID]
+        content.userInfo = intent.userInfo
         let request = UNNotificationRequest(identifier: intent.id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }

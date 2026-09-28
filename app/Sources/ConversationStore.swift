@@ -236,9 +236,20 @@ func makeServedChip(for turn: TurnTimeline, provider: String, laneLabels: [Strin
 // MARK: - Notifications
 
 struct NotificationIntent: Identifiable, Equatable {
-    enum Kind: String {
+    enum Kind: String, CaseIterable {
         case completed, failed, approval
         case deliveryUnknown = "delivery-unknown"
+
+        /// How a request identifier of this kind begins: `approval:<seq>`, `complete:<message>`.
+        var idPrefix: String { self == .completed ? "complete" : rawValue }
+
+        /// The kind a request identifier names, for a notification whose
+        /// userInfo does not say (one posted before userInfo carried `kind`).
+        init?(requestID: String) {
+            guard let colon = requestID.firstIndex(of: ":"),
+                  let kind = Kind.allCases.first(where: { $0.idPrefix == requestID[..<colon] }) else { return nil }
+            self = kind
+        }
     }
     var id: String
     var kind: Kind
@@ -246,6 +257,97 @@ struct NotificationIntent: Identifiable, Equatable {
     var messageID: String?
     var title: String
     var body: String
+
+    /// What the posted notification carries so its click finds its way back
+    /// (`NotificationTarget`).
+    var userInfo: [String: String] { ["conversation_id": conversationID, "kind": kind.rawValue] }
+}
+
+extension NotificationIntent {
+    /// One notification per event (an approval by its feed row, a message's
+    /// state by the message), however often the feed repeats it.
+    init(kind: Kind, subject: String, conversationID: String, messageID: String?, title: String, body: String) {
+        self.init(id: "\(kind.idPrefix):\(subject)", kind: kind, conversationID: conversationID, messageID: messageID,
+                  title: title, body: body)
+    }
+}
+
+/// Where a clicked notification takes the person (C-29.9): the main window on
+/// its conversation, and for an approval that conversation's oldest waiting
+/// card (C-27.5).
+struct NotificationTarget: Equatable {
+    var conversationID: String
+    /// Nil when the notification names no kind this build knows.
+    var kind: NotificationIntent.Kind?
+
+    /// Read back from a delivered notification; nil when it names no
+    /// conversation. `kind` comes from the userInfo, or else from the request
+    /// identifier (a notification an earlier build posted carries only
+    /// `conversation_id`).
+    init?(requestID: String, userInfo: [AnyHashable: Any]) {
+        guard let conversationID = userInfo["conversation_id"] as? String, !conversationID.isEmpty else { return nil }
+        self.conversationID = conversationID
+        kind = (userInfo["kind"] as? String).flatMap(NotificationIntent.Kind.init(rawValue:))
+            ?? NotificationIntent.Kind(requestID: requestID)
+    }
+
+    /// An approval's click also brings the conversation's oldest waiting card
+    /// into view (`UIModel.approvalReveal`).
+    var revealsApproval: Bool { kind == .approval }
+
+    /// What the click opens, given the conversation's pending approvals as the
+    /// feed last reported them: a card is revealed only while one waits, since
+    /// a notification outlives the approval it announced.
+    func opening(pendingApprovals: Int) -> NotificationOpening {
+        NotificationOpening(conversationID: conversationID, revealsCard: revealsApproval && pendingApprovals > 0)
+    }
+
+    /// Whether it shows when it arrives while the app is frontmost. It was
+    /// posted because its conversation was not the one open (D-24), where the
+    /// window shows at most a sidebar badge for it (a count of waiting
+    /// approvals, a turn no longer running): it shows as it would with the app
+    /// in the background, unless the person has opened that conversation since.
+    func showsWhileFrontmost(focusedConversationID: String?) -> Bool {
+        conversationID != focusedConversationID
+    }
+}
+
+/// What a click opens: the conversation to focus, and whether to bring its
+/// oldest waiting card into view.
+struct NotificationOpening: Equatable {
+    var conversationID: String
+    var revealsCard: Bool
+}
+
+/// Clicks in the order they come (C-29.9). One that comes before the app has
+/// its first conversation list and feed baseline is held until then: before
+/// it the daemon may not answer an open, and the baseline, when it lands,
+/// replaces the state, focus included. A held click is dropped if the person
+/// has gone somewhere since it came (`navigation`, which moves with every
+/// navigation, as for an open that answers late), and a later click replaces it.
+struct NotificationClicks: Equatable {
+    private(set) var held: NotificationTarget?
+    private var heldAt = 0
+
+    /// A click now: what to open, or nil while it is held for the baseline.
+    mutating func click(_ target: NotificationTarget, baselined: Bool, navigation: Int,
+                        pendingApprovals: [String: Int]) -> NotificationOpening? {
+        guard baselined else {
+            held = target
+            heldAt = navigation
+            return nil
+        }
+        held = nil
+        return target.opening(pendingApprovals: pendingApprovals[target.conversationID] ?? 0)
+    }
+
+    /// The baseline has landed: the held click to open, if the person has not
+    /// gone elsewhere since it came.
+    mutating func baselineLanded(navigation: Int, pendingApprovals: [String: Int]) -> NotificationOpening? {
+        defer { held = nil }
+        guard let held, heldAt == navigation else { return nil }
+        return held.opening(pendingApprovals: pendingApprovals[held.conversationID] ?? 0)
+    }
 }
 
 // MARK: - State
@@ -451,20 +553,19 @@ struct ConversationStoreState: Equatable {
         let title = conversation(change.conversation_id).map(conversationTitle) ?? change.conversation_id
         var intent: NotificationIntent?
         if change.pending_approvals > pendingBefore {
-            intent = NotificationIntent(id: "approval:\(change.seq)", kind: .approval, conversationID: change.conversation_id,
+            intent = NotificationIntent(kind: .approval, subject: "\(change.seq)", conversationID: change.conversation_id,
                                         messageID: change.message_id, title: "Approval needed", body: title)
         } else if let mid = change.message_id, let state = change.state.flatMap(MessageState.init(rawValue:)) {
             switch state {
             case .complete:
-                intent = NotificationIntent(id: "complete:\(mid)", kind: .completed, conversationID: change.conversation_id,
+                intent = NotificationIntent(kind: .completed, subject: mid, conversationID: change.conversation_id,
                                             messageID: mid, title: "Turn completed", body: title)
             case .failed:
-                intent = NotificationIntent(id: "failed:\(mid)", kind: .failed, conversationID: change.conversation_id,
+                intent = NotificationIntent(kind: .failed, subject: mid, conversationID: change.conversation_id,
                                             messageID: mid, title: "Turn failed", body: title)
             case .deliveryUnknown:
-                intent = NotificationIntent(id: "delivery-unknown:\(mid)", kind: .deliveryUnknown,
-                                            conversationID: change.conversation_id, messageID: mid,
-                                            title: "Delivery unknown", body: title)
+                intent = NotificationIntent(kind: .deliveryUnknown, subject: mid, conversationID: change.conversation_id,
+                                            messageID: mid, title: "Delivery unknown", body: title)
             default:
                 break
             }
