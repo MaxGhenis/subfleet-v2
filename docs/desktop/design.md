@@ -1026,6 +1026,26 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   elapsed time; the strip under each person bubble keeps the words only.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
+- ⌘K, and File > Search…, open a quick-switch palette over the window
+  (C-29.12; Max, 2026-09-27). It finds every conversation and session by
+  title, workspace and provider, and by the text of the conversations the
+  app has loaded and each session's first prompt; after a pause in typing it
+  asks `conversation.list` with `query` for sessions past the loaded page (no
+  daemon op searches transcripts, and none was added; former titles are not
+  kept, so a renamed conversation is found by its current title). Fuzzy titles
+  rank last, and a last item starts a new conversation. Matching and ranking
+  are Foundation-only (`SearchPalette.swift`), tested through the core probe:
+  text is folded off the main thread, once (unchanged messages keep their
+  folds between openings), and words are found in the folded bytes, since
+  `range(of:options:)` over megabytes of timeline takes seconds.
+- Conversation text is set in reading sizes at one scale (C-29.13; Max,
+  2026-09-27: "text is small"): body 16 pt at actual size, with View >
+  Bigger, Smaller and Actual size stepping as Claude Code's zoom does, and the
+  conversation column widening with the text. SwiftUI's text styles are fixed
+  points on macOS whatever `dynamicTypeSize` says, so views use
+  `.readingFont(_:)`, which reads the scale from the environment
+  (`TextScale.swift`, `UIReading.swift`). Code blocks have Copy and show more
+  lines 400 at a time.
 
 ### `status.json` (C-18.2, C-29.6; review IR-18, IR-34)
 

@@ -90,7 +90,7 @@ struct ComposerTextView: NSViewRepresentable {
         let textView = ComposerNSTextView()
         textView.isRichText = false
         textView.allowsUndo = true
-        textView.font = NSFont.preferredFont(forTextStyle: .body)
+        textView.font = ReadingStyle.body.nsFont(scale: context.environment.textScale)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.textContainerInset = NSSize(width: 4, height: 6)
@@ -113,6 +113,9 @@ struct ComposerTextView: NSViewRepresentable {
         textView.onEscape = onEscape
         textView.onImage = onImage
         if textView.string != text { textView.string = text }
+        // C-29.13: the body size at the window's text scale.
+        let font = ReadingStyle.body.nsFont(scale: context.environment.textScale)
+        if textView.font != font { textView.font = font }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
@@ -137,6 +140,7 @@ struct ComposerView: View {
     @State private var settings: ConversationSettings?
     @State private var widenTo: String?
     @State private var loadedDraftFor: String?
+    @Environment(\.textScale) private var textScale
 
     var body: some View {
         let current = settings ?? conversation.settings
@@ -174,7 +178,8 @@ struct ComposerView: View {
                     Text(steerHost != nil ? "Steer the running turn · ⌘⏎ queues for later"
                          : live == nil ? "Message \(assistant)"
                          : "Queue a follow-up while this turn runs")
-                        .foregroundStyle(.tertiary).padding(.leading, 9).padding(.top, 6).allowsHitTesting(false)
+                        .readingFont(.body).foregroundStyle(.tertiary).padding(.leading, 9).padding(.top, 6)
+                        .allowsHitTesting(false)
                 }
             }
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
@@ -289,11 +294,15 @@ struct ComposerView: View {
         }
     }
 
-    /// Starts at two lines and grows with the text to at most about ten.
+    /// Starts at two lines and grows with the text to at most about ten, in
+    /// proportion to the text size (the constants were set at 13 pt), and never
+    /// past 320 pt, so large text leaves the timeline room.
     private var composerHeight: CGFloat {
+        let factor = CGFloat(ReadingStyle.body.pointSize(scale: textScale) / 13)
+        let perLine = Double(max(20, 110 / factor))
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            .reduce(0) { $0 + max(1, Int(ceil(Double($1.count) / 110))) }
-        return min(200, max(44, CGFloat(lines) * 18 + 14))
+            .reduce(0) { $0 + max(1, Int(ceil(Double($1.count) / perLine))) }
+        return min(min(200 * factor, 320), max(44 * factor, CGFloat(lines) * 18 * factor + 14))
     }
 
     /// The message's own settings: the composer's picks, under the conversation's permission.

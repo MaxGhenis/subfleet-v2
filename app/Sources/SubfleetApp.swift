@@ -29,10 +29,18 @@ struct SubfleetApp: App {
     @NSApplicationDelegateAdaptor(SubfleetAppDelegate.self) private var delegate
     @StateObject private var store = QuotaStore()
     @StateObject private var model = UIModel()
+    /// The ⌘K palette (C-29.12), here so the menu reaches it.
+    @StateObject private var palette = SearchPaletteModel()
+    /// C-29.13: View > Bigger, Smaller and Actual size.
+    @AppStorage(TextScale.defaultsKey) private var textScale = TextScale.actual
+
+    init() {
+        TextScale.normalize(.standard)
+    }
 
     var body: some Scene {
         Window("Subfleet", id: "main") {
-            MainWindow(model: model)
+            MainWindow(model: model, palette: palette)
                 .frame(minWidth: 860, minHeight: 560)
                 .background(OpenMainRegistrar())
         }
@@ -42,7 +50,12 @@ struct SubfleetApp: App {
                 Button("New conversation") {
                     NotificationCenter.default.post(name: .subfleetNewConversation, object: nil)
                 }.keyboardShortcut("n")
+                Button("Search…") {
+                    SubfleetAppDelegate.openMain?()
+                    palette.toggle(model)
+                }.keyboardShortcut("k")
             }
+            TextSizeCommands(scale: $textScale)
         }
 
         MenuBarExtra {

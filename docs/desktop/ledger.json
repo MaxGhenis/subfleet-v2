@@ -213,6 +213,34 @@
       "notes": ""
     },
     {
+      "id": "M-15",
+      "requirement": "A keyboard shortcut to search, like ⌘K",
+      "source": "Max, 2026-09-27",
+      "clauses": [
+        "C-29.12"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_search.py",
+        "tests/frontend/test_reading_view.py"
+      ],
+      "notes": "Palette over the window: conversations and sessions by title, workspace, provider and loaded message text, fuzzy titles last, and a new-conversation item; the daemon's catalog query for sessions past the loaded page. Not done: former titles (not kept anywhere) and a full-text search of transcripts the app has not loaded (no daemon op). Not yet seen in the installed app."
+    },
+    {
+      "id": "M-16",
+      "requirement": "Readable text: conversation text was small",
+      "source": "Max, 2026-09-27",
+      "clauses": [
+        "C-29.13"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_text_scale.py",
+        "tests/frontend/test_reading_view.py"
+      ],
+      "notes": "Body 16 pt at actual size; View > Bigger, Smaller and Actual size step as Claude Code's zoom does and persist one scale; the conversation column widens with it. Not yet seen in the installed app."
+    },
+    {
       "id": "P-1",
       "requirement": "Project selection and compose with workspace choice, settings and errors",
       "source": "transition plan capability map",
