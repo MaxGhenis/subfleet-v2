@@ -209,6 +209,7 @@ func runLive(_ arguments: [String]) throws -> Any {
             run.check("a repeated answer is recognised", again.duplicate == true)
         } catch {
             run.check("approval.get and approval.respond as the app", false, describe(error))
+            return endRun(after: "5. approval.get or approval.respond failed")
         }
     } else {
         return endRun(after: "5. the tool approval has no approval id")
@@ -249,8 +250,13 @@ func runLive(_ arguments: [String]) throws -> Any {
     run.check("the question card lists its questions", questionCard.kind == "question"
               && questionCard.questions.first?.question == "Which color?"
               && questionCard.questions.first?.options?.map(\.label) == ["Blue", "Red"], project(questionCard))
-    let detail = try engine.approvalDetail(id)
-    _ = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
+    do {
+        let detail = try engine.approvalDetail(id)
+        _ = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
+    } catch {
+        run.check("the question is answered as the app", false, describe(error))
+        return endRun(after: "6. approval.get or approval.respond failed")
+    }
     _ = untilState(question.key, ["complete", "failed"])
     _ = follow(cid, timeout: 20) { $0.turn(question.key)?.outcome != nil }
     run.check("the answer reaches the provider", state.timelines[cid].flatMap { finalText($0, question.key) }

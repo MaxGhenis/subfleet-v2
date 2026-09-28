@@ -141,7 +141,8 @@ class Attempt:
                  for e in step.events]
         if batch or step.approvals:
             # An approval commits with its `approval.requested` event and the move
-            # to approval-needed (C-27.1).
+            # to approval-needed (C-27.1). No driver step carries both an approval
+            # and `accepted`, whose move to running the runner makes first.
             self.store.append_events(conversation_id=self.cid, message_id=self.mid, attempt_id=self.attempt_id,
                                      events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq,
                                      approvals=[{"provider_request_id": a.provider_request_id, "kind": a.kind,

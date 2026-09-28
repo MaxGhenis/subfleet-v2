@@ -69,13 +69,13 @@ def store(tmp_path):
     s.close()
 
 
-def running_message(store: ConversationStore, provider: str) -> tuple[str, str]:
+def running_message(store: ConversationStore, provider: str, state: str = "running") -> tuple[str, str]:
     conversation, _ = store.create_conversation(provider=provider, workspace="/w", workspace_kind="in-place",
                                                 settings=CLAUDE if provider == "claude" else CODEX, origin="new")
     cid, mid = conversation["conversation_id"], str(uuid.uuid4())
     store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None, text="hi", attachments=[],
                          settings=CLAUDE if provider == "claude" else CODEX)
-    assert store.set_state(mid, "running")
+    assert store.set_state(mid, state)
     return cid, mid
 
 
@@ -148,6 +148,36 @@ def test_a_replayed_request_adds_no_second_approval(store, tmp_path, monkeypatch
     assert [c for c in store.changes_after(changes)["changes"] if c["state"] is None] == []
 
 
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_replayed_request_a_person_answered_leaves_the_message_running(store, tmp_path, monkeypatch, provider):
+    """C-27.3: the request a rebuilt runner meets again was answered before the
+    restart; no commit moves the message back to approval-needed with nothing
+    pending (the answer is re-applied from the store, `_sync_answers`)."""
+    cid, mid = running_message(store, provider)
+    line = request_line(provider)
+    first = runner_for(store, tmp_path, provider, cid, mid)
+    first._apply(first.driver.feed(line, 0))
+    [approval] = store.approvals(conversation_id=cid)
+    assert store.answer_approval(approval["approval_id"], {"decision": "allow"})
+    assert store.set_state(mid, "running", expect=("approval-needed",))
+    states: list[str] = []
+    after_commit = check_every_commit(store, monkeypatch)
+    transaction = store.transaction
+
+    @contextlib.contextmanager
+    def watched():
+        with transaction() as tx:
+            yield tx
+        states.append(store.message(mid)["state"])
+
+    monkeypatch.setattr(store, "transaction", watched)
+    again = runner_for(store, tmp_path, provider, cid, mid)
+    again._apply(again.driver.feed(line, 0))
+    assert states and set(states) == {"running"}, states
+    assert all(found == [] for found in after_commit), after_commit
+    assert store.approvals(conversation_id=cid) == []
+
+
 # --- the store, over any sequence of batches -----------------------------------------------
 
 REQUESTS = ["r1", "r2", "r3", "r4"]
@@ -170,18 +200,20 @@ def batches(draw):
 
 @hypothesis.settings(max_examples=60, deadline=None,
                      suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
-@hypothesis.given(batches())
-def test_no_commit_shows_an_approval_requested_event_without_its_approval(tmp_path_factory, batches):
-    """C-27.1, C-26.6: for any sequence of batches and replays, after every commit
-    each `approval.requested` event has exactly one approval row; each request has
-    one row, one published request file, and one change-feed row however often
-    its batch is written."""
+@hypothesis.given(batches(), st.sampled_from(["starting", "running"]))
+def test_no_commit_shows_an_approval_requested_event_without_its_approval(tmp_path_factory, batches, start):
+    """C-27.1, C-26.6: for any sequence of batches and replays, from a starting or
+    running message, no commit shows an `approval.requested` event without its
+    approval or a pending approval whose message reads starting or running; each
+    request ends with one row and one published request file, and a batch writes
+    one change-feed row when it brings a new request, none for a replay."""
     store = ConversationStore(tmp_path_factory.mktemp("state"))
     try:
-        cid, mid = running_message(store, "claude")
+        cid, mid = running_message(store, "claude", start)
         with pytest.MonkeyPatch.context() as patch:
             after_commit = check_every_commit(store, patch)
             write(store, cid, mid, batches, after_commit)
+        assert all(found == [] for found in after_commit), after_commit
         asked_ever = {rid for _, _, asked in batches for rid in asked}
         rows = store.approvals(conversation_id=cid)
         assert sorted(a["provider_request_id"] for a in rows) == sorted(asked_ever)
@@ -199,8 +231,9 @@ def test_no_commit_shows_an_approval_requested_event_without_its_approval(tmp_pa
 
 
 def write(store: ConversationStore, cid: str, mid: str, batches: list[tuple], after_commit: list[list[dict]]) -> None:
-    """Each batch as `TurnRunner._flush` writes it; after each commit, nothing unsettled."""
+    """Each batch as `TurnRunner._flush` writes it; every commit it makes is checked."""
     for batch, texts, asked in batches:
+        before = len(after_commit)
         events = [("stdout", f"{batch}:{n}", 0, "text", {"text": f"t{n}"}) for n in range(texts)]
         events += [("stdout", f"{batch}:ask:{rid}", 0, "approval.requested",
                     {"request_id": rid, "tool": "Bash", "input": rid, "kind": "tool", "options": ["allow"]})
@@ -210,4 +243,5 @@ def write(store: ConversationStore, cid: str, mid: str, batches: list[tuple], af
                             approvals=[{"provider_request_id": rid, "kind": "tool", "request": {"id": rid},
                                         "display": {"tool": "Bash", "input": rid}, "options": ("allow",)}
                                        for rid in asked])
-        assert after_commit[-1] == [], (batch, after_commit[-1])
+        made = after_commit[before:]
+        assert made and all(found == [] for found in made), (batch, made)

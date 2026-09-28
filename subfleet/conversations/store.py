@@ -1173,9 +1173,10 @@ class ConversationStore:
         `approvals` (`add_approval`'s fields less the message, conversation and
         attempt) are the batch's provider requests. Their rows, their
         `approval.requested` events and the message's move to `approval-needed`
-        commit together (C-27.1, design §8): whoever reads the event finds the
-        approval in `approval.list` and `conversation.open`, so the app can answer
-        the card it shows. Each request is published before the transaction."""
+        (while one is pending) commit together (C-27.1, design §8): whoever reads
+        the event finds the approval in `approval.list` and `conversation.open`,
+        so the app can answer the card it shows. Each request is published before
+        the transaction."""
         staged = [s for approval in approvals
                   if (s := self._stage_approval(message_id=message_id, conversation_id=conversation_id,
                                                 attempt_id=attempt_id, **approval)) is not None]
@@ -1200,7 +1201,12 @@ class ConversationStore:
                        "ON CONFLICT(attempt_id) DO UPDATE SET stdout_offset=MAX(stdout_offset,excluded.stdout_offset), "
                        "stdin_seq=MAX(stdin_seq,excluded.stdin_seq)",
                        (attempt_id, message_id, stdout_offset, stdin_seq))
-            if approvals:
+            asked = [a["provider_request_id"] for a in approvals]
+            if asked and tx.execute(
+                    "SELECT 1 FROM approvals WHERE attempt_id=? AND state='pending' "
+                    f"AND provider_request_id IN ({','.join('?' * len(asked))})", (attempt_id, *asked)).fetchone():
+                # Only a request still waiting: a replay meeting one a person already
+                # answered leaves the message as it is (C-27.3).
                 self._set_state(tx, message_id, APPROVAL_NEEDED, expect=(RUNNING, STARTING))
         return written
 
