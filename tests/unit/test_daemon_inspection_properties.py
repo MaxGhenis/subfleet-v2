@@ -1,8 +1,8 @@
 """C-5.11 invariants, for every input rather than one example.
 
-- Pacing: a running attempt's guardian is asked about exactly on the ticks a
+- Pacing: a running attempt reads the shared table exactly on the ticks a
   greedy clock allows (the first tick, then the first tick at least one
-  interval after the last question), whatever the tick times.
+  interval after the last read), whatever the tick times.
 - Recording: the members asked about again are exactly those not recorded
   under their current start and boot identity; what is recorded is always the
   identity `procs.identity` gives.
@@ -38,7 +38,7 @@ FIXTURE_HEALTH = [HealthCheck.function_scoped_fixture, HealthCheck.too_slow]
 @pytest.fixture
 def core(tmp_path, monkeypatch):
     daemon = Daemon(tmp_path / "state")
-    monkeypatch.setattr(procs, "_BOOT_ID", [])
+    procs.forget_boot_id()
     home = tmp_path / "home"
     daemon.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
                                str(home), LaneOwner.V2, False))
@@ -72,12 +72,16 @@ class Clock:
 def test_pacing_asks_exactly_when_a_greedy_clock_allows(core, monkeypatch, gaps, interval):
     clock = Clock()
     monkeypatch.setattr(daemon_module, "time", clock)
-    monkeypatch.setattr(core, "_record_owned", lambda a: None)
+    monkeypatch.setattr(core, "_record_owned", lambda a, table: None)
     asked = []
-    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: asked.append(clock.now) or "alive")
-    core.liveness_interval_s = interval
-    core._liveness_next.clear()
-    core._census_next.clear()
+    def snapshot():
+        asked.append(clock.now)
+        return procs.ProcessTable({4242: (1, 4242, "Ss", STARTS[0])}, BOOT)
+
+    monkeypatch.setattr(procs, "snapshot", snapshot)
+    core.inspect_interval_s = interval
+    core._inspect_next.clear()
+    core._table = (None, 0.0)
 
     expected, last = [], None
     for gap in gaps:

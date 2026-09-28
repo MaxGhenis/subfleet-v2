@@ -165,12 +165,16 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def fresh_boot_identity(monkeypatch):
-    """`procs.boot_id` keeps the boot-session UUID for the life of the process,
-    which is right for a daemon and wrong across tests: a test that fakes `ps`
-    and `sysctl` must not be answered by the real UUID an earlier test read."""
-    from subfleet import procs
-    monkeypatch.setattr(procs, "_BOOT_ID", [])
+def fresh_process_caches():
+    """C-5.12, C-10.3: one boot-identity read serves a few seconds and one parse of
+    the login file serves until it changes, and tests stub both, so none may
+    inherit another's."""
+    from subfleet import capacity, procs
+    procs.forget_boot_id()
+    capacity.forget_desktop_account()
+    yield
+    procs.forget_boot_id()
+    capacity.forget_desktop_account()
 
 
 @pytest.fixture(autouse=True)
