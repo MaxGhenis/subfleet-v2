@@ -83,8 +83,9 @@ CONVERSATION_DEFAULTS: dict[str, float] = {
 }
 
 #: `conversations.default_effort` (C-26.8): the effort a turn runs at when its
-#: message names none, per provider. It applies only where the model's catalog
-#: offers it, so a default never fails a turn; null leaves the provider's own.
+#: message names none, per provider. It applies only where the catalog a turn last
+#: reported for the model offers it; a provider set to null keeps its own default,
+#: and `default_effort: null` turns the default off for every provider.
 CONVERSATION_DEFAULT_EFFORT: dict[str, str | None] = {"claude": "ultracode", "codex": None}
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are

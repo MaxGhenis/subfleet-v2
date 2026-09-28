@@ -298,8 +298,10 @@ class ConversationService:
         none: the policy's `conversations.default_effort` for the provider (ultracode
         for Claude), where the catalog a turn last reported for the model offers it;
         None otherwise, which leaves the provider's own default."""
-        configured = {**CONVERSATION_DEFAULT_EFFORT,
-                      **((self.daemon.policy.get("conversations") or {}).get("default_effort") or {})}
+        section = self.daemon.policy.get("conversations") or {}
+        if "default_effort" in section and section["default_effort"] is None:
+            return None                     # `default_effort: null`: no default for any provider
+        configured = {**CONVERSATION_DEFAULT_EFFORT, **(section.get("default_effort") or {})}
         effort = configured.get(provider)
         if not effort:
             return None

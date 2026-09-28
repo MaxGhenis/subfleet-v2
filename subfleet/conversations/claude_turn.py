@@ -369,8 +369,10 @@ class ClaudeTurn:
                   "permission_mode": body.get("current_permission_mode")}
         if self.spec.effort:
             # The effort the command line asked for, a conversation default included
-            # (C-26.8); `initialize` does not echo it.
-            served["effort"] = self.spec.effort
+            # (C-26.8); `initialize` does not echo it. A read-only ultracode turn ran
+            # at xhigh alone (no Workflow tool), so that is what it served.
+            served["effort"] = (ULTRACODE_EFFORT if self.spec.effort == ULTRACODE
+                                and self.spec.permission == "read-only" else self.spec.effort)
         self.phase = "sent"
         message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
                    "session_id": self.spec.native_session_id or self.spec.new_session_id,

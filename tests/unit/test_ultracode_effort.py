@@ -29,6 +29,7 @@ LEVELS = ["low", "medium", "high", "xhigh", "max"]
 # --- the level ---------------------------------------------------------------------
 
 
+@hypothesis.settings(deadline=None, derandomize=True)
 @hypothesis.given(st.lists(st.sampled_from(["low", "medium", "high", "xhigh", "max", "ultra", ULTRACODE]),
                            unique=True))
 def test_c26_8_ultracode_is_offered_exactly_where_xhigh_is(levels):
@@ -220,3 +221,28 @@ def test_c26_8_the_stored_settings_are_not_rewritten(svc, monkeypatch):
 def test_c26_8_the_ultracode_constant_is_what_the_cli_is_given():
     assert claude_turn.ULTRACODE_EFFORT in LEVELS and claude_turn.ULTRACODE not in LEVELS
     assert SID  # the imported fixture spec resumes this session
+
+
+def test_c26_8_a_read_only_ultracode_turn_serves_xhigh():
+    step = started(ClaudeTurn(spec(effort=ULTRACODE, permission="read-only"), read_bytes=lambda p: b""))
+    assert next(e.data for e in step.events if e.kind == "served")["effort"] == "xhigh"
+
+
+def test_c26_8_codex_models_never_offer_ultracode_even_with_xhigh(svc):
+    """The Claude guard in models.list: a Codex catalog listing xhigh gets no ultracode,
+    since a Codex turn would refuse it (settings-unsupported)."""
+    svc.daemon.policy["models"]["luna"] = {"provider": "codex", "id": "gpt-5.6-luna"}
+    path = svc.daemon.root / "conversations" / "models.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps({"codex": {"gpt-5.6-luna": {"values": ["gpt-5.6-luna"], "efforts": LEVELS}}}))
+    entry = svc.handle("models.list", {"provider": "codex"}, None)["models"][0]
+    assert entry["efforts"] == LEVELS and entry["conversation_default_effort"] is None
+
+
+def test_c26_8_default_effort_null_turns_every_default_off(svc, monkeypatch):
+    _catalog(svc, LEVELS)
+    svc.daemon.policy["conversations"]["default_effort"] = None
+    turns = _turns(svc, monkeypatch)
+    submit(svc, conversation(svc))
+    svc._dispatch()
+    assert turns[0]["settings"]["effort"] is None
