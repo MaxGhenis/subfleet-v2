@@ -93,6 +93,7 @@ final class SearchPaletteModel: ObservableObject {
         outcome = .empty
         selection = nil
         ready = false
+        reveal = nil
         isPresented = true
         rebuild(model.state.searchCandidates())
     }
@@ -206,8 +207,18 @@ final class SearchPaletteModel: ObservableObject {
     private func askSessions() {
         sessionsTask?.cancel()
         let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard let word = words.max(by: { $0.count < $1.count })?.lowercased(), word.count >= 2,
-              word != sessionsWord else { return }
+        guard let word = words.max(by: { $0.count < $1.count })?.lowercased(), word.count >= 2 else {
+            // Sessions found for an earlier query leave with it, so the recent
+            // list is the sidebar's again.
+            if !sessions.isEmpty, let model {
+                sessions = []
+                sessionsWord = nil
+                sessionsCapped = false
+                rebuild(model.state.searchCandidates())
+            }
+            return
+        }
+        guard word != sessionsWord else { return }
         sessionsTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: SearchPaletteModel.sessionDelay)
             guard !Task.isCancelled, let model = self?.model,
@@ -289,6 +300,16 @@ extension EnvironmentValues {
 }
 
 // MARK: - Views
+
+/// While the palette is open, what is behind it takes no clicks or shortcuts
+/// (⌘↩ would send the composer's draft).
+struct PaletteModal: ViewModifier {
+    @ObservedObject var palette: SearchPaletteModel
+
+    func body(content: Content) -> some View {
+        content.disabled(palette.isPresented)
+    }
+}
 
 /// The palette over the window, with a scrim that closes it when clicked.
 struct SearchPaletteOverlay: View {
@@ -561,6 +582,18 @@ func relativeWords(_ date: Date, now: Date = Date()) -> String {
 
 final class PaletteNSTextField: NSTextField {
     var onWindow: (NSWindow?) -> Void = { _ in }
+    var onSubmit: () -> Void = {}
+
+    /// ⌘↩ opens the selection too; it must not reach the composer's Send
+    /// under the palette.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if (event.keyCode == 36 || event.keyCode == 76) && modifiers == .command && currentEditor() != nil {
+            onSubmit()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     /// Takes the keys as soon as it is in a window.
     override func viewDidMoveToWindow() {
@@ -575,8 +608,9 @@ final class PaletteNSTextField: NSTextField {
 }
 
 /// The palette's search field: typing searches; Up and Down (Control-P and
-/// Control-N too) move the selection, Page Up and Page Down move by a page,
-/// Return opens, Escape closes.
+/// Control-N too, Tab and Shift-Tab) move the selection, Page Up and Page Down
+/// move by a page, Return (and ⌘↩) opens, Escape closes. Tab never takes the
+/// keys out of the palette to what is behind it.
 struct PaletteSearchField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
@@ -602,12 +636,14 @@ struct PaletteSearchField: NSViewRepresentable {
         field.delegate = context.coordinator
         field.setAccessibilityLabel("Search")
         field.onWindow = onWindow
+        field.onSubmit = onSubmit
         return field
     }
 
     func updateNSView(_ field: PaletteNSTextField, context: Context) {
         context.coordinator.parent = self
         field.onWindow = onWindow
+        field.onSubmit = onSubmit
         if field.stringValue != text { field.stringValue = text }
         if field.font != font { field.font = font }
     }
@@ -617,8 +653,8 @@ struct PaletteSearchField: NSViewRepresentable {
     /// Which key commands the field takes, and what each does.
     static func perform(_ selector: Selector, move: (Int) -> Void, submit: () -> Void, cancel: () -> Void) -> Bool {
         switch selector {
-        case #selector(NSResponder.moveUp(_:)): move(-1)
-        case #selector(NSResponder.moveDown(_:)): move(1)
+        case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.insertBacktab(_:)): move(-1)
+        case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertTab(_:)): move(1)
         case #selector(NSResponder.scrollPageUp(_:)), #selector(NSResponder.pageUp(_:)): move(-8)
         case #selector(NSResponder.scrollPageDown(_:)), #selector(NSResponder.pageDown(_:)): move(8)
         case #selector(NSResponder.insertNewline(_:)): submit()
@@ -646,8 +682,16 @@ struct PaletteSearchField: NSViewRepresentable {
 
 // MARK: - Following a result into the conversation
 
-/// Scrolls the conversation to the message a search result matched. It sits in
-/// the conversation's ScrollViewReader and shows nothing.
+extension View {
+    /// The conversation's column: its widest grows with the text (C-29.13), and
+    /// it scrolls to the message a search result matched (C-29.12).
+    func conversationColumn(_ conversationID: String, proxy: ScrollViewProxy) -> some View {
+        readingColumn().background(SearchRevealer(conversationID: conversationID, proxy: proxy))
+    }
+}
+
+/// Scrolls the conversation to the message a search result matched. It is the
+/// timeline's background inside its ScrollViewReader, so it takes no room.
 struct SearchRevealer: View {
     @Environment(\.searchPalette) private var palette
     let conversationID: String
@@ -664,15 +708,21 @@ struct SearchRevealer: View {
         let conversationID: String
         let proxy: ScrollViewProxy
 
+        struct Key: Equatable {
+            var reveal: SearchReveal?
+            var conversationID: String
+        }
+
         var body: some View {
-            Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
-                .task(id: palette.reveal) {
+            Color.clear.accessibilityHidden(true)
+                .task(id: Key(reveal: palette.reveal, conversationID: conversationID)) {
                     guard let reveal = palette.reveal, reveal.conversationID == conversationID else { return }
                     // After the switch's own scroll to the end, and again once the
                     // history page that opening reads may have moved the rows.
                     for delay: UInt64 in [250_000_000, 550_000_000] {
                         try? await Task.sleep(nanoseconds: delay)
-                        guard !Task.isCancelled else { return }
+                        // Gone, or another conversation shown: this reveal is done with.
+                        if Task.isCancelled { break }
                         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(reveal.itemID, anchor: .center) }
                     }
                     if palette.reveal == reveal { palette.reveal = nil }

@@ -95,6 +95,54 @@ func equalsShortcut() -> [String: Any] {
     return out
 }
 
+/// ⌘↩ with the palette open: nothing behind it takes the shortcut (the
+/// composer's Send would), and the palette's field opens the selection.
+@MainActor
+func modalKeys() -> [String: Any] {
+    let sent = Counter()
+    let palette = SearchPaletteModel()
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled],
+                          backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = NSHostingView(rootView: Button("Send") { sent.count += 1 }
+        .keyboardShortcut(.return, modifiers: .command)
+        .modifier(PaletteModal(palette: palette))
+        .frame(width: 200, height: 100))
+    func settle() {
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+    func commandReturn(_ window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                         windowNumber: window.windowNumber, context: nil, characters: "\r",
+                         charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+    }
+    settle()
+    var out: [String: Any] = [:]
+    _ = window.performKeyEquivalent(with: commandReturn(window))
+    out["sent_while_closed"] = sent.count
+    palette.isPresented = true
+    settle()
+    _ = window.performKeyEquivalent(with: commandReturn(window))
+    out["sent_while_open"] = sent.count
+    window.close()
+
+    let submitted = Counter()
+    let field = PaletteNSTextField()
+    field.onSubmit = { submitted.count += 1 }
+    let fieldWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled],
+                               backing: .buffered, defer: true)
+    fieldWindow.isReleasedWhenClosed = false
+    fieldWindow.contentView = field
+    fieldWindow.makeFirstResponder(field)
+    out["field_editing"] = field.currentEditor() != nil
+    out["field_handled"] = field.performKeyEquivalent(with: commandReturn(fieldWindow))
+    out["field_submitted"] = submitted.count
+    fieldWindow.close()
+    return out
+}
+
 @MainActor
 func palette() -> [String: Any] {
     func candidate(_ id: String, _ title: String, date: Double, messages: [SearchMessage] = []) -> SearchCandidate {
@@ -198,6 +246,7 @@ struct ReadingViewProbe {
         case "sizes": out = sizesAtScales()
         case "equals": out = equalsShortcut()
         case "palette": out = palette()
+        case "modal": out = modalKeys()
         default: exit(2)
         }
         // A layout test must never leave a window on screen.

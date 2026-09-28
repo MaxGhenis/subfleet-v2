@@ -34,6 +34,10 @@ struct SubfleetApp: App {
     /// C-29.13: View > Bigger, Smaller and Actual size.
     @AppStorage(TextScale.defaultsKey) private var textScale = TextScale.actual
 
+    init() {
+        TextScale.normalize(.standard)
+    }
+
     var body: some Scene {
         Window("Subfleet", id: "main") {
             MainWindow(model: model, palette: palette)

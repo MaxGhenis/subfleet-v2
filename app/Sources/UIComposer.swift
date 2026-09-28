@@ -229,13 +229,14 @@ struct ComposerView: View {
     }
 
     /// Starts at two lines and grows with the text to at most about ten, in
-    /// proportion to the text size (the constants were set at 13 pt).
+    /// proportion to the text size (the constants were set at 13 pt), and never
+    /// past 320 pt, so large text leaves the timeline room.
     private var composerHeight: CGFloat {
         let factor = CGFloat(ReadingStyle.body.pointSize(scale: textScale) / 13)
         let perLine = Double(max(20, 110 / factor))
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
             .reduce(0) { $0 + max(1, Int(ceil(Double($1.count) / perLine))) }
-        return min(200 * factor, max(44 * factor, CGFloat(lines) * 18 * factor + 14))
+        return min(min(200 * factor, 320), max(44 * factor, CGFloat(lines) * 18 * factor + 14))
     }
 
     private func submit() {

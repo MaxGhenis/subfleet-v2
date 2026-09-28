@@ -7,9 +7,11 @@
 // body is 13), times one scale the person picks with View > Bigger, Smaller
 // and Actual size. Bigger and Smaller step the way Claude Code's ⌘+ and ⌘−
 // zoom does, half a zoom level (×1.2^½) at a time, so the same presses give the
-// same size: Max reads Claude Code five steps up (158 %). The scale persists in
-// UserDefaults under `TextScale.defaultsKey`, and the conversation column
-// widens with it. Foundation only.
+// same zoom factor. Max reads Claude Code five steps up (158 %, about 22 px from
+// its 14 px default); from this 16 pt base that size is three or four presses
+// (21 or 23 pt). The scale persists in UserDefaults under
+// `TextScale.defaultsKey`, is made a usable one at launch (`normalize`), and
+// the conversation column widens with it. Foundation only.
 
 import Foundation
 
@@ -57,6 +59,14 @@ enum TextScale {
     static func save(_ value: Double, to defaults: UserDefaults) {
         defaults.set(clamp(value), forKey: defaultsKey)
     }
+
+    /// At launch, before the app's `@AppStorage` reads it: whatever is stored
+    /// becomes the scale `load` makes of it (a Bool or a string would otherwise
+    /// read as 0 or 1 there, or as nothing).
+    static func normalize(_ defaults: UserDefaults) {
+        guard defaults.object(forKey: defaultsKey) != nil else { return }
+        save(load(from: defaults), to: defaults)
+    }
 }
 
 /// The window's text sizes. Body is the conversation's own words (messages,
@@ -100,8 +110,9 @@ enum ReadingStyle: String, CaseIterable {
         return max(ReadingStyle.minimumPointSize, scaled)
     }
 
-    /// The conversation column's widest, in points: about 75 characters of body
-    /// text a line at every scale (896 pt at actual size, where it was a fixed 900).
+    /// The conversation column's widest, in points: 56 times the body size,
+    /// about the ratio of Claude Code's 768 px column to its 14 px text (55), and
+    /// 896 pt at actual size, where it was a fixed 900.
     static func columnWidth(scale: Double) -> Double { ReadingStyle.body.pointSize(scale: scale) * 56 }
 
     /// A person's message bubble's widest.

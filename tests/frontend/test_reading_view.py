@@ -64,9 +64,10 @@ def test_c29_12_palette_keys_selection_and_opening(reading_probe):
     # With nothing matching, Return starts a new conversation.
     assert out["nothing_matches_selection"] == "action:new-conversation"
     assert out["new_conversation_posted"] == 1 and out["closed_after_new"] is True
+    # Tab moves too, so it never takes the keys to what is behind the palette.
     assert out["keys"] == {"down": True, "up": True, "page-down": True, "scroll-page-up": True, "return": True,
-                           "escape": True, "tab": False, "left": False}
-    assert out["log"] == ["move 1", "move -1", "move 8", "move -8", "submit", "cancel"]
+                           "escape": True, "tab": True, "left": False}
+    assert out["log"] == ["move 1", "move -1", "move 8", "move -8", "submit", "cancel", "move 1"]
     assert out["typed"] == "café"
     assert out["runs"] == [["Résumé", True], [" polish", False]]
     assert out["visible_windows"] == 0
@@ -84,3 +85,14 @@ def test_c29_12_palette_layout_fits_its_results(reading_probe):
     # In a window too short for the whole list, the palette stays inside it.
     assert out["many_large_short_window"][1] <= 460
     assert out["few_short_window"][1] == pytest.approx(few_height, abs=1)
+
+
+def test_c29_12_the_palette_is_modal(reading_probe):
+    """Behind the open palette the composer's Send took ⌘↩ and sent the draft
+    (review of 158db058). Now nothing behind it takes ⌘↩; its field opens the
+    selection."""
+    out = invoke(reading_probe, "modal")
+    assert out["sent_while_closed"] == 1
+    assert out["sent_while_open"] == 1, "nothing behind the open palette takes ⌘↩"
+    assert out["field_editing"] is True and out["field_handled"] is True and out["field_submitted"] == 1
+    assert out["visible_windows"] == 0

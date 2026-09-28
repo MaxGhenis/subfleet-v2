@@ -7,8 +7,8 @@ import SwiftUI
 
 struct MainWindow: View {
     @ObservedObject var model: UIModel
-    /// The ⌘K palette (C-29.12).
-    @ObservedObject var palette: SearchPaletteModel
+    /// The ⌘K palette (C-29.12); its overlay observes it.
+    let palette: SearchPaletteModel
     /// C-29.13: every conversation text size follows this scale.
     @AppStorage(TextScale.defaultsKey) private var textScale = TextScale.actual
     @State private var selection: String?
@@ -76,7 +76,10 @@ struct MainWindow: View {
         .sheet(isPresented: $showNew) { NewConversationSheet(model: model, isPresented: $showNew) }
         .onAppear { model.start() }
         .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in showNew = true }
+        .modifier(PaletteModal(palette: palette))
         .overlay { SearchPaletteOverlay(palette: palette) }
+        .onChange(of: showNew) { _, shown in if shown { palette.close(restoringFocus: false) } }
+        .onDisappear { palette.close(restoringFocus: false) }
         .background(TextScaleEqualsShortcut(scale: $textScale))
         .environment(\.textScale, textScale)
         .environment(\.searchPalette, palette)
@@ -210,11 +213,15 @@ struct SidebarRow: View {
 
 struct ProviderBadge: View {
     let provider: String
+    @Environment(\.textScale) private var scale
+
     var body: some View {
+        // 9 pt in a 22 × 16 badge at actual size, growing with the text (C-29.13).
+        let size = ReadingStyle.footnote.pointSize(scale: scale) * 0.75
         Text(provider == "codex" ? "CX" : "CL")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: size, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
-            .frame(width: 22, height: 16)
+            .frame(width: ceil(size * 22 / 9), height: ceil(size * 16 / 9))
             .background(RoundedRectangle(cornerRadius: 4).fill(provider == "codex" ? Color.teal : Color.orange))
             .help(provider == "codex" ? "Codex" : "Claude")
     }
@@ -247,7 +254,6 @@ struct ConversationView: View {
                 }
             }
             ScrollViewReader { proxy in
-                SearchRevealer(conversationID: conversation.conversation_id, proxy: proxy)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if let timeline, !timeline.historyComplete, timeline.historyPagesLoaded > 0 {
@@ -272,7 +278,7 @@ struct ConversationView: View {
                             .onDisappear { atBottom = false }
                     }
                     .padding(16)
-                    .readingColumn()
+                    .conversationColumn(conversation.conversation_id, proxy: proxy)
                     .frame(maxWidth: .infinity)
                 }
                 .onChange(of: timeline?.items.last?.id) { _, _ in
@@ -304,7 +310,7 @@ struct ConversationView: View {
                     // window's content overflowed it (2.1.2 build 7).
                     Text("Open in the Claude app or a terminal. Close it there to continue here; "
                          + "a message you send waits until then.")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        .readingFont(.caption).foregroundStyle(.secondary).lineLimit(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 14).padding(.top, 6)
@@ -448,7 +454,7 @@ struct TurnStatusLine: View {
             if live {
                 Button("Stop") {
                     model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
-                }.buttonStyle(.link).readingFont(.caption)
+                }.buttonStyle(.link).font(.caption)
             }
             if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
                 Button {

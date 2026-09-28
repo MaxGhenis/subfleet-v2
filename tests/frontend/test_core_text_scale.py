@@ -115,6 +115,9 @@ def test_c29_13_the_setting_persists_in_user_defaults(core_probe, tmp_path):
     assert out["saved_too_large"] == pytest.approx(HIGH)
     # Not a number (a string, a Bool) reads as actual size; out of range as the nearest bound.
     assert out["stored"] == pytest.approx([1.0, 1.0, HIGH, LOW, 1.5, 1.0, 1.0])
+    # The app normalizes what is stored at launch, so its @AppStorage reads the same scales.
+    assert out["normalized"][:-1] == pytest.approx([1.0, 1.0, HIGH, LOW, 1.5, 1.0])
+    assert out["normalized"][-1] is None, "nothing stored stays nothing"
 
 
 def test_c29_13_reading_sizes_at_actual_size(core_probe, tmp_path):

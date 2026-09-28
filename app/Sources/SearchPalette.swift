@@ -11,9 +11,10 @@
 //   details       every word is in the title, workspace or provider;
 //   message       some word is only in message text: the result carries a
 //                 snippet of the message holding the most of those words;
-//   fuzzy title   each word's letters are in the title in order, close
-//                 together ("sbflt" in "Subfleet"), as Claude Code's
-//                 palette matches titles.
+//   fuzzy title   a word found nowhere has its letters in the title in
+//                 order, close together ("sbflt" in "Subfleet"), as Claude
+//                 Code's palette matches titles; the others are found as
+//                 above.
 //
 // Within a tier the most recently active comes first (undated last); ties go
 // by title, then id, so the order never depends on the candidates' order. An
@@ -80,7 +81,8 @@ enum SearchFold {
 
     /// Folded bytes of `text`, with the character each byte came from: what
     /// highlights are found in. Folding a character at a time gives the bytes
-    /// folding the whole text does.
+    /// folding the whole text does; a character of combining marks alone (one
+    /// after a control character) folds to nothing there, except first.
     static func foldedCharacters(_ text: Substring) -> (bytes: [UInt8], owners: [Range<String.Index>]) {
         var bytes: [UInt8] = []
         var owners: [Range<String.Index>] = []
@@ -91,6 +93,7 @@ enum SearchFold {
             let next = text.index(after: index)
             let character = text[index]
             let folded = character.isASCII ? character.utf8.map { $0 &- 0x41 < 26 ? $0 | 0x20 : $0 }
+                : index != text.base.startIndex && SearchQuery.isMarks(character.unicodeScalars) ? []
                 : foundationFold(String(character))
             bytes += folded
             owners += repeatElement(index..<next, count: folded.count)
@@ -111,7 +114,7 @@ struct SearchQuery: Equatable {
     /// Words past `maximumWords`, which are not searched.
     var ignoredWords: Int
     /// The folded words as Unicode scalars, for fuzzy title matches.
-    var scalars: [[Unicode.Scalar]] { folded.map(SearchFuzzy.scalars) }
+    var scalars: [[Unicode.Scalar]]
 
     static let maximumWords = 12
 
@@ -130,6 +133,7 @@ struct SearchQuery: Equatable {
         }
         self.words = words
         self.folded = folded
+        self.scalars = folded.map(SearchFuzzy.scalars)
         self.ignoredWords = ignored
         self.exact = SearchQuery.exactForm(text)
     }
@@ -139,10 +143,14 @@ struct SearchQuery: Equatable {
     /// A word's folded bytes; nil for one that folds to nothing or is only
     /// combining marks (a lone accent), which is no word.
     static func fold(_ word: Substring) -> [UInt8]? {
-        let marks: Set<Unicode.GeneralCategory> = [.nonspacingMark, .spacingMark, .enclosingMark]
-        guard !word.unicodeScalars.allSatisfy({ marks.contains($0.properties.generalCategory) }) else { return nil }
+        guard !isMarks(word.unicodeScalars) else { return nil }
         let bytes = SearchFold.fold(String(word)).bytes
         return bytes.isEmpty ? nil : bytes
+    }
+
+    /// Whether every scalar is a combining mark (true of none).
+    static func isMarks<S: Sequence>(_ scalars: S) -> Bool where S.Element == Unicode.Scalar {
+        scalars.allSatisfy { [.nonspacingMark, .spacingMark, .enclosingMark].contains($0.properties.generalCategory) }
     }
 
     /// A text's folded words joined by single spaces: a title equals a query
@@ -230,7 +238,8 @@ final class SearchFoldCache: @unchecked Sendable {
     func fold(_ text: String, key: String) -> FoldedText {
         lock.lock()
         defer { lock.unlock() }
-        if let hit = entries[key], hit.source == text { return hit.folded }
+        // Byte for byte: `==` holds for canonically equivalent texts of other lengths.
+        if let hit = entries[key], hit.source.utf8.elementsEqual(text.utf8) { return hit.folded }
         let folded = SearchFold.fold(text)
         entries[key] = (text, folded)
         return folded
@@ -298,7 +307,8 @@ struct SearchIndex {
         for (index, document) in documents.enumerated() {
             if index % 32 == 0 && isCancelled() { return nil }
             if let match = SearchIndex.match(document, query) {
-                matches.append(Match(document: index, tier: match.tier, messageWords: match.messageWords))
+                matches.append(Match(document: index, tier: match.tier, messageWords: match.messageWords,
+                                     fuzzyWords: match.fuzzyWords))
             }
         }
         matches.sort { lhs, rhs in
@@ -317,9 +327,12 @@ struct SearchIndex {
         var tier: SearchTier
         /// The query's words (by position) that only the messages hold.
         var messageWords: [Int]
+        /// The query's words found nowhere but as a fuzzy title match.
+        var fuzzyWords: [Int]
     }
 
-    static func match(_ document: Document, _ query: SearchQuery) -> (tier: SearchTier, messageWords: [Int])? {
+    static func match(_ document: Document, _ query: SearchQuery)
+        -> (tier: SearchTier, messageWords: [Int], fuzzyWords: [Int])? {
         var inTitle = true
         var messageWords: [Int] = []
         for (position, word) in query.folded.enumerated() {
@@ -328,17 +341,17 @@ struct SearchIndex {
             if SearchFold.contains(document.workspace, word) || SearchFold.contains(document.provider, word) { continue }
             messageWords.append(position)
         }
-        if inTitle { return (document.exactTitle == query.exact ? .exactTitle : .title, []) }
-        if messageWords.isEmpty { return (.details, []) }
-        if messageWords.allSatisfy({ position in
+        if inTitle { return (document.exactTitle == query.exact ? .exactTitle : .title, [], []) }
+        if messageWords.isEmpty { return (.details, [], []) }
+        let inMessages = messageWords.filter { position in
             document.messages.contains { SearchFold.contains($0.bytes, query.folded[position]) }
-        }) {
-            return (.message, messageWords)
         }
-        if query.scalars.allSatisfy({ SearchFuzzy.positions($0, in: document.titleScalars) != nil }) {
-            return (.fuzzyTitle, [])
+        if inMessages.count == messageWords.count { return (.message, messageWords, []) }
+        let fuzzy = messageWords.filter { !inMessages.contains($0) }
+        guard fuzzy.allSatisfy({ SearchFuzzy.positions(query.scalars[$0], in: document.titleScalars) != nil }) else {
+            return nil
         }
-        return nil
+        return (.fuzzyTitle, inMessages, fuzzy)
     }
 
     /// Recent activity first, undated last; then title, then id.
@@ -357,11 +370,12 @@ struct SearchIndex {
         let document = documents[match.document]
         let entry = document.candidate.entry
         var result = SearchResult(entry: entry, tier: match.tier)
-        result.titleHighlights = match.tier == .fuzzyTitle ? SearchHighlight.fuzzyRanges(of: query.scalars, in: entry.title)
-            : SearchHighlight.ranges(of: query.folded, in: entry.title)
+        let found = query.folded.indices.filter { !match.fuzzyWords.contains($0) }.map { query.folded[$0] }
+        result.titleHighlights = SearchHighlight.merge(SearchHighlight.ranges(of: found, in: entry.title)
+            + SearchHighlight.fuzzyRanges(of: match.fuzzyWords.map { query.scalars[$0] }, in: entry.title))
         result.workspaceHighlights = SearchHighlight.ranges(of: query.folded, in: entry.subtitle)
         result.providerMatched = query.folded.contains { SearchFold.contains(document.provider, $0) }
-        if match.tier == .message { result.snippet = snippet(document, query, words: match.messageWords) }
+        if !match.messageWords.isEmpty { result.snippet = snippet(document, query, words: match.messageWords) }
         return result
     }
 
@@ -397,32 +411,76 @@ enum SearchSnippetText {
     static let length = 160
 
     /// The match in the original text for one of `word` (folded) found at
-    /// `foldedOffset` in its folded bytes. ASCII folds byte for byte; otherwise
-    /// newlines fold one for one, so the match is looked for in the same line.
+    /// `foldedOffset` in its folded bytes. ASCII folds byte for byte. Otherwise
+    /// newlines fold one for one, so the match is in the same line: a short line
+    /// is folded a character at a time to find it; on a long one only a stretch
+    /// around where the line's proportion of text to folded bytes puts it, so a
+    /// megabyte line costs no more than a short one.
     static func locate(_ word: [UInt8], foldedOffset: Int, in text: String, folded: FoldedText) -> Range<String.Index> {
+        let utf8 = text.utf8
         if folded.ascii {
-            let utf8 = text.utf8
             if let lower = utf8.index(utf8.startIndex, offsetBy: foldedOffset, limitedBy: utf8.endIndex),
                let upper = utf8.index(lower, offsetBy: word.count, limitedBy: utf8.endIndex) {
                 return lower..<upper
             }
         }
-        let line = folded.bytes[..<min(foldedOffset, folded.bytes.count)].reduce(0) { $0 + ($1 == 0x0A ? 1 : 0) }
-        var start = text.startIndex
+        let offset = min(max(0, foldedOffset), folded.bytes.count)
+        var line = 0
+        var foldedLineStart = 0
+        for index in 0..<offset where folded.bytes[index] == 0x0A {
+            line += 1
+            foldedLineStart = index + 1
+        }
+        var start = utf8.startIndex
         if line > 0 {
             var seen = 0
-            for index in text.utf8.indices where text.utf8[index] == 0x0A {
+            for index in utf8.indices where utf8[index] == 0x0A {
                 seen += 1
                 if seen == line {
-                    start = text.utf8.index(after: index)
+                    start = utf8.index(after: index)
                     break
                 }
             }
         }
-        let end = text[start...].firstIndex(where: \.isNewline) ?? text.endIndex
-        return SearchHighlight.ranges(of: [word], in: text[start..<end]).first
-            ?? SearchHighlight.ranges(of: [word], in: text[...]).first
-            ?? start..<start
+        let end = utf8[start...].firstIndex(of: 0x0A) ?? utf8.endIndex
+        let lineBytes = utf8.distance(from: start, to: end)
+        if lineBytes <= lineLimit, let found = SearchHighlight.ranges(of: [word], in: text[start..<end]).first {
+            return found
+        }
+        let foldedLineEnd = folded.bytes[foldedLineStart...].firstIndex(of: 0x0A) ?? folded.bytes.count
+        let ratio = Double(lineBytes) / Double(max(1, foldedLineEnd - foldedLineStart))
+        let estimate = utf8.distance(from: utf8.startIndex, to: start) + Int(Double(offset - foldedLineStart) * ratio)
+        for reach in [reach, reach * 16] {
+            if let found = near(word, byte: estimate, reach: reach, in: text) { return found }
+        }
+        let center = scalarIndex(estimate, in: text)
+        return center..<center
+    }
+
+    /// Lines up to this many bytes are folded whole to find the match.
+    static let lineLimit = 16 * 1024
+    /// Bytes folded on each side of an estimated match, at first.
+    static let reach = 4 * 1024
+
+    /// The match of `word` nearest the byte offset `byte` within `reach` bytes of it.
+    static func near(_ word: [UInt8], byte: Int, reach: Int, in text: String) -> Range<String.Index>? {
+        let utf8 = text.utf8
+        let center = scalarIndex(byte, in: text)
+        let found = SearchHighlight.ranges(of: [word], in: text[scalarIndex(byte - reach, in: text)..<scalarIndex(
+            byte + reach + word.count, in: text)])
+        return found.min {
+            abs(utf8.distance(from: center, to: $0.lowerBound)) < abs(utf8.distance(from: center, to: $1.lowerBound))
+        }
+    }
+
+    /// The start of the scalar at or before byte `offset` (clamped to the text).
+    static func scalarIndex(_ offset: Int, in text: String) -> String.Index {
+        let utf8 = text.utf8
+        var index = utf8.index(utf8.startIndex, offsetBy: min(max(0, offset), utf8.count))
+        while index > utf8.startIndex, index < utf8.endIndex, utf8[index] & 0xC0 == 0x80 {
+            index = utf8.index(before: index)
+        }
+        return index
     }
 
     /// Up to `length` characters from shortly before `anchor`, starting at a
@@ -443,8 +501,8 @@ enum SearchSnippetText {
 }
 
 enum SearchHighlight {
-    /// Occurrences looked for in one text, at most.
-    static let maximumPerText = 64
+    /// Occurrences of one word looked for in one text, at most.
+    static let maximumPerWord = 64
 
     /// Where the folded `words` occur in `text`, as whole characters, sorted,
     /// overlapping ones merged. The ranges index the string `text` is part of.
@@ -454,9 +512,11 @@ enum SearchHighlight {
         var found: [Range<String.Index>] = []
         for word in words where !word.isEmpty {
             var from = 0
-            while found.count < maximumPerText, let offset = SearchFold.offset(of: word, in: bytes, from: from) {
+            var count = 0
+            while count < maximumPerWord, let offset = SearchFold.offset(of: word, in: bytes, from: from) {
                 found.append(owners[offset].lowerBound..<owners[offset + word.count - 1].upperBound)
                 from = offset + word.count
+                count += 1
             }
         }
         return merge(found)
@@ -590,12 +650,15 @@ extension ConversationStoreState {
                                        : [SearchMessage(itemID: nil, author: "First prompt", text: prompt)])
             }
         }
-        var out = unfiltered.sidebarEntries().map(candidate)
-        guard !sessions.isEmpty else { return out }
         // Session ids are compared in lower case: a binding may spell one either way (C-26.3).
         let bound = Set(conversations.compactMap { conversation in
             conversation.native_session_id.map { "\(conversation.provider):\($0.lowercased())" }
         })
+        var out = unfiltered.sidebarEntries().filter { entry in
+            guard case .native(let native) = entry.target else { return true }
+            return !bound.contains("\(native.provider):\(native.session_id.lowercased())")
+        }.map(candidate)
+        guard !sessions.isEmpty else { return out }
         let known = Set(out.map { $0.entry.id.lowercased() })
         var extra = ConversationStoreState()
         extra.catalog = Catalog(complete: true, items: sessions.filter {

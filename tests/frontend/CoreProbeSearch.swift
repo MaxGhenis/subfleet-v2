@@ -59,7 +59,14 @@ func runSearch(_ data: Data) throws -> [String: Any] {
     func answers(_ index: SearchIndex) -> [Any] {
         queries.map { project(index.search($0, limit: limit)!) }
     }
-    var out: [String: Any] = ["answers": answers(SearchIndex(candidates))]
+    let index = SearchIndex(candidates)
+    // The processor time each search takes, whatever else the machine runs.
+    let seconds = queries.map { query -> Double in
+        let started = clock()
+        _ = index.search(query, limit: limit)
+        return Double(clock() - started) / Double(CLOCKS_PER_SEC)
+    }
+    var out: [String: Any] = ["answers": answers(index), "cpu_seconds": seconds]
     if input["cache"]?.bool == true {
         let cache = SearchFoldCache()
         out["cached"] = answers(SearchIndex(candidates, cache: cache))
@@ -182,6 +189,7 @@ func runTextScale(_ data: Data) throws -> [String: Any] {
         TextScale.save(9, to: defaults)
         persisted["saved_too_large"] = UserDefaults(suiteName: suite)?.load()
         var stored: [Any] = []
+        var normalized: [Any] = []
         for value in input["stored"]?.array ?? [] {
             switch value {
             case .string(let text): defaults.set(text, forKey: TextScale.defaultsKey)
@@ -190,8 +198,13 @@ func runTextScale(_ data: Data) throws -> [String: Any] {
             default: if let number = value.double { defaults.set(number, forKey: TextScale.defaultsKey) }
             }
             stored.append(TextScale.load(from: defaults))
+            // What the app's @AppStorage reads after launch normalizes it: a Double, or nothing.
+            TextScale.normalize(defaults)
+            normalized.append(defaults.object(forKey: TextScale.defaultsKey).map { ($0 as? Double) as Any? ?? "not a Double" }
+                              ?? NSNull())
         }
         persisted["stored"] = stored
+        persisted["normalized"] = normalized
         defaults.removePersistentDomain(forName: suite)
         out["persisted"] = persisted
     }

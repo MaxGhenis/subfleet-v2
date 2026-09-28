@@ -7,8 +7,8 @@ holds for every input and check it against a small Python reference:
   title, workspace, provider or messages hold every query word (folding case,
   diacritics and width), and `total` counts them;
 - tiers: exact title, then every word in the title, then in title, workspace
-  or provider, then in messages, then each word's letters in order in the
-  title within three times its length (a fuzzy title);
+  or provider, then in messages, then a fuzzy title: each word found nowhere
+  has its letters in the title in order within three times its length;
 - order: tier, then recent activity (undated last), then folded title, then id,
   whatever order the candidates came in, and the same with the fold cache;
 - highlights: sorted, disjoint, in bounds, each on a query word, covering
@@ -103,13 +103,37 @@ def test_c29_12_fuzzy_titles_come_last(core_probe, tmp_path):
     candidates = [conv("fuzzy", "Subfleet release", date=9), conv("spread", "s u b f l e e e e e e e e e e t", date=8),
                   conv("message", "Unrelated", date=1, messages=[("You", "the sbflt typo")]),
                   conv("two", "Search palette", date=5)]
-    [sbflt, two, one_letter] = answers(core_probe, tmp_path, candidates, "sbflt", "srch plt", "q")
+    [sbflt, two, one_letter, with_a, with_provider] = answers(core_probe, tmp_path, candidates, "sbflt", "srch plt", "q",
+                                                              "a sbflt", "claude sbflt")
     assert [(r["id"], r["tier"]) for r in sbflt["results"]] == [("message", "message"), ("fuzzy", "fuzzy-title")]
     # Adjacent letters are one highlight.
     assert spans("Subfleet release", sbflt["results"][1]["title_highlights"]) == ["S", "bfl", "t"]
     assert [(r["id"], r["tier"]) for r in two["results"]] == [("two", "fuzzy-title")]
     assert spans("Search palette", two["results"][0]["title_highlights"]) == ["S", "rch", "p", "l", "t"]
     assert one_letter["total"] == 0
+    # A word found as it is (here "a" in "Subfleet release", "claude" the
+    # provider) leaves the rest to match fuzzily.
+    assert ("fuzzy", "fuzzy-title") in [(r["id"], r["tier"]) for r in with_a["results"]]
+    fuzzy = next(r for r in with_a["results"] if r["id"] == "fuzzy")
+    assert spans("Subfleet release", fuzzy["title_highlights"]) == ["S", "bfl", "t", "a"]
+    assert [(r["id"], r["tier"]) for r in with_provider["results"]][-1] == ("fuzzy", "fuzzy-title")
+
+
+def test_c29_12_a_long_line_costs_no_more_than_a_short_one(core_probe, tmp_path):
+    """The snippet of a match far into a megabyte line with one accented
+    letter: its place is found by folding a stretch around it, not the line
+    (review of 158db058: two seconds for a 5 MB line)."""
+    text = "é " + "lorem ipsum " * 250_000 + "the needle here" + " tail" * 10
+    candidates = [conv("big", "Log", messages=[("Claude", text)])]
+    path = tmp_path / "big.json"
+    path.write_text(json.dumps({"candidates": candidates, "queries": ["needle"], "limit": 5}))
+    out = run_probe(core_probe, "search", path, timeout=300)
+    snippet = out["answers"][0]["results"][0]["snippet"]
+    assert spans(snippet["text"], snippet["highlights"]) == ["needle"]
+    # Processor time of the search alone (the unoptimized probe folded the line
+    # a character at a time for about ten seconds before).
+    [seconds] = out["cpu_seconds"]
+    assert seconds < 2, seconds
 
 
 def test_c29_12_every_word_must_match_across_fields(core_probe, tmp_path):
@@ -301,6 +325,8 @@ SEPARATORS = [" ", "  ", "\n", "\t", " \n "]
 
 
 def reference_fold(text: str) -> str:
+    """Compatibility decomposition, marks dropped, case folded: over the test
+    alphabets this is Foundation's case, diacritic and width folding."""
     return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)).casefold()
 
 
@@ -320,20 +346,28 @@ def exact_form(text: str) -> str:
 
 
 def reference_tier(candidate: dict, query: str) -> str | None:
+    return tier_and_words(candidate, query)[0]
+
+
+def tier_and_words(candidate: dict, query: str):
+    """The tier, the words only messages hold (a snippet's), and the words
+    found only as a fuzzy title match."""
     words = reference_words(query)
     title, workspace = reference_fold(candidate["title"]), reference_fold(candidate["workspace"])
     provider = reference_fold(candidate["provider"])
     if all(w in title for w in words):
-        return "exact-title" if exact_form(candidate["title"]) == exact_form(query) else "title"
+        return ("exact-title" if exact_form(candidate["title"]) == exact_form(query) else "title"), [], []
     rest = [w for w in words if not (w in title or w in workspace or w in provider)]
     if not rest:
-        return "details"
+        return "details", [], []
     folded = [reference_fold(m["text"]) for m in candidate["messages"]]
-    if all(any(w in text for text in folded) for w in rest):
-        return "message"
-    if all(fuzzy(w, title) is not None for w in words):
-        return "fuzzy-title"
-    return None
+    in_messages = [w for w in rest if any(w in text for text in folded)]
+    if len(in_messages) == len(rest):
+        return "message", rest, []
+    fuzzy_words = [w for w in rest if w not in in_messages]
+    if all(fuzzy(w, title) is not None for w in fuzzy_words):
+        return "fuzzy-title", in_messages, fuzzy_words
+    return None, [], []
 
 
 def fuzzy(word: str, title: str) -> list[int] | None:
@@ -359,6 +393,22 @@ def fuzzy(word: str, title: str) -> list[int] | None:
     if best is None or best[-1] - best[0] + 1 > 3 * len(word):
         return None
     return best
+
+
+def found_characters(text: str, words) -> set[int]:
+    """The text's characters (by index) in occurrences of the words, found left to right."""
+    folded, owner = "", []
+    for index, character in enumerate(text):
+        piece = reference_fold(character)
+        folded += piece
+        owner += [index] * len(piece)
+    covered = set()
+    for word in words:
+        at = folded.find(word)
+        while at >= 0:
+            covered |= set(owner[at:at + len(word)])
+            at = folded.find(word, at + len(word))
+    return covered
 
 
 def fuzzy_characters(title: str, words) -> set[int]:
@@ -451,20 +501,20 @@ def test_c29_12_search_properties(core_probe, tmp_path, corpus):
         results_for[query] = set(expected)
         for result in answer["results"]:
             candidate = by_id[result["id"]]
-            if result["tier"] == "fuzzy-title":
+            _, rest, fuzzy_words = tier_and_words(candidate, query)
+            found = [w for w in words if w not in fuzzy_words]
+            if fuzzy_words:
                 covered = {i for start, length in result["title_highlights"] for i in range(start, start + length)}
-                assert covered == fuzzy_characters(candidate["title"], words)
+                assert covered == found_characters(candidate["title"], found) | fuzzy_characters(
+                    candidate["title"], fuzzy_words)
             else:
                 check_highlights(candidate["title"], result["title_highlights"], words)
             check_highlights(candidate["workspace"], result["workspace_highlights"], words)
             assert result["provider_matched"] == any(w in reference_fold(candidate["provider"]) for w in words)
             snippet = result["snippet"]
-            if result["tier"] != "message":
+            if not rest:
                 assert snippet is None
                 continue
-            title, workspace = reference_fold(candidate["title"]), reference_fold(candidate["workspace"])
-            provider = reference_fold(candidate["provider"])
-            rest = [w for w in words if not (w in title or w in workspace or w in provider)]
             counts = [sum(w in reference_fold(m["text"]) for w in rest) for m in candidate["messages"]]
             best = max(i for i, c in enumerate(counts) if c == max(counts))
             message = candidate["messages"][best]
@@ -512,9 +562,16 @@ def test_c29_12_folding_is_the_reference_folding(core_probe, tmp_path, texts):
         assert bytes(fold["bytes"]) == reference_fold(text).encode(), text
 
 
+#: A query's words hold no white space: the query is split at it.
+WORD_LETTERS = [letter for letter in KEPT if not any(c.isspace() for c in letter)]
+
+
 @settings(max_examples=200, deadline=None, suppress_health_check=FIXTURE_HEALTH)
-@given(st.lists(st.tuples(texts_of(KEPT + ["\u0301"], 0, 12), texts_of(KEPT, 1, 3)), min_size=1, max_size=15))
+@given(st.lists(st.tuples(texts_of(KEPT + ["\u0301"], 0, 12), texts_of(WORD_LETTERS, 1, 3)), min_size=1, max_size=15))
 def test_c29_12_containment_is_foundations_where_folding_keeps_characters_one(core_probe, tmp_path, pairs):
+    """Words as the query makes them. (A word holding a newline would differ: a
+    lone accent after a control character folds away, "\\n\u0301a" holds "\\na"
+    folded, and Foundation's search does not find it there.)"""
     out = probe(core_probe, tmp_path, "search-fold", {"texts": [], "pairs": [list(p) for p in pairs]})
     for (text, word), pair in zip(pairs, out["pairs"]):
         assert pair["folded"] == pair["foundation"], (text, word)

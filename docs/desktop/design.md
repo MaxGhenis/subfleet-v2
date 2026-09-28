@@ -1031,12 +1031,13 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   title, workspace and provider, and by the text of the conversations the
   app has loaded and each session's first prompt; after a pause in typing it
   asks `conversation.list` with `query` for sessions past the loaded page (no
-  daemon op searches transcripts, and none was added). Fuzzy titles rank last,
-  and a last item starts a new conversation. Matching and ranking
+  daemon op searches transcripts, and none was added; former titles are not
+  kept, so a renamed conversation is found by its current title). Fuzzy titles
+  rank last, and a last item starts a new conversation. Matching and ranking
   are Foundation-only (`SearchPalette.swift`), tested through the core probe:
-  text is folded once per opening, off the main thread, and words are found
-  in the folded bytes, since `range(of:options:)` over megabytes of
-  timeline takes seconds.
+  text is folded off the main thread, once (unchanged messages keep their
+  folds between openings), and words are found in the folded bytes, since
+  `range(of:options:)` over megabytes of timeline takes seconds.
 - Conversation text is set in reading sizes at one scale (C-29.13; Max,
   2026-09-27: "text is small"): body 16 pt at actual size, with View >
   Bigger, Smaller and Actual size stepping as Claude Code's zoom does, and the
