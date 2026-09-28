@@ -19,6 +19,7 @@ import json
 import queue
 import threading
 import time
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Callable
@@ -31,7 +32,7 @@ from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
 from .reconcile import SETTINGS_FRAME, USER_FRAME
 from .store import ConversationError, ConversationStore
-from .turn import APPROVAL_NEEDED, RUNNING, Frame, Outcome, Step, TurnSpec
+from .turn import APPROVAL_NEEDED, RUNNING, Event, Frame, Image, Outcome, Step, TurnSpec
 
 FLUSH_S = 0.25
 FLUSH_BYTES = 64 * 1024
@@ -52,6 +53,7 @@ AFTER_RESULT_S = float(CONVERSATION_DEFAULTS["after_result_s"])
 # Codex: how long `turn/completed` may lag the thread going idle before the
 # idle ends the turn (codex_turn module docstring; observed lag 0.01 s).
 IDLE_GRACE_S = 2.0
+STEER_GRACE_S = 15.0
 RESEND_MAX = 5
 RESEND_BASE_S = 0.2
 
@@ -92,7 +94,8 @@ class TurnRunner:
                  on_contain: Callable[[str], None],
                  clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None,
-                 handover: threading.Lock | None = None, ended: bool = False):
+                 handover: threading.Lock | None = None, ended: bool = False,
+                 handover_for: Callable[[str], Any] | None = None):
         self.store = store
         # A replay of an attempt the job store has ended (`ConversationService._replay_unsettled`):
         # its provider is gone whether or not it left an exit receipt.
@@ -153,7 +156,14 @@ class TurnRunner:
         # person's stop is recorded under too (`ConversationService._handover`), so
         # a stop recorded first is always seen first (`_handover_verdict`).
         self.handover = handover or threading.Lock()
+        self.handover_for = handover_for or (lambda mid: threading.Lock())
         self.handover_tried = False            # a send of the message frame whose answer was lost
+        self._steer_tried: set[str] = set()
+        self.replay_caught_up = False
+        self._replay_steers: list[str] = []
+        self._steers_restored = False
+        self.steer_wait_since: float | None = None
+        self._discarding_steers = False
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
         self._stop_on_catch_up = False         # a replayed stop, sent once the replay has caught up (`_run`)
@@ -209,11 +219,33 @@ class TurnRunner:
     def respond(self, request_id: str, decision: str, message: str | None = None, answers: dict | None = None) -> None:
         self.commands.put(("respond", request_id, decision, message, answers))
 
+    @property
+    def steerable(self) -> bool:
+        """The request handler's fast check; handover rechecks on the runner thread."""
+        return (self.replay_caught_up and not self.ended and not self.finished.is_set()
+                and not self.withheld and not self.relay_failed and self.stop_reason is None
+                and self.stop_at is None and "close" not in self.sent
+                and self.driver.outcome is None and bool(getattr(self.driver, "steerable", False)))
+
+    def steer(self, message_id: str) -> None:
+        self.commands.put(("steer", message_id))
+
+    def steer_written(self, message_id: str) -> bool:
+        """Cancel's read-only handover check, called under this message's lock.
+
+        An intent or a send with a lost receipt may already have reached the pipe;
+        only the runner's fresh handshake can clear that uncertainty.
+        """
+        tag = f"steer:{message_id}"
+        return (message_id in self._steer_tried or tag in self.sent
+                or any(row.get("tag") == tag for row in read_log(self.adir / "stdin.jsonl")))
+
     # --- the loop --------------------------------------------------------------
 
     def _run(self) -> None:
         try:
             message = self.store.message(self.message_id)
+            self._restore_steers()
             if self.sent.get("interrupt") == "written":
                 # Replay (C-26.6): an interrupt an earlier runner wrote reached the
                 # provider, so what followed it is read as that runner's driver read it.
@@ -280,6 +312,11 @@ class TurnRunner:
                         self.stop_at = self.stop_at or self.clock()
                         self._apply(self.driver.interrupt())
                 progressed = self._read_stdout()
+                if not progressed and not self.replay_caught_up:
+                    self.replay_caught_up = True
+                    for mid in self._replay_steers:
+                        self.commands.put(("steer", mid))
+                    self._replay_steers.clear()
                 if self._stop_on_catch_up and not progressed:
                     self._stop_on_catch_up = False
                     self.commands.put(("interrupt",))
@@ -291,6 +328,9 @@ class TurnRunner:
                 if self._process_gone():
                     while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
                         pass
+                    # Ended-attempt replay may never reach an empty read in the main
+                    # loop. Its unwritten claims must still settle as missed.
+                    self._discard_steers("provider-ended")
                     if self.driver.outcome is None:
                         self._apply(self.driver.eof(self.offset))
                     self._flush()
@@ -378,6 +418,101 @@ class TurnRunner:
                         self.log.warning("approval %s on %s refused by the driver: %s", request_id, self.attempt_id, exc)
                     continue
                 self._apply(step)
+            elif command[0] == "steer":
+                self._steer(command[1])
+
+    def _restore_steers(self) -> None:
+        """Prime written commands before stdout replay, and defer unwritten ones.
+
+        Tags, including incomplete relay intents, are durable delivery evidence.
+        A written command is never reconstructed by calling `steer`: that could
+        write it twice or reject it before replay reaches the active phase.
+        """
+        if self._steers_restored:
+            return
+        self._steers_restored = True
+        for tag in self.sent:
+            if tag.startswith("steer:"):
+                mid = tag.removeprefix("steer:")
+                self.driver.restore_steer(mid, frame="written")
+                self._apply(Step(events=[Event("steer.sent", {"message_id": mid}, f"cmd:steer:{mid}")]), send=False)
+        for row in self.store.query("SELECT message_id FROM messages WHERE state='steering' "
+                                    "AND state_reason=? ORDER BY seq", (f"steer:{self.message_id}",)):
+            mid = row["message_id"]
+            if f"steer:{mid}" not in self.sent:
+                self._replay_steers.append(mid)
+        # Cancel removes the current binding. Its durable claim change still
+        # identifies a steer withdrawn before the queued command was drained.
+        for row in self.store.query(
+                "SELECT DISTINCT m.message_id FROM messages m JOIN changes c USING(message_id) "
+                "WHERE m.state='cancelled' AND c.state='steering' AND c.state_reason=?",
+                (f"steer:{self.message_id}",)):
+            if f"steer:{row['message_id']}" not in self.sent:
+                self._miss_steer(row["message_id"], "cancelled-before-handover")
+
+    def _steer(self, message_id: str) -> None:
+        row = self.store.find_message(message_id)
+        if row and row["state"] == "cancelled" and row["conversation_id"] == self.conversation_id:
+            self._miss_steer(message_id, "cancelled-before-handover")
+            return
+        if not row or row["state"] != "steering" or row["state_reason"] != f"steer:{self.message_id}":
+            return
+        if f"steer:{message_id}" in self.sent:
+            if message_id not in self.driver.steers:
+                self.driver.restore_steer(message_id, frame="written")
+            return
+        previous = self.driver.steers.get(message_id)
+        if previous and previous.get("fate") in ("refused", "cancelled"):
+            # A second explicit request after a missed claim must not strand the
+            # message in steering: driver commands are idempotent by message id.
+            self._miss_steer(message_id, previous.get("detail") or "previously-refused")
+            return
+        if not self.steerable:
+            self._miss_steer(message_id, "not-steerable")
+            return
+        try:
+            images = []
+            for sha in row["attachments"]:
+                path, media = attachment_store.check(self.store, sha)
+                images.append(Image(sha, media, path))
+            step = self.driver.steer(message_id, self.store.message_text(row), tuple(images))
+        except (OSError, ValueError, ConversationError) as exc:
+            self._miss_steer(message_id, f"input-unavailable: {exc}")
+            return
+        self._apply(step)
+
+    def _requeue_steer(self, message_id: str, why: str) -> None:
+        if self.store.set_state(message_id, "queued", reason=f"steer-missed: {why}", expect=("steering",)):
+            event = Event("steer.missed", {"message_id": message_id, "why": why}, f"cmd:steer-missed:{message_id}")
+            self.batch.append(("command", event.source, 0, event.kind, event.data))
+            self.batch_bytes += len(json.dumps(event.data))
+
+    def _miss_steer(self, message_id: str, why: str) -> None:
+        self._apply(self.driver.drop_steer(message_id, why), send=False)
+        row = self.store.find_message(message_id)
+        if row and row["state"] == "cancelled" and not self.steer_written(message_id):
+            self.driver.steers[message_id].update(frame="unsent", fate="cancelled", detail="cancelled-before-handover")
+        self._requeue_steer(message_id, why)
+
+    def _discard_steers(self, why: str) -> None:
+        """Record every definitely unwritten command before dropping its frame."""
+        if self._discarding_steers:
+            return
+        mids = set(self._replay_steers)
+        mids.update(frame.tag.removeprefix("steer:") for frame in self.outbox if frame.tag.startswith("steer:"))
+        mids.update(mid for mid, fact in getattr(self.driver, "steers", {}).items()
+                    if fact.get("frame") == "unsent" and fact.get("fate") == "unknown")
+        self.outbox[:] = [frame for frame in self.outbox if not frame.tag.startswith("steer:")]
+        self._replay_steers.clear()
+        self._discarding_steers = True
+        try:
+            for mid in mids:
+                if self.steer_written(mid):
+                    self.driver.steer_written(mid)
+                else:
+                    self._miss_steer(mid, why)
+        finally:
+            self._discarding_steers = False
 
     def _sync_answers(self) -> None:
         """Replay: an approval a person already answered is answered again in the
@@ -392,7 +527,7 @@ class TurnRunner:
 
     # --- applying a driver step ------------------------------------------------
 
-    def _apply(self, step: Step) -> None:
+    def _apply(self, step: Step, *, send: bool = True) -> None:
         for event in step.events:
             source = "command" if event.source.startswith("cmd:") else "stdout"
             self.batch.append((source, event.source, 0, event.kind, event.data))
@@ -405,6 +540,10 @@ class TurnRunner:
                 self._flush()
                 self.store.set_state(self.message_id, RUNNING, expect=("starting", "waiting"),
                                      turn_ref=event.data.get("turn_id") or self.message_id)
+            if event.kind in ("steer.refused", "steer.missed") and source == "command":
+                self.store.set_state(event.data["message_id"], "queued",
+                                     reason=f"steer-missed: {event.data.get('why') or 'provider-refused'}",
+                                     expect=("steering",))
         for frame in step.frames:
             self.outbox.append(frame)
         for approval in step.approvals:
@@ -436,7 +575,8 @@ class TurnRunner:
             except Exception as exc:         # a catalog record never stops a turn
                 if self.log:
                     self.log.warning("model catalog from %s not recorded: %s", self.attempt_id, exc)
-        self._send_outbox()
+        if send:
+            self._send_outbox()
 
     def _load_log(self) -> bool:
         """Read `stdin.jsonl`; True when it shows a stdin frame that was not fully
@@ -470,6 +610,21 @@ class TurnRunner:
             self.replayed_message = self.replayed_message or USER_FRAME in self.sent
         self.handshake_done_once = True
         self.handshaken = True
+        # A completed status handshake resolves sends whose receipts were lost.
+        self._steer_tried.intersection_update(tag.removeprefix("steer:") for tag in self.sent
+                                             if tag.startswith("steer:"))
+        for tag in self.sent:
+            if tag.startswith("steer:"):
+                mid = tag.removeprefix("steer:")
+                if mid not in getattr(self.driver, "steers", {}):
+                    # The previous runner may have handed it to the guardian
+                    # after construction read the log. Status waits for that
+                    # write; register it before any stdout replay can consume
+                    # the matching lifecycle/result evidence.
+                    self.driver.restore_steer(mid, frame="written")
+                    self._apply(Step(events=[Event("steer.sent", {"message_id": mid}, f"cmd:steer:{mid}")]), send=False)
+                self.driver.steer_written(mid)
+                self._replay_steers[:] = [pending for pending in self._replay_steers if pending != mid]
         if status is not None:
             self.relay_version = status.get("version")
             if status["applied"] != self.logged:
@@ -495,6 +650,7 @@ class TurnRunner:
     def _send_outbox(self) -> None:
         while self.outbox:
             if self.relay_failed:
+                self._discard_steers("relay-failed")
                 self.outbox.clear()
                 return
             if self.resends and self.clock() < self.resend_at:
@@ -507,6 +663,8 @@ class TurnRunner:
                 return
             if self.sent.get(frame.tag) == "written":
                 self.outbox.pop(0)            # replayed: already delivered to the provider
+                if frame.tag.startswith("steer:"):
+                    self.driver.steer_written(frame.tag.removeprefix("steer:"))
                 continue
             if frame.tag == SETTINGS_FRAME and self.replayed_message:
                 self.outbox.pop(0)            # C-26.8: an earlier runner sent the message and did
@@ -528,6 +686,22 @@ class TurnRunner:
                 elif verdict == "wait" or not going:
                     return
                 continue                        # `again`: the relay's log now says what it holds
+            if frame.tag.startswith("steer:"):
+                mid = frame.tag.removeprefix("steer:")
+                # Striped locks can coincide or appear in opposite host/message
+                # order on two runners. Deduplicate and order them globally.
+                locks = {id(lock): lock for lock in (self.handover, self.handover_for(mid))}
+                with ExitStack() as held:
+                    for _, lock in sorted(locks.items()):
+                        held.enter_context(lock)
+                    verdict = self._steer_handover_verdict(mid)
+                    going = verdict == "send" and self._transmit(frame)
+                if verdict == "withdraw":
+                    self.outbox.pop(0)
+                    self._miss_steer(mid, "stopped-or-cancelled")
+                elif verdict == "wait" or not going and verdict != "again":
+                    return
+                continue
             if not self._transmit(frame):
                 return
 
@@ -544,6 +718,8 @@ class TurnRunner:
         except RelayError as exc:
             if frame.tag == USER_FRAME:
                 self.handover_tried = True    # the relay may have logged it: `_handover_verdict` asks
+            if frame.tag.startswith("steer:"):
+                self._steer_tried.add(frame.tag.removeprefix("steer:"))
             self._unacknowledged(f"frame {frame.tag}: {exc}")
             return False
         self.resends = 0
@@ -551,6 +727,8 @@ class TurnRunner:
             self.sent[frame.tag] = "written"
             self.next_seq += 1
             self.outbox.pop(0)
+            if frame.tag.startswith("steer:"):
+                self.driver.steer_written(frame.tag.removeprefix("steer:"))
             return True
         if (ack.error == "closed" and frame.op == "close") or (ack.error == "no-child" and frame.op == "signal"):
             # Stdin already closed, or the child already exited: nothing to do.
@@ -598,7 +776,24 @@ class TurnRunner:
         self.withheld = True
         self.stop_reason = self.stop_reason or "stopped"
         self.stop_at = self.stop_at or self.clock()
+        self._discard_steers("host-withheld")
         self._apply(self.driver.withdraw())
+
+    def _steer_handover_verdict(self, message_id: str) -> str:
+        """Host stop and this message's cancel serialize with the actual write."""
+        if message_id in self._steer_tried:
+            self.handshaken = False
+            if not self._handshake():
+                return "wait"
+            if self.relay_failed or f"steer:{message_id}" in self.sent:
+                return "again"
+        row = self.store.find_message(message_id)
+        host = self.store.find_message(self.message_id)
+        if (not self.steerable or not row or row["state"] != "steering"
+                or row["state_reason"] != f"steer:{self.message_id}" or row.get("stop_requested_at")
+                or bool(host and host.get("stop_requested_at"))):
+            return "withdraw"
+        return "send"
 
     def _refuse_frame(self, frame: Frame, exc: FrameTooLarge) -> None:
         """A frame over the relay's cap is never sent (IR-27). Nothing after it can
@@ -606,7 +801,13 @@ class TurnRunner:
         the turn is reconciled from what the relay log shows (C-24.6)."""
         if self.log:
             self.log.warning("turn %s frame %s not sent: %s", self.attempt_id, frame.tag, exc)
+        if frame.tag.startswith("steer:"):
+            self.outbox.pop(0)
+            self._miss_steer(frame.tag.removeprefix("steer:"), "frame-too-large")
+            return
         self.frame_refused = self.frame_refused or frame.tag
+        self.outbox.clear()
+        self._discard_steers("host-frame-refused")
         self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close")]
 
     def _relay_lost(self, why: str) -> None:
@@ -614,6 +815,7 @@ class TurnRunner:
         then stopped as a stop request would stop it; the steps that need the
         relay are skipped, so containment ends it (D-13, design §6)."""
         self.relay_failed = True
+        self._discard_steers("relay-failed")
         self.outbox.clear()
         if self.log:
             self.log.warning("turn %s relay failed: %s", self.attempt_id, why)
@@ -625,6 +827,14 @@ class TurnRunner:
 
     def _timers(self) -> None:
         now = self.clock()
+        if getattr(self.driver, "steer_waiting", False) and self.driver.outcome is None:
+            if self.steer_wait_since is None:
+                self.steer_wait_since = now
+            elif now - self.steer_wait_since >= STEER_GRACE_S:
+                self.steer_wait_since = now
+                self._apply(self.driver.expire_steers())
+        else:
+            self.steer_wait_since = None
         if getattr(self.driver, "idle_pending", False) and self.driver.outcome is None:
             if self.idle_since is None:
                 self.idle_since = now
@@ -684,7 +894,8 @@ class TurnRunner:
             # knew (a withhold, a stop's reason, an idle settle): that record stands.
             # Only what stdout said after the outcome (C-24.8) is added.
             data = {**recorded, "terminal_after_end": bool(recorded.get("terminal_after_end"))
-                    or bool(getattr(self.driver, "terminal_after_end", False))}
+                    or bool(getattr(self.driver, "terminal_after_end", False)),
+                    "steers": {**recorded.get("steers", {}), **self.steer_facts()}}
             from ..guardian import atomic_publish
             with self.store.writing():
                 atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
@@ -696,6 +907,7 @@ class TurnRunner:
                 or self.spec.new_session_id, "relay_failed": self.relay_failed,
                 "user_frame_written": self.sent.get("user-message") == "written",
                 "frame_refused": self.frame_refused, "relay_version": self.relay_version,
+                "steers": self.steer_facts(),
                 "terminal_after_end": bool(getattr(self.driver, "terminal_after_end", False))}
         from ..guardian import atomic_publish
         with self.store.writing():          # never after its service closed (C-25.3)
@@ -709,6 +921,21 @@ class TurnRunner:
                 # driver's own stop) is final only now (C-24.8, `reconcile.settle`).
                 self._write_outcome()
             self.on_outcome(self)
+
+    def steer_facts(self) -> dict[str, dict]:
+        """Driver evidence with the relay's authoritative handover facts."""
+        facts = {mid: dict(fact) for mid, fact in (self.recorded or {}).get("steers", {}).items()}
+        delivered_rank = {"unanswered": 1, "delivered": 2, "consumed": 3}
+        for mid, fact in getattr(self.driver, "steers", {}).items():
+            previous = facts.get(mid, {}).get("fate")
+            if ((fact.get("fate") == "unknown" and previous not in (None, "unknown"))
+                    or delivered_rank.get(previous, 0) > delivered_rank.get(fact.get("fate"), 0)):
+                continue
+            facts[mid] = dict(fact)
+        for mid, fact in facts.items():
+            if f"steer:{mid}" in self.sent or mid in self._steer_tried:
+                fact["frame"] = "written"
+        return facts
 
     def _read_attachment(self, path: str) -> bytes:
         image = next(image for image in self.spec.images if image.path == path)

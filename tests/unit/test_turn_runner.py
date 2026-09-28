@@ -569,3 +569,489 @@ def test_a_question_waits_for_its_answer_with_no_limit(make_runner, monkeypatch,
         assert runner.stop_reason == "approval-timeout" and runner.commands.get_nowait() == ("interrupt",)
     else:
         assert runner.stop_reason is None and runner.commands.empty()
+
+
+# --- steer handover and replay (C-24.9, C-26.6) ----------------------------------------
+
+STEER_MID = "7f1c9a0e-2222-4222-8333-444455556666"
+STEER_CAPS = json.dumps({"type": "system", "subtype": "init", "session_id": SID,
+                        "capabilities": ["msg_lifecycle_v1", "interrupt_receipt_v1", "interrupt_cancel_queued_v1"]})
+
+
+def claim_steer(runner, *, text="remember the second point", message_id=STEER_MID):
+    host = runner.store.message(MID)
+    runner.store.submit_message(conversation_id=runner.conversation_id, message_id=message_id,
+                                after_message_id=MID, text=text, attachments=[], settings=host["settings"])
+    runner.store.set_state(message_id, "steering", reason=f"steer:{MID}", expect=("queued",))
+    return message_id
+
+
+def ready_to_steer(runner, tmp_path):
+    runner._apply(runner.driver.start())
+    answer_up_to_the_message(runner, tmp_path, runner.spec.provider)
+    if runner.spec.provider == "claude":
+        runner._apply(runner.driver.feed(STEER_CAPS, 20))
+    else:
+        runner._apply(runner.driver.feed(json.dumps({"id": 5, "result": {"turn": {"id": "turn-one"}}}), 20))
+    runner.replay_caught_up = True
+    assert runner.steerable
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_steer_commands_write_once_with_a_durable_tag(relayed, tmp_path, provider):
+    runner, _, _, adir = relayed(provider=provider, recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    runner.steer(STEER_MID)
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    assert logged(adir).count(f"steer:{STEER_MID}") == 1
+    assert runner.steer_written(STEER_MID)
+    assert runner.steer_facts()[STEER_MID] == {"frame": "written", "fate": "unknown", "detail": None}
+    assert runner.store.message(STEER_MID)["state"] == "steering"
+
+
+@pytest.mark.parametrize("stop", ["host", "cancel", "interrupt", "close", "replay"])
+def test_a_steer_frame_is_withdrawn_when_stop_cancel_or_close_wins_handover(relayed, tmp_path, stop):
+    runner, _, _, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    runner.outbox.extend(runner.driver.steer(STEER_MID, "second").frames)
+    if stop == "host":
+        runner.store.update_message(MID, stop_requested_at="2026-09-28T12:00:00Z")
+    elif stop == "cancel":
+        runner.store.set_state(STEER_MID, "cancelled", expect=("steering",), stop_requested_at="2026-09-28T12:00:00Z")
+    elif stop == "interrupt":
+        runner.interrupt()
+    elif stop == "close":
+        from subfleet.conversations.turn import Frame
+        runner.outbox.insert(0, Frame("close", "close"))
+    else:
+        runner.replay_caught_up = False
+    runner._send_outbox()
+    assert f"steer:{STEER_MID}" not in logged(adir)
+    row = runner.store.message(STEER_MID)
+    assert row["state"] == ("cancelled" if stop == "cancel" else "queued")
+    assert runner.steer_facts()[STEER_MID]["frame"] == "unsent"
+    assert not runner.relay_failed
+
+
+def test_a_steer_over_the_relay_cap_is_requeued_without_closing_the_host(relayed, tmp_path):
+    runner, _, server, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner, text="x" * 2000)
+    runner.relay.frame_max = 600
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    assert logged(adir) == ["init", "user-message", "settings"]
+    row = runner.store.message(STEER_MID)
+    assert row["state"] == "queued" and row["state_reason"] == "steer-missed: frame-too-large"
+    assert runner.driver.outcome is None and not runner.relay_failed and runner.frame_refused is None
+    assert runner.steer_facts()[STEER_MID]["fate"] == "refused"
+
+
+def test_a_relay_loss_records_unwritten_steers_without_losing_their_queue_position(relayed, tmp_path):
+    runner, _, _, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    before = runner.store.message(STEER_MID)["seq"]
+    runner.outbox.extend(runner.driver.steer(STEER_MID, "second").frames)
+    runner._relay_lost("gone")
+    assert runner.outbox == [] and f"steer:{STEER_MID}" not in logged(adir)
+    row = runner.store.message(STEER_MID)
+    assert row["state"] == "queued" and row["seq"] == before
+    assert runner.steer_facts()[STEER_MID]["detail"] == "relay-failed"
+
+
+@pytest.mark.parametrize("reached", [True, False])
+def test_a_lost_steer_receipt_is_resolved_before_stop_or_retry(relayed, tmp_path, reached):
+    runner, clock, _, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    real_send = runner.relay.send
+    first = True
+
+    def send(seq, op, line=None, tag=None, sig=None):
+        nonlocal first
+        if tag == f"steer:{STEER_MID}" and first:
+            first = False
+            if reached:
+                real_send(seq, op, line=line, tag=tag, sig=sig)
+            raise relay_module.RelayError("lost steer receipt")
+        return real_send(seq, op, line=line, tag=tag, sig=sig)
+
+    runner.relay.send = send
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    assert runner.steer_written(STEER_MID)  # A cancel cannot guess while handover is ambiguous.
+    runner.interrupt()
+    clock.now += 100
+    runner._send_outbox()
+    assert logged(adir).count(f"steer:{STEER_MID}") == int(reached)
+    assert runner.store.message(STEER_MID)["state"] == ("steering" if reached else "queued")
+    assert runner.steer_facts()[STEER_MID]["frame"] == ("written" if reached else "unsent")
+
+
+def test_replay_restores_a_written_steer_before_reading_stdout_and_never_writes_it_again(relayed, tmp_path):
+    from subfleet.conversations.claude_turn import ClaudeTurn
+    runner, _, _, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    before = (adir / "stdin.jsonl").read_bytes()
+    runner.driver = ClaudeTurn(runner.spec, read_bytes=runner._read_attachment)
+    runner._restore_steers()
+    assert runner.driver.steers[STEER_MID]["frame"] == "written"
+    ready_to_steer(runner, tmp_path)
+    runner._apply(runner.driver.feed(json.dumps({"type": "command_lifecycle", "command_uuid": STEER_MID,
+                                               "state": "started"}), 25))
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    assert (adir / "stdin.jsonl").read_bytes() == before
+    assert runner.steer_facts()[STEER_MID]["fate"] == "delivered"
+    runner._flush()
+    events = runner.store.query("SELECT kind FROM events WHERE message_id=?", (MID,))
+    assert [row["kind"] for row in events].count("steer.delivered") == 1
+
+
+def test_replay_defers_an_unwritten_steer_until_the_provider_is_caught_up(relayed, tmp_path):
+    runner, _, _, adir = relayed(recorded=True)
+    claim_steer(runner)
+    runner._restore_steers()
+    assert runner._replay_steers == [STEER_MID] and runner.driver.steers == {}
+    ready_to_steer(runner, tmp_path)
+    for mid in runner._replay_steers:
+        runner.steer(mid)
+    runner._replay_steers.clear()
+    runner._drain_commands()
+    assert logged(adir).count(f"steer:{STEER_MID}") == 1
+
+
+def test_ended_replay_settles_an_unwritten_steer_as_missed(relayed, tmp_path):
+    runner, _, _, adir = relayed(recorded=True)
+    claim_steer(runner)
+    runner._restore_steers()
+    runner.ended = True
+    runner._discard_steers("provider-ended")
+    assert runner.store.message(STEER_MID)["state"] == "queued"
+    assert runner.steer_facts()[STEER_MID] == {"frame": "unsent", "fate": "refused", "detail": "provider-ended"}
+    assert f"steer:{STEER_MID}" not in logged(adir)
+
+
+def test_a_silently_dropped_steer_has_a_bounded_cancel_then_unknown_outcome(relayed, tmp_path):
+    from subfleet.conversations.runner import STEER_GRACE_S
+    runner, clock, _, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    runner._apply(runner.driver.feed(json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                                               "user_message_uuids": [MID], "queued_turn_count": 0}), 30))
+    assert runner.driver.outcome is None
+    runner._timers()
+    clock.now += STEER_GRACE_S
+    runner._timers()
+    assert f"cancel-steer:{STEER_MID}" in logged(adir) and runner.driver.outcome is None
+    clock.now += STEER_GRACE_S
+    runner._timers()
+    assert runner.driver.outcome is not None and "close" in logged(adir)
+    data = json.loads((adir / "turn.json").read_text())
+    assert data["steers"][STEER_MID]["frame"] == "written"
+    assert data["steers"][STEER_MID]["fate"] == "unknown"
+
+
+def test_recorded_steer_fate_survives_replay_that_lacks_its_original_timer_evidence(make_runner):
+    runner, _, _ = make_runner(Clocks())
+    runner.recorded = {"state": "complete", "steers": {STEER_MID: {
+        "frame": "written", "fate": "cancelled", "detail": "cancelled-after-result"}}}
+    runner.driver.restore_steer(STEER_MID)
+    assert runner.steer_facts()[STEER_MID]["fate"] == "cancelled"
+
+
+def test_swapped_handover_stripes_are_acquired_in_one_global_order(make_runner, monkeypatch):
+    """Two conversations may hash their host/steer ids onto opposite lock stripes."""
+    import threading
+    import time
+    from subfleet.conversations.turn import Frame
+    first, second = threading.Lock(), threading.Lock()
+    ready = threading.Barrier(2)
+    trace = []
+
+    class SlowLock:
+        def __init__(self, lock):
+            self.lock = lock
+        def __enter__(self):
+            assert self.lock.acquire(timeout=2), "opposite stripe order deadlocked"
+            trace.append((threading.get_ident(), id(self)))
+            time.sleep(0.01)
+        def __exit__(self, *args):
+            self.lock.release()
+
+    a, b = SlowLock(first), SlowLock(second)
+    runners = [make_runner(Clocks())[0], make_runner(Clocks())[0]]
+    errors = []
+    for index, runner in enumerate(runners):
+        runner.handover, other = ((a, b) if index == 0 else (b, a))
+        runner.handover_for = lambda mid, lock=other: lock
+        runner.handshaken = True
+        runner.outbox = [Frame(f"steer:{STEER_MID}", "write", "{}")]
+        monkeypatch.setattr(runner, "_steer_handover_verdict", lambda mid: "send")
+        monkeypatch.setattr(runner, "_transmit", lambda frame, r=runner: bool(r.outbox.pop(0)))
+
+    def work(runner):
+        try:
+            ready.wait(timeout=2)
+            runner._send_outbox()
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=work, args=(r,)) for r in runners]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(4)
+    assert not errors and all(not thread.is_alive() for thread in threads)
+    assert len(trace) == 4
+    assert [entry[1] for entry in trace] == sorted([id(a), id(b)]) * 2
+
+
+# These generated schedules use the real relay apply/log implementation directly;
+# no provider, socket thread, external state or live model is involved.
+from contextlib import contextmanager
+from hypothesis import given, settings, strategies as st
+
+
+@contextmanager
+def steer_schedule(provider):
+    from subfleet.relay import Ack
+    with tempfile.TemporaryDirectory(prefix="steer-property-", dir="/tmp") as directory:
+        root = Path(directory)
+        adir = root / "a1"
+        adir.mkdir()
+        store = ConversationStore(root / "state")
+        choice = {"model": "opus[1m]" if provider == "claude" else "gpt-6", "effort": None,
+                  "fast": False, "permission": "ask" if provider == "claude" else "read-only", "auto_continue": True}
+        cid = store.create_conversation(provider=provider, workspace=str(root), workspace_kind="in-place",
+                                        settings=choice, origin="new")[0]["conversation_id"]
+        store.submit_message(conversation_id=cid, message_id=MID, after_message_id=None,
+                             text="host", attachments=[], settings=choice)
+        spec = TurnSpec(provider=provider, message_id=MID, text="host", model_id=choice["model"],
+                        permission=choice["permission"], native_session_id=None,
+                        new_session_id=SID if provider == "claude" else None, cwd=str(root))
+        server = RelayServer(root / "unused.sock", adir / "stdin.jsonl")
+        server._pipe = os.open(os.devnull, os.O_WRONLY)
+
+        class DirectRelay:
+            frame_max = 64 * 1024 * 1024
+            def status(self):
+                return server.status()["status"]
+            def send(self, seq, op, *, line=None, tag=None, sig=None):
+                body = server.apply({"seq": seq, "op": op, "line": line, "tag": tag, "sig": sig,
+                                     "sha256": relay_module.frame_sha256(op, line, sig)})
+                return Ack(seq=seq, ok=body["ok"], dup=body.get("dup", False), error=body.get("error"))
+            def close(self):
+                pass
+
+        def build():
+            runner = TurnRunner(store=store, attempt={"attempt_id": "job/a1"}, spec=spec,
+                                conversation_id=cid, attempt_dir=adir, control_socket=str(root / "unused.sock"),
+                                on_outcome=lambda r: None, on_contain=lambda a: None)
+            runner.relay = DirectRelay()
+            return runner
+        try:
+            yield build, root, adir
+        finally:
+            if server._pipe is not None:
+                os.close(server._pipe)
+            store.close()
+
+
+@settings(max_examples=60, deadline=None)
+@given(provider=st.sampled_from(["claude", "codex"]),
+       actions=st.lists(st.sampled_from(["send", "stop", "cancel", "close"]), min_size=1, max_size=15))
+def test_property_no_steer_write_after_stop_cancel_or_close(provider, actions):
+    """Invariant 3: every generated schedule respects the first handover barrier."""
+    from subfleet.conversations.turn import Frame
+    with steer_schedule(provider) as (build, root, adir):
+        runner = build()
+        ready_to_steer(runner, root)
+        claim_steer(runner)
+        sequence = runner.store.message(STEER_MID)["seq"]
+        barrier_count = None
+        for action in actions:
+            if action == "send":
+                runner.steer(STEER_MID)
+                runner._drain_commands()
+            elif action == "stop":
+                runner.store.update_message(MID, stop_requested_at="2026-09-28T12:00:00Z")
+            elif action == "cancel":
+                if not runner.steer_written(STEER_MID):
+                    runner.store.set_state(STEER_MID, "cancelled", expect=("steering",))
+            else:
+                runner.outbox.append(Frame("close", "close"))
+                runner._send_outbox()
+            count = logged(adir).count(f"steer:{STEER_MID}")
+            assert count <= 1
+            if barrier_count is not None:
+                assert count == barrier_count
+            if action in ("stop", "cancel", "close"):
+                barrier_count = count
+        assert runner.store.message(STEER_MID)["seq"] == sequence
+
+
+@settings(max_examples=40, deadline=None)
+@given(provider=st.sampled_from(["claude", "codex"]),
+       restarts=st.lists(st.integers(min_value=0, max_value=4), min_size=0, max_size=8))
+def test_property_replay_at_each_steer_boundary_writes_once_and_preserves_fate(provider, restarts):
+    """Invariant 4: crashes before/after claim, handover, echo and result are idempotent."""
+    with steer_schedule(provider) as (build, root, adir):
+        runner = build()
+        ready_to_steer(runner, root)
+        transcript = ([INIT_OK, STEER_CAPS] if provider == "claude" else
+                      codex_replies(str(root)) + [json.dumps({"id": 5, "result": {"turn": {"id": "turn-one"}}})])
+        claim_steer(runner)
+        for boundary in range(5):
+            if boundary == 1:
+                runner.steer(STEER_MID)
+            elif boundary == 2:
+                runner._drain_commands()
+            elif boundary == 3:
+                row = ({"type": "command_lifecycle", "command_uuid": STEER_MID, "state": "completed"}
+                       if provider == "claude" else
+                       {"method": "item/completed", "params": {"threadId": runner.driver.thread_id,
+                        "turnId": "turn-one", "item": {"type": "userMessage", "id": "u1", "clientId": STEER_MID,
+                                                           "content": []}}})
+                transcript.append(json.dumps(row))
+                runner._apply(runner.driver.feed(transcript[-1], len(transcript) * 100))
+            elif boundary == 4:
+                row = ({"type": "result", "subtype": "success", "is_error": False,
+                        "user_message_uuids": [MID, STEER_MID], "queued_turn_count": 0}
+                       if provider == "claude" else
+                       {"method": "turn/completed", "params": {"threadId": runner.driver.thread_id,
+                        "turn": {"id": "turn-one", "status": "completed"}}})
+                transcript.append(json.dumps(row))
+                runner._apply(runner.driver.feed(transcript[-1], len(transcript) * 100))
+            for _ in range(restarts.count(boundary)):
+                runner._flush()
+                runner = build()
+                runner._restore_steers()
+                runner._apply(runner.driver.start())
+                for index, line in enumerate(transcript):
+                    runner._apply(runner.driver.feed(line, (index + 1) * 100))
+                runner.replay_caught_up = True
+                for mid in runner._replay_steers:
+                    runner.steer(mid)
+                runner._replay_steers.clear()
+                runner._drain_commands()
+            assert logged(adir).count(f"steer:{STEER_MID}") <= 1
+        assert logged(adir).count(f"steer:{STEER_MID}") == 1
+        assert runner.steer_facts()[STEER_MID]["fate"] == ("consumed" if provider == "claude" else "unanswered")
+        assert runner.driver.outcome.state == "complete"
+
+
+@pytest.mark.parametrize("when", ["command", "replay"])
+def test_a_cancel_before_the_steer_command_is_drained_remains_in_the_attempt_audit(relayed, tmp_path, when):
+    runner, _, _, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    runner.store.withdraw(STEER_MID, expect=("steering",), stop_at="2026-09-28T12:00:00Z")
+    if when == "command":
+        runner.steer(STEER_MID)
+        runner._drain_commands()
+    else:
+        runner._restore_steers()
+    assert runner.store.message(STEER_MID)["state"] == "cancelled"
+    assert runner.steer_facts()[STEER_MID] == {
+        "frame": "unsent", "fate": "cancelled", "detail": "cancelled-before-handover"}
+    assert f"steer:{STEER_MID}" not in logged(adir)
+
+
+def test_a_steer_discovered_by_the_status_handshake_is_restored_before_stdout_replay(relayed, tmp_path):
+    runner, _, server, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    runner._restore_steers()
+    assert runner._replay_steers == [STEER_MID]
+    frame = json.dumps({"type": "user", "uuid": STEER_MID, "priority": "next", "message": {"role": "user", "content": []}})
+    # Another runner's already accepted request finishes after this runner's log snapshot.
+    server.apply({"seq": server.last_applied + 1, "op": "write", "line": frame, "tag": f"steer:{STEER_MID}",
+                  "sha256": relay_module.line_sha256(frame)})
+    runner.handshaken = False
+    assert runner._handshake()
+    assert runner._replay_steers == []
+    runner._apply(runner.driver.feed(json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                                               "user_message_uuids": [MID, STEER_MID]}), 30))
+    assert runner.steer_facts()[STEER_MID]["fate"] == "consumed"
+    assert logged(adir).count(f"steer:{STEER_MID}") == 1
+
+
+@pytest.mark.parametrize("fate", ["cancelled", "refused", "unknown"])
+def test_recorded_positive_delivery_evidence_wins_negative_replayed_evidence(make_runner, fate):
+    runner, _, _ = make_runner(Clocks())
+    runner.recorded = {"state": "complete", "steers": {STEER_MID: {
+        "frame": "written", "fate": "consumed", "detail": None}}}
+    runner.driver.restore_steer(STEER_MID)
+    runner.driver.steers[STEER_MID]["fate"] = fate
+    assert runner.steer_facts()[STEER_MID]["fate"] == "consumed"
+
+
+def test_a_steer_pending_at_construction_is_registered_before_its_written_handshake(relayed, tmp_path):
+    import threading
+    import time
+
+    def pending(server, adir):
+        for seq, tag in enumerate(("init", "user-message", "settings"), 1):
+            server.apply({"seq": seq, "op": "write", "line": "{}", "tag": tag,
+                          "sha256": relay_module.line_sha256("{}")})
+        server._lock.acquire()
+        intent = logged_intent(4, f"steer:{STEER_MID}", "{}")
+        server._append(intent)
+        server._records.append({**intent, "status": "pending"})
+
+    runner, _, server, adir = relayed(recorded=True, before_runner=pending)
+    claim_steer(runner)
+    assert runner.sent[f"steer:{STEER_MID}"] == "pending"
+    runner._restore_steers()
+    assert runner.driver.steers[STEER_MID]["frame"] == "written"
+
+    def finish():
+        time.sleep(0.05)
+        server._append({"kind": "written", "seq": 4})
+        server._records[-1]["status"] = "written"
+        server._lock.release()
+
+    threading.Thread(target=finish, daemon=True).start()
+    ready_to_steer(runner, tmp_path)
+    runner._apply(runner.driver.feed(json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                                               "user_message_uuids": [MID, STEER_MID]}), 30))
+    assert not runner.relay_failed
+    assert logged(adir).count(f"steer:{STEER_MID}") == 1
+    assert runner.steer_facts()[STEER_MID]["fate"] == "consumed"
+
+
+@pytest.mark.parametrize("recorded,replayed,want", [("consumed", "delivered", "consumed"),
+                                                   ("delivered", "unanswered", "delivered"),
+                                                   ("unanswered", "delivered", "delivered")])
+def test_replay_refines_positive_evidence_without_downgrading_a_recorded_answer(make_runner, recorded, replayed, want):
+    runner, _, _ = make_runner(Clocks())
+    runner.recorded = {"state": "complete", "steers": {STEER_MID: {
+        "frame": "written", "fate": recorded, "detail": None}}}
+    runner.driver.restore_steer(STEER_MID)
+    runner.driver.steers[STEER_MID]["fate"] = replayed
+    assert runner.steer_facts()[STEER_MID]["fate"] == want
+
+
+def test_reclaiming_a_previously_missed_steer_requeues_promptly_instead_of_waiting_for_host_end(relayed, tmp_path):
+    runner, _, _, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner, text="x" * 2000)
+    runner.relay.frame_max = 600
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    assert runner.store.message(STEER_MID)["state"] == "queued"
+    runner.store.set_state(STEER_MID, "steering", reason=f"steer:{MID}", expect=("queued",))
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    assert runner.store.message(STEER_MID)["state"] == "queued"
+    assert f"steer:{STEER_MID}" not in logged(adir)

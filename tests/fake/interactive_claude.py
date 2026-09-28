@@ -30,6 +30,8 @@ its text; `[fake:write]` combines with any other:
     background        a success result, then more assistant text before EOF
     wrong-model       serves another model than the one asked for
     bash              runs SUBFLEET_FAKE_BASH_COMMAND as its Bash tool, then succeeds
+    steer             waits for a queued message, folds it at a tool boundary, then replies
+    steer-late        waits for a queued message, ends without another boundary; it runs next
 
 Environment:
 
@@ -135,6 +137,10 @@ class Fake:
         self.inbox: "queue.Queue[dict | None]" = queue.Queue()
         self.interrupted = threading.Event()
         self.out_lock = threading.Lock()
+        self.queue_lock = threading.RLock()
+        self.queued: dict[str, dict] = {}
+        self.active_uuids: list[str] = []
+        self.result_index = 0
         self.log_path = os.environ.get("SUBFLEET_FAKE_TURN_LOG")
         self.transcript: Path | None = None
         projects = os.environ.get("CLAUDE_FAKE_PROJECTS_DIR")
@@ -175,6 +181,13 @@ class Fake:
             except ValueError:
                 continue
             request = row.get("request") or {}
+            if row.get("type") == "user":
+                self.lifecycle(row.get("uuid"), "queued")
+                if row.get("priority") is not None:
+                    with self.queue_lock:
+                        self.queued[row["uuid"]] = row
+                    self.inbox.put({})             # wake an idle main loop
+                    continue
             if row.get("type") == "control_request" and request.get("subtype") == "get_settings":
                 # Answered at once, mid-turn too, as 2.1.280 does (C-26.8; observed
                 # 2026-09-28: 77 ms after the message, before the turn's `system init`).
@@ -183,9 +196,25 @@ class Fake:
                     "response": {"applied": self.applied(), "effective": {}, "sources": {}}}})
                 continue
             if row.get("type") == "control_request" and request.get("subtype") == "interrupt":
+                with self.queue_lock:
+                    cancelled = list(self.queued) if request.get("cancel_queued") else []
+                    for mid in cancelled:
+                        self.queued.pop(mid)
+                        self.lifecycle(mid, "cancelled")
+                    receipt = {"cancelled": cancelled, "still_queued": list(self.queued)}
                 self.emit({"type": "control_response", "response": {
-                    "subtype": "success", "request_id": row.get("request_id"), "response": {}}})
+                    "subtype": "success", "request_id": row.get("request_id"), "response": receipt}})
                 self.interrupted.set()
+                continue
+            if row.get("type") == "control_request" and request.get("subtype") == "cancel_async_message":
+                mid = request.get("message_uuid")
+                with self.queue_lock:
+                    cancelled = self.queued.pop(mid, None) is not None
+                    if cancelled:
+                        self.lifecycle(mid, "cancelled")
+                self.emit({"type": "control_response", "response": {
+                    "subtype": "success", "request_id": row.get("request_id"),
+                    "response": {"cancelled": cancelled}}})
                 continue
             self.inbox.put(row)
         self.inbox.put(None)
@@ -237,7 +266,10 @@ class Fake:
         self.hook("SessionStart", source="resume" if flag(self.argv, "--resume") else "startup")
         threading.Thread(target=self.reader, daemon=True).start()
         while True:
-            row = self.next_row()
+            with self.queue_lock:
+                row = self.queued.pop(next(iter(self.queued))) if self.queued else None
+            if row is None:
+                row = self.next_row()
             if row is None:
                 return 0                        # stdin EOF
             if row.get("type") == "control_request":
@@ -264,6 +296,7 @@ class Fake:
                 "pid": os.getpid()}}})
 
     def turn(self, row: dict) -> int | None:
+        self.active_uuids = [row.get("uuid")]
         message = row.get("message") or {}
         content = message.get("content")
         text = content if isinstance(content, str) else " ".join(
@@ -276,6 +309,7 @@ class Fake:
         self.interrupted.clear()
         if scenario == "exit-before-ack":
             return 1
+        self.lifecycle(row.get("uuid"), "started")
         self.record({"type": "user", "uuid": row.get("uuid"), "message": {"role": "user", "content": text}})
         self.emit({"type": "user", "uuid": row.get("uuid"), "message": message, "parent_tool_use_id": None,
                    "isReplay": True})
@@ -284,6 +318,7 @@ class Fake:
             model = "claude-haiku-4-5-20251001"
         self.emit({"type": "system", "subtype": "init", "model": model, "cwd": os.getcwd(),
                    "permissionMode": flag(self.argv, "--permission-mode") or "default",
+                   "capabilities": ["msg_lifecycle_v1", "interrupt_receipt_v1", "interrupt_cancel_queued_v1"],
                    "fast_mode_state": os.environ.get("SUBFLEET_FAKE_FAST", "on")})
         if scenario == "exit-after-ack":
             return 1
@@ -311,9 +346,38 @@ class Fake:
         self.record({"type": "assistant", "uuid": str(uuid.uuid4()), "message": body})
 
     def result(self, ok: bool, subtype: str = "success", *, text: str = "", errors=None) -> None:
+        # The actual protocol ends folded commands before result, and the command
+        # which started this turn after it. Consumption evidence survives failure.
+        for mid in self.active_uuids[1:]:
+            self.lifecycle(mid, "completed" if ok else "cancelled")
+        with self.queue_lock:
+            queued_turn_count = len(self.queued)
         self.emit({"type": "result", "subtype": subtype, "is_error": not ok, "num_turns": 1, "result": text,
-                   "errors": errors or [], "permission_denials": [], "duration_ms": 5})
+                   "errors": errors or [], "permission_denials": [], "duration_ms": 5,
+                   "user_message_uuids": list(self.active_uuids), "queued_turn_count": queued_turn_count,
+                   "result_index": self.result_index})
+        self.result_index += 1
+        if self.active_uuids:
+            self.lifecycle(self.active_uuids[0], "completed" if ok else "cancelled")
         return None
+
+    def lifecycle(self, mid: str, state: str) -> None:
+        self.emit({"type": "command_lifecycle", "command_uuid": mid, "state": state,
+                   "uuid": str(uuid.uuid4())})
+
+    def tool_boundary(self, model: str) -> None:
+        """A priority next/now input becomes part of the running query at this boundary."""
+        with self.queue_lock:
+            folded = [row for row in self.queued.values() if row.get("priority") in ("next", "now")]
+            for row in folded:
+                self.queued.pop(row["uuid"])
+                self.active_uuids.append(row["uuid"])
+                self.lifecycle(row["uuid"], "started")
+                self.record({"type": "user", "uuid": row["uuid"], "message": row["message"]})
+                self.emit({**row, "isReplay": True})
+        for row in folded:
+            text = " ".join(b.get("text", "") for b in row["message"]["content"] if b.get("type") == "text")
+            self.say(model, f"Steered: {text}")
 
     def write_files(self, message_uuid: str) -> None:
         """Edit the working directory as a writing turn would: one new file, one
@@ -327,6 +391,29 @@ class Fake:
     # --- scenarios -------------------------------------------------------------
 
     def scenario_reply(self, model: str, reply: str):
+        self.say(model, reply)
+        return self.result(True, text=reply)
+
+    def wait_for_steer(self) -> bool:
+        for _ in range(1200):
+            if self.interrupted.is_set():
+                return False
+            with self.queue_lock:
+                if self.queued:
+                    return True
+            time.sleep(0.05)
+        return False
+
+    def scenario_steer(self, model: str, reply: str):
+        if not self.wait_for_steer():
+            return self.result(False, "error_during_execution", text="interrupted")
+        self.tool_boundary(model)
+        self.say(model, reply)
+        return self.result(True, text=reply)
+
+    def scenario_steer_late(self, model: str, reply: str):
+        if not self.wait_for_steer():
+            return self.result(False, "error_during_execution", text="interrupted")
         self.say(model, reply)
         return self.result(True, text=reply)
 
@@ -367,6 +454,7 @@ class Fake:
             self.emit({"type": "user", "parent_tool_use_id": None, "message": {"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": answer["_tool_id"], "content": "approved-by-person",
                  "is_error": False}]}})
+            self.tool_boundary(model)
             self.say(model, "The command ran.")
             return self.result(True, text="The command ran.")
         if answer.get("interrupt"):
@@ -430,6 +518,7 @@ class Fake:
         self.emit({"type": "user", "parent_tool_use_id": None, "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": tool_id, "content": stdout or stderr,
              "is_error": rc != 0}]}})
+        self.tool_boundary(model)
         self.say(model, "The command ran." if rc == 0 else f"The command failed (rc={rc}).")
         return self.result(rc == 0, "success" if rc == 0 else "error_during_execution",
                            text="The command ran.")

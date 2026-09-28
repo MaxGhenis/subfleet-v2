@@ -180,6 +180,13 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
                                                            "to": {"provider": "codex", "settings": {
                                                                "model": "gpt-6-astra", "permission": "read-only"}}})
     assert len(results["conversation.handoff"]["moved"]) == 1 and results["conversation.handoff"]["created"]
+    # An idempotent steer receipt exercises the fixed wire shape without launching
+    # a provider (the daemon-side steer tests cover the initial durable claim).
+    steered = harness.submit(source["conversation_id"], "already delivered",
+                             after=harness.store.messages(source["conversation_id"])[-1]["message_id"])
+    harness.store.set_state(steered["message_id"], "steered", reason=f"steered:{fixture['first']['message_id']}",
+                            served={"steered_into": fixture["first"]["message_id"]})
+    results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"])
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)
@@ -216,6 +223,7 @@ def test_c25_2_requests_the_app_encodes_are_the_daemons_requests(core_probe, tmp
         "approval.list": {"conversation_id": cid},
         "conversation.history": {"conversation_id": cid},
         "turn.interrupt": {"message_id": mid},
+        "message.steer": {"message_id": mid},
     }
     for op, args in requests.items():
         line = run_probe(core_probe, "request", op, write_json(tmp_path / "args.json", args), "app-1", raw=True)
@@ -228,7 +236,7 @@ def test_c25_2_requests_the_app_encodes_are_the_daemons_requests(core_probe, tmp
             # The first message says it has no predecessor with an explicit null.
             assert "after_message_id" in wire["args"] and wire["args"]["after_message_id"] is None
             assert wire["args"]["settings"]["effort"] is None and "effort" in wire["args"]["settings"]
-        if op == "turn.interrupt":
+        if op in ("turn.interrupt", "message.steer"):
             with pytest.raises(Exception):         # the message is queued, not running
                 harness.call(op, **request.args)
             continue

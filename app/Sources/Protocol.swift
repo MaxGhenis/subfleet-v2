@@ -104,6 +104,7 @@ enum Ops {
     static let messageSubmit = DaemonOperation<MessageSubmitArgs, Receipt>(name: "message.submit")
     static let messageStatus = DaemonOperation<MessageStatusArgs, MessageStatusResult>(name: "message.status")
     static let messageCancel = DaemonOperation<MessageCancelArgs, Receipt>(name: "message.cancel")
+    static let messageSteer = DaemonOperation<MessageSteerArgs, Receipt>(name: "message.steer")
     static let turnInterrupt = DaemonOperation<TurnInterruptArgs, Receipt>(name: "turn.interrupt")
     static let messageResolve = DaemonOperation<MessageResolveArgs, Receipt>(name: "message.resolve")
     static let approvalList = DaemonOperation<ApprovalListArgs, ApprovalListResult>(name: "approval.list")
@@ -125,7 +126,7 @@ enum Ops {
     static let names = [
         capabilities.name, conversationList.name, conversationOpen.name, conversationCreate.name,
         conversationSettings.name, conversationUnblock.name, conversationHistory.name, conversationEvents.name,
-        conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, turnInterrupt.name,
+        conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, messageSteer.name, turnInterrupt.name,
         messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
         conversationHandoff.name,
@@ -133,7 +134,7 @@ enum Ops {
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
     static let personOnly: Set<String> = [
-        approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name,
+        approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name, messageSteer.name,
     ]
 }
 
@@ -283,6 +284,7 @@ struct Receipt: Codable, Equatable {
     /// The person's text (`conversation.open`, `message.status`), at most 20,000 characters.
     var text: String?
     var text_truncated: Bool?
+    var steered_into: String?
 
     var messageState: MessageState? { MessageState(rawValue: state) }
     /// A tombstone left by withdrawing a message the daemon never received.
@@ -327,6 +329,7 @@ struct Capabilities: Codable, Equatable {
     var capabilities: [String]
     var limits: CapabilityLimits?
     var codex_writable: Bool?
+    var steer_providers: [String]?
 
     func has(_ capability: String) -> Bool { capabilities.contains(capability) }
 }
@@ -717,6 +720,7 @@ struct ConversationChange: Codable, Equatable {
     var ts: String?
     /// Why a message is in its state (a waiting message's hold, a failure).
     var state_reason: String?
+    var steered_into: String?
 }
 
 // MARK: - messages
@@ -782,6 +786,10 @@ struct MessageCancelArgs: Codable, Equatable {
 }
 
 struct TurnInterruptArgs: Codable, Equatable {
+    var message_id: String
+}
+
+struct MessageSteerArgs: Codable, Equatable {
     var message_id: String
 }
 

@@ -78,7 +78,7 @@ let codecs: [String: OpCodec] = {
         codec(Ops.capabilities), codec(Ops.conversationList), codec(Ops.conversationOpen), codec(Ops.conversationCreate),
         codec(Ops.conversationSettings), codec(Ops.conversationUnblock), codec(Ops.conversationHistory),
         codec(Ops.conversationEvents), codec(Ops.conversationWatch), codec(Ops.messageSubmit), codec(Ops.messageStatus),
-        codec(Ops.messageCancel), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
+        codec(Ops.messageCancel), codec(Ops.messageSteer), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
         codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
         codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
         codec(Ops.conversationHandoff),
