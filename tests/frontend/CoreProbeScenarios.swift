@@ -276,7 +276,7 @@ func runNotificationTargets(_ data: Data) throws -> [String: Any] {
 }
 
 /// `clicks <input.json>`: `{"steps": [{"click": {"request_id", "user_info"}} | {"navigate": true} |
-/// {"baseline": true} | {"pending": {"<conversation>": n}}]}`, driven as `UIModel` drives
+/// {"create": true} | {"baseline": true} | {"pending": {"<conversation>": n}}]}`, driven as `UIModel` drives
 /// `NotificationClicks`: what each click and the baseline open (null: nothing).
 func runClicks(_ data: Data) throws -> [String: Any] {
     guard let input = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -293,6 +293,7 @@ func runClicks(_ data: Data) throws -> [String: Any] {
     for step in input["steps"] as? [[String: Any]] ?? [] {
         if let counts = step["pending"] as? [String: Int] { pending = counts }
         if step["navigate"] as? Bool == true { navigation += 1 }
+        if step["create"] as? Bool == true { clicks.drop() }
         if let click = step["click"] as? [String: Any] {
             // A notification naming no conversation never reaches the model.
             let target = NotificationTarget(requestID: click["request_id"] as? String ?? "",

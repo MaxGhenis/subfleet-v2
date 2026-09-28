@@ -334,12 +334,19 @@ final class UIModel: ObservableObject {
     }
 
     private func openClicked(_ opening: NotificationOpening) {
-        // The click is the newest navigation: an open still on its way (a native
-        // session chosen just before) is dropped, even when the clicked
-        // conversation is already focused and `focus` changes nothing.
-        navigation += 1
         if opening.revealsCard { approvalReveal = opening.conversationID }
-        focus(opening.conversationID)
+        guard state.focusedConversationID == opening.conversationID else {
+            // `focus` takes a new token, which drops any open still on its way.
+            focus(opening.conversationID)
+            return
+        }
+        // Already focused, where `focus` changes nothing: open it again under a
+        // new token, so the click still drops an open on its way (a native session
+        // chosen just before) and replaces its own conversation's, not loses it.
+        lockedEntry = nil
+        navigation += 1
+        let token = navigation
+        Task { await open(.conversation(opening.conversationID), token: token) }
     }
 
     // MARK: Changes
@@ -422,6 +429,8 @@ final class UIModel: ObservableObject {
     func create(provider: String, workspace: String, settings: ConversationSettings, title: String?,
                 firstMessage: String, staged: [StagedAttachment], confirmWiden: Bool) {
         guard let engine else { return }
+        // A conversation the person starts is newer than any click still held.
+        clicks.drop()
         Task {
             do {
                 let key = try await onOutbox {
@@ -480,7 +489,8 @@ final class UIModel: ObservableObject {
             for conversation in report.conversations {
                 state.upsert(conversation)
                 // Not while a clicked notification waits for the baseline: a create
-                // the outbox replays at launch is no navigation of the person's.
+                // the outbox replays at launch is no navigation of the person's (a
+                // create the person asks for drops the held click first).
                 if state.focusedConversationID == nil && clicks.held == nil { focus(conversation.conversation_id) }
             }
             if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }

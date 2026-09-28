@@ -257,6 +257,18 @@ def test_c29_9_a_held_click_yields_to_where_the_person_went_since(core_probe):
     assert out["opened"] == [None, {"conversation": "cv-1", "reveals_card": False}]
 
 
+def test_c29_9_a_conversation_the_person_starts_outranks_a_held_click(core_probe):
+    """At launch the person clicks a notification for cv-1, then starts a new
+    conversation before the baseline lands: the new one is the newer intent, so
+    the held click opens nothing and no longer holds back the new one's focus."""
+    out = clicks(core_probe, [click("approval", "cv-1"), {"create": True}, {"pending": {"cv-1": 1}},
+                              {"baseline": True}])
+    assert out["opened"] == [None, None] and out["held"] is None
+    # A click after the person started one is newer again, and opens.
+    out = clicks(core_probe, [{"create": True}, click("completed", "cv-2"), {"baseline": True}])
+    assert out["opened"] == [None, {"conversation": "cv-2", "reveals_card": False}]
+
+
 def test_c29_9_the_last_click_before_the_baseline_is_the_one_opened(core_probe):
     out = clicks(core_probe, [click("completed", "cv-1"), click("failed", "cv-2"), {"baseline": True}])
     assert out["opened"] == [None, None, {"conversation": "cv-2", "reveals_card": False}]
@@ -280,8 +292,9 @@ def test_c29_9_an_approval_reveals_a_card_only_while_one_waits(core_probe):
 def expected_openings(steps: list[dict]) -> tuple[list, str | None]:
     """The rule, read off the whole sequence rather than simulated: a click after
     the baseline opens at once; the baseline opens the last click that came
-    before it, unless the person navigated after that click; a card is revealed
-    for an approval while its conversation has one pending at the moment of opening."""
+    before it, unless the person navigated or started a conversation after that
+    click; a card is revealed for an approval while its conversation has one
+    pending at the moment of opening."""
     def target(step):
         return reference({"request_id": step["click"]["request_id"], "user_info": step["click"]["user_info"],
                           "focused": None})
@@ -305,23 +318,25 @@ def expected_openings(steps: list[dict]) -> tuple[list, str | None]:
                 continue
             before = [j for j in range(i) if "click" in steps[j] and target(steps[j])]
             last = before[-1] if before else None
-            moved = last is not None and any("navigate" in steps[j] for j in range(last, i))
+            moved = last is not None and any("navigate" in steps[j] or "create" in steps[j] for j in range(last, i))
             out.append(opening(target(steps[last]), pending) if last is not None and not moved else None)
     held = None
     if first_baseline is None:
-        found = [target(s) for s in steps if "click" in s and target(s)]
-        held = found[-1]["conversation"] if found else None
+        found = [j for j, s in enumerate(steps) if "click" in s and target(s)]
+        if found and not any("create" in s for s in steps[found[-1]:]):
+            held = target(steps[found[-1]])["conversation"]
     return out, held
 
 
 # Mostly clicks this build posts, some it cannot read; now and then the person
-# navigates, the baseline lands, or the feed reports pending approvals.
+# navigates or starts a conversation, the baseline lands, or the feed reports
+# pending approvals.
 CLICKS = st.builds(lambda cid, kind, head: {"click": {"request_id": f"{head}:1",
                                                       "user_info": {"conversation_id": cid, "kind": kind}}},
                    IDS, st.sampled_from(KINDS), st.sampled_from(list(PREFIXES)))
 STEPS = weighted(
     (5, CLICKS), (1, CASES.map(lambda case: {"click": {"request_id": case["request_id"], "user_info": case["user_info"]}})),
-    (1, st.just({"navigate": True})), (1, st.just({"baseline": True})),
+    (1, st.just({"navigate": True})), (1, st.just({"create": True})), (1, st.just({"baseline": True})),
     (2, st.fixed_dictionaries({cid: st.integers(0, 2) for cid in ("cv-1", "cv-2", "cv-3")}).map(
         lambda counts: {"pending": counts})),
 )
@@ -337,5 +352,5 @@ def test_property_clicks_open_once_in_order_and_yield_to_navigation(core_probe, 
         event("nothing" if opened is None else f"opened, card {opened['reveals_card']}")
     first_baseline = next((i for i, s in enumerate(steps) if "baseline" in s), len(steps))
     clicked = [i for i in range(first_baseline) if "click" in steps[i] and expected_openings([steps[i], {"baseline": True}])[0][-1]]
-    event(f"a held click, then navigation before the baseline: "
-          f"{bool(clicked) and any('navigate' in steps[j] for j in range(clicked[-1], first_baseline))}")
+    event(f"a held click, then navigation or a new conversation before the baseline: "
+          f"{bool(clicked) and any('navigate' in steps[j] or 'create' in steps[j] for j in range(clicked[-1], first_baseline))}")

@@ -324,7 +324,8 @@ struct NotificationOpening: Equatable {
 /// it the daemon may not answer an open, and the baseline, when it lands,
 /// replaces the state, focus included. A held click is dropped if the person
 /// has gone somewhere since it came (`navigation`, which moves with every
-/// navigation, as for an open that answers late), and a later click replaces it.
+/// navigation, as for an open that answers late) or started a conversation
+/// (`drop`), and a later click replaces it.
 struct NotificationClicks: Equatable {
     private(set) var held: NotificationTarget?
     private var heldAt = 0
@@ -340,6 +341,10 @@ struct NotificationClicks: Equatable {
         held = nil
         return target.opening(pendingApprovals: pendingApprovals[target.conversationID] ?? 0)
     }
+
+    /// The person acted in a way `navigation` does not count (started a
+    /// conversation): a held click no longer decides what opens.
+    mutating func drop() { held = nil }
 
     /// The baseline has landed: the held click to open, if the person has not
     /// gone elsewhere since it came.
