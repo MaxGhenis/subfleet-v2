@@ -250,6 +250,10 @@ def test_ordinary_lines_ending_in_a_colon_or_quote_are_still_cut_points():
     code = "".join(f'def f{i}():\n    return "value {i}"\nconfig{i}:\n  name: "x{i}"\n' for i in range(8_000))
     out = handoff.scrub_bounded(code, 2_000)[0]
     assert out.startswith("def f0():") and out.endswith('name: "x7999"')
+    # A line ending in a key word is a cut point unless a `:` or `=` follows it.
+    log = "".join(f"{i:06d} refreshed the access token\n" for i in range(12_000))
+    out = handoff.scrub_bounded(log, 2_000)[0]
+    assert out.startswith("000000 refreshed") and out.endswith("011999 refreshed the access token")
 
 
 # --- the differential property: never more than a whole scrub shows ---------------------

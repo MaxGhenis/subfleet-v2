@@ -416,46 +416,68 @@ def _last_visible(text: str, end: int) -> int:
     return at
 
 
-def _neutral_break(text: str, visible: int) -> bool:
-    """Whether a line break whose last visible character before it is at
-    `visible` can be a cut: no rule could continue past the break from what ends
-    there. Only these can, each followed by whitespace (line breaks included) and
-    then a value: a key, an identifier with a sensitive ending (`Authorization`,
-    `Cookie` and `Set-Cookie` headers among them); a key's closing quote
-    (`"password"`); a `:` or `=` after a key, its quote and whitespace; and
-    `Bearer`. A quote or separator after anything else is ordinary text."""
+def _neutral_break(text: str, visible: int, after: int) -> bool:
+    """Whether a line break can be a cut: no rule could continue a match past
+    it. `visible` is the last visible character before it (-1: none), `after`
+    the first after it (`len(text)`: none). Only these continue past a break,
+    through whitespace that may include it:
+    - a `:` or `=` after a key, its quote and whitespace, to the value;
+    - a key (an identifier with a sensitive ending, which `Authorization`,
+      `Cookie` and `Set-Cookie` headers have), or a key's closing quote
+      (`"password"`), to a `:` or `=` after the break;
+    - `Bearer`, to a token character after the break.
+    A quote or separator after anything else, a key followed by anything else,
+    and a word ending the text are ordinary. No rule's replacement puts a `:`,
+    `=` or token character where the first visible character after a break was
+    anything else, so the text before the rules run decides."""
     if visible < 0:
         return True
-    at = visible
-    if text[at] in ":=":
-        at = _last_visible(text, at)        # the separator may follow blank lines
-        if at < 0:
-            return True
-    if text[at] in "\"'":
-        at -= 1                             # a quoted key's closing quote
-    return not _key_ends_at(text, at)
+    following = text[after:after + 1]
+    last = text[visible]
+    if last in ":=":
+        before = _last_visible(text, visible)   # the separator may follow blank lines
+        if before >= 0 and text[before] in "\"'":
+            before -= 1                         # a quoted key's closing quote
+        return not _key_ends_at(text, before)
+    separator = following in (":", "=")
+    if last in "\"'":
+        return not (separator and _key_ends_at(text, visible - 1))
+    if _key_ends_at(text, visible):
+        return not separator
+    if _last_word(text, visible).lower().endswith("bearer"):
+        return not (following and _BEARER_TOKEN_CHAR_RE.fullmatch(following))
+    return True
 
 
-def _key_ends_at(text: str, end: int) -> bool:
-    """Whether an identifier the scrubber reads as a key, or `Bearer`, ends at
-    `end`. Only its last 17 characters are read, as `_scrub_named_values` does."""
+#: A character `_BEARER_RE` reads as part of a token (it ignores case too).
+_BEARER_TOKEN_CHAR_RE = re.compile(r"(?i)[A-Za-z0-9._~+/-]")
+_WHITESPACE_RUN_RE = re.compile(r"\s*")
+
+
+def _last_word(text: str, end: int) -> str:
+    """The last 17 characters (at most) of the identifier ending at `end`, as
+    `_scrub_named_values` reads a key; "" if none ends there."""
     if end < 0 or not _identifier_char(text[end]):
-        return False
+        return ""
     start = end
     while start > 0 and end - start < 16 and _identifier_char(text[start - 1]):
         start -= 1
-    word = text[start:end + 1]
-    return bool(_SENSITIVE_SUFFIX_RE.search(word)) or word.lower().endswith("bearer")
+    return text[start:end + 1]
+
+
+def _key_ends_at(text: str, end: int) -> bool:
+    """Whether an identifier the scrubber reads as a key ends at `end`."""
+    return bool(_SENSITIVE_SUFFIX_RE.search(_last_word(text, end)))
 
 
 def _head_cut(text: str) -> int:
     """The end of the head excerpt: the last neutral line break within
-    EXCERPT_CHARS (0 if none). A break that is not neutral is passed over
-    together with every break back to its visible character."""
+    EXCERPT_CHARS (0 if none). Breaks between the same two visible characters
+    share one verdict, so a refused one is passed over with the rest of them."""
     end = EXCERPT_CHARS
     while (newline := text.rfind("\n", 0, end)) >= 0:
         visible = _last_visible(text, newline + 1)
-        if _neutral_break(text, visible):
+        if _neutral_break(text, visible, _WHITESPACE_RUN_RE.match(text, newline + 1).end()):
             return newline + 1
         end = visible
     return 0
@@ -466,13 +488,10 @@ def _tail_cut(text: str) -> int:
     EXCERPT_CHARS (the end of the text if none)."""
     at = text.find("\n", len(text) - EXCERPT_CHARS - 1)
     while at >= 0:
-        visible = _last_visible(text, at + 1)
-        if _neutral_break(text, visible):
+        after = _WHITESPACE_RUN_RE.match(text, at + 1).end()
+        if _neutral_break(text, _last_visible(text, at + 1), after):
             return at + 1
-        rest = at + 1
-        while rest < len(text) and text[rest].isspace():
-            rest += 1                       # breaks before the next visible character share its verdict
-        at = text.find("\n", rest)
+        at = text.find("\n", after)
     return len(text)
 
 
