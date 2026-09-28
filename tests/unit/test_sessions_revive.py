@@ -137,9 +137,30 @@ def test_an_unreadable_desktop_record_leaves_ownership_unknown_and_revival_refus
     assert result.admitted is False
     assert daemon.submits == []
     assert result.candidate.desktop_owned is None
-    assert "may own this session" in result.reason
+    assert "may own this session" in result.reason and str(record) in result.reason
+    assert result.candidate.to_dict()["unreadable_records"] == [str(record)]
     assert result.fix == revive.OPT_IN_FIX
     assert attempt(daemon, policy, COLD, tmp_path, opt_in=True).admitted is True
+
+
+def test_a_store_directory_that_cannot_be_listed_leaves_ownership_unknown(world, policy, tmp_path):
+    """C-23.35 (review of the round-2 fixes, F4): `Path.glob` skipped a directory it
+    could not list, and the session whose record it held read as not owned. The
+    directory is now reported, and ownership is unknown until it can be read."""
+    _home, store = world
+    cold_session(world)
+    locked = store / ACCOUNT / ORG
+    locked.chmod(0)
+    try:
+        daemon = fx.FakeSessions()
+        result = attempt(daemon, policy, COLD, tmp_path)
+        assert result.admitted is False and daemon.submits == []
+        assert result.candidate.desktop_owned is None
+        assert result.candidate.unreadable_records == (str(locked),)
+        assert str(locked) in result.reason
+    finally:
+        locked.chmod(0o700)
+    assert attempt(fx.FakeSessions(), policy, COLD, tmp_path).candidate.desktop_owned is True
 
 
 def test_a_desktop_record_without_a_cwd_still_marks_the_session_owned(world, policy, tmp_path):

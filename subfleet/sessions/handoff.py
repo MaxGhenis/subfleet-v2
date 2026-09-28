@@ -62,13 +62,11 @@ MAX_JSON_LINE_CHARS = 4 * 1024 * 1024
 FULL_SCAN_BYTES = 64 * 1024 * 1024
 LAST_SCAN_BYTES = 2 * 1024 * 1024
 PROGRESS_READ_BYTES = 128 * 1024
-# Bound work before any content matching (C-23.14). A longer text is matched as
-# two excerpts within the same bound: a head of at most EXCERPT_CHARS, and a tail
-# of at most EXCERPT_CHARS - EXCERPT_LOOKBEHIND, before which EXCERPT_LOOKBEHIND
-# characters are searched only for private-key and reminder delimiters.
+# Bound the rules' work (C-23.14). In a longer text only the blocks that can span
+# lines (reminders, private keys, data URIs) are resolved whole, in linear scans;
+# every other rule runs on a head and a tail excerpt of at most EXCERPT_CHARS.
 MAX_SCRUB_CHARS = SCRUB_MAX_CHARS
 EXCERPT_CHARS = MAX_SCRUB_CHARS // 2
-EXCERPT_LOOKBEHIND = 16 * 1024
 
 # --- the scrub list (C-23.14) -------------------------------------------------
 
@@ -357,10 +355,10 @@ def scrub_secrets(text: str, *, strip_reminders: bool = False, whole: bool = Fal
     count is of values replaced: one credential two rules match counts once, and
     a header that held several values (`Cookie: a=...; b=...`) counts each.
 
-    A text longer than MAX_SCRUB_CHARS is matched only as a head and a tail
-    excerpt with a marker between them (`scrub_bounded`). `whole` matches all of
-    it, for a text whose length its caller bounds: the assembled handoff brief,
-    whose section caps policy keeps within the same bound (C-23.36)."""
+    A text longer than MAX_SCRUB_CHARS keeps a scrubbed head and tail with a
+    marker between them (`scrub_bounded`). `whole` scrubs all of it, for a text
+    whose length its caller bounds: the assembled handoff brief, whose section
+    caps policy keeps within the same bound (C-23.36)."""
     if len(text) > MAX_SCRUB_CHARS and not whole:
         return scrub_bounded(text, None, strip_reminders=strip_reminders)
     return _scrub(text, strip_reminders)
@@ -371,151 +369,105 @@ def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False
     characters keeping the head and the tail (C-23.14, C-23.36, C-25.5); with
     `limit` None, not bounded further.
 
-    Within MAX_SCRUB_CHARS that is exactly what it does. A longer text is never
-    matched whole: its head (`_head_excerpt`) and its tail (`_tail_excerpt`) are
-    scrubbed on their own, within the same work, and joined by a marker giving
-    the characters left out. The excerpts are cut at line boundaries and give up
-    anything the cut could have separated from what made it a credential, so a
+    Within MAX_SCRUB_CHARS that is exactly what it does. A longer text first has
+    the blocks that can span lines resolved over all of it, exactly as the scrub
+    of the whole text resolves them (`_resolve_blocks`: linear scans). If it is
+    still too long, the other rules run only on its head and its tail, each the
+    whole lines within EXCERPT_CHARS, joined by a marker giving the characters
+    left out. Those rules match within a line, except that a key, header or
+    `Bearer` may name a value on a later line: the scrubbed tail therefore gives
+    up its first nonblank line, which may hold such a value named above it. A
     text whose first or last line is longer than an excerpt keeps nothing of it.
     """
+    original, count = len(text), 0
+    if original > MAX_SCRUB_CHARS:
+        tally = _Tally()
+        text, strip_reminders = _resolve_blocks(text, strip_reminders, tally), False
+        count = tally.total
     if len(text) <= MAX_SCRUB_CHARS:
-        scrubbed, count = _scrub(text, strip_reminders)
-        return (scrubbed if limit is None else truncate(scrubbed, limit)), count
-    head, head_count = _head_excerpt(text, strip_reminders)
-    tail, tail_count = _tail_excerpt(text, strip_reminders)
-    head, tail = head.strip(), tail.strip()
+        scrubbed, found = _scrub(text, strip_reminders)
+        return (scrubbed if limit is None else truncate(scrubbed, limit)), count + found
+    head = text[:EXCERPT_CHARS]
+    head, head_count = _scrub(head[:head.rfind("\n") + 1], False)
+    newline = text.find("\n", len(text) - EXCERPT_CHARS - 1)
+    tail, tail_count = _scrub(text[newline + 1:] if newline >= 0 else "", False)
+    tail = tail[_LEADING_VALUE_RE.match(tail).end():]
+    head, tail, count = head.strip(), tail.strip(), count + head_count + tail_count
     if limit is not None:
-        usable = limit - len(f"\n… [{len(text):,} characters omitted] …\n")   # the longest marker
+        usable = limit - len(f"\n… [{original:,} characters omitted] …\n")   # the longest marker
         if usable <= 0:
-            return (ELIDED[:limit] if limit < len(ELIDED) else ELIDED), head_count + tail_count
+            return (ELIDED[:limit] if limit < len(ELIDED) else ELIDED), count
         head = head[:int(usable * 0.6)].rstrip()
         room = usable - len(head)
         tail = tail[max(0, len(tail) - room):].lstrip() if room > 0 else ""
-    marker = f"\n… [{max(0, len(text) - len(head) - len(tail)):,} characters omitted] …\n"
-    return (head + marker + tail).strip(), head_count + tail_count
-
-
-def _unclosed(opening: re.Pattern, closing: re.Pattern, text: str) -> int:
-    """Where the first block `text` leaves open starts (`len(text)` if none): the
-    first opener after the last closer. Every opener before that closer has a
-    closer after it, so the block it opens ends within `text`."""
-    last = None
-    for last in closing.finditer(text):
-        pass
-    opener = opening.search(text, last.end() if last is not None else 0)
-    return opener.start() if opener is not None else len(text)
-
-
-def _head_excerpt(text: str, strip_reminders: bool) -> tuple[str, int]:
-    """The scrubbed head of a text over MAX_SCRUB_CHARS: its whole lines within
-    EXCERPT_CHARS. A line the cut would split is left out, so no value is cut
-    from its end; a reminder the cut leaves open is left out from its start, and
-    a private key from its armour line (a placeholder in its place)."""
-    head = text[:EXCERPT_CHARS]
-    head = head[:head.rfind("\n") + 1]
-    count = 0
-    if strip_reminders:
-        head = _linear_sub(_SYSTEM_REMINDER_RE, "", head)
-        head = head[:_unclosed(_REMINDER_START_RE, _REMINDER_END_RE, head)]
-    key = _unclosed(_PEM_START_RE, _PEM_END_RE, head)
-    if key < len(head):
-        head, count = head[:key] + "[PRIVATE KEY REDACTED]", 1
-    scrubbed, found = _scrub(head, False)     # its reminders are already gone
-    return scrubbed, count + found
+    marker = f"\n… [{max(0, original - len(head) - len(tail)):,} characters omitted] …\n"
+    return (head + marker + tail).strip(), count
 
 
 #: What begins a scrubbed tail excerpt that may be the value of a key, header or
 #: `Bearer` above the cut: blank lines, a `:` or `=`, and the rest of that line
 #: (`password =` / `  hunter2`, `Authorization:` / `  token`).
 _LEADING_VALUE_RE = re.compile(r"\s*(?:[:=]\s*)?[^\n]*\n?")
-#: A data URI whose encoded run reaches the end of the lookbehind, and that run.
-_OPEN_DATA_URI_RE = re.compile(r"(?i)data:[a-z0-9.+/-]+(?:;[a-z0-9=.+/-]+)*;base64,[A-Za-z0-9+/=\s]*\Z")
-_BASE64_RUN_RE = re.compile(r"[A-Za-z0-9+/=\s]*")
 
 
-def _open_block_end(opening: re.Pattern, closing: re.Pattern, behind: str, tail: str) -> int:
-    """Where a block open at the start of `tail` ends in it (0 if none is). The
-    lookbehind decides: its last delimiter an opener means open. With neither
-    delimiter in it, a closer in `tail` before any opener ends a block opened
-    earlier. With no closer in `tail`, nothing there was matched as a block."""
-    closer = closing.search(tail)
-    if closer is None:
-        return 0
-    last_open = last_close = -1
-    for match in opening.finditer(behind):
-        last_open = match.start()
-    for match in closing.finditer(behind):
-        last_close = match.start()
-    if last_open > last_close:
-        return closer.end()
-    if last_open < 0 and last_close < 0 and opening.search(tail, 0, closer.start()) is None:
-        return closer.end()
-    return 0
+class _Tally:
+    """The values the rules replace: one credential two rules match counts once,
+    and a header that held several values (`Cookie: a=...; b=...`) counts each."""
 
+    def __init__(self) -> None:
+        self.total = 0
 
-def _tail_excerpt(text: str, strip_reminders: bool) -> tuple[str, int]:
-    """The scrubbed tail of a text over MAX_SCRUB_CHARS: its whole lines within
-    the last EXCERPT_CHARS - EXCERPT_LOOKBEHIND. What a block open where it
-    starts would have removed goes first: a reminder or private key up to its
-    closer, a data URI's encoded run. Once scrubbed, it gives up its first
-    nonblank line (after a `:` or `=`): a value whose name is above the cut
-    (`password =` / `hunter2`) is nothing a scrub of the tail alone can see."""
-    start = len(text) - (EXCERPT_CHARS - EXCERPT_LOOKBEHIND)
-    newline = text.find("\n", start - 1)
-    if newline < 0:
-        return "", 0
-    start = newline + 1
-    behind, tail = text[max(0, start - EXCERPT_LOOKBEHIND):start], text[start:]
-    cut = count = 0
-    if strip_reminders:
-        cut = _open_block_end(_REMINDER_START_RE, _REMINDER_END_RE, behind, tail)
-    key = _open_block_end(_PEM_START_RE, _PEM_END_RE, behind, tail)
-    if key > cut:
-        cut, count = key, 1
-    if cut == 0 and _OPEN_DATA_URI_RE.search(behind):
-        cut = _BASE64_RUN_RE.match(tail).end()
-    scrubbed, found = _scrub(tail[cut:], strip_reminders)
-    return scrubbed[_LEADING_VALUE_RE.match(scrubbed).end():], count + found
-
-
-def _scrub(text: str, strip_reminders: bool) -> tuple[str, int]:
-    """`scrub_secrets` on a text within its work bound."""
-    if strip_reminders:
-        text = _linear_sub(_SYSTEM_REMINDER_RE, "", text)
-    total = 0
-
-    def replace_value(matched: str, out: str, *, header: bool = False) -> str:
-        nonlocal total
+    def __call__(self, matched: str, out: str, *, header: bool = False) -> str:
         if out == matched:
             return out
         # Count a credential matched by an earlier rule only once.
         earlier = any(mark in matched for mark in _PLACEHOLDERS)
         if header:
-            total += _values_removed(matched, out) or (0 if earlier else 1)
+            self.total += _values_removed(matched, out) or (0 if earlier else 1)
         else:
-            total += 1 if not earlier else min(1, _values_removed(matched, out))
+            self.total += 1 if not earlier else min(1, _values_removed(matched, out))
         return out
 
-    for pattern, replacement in (
-        (_PEM_RE, "[PRIVATE KEY REDACTED]"),
-        (_DATA_URI_RE, "[BASE64 DATA OMITTED]"),
+
+def _apply_rules(text: str, rules, tally: _Tally) -> str:
+    for pattern, replacement in rules:
+        def replace(match, replacement=replacement, pattern=pattern):
+            matched = match.group(0)
+            out = replacement(match) if callable(replacement) else match.expand(replacement)
+            return tally(matched, out, header=pattern is _HEADER_RE)
+
+        text = _linear_sub(pattern, replace, text)
+    return text
+
+
+def _resolve_blocks(text: str, strip_reminders: bool, tally: _Tally) -> str:
+    """The scrub's first rules, which can match across lines: reminders, private
+    keys, data URIs (wrapped base64). Each is a scan whose work is linear in the
+    text (`_linear_sub`; the data URI pattern has no nested repetition), so a text
+    of any length has them resolved whole, as `_scrub` resolves them. Applied
+    again to what they leave, they change nothing."""
+    if strip_reminders:
+        text = _linear_sub(_SYSTEM_REMINDER_RE, "", text)
+    return _apply_rules(text, ((_PEM_RE, "[PRIVATE KEY REDACTED]"),
+                               (_DATA_URI_RE, "[BASE64 DATA OMITTED]")), tally)
+
+
+def _scrub(text: str, strip_reminders: bool) -> tuple[str, int]:
+    """`scrub_secrets` on a text within its work bound."""
+    tally = _Tally()
+    text = _resolve_blocks(text, strip_reminders, tally)
+    text = _apply_rules(text, (
         (_JWT_RE, REDACTED),
         (_PREFIXED_TOKEN_RE, REDACTED),
         (_BEARER_RE, "Bearer " + REDACTED),
         (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
         (_HEADER_RE, lambda match: match.group(1) + REDACTED),
         (_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),
-    ):
-        def replace(match, replacement=replacement, pattern=pattern):
-            matched = match.group(0)
-            out = replacement(match) if callable(replacement) else match.expand(replacement)
-            return replace_value(matched, out, header=pattern is _HEADER_RE)
-
-        text = _linear_sub(pattern, replace, text)
-    text = _scrub_named_values(text, replace_value, quoted=True)
-    text = _scrub_named_values(text, replace_value)
-    text = _scrub_named_values(text, replace_value, flags=True)
-    return text, total
+    ), tally)
+    text = _scrub_named_values(text, tally, quoted=True)
+    text = _scrub_named_values(text, tally)
+    text = _scrub_named_values(text, tally, flags=True)
+    return text, tally.total
 
 
 #: What a section becomes when the budget left for it is smaller than the marker

@@ -41,6 +41,7 @@ puts the completion notice where the continued work lives.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import uuid
@@ -103,6 +104,7 @@ class Candidate:
     permission_mode: str | None = None
     model: str | None = None
     desktop_owned: bool | None = True       # None: unknown (C-23.35), refused as owned
+    unreadable_records: tuple[str, ...] = ()   # why ownership is unknown: what could not be read
     lane: bool = False
     conversation: bool = False
     retired: dict | None = None
@@ -113,6 +115,7 @@ class Candidate:
         return {"session_id": self.session_id, "transcript": self.transcript,
                 "cwd": self.cwd, "permission_mode": self.permission_mode,
                 "model": self.model, "desktop_owned": self.desktop_owned,
+                "unreadable_records": list(self.unreadable_records),
                 "lane": self.lane, "conversation": self.conversation,
                 "retired": self.retired,
                 "last_revive": self.last_revive,
@@ -161,17 +164,13 @@ def store_metadata(session_id: str) -> dict[str, Any]:
     desktop app owns, with or without a cwd.
 
     A record that could not be read (a symlink, a non-regular file, one over
-    1 MiB, unreadable or not JSON) may be this session's own, so when no
-    readable copy names the session, ownership is unknown (`desktop_owned`
-    None) rather than disowned, and revive refuses as for an owned session.
-    A store that cannot be listed is unknown the same way.
+    1 MiB, unreadable or not JSON) may be this session's own, and so may one in
+    a directory of the store that could not be listed. When no readable copy
+    names the session and any was skipped, ownership is unknown
+    (`desktop_owned` None, with what was skipped) rather than disowned, and
+    revive refuses as for an owned session.
     """
-    base = session_store_dir()
-    try:
-        paths = sorted(base.glob("*/*/local_*.json"))
-    except OSError:
-        return {"desktop_owned": None, "unreadable": [str(base)]}
-    unreadable: list[str] = []
+    paths, unreadable = _store_records(session_store_dir())
     owned: Path | None = None
     for path in paths:
         try:
@@ -197,6 +196,36 @@ def store_metadata(session_id: str) -> dict[str, Any]:
     return {}
 
 
+def _store_records(base: Path) -> tuple[list[Path], list[str]]:
+    """The store's `<account>/<org>/local_*.json` entries as `Path.glob` finds
+    them (hidden and symlinked directories included), sorted, and each directory
+    there that could not be listed: `glob` skips one silently."""
+    records: list[Path] = []
+    unlisted: list[str] = []
+
+    def entries(directory: str) -> list[os.DirEntry]:
+        try:
+            with os.scandir(directory) as found:
+                return list(found)
+        except FileNotFoundError:
+            return []                       # no store (no desktop app), or gone since listed
+        except OSError:
+            unlisted.append(directory)
+            return []
+
+    def is_dir(entry: os.DirEntry) -> bool:
+        try:
+            return entry.is_dir()
+        except OSError:
+            return False
+
+    for account in filter(is_dir, entries(str(base))):
+        for org in filter(is_dir, entries(account.path)):
+            records += [Path(entry.path) for entry in entries(org.path)
+                        if fnmatch.fnmatchcase(entry.name, "local_*.json")]
+    return sorted(records), unlisted
+
+
 def inspect(session_id: str, *, lane_ids: set[str], facts: dict[str, Any],
             transcript: str | Path | None = None,
             now: datetime | None = None,
@@ -219,6 +248,7 @@ def inspect(session_id: str, *, lane_ids: set[str], facts: dict[str, Any],
         # one it does not know (a tmux CLI session, a lane) is not. None: a
         # record that could not be read may be its own (C-23.35).
         desktop_owned=meta.get("desktop_owned", False),
+        unreadable_records=tuple(meta.get("unreadable", ())),
         lane=registry.is_lane_run(session_id, lane_ids=lane_ids, transcript=path),
         # Review L1: either side may spell a UUID in either case.
         conversation=registry.is_conversation_session(session_id, conversation_ids),
@@ -283,9 +313,12 @@ def admits(candidate: Candidate, *, policy: dict[str, Any], opt_in: bool,
         # cannot exclude the desktop app, so the default recovery is a handoff.
         # Unknown ownership (an unreadable desktop record) is refused alike.
         if candidate.desktop_owned is None:
+            skipped = candidate.unreadable_records
+            which = (f": {skipped[0]}" + (f" and {len(skipped) - 1} more" if len(skipped) > 1 else "")
+                     if skipped else "")
             return False, ("the desktop app may own this session (a desktop session "
-                           "record could not be read); automatic headless revival "
-                           "is off (sessions.auto_revive_desktop_owned)"), OPT_IN_FIX
+                           f"record could not be read{which}); automatic headless "
+                           "revival is off (sessions.auto_revive_desktop_owned)"), OPT_IN_FIX
         return False, ("the desktop app owns this session; automatic headless "
                        "revival is off (sessions.auto_revive_desktop_owned)"), OPT_IN_FIX
     return True, f"interrupted: {candidate.state.detail}", None

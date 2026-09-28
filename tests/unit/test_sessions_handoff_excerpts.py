@@ -6,7 +6,9 @@ with one marker: a long answer or thinking block vanished from the timeline, a
 brief over the cap was dispatched as the marker alone, and any tool input over it
 was shown as a credential read. These tests hold the replacement to what a scrub of
 the whole text would remove (a differential property against it), to its limit, to
-its work bound, and to the old behavior within the budget.
+its work bound, and to the old behavior within the budget. The blocks that span
+lines are resolved over the whole text, since a key or reminder longer than any
+lookbehind had shown through a first design's tail (review of the fix, F1, F2).
 
 `Zq…` strings are made-up values shaped like secrets; none is, or was, a credential.
 """
@@ -29,7 +31,7 @@ from subfleet.sessions import handoff
 
 BUDGET = handoff.MAX_SCRUB_CHARS
 HEAD = handoff.EXCERPT_CHARS
-TAIL = handoff.EXCERPT_CHARS - handoff.EXCERPT_LOOKBEHIND
+TAIL = handoff.EXCERPT_CHARS
 PROSE = "ordinary words in a line of prose, with nothing in it worth hiding\n"
 
 
@@ -154,6 +156,53 @@ def test_a_data_uri_across_the_tail_cut_is_omitted():
     assert "Zq" not in handoff.scrub_bounded(text, None)[0]
 
 
+def reviewed_case(before: str, tail: str) -> str:
+    """`before` ends where the tail excerpt starts, and `tail` is all of it."""
+    tail += "y\n" * ((TAIL - len(tail)) // 2)
+    return "x\n" * 80_000 + before + tail + "\n" * (TAIL - len(tail))
+
+
+#: Each block's body runs on over 16 KiB into the tail, past where the first
+#: design's tail began (16,384 characters later), with its lookbehind inside it.
+@pytest.mark.parametrize("before,tail,strip,shown", [
+    ("<system-reminder>\n" + "r\n" * 9_000,
+     "r\n" * 8_200 + "first\nZq1 <system-reminder> quoted\n</system-reminder>\n", True, "Zq1"),
+    ("-----BEGIN PRIVATE KEY-----\nk1\n",
+     "k\n" * 8_180 + "<system-reminder>-----END PRIVATE KEY-----</system-reminder>\n"
+     + "k2\nZq2\n-----END PRIVATE KEY-----\n", True, "Zq2"),
+    ("-----BEGIN PRIVATE KEY-----\n" + "QUJD\n" * 4_000,
+     "QUJD\n" * 3_300 + "k2\nZq3\n-----BEGIN PRIVATE KEY-----\ni\n-----END PRIVATE KEY-----\n", False, "Zq3"),
+    ("data:image/png;base64,\n" + ("QUJD" * 19 + "\n") * 300,
+     ("QUJD" * 19 + "\n") * 216 + "Zq4xQUJDQUJD\n", False, "Zq4xQUJDQUJD"),
+], ids=["reminder-quoting-its-opener", "key-end-inside-a-reminder", "long-key-nested-begin", "wrapped-data-uri"])
+def test_a_block_longer_than_any_lookbehind_is_resolved_whole(before, tail, strip, shown):
+    """C-23.14, C-25.5 (review of the first design, F1 and F2): a reminder, private
+    key or wrapped data URI that starts over 16 KiB above the tail was judged from a
+    lookbehind that could not see its start, and its body showed in the tail. The
+    blocks are now resolved over the whole text, as its whole scrub resolves them."""
+    text = reviewed_case(before, tail)
+    assert len(text) > BUDGET
+    assert shown not in handoff.scrub_secrets(text, strip_reminders=strip, whole=True)[0]
+    assert shown not in handoff.scrub_bounded(text, None, strip_reminders=strip)[0]
+
+
+def test_a_data_uri_the_head_cut_leaves_short_is_omitted():
+    """C-23.14 (review of the first design, F2): fewer than 32 encoded characters
+    before the head's cut had not matched the data URI rule and showed."""
+    shape = "\nsee data:image/png;base64,\nZq5xSEADONLY\n"
+    text = prose(HEAD - len(shape)) + shape + ("QUJD" * 19 + "\n") * 50 + "! done\n" + prose(200_000)
+    assert "Zq5xSEADONLY" not in handoff.scrub_secrets(text, whole=True)[0]
+    assert "Zq5xSEADONLY" not in handoff.scrub_bounded(text, None)[0]
+
+
+def test_blocks_that_shrink_a_text_within_the_budget_leave_it_whole():
+    """C-23.14: a long data URI or key resolved first can bring a text within the
+    budget; it is then scrubbed and bounded whole, with nothing cut."""
+    text = "start\n" + "data:image/png;base64," + "QUJD" * 100_000 + "\nend api_key = Zq6secret99\n"
+    assert handoff.scrub_bounded(text, None) == handoff.scrub_secrets(text, whole=True)
+    assert "start\n[BASE64 DATA OMITTED]" in handoff.scrub_bounded(text, None)[0]
+
+
 # --- the differential property: never more than a whole scrub shows ---------------------
 
 SHAPES = [
@@ -169,19 +218,24 @@ SHAPES = [
     "-----END PRIVATE KEY-----\n{s}\n", "</system-reminder>\n{s}\n",       # stray closers
     "-----BEGIN PRIVATE KEY-----\n{s}\n", "<system-reminder>\n{s}\n",     # stray openers
     "sk-ant-{s}AAAAAAAAAAAA\n", "{s}\n",
+    "<system-reminder>\n{s} <system-reminder> quoted\n</system-reminder>\n",          # quotes its opener
+    "-----BEGIN PRIVATE KEY-----\nk\n<system-reminder>-----END PRIVATE KEY-----</system-reminder>\n{s}\n",
+    "data:image/png;base64,\n" + ("QUJD" * 19 + "\n") * 3,                              # a run the filler may go on
+    "<system-reminder>\n" + "body\n" * 5_000 + "{s}\n",                                   # long and still open
+    "-----BEGIN PRIVATE KEY-----\n" + "QUJD\n" * 5_000 + "{s}\n",
 ]
 
 
 @st.composite
 def long_texts(draw):
     """A text over the budget with shapes placed across the head's end, across the
-    tail's start, and inside the tail's lookbehind."""
+    tail's start, and up to 24,000 characters before it, so that an opener there
+    and a closer in the tail make one block longer than a lookbehind would see."""
     total = draw(st.integers(BUDGET + 1, BUDGET + 120_000))
     line = draw(st.sampled_from([PROSE, "x = 1\n", "a line with a colon: in it\n",
                                  "    indented code(); # comment\n", "\n"]))
     placed = []
-    for n, (anchor, spread) in enumerate([(HEAD, 400), (total - TAIL, 400),
-                                          (total - TAIL - handoff.EXCERPT_LOOKBEHIND // 2, 8_000)]):
+    for n, (anchor, spread) in enumerate([(HEAD, 400), (total - TAIL, 400), (total - TAIL - 24_000, 24_000)]):
         shape = draw(st.sampled_from(SHAPES)).replace("{s}", f"Zq{n}x{draw(st.integers(10**5, 10**6))}")
         placed.append((anchor + draw(st.integers(-spread - len(shape), spread)), shape))
     text, cursor = [], 0
@@ -193,7 +247,7 @@ def long_texts(draw):
     return "".join(text)
 
 
-@hypothesis.settings(max_examples=60, deadline=None,
+@hypothesis.settings(max_examples=80, deadline=None,
                      suppress_health_check=[hypothesis.HealthCheck.too_slow, hypothesis.HealthCheck.data_too_large])
 @hypothesis.given(text=long_texts(), strip=st.booleans(), limit=st.sampled_from([None, 0, 5, 40, 2_048, 60_000]))
 def test_an_excerpt_never_shows_a_value_the_whole_scrub_removes(text, strip, limit):
