@@ -96,23 +96,41 @@ def test_every_claim_settles_exactly_once_and_delivery_never_requeues(entries, r
 
 
 @settings(max_examples=50, deadline=None)
-@given(missed=st.lists(st.booleans(), min_size=1, max_size=10))
-def test_missed_steers_keep_their_original_sequence_ahead_of_later_messages(missed):
-    """Invariant 2: settling any mix of consumed/missed messages preserves FIFO."""
+@given(kinds=st.lists(st.sampled_from(["later", "missed", "steered"]), min_size=1, max_size=10),
+       repair=st.booleans())
+def test_missed_steers_keep_their_sequence_and_run_next(kinds, repair):
+    """Invariant 2 (DESIGN.md sections 5, 8 and 9): a missed steer returns with its
+    original seq and runs next: behind a repair message only, ahead of every message
+    queued for later (sent before or after it), and in sequence among missed steers.
+    A delivered steer never runs again."""
+    import uuid
     with world() as w:
-        mids = children(w, len(missed))
-        later = submit(w.service, w.cid, "last", after=mids[-1])
-        seqs = {mid: w.service.store.message(mid)["seq"] for mid in [*mids, later]}
-        evidence = {mid: {"frame": "written", "fate": "refused" if miss else "consumed"}
-                    for mid, miss in zip(mids, missed)}
+        previous, mids = w.host, []
+        for kind in kinds:
+            mid = submit(w.service, w.cid, kind, after=previous)
+            if kind != "later":
+                w.service.store.claim_steer(mid, w.host)
+            mids.append((mid, kind))
+            previous = mid
+        seqs = {mid: w.service.store.message(mid)["seq"] for mid, _ in mids}
+        evidence = {mid: {"frame": "written", "fate": "refused" if kind == "missed" else "consumed"}
+                    for mid, kind in mids if kind != "later"}
         w.service._settle_steers(settlement_runner(w), {"steers": evidence}, {})
+        expected = [m for m, k in mids if k == "missed"] + [m for m, k in mids if k == "later"]
+        if repair:
+            note = str(uuid.uuid4())
+            w.service.store.submit_message(conversation_id=w.cid, message_id=note, after_message_id=previous,
+                                           text="note", attachments=[], settings=w.service.store.message(w.host)[
+                                               "settings"], origin="unblock-note")
+            expected.insert(0, note)
         assert w.service.store.next_dispatchable(w.cid) == []  # host still live
         w.service.store.set_state(w.host, "complete")
-        ordered = [mid for mid, miss in zip(mids, missed) if miss] + [later]
-        for mid in ordered:
-            assert [r["message_id"] for r in w.service.store.next_dispatchable(w.cid)] == [mid]
-            assert w.service.store.message(mid)["seq"] == seqs[mid]
-            w.service.store.set_state(mid, "complete")
+        order = []
+        while nxt := w.service.store.next_dispatchable(w.cid):
+            order.append(nxt[0]["message_id"])
+            w.service.store.set_state(order[-1], "complete")
+        assert order == expected
+        assert {mid: w.service.store.message(mid)["seq"] for mid, _ in mids} == seqs
 
 
 class JournalRelay:

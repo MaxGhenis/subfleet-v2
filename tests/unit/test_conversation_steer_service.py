@@ -96,9 +96,13 @@ def test_claim_refusals_leave_message_unchanged(svc, live, change, reason):
     elif change == "not-queued":
         svc.store.set_state(mid, "cancelled")
     else:
-        with svc.store.transaction() as tx:
-            tx.execute("UPDATE messages SET settings_json=json_set(settings_json,'$.permission','read-only') "
-                       "WHERE message_id=?", (mid,))
+        # Submitted narrower than the host: its accepted digest covers its settings.
+        import uuid
+        narrow = str(uuid.uuid4())
+        svc.store.submit_message(conversation_id=svc.store.message(mid)["conversation_id"], message_id=narrow,
+                                 after_message_id=mid, text="read only, please", attachments=[],
+                                 settings={**svc.store.message(mid)["settings"], "permission": "read-only"})
+        mid = narrow
     before = svc.store.message(mid)
     with pytest.raises(ConversationError) as exc:
         steer(svc, mid)
@@ -325,3 +329,74 @@ def test_settlement_reads_its_evidence_outside_the_service_lock_and_holds_it_ove
     assert seen == {"gather": True, "snapshot": False}
     assert svc.store.message(mid)["state"] == "steered"
     assert svc.store.message(host)["state"] == "interrupted"
+
+
+def dispatch_order(svc, cid, host) -> list[str]:
+    """What the dispatcher runs after the host settles, one turn at a time."""
+    svc.store.set_state(host, "complete")
+    order = []
+    while nxt := svc.store.next_dispatchable(cid):
+        order.append(nxt[0]["message_id"])
+        svc.store.set_state(nxt[0]["message_id"], "complete")
+    return order
+
+
+@pytest.mark.parametrize("repair", [False, True])
+def test_a_missed_steer_runs_next_ahead_of_messages_queued_for_later(svc, live, repair):
+    """Steer review finding 5, DESIGN.md sections 8 and 9: a steer that missed its turn
+    ("Unread until the current turn ends.") runs next, ahead of a message the person
+    queued for later, keeping its own sequence; only a repair message goes first."""
+    import uuid
+    cid, host, later_first, runner = live            # queued for later (⌘Return), before the steers
+    first = submit(svc, cid, "steer one", after=later_first)
+    steer(svc, first)
+    later_second = submit(svc, cid, "queued for later too", after=first)
+    second = submit(svc, cid, "steer two", after=later_second)
+    steer(svc, second)
+    seqs = {m: svc.store.message(m)["seq"] for m in (first, second)}
+    svc._settle_steers(runner, {"steers": {m: {"frame": "written", "fate": "cancelled",
+                                               "detail": "interrupt-cancelled"} for m in (first, second)}}, {})
+    assert {m: svc.store.message(m)["seq"] for m in (first, second)} == seqs
+    expected = [first, second, later_first, later_second]
+    if repair:
+        note = str(uuid.uuid4())
+        svc.store.submit_message(conversation_id=cid, message_id=note, after_message_id=second, text="note",
+                                 attachments=[], settings=svc.store.message(first)["settings"], origin="unblock-note")
+        expected.insert(0, note)
+    assert dispatch_order(svc, cid, host) == expected
+
+
+def test_a_steer_for_a_turn_that_has_ended_is_refused_instead_of_joining_the_next(svc, live):
+    """Steer review finding 17: a steer sent late (a retry, a resend after the app
+    restarted) names the host it was meant for; once another turn is the live one it
+    is refused `no-live-turn` and the message stays queued."""
+    import uuid
+    cid, host, mid, _ = live
+    svc.store.set_state(host, "complete")
+    svc.runners.clear()
+    next_host = submit(svc, cid, "queued for later", after=mid)
+    svc.store.set_state(next_host, "running")
+    svc.runners["next/a1"] = Runner(next_host, cid)
+    before = svc.store.message(mid)
+    for into in (host, str(uuid.uuid4())):
+        with pytest.raises(ConversationError) as exc:
+            svc.handle("message.steer", {"message_id": mid, "into": into}, None)
+        assert exc.value.reason == "no-live-turn" and svc.store.message(mid) == before
+    with pytest.raises(ConversationError) as exc:
+        svc.handle("message.steer", {"message_id": mid, "into": host.upper()}, None)
+    assert exc.value.reason == "bad-message-id"
+    assert svc.handle("message.steer", {"message_id": mid, "into": next_host}, None)["steered_into"] == next_host
+
+
+@pytest.mark.parametrize("text", ["/compact", "  /model opus", "!ls", "\n\t!git status", "　/review"])
+def test_slash_commands_and_shell_input_are_never_steered(svc, live, text):
+    """DESIGN.md section 9: `/` commands and `!` shell input wait for the turn to end.
+    The daemon refuses them too, whatever client asks."""
+    cid, host, mid, runner = live
+    command = submit(svc, cid, text, after=mid)
+    before = svc.store.message(command)
+    with pytest.raises(ConversationError) as exc:
+        steer(svc, command)
+    assert exc.value.reason == "not-steerable" and svc.store.message(command) == before
+    assert runner.commands == []
+    assert steer(svc, mid)["state"] == "steering"     # an ordinary message steers

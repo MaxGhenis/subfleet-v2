@@ -47,7 +47,7 @@ from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for cal
 from .runner import Clocks, TurnRunner
 from .store import (
     LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native, canonical_uuid,
-    validate_settings, widens, steered_into,
+    steerable_text, steered_into, validate_settings, widens,
     utcnow,
 )
 from .turn import (
@@ -675,20 +675,38 @@ class ConversationService:
             return self._cancel(args)
 
     def op_message_steer(self, args, peer) -> dict:
-        """Claim a queued message durably, then let the runner deliver it (C-24.9)."""
+        """Claim a queued message durably, then let the runner deliver it (C-24.9).
+
+        `into`, when given, is the host the person steered into (the turn the app
+        showed running): a steer that arrives after that turn ended (a retry, a
+        resend after the app restarted) is refused rather than joining another."""
         self._person(peer, "steering a running turn")
         mid = canonical_uuid(args["message_id"])
         if args["message_id"] != mid:
             raise ConversationError("bad-message-id", "message_id must be a canonical lowercase UUID")
+        into = args.get("into")
+        if into is not None and (not isinstance(into, str) or canonical_uuid(into) != into):
+            raise ConversationError("bad-message-id", "into must be a canonical lowercase UUID")
         with self._stop_lock(mid), self._handover(mid), self._lock:
             message = self.store.message(mid)
             if message["state"] in (STEERING, STEERED):
                 return self._receipt(message)
             if message["state"] != QUEUED or message["origin"] != "person":
                 raise ConversationError("not-queued", "only a person's queued message can steer", code=7)
+            try:
+                steerable = steerable_text(self.store.message_text(message))
+            except OSError:
+                steerable = False       # a text that cannot be read cannot be delivered either
+            if not steerable:
+                # C-24.9, DESIGN.md section 9: a `/` command or `!` shell input waits
+                # for the turn to end, as in Claude Code; the app never offers it.
+                raise ConversationError("not-steerable", "a slash command or shell input waits for the turn to end",
+                                        code=7)
             host = self.store.one("SELECT message_id FROM messages WHERE conversation_id=? "
                                   "AND state IN ('running','approval-needed') ORDER BY seq DESC LIMIT 1",
                                   (message["conversation_id"],))
+            if into is not None and (host is None or host["message_id"] != into):
+                raise ConversationError("no-live-turn", "the turn it was steered into has ended", code=7)
             runner = self._runner_for_message(host["message_id"]) if host else None
             if runner is None:
                 raise ConversationError("no-live-turn", "the conversation has no live turn with a runner", code=7)
