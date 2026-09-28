@@ -1,4 +1,4 @@
-# Uncap admission and place by priority (plan, 2026-09-27, revision 4)
+# Uncap admission and place by priority (plan, 2026-09-27, revision 5)
 
 Max's ruling, 2026-09-27, in chat: "we should uncap everything and instead use
 prioritization." On the desktop account, excluding it "makes sense if we're using
@@ -175,14 +175,19 @@ read too.** The read costs no model turn and takes no slot. Its holder
 (`probe:timer:usage:<uuid>`) holds no lease, and it spends no heal turn
 (C-23.47). A heal waits for an idle lane, and on a busy one the running attempts
 renew the token themselves; so a busy lane's `expired-token` is not published at
-all (publishing it would latch a working lane until it drained). If the read finds
-the credential dead (`auth-dead`, `revoked`, `auth-revoked`, `no-auth`), it takes
-a fence of its own, `lane:<id>:slot:fence`, until the cycle publishes the verdict
-(C-23.44). The fence is never contended: an admission probe may hold `slot:0`.
-Admission reads any `probe:` lease on a lane as a slot block, so it cannot place
-work there in between, and no job waits for the fence. The cycle releases every
-holder it took, whatever raised. A keepalive, which spends a turn, still waits for
-an idle lane.
+all (publishing it would latch a working lane until it drained). Every other
+result of a busy lane's read is published **the moment it is read**, from the
+probe worker, not with the rest of the cycle (C-23.44). A verdict that takes the
+lane out (`auth-dead` or an identity mismatch disables it; `revoked`,
+`auth-revoked` or `no-auth` latches it) therefore reaches admission without
+waiting on other lanes' reads, and no fence is needed. Revision 4's fence could
+be lost to a publication error, did not cover an identity mismatch, and was
+bypassed by an admission probe's reservation. A failed publication leaves the
+lane as it stood before the read, which is where every busy lane stood before
+busy lanes were read. The admission-probe reservation also refuses a lane whose
+credential latched after its evaluation. The cycle releases every holder it
+took, whatever raised. A keepalive, which spends a turn, still waits for an idle
+lane.
 
 `max_attempts` counts every attempt, as before, `limited` ones included.
 Revision 3 stopped counting limits. Review showed that a job limited on every
@@ -338,7 +343,8 @@ with fake providers.
    `route_check.still_stands` equals an evaluation now (the C-6.3 suite), with
    the desktop signal flipping between the two.
 10. **Limits and readings.** A job limited on every lane still fails at once with
-    rc 4. A busy lane gets a usage
+    rc 4. A busy lane's blocking verdict is published while another lane's read
+    is still running. A busy lane gets a usage
     reading with no lease. A dead verdict on a busy lane fences it until
     published, and a keepalive still waits for an idle lane.
 
@@ -370,6 +376,15 @@ with fake providers.
   only decides when that lane is excluded.
 - It adds no knob for per-job priority. A terminal `subfleet run` outside a Claude
   Code session is `background` unless its parent is live.
+
+## Changes since revision 4 (Astra round 2; Opus re-review, which approved)
+
+- A busy lane's read is published when it is read; the fence is gone. This
+  answers Astra findings 1 and 2 and Opus P3 1.
+- The admission-probe reservation refuses a lane whose credential latched after
+  the evaluation (Astra finding 3).
+- The desktop answer is refreshed before the probe directory exists (Opus P3 3),
+  and a registry file named by a non-ASCII digit names no pid (Opus P3 2).
 
 ## Changes since revision 3 (Astra round 2 on revision 3; Opus review of PR #72)
 
