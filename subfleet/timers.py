@@ -33,9 +33,6 @@ def iso(value):
     return instant(value).astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
 
-
-
-
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
                  deliver=None, now=None):
@@ -55,6 +52,9 @@ class Timers:
         # desktop session store and an 8.5-minute one was observed on 2026-08-18
         # during app churn; sharing the two-slot cycle pool would let it hold a
         # probe or a keepalive behind it for minutes (C-23.28).
+        # Both mirror timers stay serial. While the full timer owns this
+        # worker, Mirror checkpoints service due flag-only hot passes under
+        # its flock; another worker would just lose that lock and skip.
         self._mirror = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-mirror')
         self._session_mirror = None
         self._lanes = ThreadPoolExecutor(max_workers=min(4, policy.get('caps', {}).get('keepalive_workers', 4)),
@@ -226,7 +226,7 @@ class Timers:
         self._mirror_engine().run_once(options_from(self.policy))
 
     def mirror_hot_cycle(self):
-        """One hot sidebar pass (C-23.28): spread new sessions within seconds.
+        """One hot sidebar pass (C-23.28): spread sessions and sync changed flags.
 
         Returns whether it changed anything, which is what decides whether this
         run is worth a `timer.run` event.
@@ -332,33 +332,20 @@ class Timers:
             self._app_account = None
 
     def _reserve(self, lane, purpose):
-        """A timer's hold on a lane, or None when it may not run there now.
-
-        An idle lane is reserved (`slot:0`), so nothing starts beside a
-        keepalive or a probe that may spend a turn. A busy lane is not, and a
-        keepalive skips it, but a usage probe still reads it (C-18.1,
-        2026-09-27): with no per-lane cap (C-6.4) a lane is seldom idle, and a
-        lane never read keeps no fresh reading for the floor and the ranking
-        (C-11.3). That read costs no model turn and takes no slot: its holder
-        (`probe:timer:usage:`) holds no lease, `_read_lane` spends no heal turn
-        under it, and `_probe_lane` publishes it the moment it is read."""
         holder = 'probe:timer:' + str(uuid4())
         with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
             current = self.store.get_lane(lane.lane_id)
             if not current or not current.enabled or current.owner != 'v2' or current.desktop:
                 return None
+            if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,)):
+                return None
+            if self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',)):
+                return None
             if self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason IN ('auth-dead','operator-hold') AND released_at IS NULL AND until_at>?", (lane.lane_id, iso(self.now()))):
                 return None
-            busy = (self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,))
-                    or self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',)))
-            if busy and purpose != 'probe':
-                return None
-            if busy:
-                holder = 'probe:timer:usage:' + str(uuid4())
-            else:
-                self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
+            self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
             self.store.add_event('timer.reservation', lane_id=lane.lane_id,
-                                 data={'holder': holder, 'purpose': purpose if not busy else 'usage'})
+                                 data={'holder': holder, 'purpose': purpose})
         with self._lock:
             self.active_holders.add(holder)
         return holder
@@ -407,30 +394,6 @@ class Timers:
         return values[0]
 
     def _probe_lane(self, lane):
-        """One lane's probe for the cycle: (lane, result) to publish with the cycle,
-        or None.
-
-        A read beside running attempts (C-18.1) is published here, the moment it is
-        read, not with the cycle (2026-09-28): it holds no slot, so a verdict that
-        takes the lane out (auth-dead, an identity mismatch) must not wait for
-        other lanes' reads while admission can still place work there (review of
-        PR #72: a fence held until the cycle published could be lost to a
-        contended key, a publication error, or an admission probe). A publication
-        that fails leaves the lane as it was before the read, which is where a
-        busy lane stood before busy lanes were read. Its `expired-token` is not
-        published at all: the running attempts renew the token.
-        """
-        found = self._read_lane(lane)
-        if found is None:
-            return None
-        lane, probe, shared = found
-        if not shared:
-            return lane, probe
-        if probe.get('status') != 'expired-token':
-            self._persist(lane, probe)
-        return None
-
-    def _read_lane(self, lane):
         if self.cancel.is_set() or lane.lane_id in self._io_busy:
             return None
         previous = self.metadata.get(lane.lane_id, {})
@@ -447,8 +410,6 @@ class Timers:
         if not holder:
             return None
         quarantined = False
-        # C-18.1: a read beside running attempts, which holds no slot (`_reserve`).
-        shared = holder.startswith('probe:timer:usage:')
         try:
             if lane.provider == 'codex':
                 adapter = self.adapter_factory('codex')
@@ -456,7 +417,7 @@ class Timers:
                     adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
                 env = resolve_credential(lane.credential)
                 probe = self._read_probe(adapter, lane, env)
-                if probe.get('status') == 'expired-token' and not shared:
+                if probe.get('status') == 'expired-token':
                     heals = self._latest('timer.heal')
                     prior = heals.get(lane.lane_id, {})
                     if prior.get('epoch') != epoch and (not prior.get('at') or (self.now() - instant(prior['at'])).total_seconds() >= 1200):
@@ -478,8 +439,7 @@ class Timers:
                 env = resolve_credential(lane.credential)
                 self._pace_usage()
                 probe = self._read_probe(adapter, lane, env)
-                if (probe.get('status') == 'expired-token' and lane.credential.kind == 'home'
-                        and not shared):
+                if probe.get('status') == 'expired-token' and lane.credential.kind == 'home':
                     # C-23.47 for Claude homes: the CLI refreshes its own keychain
                     # login when it runs, so one minimal turn under this home heals
                     # it; at most one such turn per 20 minutes per credential epoch.
@@ -494,11 +454,11 @@ class Timers:
                             probe = self._read_probe(adapter, lane, env)
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
-            return lane, {**probe, 'probed_at': iso(self.now())}, shared
+            return lane, {**probe, 'probed_at': iso(self.now())}
         except (TimeoutError, OSError) as exc:
-            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, shared
+            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
         except Exception as exc:
-            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, shared
+            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
         finally:
             self._probe_holders[lane.lane_id] = (holder, quarantined)
 
@@ -654,9 +614,9 @@ class Timers:
         futures = [self._lanes.submit(self._probe_lane, lane) for lane in self.store.list_lanes()
                    if lane.enabled and lane.owner == 'v2']
         # Every holder this cycle took is released, whatever raised: one lane's
-        # failure must not leave another lane's `slot:0` or fence held until a
-        # restart (review of PR #72). All homes heal before any cycle reading or
-        # verdict is published.
+        # failure must not leave another lane's `slot:0` held until a restart
+        # (review of PR #72). All homes heal before any cycle reading or verdict
+        # is published.
         results, failure = [], None
         try:
             for future in as_completed(futures):

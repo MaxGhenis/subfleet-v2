@@ -1,4 +1,4 @@
-# Uncap admission and place by priority (plan, 2026-09-27, revision 5)
+# Uncap admission and place by priority (plan, 2026-09-27, revision 6)
 
 Max's ruling, 2026-09-27, in chat: "we should uncap everything and instead use
 prioritization." On the desktop account, excluding it "makes sense if we're using
@@ -6,8 +6,8 @@ sf thru the cc app but not if thru the sf app". On 2026-09-28, relayed verbatim 
 the release owner: "remove *all* caps", after "nothing should be queued wdym, we
 lifted the caps".
 
-This plan amends the acceptance contract (C-4.5, C-6.4, C-6.5, C-6.9, C-6.11,
-C-10.3, C-11.2, C-11.3, C-18.1, C-26.9) and adds C-6.13. It builds on PR #59
+This plan amends the acceptance contract (C-6.4, C-6.5, C-6.9, C-6.11, C-10.3,
+C-11.2, C-11.3, C-11.4, C-18.1, C-26.9) and adds C-6.13. It builds on PR #59
 (`feat/uncapped-turns`, final head 246230a8). PR #59 makes the two turn caps null
 by default, stops turns waiting behind turns when uncapped, and keeps FIFO on a
 lease for turns. It targets `release/217`, the line the installed daemon runs
@@ -15,9 +15,8 @@ lease for turns. It targets `release/217`, the line the installed daemon runs
 PR #59 exist only on that line.
 
 Revision 2 answers the Astra plan gate's round 1 (changes requested, six
-findings; see "Changes since revision 1" at the end). It also fixes two things
-found while doing so: busy lanes never got a usage reading, and the
-admission-probe reservation still refused the desktop lane however idle it was.
+findings; see "Changes since revision 1" at the end). Later revisions answer
+later rounds and the reviews of PR #72; each has its own "Changes since" section.
 
 ## What was measured
 
@@ -168,26 +167,26 @@ no candidate for that scope until the reset, and the job's next attempt goes to
 the next candidate in the same priority order (C-4.5). The job also keeps its
 existing exclusion of every lane it was limited on.
 
-The floor only works on a fresh reading. The periodic usage read (C-9.9's
-`oauth/usage` for Claude, the usage endpoint for Codex) waited for an idle lane
-(C-18.1), and without caps a lane is seldom idle. **C-18.1 changes: a busy lane is
-read too.** The read costs no model turn and takes no slot. Its holder
-(`probe:timer:usage:<uuid>`) holds no lease, and it spends no heal turn
-(C-23.47). A heal waits for an idle lane, and on a busy one the running attempts
-renew the token themselves; so a busy lane's `expired-token` is not published at
-all (publishing it would latch a working lane until it drained). Every other
-result of a busy lane's read is published **the moment it is read**, from the
-probe worker, not with the rest of the cycle (C-23.44). A verdict that takes the
-lane out (`auth-dead` or an identity mismatch disables it; `revoked`,
-`auth-revoked` or `no-auth` latches it) therefore reaches admission without
-waiting on other lanes' reads, and no fence is needed. Revision 4's fence could
-be lost to a publication error, did not cover an identity mismatch, and was
-bypassed by an admission probe's reservation. A failed publication leaves the
-lane as it stood before the read, which is where every busy lane stood before
-busy lanes were read. The admission-probe reservation also refuses a lane whose
-credential latched after its evaluation. The cycle releases every holder it
-took, whatever raised. A keepalive, which spends a turn, still waits for an idle
-lane.
+The floor only works on a fresh reading, and the periodic usage read (C-9.9)
+waits for an idle lane (C-18.1, unchanged). Without caps a lane is seldom idle, so
+a busy lane's readings go stale (at 02:45Z on 2026-09-28 every lane with an
+attempt in flight read stale and every idle one fresh). A stale lane is
+unmeasured: it ranks after measured lanes within its load band (A2), which spreads
+new work toward idle, measured lanes, and it is bounded by its provider's own
+limit (a closure) rather than by the floor. Revisions 2 to 5 read busy lanes
+beside their attempts. Each gate round found another way a blocking verdict from
+such a read could miss admission: a contended fence, a publication error, an
+identity mismatch, an admission probe, and the gap between the verdict's commit
+and the metadata admission reads. Revision 6 leaves C-18.1 as it was. Reading busy
+lanes safely needs its own design (a lease held through the read and the
+publication, released only once published) and is a follow-up
+(MaxGhenis/subfleet-v2#73).
+
+Two changes that stand alone stay. A probe cycle releases every timer hold it
+took, whatever raised: a lane whose probe raised left every other lane's
+`slot:0` held until a restart. And the admission-probe reservation re-checks,
+inside its transaction, that no timer found the lane's credential revoked or
+unusable since its evaluation (C-11.4, C-23.44).
 
 `max_attempts` counts every attempt, as before, `limited` ones included.
 Revision 3 stopped counting limits. Review showed that a job limited on every
@@ -342,11 +341,9 @@ with fake providers.
    parent caps. The reference implements each of those in its own words.
    `route_check.still_stands` equals an evaluation now (the C-6.3 suite), with
    the desktop signal flipping between the two.
-10. **Limits and readings.** A job limited on every lane still fails at once with
-    rc 4. A busy lane's blocking verdict is published while another lane's read
-    is still running. A busy lane gets a usage
-    reading with no lease. A dead verdict on a busy lane fences it until
-    published, and a keepalive still waits for an idle lane.
+10. **Limits and probes.** A job limited on every lane still fails at once with
+    rc 4. A probe cycle whose one lane raised leaves no hold behind. An admission
+    probe never starts on a credential latched since its evaluation.
 
 ## Rollout
 
@@ -363,7 +360,7 @@ with fake providers.
    2.1.8's loader refuses null caps (checked).
 4. Measure after, as before: `subfleet status`, `daemon.status` `admission`
    (pending, `idle_for_s`, reasons, `open_lanes`), load average, the classes
-   placed and held, and reading freshness on busy lanes, at about 5 and 30 minutes
+   placed and held, and how attempts spread across lanes, at about 5 and 30 minutes
    after the restart.
 5. `main` has the same caps but no conversations or reference scheduler. The
    port there is a follow-up task.
@@ -376,6 +373,17 @@ with fake providers.
   only decides when that lane is excluded.
 - It adds no knob for per-job priority. A terminal `subfleet run` outside a Claude
   Code session is `background` unless its parent is live.
+
+## Changes since revision 5 (Astra round 3: changes requested)
+
+- Busy lanes are no longer read. Revisions 2 to 5 added that on the author's own
+  initiative; it is not part of Max's ruling. Round 3 found two more ways its
+  verdicts could miss admission: a publication error, and the gap between the
+  verdict's commit and the metadata admission reads. C-18.1 is as it was, apart
+  from the cycle's release of every hold. Reading busy lanes safely is a
+  follow-up with a design of its own.
+- Kept: the probe cycle releases every hold, whatever raised. The admission-probe
+  reservation re-checks the credential latch (C-11.4).
 
 ## Changes since revision 4 (Astra round 2; Opus re-review, which approved)
 
