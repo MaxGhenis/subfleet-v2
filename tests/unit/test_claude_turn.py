@@ -9,7 +9,7 @@ import pytest
 from subfleet.conversations.claude_turn import (
     INIT_REQUEST_ID, INTERRUPT_REQUEST_ID, ClaudeTurn, argv,
 )
-from subfleet.conversations.turn import Image, TurnSpec
+from subfleet.conversations.turn import Image, Step, TurnSpec
 
 MID = "7f1c9a0e-1111-4222-8333-444455556666"
 SID = "0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd"
@@ -715,3 +715,144 @@ def test_cancel_turn_approval_also_cancels_queued_steers():
     step = turn.respond("approve", "cancel-turn")
     assert [f.tag for f in step.frames] == ["approval:approve", "interrupt"]
     assert json.loads(step.frames[1].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}
+
+
+# --- the unseen-steer watchdog and the held result (steer review, 2026-09-28) -------------
+
+SECOND = "7f1c9a0e-3333-4222-8333-444455556666"
+THIRD = "7f1c9a0e-4444-4222-8333-444455556666"
+
+
+def lifecycle(turn, mid, state, offset):
+    return turn.feed(line(type="command_lifecycle", command_uuid=mid, state=state), offset)
+
+
+def written_steer(turn, mid, text="steer"):
+    step = turn.steer(mid, text)
+    assert step.frames, turn.steers.get(mid)
+    turn.steer_written(mid)
+    return step
+
+
+def missed_the_boundary():
+    """A steer missed the host's last tool boundary: the host's result is held, and the
+    CLI starts the steer as its own turn."""
+    turn = steer_running()
+    written_steer(turn, STEER, "run next")
+    assert steer_result(turn, [MID], queued=1).outcome is None
+    lifecycle(turn, STEER, "started", 31)
+    assert not turn.steer_waiting
+    return turn
+
+
+def test_the_watchdog_never_runs_during_a_steer_s_own_turn_and_a_second_steer_folds_into_it():
+    """Finding 8: a second steer written while the first runs as its own turn is queued at
+    that turn's next tool boundary. It is not cancelled, and steering stays on."""
+    turn = missed_the_boundary()
+    turn.feed(line(type="assistant", message={"id": "m2", "model": "claude-opus-5-5", "content": [
+        {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "sleep 60"}}]}), 32)
+    written_steer(turn, SECOND, "also this")
+    lifecycle(turn, SECOND, "queued", 33)
+    assert not turn.steer_waiting and turn.steerable
+    for _ in range(3):                                  # the runner's clock: nothing is armed
+        assert turn.expire_steers() == Step()
+    assert turn.steerable and turn.outcome is None
+    lifecycle(turn, SECOND, "started", 34)
+    lifecycle(turn, SECOND, "completed", 35)
+    end = steer_result(turn, [STEER, SECOND], offset=40)
+    assert end.outcome.state == "complete" and end.outcome.ended_by == "provider"
+    assert {m: end.outcome.steers[m]["fate"] for m in (STEER, SECOND)} == {STEER: "consumed", SECOND: "consumed"}
+
+
+def test_a_round_cancels_only_unseen_steers_and_steering_resumes_when_it_resolves():
+    """Finding 8: the watchdog's cancellation no longer turns steering off for the rest
+    of the process; a round that ends in a steer's own turn gives the turn back."""
+    turn = steer_running()
+    written_steer(turn, STEER, "unseen")
+    assert steer_result(turn, [MID], queued=1).outcome is None and turn.steer_waiting
+    first = turn.expire_steers()
+    assert [f.tag for f in first.frames] == [f"cancel-steer:{STEER}"]
+    assert not turn.steerable                           # no new steer while the round is open
+    refused = turn.steer(SECOND, "during the round")
+    assert not refused.frames and turn.steers[SECOND]["fate"] == "refused"
+    turn.feed(line(type="control_response", response={"subtype": "success", "request_id": "cancel-steer:" + STEER,
+                                                      "response": {"cancelled": False}}), 50)
+    lifecycle(turn, STEER, "started", 51)               # too late to cancel: it runs as its own turn
+    assert not turn.steer_waiting and turn.steerable and turn.outcome is None
+    assert turn.expire_steers() == Step()               # the round is over; nothing ends the turn
+    written_steer(turn, THIRD, "after the round")
+    assert turn.steers[THIRD]["fate"] == "unknown"
+
+
+def test_a_cancel_receipt_refreshes_the_watch_so_a_steer_s_own_turn_is_never_ended_early():
+    """Finding 8, step 5: a `cancelled: true` receipt with no lifecycle row after it used
+    to leave the watch armed, and the next expiry ended the turn with the stale result
+    while a steer's own turn was mid-tool."""
+    turn = missed_the_boundary()
+    written_steer(turn, SECOND, "cancel me")
+    lifecycle(turn, SECOND, "queued", 33)
+    turn.interrupt_requested = False                    # (no stop: only the CLI's cancel receipt)
+    step = turn.feed(line(type="control_response", response={"subtype": "success",
+                                                             "request_id": "cancel-steer:" + SECOND,
+                                                             "response": {"cancelled": True}}), 34)
+    assert [e.kind for e in step.events] == ["steer.missed"] and step.outcome is None
+    assert not turn.steer_waiting
+    for _ in range(3):
+        assert turn.expire_steers() == Step()
+    assert turn.outcome is None and turn.phase == "sent"
+    end = steer_result(turn, [STEER], offset=40)
+    assert end.outcome.state == "complete" and end.outcome.steers[SECOND]["fate"] == "cancelled"
+
+
+def test_the_second_phase_never_ends_a_steer_s_own_turn_or_cancels_a_delivered_steer():
+    """Finding 12: S1 is dropped silently; S2 starts as its own turn and asks for approval.
+    Nothing is cancelled or ended while S2's turn runs; once its result comes, only S1
+    is cancelled and given up, and the turn ends with S2's result."""
+    turn = steer_running()
+    written_steer(turn, STEER, "silently dropped")
+    assert steer_result(turn, [MID], queued=0).outcome is None and turn.steer_waiting
+    written_steer(turn, SECOND, "runs as its own turn")
+    lifecycle(turn, SECOND, "started", 31)
+    approval = turn.feed(line(type="control_request", request_id="s2-approval", request={
+        "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "echo s2"}}), 32)
+    assert approval.approvals and not turn.steer_waiting
+    for _ in range(3):
+        quiet = turn.expire_steers()
+        assert not quiet.frames and not quiet.resolved and quiet.outcome is None
+    assert "s2-approval" in turn.pending
+    turn.respond("s2-approval", "allow")
+    assert steer_result(turn, [SECOND], offset=40).outcome is None      # S1 is still unseen
+    assert turn.steer_waiting
+    cancel = turn.expire_steers()
+    assert [f.tag for f in cancel.frames] == [f"cancel-steer:{STEER}"]
+    done = turn.expire_steers()
+    assert done.outcome.state == "complete" and [f.tag for f in done.frames] == ["close"]
+    assert done.outcome.steers[STEER]["fate"] == "unknown"             # never proven missed
+    assert done.outcome.steers[SECOND]["fate"] == "consumed"
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_eof_while_the_host_s_result_is_held_ends_with_that_result(ok):
+    """Finding 11: a stop whose receipt never came, then SIGINT: stdout ends while the host's
+    own result is held for an unseen steer. The outcome is that result's, not an eof's."""
+    turn = steer_running()
+    written_steer(turn, STEER, "unseen")
+    held = turn.feed(line(type="result", subtype="success" if ok else "error_during_execution", is_error=not ok,
+                          result="done", user_message_uuids=[MID], queued_turn_count=1), 30)
+    assert held.outcome is None
+    turn.interrupt()
+    end = turn.eof(500)
+    assert end.outcome.ended_by == "provider"
+    assert (end.outcome.state, end.outcome.reason) == (("complete", None) if ok else ("interrupted", "stopped"))
+    completed = [e for e in end.events if e.kind == "turn.completed"]
+    assert completed and completed[0].data["stop_too_late"] is ok
+    assert end.outcome.steers[STEER] == {"frame": "written", "fate": "unknown", "detail": None}
+
+
+def test_eof_during_a_steer_s_own_turn_is_for_reconciliation():
+    """Only a steer's own turn cut short by the end of stdout keeps the eof outcome."""
+    turn = missed_the_boundary()
+    turn.interrupt()
+    end = turn.eof(500)
+    assert end.outcome.ended_by == "eof" and (end.outcome.state, end.outcome.reason) == ("interrupted", "stopped")
+    assert end.outcome.steers[STEER]["fate"] == "delivered"
