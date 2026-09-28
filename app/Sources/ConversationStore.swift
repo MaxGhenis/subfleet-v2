@@ -74,6 +74,9 @@ struct ComposerOptions: Equatable {
     var models: [ModelChoice]
     var selectedModel: ModelEntry?
     var efforts: [String]
+    /// What "Default" resolves to for the selected model (C-26.8), when the daemon
+    /// applies one; nil when the provider's own default applies.
+    var defaultEffort: String? = nil
     /// False when no turn has reported the model's efforts yet (D-19: accepted
     /// as unverified and checked by the driver before the message is sent).
     var effortsObserved: Bool
@@ -106,6 +109,7 @@ func makeComposerOptions(provider: String, settings: ConversationSettings, model
                                 widens: PermissionPolicy.widens(from: settings.permission, to: policy.rawValue))
     }
     return ComposerOptions(models: choices, selectedModel: selected, efforts: efforts,
+                           defaultEffort: selected?.conversation_default_effort,
                            effortsObserved: selected?.efforts != nil, fastSupported: selected?.fast.supported,
                            fastNote: note, permissions: permissions)
 }

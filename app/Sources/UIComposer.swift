@@ -166,7 +166,7 @@ struct ComposerView: View {
                         next.effort = value.isEmpty ? nil : value
                         settings = next
                     })) {
-                        Text("Default effort").tag("")
+                        Text(options.defaultEffort.map { "Default (\($0.capitalized))" } ?? "Default effort").tag("")
                         ForEach(options.efforts, id: \.self) { Text($0.capitalized).tag($0) }
                     }.labelsHidden().frame(maxWidth: 140).help("Reasoning effort")
                     Toggle(isOn: Binding(get: { current.fast }, set: { value in

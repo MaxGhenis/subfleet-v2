@@ -359,6 +359,9 @@ struct ModelEntry: Codable, Equatable, Identifiable {
     var values: [String]
     var efforts: [String]?
     var default_effort: String?
+    /// C-26.8: the effort a turn runs at when the message names none (ultracode for
+    /// Claude by default); nil leaves the provider's own default.
+    var conversation_default_effort: String?
     var fast: ModelFast
     var image_input: Bool?
     var observed_at: String?

@@ -31,6 +31,20 @@ INIT_REQUEST_ID = "subfleet-init"
 INTERRUPT_REQUEST_ID = "subfleet-interrupt"
 UNSUPPORTED = "Subfleet does not support this request; answer it in the provider's own app."
 
+#: Claude Code's ultracode (C-26.8): xhigh effort plus standing dynamic-workflow
+#: orchestration. It is not an `--effort` value (2.1.280 takes low, medium, high,
+#: xhigh, max): the CLI sets it per session through the `ultracode` settings key,
+#: on models that offer xhigh. A conversation names it as its effort, and a turn
+#: becomes `--effort xhigh` with `{"ultracode": true}` in its command-line settings.
+ULTRACODE = "ultracode"
+ULTRACODE_EFFORT = "xhigh"
+
+
+def offered_efforts(levels: list[str]) -> list[str]:
+    """The efforts a conversation may name for a model whose catalog lists `levels`:
+    those, and ultracode wherever xhigh, the effort it runs at, is among them."""
+    return [*levels, ULTRACODE] if ULTRACODE_EFFORT in levels and ULTRACODE not in levels else list(levels)
+
 PERMISSION_FLAGS = {
     "ask": ("--permission-mode", "default", "--permission-prompt-tool", "stdio"),
     "accept-edits": ("--permission-mode", "acceptEdits", "--permission-prompt-tool", "stdio"),
@@ -90,7 +104,7 @@ def observed_catalog(models: Any) -> list[dict]:
             out.append({"value": str(entry["value"]), "model": strip_context(str(entry["resolvedModel"])),
                         "context_1m": str(entry["resolvedModel"]).endswith("[1m]"),
                         "display": entry.get("displayName"),
-                        "efforts": [str(x) for x in levels] if entry.get("supportsEffort") is not False
+                        "efforts": offered_efforts([str(x) for x in levels]) if entry.get("supportsEffort") is not False
                         and isinstance(levels, list) else [],
                         "fast": entry.get("supportsFastMode")})
     return out
@@ -109,8 +123,9 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
                # empty (observed 2026-09-24, 2.1.280) and the person sees no thinking.
                "--thinking-display", "summarized",
                "--model", spec.model_id]
+    ultracode = spec.effort == ULTRACODE
     if spec.effort:
-        command += ["--effort", spec.effort]
+        command += ["--effort", ULTRACODE_EFFORT if ultracode else spec.effort]
     if spec.native_session_id:
         command += ["--resume", spec.native_session_id]
     elif spec.new_session_id:
@@ -127,6 +142,10 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         settings: dict[str, Any] = {"disableAllHooks": False}
         if spec.fast:
             settings["fastMode"] = True
+        if ultracode:
+            # C-26.8: the orchestration half of ultracode. Read-only turns get only
+            # its effort: their tool set has no Workflow tool to orchestrate with.
+            settings["ultracode"] = True
         command += ["--settings", json.dumps(settings, separators=(",", ":"))]
     else:
         raise ValueError(f"unknown permission {spec.permission!r}")
@@ -348,6 +367,10 @@ class ClaudeTurn:
         served = {"account": account, "fast_mode_state": body.get("fast_mode_state"),
                   "fast_mode_disabled_reason": body.get("fast_mode_disabled_reason"),
                   "permission_mode": body.get("current_permission_mode")}
+        if self.spec.effort:
+            # The effort the command line asked for, a conversation default included
+            # (C-26.8); `initialize` does not echo it.
+            served["effort"] = self.spec.effort
         self.phase = "sent"
         message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
                    "session_id": self.spec.native_session_id or self.spec.new_session_id,
@@ -621,7 +644,7 @@ def _entry_efforts(entry: dict) -> list[str]:
     if entry.get("supportsEffort") is False:
         return []
     levels = entry.get("supportedEffortLevels")
-    return [str(x) for x in levels] if isinstance(levels, list) else []
+    return offered_efforts([str(x) for x in levels]) if isinstance(levels, list) else []
 
 
 def _effort_levels(models: Any, value: str) -> list[str] | None:

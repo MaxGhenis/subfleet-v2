@@ -82,6 +82,11 @@ CONVERSATION_DEFAULTS: dict[str, float] = {
     "after_result_s": 135,           # C-26.5: background output allowed after `result`
 }
 
+#: `conversations.default_effort` (C-26.8): the effort a turn runs at when its
+#: message names none, per provider. It applies only where the model's catalog
+#: offers it, so a default never fails a turn; null leaves the provider's own.
+CONVERSATION_DEFAULT_EFFORT: dict[str, str | None] = {"claude": "ultracode", "codex": None}
+
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
 #: pruned against separate budgets, so a busy conversation never evicts the
 #: evidence of detached work, and the reverse.
@@ -308,6 +313,17 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     # things, and zero only where it means "at once", "never on a timer" or "keep
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
     # days kept after a turn ends).
+    # C-26.8: `conversations.default_effort` names an effort, or null, per provider.
+    default_effort = (value.get("conversations") or {}).get("default_effort") if isinstance(
+        value.get("conversations"), dict) else None
+    if default_effort is not None:
+        if not isinstance(default_effort, dict):
+            fail("conversations.default_effort", "must be an object of provider to effort or null")
+        for key, item in default_effort.items():
+            if key not in CONVERSATION_DEFAULT_EFFORT:
+                fail(f"conversations.default_effort.{key}", "is not a provider (claude, codex)")
+            if item is not None and (not isinstance(item, str) or not item or len(item) > 20):
+                fail(f"conversations.default_effort.{key}", "must be an effort name or null")
     for section, defaults, may_be_zero, whole in (
             ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
              {"compact_per_tick", "max_active_turns", "turn_slots_per_lane"}),

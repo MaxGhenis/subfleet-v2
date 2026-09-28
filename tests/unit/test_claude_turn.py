@@ -515,7 +515,9 @@ def test_the_catalog_is_kept_for_models_json():
     turn.feed(observed_init(), 0)
     by_value = {entry["value"]: entry for entry in turn.catalog}
     assert by_value["opus[1m]"] == {"value": "opus[1m]", "model": "claude-opus-5-5", "context_1m": True,
-                                    "display": None, "efforts": ["low", "medium", "high", "xhigh", "max"],
+                                    "display": None,
+                                    # C-26.8: ultracode is offered wherever xhigh is.
+                                    "efforts": ["low", "medium", "high", "xhigh", "max", "ultracode"],
                                     "fast": True}
     assert by_value["haiku"]["efforts"] == [] and by_value["claude-fable-5-1[1m]"]["fast"] is False
 

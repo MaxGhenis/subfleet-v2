@@ -30,11 +30,11 @@ from typing import Any
 from .. import protocol
 from ..adapters.base import AdapterError
 from ..contracts import Exit
-from ..policy import CONVERSATION_DEFAULTS
+from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..salvage import SalvageError
 from . import attachments as attachment_store
-from . import codex_turn, reconcile
+from . import claude_turn, codex_turn, reconcile
 from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
@@ -283,11 +283,29 @@ class ConversationService:
             values = [v for v in seen.get("values") or [] if v != "default"]
             models.append({"short": short, "id": entry["id"], "provider": entry["provider"],
                            "value": values[0] if values else entry["id"], "values": values or [entry["id"]],
-                           "efforts": seen.get("efforts"), "default_effort": entry.get("effort"),
+                           "efforts": (claude_turn.offered_efforts([str(x) for x in seen["efforts"]])
+                                       if entry["provider"] == "claude" and isinstance(seen.get("efforts"), list)
+                                       else seen.get("efforts")),
+                           "default_effort": entry.get("effort"),
+                           "conversation_default_effort": self._default_effort(entry["provider"], entry["id"]),
                            "fast": {"supported": seen.get("fast"),
                                     "billing": "usage credits" if entry["provider"] == "claude" else "plan limits"},
                            "image_input": seen.get("image_input"), "observed_at": seen.get("observed_at")})
         return {"models": models, "source": "policy, and each provider's catalog as a turn last reported it"}
+
+    def _default_effort(self, provider: str, model_id: str) -> str | None:
+        """C-26.8: the effort a turn of `model_id` runs at when its message names
+        none: the policy's `conversations.default_effort` for the provider (ultracode
+        for Claude), where the catalog a turn last reported for the model offers it;
+        None otherwise, which leaves the provider's own default."""
+        configured = {**CONVERSATION_DEFAULT_EFFORT,
+                      **((self.daemon.policy.get("conversations") or {}).get("default_effort") or {})}
+        effort = configured.get(provider)
+        if not effort:
+            return None
+        levels = (self._catalog_cache().get(provider) or {}).get(model_id, {}).get("efforts") or []
+        offered = claude_turn.offered_efforts([str(x) for x in levels]) if provider == "claude" else list(levels)
+        return effort if effort in offered else None
 
     def _catalog_cache(self) -> dict:
         try:
@@ -1760,6 +1778,11 @@ class ConversationService:
         provider = conversation["provider"]
         settings = message["settings"]
         short = policy_model(daemon.policy, provider, settings["model"])
+        effort_default = None
+        if not settings.get("effort"):
+            effort_default = self._default_effort(provider, daemon.policy["models"][short]["id"])
+            if effort_default:
+                settings = {**settings, "effort": effort_default}
         images = []
         for sha in message["attachments"]:
             path, media = attachment_store.check(self.store, sha)
@@ -1778,7 +1801,7 @@ class ConversationService:
                 "provider": provider, "text": self.store.message_text(message), "settings": settings,
                 "native_session_id": native, "new_session_id": new_session, "images": images,
                 "cwd": conversation["workspace"], "allow_main": conversation["allow_main"],
-                "affinity_lane": affinity, "digest": message["digest"],
+                "affinity_lane": affinity, "digest": message["digest"], "effort_default": effort_default,
                 "network": bool((self.daemon.policy.get("network") or {}).get("codex_workspace_write", False))}
         exclusions = []
         if message.get("continues"):
