@@ -213,6 +213,75 @@ def test_service_epoch_tracks_writes_left_after_a_failed_batch(world, monkeypatc
     assert running.sidecar()["hot"]["flags_held"] == 1
 
 
+
+def test_unobservable_copy_write_invalidates_refresh_and_preserves_unarchive(world, monkeypatch):
+    """B2/P1: B survives a failed post-write stat and C write; refresh before unarchive."""
+    running = world[2]
+    original_checkpoint = running._checkpoint
+    original_inventory = running._flag_inventory
+    original_write, original_signature = mirror._write_json, mirror._signature_of
+    inventories, partial, epochs = [], [], []
+    started = False
+    fail_b_stat = False
+    failed_c = False
+
+    def checkpoint(current, stage=None):
+        nonlocal started
+        if stage == "resolving flags" and not started:
+            started = True
+            running._service_hot()  # An idle service makes the full pass refresh.
+        return original_checkpoint(current, stage)
+
+    def write(path, body, **kwargs):
+        nonlocal fail_b_stat, failed_c
+        if Path(path) == entry(world, 2) and body.get("isArchived") and not failed_c:
+            failed_c = True
+            raise OSError(errno.ENOSPC, "injected C write failure")
+        inode = original_write(path, body, **kwargs)
+        if Path(path) == entry(world, 1) and body.get("isArchived") and not failed_c:
+            assert inode is not None
+            fail_b_stat = True
+        return inode
+
+    def signature(path):
+        nonlocal fail_b_stat
+        if Path(path) == entry(world, 1) and fail_b_stat:
+            fail_b_stat = False
+            raise OSError(errno.EIO, "injected B post-write stat failure")
+        return original_signature(path)
+
+    def inventory(current, options):
+        snapshot = original_inventory(current, options)
+        inventories.append(snapshot)
+        if len(inventories) == 1:
+            # All three old projections are retained by the full refresh.
+            rewrite(entry(world), isArchived=True)
+            running._service_hot()
+            partial.extend(read(entry(world, account))["isArchived"] for account in range(3))
+            epochs.append(running._hot_epoch)
+            assert partial == [True, True, False]
+            assert not read(running.flags_path)[ONE]["isArchived"]
+            assert running.sidecar()["hot"]["flags_held"] == 1
+        return snapshot
+
+    monkeypatch.setattr(running, "_checkpoint", checkpoint)
+    monkeypatch.setattr(running, "_flag_inventory", inventory)
+    monkeypatch.setattr(mirror, "_write_json", write)
+    monkeypatch.setattr(mirror, "_signature_of", signature)
+    full = running.run_once()
+    assert full.state == "ok", full.error
+    assert failed_c and not fail_b_stat
+
+    rewrite(entry(world), isArchived=False)
+    hot = running.run_hot()
+    assert hot.state == "ok", hot.error
+    assert all(not read(entry(world, account))["isArchived"] for account in range(3)), \
+        "the stale full snapshot caused the user's unarchive to be lost"
+    assert not read(running.flags_path)[ONE]["isArchived"]
+    assert epochs == [1], "the unobservable successful write must advance the epoch"
+    assert len(inventories) == 2, "the full pass must discard its stale first refresh"
+
+
 def test_service_settings_only_copy_write_increments_epoch(world):
     """Any standing updated copy counts, even with unchanged decision fields (B2)."""
     running = world[2]

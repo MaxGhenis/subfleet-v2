@@ -1828,6 +1828,10 @@ class Mirror:
                             now_signature = _signature_of(target)
                         except OSError:
                             now_signature = None
+                            # This successful write cannot enter the rollback
+                            # list without its signature. It may survive a later
+                            # failed copy, even though no journal call sees it.
+                            self._flags_moved = True
                         if now_signature is not None and now_signature[1] == inode:
                             written.append((target, before, inode, now_signature, expect))
                     else:
