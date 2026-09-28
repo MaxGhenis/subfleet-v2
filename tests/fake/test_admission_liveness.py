@@ -506,18 +506,26 @@ def test_c26_9_with_no_turn_cap_a_turn_never_waits_behind_another_checkout_lease
         assert service.store.list_attempts(third), service._holds.get(third)
 
 
+def _clock(service, job_id, when):
+    service.store.update_job(job_id, next_check_at=when)
+
+
+@pytest.mark.parametrize("older_clock", ["future", "due"])
 @pytest.mark.parametrize("caps,newer_model", [
     ({}, "astra"),                                                   # no cap: no C-6.9 hold among turns
     ({"max_active_turns": 3, "turn_slots_per_lane": 1}, "terra"),   # capped, but the two do not compete
     ({"max_active_turns": 50, "turn_slots_per_lane": 50}, "terra"),
 ])
-def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_path, caps, newer_model):
-    """FIFO on a lease (review of 1b38d641). An older turn waits on its clock for a checkout
-    another turn holds; that turn ends after the pass has passed the older one, and a newer
-    turn wanting the same checkout is looked at next. The newer turn waits, queued behind
-    the older one, which takes the checkout on the next pass. Without the queue the newer
-    turn took it: with no turn cap nothing else holds one turn behind another, and a turn
-    of another model never competed (C-6.9) even with caps set."""
+def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_path, caps, newer_model, older_clock):
+    """FIFO on a lease (review of 1b38d641). An older turn waits for a checkout another
+    turn holds; that turn ends after the pass has passed the older one, and a newer turn
+    wanting the same checkout is looked at next. The newer turn waits, queued behind the
+    older one, which takes the checkout on the next pass. Without the queue the newer turn
+    took it: with no turn cap nothing else holds one turn behind another, and a turn of
+    another model never competed (C-6.9) even with caps set. The older turn is passed on
+    its clock (`future`: queued from its recorded hold) or looked at (`due`: queued when
+    it is held again); each path is forced, not left to where a second boundary falls."""
+    from subfleet.daemon import after, utcnow
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         service.policy["conversations"].update(caps)
         _checkout(harness)
@@ -529,6 +537,7 @@ def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_pa
         service._admit_turns()
         assert service._holds[older]["reason"] == "lease-held"
         newer = _turn_in(service, harness, 2, workdir=harness.workdir, model=newer_model)
+        _clock(service, older, after(3600) if older_clock == "future" else utcnow())
         real = service._workspace
 
         def first_ends_now(job):
@@ -537,9 +546,10 @@ def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_pa
             return real(job)
         patch.setattr(service, "_workspace", first_ends_now)
         service._admit_turns()
-        assert not service.store.list_attempts(newer), service._holds.get(newer)
-        assert service._holds[newer]["reason"] == "lease-held"
-        assert service._holds[newer]["queued_behind"] == [older]
+        hold = service._holds[newer]
+        assert not service.store.list_attempts(newer), hold
+        assert hold["reason"] == "lease-held" and hold["leases"] == [] and hold["queued_behind"] == [older]
+        assert [key.split(":", 1)[0] for key in hold["queued"]] == ["worktree"]
         patch.setattr(service, "_workspace", real)
         service._admit_turns()
         assert service.store.list_attempts(older), service._holds.get(older)
@@ -547,6 +557,44 @@ def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_pa
         _end(service, older)
         service._admit_turns()
         assert service.store.list_attempts(newer), service._holds.get(newer)
+
+
+def test_c26_9_turns_waiting_on_one_lease_take_it_oldest_first(tmp_path):
+    """Three turns wait for one checkout: a lease freed mid-pass is queued for the oldest,
+    both later turns name the oldest, and the checkout then passes to them in age order."""
+    from subfleet.daemon import after
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        first = _turn_in(service, harness, 0, workdir=harness.workdir)
+        service._admit_turns()
+        oldest = _turn_in(service, harness, 1, workdir=harness.workdir)
+        middle = _turn_in(service, harness, 2, workdir=harness.workdir)
+        service._admit_turns()
+        assert service._holds[oldest]["reason"] == service._holds[middle]["reason"] == "lease-held"
+        newest = _turn_in(service, harness, 3, workdir=harness.workdir)
+        for job_id in (oldest, middle):
+            _clock(service, job_id, after(3600))
+        real = service._workspace
+
+        def first_ends_now(job):
+            if job["job_id"] == newest:
+                _end(service, first)
+            return real(job)
+        patch.setattr(service, "_workspace", first_ends_now)
+        service._admit_turns()
+        assert service._holds[newest]["queued_behind"] == [oldest]
+        patch.setattr(service, "_workspace", real)
+        order = []
+        for _ in range(3):
+            service._admit_turns()
+            live = [job_id for job_id in (oldest, middle, newest) if service.store.query(
+                "SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running')", (job_id,))]
+            assert len(live) <= 1
+            order.extend(job_id for job_id in live if job_id not in order)
+            for job_id in live:
+                _end(service, job_id)
+        assert order == [oldest, middle, newest]
 
 
 # --- the property: what e053b2c's admission places, this one places, pass for pass ----------------

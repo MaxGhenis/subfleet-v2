@@ -3337,7 +3337,8 @@ class Daemon:
                 if job["wait_reason"] == "capacity":
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                 if pool == "turn" and known and known["hold"].get("reason") == "lease-held":
-                    queue_for(known["hold"].get("leases") or (), job["job_id"])
+                    queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
+                              job["job_id"])
                 holds[job["job_id"]] = {**(known["hold"] if known else {"reason": job["wait_reason"] or "waiting"}),
                                         "next_check_at": job["next_check_at"]}
                 continue
@@ -3607,8 +3608,11 @@ class Daemon:
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]] if pool == "turn" else []
                         if contested or queued:
                             waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
-                            hold = {"reason": "lease-held", "leases": contested + queued,
-                                    **({"queued_behind": sorted({lease_queue[key] for key in queued})} if queued else {})}
+                            # `leases` are held by another job; `queued` are free but kept for
+                            # an older turn waiting for them (C-26.9), named by `queued_behind`.
+                            hold = {"reason": "lease-held", "leases": contested,
+                                    **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
+                                       if queued else {})}
                             if pool == "turn":
                                 queue_for(contested + queued, job["job_id"])
                             rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + queued)), hold)
