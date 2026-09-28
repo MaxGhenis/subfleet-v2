@@ -80,7 +80,7 @@ def test_c8_4_c13_4_retention_counts_and_removes_clean_allocated_worktree(owned,
     assert not worktree.exists()
     assert str(worktree) not in git(repository, "worktree", "list", "--porcelain")
     assert retired == [root / "trash" / "job" / "worktree"]
-    assert any("prune" in command and "worktree" in command for command in commands)
+    assert not any("prune" in command and "worktree" in command for command in commands)
     assert not any("remove" in command and "worktree" in command for command in commands)
 
 
@@ -162,7 +162,7 @@ def test_c13_4_dirty_allocated_worktree_removed_only_after_salvage_is_retained(o
     assert result["pruned"] == ["job"]
     assert not worktree.exists()
     assert git(repository, "show", snapshot.ref + ":tracked") == "salvaged changes"
-    assert any("prune" in command and "worktree" in command for command in commands)
+    assert not any("prune" in command and "worktree" in command for command in commands)
     assert not any("remove" in command and "worktree" in command for command in commands)
 
 

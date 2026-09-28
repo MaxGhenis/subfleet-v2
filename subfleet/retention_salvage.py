@@ -24,7 +24,7 @@ from .store import Store
 ALLOWED_REF_PREFIXES = ("refs/heads/", "refs/tags/", "refs/subfleet-salvage/", "refs/subfleet/")
 REGENERABLE_CACHE_DIRECTORIES = frozenset({
     "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules",
-    ".venv", "venv", ".hypothesis", ".tox", "build", "dist", ".next",
+    ".venv", ".hypothesis", ".tox",
 })
 
 
@@ -34,12 +34,10 @@ def _regenerable_ignored(path: str) -> bool:
     Git's --directory ends directory entries with '/'. An ordinary ignored
     file named 'build' or '.venv' is not a regenerable directory.
     """
-    parts = path.rstrip("/").split("/")
-    directories = parts if path.endswith("/") else parts[:-1]
-    return (any(part in REGENERABLE_CACHE_DIRECTORIES
-                or (part.endswith(".egg-info") and part != ".egg-info")
-                for part in directories)
-            or (not path.endswith("/") and parts[-1] == ".DS_Store"))
+    name = path.rstrip("/").rsplit("/", 1)[-1]
+    return ((path.endswith("/") and (name in REGENERABLE_CACHE_DIRECTORIES
+                                     or (name.endswith(".egg-info") and name != ".egg-info")))
+            or (not path.endswith("/") and name == ".DS_Store"))
 
 
 def _directory_signature(path: Path) -> tuple[int, int, int]:
@@ -77,15 +75,20 @@ def _prove_no_nested_git(worktree: Path, cancel, deadline, *,
             directory = scan.pending[-1]
             before = _directory_signature(directory)
             children = []
+            names = set()
             # Close the descriptor before a checkpoint can suspend the scan.
             with os.scandir(directory) as entries:
                 for entry in entries:
-                    if entry.name == ".git":
-                        if directory != worktree:
+                    names.add(entry.name.casefold())
+                    if entry.name.casefold() == ".git":
+                        if directory != worktree or entry.name != ".git":
                             nested = Path(entry.path).relative_to(worktree)
                             raise ValueError(f"nested Git metadata is not preserved by salvage: {str(nested)!r}")
                     elif entry.is_dir(follow_symlinks=False):
                         children.append(Path(entry.path))
+            if directory != worktree and (directory.name.casefold().endswith(".git")
+                                          or {"head", "objects"} <= names):
+                raise ValueError(f"nested bare Git repository is not preserved: {directory.relative_to(worktree)!s}")
             if _directory_signature(directory) != before:
                 raise ValueError("worktree directory changed during nested Git proof")
             scan.pending.pop()
@@ -130,11 +133,10 @@ def prove_worktree_preserved(job: dict[str, Any], state_root: Path,
     if any(common.is_relative_to(path) for path in removed):
         raise ValueError("worktree Git object database is inside a directory being removed")
     head = git(worktree, "rev-parse", "--verify", "HEAD^{commit}")
-    if head != job.get("workdir_head"):
-        refs = git(common, "--git-dir=" + str(common), "for-each-ref",
-                   "--format=%(refname)", "--contains=" + head)
-        if not any(ref.startswith(ALLOWED_REF_PREFIXES) for ref in refs.splitlines()):
-            raise ValueError("worktree HEAD is not preserved by its baseline or an allowed named ref")
+    refs = git(common, "--git-dir=" + str(common), "for-each-ref",
+               "--format=%(refname)", "--contains=" + head)
+    if not any(ref.startswith(ALLOWED_REF_PREFIXES) for ref in refs.splitlines()):
+        raise ValueError("worktree HEAD is not preserved by an allowed named ref (baseline included)")
 
     # The tag prefix protects initial whitespace from _git's .strip(); -z
     # preserves embedded newlines and Git path quoting cannot disguise names.

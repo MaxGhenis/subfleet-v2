@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -32,6 +33,8 @@ from .contracts import (
 from .store import Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
+_SIZE_MAX_AGE = 60.0
+_LEASE_MARKER = "retention-v3:"
 _RETRY_COOLDOWN = 900.0
 _REMOVAL_RESERVE = 1.0  # reserve time for the journal, atomic renames and row transaction
 
@@ -108,6 +111,7 @@ class _Measurement:
     signature: tuple
     scans: list[_SizeScan]
     paths: tuple = ()
+    completed_at: float | None = None
 
     @property
     def complete(self) -> bool:
@@ -232,12 +236,16 @@ def _owned_worktree(job: dict[str, Any], state_root: Path) -> Path | None:
     return worktree
 
 
-def _git(worktree: Path, *args: str, env: dict[str, str] | None = None,
+def _git(worktree: Path, *args: str, env: dict[str, str] | None = None, input: str | None = None,
          cancel: threading.Event | None = None, deadline: float | None = None) -> str:
     _checkpoint(cancel, deadline)
     timeout = 15 if deadline is None else max(.001, min(15, deadline - time.monotonic()))
-    result = subprocess.run(["git", "-C", str(worktree), *args], env=env,
-                            capture_output=True, text=True, timeout=timeout, check=False)
+    try:
+        result = subprocess.run(["git", "-C", str(worktree), *args], env=env,
+                                capture_output=True, text=True, timeout=timeout, check=False, input=input)
+    except subprocess.TimeoutExpired:
+        _checkpoint(cancel, deadline)
+        raise
     _checkpoint(cancel, deadline)
     if result.returncode:
         raise OSError(f"git {args[0]} failed while inspecting or removing allocated worktree")
@@ -282,11 +290,40 @@ def _remove_worktree(job: dict[str, Any], state_root: Path,
     prove_worktree_preserved(job, state_root, salvage_artifacts, cancel=cancel, deadline=deadline,
                              on_progress=on_progress)
     common = git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    # Rebuild an independent index even for an apparently clean tree: status
-    # can hide tracked changes marked skip-worktree or assume-unchanged.
+    # The real index can hold unique staged blobs or unmerged versions even
+    # when the working files equal HEAD. Do not overwrite that evidence.
+    if git(worktree, "ls-files", "--unmerged"):
+        raise ValueError("unmerged index content is not independently preserved")
+    if git(worktree, "diff-index", "--cached", "--name-only", "HEAD", "--"):
+        raise ValueError("staged index content is not independently preserved")
+    # Copy the real index, including its timestamp/stat cache, then clear only
+    # flags which could hide changed working files. Never modify the real index.
+    from .sessions.transcripts import open_regular
     with tempfile.TemporaryDirectory(prefix="retention-index-", dir=state_root) as temporary:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
-        git(worktree, "read-tree", "HEAD", env=env)
+        index = Path(temporary) / "index"
+        source = Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-path", "index"))
+        if source.exists():
+            with open_regular(source) as reader, index.open("xb") as writer:
+                metadata = os.fstat(reader.fileno())
+                shutil.copyfileobj(reader, writer)
+                writer.flush()
+                os.utime(writer.fileno(), ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
+        env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+        git(worktree, "read-tree", "-m", "HEAD", env=env)
+        records = git(worktree, "ls-files", "-v", "-z", env=env).split("\0")
+        assumed, skipped = [], []
+        for record in records:
+            if len(record) < 3:
+                continue
+            tag, path = record[0], record[2:]
+            if tag.islower():
+                assumed.append(path)
+            if tag in ("S", "s"):
+                skipped.append(path)
+        for option, paths in (("--no-assume-unchanged", assumed), ("--no-skip-worktree", skipped)):
+            if paths:
+                git(worktree, "update-index", option, "-z", "--stdin",
+                    input="\0".join(paths) + "\0", env=env)
         git(worktree, "add", "-A", env=env)
         current_tree = git(worktree, "write-tree", env=env)
     if current_tree == git(worktree, "rev-parse", "HEAD^{tree}"):
@@ -366,18 +403,33 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
     errors = progress["errors"]
     explicit = set(referenced_job_ids)
     recovered = set()
+    legacy = set()
     recovery_errors = set()
+    def restore_job(identity, worktree):
+        restored = trash.restore(state_root, identity, worktree)
+        if restored and restored.get("conflicts"):
+            progress.setdefault("restore_conflicts", []).extend(restored["conflicts"])
+            store.add_event("retention.restore_conflict", job_id=identity,
+                            data={"preserved": restored["conflicts"]})
+        return restored
+
     # A committed lease is intent to finish even when pressure has disappeared.
     # Restore a journaled move before re-proving pins or file preservation.
-    for lease in store.query("SELECT * FROM leases WHERE holder LIKE 'retention:%'"):
+    recovery_leases = store.query("SELECT * FROM leases WHERE holder LIKE 'retention:%'")
+    versioned = {lease["holder"] for lease in recovery_leases if lease["lease_key"].startswith(_LEASE_MARKER)}
+    for lease in recovery_leases:
         identity = lease["holder"][len("retention:"):]
+        if identity in recovered:
+            continue
         job = store.get_job(identity)
         if job is None:
             store.release_leases(lease["holder"])
             continue
         recovered.add(identity)
+        if lease["holder"] not in versioned:
+            legacy.add(identity)
         try:
-            trash.restore(state_root, identity, _owned_worktree(job, state_root))
+            restore_job(identity, _owned_worktree(job, state_root))
         except (OSError, ValueError) as exc:
             error = {"job_id": identity, "error": str(exc)}
             errors.append(error)
@@ -399,10 +451,11 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
         paths_unchanged = (measurement.paths and measurement.paths == _path_signature(
             [Path(item[0]) for item in measurement.paths]))
         if (job is None or measurement.signature != _signature(job) or not paths_unchanged
-                or (measurement.complete and (job["state"] not in _TERMINAL or identity in unsettled))):
+                or (measurement.complete and (job["state"] not in _TERMINAL or identity in unsettled
+                    or measurement.completed_at is None
+                    or time.monotonic() - measurement.completed_at >= _SIZE_MAX_AGE))):
             del cache.measurements[identity]
     sizes = {identity: m.size for identity, m in cache.measurements.items() if m.complete}
-    reused_sizes = set(sizes)
     measurement_errors = set()
     artifacts = store.query("SELECT r.*,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) WHERE r.role='salvage'")
     salvage_by_job = {}
@@ -463,6 +516,8 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
             finally:
                 if sum(scan.steps for scan in measurement.scans) > steps:
                     progress["made_progress"] = True
+            if measurement.completed_at is None:
+                measurement.completed_at = time.monotonic()
             size = measurement.size
             sizes[identity] = size
             pool = _pool(job)
@@ -547,10 +602,17 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
                     return
                 conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
                              (lease_key, holder, utc_now()))
+                if identity not in legacy:
+                    marker = conn.execute("SELECT holder FROM leases WHERE lease_key=?",
+                                          (_LEASE_MARKER + identity,)).fetchone()
+                    if marker and marker["holder"] != holder:
+                        raise ValueError("retention version marker is held by another owner")
+                    conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                                 (_LEASE_MARKER + identity, holder, utc_now()))
                 _checkpoint(cancel, deadline)
             selected = True
             common = _remove_worktree(job, state_root, salvage_artifacts, worktree,
-                                      cancel=cancel, deadline=deadline, recovering=recovering,
+                                      cancel=cancel, deadline=deadline, recovering=identity in legacy,
                                       on_progress=lambda: progress.__setitem__("made_progress", True))
             _checkpoint(cancel, deadline)
             if deadline is not None and deadline - time.monotonic() < _REMOVAL_RESERVE:
@@ -571,13 +633,11 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
                         conn.execute(f"DELETE FROM {table} WHERE job_id=?", (identity,))
                     conn.execute("DELETE FROM leases WHERE holder=?", (holder,))
             if retained:
-                trash.restore(state_root, identity, worktree)
+                restore_job(identity, worktree)
                 store.release_leases(holder)
                 protected.add(identity)
                 return
         except _Interrupted:
-            if identity in reused_sizes:
-                defer()
             store.release_leases(holder)
             raise
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -585,7 +645,7 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
             defer()
             if selected:
                 try:
-                    trash.restore(state_root, identity, worktree)
+                    restore_job(identity, worktree)
                 except (OSError, ValueError) as restore_error:
                     report(identity, restore_error, "retention.recovery_error")
                     return  # durable journal/lease must survive a failed restore

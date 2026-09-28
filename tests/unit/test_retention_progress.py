@@ -254,6 +254,11 @@ def test_interrupted_read_only_git_check_keeps_completed_size_measurement(tmp_pa
         worktree.mkdir(parents=True)
         (worktree / "tracked").write_text("unchanged")
         store.update_job("job", sandbox="workspace-write", worktree=str(worktree))
+        common = tmp_path / "repository/.git"
+        admin = common / "worktrees/job"
+        admin.mkdir(parents=True)
+        (admin / "gitdir").write_text(str(worktree / ".git"))
+        (worktree / ".git").write_text(f"gitdir: {admin}\n")
         clock = slow_walk(monkeypatch, store)
         commands = []
 
@@ -263,7 +268,7 @@ def test_interrupted_read_only_git_check_keeps_completed_size_measurement(tmp_pa
             commands.append("preflight")
             clock.now += 2
             retention._checkpoint(cancel, deadline)
-            return None
+            return str(common)
 
         monkeypatch.setattr(retention, "_remove_worktree", preflight)
         for _ in range(5):
