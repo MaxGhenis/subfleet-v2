@@ -597,6 +597,31 @@ def test_c26_9_turns_waiting_on_one_lease_take_it_oldest_first(tmp_path):
         assert order == [oldest, middle, newest]
 
 
+def test_c26_9_a_turn_on_its_clock_keeps_its_place_for_a_lease_it_was_queued_for(tmp_path):
+    """A turn whose last hold was queued-only (the lease free, kept for an older turn that
+    has since gone) keeps its place while it waits on its clock: a newer turn wanting the
+    lease is queued behind it, not placed. The clocked-skip branch reads `queued` as well
+    as `leases` (review of b74e4aa5: a branch reading only `leases` passed every test).
+    No release happens in the pass, so the waiting turn is not hurried: the hold it
+    recorded is set up directly, as a pass would have recorded it."""
+    from subfleet.daemon import after
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        waiting = _turn_in(service, harness, 1, workdir=harness.workdir)
+        key = f"worktree:{service._write_target(service._job(waiting), harness.workdir)}"
+        hold = {"reason": "lease-held", "leases": [], "queued": [key], "queued_behind": ["gone"]}
+        service._capacity_wait(waiting, "lease-held:" + key, hold)
+        with service.store.transaction("fixture.wait") as tx:
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
+                       (after(3600), waiting))
+        service._admit_turns()                                   # records the lease snapshot: nothing is freed next
+        newer = _turn_in(service, harness, 2, workdir=harness.workdir)
+        service._admit_turns()
+        assert not service.store.list_attempts(newer), service._holds.get(newer)
+        assert service._holds[newer]["queued_behind"] == [waiting]
+
+
 # --- the property: what e053b2c's admission places, this one places, pass for pass ----------------
 
 CODEX = ("codex-1", "codex-2", "codex-3")
