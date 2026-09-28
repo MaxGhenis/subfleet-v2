@@ -166,9 +166,11 @@ def _line(value: dict) -> str:
 
 
 class ClaudeTurn:
-    def __init__(self, spec: TurnSpec, *, read_bytes: Callable[[str], bytes]):
+    def __init__(self, spec: TurnSpec, *, read_bytes: Callable[[str], bytes],
+                 frame_recorded: Callable[[str], bool] = lambda tag: False):
         self.spec = spec
         self._read_bytes = read_bytes
+        self._frame_recorded = frame_recorded
         self.phase = "new"            # new → initializing → sent → ended
         self.accepted = False
         self.answered = False
@@ -384,11 +386,24 @@ class ClaudeTurn:
             if self.spec.effort_default:
                 served["effort_default"] = True
         self.phase = "sent"
-        message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
-                   "session_id": self.spec.native_session_id or self.spec.new_session_id,
-                   "message": {"role": "user", "content": self._content()}}
+        frames = []
+        if not self._frame_recorded("user-message"):
+            try:
+                content = self._content()
+            except OSError:
+                return self._end(FAILED, "attachment-missing", source=source.next(),
+                                 detail="an image is missing, changed, or not private; add it again")
+            message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
+                       "session_id": self.spec.native_session_id or self.spec.new_session_id,
+                       "message": {"role": "user", "content": content}}
+            frames.append(Frame("user-message", "write", _line(message)))
+        # Replay the state transition and events without reconstructing a payload
+        # the relay already wrote. Its attachment may have been removed since.
+        # C-26.8: `get_settings` follows the message; the runner drops it when an
+        # earlier runner sent the message.
         ask = {"type": "control_request", "request_id": SETTINGS_REQUEST_ID, "request": {"subtype": "get_settings"}}
-        return Step(frames=[Frame("user-message", "write", _line(message)), Frame(SETTINGS_FRAME, "write", _line(ask))],
+        frames.append(Frame(SETTINGS_FRAME, "write", _line(ask)))
+        return Step(frames=frames,
                     events=[Event("served", served, source.next()),
                             Event("status", {"phase": "sent"}, source.next())])
 
@@ -426,8 +441,8 @@ class ClaudeTurn:
                 "tool": name,
                 "title": request.get("title") or request.get("display_name"),
                 "description": request.get("description"),
-                "input": redact.truncate(redact.scrub(redact._summary_text(name, request.get("input"))),
-                                         redact.INPUT_MAX),
+                "input": redact.bounded(redact._summary_text(name, request.get("input")),
+                                        redact.INPUT_MAX),
                 "reason": request.get("decision_reason"),
                 "blocked_path": request.get("blocked_path"),
             }

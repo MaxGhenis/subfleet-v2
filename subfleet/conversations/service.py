@@ -33,6 +33,7 @@ from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..salvage import SalvageError
+from ..state_files import open_state, read_state
 from . import attachments as attachment_store
 from . import claude_turn, codex_turn, reconcile
 from . import diff as turn_diff
@@ -311,7 +312,8 @@ class ConversationService:
 
     def _catalog_cache(self) -> dict:
         try:
-            return json.loads(transcripts.read_regular(self.root / "conversations" / "models.json"))
+            with open_state(self.root / "conversations" / "models.json") as stream:
+                return json.load(stream)
         except (OSError, ValueError):
             return {}
 
@@ -845,7 +847,8 @@ class ConversationService:
         self._person(peer, "reading an approval")
         from .redact import mask_approval
         approval = self.store.approval(args["approval_id"])
-        request = json.loads(transcripts.read_regular(approval["request_path"]))
+        request = json.loads(read_state(approval["request_path"], limit=RELAY_FRAME_MAX,
+                                        digest=approval["request_sha256"], private=True))
         masked, spans = mask_approval(request) if not args.get("reveal") else (request, [])
         return {"approval": self._approval_view(approval), "request": masked, "masked": spans,
                 "request_sha256": approval["request_sha256"], "nonce": approval["nonce"]}
@@ -1542,7 +1545,7 @@ class ConversationService:
         """
         path = self.root / "jobs" / job["job_id"] / "manifest.json"
         try:
-            manifest, error = json.loads(path.read_bytes()), None
+            manifest, error = json.loads(read_state(path, limit=16 * 1024 * 1024)), None
         except (OSError, ValueError) as exc:          # missing, unreadable, not JSON
             manifest, error = None, type(exc).__name__
         turn = manifest.get(TURN_MANIFEST_KEY) if isinstance(manifest, dict) else None
@@ -2166,7 +2169,8 @@ def _handoff_id(request_id: str, part: str) -> str:
 
 def _read_json(path: Path) -> dict | None:
     try:
-        return json.loads(transcripts.read_regular(path))
+        with open_state(path) as stream:
+            return json.load(stream)
     except (OSError, ValueError):
         return None
 

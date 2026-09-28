@@ -598,9 +598,11 @@ def test_a_messages_text_reads_with_universal_newlines_as_it_did(tmp_path):
     `Path.read_text` gave it: CRLF and CR as LF."""
     from subfleet.conversations.store import ConversationStore
     store = ConversationStore(tmp_path / "state")
-    path = tmp_path / "m.md"
-    path.write_bytes(b"line one\r\nline two\rline three\n")
     try:
-        assert store.message_text({"text_path": str(path)}) == "line one\nline two\nline three\n"
+        c = conv(store)
+        message, _ = store.submit_message(
+            conversation_id=c["conversation_id"], message_id=mid(), after_message_id=None,
+            text="line one\r\nline two\rline three\n", attachments=[], settings=SETTINGS)
+        assert store.message_text(message) == "line one\nline two\nline three\n"
     finally:
         store.close()

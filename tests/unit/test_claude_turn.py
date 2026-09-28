@@ -126,6 +126,28 @@ def test_streamed_text_thinking_tools_and_completion():
     assert [f.tag for f in end.frames] == ["close"] and end.events[-1].kind == "turn.completed"
 
 
+def test_a_long_answer_and_thinking_block_keep_their_head_and_tail_in_the_timeline():
+    """C-25.5 (review of 7da13417, finding 2): a text or thinking block over the
+    scrubber's budget had reached the timeline, and `final_text`, as the omission
+    marker alone. It keeps its scrubbed head and tail, bounded for one event; a
+    large `Write` is shown by its path, not as credential access."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    answer = "Here is the report.\n" + "".join(f"Finding {i}: fine.\n" for i in range(20_000)) + "Done.\n"
+    content = "".join(f"x{i} = {i}\n" for i in range(40_000))
+    full = turn.feed(line(type="assistant", message={"id": "msg_1", "model": "claude-opus-5-5", "content": [
+        {"type": "text", "text": answer}, {"type": "thinking", "thinking": answer, "signature": "sig"},
+        {"type": "tool_use", "id": "tu1", "name": "Write", "input": {"file_path": "/w/big.py", "content": content}}]}),
+        50)
+    text, thinking, tool = full.events
+    for event in (text, thinking):
+        assert len(answer) > 262_144 and len(event.data["text"]) <= 60_000
+        assert event.data["text"].startswith("Here is the report.\nFinding 0: fine.")
+        assert event.data["text"].endswith("Finding 19999: fine.\nDone.")
+        assert "characters omitted" in event.data["text"]
+    assert tool.data["hidden"] is False and tool.data["summary"] == "file_path: /w/big.py"
+
+
 def test_can_use_tool_becomes_an_approval_and_the_reply_is_scoped():
     """C-27.1, C-27.2: a permission request waits for a person; allow returns the original
     input and nothing more; the frame is tagged with the request id."""
