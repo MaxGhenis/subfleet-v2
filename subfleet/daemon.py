@@ -116,6 +116,13 @@ WORKER_RETRY_CEILING_S = 60
 #: kinds), before finalization records the failure and goes on without it, so a
 #: turn's finalization waits on its diff for at most a few capped git calls.
 TURN_TREE_TRIES = 3
+#: C-13.1: tries at a finalizing job's salvage while git fails transiently,
+#: before finalization records the failure and goes on without a salvage ref.
+#: Any other failure is recorded at once: retrying it could only fail the same
+#: way, and until finalization ends the attempt holds its lane (2026-09-27: two
+#: finished attempts held Codex lanes for hours on a snapshot that could not
+#: succeed). The worktree is kept either way (C-13.4).
+SALVAGE_TRIES = 3
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -396,6 +403,8 @@ class Daemon:
         self._exit_settle: dict[str, float] = {}
         # C-26.14: attempt id -> transient failures of its end snapshot so far.
         self._tree_failures: dict[str, int] = {}
+        # C-13.1: attempt id -> transient failures of its salvage so far.
+        self._salvage_failures: dict[str, int] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
         # C-5.8a: how long `watch_stop` lets a stopping process live, and what
         # `close()` calls first, on its own thread, to start that bound. Only
@@ -4483,7 +4492,7 @@ class Daemon:
             with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
                 tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
             return
-        artifacts = []
+        artifacts, salvage_error = [], None
         job = self._job(a["job_id"])
         if job["kind"] == "turn":
             # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
@@ -4492,8 +4501,8 @@ class Daemon:
             self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
                              "released from quarantine with writers still live; no end snapshot")
         elif census.verified_empty:
-            artifacts, _ = self._salvage(job, a)
-        with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release}) as tx:
+            artifacts, _, salvage_error = self._salvage(job, a, retry=False)
+        with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release, **({"salvage_error": salvage_error} if salvage_error else {})}) as tx:
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))
@@ -4534,28 +4543,59 @@ class Daemon:
         job = self._job(a["job_id"])
         return Launch((), {}, (), job.get("worktree") or job["workdir"], job["prompt_path"], str(adir / "stdout"), str(adir / "stderr"), None, None)
 
-    def _salvage(self, job: dict, a: dict) -> tuple[list[dict], str | None]:
+    def _salvage(self, job: dict, a: dict, *, retry: bool = True) -> tuple[list[dict], str | None, str | None]:
+        """C-13.1: a writable job's salvage at finalization; the artifacts, the
+        checkpoint (HEAD after) and the error, if salvage failed.
+
+        The receipt `salvage.json` makes a replayed finalization take nothing
+        twice. A transient git failure raises, so the worker tries again with
+        its backoff, until `SALVAGE_TRIES` tries in all have failed (the count is
+        in memory, so a restart starts it again); that failure, or any other, is
+        recorded and finalization goes on without a salvage ref, which ends the
+        attempt and frees its lane. Retention then keeps the dirty worktree
+        (C-13.4). A quarantine's release passes `retry=False`: an operator's
+        one-shot request is never offered again, so it records at once.
+        """
         if job["sandbox"] != "workspace-write":
-            return [], None
+            return [], None, None
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         receipt_path = adir / "salvage.json"
         receipt = self._read_json(receipt_path)
         if receipt is None:
+            workspace = job.get("worktree") or job["workdir"]
             baseline = json.loads(a["evidence_json"] or "{}").get("baseline_commit") or job["workdir_head"]
             cap = self.policy["caps"]["workspace_git_timeout_s"]
-            result = salvage(job.get("worktree") or job["workdir"], baseline, a["seq"],
-                             writable=True, state="finalizing", timestamp=a["reserved_at"],
-                             baseline_tree=a.get("baseline_tree"), timeout_s=cap)
+            result = checkpoint = error = None
+            try:
+                result = salvage(workspace, baseline, a["seq"],
+                                 writable=True, state="finalizing", timestamp=a["reserved_at"],
+                                 baseline_tree=a.get("baseline_tree"), timeout_s=cap)
+                checkpoint = git_head(workspace, timeout_s=cap)
+            except (SalvageError, OSError) as exc:
+                failures = self._salvage_failures[a["attempt_id"]] = self._salvage_failures.get(a["attempt_id"], 0) + 1
+                transient = getattr(exc, "transient", False) or transient_os_error(exc)
+                if retry and transient and failures < SALVAGE_TRIES:
+                    raise
+                # git's own words: paths and refs, never a credential. A snapshot
+                # already written stands when only reading HEAD after it failed.
+                stage = "checkpoint" if result else "salvage"
+                error = f"{stage} failed: {exc}"[:500]
+                self.log.warning("attempt %s %s", a["attempt_id"], error)
+            self._salvage_failures.pop(a["attempt_id"], None)
             receipt = {"result": dataclasses.asdict(result) if result else None,
-                       "checkpoint": git_head(job.get("worktree") or job["workdir"], timeout_s=cap)}
+                       "checkpoint": checkpoint, "error": error}
             self._publish("salvage", receipt_path, json_bytes(receipt))
             self._boundary("salvage", job["job_id"], a["attempt_id"])
         result = receipt["result"]
         if not result:
-            return [], receipt["checkpoint"]
+            return [], receipt["checkpoint"], receipt.get("error")
+        if result.get("skipped"):
+            self.log.warning("attempt %s salvage left out %d path(s) git could not index, first %r",
+                             a["attempt_id"], len(result["skipped"]), result["skipped"][0])
         ref = result.get("ref") or result.get("ref_name")
         commit = result.get("commit") or result.get("commit_sha")
-        return [{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}], receipt["checkpoint"]
+        return ([{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}],
+                receipt["checkpoint"], receipt.get("error"))
 
     def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
         """C-26.10, C-26.14 (design D-25): a turn's end, taken while its leases are held.
@@ -4726,12 +4766,12 @@ class Daemon:
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
         # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
         # its receipt records HEAD after and its end snapshot (C-26.14).
-        trees = None
+        trees = salvage_error = None
         if job["kind"] == "turn":
             salvage_artifacts, checkpoint = [], None
             trees = self._turn_trees(job, a)
         else:
-            salvage_artifacts, checkpoint = self._salvage(job, a)
+            salvage_artifacts, checkpoint, salvage_error = self._salvage(job, a)
         artifacts.extend(salvage_artifacts)
         with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             job = self._job(a["job_id"])
@@ -4756,6 +4796,8 @@ class Daemon:
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
             evidence = json.loads(a["evidence_json"] or "{}")
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint)
+            if salvage_error:
+                evidence["salvage_error"] = salvage_error
             if trees is not None:
                 evidence["turn_trees"] = {k: trees.get(k) for k in ("head_before", "head_after", "start_tree",
                                                                      "end_tree", "error")}
@@ -4796,6 +4838,10 @@ class Daemon:
                     summary += f"\noutput kept, not accepted: {deliverable_path}"
                     if job["out_path"]:
                         summary += f"; -o {job['out_path']} was not written"
+                if salvage_error:
+                    summary += f"\n{salvage_error}"
+                    if not salvage_artifacts:
+                        summary += f"; the worktree is kept: {job.get('worktree') or job['workdir']}"
                 self._notice(tx, job, summary)
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])

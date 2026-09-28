@@ -129,6 +129,12 @@ def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None
 
 def working_tree(workdir: str | Path, baseline_commit: str, *,
                  timeout_s: float | None = None) -> str:
+    """The tree of `snapshot_tree`, for callers that need only the tree."""
+    return snapshot_tree(workdir, baseline_commit, timeout_s=timeout_s)[0]
+
+
+def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
+                  timeout_s: float | None = None) -> tuple[str, tuple[str, ...]]:
     """Snapshot tracked and untracked files without changing the real index.
 
     The temporary index holds ``baseline_commit`` before ``add -A`` records
@@ -148,6 +154,9 @@ def working_tree(workdir: str | Path, baseline_commit: str, *,
     Trusting stat data is git's own model (``git status`` does the same): a
     file rewritten with the same size, mtime and inode is read as unchanged,
     where the empty-index read would hash it.
+
+    Returns the tree and the paths git could not index (`_add_all`), which the
+    tree leaves out.
     """
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
@@ -160,8 +169,44 @@ def working_tree(workdir: str | Path, baseline_commit: str, *,
         if not seeded:
             index.unlink(missing_ok=True)
             _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
-        _git(workdir, "add", "-A", env=env, timeout_s=timeout_s)
-        return _git(workdir, "write-tree", env=env, timeout_s=timeout_s)
+        skipped = _add_all(workdir, env, timeout_s=timeout_s)
+        return _git(workdir, "write-tree", env=env, timeout_s=timeout_s), skipped
+
+
+#: The line `git add --ignore-errors` writes for each path it could not index.
+_UNINDEXABLE = re.compile(r"^error: unable to index file '(.*)'$")
+
+
+def _add_all(workdir: str | Path, env: dict[str, str], *,
+             timeout_s: float | None = None) -> tuple[str, ...]:
+    """`add -A` into the temporary index, leaving out what git cannot index.
+
+    A path git cannot index (a nested repository with no commit checked out, a
+    file that cannot be read) used to fail the whole snapshot, and every retry
+    in the same way: on 2026-09-27 two finished attempts held their Codex lanes
+    for hours in `finalizing`, their salvage failing on a test fixture's empty
+    repository under an untracked scratch directory. `--ignore-errors` indexes
+    everything else and still exits non-zero; the snapshot goes on when every
+    error names a path git could not index, and returns those paths. Any other
+    failure (a `fatal:` line, or a non-zero exit that names no path) fails as
+    before. Paths are decoded as the file system names them (`os.fsdecode`), so
+    a name that is not UTF-8 is carried, not a decoding error.
+    """
+    cap = git_timeout_s(timeout_s)
+    try:
+        result = subprocess.run(["git", "-C", str(workdir), "add", "-A", "--ignore-errors"], env=env,
+                                capture_output=True, timeout=cap)
+    except subprocess.TimeoutExpired as exc:
+        raise SalvageError(f"git add timed out after {cap:g} s", transient=True) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SalvageError(f"git add could not run: {exc}", transient=transient_os_error(exc)) from exc
+    if not result.returncode:
+        return ()
+    lines = [os.fsdecode(line) for line in result.stderr.splitlines()]
+    skipped = tuple(match.group(1) for line in lines if (match := _UNINDEXABLE.match(line)))
+    if not skipped or any(line.startswith("fatal:") for line in lines):
+        raise SalvageError(f"git add failed: {os.fsdecode(result.stderr).strip()}")
+    return skipped
 
 
 def _seed_index(workdir: str | Path, index: Path, *,
@@ -246,6 +291,8 @@ class SalvageResult:
     commit: str
     tree: str
     baseline: str
+    #: Paths git could not index, left out of the snapshot (`snapshot_tree`).
+    skipped: tuple[str, ...] = ()
 
 
 def _stamp(timestamp: str | datetime | None) -> str:
@@ -285,15 +332,18 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
     ref = f"refs/subfleet-salvage/{branch}-{_stamp(timestamp)}-a{seq}"
     # A private temporary directory avoids index-name races and never points
     # git at the user's real index, including in linked worktrees.
-    tree = working_tree(workdir, baseline, timeout_s=timeout_s)
+    tree, skipped = snapshot_tree(workdir, baseline, timeout_s=timeout_s)
     if tree == baseline_tree:
+        # Nothing to commit. Paths it could not index still make the worktree
+        # dirty, so retention keeps it (C-13.4): it removes a dirty worktree
+        # only when a salvage ref holds exactly its current tree.
         return None
     previous = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
     if previous:
         previous_tree = _git(workdir, "rev-parse", f"{previous}^{{tree}}", timeout_s=timeout_s)
         previous_parent = _git(workdir, "rev-parse", f"{previous}^", optional=True, timeout_s=timeout_s)
         if previous_tree == tree and previous_parent == baseline:
-            return SalvageResult(ref, previous, tree, baseline)
+            return SalvageResult(ref, previous, tree, baseline, skipped)
         # Never overwrite a previous snapshot with different bytes.
         ref = f"{ref}-{tree[:12]}"
     commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
@@ -302,7 +352,7 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
     if existing:
         if (_git(workdir, "rev-parse", f"{existing}^{{tree}}", timeout_s=timeout_s) == tree
                 and _git(workdir, "rev-parse", f"{existing}^", timeout_s=timeout_s) == baseline):
-            return SalvageResult(ref, existing, tree, baseline)
+            return SalvageResult(ref, existing, tree, baseline, skipped)
         raise SalvageError("salvage reference already names a different snapshot")
     _git(workdir, "update-ref", ref, commit, "0" * 40, timeout_s=timeout_s)
-    return SalvageResult(ref, commit, tree, baseline)
+    return SalvageResult(ref, commit, tree, baseline, skipped)

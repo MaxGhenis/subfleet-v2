@@ -54,7 +54,7 @@ def daemon(tmp_path, monkeypatch):
     core._process_table = shared(ProcessTable({}, "boot"))
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
-    core._salvage = lambda job, a: ([], None)
+    core._salvage = lambda job, a: ([], None, None)
     core._record_identity = lambda *args: None
     core._export = lambda job_id: None
     core.timers = SimpleNamespace(record_auth_dead=lambda *args: None, metadata={})   # C-11.2: the pin roster reads it
