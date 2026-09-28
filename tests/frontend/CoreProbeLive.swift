@@ -82,6 +82,14 @@ func runLive(_ arguments: [String]) throws -> Any {
         return nil
     }
 
+    /// An approval the probe cannot answer leaves its turn waiting and the
+    /// conversation blocked: every later step would wait out its timeouts (five
+    /// minutes) and fail for that reason alone. The run ends there instead.
+    func endRun(after step: String) -> Any {
+        run.check("the run stopped: an approval could not be answered", false, step)
+        return ["checks": run.checks, "notes": run.notes]
+    }
+
     func finalText(_ timeline: Timeline, _ messageID: String) -> String? {
         timeline.turn(messageID)?.items.reversed().compactMap { item -> String? in
             if case .text(let text, true) = item.content { return text }
@@ -202,6 +210,8 @@ func runLive(_ arguments: [String]) throws -> Any {
         } catch {
             run.check("approval.get and approval.respond as the app", false, describe(error))
         }
+    } else {
+        return endRun(after: "5. the tool approval has no approval id")
     }
     let approved = untilState(approvalMessage.key, ["complete", "failed"])
     run.check("the approved turn completes", approved?.state == "complete", approved?.state ?? "")
@@ -224,17 +234,23 @@ func runLive(_ arguments: [String]) throws -> Any {
     // 6. A question, answered with a chosen label.
     let question = try engine.send(conversation: cid, text: "[fake:question]", settings: settings)
     _ = engine.pump()
-    _ = follow(cid) { !($0.turn(question.key)?.pendingApprovals.isEmpty ?? true) }
-    state.apply(approvals: try engine.approvals(conversationID: cid), conversationID: cid)
-    if let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first, let id = questionCard.approvalID {
-        run.check("the question card lists its questions", questionCard.kind == "question"
-                  && questionCard.questions.first?.question == "Which color?"
-                  && questionCard.questions.first?.options?.map(\.label) == ["Blue", "Red"])
-        let detail = try engine.approvalDetail(id)
-        _ = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
-    } else {
-        run.check("the question card lists its questions", false)
+    let asked = follow(cid) { !($0.turn(question.key)?.pendingApprovals.isEmpty ?? true) }
+    // Read at once: the daemon commits an approval with its event (C-27.1), so the
+    // list read right after the card appears already has it.
+    let listed = try engine.approvals(conversationID: cid)
+    state.apply(approvals: listed, conversationID: cid)
+    let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first
+    run.check("the question card joins its approval id from the first list", asked && questionCard?.approvalID != nil,
+              ["card_from_events": asked, "card": questionCard.map(project) ?? NSNull(),
+               "listed": listed.map { "\($0.message_id) \($0.approval_id) \($0.state)" }] as [String: Any])
+    guard let questionCard, let id = questionCard.approvalID else {
+        return endRun(after: "6. the question has no approval id")
     }
+    run.check("the question card lists its questions", questionCard.kind == "question"
+              && questionCard.questions.first?.question == "Which color?"
+              && questionCard.questions.first?.options?.map(\.label) == ["Blue", "Red"], project(questionCard))
+    let detail = try engine.approvalDetail(id)
+    _ = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
     _ = untilState(question.key, ["complete", "failed"])
     _ = follow(cid, timeout: 20) { $0.turn(question.key)?.outcome != nil }
     run.check("the answer reaches the provider", state.timelines[cid].flatMap { finalText($0, question.key) }

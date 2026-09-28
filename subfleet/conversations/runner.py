@@ -21,7 +21,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from ..policy import CONVERSATION_DEFAULTS
 from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
@@ -31,7 +31,7 @@ from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
 from .reconcile import USER_FRAME
 from .store import ConversationError, ConversationStore
-from .turn import APPROVAL_NEEDED, RUNNING, Frame, Step, TurnSpec
+from .turn import RUNNING, Approval, Frame, Step, TurnSpec
 
 FLUSH_S = 0.25
 FLUSH_BYTES = 64 * 1024
@@ -349,14 +349,13 @@ class TurnRunner:
                                      turn_ref=event.data.get("turn_id") or self.message_id)
         for frame in step.frames:
             self.outbox.append(frame)
-        for approval in step.approvals:
-            self._flush()
-            self.store.add_approval(message_id=self.message_id, conversation_id=self.conversation_id,
-                                    attempt_id=self.attempt_id, provider_request_id=approval.provider_request_id,
-                                    kind=approval.kind, request=approval.request, display=approval.summary,
-                                    options=approval.options)
-            self.approval_seen.setdefault(approval.provider_request_id, self.clock())
-            self.store.set_state(self.message_id, APPROVAL_NEEDED, expect=("running", "starting"))
+        if step.approvals:
+            # The approvals, the batch holding their `approval.requested` events and
+            # the move to approval-needed commit together: a reader that has the
+            # event finds the approval (C-27.1, design §8).
+            self._flush(approvals=step.approvals)
+            for approval in step.approvals:
+                self.approval_seen.setdefault(approval.provider_request_id, self.clock())
         if step.resolved:
             self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
             for rid in step.resolved:
@@ -589,14 +588,17 @@ class TurnRunner:
     def _flush_due(self) -> bool:
         return bool(self.batch) and (self.batch_bytes >= FLUSH_BYTES or self.clock() - self.last_flush >= FLUSH_S)
 
-    def _flush(self) -> None:
-        if not self.batch:
+    def _flush(self, approvals: Sequence[Approval] = ()) -> None:
+        if not self.batch and not approvals:
             self.last_flush = self.clock()
             return
         batch, self.batch, self.batch_bytes = self.batch, [], 0
         self.store.append_events(conversation_id=self.conversation_id, message_id=self.message_id,
                                  attempt_id=self.attempt_id, events=batch, stdout_offset=self.offset,
-                                 stdin_seq=self.next_seq - 1)
+                                 stdin_seq=self.next_seq - 1,
+                                 approvals=[{"provider_request_id": a.provider_request_id, "kind": a.kind,
+                                             "request": a.request, "display": a.summary, "options": a.options}
+                                            for a in approvals])
         self.last_flush = self.clock()
 
     def _write_outcome(self) -> None:

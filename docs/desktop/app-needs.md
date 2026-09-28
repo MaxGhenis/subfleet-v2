@@ -50,8 +50,12 @@ the others are read from the code cited.
    them by message, kind and display fields (which are equal: the event's data
    minus `request_id`, `kind`, `options` is the stored `display`), and creates a
    card from the view when the event has not arrived yet (`Timeline.attach`).
-   Two identical requests in one turn would still pair in order. Ask: add
-   `approval_id` to the event's data and `request_id` to the view.
+   Two identical requests in one turn would still pair in order. The approval
+   commits with its event (C-27.1), so `approval.list` read after the event
+   has the approval while it is pending; before that fix it could commit a
+   few milliseconds (under load, over 100 ms) after the event, and a card
+   read at once had no id. Ask: add `approval_id` to the event's data and
+   `request_id` to the view.
 
 6. **A withdrawn approval has no event and no change row.** When a turn ends,
    the driver withdraws pending requests (`_end` returns them as `resolved`)

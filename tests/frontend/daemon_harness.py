@@ -37,7 +37,7 @@ from subfleet.conversations.claude_turn import ClaudeTurn
 from subfleet.conversations.codex_turn import CodexTurn
 from subfleet.conversations.peers import Verdict, peer_pid
 from subfleet.conversations.service import ConversationService
-from subfleet.conversations.turn import APPROVAL_NEEDED, RUNNING, TurnSpec
+from subfleet.conversations.turn import RUNNING, TurnSpec
 from subfleet.daemon import busy_answer
 
 REPO = Path(__file__).resolve().parents[2]
@@ -139,18 +139,18 @@ class Attempt:
         """runner.TurnRunner._apply, without the relay."""
         batch = [("command" if e.source.startswith("cmd:") else "stdout", e.source, 0, e.kind, e.data)
                  for e in step.events]
-        if batch:
+        if batch or step.approvals:
+            # An approval commits with its `approval.requested` event and the move
+            # to approval-needed (C-27.1).
             self.store.append_events(conversation_id=self.cid, message_id=self.mid, attempt_id=self.attempt_id,
-                                     events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq)
+                                     events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq,
+                                     approvals=[{"provider_request_id": a.provider_request_id, "kind": a.kind,
+                                                 "request": a.request, "display": a.summary, "options": a.options}
+                                                for a in step.approvals])
         self.stdin_seq += len(step.frames)
         for event in step.events:
             if event.kind == "accepted":
                 self.store.set_state(self.mid, RUNNING, expect=("queued", "waiting", "starting"))
-        for approval in step.approvals:
-            self.store.add_approval(message_id=self.mid, conversation_id=self.cid, attempt_id=self.attempt_id,
-                                    provider_request_id=approval.provider_request_id, kind=approval.kind,
-                                    request=approval.request, display=approval.summary, options=approval.options)
-            self.store.set_state(self.mid, APPROVAL_NEEDED, expect=("running", "starting"))
         if step.resolved:
             self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
             if not self.store.approvals(message_id=self.mid) and self.driver.outcome is None:
