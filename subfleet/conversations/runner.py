@@ -118,6 +118,7 @@ class TurnRunner:
         # C-26.8: after a message an earlier runner sent (or began to send), this one
         # does not ask `get_settings`; that includes attempts from before it existed.
         self.replayed_message = USER_FRAME in self.sent
+        self.handshake_done_once = False
         self.relay_failed = False
         self.handshaken = False
         self.relay_version: int | None = None
@@ -405,6 +406,12 @@ class TurnRunner:
             return False                    # asked again later; nothing is sent meanwhile
         self.resends = 0
         unwritten = self._load_log()
+        # C-26.8 (review of b0b3f153): the first handshake's log is final, so a message
+        # the previous daemon had in flight counts as sent by an earlier runner. A later
+        # handshake (after a lost answer) finds this runner's own message, not one.
+        if not self.handshake_done_once:
+            self.replayed_message = self.replayed_message or USER_FRAME in self.sent
+        self.handshake_done_once = True
         self.handshaken = True
         if status is not None:
             self.relay_version = status.get("version")

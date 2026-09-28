@@ -225,6 +225,26 @@ def test_c26_8_the_served_chip_shows_what_served_the_turn(core_probe, tmp_path, 
     assert out["stops"][mid] == {"action": "none"}
 
 
+def test_c26_8_an_effort_the_provider_did_not_confirm_is_labelled_so(core_probe, tmp_path, harness):
+    """Review of b0b3f153, P2: with no `get_settings` answer the chip shows what was
+    asked for, marked unconfirmed, never as what served the turn."""
+    cid = harness.create()["conversation_id"]
+    mid = harness.call("message.submit", conversation_id=cid, message_id=str(uuid.uuid4()), after_message_id=None,
+                       text="go", attachments=[], settings=harness.settings(effort="high"))["message_id"]
+    turn = harness.attempt(cid, mid)
+    turn.feed(claude_init(email="served@example.invalid"),
+              {"type": "user", "uuid": mid, "isReplay": True, "message": {"role": "user", "content": "go"}},
+              {"type": "system", "subtype": "init", "model": "claude-opus-5-5", "permissionMode": "default",
+               "fast_mode_state": "off"},
+              claude_assistant("m1", [{"type": "text", "text": "ok"}]), claude_result())
+    out = store(core_probe, tmp_path, [
+        {"list": harness.call("conversation.list")},
+        {"open": harness.call("conversation.open", conversation_id=cid)},
+        {"events": harness.call("conversation.events", conversation_id=cid, after=0), "conversation_id": cid},
+    ])
+    assert out["chips"][mid]["effort"] == "high (unconfirmed)"
+
+
 def test_c26_8_a_codex_chip_names_the_lane_account_from_status(core_probe, tmp_path, harness):
     """Codex reports no account; the lane's label in status.json names it."""
     cid = "cv-codex"

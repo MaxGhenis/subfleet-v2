@@ -233,9 +233,10 @@ func makeServedChip(for turn: TurnTimeline, provider: String, laneLabels: [Strin
         warnings.append("Fast was asked for; this turn ran at standard speed")
     }
     let account = served.account ?? served.lane_id.flatMap { laneLabels[$0] ?? $0 }
-    // C-26.8: the effort the provider reported applying ("none": its own default);
-    // a provider that reported none leaves what was asked for.
-    let effort = served.effort == "none" ? "default effort" : served.effort ?? served.effort_requested ?? turn.settings?.effort
+    // C-26.8: the effort the provider reported applying ("none": its own default).
+    // When it reported nothing, what was asked for is shown as unconfirmed.
+    let asked = served.effort_requested ?? turn.settings?.effort
+    let effort = served.effort == "none" ? "default effort" : served.effort ?? asked.map { "\($0) (unconfirmed)" }
     return ServedChip(account: account, model: served.model, effort: effort,
                       fast: fast, warnings: warnings)
 }

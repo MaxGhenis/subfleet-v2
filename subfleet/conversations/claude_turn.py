@@ -294,6 +294,8 @@ class ClaudeTurn:
             # finished it (C-24.8).
             if kind == "result":
                 self.terminal_after_end = True
+            if kind == "control_response" and (row.get("response") or {}).get("request_id") == SETTINGS_REQUEST_ID:
+                return self._settings(row["response"], source)      # C-26.8: evidence, not an outcome
             if kind in ("assistant", "user", "stream_event") and not row.get("parent_tool_use_id"):
                 handler = {"assistant": self._assistant, "user": self._user, "stream_event": self._stream_event}[kind]
                 step = handler(row, source)

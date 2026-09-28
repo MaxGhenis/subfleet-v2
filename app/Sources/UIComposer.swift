@@ -154,6 +154,7 @@ struct ComposerView: View {
                         next.model = value
                         let entry = options.models.first { $0.value == value }?.model
                         if let effort = next.effort, let efforts = entry?.efforts, !efforts.contains(effort) { next.effort = nil }
+                        if entry?.fast.supported == false { next.fast = false }   // the toggle is disabled there
                         settings = next
                     })) {
                         ForEach(options.models) { choice in Text(choice.label).tag(choice.value) }

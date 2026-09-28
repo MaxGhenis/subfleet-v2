@@ -536,3 +536,18 @@ def test_get_settings_follows_only_a_message_this_runner_sent(make_runner, monke
     runner.outbox = [Frame(USER_FRAME, "write", "{}\n"), Frame(SETTINGS_FRAME, "write", "{}\n")]
     runner._send_outbox()
     assert written == sent and runner.outbox == []
+
+
+def test_a_message_the_handshake_finds_written_is_not_followed_by_get_settings(make_runner, monkeypatch):
+    """C-26.8 (review of b0b3f153, P3): the log read at construction can still show the
+    previous daemon's message frame in flight; the handshake's final read decides."""
+    from subfleet.conversations.reconcile import USER_FRAME
+    runner, _, _ = make_runner(Clocks())
+    assert runner.replayed_message is False
+    monkeypatch.setattr(runner.relay, "status", lambda: None)            # a relay older than version 2
+
+    def load():
+        runner.sent, runner.logged = {"init": "written", USER_FRAME: "written"}, 2
+        return False
+    monkeypatch.setattr(runner, "_load_log", load)
+    assert runner._handshake() is True and runner.replayed_message is True

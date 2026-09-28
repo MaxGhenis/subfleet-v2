@@ -302,3 +302,16 @@ def test_c26_8_default_effort_null_turns_every_default_off(svc, monkeypatch):
     submit(svc, conversation(svc))
     svc._dispatch()
     assert turns[0]["settings"]["effort"] is None
+
+
+def test_c26_8_a_settings_answer_after_the_result_still_records_the_served_effort():
+    """Review of b0b3f153, P3: a quick result can overtake the answer; the answer is
+    evidence about the turn and is recorded without changing its outcome."""
+    turn = ClaudeTurn(spec(effort=ULTRACODE), read_bytes=lambda p: b"")
+    started(turn)
+    end = turn.feed(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "ok",
+                                "session_id": SID}), 800)
+    assert end.outcome is not None
+    late = turn.feed(_answer(OPUS_ULTRA), 900)
+    assert [e.data for e in late.events if e.kind == "served"] == [{"effort": ULTRACODE}]
+    assert late.outcome is None and turn.outcome is end.outcome
