@@ -71,6 +71,8 @@ final class UIModel: ObservableObject {
         guard !started, engine != nil else { return }
         started = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        // Sends a previous run left stopped or failing show before the daemon answers.
+        Task { await refreshSends() }
         Task { await connect() }
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pump() }
@@ -404,6 +406,7 @@ final class UIModel: ObservableObject {
                     return key
                 }
                 _ = key
+                await refreshSends()
                 pump()
             } catch {
                 report(error)
@@ -423,6 +426,7 @@ final class UIModel: ObservableObject {
                     try engine.send(conversation: conversationID, text: text, staged: staged, settings: settings,
                                     messageID: messageID)
                 }
+                await refreshSends()
                 pump()
             } catch {
                 report(error)
@@ -433,14 +437,16 @@ final class UIModel: ObservableObject {
     func pump() {
         guard let engine, state.availability.isReady else { return }
         Task {
-            let (report, texts) = await onOutbox { () -> (OutboxSender.Report, [String: String]) in
+            let (report, texts, sends) = await onOutbox { () -> (OutboxSender.Report, [String: String], [OutboxEntry]) in
                 let report = engine.pump()
                 var texts: [String: String] = [:]
                 for receipt in report.receipts {
                     if let text = engine.outbox.text(of: receipt.message_id) { texts[receipt.message_id] = text }
                 }
-                return (report, texts)
+                return (report, texts, engine.openSends())
             }
+            // Before the early return: a send that keeps failing changes nothing else (C-29.12).
+            applySends(sends)
             guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty else { return }
             for receipt in report.receipts {
                 state.apply(receipt: receipt)
@@ -452,7 +458,58 @@ final class UIModel: ObservableObject {
                 state.upsert(conversation)
                 if state.focusedConversationID == nil { focus(conversation.conversation_id) }
             }
-            if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }
+            if !report.failed.isEmpty { problem = stoppedWords(report.failed) }
+        }
+    }
+
+    /// The status line for sends that stopped this pump; where each says why.
+    private func stoppedWords(_ keys: [String]) -> String {
+        let creates = keys.filter { state.sends[$0]?.kind == .conversationCreate }.count
+        let messages = keys.count - creates
+        var parts: [String] = []
+        if messages > 0 {
+            parts.append(messages == 1 ? "A message was not sent; its conversation says why"
+                                       : "\(messages) messages were not sent; their conversations say why")
+        }
+        if creates > 0 {
+            parts.append(creates == 1 ? "a new conversation did not start; the banner above says why"
+                                      : "\(creates) new conversations did not start; the banners above say why")
+        }
+        let words = parts.joined(separator: "; ")
+        return words.prefix(1).uppercased() + words.dropFirst() + "."
+    }
+
+    /// Read the outbox's open entries (on its queue) into the state.
+    func refreshSends() async {
+        guard let engine else { return }
+        applySends(await onOutbox { engine.openSends() })
+    }
+
+    /// Set only when they changed: `state` is published, and an unchanged pump
+    /// every 2 s would redraw every view for nothing.
+    private func applySends(_ sends: [OutboxEntry]) {
+        if state.differs(sends: sends) { state.apply(sends: sends) }
+    }
+
+    /// The person's choice on a send that is not going through (C-29.12).
+    func act(_ action: SendNotice.Action, on key: String) {
+        switch action {
+        case .withdraw:
+            stop(.withdraw(messageID: key))
+        case .sendNow, .tryAgain:
+            guard let engine else { return }
+            Task {
+                do {
+                    let sends = try await onOutbox { () throws -> [OutboxEntry] in
+                        try engine.sendNow(key)
+                        return engine.openSends()
+                    }
+                    applySends(sends)
+                    pump()
+                } catch {
+                    report(error)
+                }
+            }
         }
     }
 
@@ -465,7 +522,11 @@ final class UIModel: ObservableObject {
             do {
                 if case .withdraw(let key) = action {
                     // D-22: a journaled message; a withdrawal before the daemon had it has no receipt.
-                    switch try await onOutbox({ try engine.withdrawSend(key) }) {
+                    let (result, sends) = try await onOutbox { () throws -> (ConversationEngine.WithdrawResult, [OutboxEntry]) in
+                        (try engine.withdrawSend(key), engine.openSends())
+                    }
+                    applySends(sends)
+                    switch result {
                     case .withdrawn(let receipt?), .stopped(let receipt?): state.apply(receipt: receipt)
                     case .withdrawn(nil): state.withdrawLocal(messageID: key)
                     case .stopped(nil): break

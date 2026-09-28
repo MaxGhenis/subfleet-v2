@@ -20,6 +20,12 @@ struct MainWindow: View {
                 if let banner = model.state.availability.banner {
                     StatusBanner(title: banner.title, detail: banner.detail, symbol: "bolt.slash")
                 }
+                ForEach(model.state.createNotices, id: \.key) { notice in
+                    // A new conversation has no conversation view to say this in yet (C-29.12).
+                    CreateNoticeBanner(notice: notice, workspace: model.state.sends[notice.key]?.create?.workspace) {
+                        model.act($0, on: notice.key)
+                    }
+                }
                 if let locked = model.lockedEntry {
                     LockedSessionView(entry: locked)
                 } else if let conversation = model.state.focusedConversation {
@@ -197,6 +203,12 @@ struct SidebarRow: View {
             if entry.blockedBy != nil {
                 Image(systemName: "exclamationmark.octagon").foregroundStyle(.red).help("Needs your decision")
             }
+            if let problem = entry.sendProblem {
+                Image(systemName: "exclamationmark.bubble")
+                    .foregroundStyle(problem == .retrying ? Color.orange : Color.red)
+                    .help(problem == .retrying ? "A message here has not been sent yet; the app keeps trying"
+                                               : "A message here was not sent and needs you")
+            }
             if entry.active {
                 ProgressView().controlSize(.mini)
             }
@@ -241,7 +253,9 @@ struct ConversationView: View {
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
         // Messages waiting their turn sit in the tray above the composer, not in the timeline (C-29.7).
-        let layout = timeline?.layout(held: conversation.blocked_by != nil)
+        // A send that is not going through carries its notice on its tray row (C-29.12).
+        let layout = model.state.layout(conversationID: conversation.conversation_id,
+                                        held: conversation.blocked_by != nil)
         VStack(spacing: 0) {
             header
             RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
@@ -303,6 +317,17 @@ struct ConversationView: View {
                               stop: { model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil)) })
                     .padding(.horizontal, 14).padding(.top, 6)
             }
+            if let stuck = model.state.stuckSend(in: conversation.conversation_id) {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.bubble").foregroundStyle(stuck.kind == .retrying ? .orange : .red)
+                    // Sends go in order (D-22), so what is sent now queues behind the stuck one;
+                    // the stuck one shows its notice under its bubble or on its tray row.
+                    Text("A message here has not been sent. What you send now waits behind it until it is sent or withdrawn.")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 14).padding(.top, 6)
+            }
             if conversation.live_elsewhere == true {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "rectangle.on.rectangle").foregroundStyle(.orange)
@@ -318,7 +343,8 @@ struct ConversationView: View {
             }
             if let layout, let title = layout.trayTitle {
                 // The queue, pinned above the composer however far the timeline scrolls.
-                QueueTray(title: title, rows: layout.tray, withdrawing: withdrawing, withdraw: withdrawQueued)
+                QueueTray(title: title, rows: layout.tray, withdrawing: withdrawing, withdraw: withdrawQueued,
+                          act: { row, action in model.act(action, on: row.id) })
                     .padding(.horizontal, 14).padding(.top, 6)
             }
             ComposerView(model: model, conversation: conversation)
@@ -451,11 +477,17 @@ struct TimelineRow: View {
             }
         case .person(let text, let attachments, _):
             let turn = item.messageID.flatMap { model.state.timelines[conversation.conversation_id]?.turn($0) }
+            let notice = item.messageID.flatMap {
+                model.state.sendNotice(conversationID: conversation.conversation_id, messageID: $0)
+            }
             VStack(alignment: .trailing, spacing: 4) {
                 PersonBubble(text: text ?? "(message text not available)", footer: attachments.isEmpty ? nil
                              : "\(attachments.count) image\(attachments.count == 1 ? "" : "s")")
                 if let turn {
-                    TurnStatusLine(model: model, conversation: conversation, turn: turn)
+                    TurnStatusLine(model: model, conversation: conversation, turn: turn, notice: notice)
+                }
+                if let notice, notice.kind != .waiting {
+                    SendNoticeView(notice: notice) { model.act($0, on: notice.key) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -497,23 +529,84 @@ struct PersonBubble: View {
     }
 }
 
+/// A send that is not going through (C-29.12): the daemon's last answer, its fix,
+/// and the person's choices. Orange while the app keeps trying, red once it stopped.
+struct SendNoticeView: View {
+    let notice: SendNotice
+    let act: (SendNotice.Action) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let detail = notice.detail {
+                Text(detail).font(.callout).textSelection(.enabled)
+            }
+            if let fix = notice.fix {
+                Label("To fix: \(fix)", systemImage: "wrench.and.screwdriver").font(.caption).textSelection(.enabled)
+            }
+            if let then = notice.then {
+                Text(then).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 12) {
+                ForEach(notice.actions, id: \.self) { action in
+                    Button(action.label) { act(action) }.buttonStyle(.link).font(.caption)
+                }
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: 640, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8)
+            .fill((notice.kind == .retrying ? Color.orange : Color.red).opacity(0.1)))
+        .help(notice.reason.map { "The daemon's reason: \($0)" } ?? "")
+    }
+}
+
+/// A new conversation whose create is not going through (C-29.12).
+struct CreateNoticeBanner: View {
+    let notice: SendNotice
+    let workspace: String?
+    let act: (SendNotice.Action) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            StatusBanner(title: (workspace.map { "The new conversation in \(abbreviatedPath($0))" } ?? "A new conversation")
+                         + (notice.kind == .retrying ? " has not started yet; the app keeps trying" : " did not start"),
+                         detail: [notice.detail, notice.fix.map { "To fix: \($0)" }, notice.then]
+                            .compactMap { $0 }.joined(separator: " "),
+                         symbol: "exclamationmark.bubble")
+            HStack(spacing: 12) {
+                ForEach(notice.actions, id: \.self) { action in
+                    Button(action.label) { act(action) }.buttonStyle(.link).font(.caption)
+                }
+            }
+            .padding(.horizontal, 10).padding(.bottom, 6)
+        }
+    }
+}
+
 struct TurnStatusLine: View {
     @ObservedObject var model: UIModel
     let conversation: Conversation
     let turn: TurnTimeline
+    /// The send is not going through (C-29.12): its words replace "Sending".
+    var notice: SendNotice? = nil
 
     var body: some View {
         HStack(spacing: 8) {
             let live = turn.messageState.map { [.waiting, .starting, .running, .approvalNeeded].contains($0) } ?? (turn.state == "sending")
-            if live { ProgressView().controlSize(.mini) }
-            Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
+            // A stopped send is not live; the notice below says what to do.
+            let stopped = notice.map { $0.kind == .needsPerson || $0.kind == .refused } ?? false
+            if live && !stopped { ProgressView().controlSize(.mini) }
+            Text(notice?.status ?? turn.statusText).font(.caption)
+                .foregroundStyle(stopped ? Color.red : notice?.kind == .retrying ? Color.orange : Color.secondary)
             if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
                 ServedChipView(chip: chip)
             }
             // Stop while the turn runs; Withdraw while the message waits (a queued
             // continuation under the message it continues, or a send with no receipt).
-            let action = stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil)
-            if let label = stopLabel(action) {
+            // A send that is not going through has its notice's own Withdraw (C-29.12).
+            let action = stopAction(for: turn.messageID, state: turn.state,
+                                    outboxEntry: model.state.sends[turn.messageID])
+            if let label = stopLabel(action), notice == nil || notice?.kind == .waiting {
                 Button(label) { model.stop(action) }.buttonStyle(.link).font(.caption)
                     .help(label == "Stop" ? "Stop this turn" : "Withdraw this message; it is not sent")
             }

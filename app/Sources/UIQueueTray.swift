@@ -15,6 +15,8 @@ struct QueueTray: View {
     let withdraw: (QueuedMessage) -> Void
     /// Steer a row into the running turn; nil until the daemon offers it (`steer.v1`).
     var steer: ((QueuedMessage) -> Void)? = nil
+    /// A row's notice action (Send now, Try again) on a send that is not going through (C-29.12).
+    var act: ((QueuedMessage, SendNotice.Action) -> Void)? = nil
     @State private var expanded = false
 
     var body: some View {
@@ -51,36 +53,51 @@ struct QueueTray: View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(shown) { row in
                 QueueTrayRow(row: row, busy: withdrawing.contains(row.id), withdraw: { withdraw(row) },
-                             steer: steer.map { steer in { steer(row) } })
+                             steer: steer.map { steer in { steer(row) } },
+                             act: act.map { act in { act(row, $0) } })
             }
         }
     }
 }
 
 /// One queued message: up to two lines of it, why it waits when that is not
-/// simply its turn, and Withdraw.
+/// simply its turn, and Withdraw. A send that is not going through says so in
+/// its status, orange while the app keeps trying and red once it stopped, with
+/// the daemon's fix under it and its Send now or Try again (C-29.12).
 struct QueueTrayRow: View {
     let row: QueuedMessage
     /// Its Withdraw is under way.
     var busy = false
     let withdraw: () -> Void
     var steer: (() -> Void)? = nil
+    var act: ((SendNotice.Action) -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: row.origin == "unblock-note" ? "note.text" : row.sending ? "paperplane" : "clock")
-                .font(.caption).foregroundStyle(.secondary)
+            Image(systemName: icon).font(.caption).foregroundStyle(tone)
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.preview).font(.callout).lineLimit(2).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help(row.text ?? row.preview)
                 if let status = row.status {
-                    Text(status).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(status).font(.caption2).foregroundStyle(tone).lineLimit(1)
+                        .help(row.noticeHelp ?? status)
+                }
+                if let line = row.noticeLine {
+                    Text(line).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                        .textSelection(.enabled)
+                        .help(row.noticeHelp ?? line)
                 }
             }
             if busy {
                 ProgressView().controlSize(.mini).help("Withdrawing")
             } else if row.canWithdraw {
+                if let act {
+                    ForEach(row.noticeActions, id: \.self) { action in
+                        Button(action.label) { act(action) }.buttonStyle(.link).font(.caption)
+                            .accessibilityLabel(action.label + ": " + row.preview)
+                    }
+                }
                 if row.canSteer, let steer {
                     Button("Steer", action: steer).buttonStyle(.link).font(.caption)
                         .help("Send it into the running turn now instead of after it")
@@ -90,6 +107,19 @@ struct QueueTrayRow: View {
                     .help("Withdraw this message; it is not sent")
                     .accessibilityLabel("Withdraw: " + row.preview)
             }
+        }
+    }
+
+    private var icon: String {
+        if let kind = row.notice?.kind, kind != .waiting { return "exclamationmark.bubble" }
+        return row.origin == "unblock-note" ? "note.text" : row.sending ? "paperplane" : "clock"
+    }
+
+    private var tone: Color {
+        switch row.notice?.kind {
+        case .retrying?: return .orange
+        case .needsPerson?, .refused?: return .red
+        case .waiting?, nil: return .secondary
         }
     }
 }

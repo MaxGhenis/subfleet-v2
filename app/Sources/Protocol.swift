@@ -68,6 +68,15 @@ struct DaemonError: Error, Codable, Equatable {
     /// Exit 1, an operational failure, or 69, busy: nothing says the request
     /// changed anything, so it may be sent again as it is.
     var isTransient: Bool { code == 1 || isBusy }
+
+    /// Exit-1 reasons whose fix only the person can carry out: sending again
+    /// unchanged cannot succeed until they have (docs/decisions/2026-09-27-app-send-failures.md).
+    /// `copy-blocked`: a directory sits at a stored image's name (attachments.py `add`).
+    static let personActionReasons: Set<String> = ["copy-blocked"]
+
+    /// An operational failure the person must act on first; the outbox stops
+    /// retrying it and asks (C-28.3).
+    var needsPerson: Bool { code == 1 && reason.map(DaemonError.personActionReasons.contains) == true }
 }
 
 // MARK: - Operations

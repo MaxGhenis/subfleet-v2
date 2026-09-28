@@ -13,6 +13,8 @@
 //   next and shows in the timeline, where the person's own send always shows.
 // Everything else stays in the timeline. A message withdrawn before it started
 // reads as one line there, not as a bubble: it never reached the provider.
+// A send that is not going through carries its notice where its row is: under
+// its bubble in the timeline, or on its tray row (C-29.12).
 
 import Foundation
 
@@ -40,8 +42,36 @@ struct QueuedMessage: Identifiable, Equatable {
     /// unblock note, which the person does not withdraw: without it the next turn
     /// resumes the stopped one, silently turning "Leave it" into "Continue it".
     var withdraw: StopAction
+    /// The send is not going through (C-29.12; `ConversationStoreState.layout`).
+    var notice: SendNotice? = nil
 
     var canWithdraw: Bool { withdraw != .none }
+
+    /// Attach a send's notice: its status replaces "Sending". Nil leaves the row as it is.
+    mutating func attach(_ notice: SendNotice?) {
+        guard let notice else { return }
+        self.notice = notice
+        status = notice.status
+    }
+
+    /// The notice's actions the row shows beside its own Withdraw, which withdraws
+    /// a send with no receipt the way the notice's Withdraw would (D-22).
+    var noticeActions: [SendNotice.Action] { notice?.actions.filter { $0 != .withdraw } ?? [] }
+
+    /// The row's second caption for a send that is not going through: the daemon's
+    /// fix when it gave one, else its answer; nil for a message that only waits.
+    var noticeLine: String? {
+        guard let notice, notice.kind != .waiting else { return nil }
+        return notice.fix.map { "To fix: " + $0 } ?? notice.detail
+    }
+
+    /// Everything the notice says, for the row's tooltip.
+    var noticeHelp: String? {
+        guard let notice else { return nil }
+        let parts = [notice.detail, notice.fix.map { "To fix: " + $0 }, notice.then,
+                     notice.reason.map { "The daemon's reason: " + $0 }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n")
+    }
 }
 
 /// The conversation view in two parts: the scrolling timeline, and the queue

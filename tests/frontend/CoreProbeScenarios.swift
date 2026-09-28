@@ -47,6 +47,20 @@ func fileMode(_ path: String) -> String {
     return String(info.st_mode & 0o777, radix: 8)
 }
 
+func project(_ failure: OutboxFailure) -> [String: Any] {
+    ["code": failure.code as Any? ?? NSNull(), "reason": failure.reason as Any? ?? NSNull(), "message": failure.message,
+     "retryable": failure.retryable, "fix": failure.fix as Any? ?? NSNull(),
+     "consecutive": failure.consecutive as Any? ?? NSNull(), "count": failure.count, "detail": failure.detail,
+     "needs_person": failure.needsPerson]
+}
+
+func project(_ notice: SendNotice) -> [String: Any] {
+    ["key": notice.key, "kind": notice.kind.rawValue, "status": notice.status,
+     "detail": notice.detail as Any? ?? NSNull(), "reason": notice.reason as Any? ?? NSNull(),
+     "fix": notice.fix as Any? ?? NSNull(), "then": notice.then as Any? ?? NSNull(), "failures": notice.failures,
+     "actions": notice.actions.map(\.rawValue), "labels": notice.actions.map(\.label)]
+}
+
 func project(_ entry: OutboxEntry) -> [String: Any] {
     [
         "key": entry.key, "kind": entry.kind.rawValue, "order": entry.order, "conversation": entry.conversation,
@@ -54,12 +68,20 @@ func project(_ entry: OutboxEntry) -> [String: Any] {
         "last_after": entry.lastAfterMessageID as Any? ?? NSNull(),
         "waiting_for_predecessor": entry.waitingForPredecessor,
         "next_attempt_at": entry.nextAttemptAt as Any? ?? NSNull(),
-        "failure": entry.failure.map { ["code": $0.code as Any? ?? NSNull(), "reason": $0.reason as Any? ?? NSNull(),
-                                        "message": $0.message, "retryable": $0.retryable] } as Any? ?? NSNull(),
+        "failure": entry.failure.map(project) as Any? ?? NSNull(),
         "receipt": entry.receipt.map(jsonObject) as Any? ?? NSNull(),
         "conversation_id": entry.conversationID as Any? ?? NSNull(),
         "text": entry.message?.text as Any? ?? NSNull(),
+        "notice": Outbox.notice(entry).map(project) as Any? ?? NSNull(),
     ]
+}
+
+func project(_ result: ConversationEngine.WithdrawResult) -> [String: Any] {
+    switch result {
+    case .withdrawn(let receipt): return ["outcome": "withdrawn", "receipt": receipt.map(jsonObject) as Any? ?? NSNull()]
+    case .stopped(let receipt): return ["outcome": "stopped", "receipt": receipt.map(jsonObject) as Any? ?? NSNull()]
+    case .inFlight: return ["outcome": "in-flight"]
+    }
 }
 
 func project(_ report: OutboxSender.Report) -> [String: Any] {
@@ -116,7 +138,9 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                 let settings = try step["settings"]?.decode(ConversationSettings.self) ?? ConversationSettings(model: "opus[1m]")
                 let entry = try outbox.enqueueSubmit(conversation: resolve(step["conversation"]?.string),
                                                      messageID: step["message_id"]?.string ?? Outbox.newMessageID(),
-                                                     text: step["text"]?.string ?? "", settings: settings)
+                                                     text: step["text"]?.string ?? "",
+                                                     staged: try step["staged"]?.decode([StagedAttachment].self) ?? [],
+                                                     settings: settings)
                 results.append(["do": action, "key": entry.key, "conversation": entry.conversation])
             case "pump":
                 results.append(["do": action, "report": project(sender.pump())])
@@ -147,6 +171,17 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
             case "retry":
                 try outbox.retry(resolve(step["key"]?.string))
                 results.append(["do": action])
+            case "send-now":
+                // The person's "Send now" or "Try again" (C-29.12).
+                try outbox.sendNow(resolve(step["key"]?.string))
+                results.append(["do": action])
+            case "notices":
+                results.append(["do": action, "notices": Outbox.notices(outbox.entries).mapValues(project),
+                                "entries": outbox.entries.map(project)])
+            case "withdraw-send":
+                // The app's Withdraw: the engine's outcome, as UIModel.stop reads it.
+                let engine = ConversationEngine(client: client, outbox: outbox)
+                results.append(["do": action, "result": project(try engine.withdrawSend(resolve(step["key"]?.string)))])
             case "advance":
                 clock.now = clock.now.addingTimeInterval(step["seconds"]?.double ?? 0)
                 results.append(["do": action])
@@ -181,9 +216,82 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
     }
     return [
         "results": results, "calls": calls, "entries": outbox.entries.map(project),
+        "notices": Outbox.notices(outbox.entries).mapValues(project),
         "chains": outbox.journal.chains.mapValues { $0.lastPersonMessageID as Any? ?? NSNull() },
         "journal_mode": fileMode(journal), "directory_mode": fileMode(url.deletingLastPathComponent().path),
     ]
+}
+
+// MARK: - Answers without a socket
+
+/// One scripted answer to a send, as the sender hands it to `Outbox.finish`.
+func scriptedOutcome(_ answer: JSONValue, key: String, conversation: String, seq: Int) throws -> OutboxOutcome {
+    if answer["ok"]?.bool == true {
+        return .submitted(Receipt(message_id: key, conversation_id: conversation, seq: seq, origin: "person",
+                                  state: "queued", created: true))
+    }
+    if let daemon = answer["daemon"] {
+        return .failed(.daemon(DaemonError(code: daemon["code"]?.int ?? 1, message: daemon["message"]?.string ?? "",
+                                           fix: daemon["fix"]?.string)))
+    }
+    switch answer.string {
+    case "timeout": return .failed(.timedOut(op: "message.submit", seconds: 15))
+    case "unavailable": return .failed(.unavailable("The Subfleet daemon is not running at /tmp/sf/daemon.sock."))
+    case "transport": return .failed(.transport("the daemon closed the connection without an answer"))
+    case "malformed": return .failed(.malformed("message.submit: not a protocol response"))
+    case "too-large": return .failed(.requestTooLarge(bytes: 2_000_000))
+    case "endpoint-refused": return .failed(.endpointRefused("The development build needs SUBFLEET_HOME set."))
+    default: throw DaemonClientError.malformed("unknown scripted answer")
+    }
+}
+
+/// `answers <journal> <script.json>`: two messages of one conversation; each step
+/// answers the first one's send (`begin`, then `finish`, as the sender does) or is
+/// the person's or the clock's. After each step: the first entry, what may be sent,
+/// seconds until its retry, and every notice (C-28.3, C-29.12). The differential
+/// harness of the property tests (test_core_send_failures.py), with no socket.
+func runAnswers(journal: String, data: Data) throws -> [String: Any] {
+    let clock = ProbeClock()
+    let url = URL(fileURLWithPath: journal)
+    var outbox = try Outbox(url: url, now: { clock.now })
+    let conversation = "cv-probe"
+    let first = "00000000-0000-4000-8000-000000000001", second = "00000000-0000-4000-8000-000000000002"
+    try outbox.knowChain(conversation, lastPersonMessageID: nil)
+    for key in [first, second] {
+        try outbox.enqueueSubmit(conversation: conversation, messageID: key, text: "message " + key.suffix(1),
+                                 settings: ConversationSettings(model: "opus[1m]"))
+    }
+    var seq = 0
+    var log: [Any] = []
+    for step in try JSONValue.parse(data)["steps"]?.array ?? [] {
+        var row: [String: Any] = [:]
+        do {
+            if let answer = step["answer"] {
+                _ = try outbox.begin(first)
+                seq += 1
+                try outbox.finish(first, try scriptedOutcome(answer, key: first, conversation: conversation, seq: seq))
+                row["did"] = "answered"
+            } else {
+                switch step["do"]?.string ?? "" {
+                case "send-now": try outbox.sendNow(first)
+                case "know-chain": try outbox.knowChain(conversation, lastPersonMessageID: nil)
+                case "advance": clock.now = clock.now.addingTimeInterval(step["seconds"]?.double ?? 0)
+                case "reload": outbox = try Outbox(url: url, now: { clock.now })
+                default: throw OutboxError.invalidState("unknown step")
+                }
+                row["did"] = step["do"]?.string ?? ""
+            }
+        } catch {
+            row["error"] = describe(error)
+        }
+        guard let entry = outbox.entry(first) else { throw OutboxError.unknownEntry(first) }
+        row["entry"] = project(entry)
+        row["sendable"] = outbox.sendable().map(\.key)
+        row["due_in"] = entry.nextAttemptAt.map { $0 - clock.now.timeIntervalSince1970 } as Any? ?? NSNull()
+        row["notices"] = Outbox.notices(outbox.entries).mapValues(project)
+        log.append(row)
+    }
+    return ["steps": log, "first": first, "second": second]
 }
 
 // MARK: - Store state
@@ -197,7 +305,8 @@ func project(_ entry: SidebarEntry) -> [String: Any] {
     return ["id": entry.id, "target": target, "provider": entry.provider, "title": entry.title, "subtitle": entry.subtitle,
             "pending": entry.pendingApprovals, "active": entry.active, "blocked_by": entry.blockedBy as Any? ?? NSNull(),
             "live_elsewhere": entry.liveElsewhere, "continuable": entry.continuable,
-            "continue_blocker": entry.continueBlocker as Any? ?? NSNull()]
+            "continue_blocker": entry.continueBlocker as Any? ?? NSNull(),
+            "send_problem": entry.sendProblem?.rawValue as Any? ?? NSNull()]
 }
 
 func project(_ options: ComposerOptions) -> [String: Any] {
@@ -258,6 +367,18 @@ func runStore(_ data: Data) throws -> [String: Any] {
             state.laneLabels = laneLabels(from: try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(status)))
             log.append("status")
         }
+        if let sends = step["sends"] {
+            let entries = try sends.decode([OutboxEntry].self)
+            log.append(state.differs(sends: entries) ? "sends:changed" : "sends:same")
+            state.apply(sends: entries)
+        }
+        if let local = step["local"] {
+            state.addLocalMessage(conversationID: local["conversation_id"]?.string ?? "",
+                                  messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "")
+            log.append("local")
+        }
+        if let receipt = step["receipt"] { state.apply(receipt: try receipt.decode(Receipt.self)); log.append("receipt") }
+        if let withdrawn = step["withdraw_local"]?.string { state.withdrawLocal(messageID: withdrawn); log.append("withdrawn") }
         if step["focus"] != nil { state.focus(step["focus"]?.string); log.append("focus") }
         if let query = step["search"]?.string { state.searchQuery = query }
         if step["provider_filter"] != nil { state.providerFilter = step["provider_filter"]?.string }
@@ -283,6 +404,8 @@ func runStore(_ data: Data) throws -> [String: Any] {
     var chips: [String: Any] = [:]
     var stops: [String: Any] = [:]
     var statuses: [String: Any] = [:]
+    var notices: [String: Any] = [:]
+    var stuck: [String: Any] = [:]
     for conversation in state.conversations {
         let id = conversation.conversation_id
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
@@ -294,11 +417,17 @@ func runStore(_ data: Data) throws -> [String: Any] {
                                         "effort": chip.effort as Any? ?? NSNull(), "fast": chip.fast as Any? ?? NSNull(),
                                         "warnings": chip.warnings]
                 }
-                stops[messageID] = project(stopAction(for: messageID, state: timeline.turn(messageID)?.state, outboxEntry: nil))
+                stops[messageID] = project(stopAction(for: messageID, state: timeline.turn(messageID)?.state,
+                                                      outboxEntry: state.sends[messageID]))
                 statuses[messageID] = timeline.turn(messageID)?.statusText ?? NSNull()
+                notices[messageID] = state.sendNotice(conversationID: id, messageID: messageID).map(project) ?? NSNull()
             }
         }
+        stuck[id] = state.stuckSend(in: id)?.key ?? NSNull()
     }
+    out["notices"] = notices
+    out["stuck"] = stuck
+    out["create_notices"] = state.createNotices.map(project)
     out["composer"] = composer
     out["banners"] = banners
     out["chips"] = chips
@@ -400,6 +529,8 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         return try runFollow(readFile(arguments[2]), pages: Int(arguments[3]) ?? 16, follow: arguments[4] == "1")
     case "outbox":
         return try runOutbox(socket: arguments[2], journal: arguments[3], stepsData: readFile(arguments[4]))
+    case "answers":
+        return try runAnswers(journal: arguments[2], data: readFile(arguments[3]))
     case "store":
         return try runStore(readFile(arguments[2]))
     case "stage":

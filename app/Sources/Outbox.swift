@@ -13,6 +13,14 @@
 // and then through `message.cancel`, which leaves a tombstone so a late copy
 // cannot land.
 //
+// A send with no answer, or answered with an operational failure (exit 1) or
+// busy (69), is queued again with a backoff and no cap on tries; a refusal on
+// its merits, or an exit-1 reason whose fix only the person can carry out
+// (`copy-blocked`), stops it until the person tries again or withdraws it.
+// Each failure keeps the daemon's message and fix and how many answers in a
+// row failed; from the second, its conversation shows it (`SendNotice`, C-29.12;
+// docs/decisions/2026-09-27-app-send-failures.md).
+//
 // The other mutating ops (settings, stop, unblock, resolve, approval answers)
 // are a person's immediate actions without an idempotency key; they are sent
 // directly and not replayed after a restart (docs/desktop/app-needs.md).
@@ -30,12 +38,31 @@ struct OutboxMessage: Codable, Equatable {
     var staged: [StagedAttachment]?
 }
 
+/// The last answer that did not acknowledge a send. The fields after `retryable`
+/// are optional so a journal written before they existed still loads (C-28.3).
 struct OutboxFailure: Codable, Equatable {
     var code: Int?
     var reason: String?
     var message: String
     /// Whether the outbox will try again on its own.
     var retryable: Bool
+    /// The daemon's fix (the error body's `fix`), when it gave one.
+    var fix: String?
+    /// Failed answers in a row, this one included; nil in an older journal (one).
+    var consecutive: Int?
+
+    var count: Int { consecutive ?? 1 }
+
+    /// The message without its `<reason>: ` prefix (service.py `respond` writes both).
+    var detail: String {
+        guard let reason, message.hasPrefix(reason + ": ") else { return message }
+        return String(message.dropFirst(reason.count + 2))
+    }
+
+    /// The daemon's answer needs the person to act before a resend can succeed.
+    var needsPerson: Bool {
+        code.map { DaemonError(code: $0, message: message, fix: fix).needsPerson } ?? false
+    }
 }
 
 struct OutboxEntry: Codable, Equatable, Identifiable {
@@ -347,15 +374,24 @@ final class Outbox {
         min(30, 0.5 * pow(2, Double(max(0, attempts - 1))))
     }
 
+    /// A failed answer: queued again with a backoff while nothing says it failed on
+    /// its merits (exit 1 and 69, no answer; no cap on tries), or `failed` until the
+    /// person retries or withdraws it: a refusal on its merits, or an exit-1 reason
+    /// whose fix is the person's (`DaemonError.needsPerson`, C-28.3).
     private func classify(_ entry: OutboxEntry, _ error: DaemonClientError) -> OutboxEntry {
         var entry = entry
         let daemon = error.daemonError
         entry.failure = OutboxFailure(code: daemon?.code, reason: daemon?.reason, message: error.summary,
-                                      retryable: true)
+                                      retryable: true, fix: daemon?.fix,
+                                      consecutive: (entry.failure?.count ?? 0) + 1)
         if let daemon, daemon.isOutOfOrder {
             entry.state = .queued
             entry.waitingForPredecessor = true
             entry.nextAttemptAt = now().timeIntervalSince1970 + Outbox.backoff(attempts: entry.attempts)
+        } else if let daemon, daemon.needsPerson {
+            entry.state = .failed
+            entry.failure?.retryable = false
+            entry.nextAttemptAt = nil
         } else if error.isRetryable || { if case .endpointRefused = error { return true }; return false }() {
             entry.state = .queued
             entry.nextAttemptAt = now().timeIntervalSince1970 + Outbox.backoff(attempts: entry.attempts)
@@ -377,6 +413,21 @@ final class Outbox {
         journal.entries[index].state = .queued
         journal.entries[index].nextAttemptAt = nil
         try save()
+    }
+
+    /// The person's "send now": a failed entry is retried; a queued one waiting
+    /// out its backoff is due at once. Its last failure stays until the next answer.
+    func sendNow(_ key: String) throws {
+        let index = try index(key)
+        switch journal.entries[index].state {
+        case .failed:
+            try retry(key)
+        case .queued:
+            journal.entries[index].nextAttemptAt = nil
+            try save()
+        case .sending, .acknowledged, .withdrawn:
+            throw OutboxError.invalidState("only a queued or failed send is sent now")
+        }
     }
 
     enum WithdrawPlan: Equatable {
@@ -447,6 +498,102 @@ final class Outbox {
 
     /// The person's text of a message this app journaled.
     func text(of messageID: String) -> String? { entry(messageID)?.message?.text }
+}
+
+// MARK: - What the person sees
+
+/// A journaled send that is not going through, as its conversation shows it
+/// (C-29.12): the daemon's last answer, its fix, and the person's choices.
+struct SendNotice: Equatable {
+    enum Kind: String {
+        /// Queued again after failed answers; the outbox keeps trying on its own.
+        case retrying
+        /// Stopped: an operational failure whose fix is the person's (`DaemonError.needsPerson`).
+        case needsPerson = "needs-person"
+        /// Stopped: refused on its merits, or a request the app cannot send.
+        case refused
+        /// Nothing is wrong with it: an earlier message of its conversation is stuck.
+        case waiting
+    }
+
+    enum Action: String {
+        /// A queued send goes at once instead of after its backoff.
+        case sendNow = "send-now"
+        /// A stopped send is queued again, unchanged (`Outbox.retry`).
+        case tryAgain = "try-again"
+        /// Withdrawn as D-22 says (`OutboxSender.withdraw`); messages only.
+        case withdraw
+
+        var label: String {
+            switch self {
+            case .sendNow: return "Send now"
+            case .tryAgain: return "Try again"
+            case .withdraw: return "Withdraw"
+            }
+        }
+    }
+
+    var key: String
+    var kind: Kind
+    /// The status line's words, in place of "Sending".
+    var status: String
+    /// The last answer's words, without the reason prefix.
+    var detail: String?
+    var reason: String?
+    var fix: String?
+    /// For a stopped send: what the person does once the fix is done.
+    var then: String?
+    /// Failed answers in a row.
+    var failures: Int
+    var actions: [Action]
+}
+
+extension Outbox {
+    /// A send shows as not going through from its second failed answer in a row;
+    /// one failure is usually gone at the first backoff (0.5 s).
+    static let noticeAfterFailures = 2
+
+    /// The notice for one open entry, or nil (C-29.12).
+    static func notice(_ entry: OutboxEntry, after threshold: Int = Outbox.noticeAfterFailures) -> SendNotice? {
+        guard entry.isOpen, let failure = entry.failure else { return nil }
+        let withdraw: [SendNotice.Action] = entry.kind == .messageSubmit ? [.withdraw] : []
+        switch entry.state {
+        case .failed:
+            let kind: SendNotice.Kind = failure.needsPerson ? .needsPerson : .refused
+            let status = kind == .needsPerson ? "Not sent: this needs you first"
+                : failure.code == nil ? "Not sent: the app cannot send it" : "Not sent: the daemon refused it"
+            return SendNotice(key: entry.key, kind: kind, status: status, detail: failure.detail, reason: failure.reason,
+                              fix: failure.fix,
+                              then: kind == .needsPerson ? "When that is done, choose Try again." : nil,
+                              failures: failure.count, actions: [.tryAgain] + withdraw)
+        case .queued, .sending:
+            guard failure.count >= threshold else { return nil }
+            return SendNotice(key: entry.key, kind: .retrying,
+                              status: "Not sent yet: \(failure.count) tries failed; the app keeps trying",
+                              detail: failure.detail, reason: failure.reason, fix: failure.fix, then: nil,
+                              failures: failure.count, actions: (entry.state == .queued ? [.sendNow] : []) + withdraw)
+        case .acknowledged, .withdrawn:
+            return nil
+        }
+    }
+
+    /// Every open entry's notice, by key. A message behind a stuck one of its
+    /// conversation (the outbox sends them in order) says it waits.
+    static func notices(_ entries: [OutboxEntry], after threshold: Int = Outbox.noticeAfterFailures) -> [String: SendNotice] {
+        var out: [String: SendNotice] = [:]
+        var stuck: Set<String> = []
+        for entry in entries.sorted(by: { $0.order < $1.order }) where entry.isOpen {
+            if let notice = notice(entry, after: threshold) {
+                out[entry.key] = notice
+                if entry.kind == .messageSubmit { stuck.insert(entry.conversation) }
+            } else if entry.kind == .messageSubmit, stuck.contains(entry.conversation) {
+                out[entry.key] = SendNotice(key: entry.key, kind: .waiting,
+                                            status: "Waiting: a message above has not been sent", detail: nil,
+                                            reason: nil, fix: nil, then: nil, failures: 0, actions: [.withdraw])
+            }
+        }
+        return out
+    }
 }
 
 // MARK: - Sending

@@ -32,6 +32,8 @@ struct SidebarEntry: Identifiable, Equatable {
     var liveElsewhere: Bool
     var continuable: Bool
     var continueBlocker: String?
+    /// A message of this conversation is not going through (C-29.12): the worst kind.
+    var sendProblem: SendNotice.Kind? = nil
 }
 
 struct SidebarSection: Identifiable, Equatable {
@@ -283,6 +285,10 @@ struct ConversationStoreState: Equatable {
     var providerFilter: String?
     var grouping: SidebarGrouping = .recency
     var laneLabels: [String: String] = [:]
+    /// The outbox's open entries by key, as its queue last reported them.
+    private(set) var sends: [String: OutboxEntry] = [:]
+    /// Their notices (C-29.12), by key.
+    private(set) var sendNotices: [String: SendNotice] = [:]
 
     /// The Dock badge.
     var pendingApprovalCount: Int { pendingApprovals.values.reduce(0, +) }
@@ -348,6 +354,7 @@ struct ConversationStoreState: Equatable {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
         timeline.beginReading()
         timelines[conversationID] = timeline
+        restoreUnsent(in: conversationID)
     }
 
     @discardableResult
@@ -394,6 +401,99 @@ struct ConversationStoreState: Equatable {
     /// The person's text for a message this app sent (the receipt carries none).
     mutating func setPersonText(_ text: String, conversationID: String, messageID: String) {
         timelines[conversationID]?.setPersonText(text, for: messageID)
+    }
+
+    // MARK: Sends not going through
+
+    /// Whether `entries` (the outbox's open ones) differ from what the state shows;
+    /// the app sets them only then, so an unchanged pump redraws nothing.
+    func differs(sends entries: [OutboxEntry]) -> Bool {
+        let open = entries.filter(\.isOpen)
+        return open.count != sends.count || open.contains { sends[$0.key] != $0 }
+    }
+
+    mutating func apply(sends entries: [OutboxEntry]) {
+        let open = entries.filter(\.isOpen)
+        sends = Dictionary(open.map { ($0.key, $0) }, uniquingKeysWith: { $1 })
+        sendNotices = Outbox.notices(open)
+        for conversationID in Set(open.map(\.conversation)) where timelines[conversationID] != nil {
+            restoreUnsent(in: conversationID)
+        }
+    }
+
+    /// The conversation's journaled messages the timeline has no row for: ones a
+    /// previous run of the app left unsent. Each gets its row, in the order the
+    /// outbox sends them, so its notice shows where the message shows (C-29.12).
+    private mutating func restoreUnsent(in conversationID: String) {
+        guard var timeline = timelines[conversationID] else { return }
+        let missing = sends.values
+            .filter { $0.kind == .messageSubmit && $0.conversation == conversationID && timeline.turn($0.key) == nil }
+            .sorted { $0.order < $1.order }
+        guard !missing.isEmpty else { return }
+        for entry in missing {
+            timeline.addLocal(messageID: entry.key, text: entry.message?.text ?? "",
+                              attachments: entry.message?.attachments ?? [], settings: entry.message?.settings)
+        }
+        timelines[conversationID] = timeline
+    }
+
+    /// A message's notice while the app has seen no receipt for it: once the
+    /// daemon has it (a receipt from the feed or an open), its state says more.
+    /// A message that waits shows it only while a message ahead of it shows why.
+    func sendNotice(conversationID: String, messageID: String) -> SendNotice? {
+        guard let notice = sendNotices[messageID], unreceipted(conversationID, messageID) else { return nil }
+        if notice.kind == .waiting {
+            guard let own = sends[messageID], stuckSend(in: conversationID, before: own.order) != nil else { return nil }
+        }
+        return notice
+    }
+
+    /// No receipt for the message has reached this conversation's timeline.
+    private func unreceipted(_ conversationID: String, _ messageID: String) -> Bool {
+        timelines[conversationID]?.turn(messageID)?.messageState == nil
+    }
+
+    /// The first message of a conversation that is not going through (not one
+    /// that only waits behind it): what the composer warns about. `before`: only
+    /// messages the outbox sends ahead of that order.
+    func stuckSend(in conversationID: String, before order: Int? = nil) -> SendNotice? {
+        sends.values
+            .filter { entry in
+                entry.kind == .messageSubmit && entry.conversation == conversationID && (order.map { entry.order < $0 } ?? true)
+            }
+            .sorted { $0.order < $1.order }
+            .lazy.compactMap { entry -> SendNotice? in
+                guard let notice = self.sendNotices[entry.key], notice.kind != .waiting,
+                      self.unreceipted(conversationID, entry.key) else { return nil }
+                return notice
+            }
+            .first
+    }
+
+    /// The conversation view's timeline and queue tray (C-29.7), each tray row
+    /// of a send that is not going through carrying its notice (C-29.12). A
+    /// message is a row in one of them, so its notice shows in one place.
+    func layout(conversationID: String, held: Bool, steerOffered: Bool = false) -> ConversationLayout? {
+        guard var layout = timelines[conversationID]?.layout(held: held, steerOffered: steerOffered) else { return nil }
+        for index in layout.tray.indices {
+            layout.tray[index].attach(sendNotice(conversationID: conversationID, messageID: layout.tray[index].id))
+        }
+        return layout
+    }
+
+    /// New conversations whose create is not going through, oldest first: they
+    /// have no conversation to show it in yet.
+    var createNotices: [SendNotice] {
+        sends.values.filter { $0.kind == .conversationCreate }.sorted { $0.order < $1.order }
+            .compactMap { sendNotices[$0.key] }
+    }
+
+    /// The worst notice among a conversation's messages, for its sidebar row.
+    func sendProblem(in conversationID: String) -> SendNotice.Kind? {
+        let kinds = sends.values.filter { $0.kind == .messageSubmit && $0.conversation == conversationID }
+            .compactMap { sendNotice(conversationID: conversationID, messageID: $0.key)?.kind }
+        for kind in [SendNotice.Kind.needsPerson, .refused, .retrying] where kinds.contains(kind) { return kind }
+        return nil
     }
 
     /// A message the person withdrew before the daemon had it: no receipt comes.
@@ -523,7 +623,8 @@ struct ConversationStoreState: Equatable {
                 pendingApprovals: pendingApprovals[conversation.conversation_id] ?? conversation.pending_approvals,
                 active: conversation.active, blockedBy: conversation.blocked_by,
                 liveElsewhere: conversation.live_elsewhere ?? false,
-                continuable: true, continueBlocker: nil))
+                continuable: true, continueBlocker: nil,
+                sendProblem: sendProblem(in: conversation.conversation_id)))
         }
         let bound = Set(conversations.compactMap { c in c.native_session_id.map { "\(c.provider):\($0)" } })
         for item in catalog?.items ?? [] where providerFilter == nil || item.provider == providerFilter {
@@ -737,6 +838,12 @@ final class ConversationEngine {
     func withdraw(_ messageID: String) throws -> OutboxSender.WithdrawOutcome {
         try sender.withdraw(messageID)
     }
+
+    /// The outbox's open entries, for the conversation views (C-29.12).
+    func openSends() -> [OutboxEntry] { outbox.entries.filter(\.isOpen) }
+
+    /// The person's "Send now" or "Try again" on a journaled send; `pump` sends it.
+    func sendNow(_ key: String) throws { try outbox.sendNow(key) }
 
     enum WithdrawResult: Equatable {
         /// Gone: with the tombstone's receipt when it had been sent, none when never.
