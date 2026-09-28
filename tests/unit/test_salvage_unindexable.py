@@ -258,6 +258,19 @@ def test_a_ref_lock_another_git_process_holds_is_transient(repository):
     assert salvage(repository, baseline, 1, timestamp="2026-09-27T19:19:12Z").ref.endswith("-a1")
 
 
+@pytest.mark.parametrize("stderr", [
+    b'error: open("Unable to create \'a.lock\': File exists"): Permission denied\nfatal: adding files failed\n',
+    b'error: open("x: No space left on device.txt"): Permission denied\nfatal: adding files failed\n',
+])
+def test_a_file_name_that_quotes_those_words_is_not_read_as_them(repository, monkeypatch, stderr):
+    """git quotes a file name inside its own line; the markers are read only at a line's end."""
+    (repository / "new.txt").write_text("work\n")
+    fake_add(monkeypatch, 128, stderr)
+    with pytest.raises(SalvageError, match="git add failed") as caught:
+        snapshot_tree(repository, git_head(repository))
+    assert not caught.value.transient
+
+
 def test_a_ref_that_cannot_be_created_for_good_is_not_transient(repository):
     """`cannot lock ref` alone also says the ref exists or its name conflicts; no retry
     changes that, so only a held lock file is transient."""

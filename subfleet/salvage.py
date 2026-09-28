@@ -34,8 +34,10 @@ TRANSIENT_ERRNOS = frozenset({
 #: git process holds (a concurrent `gc`, `fetch` or `update-ref` in the same
 #: repository; `cannot lock ref` alone also covers a ref that exists or a
 #: name that conflicts, which no retry changes), and a full disk. Read only
-#: under the C locale (`_git_env`), where git does not translate them.
-_TRANSIENT_GIT = re.compile(r"Unable to create '[^\n]*\.lock': File exists|: No space left on device$", re.M)
+#: under the C locale (`_git_env`), where git does not translate them, and only
+#: at a line's end, where git puts them, so a file name quoted earlier in a line
+#: is not read as one.
+_TRANSIENT_GIT = re.compile(r"Unable to create '[^\n]*\.lock': File exists\.?$|: No space left on device$", re.M)
 
 
 class SalvageError(RuntimeError):
