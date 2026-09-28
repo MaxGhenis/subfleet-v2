@@ -989,9 +989,9 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   provider filter, live-elsewhere badges), conversation (Markdown timeline of
   history plus live events, activity strip, approval cards, stop, served
   model/account/Fast chip), composer (Return sends, Shift-Return newline,
-  paste and drop images, model/effort/Fast/permission controls, queued
-  follow-ups), runs (jobs list, detail, kill), fleet (per-account windows),
-  settings.
+  paste and drop images, model/effort/Fast/permission controls) with the
+  queue tray above it (messages waiting their turn, each with Withdraw),
+  runs (jobs list, detail, kill), fleet (per-account windows), settings.
 - Scenes: `Window("Subfleet", id: "main")` and `MenuBarExtra`; `LSUIElement`
   false; an app delegate reopens the window on Dock click; the menu panel
   keeps width 430 and gains an always-present "Open Subfleet" (⌘O).
@@ -1039,13 +1039,77 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   turn, and the strip said "Needs your approval" with only a Stop.
 - Display order is the order turns began (each turn's first event), then the
   messages still queued (or not yet received) in the order the daemon sends
-  them (an unblock note first, C-24.8). Sequence order had put a failover
-  continuation (D-6), which C-26.7 runs ahead of the queue, after the messages
-  queued before the limit, and an unblock note below the turn that ran after
-  it. A message that never began (withdrawn, refused, or a continuation not
-  yet sent) sits right after the latest turn that began among the messages
-  before it. The view follows the newest row of the turn that began last,
-  not the last row, which may be a queued bubble.
+  them (an unblock note first, C-24.8). Those wait in the queue tray, not in
+  the timeline (C-29.7, next bullet); only a message being sent with nothing
+  ahead of it stays at the timeline's end, where it starts next. Sequence
+  order had put a failover continuation (D-6), which C-26.7 runs ahead of the
+  queue, after the messages queued before the limit, and an unblock note
+  below the turn that ran after it. A message that never began (withdrawn,
+  refused, or a continuation not yet sent) sits right after the latest turn
+  that began among the messages before it. The view follows the newest row
+  of the turn that began last, not the last row, which may be a message that
+  never began.
+- The queue tray (C-29.7). A message waiting its turn sits in a compact tray
+  pinned above the composer, not in the timeline, in the order the daemon
+  sends the queue (`next_dispatchable`: a repair message first, then by
+  sequence; a send with no receipt after those, in the order it was sent).
+  The tray takes every message the daemon holds `queued`, except a failover
+  continuation, which shows under the message it continues (C-27.5), and a
+  message the app is sending, before its receipt, when something is ahead of
+  it: a live turn, a block on the conversation (`blocked_by`, C-24.5), or an
+  earlier message still waiting. The daemon will answer `queued` for such a
+  send, so it goes to the tray at once rather than showing in the timeline
+  first. Each row shows up to two lines of the message (runs of spaces and
+  line breaks folded into one, cut at 280 characters, the number of images
+  added), a caption while the app is still sending it or when the daemon
+  gives a reason it waits (a deferral), and Withdraw. Past four rows the tray
+  shows three and "Show N more"; expanded, a long queue scrolls inside the
+  tray. Its heading says how many wait and when they go: next, when this
+  turn ends, or once the conversation can continue.
+- Withdraw in the tray sends `message.cancel` for a message the daemon
+  holds. For a send with no receipt it is the outbox's withdrawal (D-22): a
+  send never sent is dropped, one the daemon never received is withdrawn with
+  a tombstone after a `message.status` lookup, one the daemon has is
+  cancelled or stopped as its state says, and while a send is under way the
+  app asks the person to withdraw again in a moment. A cancel refused
+  `dispatching` (the dispatcher is binding the message to its turn job) is
+  sent again after 0.1, 0.25, 0.5 and 1 s, and then the refusal is shown. A
+  cancel refused `too-late` (the message left the queue since the app
+  looked) asks `message.status`: a message that runs as its own turn
+  (`waiting`, `starting`, `running`, `approval-needed`) is stopped with
+  `turn.interrupt`, and one in any other state (ended, already withdrawn)
+  shows that state, so Withdraw never stops another message's turn and a
+  second Withdraw is not an error. The row shows progress until the daemon
+  answers and takes no second click meanwhile. A person's message that waits
+  in the timeline rather than the tray has Withdraw under it where a running
+  turn has Stop.
+- An unblock note (C-24.8's `leave`) waits in the tray as a note to the next
+  turn, without Withdraw: withdrawing it would let the next turn resume the
+  stopped one, turning the person's Leave into Continue. A message withdrawn
+  before it started (`cancelled`, reason `withdrawn` or
+  `withdrawn-before-receipt`, nothing done for it) reads as one line where it
+  sat, "Withdrawn before it was sent: …", not as a bubble; no provider saw it
+  (D-12). The tray keeps a slot for Steer, which delivers a message into the
+  running turn (a separate change): the head row, when it is a person's
+  message the daemon holds and a turn is live, may carry Steer beside
+  Withdraw. It is off until the daemon offers steer (`steer.v1`), so this
+  build shows no Steer.
+- Scrolling (C-29.7). Each conversation gets a view of its own, so opening
+  one lands at its end rather than at the last one's offset (from macOS 15 a
+  new view's first offset is its end; before that it scrolls there when it
+  appears). While the opened conversation reads its log (until a page adds
+  nothing, `Timeline.caughtUp`; focusing it again starts the read over),
+  every change keeps the end in view at once, with no animation (Max,
+  2026-09-28: going to a session should take you to the bottom without the
+  scroll). After that the view moves only while the end is on screen: a new
+  row, a new row of the turn that began last, or a tray that changed the
+  timeline's height glides to the end; a growing text or thinking block, and
+  the first page of older history landing above, keeps the end in view with
+  no animation. The person's own message, when it shows in the timeline,
+  glides to the end wherever they were reading. A message queued or
+  withdrawn while the person reads further up moves nothing; the tray shows
+  it. Until 2026-09-28 one view served every conversation, so a switch kept
+  the last one's scroll offset and animated to the end.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
 

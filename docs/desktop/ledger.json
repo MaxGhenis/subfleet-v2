@@ -128,7 +128,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": ""
+      "notes": "C-29.7 (2026-09-28): messages waiting their turn sit in the queue tray above the composer, in the order the daemon sends them, each with Withdraw; the view keeps its end in view only while the end is on screen, and an opened conversation lands at its end with no scrolling (tests/frontend/test_core_queue_tray.py, tests/frontend/test_core_queue_engine.py, tests/frontend/test_conversation_view.py)."
     },
     {
       "id": "M-10",
@@ -246,11 +246,12 @@
       "source": "transition plan capability map",
       "clauses": [
         "C-24.7",
-        "C-24.8"
+        "C-24.8",
+        "C-29.7"
       ],
       "status": "open",
       "evidence": [],
-      "notes": "Daemon side: turn.interrupt and the unblock note have e2e tests; message.cancel e2e pending."
+      "notes": "Daemon side: turn.interrupt and the unblock note have e2e tests; message.cancel e2e pending. C-29.7 (2026-09-28): the app's Withdraw sends message.cancel, sends it again after a dispatching refusal, and after a too-late refusal interrupts only the message's own live turn, per message.status (tests/frontend/test_core_queue_engine.py)."
     },
     {
       "id": "P-5",
