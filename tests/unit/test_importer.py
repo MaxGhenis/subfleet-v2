@@ -305,6 +305,30 @@ def test_every_store_keeps_a_cursor_in_events(v1):
     assert "outbox" not in cursors          # staged until milestone 9 (C-30.4)
 
 
+@pytest.mark.parametrize("family,requested,served,expected", [
+    ("claude", "fable", "claude-fable-5-1", "claude-fable-5-1"),   # retired onto opus 2026-09-27
+    ("codex", "sol", "gpt-5.6-sol", "gpt-5.6-sol"),                # retired onto astra 2026-09-04
+    ("claude", "opus", "claude-opus-5-5", "claude-opus-5-5"),
+])
+def test_an_imported_run_keeps_the_model_it_asked_for(v1, family, requested, served, expected):
+    """C-11.1: a v1 run's requested model is history, not a pin. A `retired` alias
+    re-targets new work; it never rewrites a Fable (or Sol) run as one that asked for
+    its successor, which would also make a live imported run look like a downgrade."""
+    run_id = "20260905-120000-history"
+    directory = v1["runs"] / run_id
+    directory.mkdir()
+    lane = ENROLLED if family == "claude" else str(v1["home"] / ".codex-1")
+    meta = run_meta(run_id, rc=0, family=family, model=served, lane=lane,
+                    codex_home=None if family == "claude" else lane,
+                    routing_decision={"requested_model": requested, "model": requested})
+    write_json(directory / "meta.json", meta)
+    (directory / "prompt.md").write_text("history\n", encoding="utf-8")
+    (directory / "out.md").write_text("history out\n", encoding="utf-8")
+    run_import(v1)
+    attempt, = rows(v1["root"], "SELECT * FROM attempts WHERE job_id=?", (run_id,))
+    assert (attempt["model_requested"], attempt["model_served"]) == (expected, served)
+
+
 def test_a_new_run_imports_incrementally(v1):
     """The cursor reads only what is new on a later pass."""
     run_import(v1)
@@ -909,6 +933,16 @@ def test_a_cooldown_with_no_corroborating_reading_is_guessed(v1):
     run_import(v1)
     closure = rows(v1["root"], "SELECT * FROM closures")[0]
     assert closure["clock_source"] == "guessed"
+
+
+@pytest.mark.parametrize("scope", ["fable", "Fable", "claude-fable-5-1"])
+def test_a_retired_models_cooldown_keeps_its_own_bucket(v1, scope):
+    """C-9.6, C-11.1: `retired` moves dispatch, not usage. The shipped policy retires
+    Fable onto Opus (2026-09-27), yet a v1 Fable cooldown is Fable's weekly bucket and
+    must never become a closure that stops Opus on that account."""
+    write_json(v1["delegate"] / "cooldowns.json", {ENROLLED: {scope: offset_now(3600)}})
+    run_import(v1)
+    assert [row["scope"] for row in rows(v1["root"], "SELECT * FROM closures")] == ["claude-fable-5-1"]
 
 
 def test_a_closure_is_extended_never_shortened(v1):

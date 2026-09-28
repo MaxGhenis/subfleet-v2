@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ..client import Client, DaemonError, DaemonUnavailable, busy_pause, state_root
+from ..policy import RETIRED_MODELS
 from ..protocol import ProtocolError
 from .errors import GateError
 
@@ -36,7 +37,9 @@ def configure(parser: argparse.ArgumentParser) -> None:
         child.add_argument("--json", action="store_true")
         child.add_argument("--dry-run", action="store_true")
         if kind != "continue":
-            child.add_argument("--peer", required=True, choices=("fable", "astra", "sol"))
+            child.add_argument("--peer", required=True, choices=("astra", "opus", "fable", "sol"),
+                               help="astra (Codex) or opus (Claude); fable and sol are retired "
+                                    "and use opus and astra")
             child.add_argument("--main-model", help="main model for explicit family validation")
             child.add_argument("--brief")
             child.add_argument("-C", dest="workdir", default=None)
@@ -95,8 +98,10 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
     try:
         if args.gate_command not in {"plan", "pr", "continue"}:
             raise GateError("choose gate pr, plan, or continue")
-        if getattr(args, "peer", None) == "sol":
-            print("subfleet gate: sol is retired from dispatch; using astra", file=sys.stderr)
+        peer = getattr(args, "peer", None)
+        if peer in RETIRED_MODELS:
+            print(f"subfleet gate: {peer} is retired from dispatch; using {RETIRED_MODELS[peer]}",
+                  file=sys.stderr)
         if args.dry_run:
             try:
                 policy = json.loads((root / "policy.json").read_text())

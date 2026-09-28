@@ -46,8 +46,12 @@ def test_c11_7_no_slack_anywhere_holds_non_fable_work_and_says_why(e2e):
     assert all("reserve:fable:reserved" in r["reasons"] for r in opus["rejections"])
 
 
-def test_c11_7_setup_token_lanes_stay_unmeasured_for_opus_while_fable_still_runs(e2e):
-    """Every enrolled lane answered 403 on 2026-09-06: no usage scope, so no slack can be shown."""
+def test_c11_7_setup_token_lanes_stay_unmeasured_and_a_fable_pin_cannot_escape(e2e):
+    """Every enrolled lane answered 403 on 2026-09-06: no usage scope, so no slack can be shown.
+
+    Until Fable's retirement (2026-09-27) the reserved model itself still ran here. A
+    policy that still lists Fable no longer lets `-m fable` reach it: the CLI dispatches
+    the successor, which the reserve holds like any other Opus job (C-17.2)."""
     e2e.enable_reserve()
     e2e.start(scenario="success-allowed")  # SUBFLEET_FAKE_USAGE unset: every bearer gets 403
     e2e.until(lambda: any(json.loads(row["data_json"]).get("probe_status") == "no-scope"
@@ -57,10 +61,12 @@ def test_c11_7_setup_token_lanes_stay_unmeasured_for_opus_while_fable_still_runs
     decision = json.loads(held.stdout)
     opus = next(e for e in decision["evaluations"] if e["model"] == "opus")
     assert opus["candidates"] == [] and all("reserve:fable:unmeasured" in r["reasons"] for r in opus["rejections"])
-    fable = e2e.cli(*e2e.run_args("fable", "--wait"))
-    assert fable.rc == 0, fable
-    attempt, = e2e.attempts(fable.stdout.strip().splitlines()[0].strip())
-    assert attempt["state"] == "succeeded"
+    retired = e2e.cli(*e2e.run_args("fable", "--dry-run", "--why"))
+    assert "-m fable is retired; using opus" in retired.stderr, retired
+    decision = json.loads(retired.stdout)
+    assert [evaluation["model"] for evaluation in decision["evaluations"]] == ["opus"]
+    assert decision["evaluations"][0]["candidates"] == []
+    assert not e2e.rows("SELECT 1 FROM attempts WHERE model_requested=?", (FABLE,))
 
 
 def test_c9_9_a_rate_limited_lane_is_left_alone_until_retry_after(e2e):

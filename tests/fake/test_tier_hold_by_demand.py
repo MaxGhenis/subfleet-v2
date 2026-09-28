@@ -120,11 +120,12 @@ def test_c6_9_a_full_fleet_stops_the_pass(fleet):
 
 
 @pytest.mark.parametrize("job,expected", [
-    ({"pinned_model": "fable"}, {"fable"}),
+    ({"pinned_model": "opus"}, {"opus"}),
+    ({"pinned_model": "fable"}, {"opus"}),                                        # retired onto opus
     ({"task": "review", "tier": "standard"}, {"opus", "astra"}),
     ({"task": "review", "tier": None}, {"opus", "astra"}),                       # no tier is `standard`
     ({"task": "review", "tier": "trivial"}, {"haiku", "sonnet", "opus", "astra"}),
-    ({"task": "authored-prose", "tier": "hard"}, {"fable"}),
+    ({"task": "authored-prose", "tier": "hard"}, {"opus"}),                      # Fable's until 2026-09-27
     ({"pinned_lane": "claude-3"}, None),
     ({"task": "not-a-task", "tier": "standard"}, None),
 ])
@@ -165,8 +166,8 @@ def pinned_fleet(fleet):
 def test_c6_9_a_waiter_pinned_to_one_lane_does_not_hold_a_job_pinned_to_another(pinned_fleet):
     """C-6.9 the 2026-09-22 gates: the older job can only use lane a, so it holds nothing pinned to lane b."""
     service, harness = pinned_fleet
-    older = submit(service, harness, pinned_model="fable", pinned_lane="claude-a")
-    other = submit(service, harness, pinned_model="fable", pinned_lane="claude-b")
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    other = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
     wait_on_capacity(service, older)
     service._admit()
     assert admitted(service, other) and not service.store.list_attempts(older)
@@ -178,8 +179,8 @@ def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case
     service, harness = pinned_fleet
     older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "newer-unpinned": ("claude-a", None),
                             "older-unpinned": (None, "claude-b"), "newer-unknown-pin": ("claude-a", None)}[case]
-    older = submit(service, harness, pinned_model="fable", pinned_lane=older_pin)
-    newer = submit(service, harness, pinned_model="fable", pinned_lane=newer_pin)
+    older = submit(service, harness, pinned_model="opus", pinned_lane=older_pin)
+    newer = submit(service, harness, pinned_model="opus", pinned_lane=newer_pin)
     if case == "newer-unknown-pin":
         service.store.update_job(newer, pinned_lane="nobody@example.invalid")   # a pin the roster cannot resolve
     wait_on_capacity(service, older)
