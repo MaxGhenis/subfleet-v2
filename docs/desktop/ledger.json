@@ -128,7 +128,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "C-29.7 (2026-09-28): messages waiting their turn sit in the queue tray above the composer, in the order the daemon sends them, each with Withdraw; the view keeps its end in view only while the end is on screen, and an opened conversation lands at its end with no scrolling (tests/frontend/test_core_queue_tray.py, tests/frontend/test_core_queue_engine.py, tests/frontend/test_conversation_view.py)."
+      "notes": "C-29.7 (2026-09-28): a message waiting behind a live turn, a block or another waiting message sits in the queue tray above the composer, in the order the daemon sends the queue, a person's with Withdraw; the first with nothing ahead of it stays at the timeline's end. The view keeps its end in view only while the end is on screen, and an opened conversation lands at its end with no scrolling (tests/frontend/test_core_queue_tray.py, tests/frontend/test_core_queue_engine.py, tests/frontend/test_conversation_view.py). Still open in the app (2026-09-28 audit): every `queued` message goes to the tray (QueueTray.swift `trayMessageIDs`), so a send into an idle conversation moves to the tray on its `queued` receipt and back when it is dispatched; a queued failover continuation is not counted as ahead, so a send made then shows in the timeline until its receipt, and the tray's heading says the queue goes next although the continuation goes first; a send the outbox withdraws with a tombstone shows no line, since Timeline.swift `personItem` hides origin `tombstone`."
     },
     {
       "id": "M-10",
