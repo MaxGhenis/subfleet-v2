@@ -85,7 +85,7 @@ def _lane(identity, desktop=False):
 
 
 LANES = ["claude-1", "claude-2", "claude-3", "codex-1", "codex-2"]
-SCOPES = ["account", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5", "gpt-6-astra"]
+SCOPES = ["account", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-astra"]
 fleets = st.fixed_dictionaries({
     "lanes": st.lists(st.sampled_from(LANES), min_size=1, max_size=5, unique=True),
     "readings": st.lists(st.tuples(st.sampled_from(LANES), st.sampled_from(SCOPES),

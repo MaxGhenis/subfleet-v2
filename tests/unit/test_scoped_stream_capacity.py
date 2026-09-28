@@ -34,7 +34,7 @@ def stream(status="allowed", window="seven_day_overage_included"):
 @pytest.mark.parametrize("window,scope", [
     ("seven_day_overage_included", "claude-fable-5-1"),
     ("seven_day_opus", "claude-opus-5-5"),
-    ("seven_day_sonnet", "claude-sonnet-5"),
+    ("seven_day_sonnet", "claude-sonnet-5-5"),
     ("seven_day", "account"), ("five_hour", "account"), ("unknown", "account"),
 ])
 def test_provider_rejection_closes_its_named_bucket(tmp_path, window, scope):

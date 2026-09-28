@@ -68,7 +68,7 @@
     },
     "sonnet": {
       "provider": "claude",
-      "id": "claude-sonnet-5",
+      "id": "claude-sonnet-5-5",
       "priority": 2
     },
     "haiku": {
