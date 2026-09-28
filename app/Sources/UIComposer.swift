@@ -116,8 +116,8 @@ struct ComposerView: View {
     @State private var loadedDraftFor: String?
 
     var body: some View {
-        let options = model.state.composerOptions(for: conversation.conversation_id)
         let current = settings ?? conversation.settings
+        let options = model.state.composerOptions(for: conversation.conversation_id, settings: current)
         let timeline = model.state.timelines[conversation.conversation_id]
         let live = timeline?.liveMessageID
         VStack(alignment: .leading, spacing: 6) {

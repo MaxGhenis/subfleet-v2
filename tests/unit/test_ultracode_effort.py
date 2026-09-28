@@ -17,7 +17,7 @@ import pytest
 
 from subfleet.conversations import claude_turn
 from subfleet.conversations.claude_turn import (
-    ULTRACODE, ULTRACODE_EFFORT, ClaudeTurn, argv, observed_catalog, offered_efforts,
+    SETTINGS_REQUEST_ID, ULTRACODE, ULTRACODE_EFFORT, ClaudeTurn, argv, observed_catalog, offered_efforts,
 )
 from subfleet.policy import CONVERSATION_DEFAULT_EFFORT
 from tests.unit.test_claude_turn import INIT_OK, SID, spec, started
@@ -86,16 +86,69 @@ def test_c26_8_a_read_only_ultracode_turn_gets_only_its_effort():
 
 def test_c26_8_ultracode_is_accepted_where_xhigh_is_offered_and_refused_elsewhere():
     ok = started(ClaudeTurn(spec(effort=ULTRACODE), read_bytes=lambda p: b""))
-    assert ok.outcome is None and [f.tag for f in ok.frames] == ["user-message"]
+    assert ok.outcome is None and [f.tag for f in ok.frames] == ["user-message", "settings"]
     served = next(e.data for e in ok.events if e.kind == "served")
-    assert served["effort"] == ULTRACODE                     # the chip names what the turn ran at
+    assert served["effort_requested"] == ULTRACODE and "effort" not in served   # the provider says what ran
     haiku = started(ClaudeTurn(spec(model_id="haiku", effort=ULTRACODE), read_bytes=lambda p: b""))
-    assert haiku.outcome.reason == "effort-unsupported"
+    assert haiku.outcome.reason == "effort-unsupported" and haiku.frames[-1].tag == "close"
 
 
-def test_c26_8_a_turn_without_an_effort_reports_none():
+def test_c26_8_a_turn_without_an_effort_reports_none_requested():
     step = started(ClaudeTurn(spec(effort=None), read_bytes=lambda p: b""))
-    assert "effort" not in next(e.data for e in step.events if e.kind == "served")
+    served = next(e.data for e in step.events if e.kind == "served")
+    assert "effort" not in served and "effort_requested" not in served
+
+
+def _answer(applied=None, *, error=None):
+    response = ({"subtype": "error", "request_id": SETTINGS_REQUEST_ID, "error": error} if error else
+                {"subtype": "success", "request_id": SETTINGS_REQUEST_ID,
+                 "response": {"applied": applied, "effective": {}, "sources": {}}})
+    return json.dumps({"type": "control_response", "response": response})
+
+
+# The `applied` objects `get_settings` returned live from CLI 2.1.280 (2026-09-28,
+# ~/reviews/ultracode-effort-2026-09-28/get-settings-probe/): Opus with and without
+# the ultracode setting, and Haiku, which drops both.
+OPUS_ULTRA = {"model": "claude-opus-5-5", "effort": "xhigh", "advisor": None, "ultracode": True}
+OPUS_XHIGH = {"model": "claude-opus-5-5", "effort": "xhigh", "advisor": None, "ultracode": False}
+HAIKU_DROPPED = {"model": "claude-haiku-4-5-20251001", "effort": None, "advisor": None, "ultracode": False}
+
+
+@pytest.mark.parametrize("applied,served", [(OPUS_ULTRA, ULTRACODE), (OPUS_XHIGH, "xhigh"), (HAIKU_DROPPED, "none")])
+def test_c26_8_the_served_effort_is_what_get_settings_reports(applied, served):
+    turn = ClaudeTurn(spec(effort=ULTRACODE), read_bytes=lambda p: b"")
+    started(turn)
+    step = turn.feed(_answer(applied), 900)
+    assert [e.data for e in step.events if e.kind == "served"] == [{"effort": served}]
+    assert step.frames == [] and step.outcome is None
+
+
+def test_c26_8_a_cli_without_get_settings_leaves_the_served_effort_unrecorded():
+    turn = ClaudeTurn(spec(effort="high"), read_bytes=lambda p: b"")
+    started(turn)
+    step = turn.feed(_answer(error="Unsupported control request subtype: get_settings"), 900)
+    assert step.events == [] and step.outcome is None
+
+
+def test_c26_8_a_default_the_account_does_not_offer_still_sends_and_an_explicit_one_does_not():
+    """Review of 0eac67b4, P2: the default comes from the last catalog any turn reported,
+    and this account's may lack it. The CLI applies what the model allows (Haiku drops
+    xhigh and ultracode), so a default goes ahead; a named effort is still refused."""
+    default = started(ClaudeTurn(spec(model_id="haiku", effort=ULTRACODE, effort_default=True),
+                                 read_bytes=lambda p: b""))
+    assert default.outcome is None and [f.tag for f in default.frames] == ["user-message", "settings"]
+    served = next(e.data for e in default.events if e.kind == "served")
+    assert served["effort_requested"] == ULTRACODE and served["effort_default"] is True
+    named = started(ClaudeTurn(spec(model_id="haiku", effort=ULTRACODE), read_bytes=lambda p: b""))
+    assert named.outcome.reason == "effort-unsupported"
+
+
+def test_c26_8_the_default_s_provenance_reaches_the_driver():
+    from subfleet.conversations.launch import spec_from_manifest
+    turn = {"provider": "claude", "message_id": SID, "text": "hi", "cwd": "/w", "effort_default": ULTRACODE,
+            "settings": {"model": "opus", "permission": "ask", "effort": ULTRACODE, "fast": False}}
+    assert spec_from_manifest(turn, lane_email=None).effort_default is True
+    assert spec_from_manifest({**turn, "effort_default": None}, lane_email=None).effort_default is False
 
 
 # --- the policy --------------------------------------------------------------------
@@ -223,9 +276,12 @@ def test_c26_8_the_ultracode_constant_is_what_the_cli_is_given():
     assert SID  # the imported fixture spec resumes this session
 
 
-def test_c26_8_a_read_only_ultracode_turn_serves_xhigh():
-    step = started(ClaudeTurn(spec(effort=ULTRACODE, permission="read-only"), read_bytes=lambda p: b""))
-    assert next(e.data for e in step.events if e.kind == "served")["effort"] == "xhigh"
+def test_c26_8_a_read_only_ultracode_turn_records_what_the_provider_applied():
+    """Read-only turns launch at xhigh without the ultracode setting; the served effort
+    is the provider's answer (xhigh), not the conversation's name for it."""
+    turn = ClaudeTurn(spec(effort=ULTRACODE, permission="read-only"), read_bytes=lambda p: b"")
+    started(turn)
+    assert [e.data for e in turn.feed(_answer(OPUS_XHIGH), 900).events] == [{"effort": "xhigh"}]
 
 
 def test_c26_8_codex_models_never_offer_ultracode_even_with_xhigh(svc):

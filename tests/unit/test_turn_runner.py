@@ -447,7 +447,8 @@ def test_without_a_stop_the_message_is_handed_over(relayed, tmp_path):
     runner, clock, server, adir = relayed(recorded=True)
     runner._apply(runner.driver.start())
     answer_up_to_the_message(runner, tmp_path, "claude")
-    assert logged(adir) == ["init", "user-message"] and runner.driver.outcome is None
+    # C-26.8: `get_settings` follows the message this runner sent.
+    assert logged(adir) == ["init", "user-message", "settings"] and runner.driver.outcome is None
 
 
 def _lose_the_answer(runner, *, reached: bool):
@@ -482,7 +483,7 @@ def test_a_stop_after_a_handover_whose_answer_was_lost_is_decided_by_the_relay_l
     clock.now += 100
     runner._send_outbox()
     runner._drain_commands()
-    assert logged(adir) == ["init", "user-message", "interrupt"]
+    assert logged(adir) == ["init", "user-message", "settings", "interrupt"]
     assert runner.driver.outcome is None and not runner.withheld
 
 
@@ -512,4 +513,26 @@ def test_without_a_stop_a_message_whose_answer_was_lost_is_sent_once(relayed, tm
     answer_up_to_the_message(runner, tmp_path, "claude")
     clock.now += 100
     runner._send_outbox()
-    assert logged(adir) == ["init", "user-message"] and runner.outbox == []
+    assert logged(adir) == ["init", "user-message", "settings"] and runner.outbox == []
+
+
+# --- get_settings across the upgrade (C-26.8) --------------------------------------------
+
+
+@pytest.mark.parametrize("earlier,sent", [(False, ["user-message", "settings"]), (True, [])])
+def test_get_settings_follows_only_a_message_this_runner_sent(make_runner, monkeypatch, earlier, sent):
+    """C-26.8: a replayed attempt whose message an earlier runner sent, including one
+    from before `get_settings` existed, is never asked mid-turn; a new one asks right
+    after its message."""
+    from subfleet.conversations.reconcile import SETTINGS_FRAME, USER_FRAME
+    from subfleet.conversations.turn import Frame
+    runner, _, _ = make_runner(Clocks())
+    assert runner.replayed_message is False                    # an empty log: nothing sent before
+    runner.handshaken, runner.replayed_message = True, earlier
+    runner.sent = {USER_FRAME: "written"} if earlier else {}
+    written: list[str] = []
+    monkeypatch.setattr(runner, "_transmit", lambda frame: written.append(frame.tag) or runner.outbox.pop(0) or True)
+    monkeypatch.setattr(runner, "_handover_verdict", lambda: "send")
+    runner.outbox = [Frame(USER_FRAME, "write", "{}\n"), Frame(SETTINGS_FRAME, "write", "{}\n")]
+    runner._send_outbox()
+    assert written == sent and runner.outbox == []

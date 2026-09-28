@@ -92,7 +92,8 @@ class World:
     def deliver(self, runner):
         until(lambda: self.logged() == ["init"], "the init frame")
         self.say(INIT_OK)
-        until(lambda: self.logged() == ["init", "user-message"], "the message frame")
+        # C-26.8: `get_settings` follows the message this runner sent.
+        until(lambda: self.logged() == ["init", "user-message", "settings"], "the message frame")
         self.say(json.dumps({"type": "command_lifecycle", "command_uuid": self.mid, "state": "started"}))
         until(lambda: runner.driver.accepted and self.svc.store.message(self.mid)["state"] == "running", "acceptance")
 

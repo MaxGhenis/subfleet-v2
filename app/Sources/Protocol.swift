@@ -299,6 +299,8 @@ struct Served: JSONObjectBacked, Hashable {
     var account: String? { string("account") }
     var model: String? { string("model") }
     var effort: String? { string("effort") }
+    /// What the command line asked for (C-26.8); `effort` is what the provider applied.
+    var effort_requested: String? { string("effort_requested") }
     var fast_mode_state: String? { string("fast_mode_state") }
     var fast_mode_disabled_reason: String? { string("fast_mode_disabled_reason") }
     var fast_warning: String? { string("fast_warning") }

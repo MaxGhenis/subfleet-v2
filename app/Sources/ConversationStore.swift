@@ -233,7 +233,10 @@ func makeServedChip(for turn: TurnTimeline, provider: String, laneLabels: [Strin
         warnings.append("Fast was asked for; this turn ran at standard speed")
     }
     let account = served.account ?? served.lane_id.flatMap { laneLabels[$0] ?? $0 }
-    return ServedChip(account: account, model: served.model, effort: served.effort ?? turn.settings?.effort,
+    // C-26.8: the effort the provider reported applying ("none": its own default);
+    // a provider that reported none leaves what was asked for.
+    let effort = served.effort == "none" ? "default effort" : served.effort ?? served.effort_requested ?? turn.settings?.effort
+    return ServedChip(account: account, model: served.model, effort: effort,
                       fast: fast, warnings: warnings)
 }
 
@@ -564,9 +567,11 @@ struct ConversationStoreState: Equatable {
 
     // MARK: Composer, stop, banner, chip
 
-    func composerOptions(for conversationID: String) -> ComposerOptions? {
+    /// The composer's choices for `settings` (the composer's unsaved picks) or else
+    /// the conversation's saved ones: efforts and the default follow the picked model.
+    func composerOptions(for conversationID: String, settings: ConversationSettings? = nil) -> ComposerOptions? {
         guard let conversation = conversation(conversationID) else { return nil }
-        return makeComposerOptions(provider: conversation.provider, settings: conversation.settings,
+        return makeComposerOptions(provider: conversation.provider, settings: settings ?? conversation.settings,
                                    models: models[conversation.provider] ?? [], capabilities: availability.capabilities)
     }
 

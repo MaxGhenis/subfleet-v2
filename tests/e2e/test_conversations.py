@@ -167,6 +167,13 @@ def test_a_claude_conversation_streams_completes_and_continues_in_the_same_sessi
     launches = [row["argv"] for row in conv.turn_log() if "argv" in row]
     assert launches[0][launches[0].index("--session-id") + 1] == session
     assert launches[1][launches[1].index("--resume") + 1] == session
+    # C-26.8: the first turn recorded the catalog, so the second, naming no effort, runs
+    # at the Claude default, ultracode, and records what the provider reported applying.
+    assert launches[1][launches[1].index("--effort") + 1] == "xhigh"
+    assert json.loads(launches[1][launches[1].index("--settings") + 1])["ultracode"] is True
+    served = conv.message(second)["served"]
+    assert (served["effort"], served["effort_requested"], served["effort_default"]) == ("ultracode", "ultracode", True)
+    assert conv.message(second)["settings"]["effort"] is None
 
     job = conv.e2e.rows("SELECT * FROM jobs WHERE request_id=?", (f"turn:{first}:0",))[0]
     assert job["kind"] == "turn" and job["state"] == "succeeded"

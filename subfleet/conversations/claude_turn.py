@@ -23,16 +23,18 @@ from typing import Any, Callable
 from ..adapters.claude import model_matches_requested
 from ..adapters.claude_stream import is_synthetic_api_error
 from . import redact
+from .reconcile import SETTINGS_FRAME
 from .turn import (
     COMPLETE, FAILED, INTERRUPTED, Approval, Event, Frame, Outcome, Step, TurnSpec,
 )
 
 INIT_REQUEST_ID = "subfleet-init"
+SETTINGS_REQUEST_ID = "subfleet-settings"
 INTERRUPT_REQUEST_ID = "subfleet-interrupt"
 UNSUPPORTED = "Subfleet does not support this request; answer it in the provider's own app."
 
 #: Claude Code's ultracode (C-26.8): xhigh effort plus standing dynamic-workflow
-#: orchestration. It is not an `--effort` value (2.1.280 takes low, medium, high,
+#: orchestration. It is not a documented `--effort` value (2.1.280 lists low, medium, high,
 #: xhigh, max): the CLI sets it per session through the `ultracode` settings key,
 #: on models that offer xhigh. A conversation names it as its effort, and a turn
 #: becomes `--effort xhigh` with `{"ultracode": true}` in its command-line settings.
@@ -334,6 +336,8 @@ class ClaudeTurn:
 
     def _control_response(self, row: dict, source: "_Sources") -> Step:
         response = row.get("response") or {}
+        if response.get("request_id") == SETTINGS_REQUEST_ID:
+            return self._settings(response, source)
         if response.get("request_id") != INIT_REQUEST_ID or self.phase != "initializing":
             return Step()
         if response.get("subtype") != "success":
@@ -353,7 +357,10 @@ class ClaudeTurn:
                              source=source.next())
         self.expected_model = strip_context(str(entry["resolvedModel"]))
         effort_levels = _entry_efforts(entry)
-        if self.spec.effort and self.spec.effort not in effort_levels:
+        if self.spec.effort and self.spec.effort not in effort_levels and not self.spec.effort_default:
+            # A named effort the account does not offer is refused before sending. A
+            # policy default is not: the CLI then applies what the model allows (2.1.280
+            # drops xhigh and ultracode on Haiku), and `get_settings` reports it.
             return self._end(FAILED, "effort-unsupported",
                              detail=f"{self.spec.model_id} offers {', '.join(effort_levels) or 'no effort levels'}",
                              source=source.next())
@@ -368,18 +375,31 @@ class ClaudeTurn:
                   "fast_mode_disabled_reason": body.get("fast_mode_disabled_reason"),
                   "permission_mode": body.get("current_permission_mode")}
         if self.spec.effort:
-            # The effort the command line asked for, a conversation default included
-            # (C-26.8); `initialize` does not echo it. A read-only ultracode turn ran
-            # at xhigh alone (no Workflow tool), so that is what it served.
-            served["effort"] = (ULTRACODE_EFFORT if self.spec.effort == ULTRACODE
-                                and self.spec.permission == "read-only" else self.spec.effort)
+            # What the command line asked for; the effort served is what the provider's
+            # `get_settings` answer reports (C-26.8), recorded when it arrives. It is asked
+            # right after the message, so a message withheld before sending asks nothing.
+            served["effort_requested"] = self.spec.effort
+            if self.spec.effort_default:
+                served["effort_default"] = True
         self.phase = "sent"
         message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
                    "session_id": self.spec.native_session_id or self.spec.new_session_id,
                    "message": {"role": "user", "content": self._content()}}
-        return Step(frames=[Frame("user-message", "write", _line(message))],
+        ask = {"type": "control_request", "request_id": SETTINGS_REQUEST_ID, "request": {"subtype": "get_settings"}}
+        return Step(frames=[Frame("user-message", "write", _line(message)), Frame(SETTINGS_FRAME, "write", _line(ask))],
                     events=[Event("served", served, source.next()),
                             Event("status", {"phase": "sent"}, source.next())])
+
+    def _settings(self, response: dict, source: "_Sources") -> Step:
+        """C-26.8: the effort the provider applied, from its `get_settings` answer.
+        Ultracode is reported as its own flag beside the effort it runs at; a
+        provider that applied none reports null, recorded as `effort: none`. A CLI
+        without `get_settings` leaves the served effort unrecorded."""
+        applied = (response.get("response") or {}).get("applied") if response.get("subtype") == "success" else None
+        if not isinstance(applied, dict):
+            return Step()
+        effort = ULTRACODE if applied.get("ultracode") is True else (applied.get("effort") or "none")
+        return Step(events=[Event("served", {"effort": str(effort)}, source.next())])
 
     def _content(self) -> list[dict]:
         content: list[dict] = []
