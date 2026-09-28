@@ -265,6 +265,43 @@ func runFold(_ data: Data) throws -> [String: Any] {
 
 // MARK: - Main
 
+/// Exercise the exact state used by the inline card without importing SwiftUI.
+func runQuestions(_ data: Data) throws -> [String: Any] {
+    let input = try JSONValue.parse(data)
+    let questions = try input["questions"]?.decode([ApprovalQuestion].self) ?? []
+    var state = QuestionCardState(questions: questions)
+
+    func snapshot() -> [String: Any] {
+        ["current_index": state.currentIndex,
+         "current_question": state.currentQuestion?.question as Any? ?? NSNull(),
+         "selected": state.currentAnswer?.selectedOptionIndices.sorted() ?? [],
+         "uses_other": state.currentAnswer?.usesOther ?? false,
+         "other_text": state.currentAnswer?.otherText ?? "",
+         "skipped": state.currentAnswer?.skipped ?? false,
+         "answered_count": state.answeredCount,
+         "can_continue": state.canContinue, "can_submit": state.canSubmit,
+         "has_previous": state.hasPrevious, "is_last": state.isLastQuestion,
+         "answers": state.answers, "decision": state.submissionDecision]
+    }
+
+    var snapshots = [snapshot()]
+    var results: [Bool] = []
+    for step in input["steps"]?.array ?? [] {
+        switch step["do"]?.string {
+        case "select": results.append(state.selectOption(Int(step["index"]?.int ?? -1)))
+        case "number": results.append(state.selectNumber(Int(step["number"]?.int ?? 0)))
+        case "other": state.selectOther(); results.append(true)
+        case "text": state.setOtherText(step["text"]?.string ?? ""); results.append(true)
+        case "skip": state.skipCurrent(); results.append(true)
+        case "next": results.append(state.advance())
+        case "back": results.append(state.goBack())
+        default: results.append(false)
+        }
+        snapshots.append(snapshot())
+    }
+    return ["questions": questions.map(jsonObject), "snapshots": snapshots, "results": results]
+}
+
 @main
 struct CoreProbe {
     static func main() throws {
@@ -351,6 +388,20 @@ struct CoreProbe {
                   "hidden_lines": code.hiddenLines])
         case "fold":
             emit(try runFold(readFile(arguments[2])))
+        case "questions":
+            emit(try runQuestions(readFile(arguments[2])))
+        case "approval-notification":
+            let input = try JSONValue.parse(readFile(arguments[2]))
+            let detail = try input["detail"]!.decode(ApprovalDetail.self)
+            let target = ApprovalNotificationTarget(detail: detail)
+            let checks = try input["checks"]?.decode([ApprovalDetail].self) ?? []
+            let candidates = try input["candidates"]?.decode([ApprovalView].self) ?? []
+            emit(["target": target.map(jsonObject) as Any? ?? NSNull(),
+                  "roundtrip": target.map { ApprovalNotificationTarget(userInfo: $0.userInfo) == $0 } ?? false,
+                  "can_allow": checks.map { target?.canAllow($0) ?? false },
+                  "candidate": ApprovalNotificationTarget.candidate(from: candidates,
+                    conversationID: detail.approval.conversation_id,
+                    messageID: detail.approval.message_id)?.approval_id as Any? ?? NSNull()])
         default:
             if let handled = try extraCommand(arguments) {
                 emit(handled)

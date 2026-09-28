@@ -18,6 +18,7 @@ its text; `[fake:write]` combines with any other:
                       working directory, as a turn that edits files does (C-26.14)
     approval          asks to run a Bash command; allow runs it, deny says so
     question          AskUserQuestion; the chosen answers are echoed back
+    questions         AskUserQuestion with several questions, including multiSelect
     slow              streams until interrupted; the interrupt ends the turn
     stubborn          acknowledges interrupts and keeps going; SIGINT ends it with no result
     stubborn-result   acknowledges interrupts and keeps going; SIGINT ends the turn with an
@@ -27,6 +28,7 @@ its text; `[fake:write]` combines with any other:
     limit             a rejected rate_limit_event, then an error result
     exit-after-ack    replays the message, then exits with no result
     exit-before-ack   reads the message, then exits without replaying it
+    stop-before-ack   reads the message, then waits for interrupt without acknowledging it
     background        a success result, then more assistant text before EOF
     wrong-model       serves another model than the one asked for
     bash              runs SUBFLEET_FAKE_BASH_COMMAND as its Bash tool, then succeeds
@@ -307,6 +309,10 @@ class Fake:
         directives = DIRECTIVE.findall(text)
         scenario = next((d for d in directives if d != "write"), "reply")
         self.interrupted.clear()
+        if scenario == "stop-before-ack":
+            self.log({"stop_before_ack": row.get("uuid")})
+            self.interrupted.wait(30)
+            return 1
         if scenario == "exit-before-ack":
             return 1
         self.lifecycle(row.get("uuid"), "started")
@@ -465,6 +471,22 @@ class Fake:
     def scenario_question(self, model: str, reply: str):
         questions = [{"question": "Which color?", "header": "Color", "multiSelect": False,
                       "options": [{"label": "Blue", "description": "calm"}, {"label": "Red", "description": "bold"}]}]
+        return self.answer_questions(model, questions)
+
+    def scenario_questions(self, model: str, reply: str):
+        questions = [
+            {"question": "Which color?", "header": "Color", "multiSelect": False,
+             "options": [{"label": "Blue", "description": "calm"}, {"label": "Red", "description": "bold"}]},
+            {"question": "Which features?", "header": "Features", "multiSelect": True,
+             "options": [{"label": "Fast", "description": "Short turnaround"},
+                         {"label": "Thorough", "description": "More detail"},
+                         {"label": "Quiet", "description": "Fewer updates"}]},
+            {"question": "When is it needed?", "header": "Deadline", "multiSelect": False,
+             "options": [{"label": "Today"}, {"label": "Tomorrow"}]},
+        ]
+        return self.answer_questions(model, questions)
+
+    def answer_questions(self, model: str, questions: list[dict]):
         answer = self.ask(model, "AskUserQuestion", {"questions": questions})
         if answer is None:
             return self.result(False, "error_during_execution", text="interrupted")

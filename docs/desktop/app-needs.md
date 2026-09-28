@@ -44,14 +44,14 @@ the others are read from the code cited.
 
 ## Approvals
 
-5. **An `approval.requested` event does not carry the approval id.** Events
-   carry the provider's `request_id`; `approval.list`, `conversation.open` and
-   `_approval_view` carry `approval_id` but not the `request_id`. The app joins
-   them by message, kind and display fields (which are equal: the event's data
-   minus `request_id`, `kind`, `options` is the stored `display`), and creates a
-   card from the view when the event has not arrived yet (`Timeline.attach`).
-   Two identical requests in one turn would still pair in order. Ask: add
-   `approval_id` to the event's data and `request_id` to the view.
+5. **Resolved (2026-09-28): approval views identify the provider request.**
+   Events carry the provider's `request_id`; `approval.list`,
+   `conversation.open` and `approval.get` views now carry `approval_id` and
+   `provider_request_id`. The app joins by message and exact provider request,
+   including when the list arrives first or the event log is replayed. Identical
+   display text cannot attach a replacement approval to a stale card. Against an
+   older daemon without this optional field, a view with its immutable approval
+   id remains answerable; an event-only card cannot guess by kind or summary.
 
 6. **A withdrawn approval has no event and no change row.** When a turn ends,
    the driver withdraws pending requests (`_end` returns them as `resolved`)

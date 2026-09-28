@@ -853,7 +853,10 @@ class ConversationService:
                                           resolution={**(sibling.get("resolution") or {}), "requires_unblock": True})
         record = {"resolution": args["resolution"], "by": {"pid": verdict.pid, "as": verdict.reason},
                   "at": utcnow()}
-        if not self.store.set_state(message_id, FAILED, reason=f"resolved-{args['resolution']}",
+        person_stopped = bool(message.get("stop_requested_at"))
+        state = INTERRUPTED if person_stopped else FAILED
+        reason = "stopped" if person_stopped else f"resolved-{args['resolution']}"
+        if not self.store.set_state(message_id, state, reason=reason,
                                     expect=(DELIVERY_UNKNOWN,), resolution=record):
             raise ConversationError("not-ambiguous", "the message was resolved meanwhile")
         conversation = self.store.conversation(message["conversation_id"])
@@ -864,8 +867,10 @@ class ConversationService:
             if needs_unblock:
                 # C-24.8: the person says Claude has the message and its turn ended
                 # with no `result`, so the next resume could continue it: the person
-                # chooses next (`conversation.unblock`). The session it named exists.
-                fields["blocked_by"] = "unfinished-turn"
+                # chooses next (`conversation.unblock`), unless a recorded personal
+                # stop already made that choice (C-24.7). The session it named exists.
+                if not person_stopped:
+                    fields["blocked_by"] = "unfinished-turn"
                 owner = self.store.find_message(message["steered_into"]) if message.get("steered_into") else message
                 owner = owner or message
                 attempt = self.daemon.store.one("SELECT job_id, seq FROM attempts WHERE job_id=? ORDER BY seq DESC "
@@ -898,7 +903,7 @@ class ConversationService:
     # --- ops: approvals --------------------------------------------------------
 
     def _approval_view(self, approval: dict) -> dict:
-        return {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "kind", "display",
+        return {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "provider_request_id", "kind", "display",
                                          "options", "created_at", "state")}
 
     def op_approval_list(self, args, peer) -> dict:
@@ -2094,9 +2099,11 @@ class ConversationService:
         return True
 
     def _on_outcome(self, runner: TurnRunner) -> None:
-        # A request cannot claim a steer between our children snapshot and the
-        # host's settlement. The runner never takes message handover locks here.
-        with self._lock:
+        # Serialize settlement with the person's stop (so an outcome cannot read the
+        # message before the stop and apply an unfinished block after it) and with
+        # steer claims (none between our children snapshot and the host's
+        # settlement). Lock order as everywhere: stop, then handover, then _lock.
+        with self._stop_lock(runner.message_id), self._lock:
             self._settle_outcome(runner)
 
     def _settle_outcome(self, runner: TurnRunner) -> None:

@@ -857,6 +857,7 @@ struct ApprovalView: Codable, Equatable, Identifiable {
     var approval_id: String
     var message_id: String
     var conversation_id: String
+    var provider_request_id: String?
     var kind: String
     var display: ApprovalDisplay
     var options: [String]
@@ -904,6 +905,7 @@ struct ApprovalQuestion: Codable, Equatable, Hashable {
     struct Option: Codable, Equatable, Hashable {
         var label: String
         var description: String?
+        var preview: String?
     }
     var question: String
     var header: String?

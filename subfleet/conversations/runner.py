@@ -66,7 +66,7 @@ class Clocks:
     close_after_s: float = CLOSE_AFTER_S
     contain_after_s: float = CONTAIN_AFTER_S
     after_result_s: float = AFTER_RESULT_S
-    approval_wait_s: float = float(CONVERSATION_DEFAULTS["approval_wait_s"])
+    approval_wait_s: float | None = CONVERSATION_DEFAULTS["approval_wait_s"]
 
     @classmethod
     def from_policy(cls, policy: dict) -> "Clocks":
@@ -77,7 +77,8 @@ class Clocks:
                    close_after_s=float(section["stop_close_after_s"]),
                    contain_after_s=float(section["stop_contain_after_s"]),
                    after_result_s=float(section["after_result_s"]),
-                   approval_wait_s=float(section["approval_wait_s"]))
+                   approval_wait_s=(None if section["approval_wait_s"] is None
+                                    else float(section["approval_wait_s"])))
 
 
 def make_driver(spec: TurnSpec, read_bytes: Callable[[str], bytes], *,
@@ -554,7 +555,7 @@ class TurnRunner:
                                     options=approval.options)
             if approval.kind != "question":
                 # C-26.9: a question (AskUserQuestion) waits for the person with no
-                # limit; only a tool approval stops its turn after approval_wait_s.
+                # limit; a tool approval stops its turn only if policy sets a limit.
                 self.approval_seen.setdefault(approval.provider_request_id, self.clock())
             self.store.set_state(self.message_id, APPROVAL_NEEDED, expect=("running", "starting"))
         if step.resolved:
@@ -865,7 +866,8 @@ class TurnRunner:
             self.escalated.add("late-contain")
             self.on_contain(self.attempt_id)
         for request_id, since in list(self.approval_seen.items()):
-            if now - since >= clocks.approval_wait_s and self.driver.outcome is None:
+            if (clocks.approval_wait_s is not None and now - since >= clocks.approval_wait_s
+                    and self.driver.outcome is None):
                 # IR-8: the person did not answer in time. Subfleet does not answer
                 # the approval (C-27.2); it stops the turn.
                 self.approval_seen.pop(request_id, None)

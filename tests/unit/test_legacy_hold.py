@@ -538,7 +538,7 @@ def test_a_person_s_stop_stands_over_the_hold(world, tmp_path):
         outcome(svc, tmp_path, first, cid, state="interrupted", reason="stopped-before-send",
                 stop_reason="legacy-owner", user_frame_written=False)
         message = svc.store.message(first)
-        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: stopped-before-send")
+        assert (message["state"], message["state_reason"]) == ("interrupted", "stopped")
     finally:
         svc.close()
 
@@ -1148,7 +1148,7 @@ def test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_m
         assert tags == ["init", "close"] and runner.driver.outcome.reason == "stopped-before-send"
         assert json.loads((adir / "turn.json").read_text())["user_frame_written"] is False
         message = svc.store.message(mid)
-        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: stopped-before-send")
+        assert (message["state"], message["state_reason"]) == ("interrupted", "stopped")
     finally:
         svc.close()
 
