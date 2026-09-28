@@ -30,6 +30,8 @@ its text; `[fake:write]` combines with any other:
     background        a success result, then more assistant text before EOF
     wrong-model       serves another model than the one asked for
     bash              runs SUBFLEET_FAKE_BASH_COMMAND as its Bash tool, then succeeds
+    chip              launches the configured stdio MCP server and calls spawn_task
+    chip-dismiss      proposes a chip, then withdraws it through dismiss_task
 
 Environment:
 
@@ -37,6 +39,8 @@ Environment:
     SUBFLEET_FAKE_FAST        the `fast_mode_state` to report (default "on")
     SUBFLEET_FAKE_TURN_LOG    append argv (with the cwd) and every stdin line here (JSON lines)
     CLAUDE_FAKE_PROJECTS_DIR  write the session transcript under this directory
+    SUBFLEET_FAKE_CHIP       JSON spawn_task arguments for the chip scenarios;
+                            defaults to a self-contained fixture task
     SUBFLEET_FAKE_BASH_COMMAND
                               the command the `bash` scenario runs, under
                               `/bin/sh -c` in this process's cwd, with
@@ -142,7 +146,16 @@ class Fake:
             directory = Path(projects) / encode_project_dir(os.getcwd())
             directory.mkdir(parents=True, exist_ok=True)
             self.transcript = directory / f"{self.session_id}.jsonl"
-        self.log({"argv": argv, "pid": os.getpid(), "cwd": os.getcwd()})
+        logged_argv = list(argv)
+        raw_mcp = flag(argv, "--mcp-config")
+        if raw_mcp and raw_mcp.lstrip().startswith("{"):
+            config = json.loads(raw_mcp)
+            for server in config.get("mcpServers", {}).values():
+                args = server.get("args", [])
+                if "--token" in args:
+                    args[args.index("--token") + 1] = "<redacted>"
+            logged_argv[argv.index("--mcp-config") + 1] = json.dumps(config)
+        self.log({"argv": logged_argv, "pid": os.getpid(), "cwd": os.getcwd()})
 
     # --- plumbing --------------------------------------------------------------
 
@@ -336,6 +349,106 @@ class Fake:
         time.sleep(0.2)
         self.say(model, "Background task finished.", stream=False)
         return None
+
+    def scenario_chip(self, model: str, reply: str):
+        return self.chip(model, dismiss=False)
+
+    def scenario_chip_dismiss(self, model: str, reply: str):
+        return self.chip(model, dismiss=True)
+
+    def chip(self, model: str, *, dismiss: bool):
+        """Exercise the CLI-launched MCP transport, never the SDK control stream."""
+        process = None
+        try:
+            raw_config = flag(self.argv, "--mcp-config")
+            if not raw_config:
+                raise ValueError("chip scenario needs --mcp-config")
+            config = json.loads(raw_config if raw_config.lstrip().startswith("{")
+                                else Path(raw_config).read_text())
+            server = config["mcpServers"]["subfleet_chips"]
+            process = subprocess.Popen(
+                [server["command"], *server.get("args", [])],
+                env={**os.environ, **server.get("env", {})}, cwd=server.get("cwd"),
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, bufsize=1,
+            )
+            responses: queue.Queue[str | None] = queue.Queue()
+
+            def read_responses():
+                for line in process.stdout:
+                    responses.put(line)
+                responses.put(None)
+
+            threading.Thread(target=read_responses, daemon=True).start()
+            sequence = 0
+
+            def request(method: str, params: dict) -> dict:
+                nonlocal sequence
+                sequence += 1
+                process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": sequence,
+                                                "method": method, "params": params}) + "\n")
+                process.stdin.flush()
+                line = responses.get(timeout=15)
+                if line is None:
+                    raise ValueError("chip MCP server exited without a response")
+                response = json.loads(line)
+                if response.get("id") != sequence or "error" in response:
+                    raise ValueError(f"chip MCP request failed: {response}")
+                self.log({"mcp_method": method, "result": response["result"], "pid": os.getpid()})
+                return response["result"]
+
+            request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                   "clientInfo": {"name": "subfleet-fake-claude", "version": "1"}})
+            process.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+            process.stdin.flush()
+            listed = request("tools/list", {})
+            if {tool["name"] for tool in listed["tools"]} != {"spawn_task", "dismiss_task"}:
+                raise ValueError("chip MCP server did not advertise both tools")
+
+            def call_tool(name: str, arguments: dict) -> dict:
+                tool_id = f"toolu_{uuid.uuid4().hex[:10]}"
+                self.emit({"type": "assistant", "parent_tool_use_id": None, "message": {
+                    "id": f"msg_{uuid.uuid4().hex[:12]}", "type": "message", "role": "assistant", "model": model,
+                    "content": [{"type": "tool_use", "id": tool_id,
+                                 "name": f"mcp__subfleet_chips__{name}", "input": arguments}]}})
+                result = request("tools/call", {"name": name, "arguments": arguments})
+                self.emit({"type": "user", "parent_tool_use_id": None, "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": tool_id, "content": result.get("content", []),
+                     "is_error": bool(result.get("isError"))}]}})
+                if result.get("isError"):
+                    raise ValueError(f"chip MCP tool failed: {result}")
+                return result
+
+            arguments = json.loads(os.environ.get("SUBFLEET_FAKE_CHIP", "{}")) or {
+                "title": "Improve fixture coverage", "tldr": "The fixture needs a focused follow-up test.",
+                "prompt": "Review tracked.txt in the project and add focused fixture coverage.\n",
+            }
+            spawned = call_tool("spawn_task", arguments)
+            if dismiss:
+                payload = spawned.get("structuredContent")
+                if not payload:
+                    payload = json.loads(next(item["text"] for item in spawned["content"] if item["type"] == "text"))
+                task_id = payload.get("task_id") or payload.get("chip", {}).get("chip_id")
+                if not task_id:
+                    raise ValueError("spawn_task did not return task_id")
+                call_tool("dismiss_task", {"task_id": task_id, "reason": "fixed in this session"})
+            self.say(model, "Withdrew the suggestion." if dismiss else "Suggested a separate session.")
+            return self.result(True)
+        except (KeyError, OSError, ValueError, queue.Empty, subprocess.SubprocessError) as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            self.log({"mcp_error": detail, "pid": os.getpid()})
+            self.say(model, f"Chip tool failed: {detail}")
+            return self.result(False, "error_during_execution", errors=[detail])
+        finally:
+            if process is not None:
+                process.stdin.close()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=3)
+                process.stdout.close()
+                process.stderr.close()
 
     def ask(self, model: str, tool: str, tool_input: dict) -> dict | None:
         """A tool_use, its `can_use_tool` request, and the host's answer."""

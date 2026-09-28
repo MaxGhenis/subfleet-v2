@@ -52,11 +52,13 @@ def spec_from_manifest(turn: dict[str, Any], *, lane_email: str | None, guard_ha
 
 
 def claude_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, lane, credential_env: dict[str, str],
-                  model_id: str, adapter: ClaudeAdapter | None = None) -> Launch:
+                  model_id: str, adapter: ClaudeAdapter | None = None, chip_host: dict[str, str] | None = None) -> Launch:
     adapter = adapter or ClaudeAdapter()
     spec = spec_from_manifest(turn, lane_email=lane_email(lane), model_ref=model_id)
     read_only = adapter.permission_args(Sandbox.READ_ONLY)
-    argv = claude_turn.argv(spec, claude_bin=adapter.claude_bin, read_only_flags=read_only)
+    from .chip_host import mcp_config
+    argv = claude_turn.argv(spec, claude_bin=adapter.claude_bin, read_only_flags=read_only,
+                           chip_mcp_config=mcp_config(chip_host) if chip_host is not None else None)
     session_id = spec.native_session_id or spec.new_session_id
     env_remove: tuple[str, ...] = ENV_REMOVE
     if spec.permission == "read-only":

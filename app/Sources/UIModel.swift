@@ -22,6 +22,8 @@ final class UIModel: ObservableObject {
     /// Each conversation's dispatched runs (its sub-agents), newest first.
     @Published var runs: [String: [RunSummary]] = [:]
     @Published var busy = false
+    @Published var chipActions: [String: OutboxEntry] = [:]
+    private var chipNavigation: (chipID: String, navigation: Int)?
     /// The Changes pane's subject while it is open (C-26.14).
     @Published var changesScope: ChangesScope?
     /// Each subject's last answer.
@@ -427,18 +429,34 @@ final class UIModel: ObservableObject {
         }
     }
 
+    func chooseChip(_ chip: TaskChip, start: Bool) {
+        guard let engine else { return }
+        if start { chipNavigation = (chip.chip_id, navigation) }
+        Task {
+            do {
+                let entry = try await onOutbox { try engine.chooseChip(chip, start: start) }
+                chipActions[chip.chip_id] = entry
+                pump()
+            } catch { report(error) }
+        }
+    }
+
     func pump() {
         guard let engine, state.availability.isReady else { return }
         Task {
-            let (report, texts) = await onOutbox { () -> (OutboxSender.Report, [String: String]) in
+            let (report, texts, actions) = await onOutbox { () -> (OutboxSender.Report, [String: String], [OutboxEntry]) in
                 let report = engine.pump()
                 var texts: [String: String] = [:]
                 for receipt in report.receipts {
                     if let text = engine.outbox.text(of: receipt.message_id) { texts[receipt.message_id] = text }
                 }
-                return (report, texts)
+                return (report, texts, engine.outbox.entries.filter { $0.chipID != nil })
             }
-            guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty else { return }
+            chipActions = Dictionary(actions.sorted { $0.order < $1.order }.compactMap { entry in
+                entry.chipID.map { ($0, entry) }
+            }, uniquingKeysWith: { _, latest in latest })
+            state.apply(chips: report.chips)
+            guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty || !report.chips.isEmpty else { return }
             for receipt in report.receipts {
                 state.apply(receipt: receipt)
                 if let cid = receipt.conversation_id, let text = texts[receipt.message_id] {
@@ -449,7 +467,13 @@ final class UIModel: ObservableObject {
                 state.upsert(conversation)
                 if state.focusedConversationID == nil { focus(conversation.conversation_id) }
             }
-            if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }
+            if let requested = chipNavigation,
+               let chip = report.chips.first(where: { $0.chip_id == requested.chipID }),
+               let child = chip.child_conversation_id {
+                chipNavigation = nil
+                if navigation == requested.navigation { focus(child) }
+            }
+            if !report.failed.isEmpty { problem = "\(report.failed.count) action(s) could not be sent; see the conversation" }
         }
     }
 

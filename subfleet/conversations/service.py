@@ -40,6 +40,7 @@ from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
 from . import codex_brief
+from .chips import ChipService
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
@@ -63,7 +64,7 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "runs.v1",
-                "handoff.v1")
+                "handoff.v1", "chips.v1")
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -73,8 +74,8 @@ POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
 # worktree conversation's create cuts) run here, never on a request thread.
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
-                      "conversation.create", "conversation.handoff"})
-PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
+                      "conversation.create", "conversation.handoff", "chip.spawn", "chip.start"})
+PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock", "chip.start"})
 MAX_WAIT_S = 50.0
 RECEIPT_TEXT_CHARS = 20_000
 
@@ -120,6 +121,7 @@ class ConversationService:
         self.daemon = daemon
         self.root: Path = daemon.root
         self.store = ConversationStore(self.root)
+        self.chips = ChipService(self)
         self.polls = concurrent.futures.ThreadPoolExecutor(8, thread_name_prefix="subfleet-poll")
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
@@ -377,6 +379,7 @@ class ConversationService:
         return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title",
                                                     "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
                                                     "settings", "origin", "handoff_from", "legacy_hold", "created_at",
+                                                    "parent_conversation_id", "source_chip_id",
                                                     "updated_at")},
                 # C-30.4: the legacy import's hold is its own column, so no outcome
                 # lifts it, but to a client it is a block like any other (the app
@@ -404,8 +407,21 @@ class ConversationService:
         cid = conversation["conversation_id"]
         cursor = self.store.one("SELECT COALESCE(MAX(seq),0) s FROM events WHERE conversation_id=?", (cid,))["s"]
         return {"conversation": self._view_live(conversation), "messages": [self._receipt(m, text=True) for m in self.store.messages(cid)],
-                "events_cursor": cursor, "pending_approvals": [self._approval_view(a) for a in
+                "events_cursor": cursor, "chips": self.chips.list(cid),
+                "pending_approvals": [self._approval_view(a) for a in
                                                                self.store.approvals(conversation_id=cid)]}
+
+    def op_chip_spawn(self, args, peer) -> dict:
+        return self.chips.spawn(args)
+
+    def op_chip_list(self, args, peer) -> dict:
+        return {"chips": self.chips.list(args["conversation_id"])}
+
+    def op_chip_dismiss(self, args, peer) -> dict:
+        return self.chips.dismiss(args, peer)
+
+    def op_chip_start(self, args, peer) -> dict:
+        return self.chips.start(args, peer)
 
     def _open_native(self, native: dict) -> dict:
         from .catalog import native_session
@@ -2093,8 +2109,10 @@ class ConversationService:
         if not turn:
             raise AdapterError("turn job has no turn manifest", fix="the dispatcher creates turn jobs")
         if lane.provider == "claude":
+            host = (self.chips.host_credentials(turn["conversation_id"], turn["message_id"])
+                    if turn["settings"]["permission"] != "read-only" else None)
             return claude_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,
-                                 credential_env=credential_env, model_id=model_id)
+                                 credential_env=credential_env, model_id=model_id, chip_host=host)
         if guard_result is None or not guard_result.override:
             raise AdapterError("a Codex turn needs the verified never-rules guard", code=7)
         launch = codex_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,

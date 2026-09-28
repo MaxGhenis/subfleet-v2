@@ -180,6 +180,17 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
                                                            "to": {"provider": "codex", "settings": {
                                                                "model": "gpt-6-astra", "permission": "read-only"}}})
     assert len(results["conversation.handoff"]["moved"]) == 1 and results["conversation.handoff"]["created"]
+    # C-31: real proposals and their two terminal choices use the same codecs.
+    chip_parent = harness.create()
+    chip_message = harness.submit(chip_parent["conversation_id"], "Suggest work")
+    host = harness.service.chips.host_credentials(chip_parent["conversation_id"], chip_message["message_id"])
+    chip_args = dict(conversation_id=chip_parent["conversation_id"], message_id=chip_message["message_id"],
+                     host_token=host["token"], title="Add coverage", tldr="Exercise the parser", prompt="Add parser tests.")
+    results["chip.spawn"] = harness.call("chip.spawn", request_id="chip-start-fixture", **chip_args)
+    dismissed_chip = harness.call("chip.spawn", request_id="chip-dismiss-fixture", **chip_args)["chip"]
+    results["chip.start"] = harness.call("chip.start", chip_id=results["chip.spawn"]["chip"]["chip_id"])
+    results["chip.dismiss"] = harness.call("chip.dismiss", chip_id=dismissed_chip["chip_id"], reason="Already covered")
+    results["chip.list"] = harness.call("chip.list", conversation_id=chip_parent["conversation_id"])
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)

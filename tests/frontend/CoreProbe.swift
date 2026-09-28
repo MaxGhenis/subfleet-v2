@@ -81,7 +81,7 @@ let codecs: [String: OpCodec] = {
         codec(Ops.messageCancel), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
         codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
         codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
-        codec(Ops.conversationHandoff),
+        codec(Ops.conversationHandoff), codec(Ops.chipSpawn), codec(Ops.chipList), codec(Ops.chipDismiss), codec(Ops.chipStart),
     ]
     return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 }()
@@ -160,6 +160,8 @@ func project(_ item: TimelineItem) -> [String: Any] {
         out["state"] = tool.state.rawValue; out["preview"] = tool.preview as Any? ?? NSNull()
     case .approval(let card):
         out["type"] = "approval"; out["card"] = project(card)
+    case .chip(let chip):
+        out["type"] = "chip"; out["chip"] = jsonObject(chip)
     case .error(let message, let kind, let willRetry):
         out["type"] = "error"; out["message"] = message; out["kind"] = kind as Any? ?? NSNull(); out["will_retry"] = willRetry
     case .notice(let text):
@@ -212,6 +214,9 @@ func runFold(_ data: Data) throws -> [String: Any] {
         } else if let receipts = step["receipts"] {
             timeline.apply(receipts: try receipts.decode([Receipt].self))
             results.append("receipts")
+        } else if let chips = step["chips"] {
+            timeline.attach(chips: try chips.decode([TaskChip].self))
+            results.append("chips")
         } else if let approvals = step["approvals"] {
             timeline.attach(approvals: try approvals.decode([ApprovalView].self))
             results.append("approvals")

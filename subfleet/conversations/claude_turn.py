@@ -116,7 +116,8 @@ def strip_context(model: str) -> str:
     return model[:-4] if model.endswith("[1m]") else model
 
 
-def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[str, ...] = ()) -> list[str]:
+def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[str, ...] = (),
+         chip_mcp_config: dict | None = None) -> list[str]:
     """The provider command for one turn. `read_only_flags` is the adapter's
     read-only set (C-14.3), passed in so there is one definition of it."""
     command = [claude_bin, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
@@ -153,6 +154,12 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         raise ValueError(f"unknown permission {spec.permission!r}")
     if spec.permission == "read-only" and spec.fast:
         command += ["--settings", json.dumps({"fastMode": True}, separators=(",", ":"))]
+    if chip_mcp_config is not None and spec.permission != "read-only":
+        # Real CLI-launched stdio MCP, not SDK MCP control requests (C-27.4).
+        from .chip_host import SERVER_NAME
+        command += ["--mcp-config", json.dumps(chip_mcp_config, separators=(",", ":")),
+                    "--allowedTools", ",".join(f"mcp__{SERVER_NAME}__{name}"
+                                             for name in ("spawn_task", "dismiss_task"))]
     return command
 
 

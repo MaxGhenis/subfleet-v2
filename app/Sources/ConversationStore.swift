@@ -32,6 +32,10 @@ struct SidebarEntry: Identifiable, Equatable {
     var liveElsewhere: Bool
     var continuable: Bool
     var continueBlocker: String?
+    var parentID: String? = nil
+    var depth = 0
+    var groupDate: Date? = nil
+    var groupWorkspace: String? = nil
 }
 
 struct SidebarSection: Identifiable, Equatable {
@@ -334,6 +338,7 @@ struct ConversationStoreState: Equatable {
         var timeline = timelines[id] ?? Timeline(conversationID: id)
         timeline.apply(receipts: open.messages)
         timeline.attach(approvals: open.pending_approvals)
+        timeline.attach(chips: open.chips ?? [])
         timelines[id] = timeline
     }
 
@@ -399,6 +404,7 @@ struct ConversationStoreState: Equatable {
             }
         }
         for conversation in report.conversations { upsert(conversation) }
+        apply(chips: report.chips)
     }
 
     enum WatchResult: Equatable {
@@ -510,7 +516,8 @@ struct ConversationStoreState: Equatable {
                 pendingApprovals: pendingApprovals[conversation.conversation_id] ?? conversation.pending_approvals,
                 active: conversation.active, blockedBy: conversation.blocked_by,
                 liveElsewhere: conversation.live_elsewhere ?? false,
-                continuable: true, continueBlocker: nil))
+                continuable: true, continueBlocker: nil,
+                parentID: conversation.parent_conversation_id.map { "cv:" + $0 }))
         }
         let bound = Set(conversations.compactMap { c in c.native_session_id.map { "\(c.provider):\($0)" } })
         for item in catalog?.items ?? [] where providerFilter == nil || item.provider == providerFilter {
@@ -530,7 +537,7 @@ struct ConversationStoreState: Equatable {
     }
 
     func sidebar(now: Date = Date(), calendar: Calendar = .current) -> [SidebarSection] {
-        let entries = sidebarEntries()
+        let entries = nestedSidebarEntries(sidebarEntries())
         switch grouping {
         case .recency:
             let buckets = ["Today", "Yesterday", "Previous 7 days", "Previous 30 days", "Older", "Undated"]
@@ -538,7 +545,7 @@ struct ConversationStoreState: Equatable {
             let today = calendar.startOfDay(for: now)
             for entry in entries {
                 let bucket: String
-                if let date = entry.date {
+                if let date = entry.groupDate {
                     let day = calendar.startOfDay(for: date)
                     let days = calendar.dateComponents([.day], from: day, to: today).day ?? 0
                     bucket = days <= 0 ? "Today" : days == 1 ? "Yesterday" : days <= 7 ? "Previous 7 days"
@@ -555,7 +562,7 @@ struct ConversationStoreState: Equatable {
             var grouped: [String: [SidebarEntry]] = [:]
             var order: [String] = []
             for entry in entries {
-                let key = entry.workspace ?? ""
+                let key = entry.groupWorkspace ?? ""
                 if grouped[key] == nil { order.append(key) }
                 grouped[key, default: []].append(entry)
             }

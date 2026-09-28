@@ -194,6 +194,7 @@ struct SidebarRow: View {
             }
         }
         .padding(.vertical, 2)
+        .padding(.leading, CGFloat(min(entry.depth, 8)) * 16)
     }
 }
 
@@ -393,6 +394,8 @@ struct TimelineRow: View {
             ToolRow(activity: activity)
         case .approval(let card):
             ApprovalCardView(card: card, review: { review(card) })
+        case .chip(let chip):
+            TaskChipCard(model: model, chip: chip)
         case .error(let message, let kind, let willRetry):
             Label((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""),
                   systemImage: "exclamationmark.triangle")

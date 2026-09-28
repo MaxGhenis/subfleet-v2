@@ -128,12 +128,12 @@ enum Ops {
         conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, turnInterrupt.name,
         messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
-        conversationHandoff.name,
+        conversationHandoff.name, chipSpawn.name, chipList.name, chipStart.name, chipDismiss.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
     static let personOnly: Set<String> = [
-        approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name,
+        approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name, chipStart.name,
     ]
 }
 
@@ -253,6 +253,8 @@ struct Conversation: Codable, Equatable, Identifiable {
     /// A Claude session another live process (the Claude app, a terminal) holds;
     /// its turns and Subfleet's share one transcript (from the catalog run).
     var live_elsewhere: Bool?
+    var parent_conversation_id: String? = nil
+    var source_chip_id: String? = nil
 
     var id: String { conversation_id }
 }
@@ -449,6 +451,7 @@ struct ConversationOpenResult: Codable, Equatable {
     var messages: [Receipt]
     var events_cursor: Int
     var pending_approvals: [ApprovalView]
+    var chips: [TaskChip]? = nil
 }
 
 struct ConversationCreateArgs: Codable, Equatable {

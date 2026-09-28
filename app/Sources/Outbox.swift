@@ -11,7 +11,8 @@
 // conversation and tries again. A send that may have reached the daemon is
 // withdrawn only after `message.status` shows the daemon never received it,
 // and then through `message.cancel`, which leaves a tombstone so a late copy
-// cannot land.
+// cannot land. Task-chip Start/Dismiss choices use the same journal, keyed by
+// operation and chip ID; their idempotent daemon results recover lost answers.
 //
 // The other mutating ops (settings, stop, unblock, resolve, approval answers)
 // are a person's immediate actions without an idempotency key; they are sent
@@ -42,6 +43,8 @@ struct OutboxEntry: Codable, Equatable, Identifiable {
     enum Kind: String, Codable {
         case conversationCreate = "conversation.create"
         case messageSubmit = "message.submit"
+        case chipStart = "chip.start"
+        case chipDismiss = "chip.dismiss"
     }
 
     enum State: String, Codable {
@@ -78,6 +81,8 @@ struct OutboxEntry: Codable, Equatable, Identifiable {
     /// For a create: the conversation the daemon made (or had already made).
     var conversationID: String?
     var createdAt: String
+    var chipID: String? = nil
+    var chip: TaskChip? = nil
 
     var id: String { key }
     var isOpen: Bool { state == .queued || state == .sending || state == .failed }
@@ -99,11 +104,15 @@ struct OutboxJournal: Codable, Equatable {
 enum OutboxRequest: Equatable {
     case create(ConversationCreateArgs)
     case submit(MessageSubmitArgs)
+    case startChip(ChipStartArgs)
+    case dismissChip(ChipDismissArgs)
 }
 
 enum OutboxOutcome {
     case created(ConversationCreateResult)
     case submitted(Receipt)
+    case startedChip(ChipStartResult)
+    case dismissedChip(ChipResult)
     case failed(DaemonClientError)
 }
 
@@ -208,6 +217,25 @@ final class Outbox {
         return entry
     }
 
+    /// Start and Dismiss are idempotent by chip ID, independent of message chains.
+    @discardableResult
+    func enqueueChip(_ chip: TaskChip, start: Bool) throws -> OutboxEntry {
+        let kind: OutboxEntry.Kind = start ? .chipStart : .chipDismiss
+        let key = kind.rawValue + ":" + chip.chip_id
+        if let existing = entry(key) { return existing }
+        // A choice whose delivery is unknown must settle before its opposite.
+        guard !entries.contains(where: { $0.chipID == chip.chip_id && $0.isOpen && $0.state != .failed }) else {
+            throw OutboxError.notSendable("This task already has a pending choice")
+        }
+        let entry = OutboxEntry(key: key, kind: kind, order: journal.nextOrder,
+                                conversation: chip.parent_conversation_id, state: .queued,
+                                createdAt: stamp(), chipID: chip.chip_id)
+        journal.nextOrder += 1
+        journal.entries.append(entry)
+        try save()
+        return entry
+    }
+
     // MARK: Predecessor chains
 
     func chainKnown(_ conversationID: String) -> Bool { journal.chains[conversationID] != nil }
@@ -258,7 +286,7 @@ final class Outbox {
         var seen: Set<String> = []
         for entry in journal.entries.sorted(by: { $0.order < $1.order }) where entry.isOpen {
             switch entry.kind {
-            case .conversationCreate:
+            case .conversationCreate, .chipStart, .chipDismiss:
                 if entry.state == .queued && due(entry) { out.append(entry) }
             case .messageSubmit:
                 guard !seen.contains(entry.conversation) else { continue }
@@ -282,6 +310,12 @@ final class Outbox {
         case .conversationCreate:
             guard let create = entry.create else { throw OutboxError.invalidState("create without arguments") }
             request = .create(create)
+        case .chipStart:
+            guard let id = entry.chipID else { throw OutboxError.invalidState("chip without id") }
+            request = .startChip(ChipStartArgs(chip_id: id))
+        case .chipDismiss:
+            guard let id = entry.chipID else { throw OutboxError.invalidState("chip without id") }
+            request = .dismissChip(ChipDismissArgs(chip_id: id))
         case .messageSubmit:
             guard let message = entry.message, !entry.conversation.hasPrefix(Outbox.draftPrefix),
                   let chain = journal.chains[entry.conversation] else {
@@ -332,6 +366,23 @@ final class Outbox {
                 entry.state = .acknowledged
                 journal.chains[entry.conversation] = OutboxChain(lastPersonMessageID: key)
             }
+            journal.entries[index] = entry
+        case .startedChip(let result):
+            entry.state = .acknowledged
+            entry.chip = result.chip
+            entry.receipt = result.message
+            entry.conversationID = result.conversation.conversation_id
+            entry.failure = nil
+            entry.nextAttemptAt = nil
+            journal.entries[index] = entry
+            // Read the child's current chain before a later send: a replayed
+            // Start can return its first receipt after more messages already exist.
+            journal.chains[result.conversation.conversation_id] = nil
+        case .dismissedChip(let result):
+            entry.state = .acknowledged
+            entry.chip = result.chip
+            entry.failure = nil
+            entry.nextAttemptAt = nil
             journal.entries[index] = entry
         case .failed(let error):
             entry = classify(entry, error)
@@ -467,6 +518,7 @@ final class OutboxSender {
         /// Receipts and created conversations, for the store to fold in.
         var receipts: [Receipt] = []
         var conversations: [Conversation] = []
+        var chips: [TaskChip] = []
     }
 
     init(outbox: Outbox, client: DaemonCalling) {
@@ -492,6 +544,12 @@ final class OutboxSender {
                 let result = try client.call(Ops.conversationCreate, args)
                 created.append(result.conversation)
                 return try outbox.finish(key, .created(result))
+            case .startChip(let args):
+                let result = try client.call(Ops.chipStart, args)
+                created.append(result.conversation)
+                return try outbox.finish(key, .startedChip(result))
+            case .dismissChip(let args):
+                return try outbox.finish(key, .dismissedChip(try client.call(Ops.chipDismiss, args)))
             case .submit(let args):
                 for image in outbox.entry(key)?.message?.staged ?? [] {
                     _ = try client.call(Ops.attachmentAdd, AttachmentAddArgs(path: image.path, sha256: image.sha256))
@@ -526,6 +584,7 @@ final class OutboxSender {
                 case .acknowledged:
                     progressed = true
                     report.acknowledged.append(entry.key)
+                    if let chip = result.chip { report.chips.append(chip) }
                     if let receipt = result.receipt { report.receipts.append(receipt) }
                 case .withdrawn:
                     progressed = true

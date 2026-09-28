@@ -77,6 +77,7 @@ enum TimelineContent: Equatable {
     case thinking(String, final: Bool)
     case tool(ToolActivity)
     case approval(ApprovalCard)
+    case chip(TaskChip)
     case error(message: String, kind: String?, willRetry: Bool)
     case notice(String)
 }
@@ -227,6 +228,7 @@ struct Timeline: Equatable {
     /// Every approval `attach` has seen, by approval id. A card the events make
     /// again (after a reset re-reads the log) gets its approval id back from here.
     private var knownApprovals: [String: ApprovalView] = [:]
+    private var knownChips: [String: TaskChip] = [:]
 
     init(conversationID: String) {
         self.conversationID = conversationID
@@ -281,6 +283,7 @@ struct Timeline: Equatable {
         }
         order.removeAll { $0 == Timeline.conversationKey }
         turns[Timeline.conversationKey] = nil
+        attach(chips: Array(knownChips.values))
     }
 
     @discardableResult
@@ -311,6 +314,11 @@ struct Timeline: Equatable {
     }
 
     private mutating func fold(_ event: ConversationEvent) {
+        if ["chip.created", "chip.started", "chip.dismissed"].contains(event.kind),
+           let chip = try? event.data["chip"]?.decode(TaskChip.self) {
+            attach(chips: [chip])
+            return
+        }
         let id = event.message_id ?? Timeline.conversationKey
         ensureTurn(id)
         guard var turn = turns[id] else { return }
@@ -549,6 +557,26 @@ struct Timeline: Equatable {
         turn.state = MessageState.cancelled.rawValue
         turn.stateReason = "withdrawn-before-receipt"
         turns[messageID] = turn
+    }
+
+    // MARK: Suggested tasks
+
+    mutating func attach(chips: [TaskChip]) {
+        for incoming in chips.sorted(by: { ($0.created_at, $0.chip_id) < ($1.created_at, $1.chip_id) })
+        where incoming.parent_conversation_id == conversationID {
+            let chip = knownChips[incoming.chip_id]?.merging(incoming) ?? incoming
+            knownChips[chip.chip_id] = chip
+            ensureTurn(chip.message_id)
+            guard var turn = turns[chip.message_id] else { continue }
+            let itemID = "chip:" + chip.chip_id
+            if let index = turn.items.firstIndex(where: { $0.id == itemID }) {
+                turn.items[index].content = .chip(chip)
+            } else {
+                turn.items.append(TimelineItem(id: itemID, messageID: chip.message_id,
+                                               content: .chip(chip), ts: chip.created_at))
+            }
+            turns[chip.message_id] = turn
+        }
     }
 
     // MARK: Approvals

@@ -307,6 +307,8 @@ class ConversationStore:
             if version is not None and version < SCHEMA_VERSION:
                 self._migrate(version)
             self._db.executescript(SCHEMA)
+            from .chips import initialize as initialize_chips
+            initialize_chips(self._db)
             # Additive columns need no numbered step: a build without them still reads the
             # rows (it selects by name and ignores what it does not know).
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
@@ -960,6 +962,8 @@ class ConversationStore:
         digest = message_digest(message["conversation_id"], text, message["attachments"], message["settings"])
         if digest != message["digest"]:
             raise OSError(errno.EIO, "message text does not match its accepted digest", message["text_path"])
+        if message.get("preserve_newlines"):
+            return text                          # C-31: the exact prompt of a started chip
         return text.replace("\r\n", "\n").replace("\r", "\n")      # as `read_text` gave it
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,

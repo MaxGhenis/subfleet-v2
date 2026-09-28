@@ -65,7 +65,7 @@ func project(_ entry: OutboxEntry) -> [String: Any] {
 func project(_ report: OutboxSender.Report) -> [String: Any] {
     ["sent": report.sent, "acknowledged": report.acknowledged, "failed": report.failed, "retrying": report.retrying,
      "resynced": report.resynced, "receipts": report.receipts.map(jsonObject),
-     "conversations": report.conversations.map { $0.conversation_id }]
+     "conversations": report.conversations.map { $0.conversation_id }, "chips": report.chips.map(jsonObject)]
 }
 
 func project(_ outcome: OutboxSender.WithdrawOutcome) -> [String: Any] {
@@ -112,6 +112,10 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                     request_id: step["request_id"]?.string ?? UUID().uuidString, provider: step["provider"]?.string ?? "claude",
                     workspace: step["workspace"]?.string ?? "", settings: settings))
                 results.append(["do": action, "key": entry.key, "conversation": entry.conversation])
+            case "chip-start", "chip-dismiss":
+                let chip = try step["chip"]!.decode(TaskChip.self)
+                let entry = try outbox.enqueueChip(chip, start: action == "chip-start")
+                results.append(["do": action, "key": entry.key])
             case "submit":
                 let settings = try step["settings"]?.decode(ConversationSettings.self) ?? ConversationSettings(model: "opus[1m]")
                 let entry = try outbox.enqueueSubmit(conversation: resolve(step["conversation"]?.string),
@@ -197,7 +201,8 @@ func project(_ entry: SidebarEntry) -> [String: Any] {
     return ["id": entry.id, "target": target, "provider": entry.provider, "title": entry.title, "subtitle": entry.subtitle,
             "pending": entry.pendingApprovals, "active": entry.active, "blocked_by": entry.blockedBy as Any? ?? NSNull(),
             "live_elsewhere": entry.liveElsewhere, "continuable": entry.continuable,
-            "continue_blocker": entry.continueBlocker as Any? ?? NSNull()]
+            "continue_blocker": entry.continueBlocker as Any? ?? NSNull(), "depth": entry.depth,
+            "parent_id": entry.parentID as Any? ?? NSNull()]
 }
 
 func project(_ options: ComposerOptions) -> [String: Any] {
@@ -308,6 +313,9 @@ func runStore(_ data: Data) throws -> [String: Any] {
             }
         }
     }
+    out["task_chips"] = state.timelines.mapValues { $0.items.compactMap { item -> Any? in
+        if case .chip(let chip) = item.content { return jsonObject(chip) }; return nil
+    } }
     out["composer"] = composer
     out["composer_picked_haiku"] = composerPicked
     out["banners"] = banners
