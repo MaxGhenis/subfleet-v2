@@ -9,9 +9,8 @@ lost. Requests the Swift side encodes are fed to the daemon's own
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
-from pathlib import Path
-import tempfile
 import threading
 from types import SimpleNamespace
 import uuid
@@ -21,7 +20,7 @@ import pytest
 from subfleet import protocol
 from subfleet.conversations.service import CAPABILITIES
 from subfleet.conversations.store import ConversationError
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import (
     ServiceHarness, claude_assistant, claude_init, claude_result, claude_stream,
 )
@@ -39,11 +38,9 @@ def strip_nulls(value):
 
 
 @pytest.fixture
-def harness():
-    root = Path(tempfile.mkdtemp(prefix="sf-app-h-", dir="/tmp"))
-    harness = ServiceHarness(root)
-    yield harness
-    harness.close()
+def harness(request):
+    with state_root(request, "sf-app-h-") as root, closing(ServiceHarness(root)) as harness:
+        yield harness
 
 
 def roundtrip(core_probe, tmp_path, op: str, result: dict) -> dict:

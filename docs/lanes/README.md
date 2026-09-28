@@ -19,5 +19,6 @@ Lane worktrees live under `~/subfleet-v2-lanes/<lane>/` on branch `lane/<lane>`,
 export PATH=/usr/sbin:/sbin:$PATH
 uv run pytest -q
 ```
+The app core's service harness fixtures in `tests/frontend` (the protocol, Changes pane, timeline, store, outbox and watch tests) make their state roots under `/tmp` with `state_root` from `tests/frontend/conftest.py`. A passing test's root is removed. A failed test's root is kept, sockets left out, under `/tmp/sf-failed/<test name>/`, as the daemon harnesses keep theirs. The same conftest fails any passing frontend test that leaves behind a directory it made with `tempfile.mkdtemp`.
 
 A sandboxed shell without `/usr/sbin` makes every process-inspection test skip. Failed daemon tests keep their state root under `/tmp/sf-failed/<test name>/` (both the fake-daemon and the end-to-end harness): `daemon.log`, the store, receipts, and any quarantine census live there.

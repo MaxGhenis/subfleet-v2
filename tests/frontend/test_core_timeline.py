@@ -8,15 +8,14 @@ provider output, stored by the real store and read back with the real
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
-from pathlib import Path
-import tempfile
 import uuid
 
 import pytest
 
 from subfleet.guard.preflight import HOOK_KEY
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import (
     ServiceHarness, claude_assistant, claude_block, claude_init, claude_result, claude_stream,
 )
@@ -25,10 +24,9 @@ pytestmark = needs_swift
 
 
 @pytest.fixture
-def harness():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-tl-", dir="/tmp")))
-    yield harness
-    harness.close()
+def harness(request):
+    with state_root(request, "sf-tl-") as root, closing(ServiceHarness(root)) as harness:
+        yield harness
 
 
 def fold(core_probe, tmp_path, cid: str, steps: list[dict]) -> dict:
