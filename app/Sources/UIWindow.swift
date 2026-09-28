@@ -399,7 +399,24 @@ struct TimelineRow: View {
                 .font(.callout).foregroundStyle(.red)
         case .notice(let words):
             Text(words).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+        case .steered:
+            // `Timeline.items` draws the steered message's own bubble in this place.
+            EmptyView()
         }
+    }
+}
+
+/// Read by the provider: a double check, as a messaging app marks it.
+struct ReadMark: View {
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Image(systemName: "checkmark")
+            Image(systemName: "checkmark").offset(x: 4)
+        }
+        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+        .padding(.trailing, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Read")
     }
 }
 
@@ -427,12 +444,19 @@ struct TurnStatusLine: View {
     var body: some View {
         HStack(spacing: 8) {
             let live = turn.messageState.map { [.waiting, .starting, .running, .approvalNeeded].contains($0) } ?? (turn.state == "sending")
-            if live { ProgressView().controlSize(.mini) }
-            Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
+            if turn.isReadSteer {
+                ReadMark()
+            } else if live || turn.isUnreadSteer {
+                ProgressView().controlSize(.mini)
+            }
+            // A steered message reads as Claude Code's does: unread, by what the turn is doing, then Read.
+            Text(model.state.timelines[conversation.conversation_id]?.statusText(
+                of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
+                .font(.caption).foregroundStyle(.secondary)
             if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
                 ServedChipView(chip: chip)
             }
-            if live {
+            if live && !turn.steerRequested {
                 Button("Stop") {
                     model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
                 }.buttonStyle(.link).font(.caption)
@@ -453,9 +477,10 @@ struct TurnStatusLine: View {
     }
 
     /// A finished turn of a conversation that may write: its counts are worth asking for.
+    /// A steered message has no turn of its own; its host's line shows the changes.
     private var askChanges: Bool {
         guard model.canShowChanges, conversation.settings.permission != PermissionPolicy.readOnly.rawValue,
-              let state = turn.messageState else { return false }
+              let state = turn.messageState, state != .steered else { return false }
         return MessageState.terminal.contains(state)
     }
 }

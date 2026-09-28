@@ -6,7 +6,8 @@
 // a tool approval and a question as the development app, retry and withdraw
 // through the outbox, send an image, notify for an unfocused conversation, and
 // continue a native session from the catalog. Every exchange is written to
-// the exchanges file for the test to check against the daemon's own JSON.
+// the exchanges file for the test to check against the daemon's own JSON. A daemon
+// that advertises `steer.v1` is also steered into a running turn (step 14).
 import Foundation
 
 final class LiveRun {
@@ -384,6 +385,51 @@ func runLive(_ arguments: [String]) throws -> Any {
         } ?? []
         run.check("the native session's earlier turns show as history, before the Subfleet turn",
                   older.first?.hasPrefix("user: native probe") == true && older.count == 2, older)
+    }
+
+    // 14. Steer (C-24.9), when the daemon advertises it for Claude: a message sent while a
+    // turn runs goes into that turn. Whether the provider takes it at a step or it misses
+    // the turn and runs next (DESIGN.md section 4), it settles once and is drawn once.
+    if state.availability.capabilities?.canSteer("claude") == true {
+        state.focus(cid)
+        let host = try engine.send(conversation: cid, text: "steer into me [fake:slow]", settings: settings)
+        _ = engine.pump()
+        let running = untilState(host.key, ["running", "approval-needed"])
+        state.apply(open: try engine.open(.conversation(cid)))
+        _ = follow(cid, timeout: 20) { $0.turn(host.key)?.accepted == true }
+        let composer = state.conversation(cid).flatMap {
+            composerSteerHost(conversation: $0, timeline: state.timelines[cid], capabilities: state.availability.capabilities)
+        }
+        run.check("steer: the composer steers into the running turn", running != nil && composer?.messageID == host.key,
+                  composer?.messageID ?? NSNull())
+        let steered = try engine.send(conversation: cid, text: "also say steered", settings: settings, steer: true)
+        let report = engine.pump()
+        state.apply(outbox: report, outbox: outbox)
+        let answer = outbox.steer(steered.key)
+        run.check("steer: the daemon takes the steer", answer?.state == .acknowledged
+                  && ["steering", "steered"].contains(answer?.receipt?.state ?? ""),
+                  answer.map { jsonObject($0.receipt) } ?? NSNull())
+        // A slow turn ends only when stopped; a steer it has not taken by then runs next.
+        Thread.sleep(forTimeInterval: 3)
+        _ = try? engine.stop(.interrupt(messageID: host.key))
+        let settled = untilState(steered.key, ["steered", "complete", "failed", "cancelled", "delivery-unknown"],
+                                 timeout: 90)
+        run.check("steer: the steered message settles once, in the turn or as the next one",
+                  ["steered", "complete"].contains(settled?.state ?? ""), settled.map(jsonObject) ?? NSNull())
+        run.notes["steer"] = settled?.state ?? "unsettled"
+        _ = follow(cid, timeout: 30) { $0.turn(host.key)?.outcome != nil }
+        state.apply(open: try engine.open(.conversation(cid)))
+        try? engine.catchUp(&state, conversationID: cid)
+        let drawn = state.timelines[cid]?.items.filter { $0.id == "person:\(steered.key)" }.count ?? 0
+        run.check("steer: the steered message is drawn once", drawn == 1, drawn)
+        if settled?.state == "steered" {
+            run.check("steer: it is drawn inside the turn that took it",
+                      state.timelines[cid]?.placedSteers.contains(steered.key) == true
+                      || state.timelines[cid]?.turn(steered.key)?.steeredInto == host.key,
+                      state.timelines[cid]?.turn(steered.key).map(project) ?? NSNull())
+        }
+    } else {
+        run.notes["steer"] = "skipped: the daemon does not advertise steer.v1 for claude"
     }
 
     return ["checks": run.checks, "notes": run.notes]

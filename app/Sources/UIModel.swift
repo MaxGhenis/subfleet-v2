@@ -28,6 +28,10 @@ final class UIModel: ObservableObject {
     @Published var changes: [ChangesScope: ChangesLoad] = [:]
     /// A finished turn's changed-file counts, for its status line.
     @Published var turnChanges: [String: DiffStats] = [:]
+    /// Words Esc took back from the running turn, per conversation, for its composer.
+    @Published var composerRecall: [String: ComposerRecall] = [:]
+    /// Steers the daemon answered `too-late` for: the next Esc passes over them.
+    private var unrecallable: Set<String> = []
     private var turnChangesAsked: Set<String> = []
 
     let paths: AppPaths
@@ -252,10 +256,15 @@ final class UIModel: ObservableObject {
         busy = true
         defer { busy = false }
         do {
-            let result = try await onOutbox { try engine.open(target) }
+            let (result, steers) = try await onOutbox { () throws -> (ConversationOpenResult, [OutboxSteer]) in
+                let open = try engine.open(target)
+                return (open, engine.outbox.steers(in: open.conversation.conversation_id))
+            }
             // The daemon's state is kept either way; the screen moves only if the
             // person has not gone elsewhere since asking.
             state.apply(open: result)
+            // Steers this app journaled: still on their way, or refused (C-24.9).
+            state.apply(steers: steers)
             if let token, token != navigation { return }
             lockedEntry = nil
             state.focus(result.conversation.conversation_id)
@@ -409,18 +418,79 @@ final class UIModel: ObservableObject {
     }
 
     /// Journal a message and send it now; the optimistic row appears at once.
-    func send(conversationID: String, text: String, staged: [StagedAttachment], settings: ConversationSettings) {
+    /// With `steer`, it is submitted and then steered into the running turn (C-24.9).
+    func send(conversationID: String, text: String, staged: [StagedAttachment], settings: ConversationSettings,
+              steer: Bool = false) {
         guard let engine else { return }
         let messageID = Outbox.newMessageID()
         state.addLocalMessage(conversationID: conversationID, messageID: messageID, text: text,
-                              attachments: staged.map(\.sha256), settings: settings)
+                              attachments: staged.map(\.sha256), settings: settings, steer: steer)
         Task {
             do {
                 _ = try await onOutbox {
                     try engine.send(conversation: conversationID, text: text, staged: staged, settings: settings,
-                                    messageID: messageID)
+                                    messageID: messageID, steer: steer)
                 }
                 pump()
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    /// Steer a queued message into the running turn (C-24.9): journaled, then sent.
+    /// A refusal leaves it queued and its status line says why. The queue tray's
+    /// "Send now" (DESIGN.md sections 7 to 9) calls this.
+    func steer(messageID: String, conversationID: String) {
+        guard let engine else { return }
+        // Slash commands and shell input wait for the turn to end (DESIGN.md section 9).
+        let text = state.timelines[conversationID]?.turn(messageID)?.personText ?? ""
+        guard steerable(text: text) else { return }
+        state.requestSteer(conversationID: conversationID, messageID: messageID)
+        Task {
+            do {
+                _ = try await onOutbox { try engine.steer(messageID: messageID, conversationID: conversationID) }
+                pump()
+            } catch {
+                state.noteSteer(conversationID: conversationID, messageID: messageID, refusal: nil)
+                report(error)
+            }
+        }
+    }
+
+    /// Esc while a turn runs (DESIGN.md sections 8 and 9): the latest steer the
+    /// provider has not read comes back to the composer; with none, the turn stops.
+    /// Stop keeps unread steers and queued messages: they run next.
+    func escape(conversationID: String, assistant: String) {
+        guard let engine, let timeline = state.timelines[conversationID] else { return }
+        let unread: String
+        switch escapeAction(timeline: timeline, unrecallable: unrecallable) {
+        case .none: return
+        case .stop(let action):
+            stop(action)
+            return
+        case .recall(let messageID): unread = messageID
+        }
+        guard let turn = timeline.turn(unread) else { return }
+        let (messageState, text) = (turn.state, turn.personText)
+        Task {
+            do {
+                let outcome = try await onOutbox { try engine.recall(messageID: unread, state: messageState, text: text) }
+                switch outcome {
+                case .recalled(let words, let staged, let receipt):
+                    state.noteSteer(conversationID: conversationID, messageID: unread, refusal: nil)
+                    if let receipt { state.apply(receipt: receipt) } else {
+                        state.withdrawLocal(conversationID: conversationID, messageID: unread)
+                    }
+                    composerRecall[conversationID] = ComposerRecall(text: words, staged: staged)
+                case .tooLate(let receipt):
+                    if let receipt { state.apply(receipt: receipt) }
+                    // Its frame is written: the turn's next step reads it. The next Esc stops the turn.
+                    unrecallable.insert(unread)
+                    problem = "\(assistant) already has it; it joins at the next step. Press Esc again to stop the turn."
+                case .inFlight:
+                    problem = "That message is still being sent; press Esc again in a moment."
+                }
             } catch {
                 report(error)
             }
@@ -438,13 +508,15 @@ final class UIModel: ObservableObject {
                 }
                 return (report, texts)
             }
-            guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty else { return }
+            guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty
+                    || !report.steers.isEmpty else { return }
             for receipt in report.receipts {
                 state.apply(receipt: receipt)
                 if let cid = receipt.conversation_id, let text = texts[receipt.message_id] {
                     state.setPersonText(text, conversationID: cid, messageID: receipt.message_id)
                 }
             }
+            state.apply(steers: report.steers)
             for conversation in report.conversations {
                 state.upsert(conversation)
                 if state.focusedConversationID == nil { focus(conversation.conversation_id) }
@@ -588,6 +660,7 @@ final class UIModel: ObservableObject {
             case .maskedValuesNeedReview: return "Reveal or confirm the masked values before allowing."
             case .widenNeedsConfirmation(let from, let to): return "Moving from \(from) to \(to) needs your confirmation."
             case .notOffered(let decision): return "\(decision) is not offered for this request."
+            case .steerTooLate: return "Too late to withdraw it: the running turn has read that message."
             }
         }
         return "\(error)"
@@ -606,5 +679,11 @@ final class UIModel: ObservableObject {
         let request = UNNotificationRequest(identifier: intent.id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
+}
+/// Words (and images) taken back from the running turn, for the composer to show again.
+struct ComposerRecall: Equatable, Identifiable {
+    let id = UUID()
+    var text: String
+    var staged: [StagedAttachment]
 }
 #endif

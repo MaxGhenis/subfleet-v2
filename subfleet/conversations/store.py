@@ -1060,11 +1060,15 @@ class ConversationStore:
             if message["origin"] != "person":
                 raise ConversationError("not-queued", "only a person's queued message can steer", code=7)
             cid = message["conversation_id"]
+            # Claude Code steers a new message while earlier ones wait "for later"
+            # (DESIGN.md section 8), so any queued person message may steer; the rest keep
+            # their order. A queued repair message (a failover or unblock continuation)
+            # must still run first.
             repair = ",".join("?" for _ in REPAIR_ORIGINS)
-            head = tx.execute("SELECT message_id FROM messages WHERE conversation_id=? AND state='queued' "
-                              f"ORDER BY origin IN ({repair}) DESC, seq LIMIT 1", (cid, *REPAIR_ORIGINS)).fetchone()
-            if not head or head["message_id"] != message_id:
-                raise ConversationError("not-next", "an earlier message must run or steer first", code=7)
+            ahead = tx.execute("SELECT 1 FROM messages WHERE conversation_id=? AND state='queued' "
+                               f"AND origin IN ({repair}) LIMIT 1", (cid, *REPAIR_ORIGINS)).fetchone()
+            if ahead:
+                raise ConversationError("not-next", "a repair message must run first", code=7)
             host = tx.execute("SELECT * FROM messages WHERE message_id=? AND conversation_id=?",
                               (host_message_id, cid)).fetchone()
             conversation = tx.execute("SELECT * FROM conversations WHERE conversation_id=?", (cid,)).fetchone()

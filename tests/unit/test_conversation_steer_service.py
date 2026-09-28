@@ -68,17 +68,18 @@ def test_claim_is_durable_before_command_and_idempotent(svc, live):
     assert svc.op_message_status({"message_ids": [mid]}, None)["messages"][0]["steered_into"] == host
 
 
-def test_queue_head_and_repair_messages_cannot_be_bypassed(svc, live):
+def test_a_later_message_may_steer_but_a_repair_message_goes_first(svc, live):
+    """Claude Code steers a new message while earlier ones wait for later (DESIGN.md
+    section 8): the queued head need not steer first. A queued repair message does."""
     cid, host, mid, _ = live
     later = submit(svc, cid, after=mid)
-    with pytest.raises(ConversationError, match="earlier") as exc:
-        steer(svc, later)
-    assert exc.value.reason == "not-next"
+    assert steer(svc, later)["state"] == "steering"
+    assert svc.store.message(mid)["state"] == "queued"          # the earlier one keeps its place
     import uuid
     svc.store.submit_message(conversation_id=cid, message_id=str(uuid.uuid4()), after_message_id=later,
                              text="repair", attachments=[], settings=svc.store.message(mid)["settings"],
                              origin="unblock-note")
-    with pytest.raises(ConversationError) as exc:
+    with pytest.raises(ConversationError, match="repair") as exc:
         steer(svc, mid)
     assert exc.value.reason == "not-next"
     assert svc.store.message(mid)["state"] == "queued"
