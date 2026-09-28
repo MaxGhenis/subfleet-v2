@@ -123,13 +123,25 @@ enum StopAction: Equatable {
 }
 
 /// What Stop does for a message (brief item 7; service.py `op_message_cancel`,
-/// `op_turn_interrupt`).
+/// `op_turn_interrupt`). A message with no receipt yet (`sending`) is withdrawn
+/// through the outbox (D-22), which asks the daemon first when it may have it.
 func stopAction(for messageID: String, state: String?, outboxEntry: OutboxEntry?) -> StopAction {
     if let entry = outboxEntry, entry.kind == .messageSubmit, entry.isOpen { return .withdraw(messageID: messageID) }
     switch state.flatMap(MessageState.init(rawValue:)) {
     case .queued: return .cancel(messageID: messageID)
     case .waiting, .starting, .running, .approvalNeeded: return .interrupt(messageID: messageID)
+    case nil where state == "sending": return .withdraw(messageID: messageID)
     default: return .none
+    }
+}
+
+/// The words on a message's control: Stop while its turn runs, Withdraw while it
+/// waits; nil when there is nothing to stop.
+func stopLabel(_ action: StopAction) -> String? {
+    switch action {
+    case .none: return nil
+    case .interrupt: return "Stop"
+    case .cancel, .withdraw: return "Withdraw"
     }
 }
 
@@ -331,9 +343,11 @@ struct ConversationStoreState: Equatable {
 
     mutating func focus(_ conversationID: String?) {
         focusedConversationID = conversationID
-        if let conversationID, timelines[conversationID] == nil {
-            timelines[conversationID] = Timeline(conversationID: conversationID)
-        }
+        guard let conversationID else { return }
+        // Its events loop reads the log again from the cursor (C-29.9).
+        var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
+        timeline.beginReading()
+        timelines[conversationID] = timeline
     }
 
     @discardableResult
@@ -380,6 +394,13 @@ struct ConversationStoreState: Equatable {
     /// The person's text for a message this app sent (the receipt carries none).
     mutating func setPersonText(_ text: String, conversationID: String, messageID: String) {
         timelines[conversationID]?.setPersonText(text, for: messageID)
+    }
+
+    /// A message the person withdrew before the daemon had it: no receipt comes.
+    mutating func withdrawLocal(messageID: String) {
+        for key in timelines.keys where timelines[key]?.turn(messageID) != nil {
+            timelines[key]?.withdrawLocal(messageID: messageID)
+        }
     }
 
     /// Fold an outbox report: receipts, and the conversations creates made.
@@ -599,6 +620,12 @@ final class ConversationEngine {
     var pollWait: Double = 25
     /// Closed outbox entries kept after each pump (their text feeds the timeline).
     var keptClosedEntries = 200
+    /// How long a cancel the daemon answered `dispatching` waits before each try
+    /// again: the dispatcher is binding the message to its turn job, and the
+    /// daemon's fix is "send the cancel again in a moment" (service.py `_cancel`).
+    var dispatchingRetries: [TimeInterval] = [0.1, 0.25, 0.5, 1]
+    /// How the engine waits between those tries (a test passes one that does not sleep).
+    var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
 
     init(client: DaemonCalling, outbox: Outbox) {
         self.client = client
@@ -711,27 +738,78 @@ final class ConversationEngine {
         try sender.withdraw(messageID)
     }
 
+    enum WithdrawResult: Equatable {
+        /// Gone: with the tombstone's receipt when it had been sent, none when never.
+        case withdrawn(Receipt?)
+        /// The daemon had it: Stop acted there (the receipt, or nil when nothing was left to stop).
+        case stopped(Receipt?)
+        /// A send is under way; ask again when it has an answer.
+        case inFlight
+    }
+
+    /// Withdraw a journaled message (D-22), or stop it where the daemon has it.
+    func withdrawSend(_ messageID: String) throws -> WithdrawResult {
+        switch try withdraw(messageID) {
+        case .withdrawn(let receipt): return .withdrawn(receipt)
+        case .inDaemon(let receipt):
+            return .stopped(try stop(stopAction(for: messageID, state: receipt.state, outboxEntry: nil)))
+        case .inFlight: return .inFlight
+        }
+    }
+
     /// Stop a message: cancel it while queued, interrupt it once it runs.
     func stop(_ action: StopAction) throws -> Receipt? {
         switch action {
         case .none: return nil
         case .withdraw(let messageID):
-            switch try withdraw(messageID) {
-            case .withdrawn(let receipt): return receipt
-            case .inDaemon(let receipt):
-                return try stop(stopAction(for: messageID, state: receipt.state, outboxEntry: nil))
+            switch try withdrawSend(messageID) {
+            case .withdrawn(let receipt), .stopped(let receipt): return receipt
             case .inFlight: return nil
             }
         case .cancel(let messageID):
-            do {
-                return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
-            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
-                // It left `queued` since the app looked, and the provider may have
-                // it: the daemon's fix is `turn.interrupt` (op_message_cancel).
-                return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
-            }
+            return try cancel(messageID)
         case .interrupt(let messageID):
             return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+        }
+    }
+
+    /// `message.cancel` for a message the app saw queued (the queue tray's
+    /// Withdraw). A `dispatching` refusal is tried again after a moment. On
+    /// `too-late` the message left the queue since the app looked: it is stopped
+    /// with `turn.interrupt` (the daemon's fix) only while it is its own live turn
+    /// (`waiting`, `starting`, `running`, `approval-needed`). A message that has
+    /// ended, was withdrawn already, or is in any other state the app does not
+    /// stop gets its current receipt back, so Withdraw never stops anything but
+    /// the message itself, and a second Withdraw is not an error.
+    func cancel(_ messageID: String) throws -> Receipt? {
+        var waits = dispatchingRetries
+        while true {
+            do {
+                return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "dispatching" && !waits.isEmpty {
+                pause(waits.removeFirst())
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
+                return try stopIfRunning(messageID)
+            }
+        }
+    }
+
+    /// `turn.interrupt` for a message the daemon says is its own live turn; its
+    /// current receipt otherwise (`message.status`). One that ends between the
+    /// two answers `not-running`, and its receipt then says how it ended.
+    private func stopIfRunning(_ messageID: String) throws -> Receipt? {
+        guard let receipt = try status([messageID]).first(where: { $0.message_id == messageID }) else {
+            throw DaemonClientError.malformed("message.status left out \(messageID)")
+        }
+        switch receipt.messageState {
+        case .waiting?, .starting?, .running?, .approvalNeeded?:
+            do {
+                return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "not-running" {
+                return try status([messageID]).first { $0.message_id == messageID }
+            }
+        default:
+            return receipt
         }
     }
 

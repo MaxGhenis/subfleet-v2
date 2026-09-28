@@ -23,7 +23,10 @@ struct MainWindow: View {
                 if let locked = model.lockedEntry {
                     LockedSessionView(entry: locked)
                 } else if let conversation = model.state.focusedConversation {
+                    // A view of its own per conversation: it opens at the end, not where the
+                    // last one was scrolled (Max, 2026-09-28).
                     ConversationView(model: model, conversation: conversation)
+                        .id(conversation.conversation_id)
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "bubble.left.and.bubble.right").font(.largeTitle).foregroundStyle(.secondary)
@@ -232,9 +235,13 @@ struct ConversationView: View {
     @State private var atBottom = true
     /// The waiting cards already brought into view, so each is scrolled to once.
     @State private var approvals = ApprovalFollower()
+    /// Queued messages whose Withdraw the daemon has not answered yet.
+    @State private var withdrawing: Set<String> = []
 
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
+        // Messages waiting their turn sit in the tray above the composer, not in the timeline (C-29.7).
+        let layout = timeline?.layout(held: conversation.blocked_by != nil)
         VStack(spacing: 0) {
             header
             RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
@@ -257,7 +264,7 @@ struct ConversationView: View {
                                 Task { await model.loadHistory(conversation.conversation_id, follow: true) }
                             }.buttonStyle(.link)
                         }
-                        ForEach(timeline?.items ?? []) { item in
+                        ForEach(layout?.items ?? []) { item in
                             TimelineRow(model: model, conversation: conversation, item: item, review: review)
                                 .id(item.id)
                         }
@@ -269,23 +276,17 @@ struct ConversationView: View {
                     .frame(maxWidth: 900, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
-                .onChange(of: timeline?.items.last?.id) { _, _ in
-                    // A new last row: followed while the end is on screen, and always
-                    // for the person's own message. Rows 'Load earlier' adds go first
-                    // and change no last row.
-                    let own = timeline?.items.last.map { if case .person = $0.content { return true } else { return false } } ?? false
-                    if atBottom || own {
-                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                .startsAtBottom()
+                .onChange(of: layout?.followKey(length: streamedLength) ?? FollowKey.empty) { old, new in
+                    // Opening lands at the end with no scrolling; then the person's own
+                    // new message always, and a new or growing row of the turn that began
+                    // last or a tray that changed the timeline's height only while the end
+                    // is on screen. Rows 'Load earlier' adds go first and change none of these.
+                    switch FollowKey.move(from: old, to: new, atBottom: atBottom) {
+                    case .stay: break
+                    case .jump: proxy.scrollTo("bottom", anchor: .bottom)
+                    case .glide: withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
-                }
-                .onChange(of: timeline?.followedItem?.id) { _, _ in
-                    // A new row of a turn that has started, above the messages still
-                    // queued: followed while the end is on screen.
-                    if atBottom { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) } }
-                }
-                .onChange(of: timeline?.followedItem.map(streamedLength) ?? 0) { _, _ in
-                    // A text or thinking block growing in place adds no row.
-                    if atBottom { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 .onChange(of: approvalKey) { _, _ in followApprovals(proxy) }
                 .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
@@ -315,6 +316,11 @@ struct ConversationView: View {
                 }
                 .padding(.horizontal, 14).padding(.top, 6)
             }
+            if let layout, let title = layout.trayTitle {
+                // The queue, pinned above the composer however far the timeline scrolls.
+                QueueTray(title: title, rows: layout.tray, withdrawing: withdrawing, withdraw: withdrawQueued)
+                    .padding(.horizontal, 14).padding(.top, 6)
+            }
             ComposerView(model: model, conversation: conversation)
         }
         .task(id: conversation.conversation_id) {
@@ -341,6 +347,16 @@ struct ConversationView: View {
             if let scope = model.changesScope, scope.conversationID == conversation.conversation_id {
                 Task { await model.loadChanges(scope) }
             }
+        }
+    }
+
+    /// The tray's Withdraw: once per row until the daemon answers.
+    private func withdrawQueued(_ row: QueuedMessage) {
+        guard row.canWithdraw, !withdrawing.contains(row.id) else { return }
+        withdrawing.insert(row.id)
+        Task {
+            await model.stop(row.withdraw)?.value
+            withdrawing.remove(row.id)
         }
     }
 
@@ -494,10 +510,12 @@ struct TurnStatusLine: View {
             if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
                 ServedChipView(chip: chip)
             }
-            if live {
-                Button("Stop") {
-                    model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
-                }.buttonStyle(.link).font(.caption)
+            // Stop while the turn runs; Withdraw while the message waits (a queued
+            // continuation under the message it continues, or a send with no receipt).
+            let action = stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil)
+            if let label = stopLabel(action) {
+                Button(label) { model.stop(action) }.buttonStyle(.link).font(.caption)
+                    .help(label == "Stop" ? "Stop this turn" : "Withdraw this message; it is not sent")
             }
             if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
                 Button {
@@ -1207,4 +1225,17 @@ struct NewConversationSheet: View {
         }
     }
 }
+/// A scroll view that first shows the end of its content, with no scrolling
+/// (macOS 15 and later; on macOS 14 the view's `onAppear` scrolls there). Only
+/// the first offset: later growth leaves the person where they are reading.
+extension View {
+    @ViewBuilder func startsAtBottom() -> some View {
+        if #available(macOS 15.0, *) {
+            defaultScrollAnchor(.bottom, for: .initialOffset)
+        } else {
+            self
+        }
+    }
+}
+
 #endif

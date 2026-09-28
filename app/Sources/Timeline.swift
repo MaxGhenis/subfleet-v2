@@ -287,6 +287,13 @@ struct Timeline: Equatable {
         return .applied(count)
     }
 
+    /// The conversation was focused, and its events loop reads the log again from
+    /// the cursor: until a page adds nothing, rows may still arrive above
+    /// whatever the view has scrolled to.
+    mutating func beginReading() {
+        caughtUp = false
+    }
+
     /// Drop everything the event log produced; receipts and the person's text stay.
     mutating func resetEvents() {
         cursor = 0

@@ -278,7 +278,8 @@ def test_d22_pruning_keeps_the_newest_closed_entries(core_probe, tmp_path, daemo
 def test_design_12_stop_cancels_while_queued_and_interrupts_once_it_moved(core_probe, tmp_path, daemon):
     """Stop from the state the app last saw (`queued`): `message.cancel` withdraws a
     message still queued; one that left the queue meanwhile is answered `too-late`,
-    and Stop becomes `turn.interrupt` (the daemon's own fix for that refusal)."""
+    and once `message.status` says it is its own live turn, Stop becomes
+    `turn.interrupt` (the daemon's own fix for that refusal; C-29.7)."""
     harness, server = daemon
     queued, moved = ids(2)
     journal = tmp_path / "support" / "outbox.json"
@@ -302,7 +303,8 @@ def test_design_12_stop_cancels_while_queued_and_interrupts_once_it_moved(core_p
     result = second["results"][0]
     assert "error" not in result, result
     assert result["action"] == {"action": "cancel", "message_id": moved}
-    assert second["calls"] == [f"message.cancel {moved} answered", f"turn.interrupt {moved} answered"]
+    assert second["calls"] == [f"message.cancel {moved} answered", "message.status answered",
+                               f"turn.interrupt {moved} answered"]
     assert result["receipt"]["state"] == "starting" and result["receipt"]["stop_requested"] is True
     assert harness.store.message(moved)["stop_requested_at"]
 

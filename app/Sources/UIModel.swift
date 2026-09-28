@@ -456,10 +456,23 @@ final class UIModel: ObservableObject {
         }
     }
 
-    func stop(_ action: StopAction) {
-        guard let engine else { return }
-        Task {
+    /// Stop, or withdraw, a message. The task ends once the daemon has answered,
+    /// so a control can stay disabled until then (the queue tray's Withdraw).
+    @discardableResult
+    func stop(_ action: StopAction) -> Task<Void, Never>? {
+        guard let engine else { return nil }
+        return Task {
             do {
+                if case .withdraw(let key) = action {
+                    // D-22: a journaled message; a withdrawal before the daemon had it has no receipt.
+                    switch try await onOutbox({ try engine.withdrawSend(key) }) {
+                    case .withdrawn(let receipt?), .stopped(let receipt?): state.apply(receipt: receipt)
+                    case .withdrawn(nil): state.withdrawLocal(messageID: key)
+                    case .stopped(nil): break
+                    case .inFlight: problem = "That message is being sent right now; withdraw it again in a moment."
+                    }
+                    return
+                }
                 if let receipt = try await onOutbox({ try engine.stop(action) }) { state.apply(receipt: receipt) }
             } catch {
                 report(error)
