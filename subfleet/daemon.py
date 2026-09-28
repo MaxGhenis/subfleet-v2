@@ -3242,6 +3242,13 @@ class Daemon:
         # sets `conversations.max_active_turns`: then it is never full.
         saturated: dict[str, bool] = {}
         turns_cap = turn_cap(self.policy.get("conversations"), "max_active_turns")
+        # C-6.9's FIFO exists so a later job cannot take the slot an older one waits
+        # for. With neither turn cap set (the default) a turn waits for no slot, so
+        # no turn is held behind another: an older turn that cannot be placed (its
+        # lane closed, its checkout leased) would otherwise keep every later turn
+        # waiting while lanes were free.
+        turns_ordered = turns_cap is not None or turn_cap(self.policy.get("conversations"),
+                                                          "turn_slots_per_lane") is not None
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
@@ -3292,10 +3299,11 @@ class Daemon:
                           and job["next_check_at"] and job["next_check_at"] > utcnow())
             models = scheduler.demand_models(self.policy, job if let_go else retry or job)
             lanes = scheduler.demand_lanes(roster, job if let_go else retry or job, self.policy)
-            behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                           if scheduler.competes(models, theirs, lanes, their_lanes)), None)
             pool = "turn" if job["kind"] == "turn" else "detached"
             pool_cap = turns_cap if pool == "turn" else cap
+            ordered = pool == "detached" or turns_ordered
+            behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
+                           if scheduler.competes(models, theirs, lanes, their_lanes)), None) if ordered else None
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
@@ -3374,7 +3382,7 @@ class Daemon:
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                                   if scheduler.competes(models, theirs, lanes, their_lanes)), None)
+                                   if scheduler.competes(models, theirs, lanes, their_lanes)), None) if ordered else None
                     if behind:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of

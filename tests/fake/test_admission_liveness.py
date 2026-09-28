@@ -407,6 +407,86 @@ def test_c26_9_both_passes_racing_keep_every_cap_detached_fifo_and_place_everyth
         assert admitted["detached"] == detached and admitted["turn"] == turns
 
 
+def test_c26_9_with_no_turn_cap_one_pass_places_every_turn(tmp_path):
+    """The shipped policy sets no turn cap: five turns on three measured Codex lanes are
+    all placed by one admission call, so two lanes each run two turns, and no turn is held
+    `fleet-full` or `slot-kept` (2026-09-27: a turn waited 12 minutes behind two others)."""
+    from tests.fake.test_admission_latency import measure
+    with fleet_daemon(tmp_path / "fleet") as (service, harness, patch):
+        assert service.policy["conversations"]["max_active_turns"] is None
+        assert service.policy["conversations"]["turn_slots_per_lane"] is None
+        for lane_id in CODEX:
+            measure(service, lane_id)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        turns = [submit_turn(service, harness, n) for n in range(5)]
+        service._admit()
+        held = {job_id: service._holds.get(job_id) for job_id in turns if not service.store.list_attempts(job_id)}
+        assert not held
+        lanes = [service.store.list_attempts(job_id)[0]["lane_id"] for job_id in turns]
+        assert max(lanes.count(lane_id) for lane_id in CODEX) >= 2
+
+
+@pytest.mark.parametrize("newer_pin", [None, "codex-2"])
+def test_c26_9_with_no_turn_cap_no_turn_waits_behind_another(tmp_path, newer_pin):
+    """C-6.9 keeps an older job's place only where a later one could take the slot it waits
+    for. With no turn cap there is none: an older turn waiting on its closed lane holds a
+    later turn neither `behind-older-job` nor `slot-kept`. With a cap set, FIFO holds."""
+    from tests.fake.test_admission_latency import commit, measure
+    for caps, placed in (({}, True), ({"max_active_turns": 3, "turn_slots_per_lane": 1}, newer_pin is not None)):
+        with fleet_daemon(tmp_path / f"fleet-{bool(caps)}") as (service, harness, patch):
+            service.policy["conversations"].update(caps)
+            for lane_id in CODEX:
+                measure(service, lane_id)
+            patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+            commit(service, "close", "codex-1", 1)
+            older = submit_turn(service, harness, 0, pinned_lane="codex-1")
+            newer = submit_turn(service, harness, 1, **({"pinned_lane": newer_pin} if newer_pin else {}))
+            for _ in range(2):
+                service._admit()
+            assert service._holds[older]["reason"].startswith("closed")
+            assert bool(service.store.list_attempts(newer)) is placed, (caps, service._holds.get(newer))
+            if not placed:
+                assert service._holds[newer]["reason"] == "behind-older-job"
+
+
+def test_c26_9_with_no_turn_cap_a_turn_never_waits_behind_another_checkout_lease(tmp_path):
+    """Two writable turns in one checkout take turns on its lease; with no turn cap, a
+    read-only turn of a third conversation elsewhere is placed while one of them waits."""
+    from subfleet import protocol
+    from tests.unit.test_salvage import git
+
+    def turn_job(service, harness, n, *, workdir, sandbox):
+        prompt = harness.root / f"turn-{n}.md"
+        prompt.write_text("turn")
+        args = protocol.SubmitArgs(request_id=f"turn:message-{n}:0", kind="turn", workdir=str(workdir),
+                                   prompt_path=str(prompt), sandbox=sandbox, pinned_model="astra",
+                                   name=f"turn-conversation-{n}", in_place=True, independent=True,
+                                   no_preamble=True, max_attempts=1, allow_tmp=True)
+        turn = {"conversation_id": f"conversation-{n}", "message_id": f"message-{n}", "provider": "codex",
+                "digest": f"digest-{n}"}
+        return service.submit(args, turn=turn)["job_id"]
+
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        for argv in (("init", "-b", "task/x"), ("config", "user.name", "T"), ("config", "user.email", "t@example.invalid")):
+            git(harness.workdir, *argv)
+        (harness.workdir / "f.txt").write_text("x\n")
+        git(harness.workdir, "add", ".")
+        git(harness.workdir, "commit", "-m", "base")
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        elsewhere = harness.root / "elsewhere"
+        elsewhere.mkdir()
+        first = turn_job(service, harness, 0, workdir=harness.workdir, sandbox="workspace-write")
+        service._admit_turns()
+        assert service.store.list_attempts(first)
+        second = turn_job(service, harness, 1, workdir=harness.workdir, sandbox="workspace-write")
+        third = turn_job(service, harness, 2, workdir=elsewhere, sandbox="read-only")
+        for _ in range(3):
+            service._admit_turns()
+        assert not service.store.list_attempts(second)
+        assert service._holds[second]["reason"] == "lease-held"
+        assert service.store.list_attempts(third), service._holds.get(third)
+
+
 # --- the property: what e053b2c's admission places, this one places, pass for pass ----------------
 
 CODEX = ("codex-1", "codex-2", "codex-3")
