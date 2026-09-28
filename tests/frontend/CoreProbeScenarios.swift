@@ -452,6 +452,6 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
     case "live":
         return try runLive(arguments)
     default:
-        return nil
+        return try watchCommand(arguments)
     }
 }

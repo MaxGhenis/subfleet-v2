@@ -248,6 +248,59 @@ struct NotificationIntent: Identifiable, Equatable {
     var body: String
 }
 
+// MARK: - Messages the feed names
+
+/// `message.status` lookups for messages the watch feed named that a timeline
+/// has no receipt for (C-29.9). A message this app did not send (the CLI's or
+/// another client's `message.submit`, the note `conversation.unblock` leaves, a
+/// failover continuation) enters no timeline until a receipt says what it is.
+/// Ids wait in the order the feed first named them and are asked for one batch
+/// at a time, at most `MessageStatusArgs.limit` to a batch.
+struct MessageFetches: Equatable {
+    /// Waiting to be asked for, oldest first.
+    private(set) var wanted: [String] = []
+    /// The batch asked for and not yet answered.
+    private(set) var asked: [String] = []
+    /// Of `asked`, those the feed named again since: the answer may be older
+    /// than that row, so each is asked for again once it comes.
+    private(set) var stale: Set<String> = []
+
+    /// The feed named `id` (any row, whatever its state).
+    mutating func named(_ id: String) {
+        if asked.contains(id) { stale.insert(id) }
+    }
+
+    /// Ask for `id`, unless it waits or is asked for already.
+    mutating func want(_ id: String) {
+        guard !wanted.contains(id), !asked.contains(id) else { return }
+        wanted.append(id)
+    }
+
+    /// The next batch, oldest first; none while one is out.
+    mutating func take(limit: Int) -> [String] {
+        guard asked.isEmpty, limit > 0 else { return [] }
+        asked = Array(wanted.prefix(limit))
+        wanted.removeFirst(asked.count)
+        return asked
+    }
+
+    /// `batch` was answered: which of it the feed named again meanwhile.
+    mutating func answered(_ batch: [String]) -> Set<String> {
+        let renamed = stale.intersection(batch)
+        asked.removeAll { batch.contains($0) }
+        stale.subtract(batch)
+        return renamed
+    }
+
+    /// `batch` could not be asked for: it waits again, ahead of what came since.
+    mutating func failed(_ batch: [String]) {
+        let back = asked.filter { batch.contains($0) }
+        asked.removeAll { batch.contains($0) }
+        stale.subtract(batch)
+        wanted = back + wanted.filter { !back.contains($0) }
+    }
+}
+
 // MARK: - State
 
 struct ConversationStoreState: Equatable {
@@ -265,6 +318,8 @@ struct ConversationStoreState: Equatable {
     var liveMessages: [String: Set<String>] = [:]
     /// The first drain of the watch feed after launch posts nothing.
     var watchBaselined = false
+    /// Messages the feed named that a timeline has no receipt for (C-29.9).
+    private(set) var messageFetches = MessageFetches()
     var notifications: [NotificationIntent] = []
     private(set) var notified: Set<String> = []
     var searchQuery = ""
@@ -433,6 +488,10 @@ struct ConversationStoreState: Equatable {
                                                 state_reason: change.state_reason))
                 timelines[cid] = timeline
             }
+            if let mid = change.message_id {
+                messageFetches.named(mid)
+                if ConversationStoreState.needsReceipt(mid, in: timelines[cid]) { messageFetches.want(mid) }
+            }
             if watchBaselined && cid != focusedConversationID {
                 notify(change, pendingBefore: before)
             }
@@ -441,6 +500,51 @@ struct ConversationStoreState: Equatable {
         watchCursor = max(watchCursor, page.next)
         if page.changes.isEmpty { watchBaselined = true }
         return .applied(applied)
+    }
+
+    /// Whether a watch row naming `messageID` asks for its receipt (C-29.9): its
+    /// conversation has a timeline (the focused one has, and every one opened or
+    /// sent to), and that timeline has no turn for it, or only one its events or
+    /// an approval made. A message this app is sending gets its receipt from the
+    /// outbox, and one with a receipt follows the feed's rows.
+    static func needsReceipt(_ messageID: String, in timeline: Timeline?) -> Bool {
+        guard let timeline else { return false }
+        return timeline.turn(messageID)?.lacksReceipt ?? true
+    }
+
+    /// The next `message.status` batch for the messages the feed named: at most
+    /// `limit` ids, oldest first; none while a batch is out.
+    mutating func takeMessageFetch(limit: Int = MessageStatusArgs.limit) -> [String] {
+        messageFetches.take(limit: limit)
+    }
+
+    /// Fold the answer to a batch `takeMessageFetch` gave. Each message the
+    /// daemon has enters its conversation's timeline, in sequence order, with
+    /// its origin and text. One the feed named again while it was asked for is
+    /// asked for again, and the answer, which may be older than that row, sets
+    /// only what the message is on a turn the timeline already has.
+    mutating func apply(fetched receipts: [Receipt], asked batch: [String]) {
+        let renamed = messageFetches.answered(batch)
+        let answers = Dictionary(receipts.map { ($0.message_id, $0) }, uniquingKeysWith: { first, _ in first })
+        for id in batch {
+            guard let receipt = answers[id], receipt.messageState != .unknown, let cid = receipt.conversation_id,
+                  var timeline = timelines[cid] else { continue }
+            if renamed.contains(id) {
+                messageFetches.want(id)
+                if timeline.turn(id) != nil {
+                    timeline.apply(identity: receipt)
+                    timelines[cid] = timeline
+                    continue
+                }
+            }
+            timeline.apply(receipt: receipt)
+            timelines[cid] = timeline
+        }
+    }
+
+    /// A batch that could not be asked for waits again, ahead of the rest.
+    mutating func messageFetchFailed(_ batch: [String]) {
+        messageFetches.failed(batch)
     }
 
     private mutating func notify(_ change: ConversationChange, pendingBefore: Int) {
@@ -672,8 +776,15 @@ final class ConversationEngine {
         try client.call(Ops.approvalList, ApprovalListArgs(conversation_id: conversationID)).approvals
     }
 
+    /// `message.status`, in calls of at most `MessageStatusArgs.limit` ids (the
+    /// daemon answers no more than that per call); none for no ids.
     func status(_ messageIDs: [String]) throws -> [Receipt] {
-        try client.call(Ops.messageStatus, MessageStatusArgs(message_ids: messageIDs)).messages
+        var receipts: [Receipt] = []
+        for start in stride(from: 0, to: messageIDs.count, by: MessageStatusArgs.limit) {
+            let batch = Array(messageIDs[start..<min(start + MessageStatusArgs.limit, messageIDs.count)])
+            receipts += try client.call(Ops.messageStatus, MessageStatusArgs(message_ids: batch)).messages
+        }
+        return receipts
     }
 
     /// Journal a new conversation; the outbox sends it. Returns the draft key its
@@ -807,6 +918,22 @@ final class ConversationEngine {
         for _ in 0..<maxPages {
             let page = try watch(after: state.watchCursor, wait: 0)
             guard case .applied(let count) = state.apply(watch: page), count > 0 else { return }
+        }
+    }
+
+    /// Ask for the messages the feed named that a timeline has no receipt for,
+    /// batch after batch, folding each answer (C-29.9); UIModel does the same on
+    /// its outbox queue. A batch that fails waits again, and the error is thrown.
+    func fetchNamedMessages(_ state: inout ConversationStoreState, maxBatches: Int = 64) throws {
+        for _ in 0..<maxBatches {
+            let batch = state.takeMessageFetch()
+            guard !batch.isEmpty else { return }
+            do {
+                state.apply(fetched: try status(batch), asked: batch)
+            } catch {
+                state.messageFetchFailed(batch)
+                throw error
+            }
         }
     }
 }

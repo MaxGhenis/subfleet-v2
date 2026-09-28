@@ -1024,6 +1024,22 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   Finishing with no clock.
 - The live turn's status strip is pinned above the composer, with the
   elapsed time; the strip under each person bubble keeps the words only.
+- The watch feed also brings in messages this app did not send (C-29.9):
+  another client's or the CLI's `message.submit`, the note
+  `conversation.unblock` leaves (which answers with the conversation only),
+  and a failover continuation. A row naming a message that a conversation's
+  timeline has no receipt for (the timeline has no turn for it, or only one
+  its events or an approval made; a conversation has a timeline once the app
+  has focused, opened or sent to it, or answered one of its approvals) has
+  the app fetch the message with `message.status`, whose receipts carry
+  `text`, `seq`, `origin` and `continues`. Fetches go at most 200 ids a
+  call, oldest first, one batch at a time on the outbox queue, never on the
+  feed's thread, so the message shows in sequence order with its words
+  without a reopen. A row naming a message while its batch is out has it
+  fetched again, and the answer, which may be older than that row, then sets
+  only what the message is on a turn the timeline has, not its state.
+  `ConversationStoreState.apply(watch:)` records the ids (`MessageFetches`);
+  `UIModel.fetchNamedMessages` asks for them.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
 
