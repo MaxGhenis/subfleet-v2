@@ -363,16 +363,18 @@ struct ConversationView: View {
         review(card)
     }
 
-    /// What moves the view to a card: the conversation, and its waiting cards.
+    /// What moves the view to a card: the conversation, whether its log has been
+    /// read, its history pages, and its waiting cards.
     private var approvalKey: [String] {
-        [conversation.conversation_id]
-            + (model.state.timelines[conversation.conversation_id]?.pendingApprovalItems.map(\.id) ?? [])
+        let timeline = model.state.timelines[conversation.conversation_id]
+        return [conversation.conversation_id, timeline?.caughtUp == true ? "read" : "reading",
+                String(timeline?.historyPagesLoaded ?? 0)] + (timeline?.pendingApprovalItems.map(\.id) ?? [])
     }
 
     /// Brings a waiting card into view: each new one once, when it appears,
     /// wherever the person was reading (it had sat far above the end, under
     /// queued messages and a later turn: 2026-09-27); the oldest when the
-    /// person asks.
+    /// conversation opens or the person asks.
     private func followApprovals(_ proxy: ScrollViewProxy) {
         let id = conversation.conversation_id
         guard let timeline = model.state.timelines[id] else { return }

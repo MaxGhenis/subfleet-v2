@@ -1,36 +1,37 @@
-"""A pending approval is always within reach (design §12; C-27.1).
+"""A pending approval is always within reach (C-27.5; design §12; queue order
+C-24.8, C-26.7).
 
-On 2026-09-27 a turn waited 10 minutes on a card nobody saw: the timeline put
-the card under its own message, above five queued messages and a failover turn
-that sorted last although it ran first, and the pinned strip said "Needs your
+On 2026-09-27 a turn waited on a card nobody saw: the timeline put the card
+under its own message, above five queued messages and a failover turn that
+sorted last although it ran first, and the pinned strip said "Needs your
 approval" with only a Stop button. These tests pin what the conversation view
 reads from the timeline:
 
 - the strip's Review exists exactly while a card is pending, counts every
   pending card, and opens the oldest; answering it moves Review to the next, so
   every pending card is reachable from the strip without scrolling;
-- whenever a card is pending there is a strip to carry the Review;
-- a continuation shows under the message it continues, and a message still
-  queued shows below every turn that has started;
-- the view follows the newest row of a started turn, not a queued bubble;
-- each new card is scrolled to once when it appears, and the oldest whenever the
-  person asks.
+- whenever a card is pending there is a strip to carry the Review, and a card
+  whose message has ended is not pending;
+- turns show in the order they began, and a message still queued shows below
+  every turn that has begun, in the order the daemon sends the queue;
+- the view follows the newest row of the turn that began last;
+- once the conversation's log is read, each new card is scrolled to once, the
+  oldest again when the conversation opens or the person asks, and once more
+  when the first page of older history lands above it.
 
-The example tests replay the incident; the property tests check the same
-statements over generated timelines, and compare the display order with a
-reference written from the rule above.
+The example tests replay the incident and the reviews' cases; the property tests
+check the same statements over generated timelines, and compare the display
+order with a reference written from the rule above.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import json
 from pathlib import Path
 import tempfile
 import uuid
 
 from hypothesis import HealthCheck, event, given, settings, strategies as st
-import pytest
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness, claude_init
@@ -41,6 +42,8 @@ pytestmark = needs_swift
 CID = "cv-approval-reach"
 T0 = datetime(2026, 9, 28, 1, 0, tzinfo=timezone.utc)
 WAITING = {"queued", "sending"}
+TERMINAL = {"complete", "failed", "interrupted", "cancelled"}
+REPAIR_ORIGINS = ("unblock-note", "failover")      # subfleet/conversations/store.py
 
 
 def fold(core_probe, steps: list[dict], cid: str = CID) -> dict:
@@ -60,7 +63,8 @@ def receipt(mid: str, seq: int, state: str, origin: str = "person", continues: s
 
 
 class Log:
-    """A synthetic `conversation.events` log, handed out as pages."""
+    """A synthetic `conversation.events` log, handed out as pages. A page with
+    nothing new is how the app learns it has read the log to its end."""
 
     def __init__(self) -> None:
         self.events: list[dict] = []
@@ -83,6 +87,20 @@ def ask(log: Log, mid: str, request_id: str, command: str = "rm -f mocktest/*") 
     return f"approval:{mid}:{request_id}"
 
 
+def listed(approval_id: str, mid: str, command: str, created: float) -> dict:
+    """An approval as `approval.list` shows it (pending only)."""
+    return {"approval_id": approval_id, "message_id": mid, "conversation_id": CID, "kind": "tool",
+            "display": {"tool": "Bash", "input": f"command: {command}"}, "options": ["allow", "deny", "cancel-turn"],
+            "created_at": ts(created), "state": "pending"}
+
+
+def history(*texts: str, next_before: int | None = None) -> dict:
+    """A page of the native transcript from before the first event."""
+    return {"history": {"items": [{"role": "assistant", "kind": "text", "text": text, "ts": ts(-3600 + i),
+                                   "cursor": 100 + i} for i, text in enumerate(texts)],
+                        "next_before": next_before}}
+
+
 def person_positions(result: dict) -> dict[str, int]:
     return {item["message_id"]: index for index, item in enumerate(result["items"])
             if item["id"] == f"person:{item['message_id']}"}
@@ -94,7 +112,7 @@ def person_positions(result: dict) -> dict[str, int]:
 def incident(log: Log) -> tuple[list[dict], str]:
     """Messages 6 to 13 of cv-1790290856733-385ce6acfca0 as they stood at 01:58:52Z:
     6 hit a usage limit, 13 continued it (and ran), 7 asked for approval, 8 to 12
-    were queued behind 7."""
+    were queued behind 7. The app had read the log to its end before the card."""
     receipts = [receipt("m6", 6, "failed"), receipt("m7", 7, "running"),
                 *(receipt(f"m{n}", n, "queued") for n in range(8, 13)),
                 receipt("m13", 13, "complete", origin="failover", continues="m6")]
@@ -105,13 +123,14 @@ def incident(log: Log) -> tuple[list[dict], str]:
     log.add("m13", "turn.completed", state="complete")
     log.add("m7", "accepted")
     log.add("m7", "tool.started", id="agent-1", name="Agent", summary="clean the mock tests")
-    steps = [{"receipts": receipts}, log.page()]
+    steps = [{"receipts": receipts}, log.page(), log.page()]
     card = ask(log, "m7", "perm-rm")
     steps += [log.page(), {"receipts": [receipt("m7", 7, "approval-needed")]}]
     return steps, card
 
 
-def test_the_incident_card_is_behind_review_and_scrolled_to(core_probe):
+def test_c27_5_the_incident_card_is_behind_review_and_scrolled_to(core_probe):
+    """C-27.5 on the incident: Review on the strip, the card in view, the live turn followed."""
     log = Log()
     steps, card = incident(log)
     # The main agent kept working while the sub-agent's Bash waited (02:05Z).
@@ -126,8 +145,8 @@ def test_the_incident_card_is_behind_review_and_scrolled_to(core_probe):
     assert result["pinned_turn"] == "m7" and result["live_message"] == "m7"
     assert result["turns"]["m7"]["status_text"] == "Needs your approval"
     assert result["review_label"] == "Review"
-    # The failover turn shows under the message it continued, where it ran;
-    # the queued messages come after the turn they wait behind.
+    # The failover turn shows where it ran, before 7; the queued messages come
+    # after the turn they wait behind.
     assert result["display_order"] == ["m6", "m13", "m7", "m8", "m9", "m10", "m11", "m12"]
     positions = person_positions(result)
     card_at = [item["id"] for item in result["items"]].index(card)
@@ -136,11 +155,11 @@ def test_the_incident_card_is_behind_review_and_scrolled_to(core_probe):
     # The view follows the live turn's newest row, not the last queued bubble.
     assert result["followed_item"] == "tool:m7:read-1"
     assert result["items"][-1]["id"] == "person:m12"
-    # The card was scrolled to once, on the page that brought it.
-    assert result["scrolls"] == [None, None, card, None, None]
+    # Scrolled to once, on the page that brought it (the log had been read).
+    assert result["scrolls"] == [None, None, None, card, None, None]
 
 
-def test_the_incident_before_the_fix_order_is_what_the_person_saw(core_probe):
+def test_c27_5_the_incident_in_sequence_order_is_what_the_person_saw(core_probe):
     """Sequence order alone put the finished failover turn last: the bottom of the
     view showed its unfinished thinking, and the card sat above five bubbles."""
     log = Log()
@@ -150,7 +169,24 @@ def test_the_incident_before_the_fix_order_is_what_the_person_saw(core_probe):
     assert result["display_order"] != result["order"]
 
 
-def test_review_opens_the_oldest_card_and_moves_on_when_it_is_answered(core_probe):
+def test_c27_5_withdrawing_a_queued_message_keeps_the_live_turn_followed(core_probe):
+    """A message withdrawn from the queue while a turn streams never began; the
+    view keeps following the live turn (review of 6e1b505)."""
+    log = Log()
+    steps, _ = incident(log)
+    steps.append({"receipts": [receipt("m9", 9, "cancelled")]})
+    log.add("m7", "text", block="1", text="Still reading")
+    steps.append(log.page())
+    result = fold(core_probe, steps)
+    assert result["display_order"] == ["m6", "m13", "m7", "m9", "m8", "m10", "m11", "m12"]
+    assert result["followed_item"] == "text:m7:1"
+
+
+# MARK: - The strip's Review
+
+
+def test_c27_5_review_opens_the_oldest_card_and_moves_on_when_it_is_answered(core_probe):
+    """C-27.5: Review (N) counts every card; answering the oldest moves Review to the next."""
     log = Log()
     log.add("m1", "accepted")
     first, second = ask(log, "m1", "perm-a", "rm a"), ask(log, "m1", "perm-b", "rm b")
@@ -168,33 +204,67 @@ def test_review_opens_the_oldest_card_and_moves_on_when_it_is_answered(core_prob
     assert none["turns"]["m1"]["state"] == "running" and none["pinned_turn"] == "m1"
 
 
-def test_a_card_known_from_approval_list_first_is_ordered_by_when_it_was_asked(core_probe):
+def test_c27_5_a_card_known_from_approval_list_first_is_ordered_by_when_it_was_asked(core_probe):
     """`approval.list` can hand the app a card before its event; it is older than
     one asked later, wherever the fold appended it."""
     log = Log()
     log.add("m1", "accepted")
     later = ask(log, "m1", "perm-late", "rm late")
-    early = {"approval_id": "ap-early", "message_id": "m1", "conversation_id": CID, "kind": "tool",
-             "display": {"tool": "Bash", "input": "command: rm early"}, "options": ["allow", "deny"],
-             "created_at": ts(0.5), "state": "pending"}
     result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]}, log.page(),
-                               {"approvals": [early]}])
+                               {"approvals": [listed("ap-early", "m1", "rm early", 0.5)]}])
     assert result["pending_items"] == ["approval:m1:ap-early", later]
 
 
-def test_every_pending_card_has_a_strip_even_without_a_live_turn(core_probe):
-    """A receipt can say a turn ended before its events withdraw the card; the
-    card stays pending, so the strip stays to carry its Review."""
+def test_c27_5_a_listed_card_moves_to_where_its_request_came(core_probe):
+    """Joined to its event, a card `approval.list` made first sits below what the
+    turn did before asking (review of 6e1b505)."""
+    log = Log()
+    log.add("m1", "accepted")
+    log.add("m1", "text", block="0", text="Let me clean up.")
+    ask(log, "m1", "perm-j", "rm j")
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]},
+                               {"approvals": [listed("ap-j", "m1", "rm j", 3)]}, log.page()])
+    assert [item["type"] for item in items_of(result, "m1")] == ["person", "text", "approval"]
+    card = items_of(result, "m1", "approval")[0]["card"]
+    assert card["approval_id"] == "ap-j" and card["request_id"] == "perm-j"
+
+
+def test_c27_5_a_card_of_an_ended_turn_is_withdrawn(core_probe):
+    """A turn that ends without `result` writes no event withdrawing its request,
+    but the daemon withdraws it before settling the message (C-27.3): the card is
+    not pending, and neither the strip nor a later turn offers it (review of 6e1b505)."""
+    log = Log()
+    log.add("m1", "accepted")
+    card = ask(log, "m1", "perm-dead")
+    log.add("m1", "status", phase="stopping")
+    ended = [{"receipts": [receipt("m1", 1, "interrupted")]}, log.page()]
+    result = fold(core_probe, ended)
+    assert items_of(result, "m1", "approval")[0]["card"]["state"] == "withdrawn"
+    assert result["pending_items"] == [] and result["review_label"] is None and result["pinned_turn"] is None
+    # The events first, the ended receipt after: withdrawn either way.
+    assert fold(core_probe, ended[::-1])["pending_items"] == []
+    log.add("m2", "accepted")
+    later = fold(core_probe, ended + [{"receipts": [receipt("m2", 2, "running")]}, log.page()])
+    assert later["pinned_turn"] == "m2" and later["review_label"] is None and card not in later["pending_items"]
+
+
+def test_c27_5_a_waiting_card_has_the_strip_when_the_newest_live_turn_has_answered(core_probe):
+    """The strip falls back to the turn of the oldest pending card, so a card
+    waiting on the person always has Review."""
     log = Log()
     log.add("m1", "accepted")
     card = ask(log, "m1", "perm-x")
-    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "complete")]}, log.page()])
-    assert result["live_message"] is None
-    assert result["pending_items"] == [card] and result["pinned_turn"] == "m1"
+    log.add("m2", "accepted")
+    log.add("m2", "turn.completed", state="complete")
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed"), receipt("m2", 2, "running")]},
+                               log.page()])
+    assert result["live_message"] == "m2" and result["turns"]["m2"]["outcome"] is not None
+    assert result["pinned_turn"] == "m1" and result["pending_items"] == [card]
     assert result["review_label"] == "Review"
 
 
-def test_no_review_without_a_pending_card(core_probe):
+def test_c27_5_no_review_without_a_pending_card(core_probe):
+    """C-27.5: a live turn with no card has a strip and no Review."""
     log = Log()
     log.add("m1", "accepted")
     log.add("m1", "text", block="0", text="Thinking about it")
@@ -203,10 +273,14 @@ def test_no_review_without_a_pending_card(core_probe):
     assert result["review_label"] is None
 
 
-def test_scrolls_once_per_card_again_on_request_and_after_visiting_elsewhere(core_probe):
+# MARK: - Scrolling to a card
+
+
+def test_c27_5_scrolls_once_per_card_again_on_request_and_on_opening(core_probe):
+    """C-27.5: each new card once; the oldest on request and when the conversation opens again."""
     log = Log()
     log.add("m1", "accepted")
-    steps = [{"receipts": [receipt("m1", 1, "running")]}, log.page()]
+    steps = [{"receipts": [receipt("m1", 1, "running")]}, log.page(), log.page()]
     first = ask(log, "m1", "perm-1")
     steps.append(log.page())
     log.add("m1", "text", block="0", text="still going")
@@ -214,10 +288,52 @@ def test_scrolls_once_per_card_again_on_request_and_after_visiting_elsewhere(cor
     second = ask(log, "m1", "perm-2")
     steps += [log.page(), {"reveal": True}, {}, {"elsewhere": True}, {}]
     result = fold(core_probe, steps)
-    assert result["scrolls"] == [None, None, first, None, second, first, None, None, first]
+    assert result["scrolls"] == [None, None, None, first, None, second, first, None, None, first]
 
 
-def test_a_queued_message_moves_up_when_its_turn_starts(core_probe):
+def test_c27_5_opening_waits_for_the_log_then_the_first_history_page(core_probe):
+    """Opening a conversation from its badge: the card `conversation.open` lists
+    is scrolled to once the log has been read, since rows arriving above it move
+    it; and again when the first page of older history lands above it, not when
+    the person pages further back (review of 6e1b505)."""
+    log = Log()
+    log.add("m1", "accepted")
+    log.add("m1", "text", block="0", text="Let me clean up.")
+    card_row = "approval:m1:ap-1"
+    ask(log, "m1", "perm-1", "rm one")
+    steps = [{"receipts": [receipt("m1", 1, "approval-needed")]},
+             {"approvals": [listed("ap-1", "m1", "rm one", 3)], "reveal": True},
+             log.page(), log.page(), history("before", next_before=50), history("even earlier"), {}]
+    result = fold(core_probe, steps)
+    assert result["results"] == ["receipts", "approvals", "applied:3", "applied:0", "history", "history"]
+    assert result["scrolls"] == [None, None, None, card_row, card_row, None, None]
+    assert result["caught_up"] is True and result["history_pages"] == 2
+
+
+def test_c27_5_a_reset_reads_the_log_again_before_scrolling(core_probe):
+    """A reset (C-25.4) drops what the events made and reads the log from 0: rows
+    arrive again above the card, so the view waits until that read reaches the end."""
+    log = Log()
+    log.add("m1", "accepted")
+    card = ask(log, "m1", "perm-r")
+    first = log.page()
+    steps = [{"receipts": [receipt("m1", 1, "approval-needed")]}, first, log.page(),
+             {"page": {"events": [], "next": 0, "reset": True, "floor": 1}, "reveal": True},
+             {"page": {"events": first["page"]["events"], "next": 2, "reset": False}, "reveal": True},
+             {"page": {"events": [], "next": 2, "reset": False}, "reveal": True}]
+    for step in steps:
+        step["snapshot"] = True
+    result = fold(core_probe, steps)
+    assert result["results"] == ["receipts", "applied:2", "applied:0", "reset", "applied:2", "applied:0"]
+    assert [snapshot["caught_up"] for snapshot in result["snapshots"]] == [False, False, True, False, False, True]
+    assert result["scrolls"] == [None, None, card, None, None, card]
+
+
+# MARK: - Display order
+
+
+def test_c27_5_a_queued_message_moves_up_when_its_turn_starts(core_probe):
+    """C-27.5: a queued bubble waits below the running turn, then takes its place."""
     log = Log()
     log.add("m1", "accepted")
     steps = [{"receipts": [receipt("m1", 1, "running"), receipt("m2", 2, "queued")]}, log.page()]
@@ -231,7 +347,7 @@ def test_a_queued_message_moves_up_when_its_turn_starts(core_probe):
     assert started["display_order"] == ["m1", "m2"] and started["followed_item"] == "text:m2:0"
 
 
-def test_the_queue_shows_in_the_order_the_daemon_sends_it(core_probe):
+def test_c27_5_the_queue_shows_in_the_order_the_daemon_sends_it(core_probe):
     """A `leave` note is sent ahead of the queued person messages (C-24.8)."""
     log = Log()
     log.add("m1", "accepted")
@@ -242,7 +358,27 @@ def test_the_queue_shows_in_the_order_the_daemon_sends_it(core_probe):
     assert [item["type"] for item in result["items"] if item["message_id"] == "m3"] == ["notice"]
 
 
-def test_a_local_message_not_yet_received_waits_with_the_queue(core_probe):
+def test_c27_5_an_unblock_note_that_ran_first_stays_above_the_turn_after_it(core_probe):
+    """The note runs before the queued person message (C-24.8); once that message's
+    turn runs, the note stays where it ran and the new turn is followed (review
+    of 6e1b505)."""
+    log = Log()
+    log.add("m1", "accepted")
+    log.add("m1", "turn.completed", state="interrupted")
+    log.add("m3", "accepted")
+    log.add("m3", "text", block="0", text="Understood")
+    log.add("m3", "turn.completed", state="complete")
+    log.add("m2", "accepted")
+    log.add("m2", "text", block="0", text="Starting fresh")
+    card = ask(log, "m2", "perm-n")
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "interrupted"), receipt("m2", 2, "approval-needed"),
+                                             receipt("m3", 3, "complete", origin="unblock-note")]}, log.page()])
+    assert result["display_order"] == ["m1", "m3", "m2"]
+    assert result["followed_item"] == card and result["pinned_turn"] == "m2"
+
+
+def test_c27_5_a_local_message_not_yet_received_waits_with_the_queue(core_probe):
+    """A message the daemon has not received yet sits with the queue."""
     log = Log()
     log.add("m1", "accepted")
     log.add("m1", "text", block="0", text="Working")
@@ -253,7 +389,7 @@ def test_a_local_message_not_yet_received_waits_with_the_queue(core_probe):
     assert result["items"][-1]["id"] == "person:m-local"
 
 
-def test_real_driver_two_requests_in_one_turn(core_probe, tmp_path):
+def test_c27_5_real_driver_two_requests_in_one_turn(core_probe, tmp_path):
     """Two requests the real Claude driver records (a sub-agent's and the main
     agent's) are both behind the strip's Review, oldest first."""
     harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-reach-", dir="/tmp")))
@@ -266,8 +402,10 @@ def test_real_driver_two_requests_in_one_turn(core_probe, tmp_path):
         claude_approval(turn, mid, "perm-sub", tool_input={"command": "rm -f mocktest/*"})
         claude_approval(turn, mid, "perm-main", tool_input={"command": "git status"})
         opened = harness.call("conversation.open", conversation_id=cid)
+        events = page(harness, cid)
         result = run_probe(core_probe, "fold", write_json(tmp_path / "fold.json", {"conversation_id": cid, "steps": [
-            {"receipts": opened["messages"]}, {"approvals": opened["pending_approvals"]}, {"page": page(harness, cid)},
+            {"receipts": opened["messages"]}, {"approvals": opened["pending_approvals"]}, {"page": events},
+            {"page": page(harness, cid, after=events["next"])},
         ]}))
     finally:
         harness.close()
@@ -278,8 +416,8 @@ def test_real_driver_two_requests_in_one_turn(core_probe, tmp_path):
     assert all(cards[row]["approval_id"] for row in result["pending_items"])
     assert result["review_label"] == "Review (2)" and result["pinned_turn"] == mid
     assert result["display_order"] == [mid, later]
-    # Known from `conversation.open` first: scrolled to then, not again when the events join them.
-    assert result["scrolls"] == [None, result["pending_items"][0], None]
+    # Scrolled to once the log has been read, not when `conversation.open` listed it.
+    assert result["scrolls"] == [None, None, None, result["pending_items"][0]]
 
 
 # MARK: - Properties over generated timelines
@@ -303,12 +441,14 @@ def timelines(draw):
         continues, origin = None, draw(st.sampled_from(["person"] * 5 + ["unblock-note"]))
         if index and draw(st.integers(0, 3)) == 0:
             continues, origin = draw(st.sampled_from(mids)), "failover"
-        receipts.append(receipt(mid, index + 1, draw(st.sampled_from(STATES)), origin=origin, continues=continues))
+        # Live states twice as often, so cards stay pending in more timelines.
+        state = draw(st.sampled_from(STATES + ["running", "approval-needed", "queued"]))
+        receipts.append(receipt(mid, index + 1, state, origin=origin, continues=continues))
     log, steps, asked, attached = Log(), [], [], []
     for _ in range(draw(st.integers(0, 14))):
         mid = draw(st.sampled_from(mids))
         action = draw(st.sampled_from(["text", "tool", "ask", "ask", "answer", "complete", "accepted",
-                                       "page", "receipts", "list", "reveal", "elsewhere"]))
+                                       "page", "page", "receipts", "list", "reveal", "elsewhere", "history"]))
         if action == "text":
             log.add(mid, "text", block=str(len(log.events)), text="words")
         elif action == "tool":
@@ -341,7 +481,10 @@ def timelines(draw):
             steps.append({"reveal": True})
         elif action == "elsewhere":
             steps.append({"elsewhere": True})
-    steps += [{"receipts": receipts}, log.page()]
+        elif action == "history":
+            steps.append(history(f"older {len(steps)}", next_before=draw(st.sampled_from([None, 10]))))
+    # The last page reads the log to its end, as the app's events loop does.
+    steps += [{"receipts": receipts}, log.page(), log.page()]
     for mid in mids:
         if mid not in received and draw(st.booleans()):
             steps.insert(draw(st.integers(0, len(steps))), {"local": {"message_id": mid, "text": f"local {mid}"}})
@@ -354,50 +497,55 @@ PROPERTY = settings(max_examples=120, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
 
 
+def rows_of(snapshot: dict, mid: str) -> list[str]:
+    return [item["id"] for item in snapshot["items"] if item["message_id"] == mid]
+
+
 def waits_in_queue(snapshot: dict, mid: str) -> bool:
     turn = snapshot["turns"][mid]
-    return (turn["state"] in WAITING and turn["continues"] is None
-            and not [item for item in snapshot["items"] if item["message_id"] == mid and item["id"] != f"person:{mid}"])
-
-
-REPAIR_ORIGINS = ("unblock-note", "failover")      # subfleet/conversations/store.py
+    return (turn["state"] in WAITING and turn["continues"] is None and turn["first_event"] is None
+            and rows_of(snapshot, mid) in ([], [f"person:{mid}"]))
 
 
 def reference_display_order(snapshot: dict) -> list[str]:
-    """The rule, written again: sequence order; a continuation under the earlier
-    message it continues (and its earlier continuations); queued messages last,
-    in the order the daemon sends them (`next_dispatchable`: repairs first)."""
-    order = snapshot["order"]
+    """The rule, written again: turns in the order they began (first event); a
+    message that never began right after the latest that began among the
+    messages before it; queued messages last, in the order the daemon sends
+    them (`next_dispatchable`: repairs first)."""
+    order, turns = snapshot["order"], snapshot["turns"]
     queue = [mid for mid in order if waits_in_queue(snapshot, mid)]
-    waiting = sorted(queue, key=lambda mid: snapshot["turns"][mid]["origin"] not in REPAIR_ORIGINS)
-    started = [mid for mid in order if mid not in waiting]
-    under: dict[str, list[str]] = {}
-    roots = []
-    for mid in started:
-        parent = snapshot["turns"][mid]["continues"]
-        if parent in started and order.index(parent) < order.index(mid):
-            under.setdefault(parent, []).append(mid)
+    waiting = sorted(queue, key=lambda mid: turns[mid]["origin"] not in REPAIR_ORIGINS)
+    latest, keyed = 0, []
+    for place, mid in enumerate(order):
+        if mid in queue:
+            continue
+        began = turns[mid]["first_event"]
+        if began is not None:
+            keyed.append(((began, 0, place), mid))
+            latest = max(latest, began)
         else:
-            roots.append(mid)
-    out: list[str] = []
-
-    def place(mid: str) -> None:
-        out.append(mid)
-        for child in under.get(mid, []):
-            place(child)
-
-    for mid in roots:
-        place(mid)
-    return out + waiting
+            keyed.append(((latest, 1, place), mid))
+    return [mid for _, mid in sorted(keyed)] + waiting
 
 
-def when(stamp: str | None) -> datetime:
-    return datetime.fromisoformat(stamp) if stamp else T0
+def reference_followed_item(snapshot: dict) -> str | None:
+    """The newest row of the turn that began last; before any began, the last
+    row above the queue."""
+    begun = [mid for mid, turn in snapshot["turns"].items() if turn["first_event"] is not None]
+    if begun:
+        return rows_of(snapshot, max(begun, key=lambda mid: snapshot["turns"][mid]["first_event"]))[-1]
+    waiting = {mid for mid in snapshot["order"] if waits_in_queue(snapshot, mid)}
+    above = [item["id"] for item in snapshot["items"] if item["message_id"] not in waiting]
+    return above[-1] if above else None
 
 
 def pending_rows(snapshot: dict) -> list[str]:
     return [item["id"] for item in snapshot["items"]
             if item["type"] == "approval" and item["card"]["state"] == "pending"]
+
+
+def when(stamp: str | None) -> datetime:
+    return datetime.fromisoformat(stamp) if stamp else T0
 
 
 def check_snapshot(snapshot: dict) -> None:
@@ -415,54 +563,65 @@ def check_snapshot(snapshot: dict) -> None:
     assert len(pending) == len(set(pending))
     assert snapshot["review_label"] == (None if not pending else "Review" if len(pending) == 1
                                         else f"Review ({len(pending)})")
+    # No card of a message that has ended is pending (C-27.3).
+    owners = {item["id"]: item["message_id"] for item in snapshot["items"]}
+    assert all(snapshot["turns"][owners[row]]["state"] not in TERMINAL for row in pending)
     # A waiting card always has a strip to carry its Review.
     if pending:
         assert snapshot["pinned_turn"] is not None
     if snapshot["live_message"] is not None and snapshot["turns"][snapshot["live_message"]]["outcome"] is None:
         assert snapshot["pinned_turn"] == snapshot["live_message"]
-    # Nothing a started turn did sits below a queued message.
+    # Nothing a turn did sits below a queued message.
     waiting = [mid for mid in snapshot["order"] if waits_in_queue(snapshot, mid)]
     first_waiting = min((ids.index(f"person:{mid}") for mid in waiting if f"person:{mid}" in ids), default=len(ids))
     assert all(item["message_id"] in waiting for item in snapshot["items"][first_waiting:])
-    # The view follows the newest row that is not a queued message.
-    started_rows = [item["id"] for item in snapshot["items"][:first_waiting]]
-    assert snapshot["followed_item"] == (started_rows[-1] if started_rows else None)
+    assert snapshot["followed_item"] == reference_followed_item(snapshot)
 
 
 @PROPERTY
 @given(steps=timelines())
-def test_property_the_strip_review_order_and_follow_hold_for_every_timeline(core_probe, steps):
+def test_c27_5_property_the_strip_review_order_and_follow_hold_for_every_timeline(core_probe, steps):
+    """C-27.5 over generated timelines: Review, the strip, display order, the followed row."""
     result = fold(core_probe, steps)
     for snapshot in result["snapshots"]:
         check_snapshot(snapshot)
     # What the generated timelines exercised, in the statistics.
     event(f"pending cards at the end: {min(len(result['pending_items']), 3)}")
     event(f"display order differs from sequence order: {result['display_order'] != result['order']}")
-    event(f"a queued message below a started turn: {any(waits_in_queue(result, m) for m in result['order'])}")
+    event(f"a queued message below a turn: {any(waits_in_queue(result, m) for m in result['order'])}")
+    event(f"a card withdrawn with its ended turn: {any(i['type'] == 'approval' and i['card']['state'] == 'withdrawn' for i in result['items'])}")
 
 
 @PROPERTY
 @given(steps=timelines())
-def test_property_each_card_is_scrolled_to_once_and_on_request(core_probe, steps):
+def test_c27_5_property_each_card_is_scrolled_to_once_and_on_request(core_probe, steps):
+    """C-27.5: the follower's targets, against the rule written again."""
     result = fold(core_probe, steps)
-    shown: set[str] = set()
+    conversation, shown, last, pages = None, set(), None, 0
     for step, snapshot, target in zip(steps, result["snapshots"], result["scrolls"]):
-        if step.get("elsewhere"):
+        here = "elsewhere" if step.get("elsewhere") else CID
+        if here != conversation:
+            conversation, shown, last = here, set(), None
+            pages = 0 if step.get("elsewhere") else snapshot["history_pages"]
+        if step.get("elsewhere") or not snapshot["caught_up"]:
+            # Another conversation not yet read, or this one still reading: rows may arrive above.
             assert target is None
-            shown = set()
             continue
         pending = snapshot["pending_items"]
-        if step.get("reveal"):
-            assert target == (pending[0] if pending else None)
-        else:
-            assert target == next((row for row in pending if row not in shown), None)
-        assert target is None or target in [item["id"] for item in snapshot["items"]]
+        expected = (pending[0] if pending else None) if step.get("reveal") else \
+            next((row for row in pending if row not in shown), None)
         shown |= set(pending)
+        if expected is None and pages == 0 and snapshot["history_pages"] > 0 and last in pending:
+            expected = last
+        pages = snapshot["history_pages"]
+        last = expected or last
+        assert target == expected
+        assert target is None or target in pending
 
 
 @PROPERTY
 @given(steps=timelines())
-def test_property_answering_the_strips_card_reaches_every_pending_card(core_probe, steps):
+def test_c27_5_property_answering_the_strips_card_reaches_every_pending_card(core_probe, steps):
     """Review opens the oldest card; once it is answered Review opens the next.
     Following Review alone answers every card that was pending, in order."""
     result = fold(core_probe, steps)

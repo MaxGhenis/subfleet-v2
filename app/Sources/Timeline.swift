@@ -128,6 +128,9 @@ struct TurnTimeline: Equatable {
     var limits: JSONValue?
     var diff: String?
     var items: [TimelineItem] = []
+    /// The sequence number of the turn's first event: when it began running.
+    /// Compaction removes only deltas (C-25.4), so a re-read finds the same one.
+    var firstEventSeq: Int?
 
     /// Events first, then the settled receipt's facts (lane, served model).
     var served: Served { eventServed.merging(receiptServed) }
@@ -244,6 +247,10 @@ struct Timeline: Equatable {
     /// Every approval `attach` has seen, by approval id. A card the events make
     /// again (after a reset re-reads the log) gets its approval id back from here.
     private var knownApprovals: [String: ApprovalView] = [:]
+    /// Whether the log has been read to its end since the timeline began or last
+    /// reset (a page that added nothing): until then rows still arrive above
+    /// whatever the view scrolled to.
+    private(set) var caughtUp = false
 
     init(conversationID: String) {
         self.conversationID = conversationID
@@ -276,6 +283,7 @@ struct Timeline: Equatable {
         if rebuilding && (page.events.isEmpty || !page.reset || page.floor.map { cursor >= $0 } == true) {
             rebuilding = false
         }
+        if count == 0 && !rebuilding && !page.reset { caughtUp = true }
         return .applied(count)
     }
 
@@ -283,6 +291,7 @@ struct Timeline: Equatable {
     mutating func resetEvents() {
         cursor = 0
         resets += 1
+        caughtUp = false
         firstEventTS = nil
         for id in order {
             guard var turn = turns[id] else { continue }
@@ -294,6 +303,7 @@ struct Timeline: Equatable {
             turn.limits = nil
             turn.diff = nil
             turn.items = []
+            turn.firstEventSeq = nil
             turns[id] = turn
         }
         order.removeAll { $0 == Timeline.conversationKey }
@@ -331,6 +341,7 @@ struct Timeline: Equatable {
         let id = event.message_id ?? Timeline.conversationKey
         ensureTurn(id)
         guard var turn = turns[id] else { return }
+        turn.firstEventSeq = turn.firstEventSeq ?? event.seq
         if firstEventTS == nil, let ts = event.ts {
             firstEventTS = ts
             trimHistory()
@@ -411,8 +422,12 @@ struct Timeline: Equatable {
                 if case .approval(let card) = $0.content { return card.requestID == nil && card.display == display && card.kind == kind }
                 return false
             }), case .approval(var card) = turn.items[index].content {
+                // Known from `approval.list` first: it moves to where the request came,
+                // below what the turn did before asking.
                 card.requestID = requestID
-                turn.items[index].content = .approval(card)
+                var row = turn.items.remove(at: index)
+                row.content = .approval(card)
+                turn.items.append(row)
             } else {
                 let card = ApprovalCard(requestID: requestID,
                                         approvalID: knownApprovalID(in: turn, kind: kind, display: display),
@@ -478,7 +493,21 @@ struct Timeline: Equatable {
         default:
             unknownKinds[event.kind, default: 0] += 1
         }
+        Timeline.withdrawIfEnded(&turn)
         turns[id] = turn
+    }
+
+    /// A turn whose message has ended has no pending card: the daemon withdraws
+    /// an attempt's approvals before it settles the message (C-27.3), and a turn
+    /// that ends without `result` writes no event withdrawing its requests.
+    private static func withdrawIfEnded(_ turn: inout TurnTimeline) {
+        guard turn.messageState?.isTerminal == true else { return }
+        for index in turn.items.indices {
+            if case .approval(var card) = turn.items[index].content, card.isPending {
+                card.state = .withdrawn
+                turn.items[index].content = .approval(card)
+            }
+        }
     }
 
     private func stream(_ turn: inout TurnTimeline, kind: String, block: String, text: String, final: Bool, ts: String?) {
@@ -536,6 +565,7 @@ struct Timeline: Equatable {
         if turn.personText == nil, let text = receipt.text {
             turn.personText = text + (receipt.text_truncated == true ? "\n…" : "")
         }
+        Timeline.withdrawIfEnded(&turn)
         turns[receipt.message_id] = turn
         sortOrder()
     }
@@ -602,6 +632,7 @@ struct Timeline: Equatable {
                                                messageID: approval.message_id, content: .approval(card),
                                                ts: approval.created_at))
             }
+            Timeline.withdrawIfEnded(&turn)
             turns[approval.message_id] = turn
         }
     }
@@ -755,39 +786,33 @@ struct Timeline: Equatable {
         return out
     }
 
-    /// Message ids in the order the timeline shows them: by daemon sequence,
-    /// with two exceptions. A continuation (a failover after a usage limit)
-    /// follows the message it continues, where it ran: its sequence is later
-    /// than every message queued before the limit, so it showed last, under
-    /// them and under the next turn's approval card, although it ran first
-    /// (2026-09-27). And a message still waiting in the queue comes after every
-    /// turn that has started, so nothing a turn does sits above a message the
-    /// provider has not been sent; the queue shows in the order the daemon sends
-    /// it, a repair message (an unblock note) first (C-24.8, C-26.7).
+    /// Message ids in the order the timeline shows them: the turns in the order
+    /// they began running (their first event), then the messages still waiting
+    /// in the queue. Sequence order put a failover continuation (D-6) last,
+    /// under the messages queued before the limit and the next turn's approval
+    /// card, although C-26.7 runs it first (2026-09-27), and an unblock note
+    /// (C-24.8) below the person's turn that ran after it. A message that never
+    /// began (withdrawn, refused, or a continuation not yet sent) sits right
+    /// after the latest turn that began among the messages before it. The queue
+    /// shows in the order the daemon sends it, a repair message first.
     var displayOrder: [String] {
-        let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
         let queue = order.filter { turns[$0].map(Timeline.waitsInQueue) ?? false }
         let repair = { (id: String) in Timeline.repairOrigins.contains(self.turns[id]?.origin ?? "") }
         let waiting = queue.filter(repair) + queue.filter { !repair($0) }
         let queued = Set(waiting)
-        var continuations: [String: [String]] = [:]
-        var roots: [String] = []
-        for id in order where !queued.contains(id) {
-            // Only under an earlier message, so a chain of continuations has no cycle.
-            if let parent = turns[id]?.continues, !queued.contains(parent),
-               let above = position[parent], let here = position[id], above < here {
-                continuations[parent, default: []].append(id)
+        var latest = 0
+        var placed: [(id: String, key: (Int, Int, Int))] = []
+        for (place, id) in order.enumerated() where !queued.contains(id) {
+            if id == Timeline.conversationKey {
+                placed.append((id, (Int.max, 1, place)))
+            } else if let began = turns[id]?.firstEventSeq {
+                placed.append((id, (began, 0, place)))
+                latest = max(latest, began)
             } else {
-                roots.append(id)
+                placed.append((id, (latest, 1, place)))
             }
         }
-        var out: [String] = []
-        func place(_ id: String) {
-            out.append(id)
-            for next in continuations[id] ?? [] { place(next) }
-        }
-        for id in roots { place(id) }
-        return out + waiting
+        return placed.sorted { $0.key < $1.key }.map(\.id) + waiting
     }
 
     /// The origins the daemon sends ahead of queued person messages
@@ -796,16 +821,22 @@ struct Timeline: Equatable {
 
     /// A message not yet sent to the provider: still queued (or not yet
     /// received by the daemon), nothing done for it. A continuation belongs
-    /// with the message it continues.
+    /// with the message it continues, which the daemon sends next.
     static func waitsInQueue(_ turn: TurnTimeline) -> Bool {
-        turn.messageID != conversationKey && turn.continues == nil && turn.items.isEmpty
+        turn.messageID != conversationKey && turn.continues == nil && turn.items.isEmpty && turn.firstEventSeq == nil
             && (turn.state == MessageState.queued.rawValue || turn.state == "sending")
     }
 
-    /// The newest row of a turn that has started: what the view follows while
-    /// the end is on screen. Queued messages sit below it and do not change
-    /// while a turn streams.
+    /// The newest row of the turn that began last: what the view follows while
+    /// the end is on screen. Queued messages sit below it, and a message
+    /// withdrawn from the queue may too; neither changes while a turn streams.
     var followedItem: TimelineItem? {
+        let begun = turns.values.filter { $0.messageID != Timeline.conversationKey && $0.firstEventSeq != nil }
+        if let turn = begun.max(by: { ($0.firstEventSeq ?? 0) < ($1.firstEventSeq ?? 0) }),
+           let last = turn.items.last ?? personItem(turn) {
+            return last
+        }
+        // Before any turn began: the last row above the queue.
         for id in displayOrder.reversed() {
             guard let turn = turns[id], !Timeline.waitsInQueue(turn) else { continue }
             if let last = turn.items.last ?? personItem(turn) { return last }
@@ -845,22 +876,37 @@ struct Timeline: Equatable {
     }
 }
 
-/// What the conversation view remembers so each waiting card is brought into
-/// view once, when it appears, and again whenever the person asks. Opening
-/// another conversation starts afresh, so its waiting cards are shown too.
+/// What the conversation view remembers to bring waiting cards into view: each
+/// new card once, when it appears, and the oldest whenever the conversation is
+/// opened or the person asks. It waits until the opened conversation has read
+/// its log, since rows arriving above a card move it out of view, and brings the
+/// card back once when the first page of older history lands above it.
 struct ApprovalFollower: Equatable {
     private(set) var conversationID: String?
     private(set) var shown: Set<String> = []
+    /// The card last scrolled to in this visit.
+    private(set) var last: String?
+    /// History pages the timeline had when the follower last looked.
+    private(set) var historyPages = 0
 
     /// The row to scroll to now, if any, after `timeline` changed or the person
-    /// asked (`reveal`).
+    /// asked (`reveal`, used up once this returns a row).
     mutating func target(in timeline: Timeline, reveal: Bool) -> String? {
         if conversationID != timeline.conversationID {
             conversationID = timeline.conversationID
             shown = []
+            last = nil
+            historyPages = timeline.historyPagesLoaded
         }
-        let target = timeline.approvalScrollTarget(shown: shown, reveal: reveal)
-        shown.formUnion(timeline.pendingApprovalItems.map(\.id))
+        guard timeline.caughtUp else { return nil }
+        let pending = timeline.pendingApprovalItems.map(\.id)
+        var target = timeline.approvalScrollTarget(shown: shown, reveal: reveal)
+        shown.formUnion(pending)
+        if target == nil, historyPages == 0, timeline.historyPagesLoaded > 0, let last, pending.contains(last) {
+            target = last
+        }
+        historyPages = timeline.historyPagesLoaded
+        if let target { last = target }
         return target
     }
 }

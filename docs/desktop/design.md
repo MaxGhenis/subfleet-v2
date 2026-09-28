@@ -1025,18 +1025,27 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
 - A pending approval is always within reach (C-27.5). While a card waits the
   pinned strip carries Review, or Review (N) when several do, which opens the
   oldest (by when it was asked); answering it moves Review to the next. The
-  strip is shown whenever a card is pending, even when no turn is live. The
-  conversation scrolls each new card into view once when it appears, wherever
-  the person was reading, and the sidebar's hand badge opens its conversation
-  at the oldest card. On 2026-09-27 a card sat above five queued messages and
-  a failover turn, and the strip said "Needs your approval" with only a Stop.
-- Display order is the daemon's message order with two exceptions. A
-  continuation (D-6's failover message) shows under the message it continues,
-  where it ran, rather than after the messages queued meanwhile (C-26.7 sends
-  it ahead of them). A message still queued (or not yet received) shows below
-  every turn that has started, in the order the daemon sends the queue (an
-  unblock note first, C-24.8), and the view follows the newest row of a
-  started turn rather than the last queued bubble.
+  strip is shown whenever a card is pending, even when the newest live turn
+  has already answered. A card whose message has ended is withdrawn: the
+  daemon withdraws an attempt's approvals before it settles the message
+  (C-27.3), and a turn that ends without `result` writes no event withdrawing
+  its requests. The conversation scrolls each new card into view once when it appears,
+  wherever the person was reading, and the oldest when the conversation is
+  opened or the person asks (the strip's Review, or the sidebar's hand badge,
+  which opens its conversation). It waits until the opened conversation has
+  read its log to the end, since rows arriving above a card move it, and
+  brings the card back once when the first page of older history lands above
+  it. On 2026-09-27 a card sat above five queued messages and a failover
+  turn, and the strip said "Needs your approval" with only a Stop.
+- Display order is the order turns began (each turn's first event), then the
+  messages still queued (or not yet received) in the order the daemon sends
+  them (an unblock note first, C-24.8). Sequence order had put a failover
+  continuation (D-6), which C-26.7 runs ahead of the queue, after the messages
+  queued before the limit, and an unblock note below the turn that ran after
+  it. A message that never began (withdrawn, refused, or a continuation not
+  yet sent) sits right after the latest turn that began among the messages
+  before it. The view follows the newest row of the turn that began last,
+  not the last row, which may be a queued bubble.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
 

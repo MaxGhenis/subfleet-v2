@@ -172,7 +172,7 @@ func project(_ item: TimelineItem) -> [String: Any] {
 func project(_ turn: TurnTimeline) -> [String: Any] {
     [
         "message_id": turn.messageID, "seq": turn.seq as Any? ?? NSNull(), "state": turn.state,
-        "continues": turn.continues as Any? ?? NSNull(),
+        "continues": turn.continues as Any? ?? NSNull(), "first_event": turn.firstEventSeq as Any? ?? NSNull(),
         "state_reason": turn.stateReason as Any? ?? NSNull(), "origin": turn.origin as Any? ?? NSNull(),
         "person_text": turn.personText as Any? ?? NSNull(), "phases": turn.phases.map(\.phase), "accepted": turn.accepted,
         "served": jsonObject(turn.served), "outcome": turn.outcome.map { ["state": $0.state, "reason": $0.reason as Any? ?? NSNull(),
@@ -195,7 +195,8 @@ func project(_ timeline: Timeline) -> [String: Any] {
         "display_order": timeline.displayOrder, "pending_items": timeline.pendingApprovalItems.map(\.id),
         "pinned_turn": timeline.pinnedTurn?.messageID as Any? ?? NSNull(),
         "review_label": reviewButtonLabel(pending: timeline.pendingApprovalItems.count) as Any? ?? NSNull(),
-        "followed_item": timeline.followedItem?.id as Any? ?? NSNull(),
+        "followed_item": timeline.followedItem?.id as Any? ?? NSNull(), "caught_up": timeline.caughtUp,
+        "history_pages": timeline.historyPagesLoaded,
     ]
 }
 

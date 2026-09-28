@@ -1,8 +1,9 @@
 // Host the conversation window's real views without opening a window or running
 // the app: the pinned strip with and without waiting cards, and a sidebar row
-// with and without its hand badge. SwiftUI builds no accessibility tree without
-// an assistive client, so a control is seen by the room it takes, and the
-// AppKit-backed ones (link and borderless buttons) are clicked.
+// with and without its hand badge (C-27.5). SwiftUI builds no accessibility tree
+// without an assistive client, so a control is seen by the room it takes, and
+// each AppKit-backed one (link and borderless buttons; bordered ones too before
+// macOS 26) is clicked and named by the action it fired.
 import AppKit
 import SwiftUI
 
@@ -36,10 +37,15 @@ struct ConversationViewProbe {
                                       review: { presses.review += 1 }, stop: { presses.stop += 1 })
             let hosted = host(strip, width: 640)
             windows.append(hosted.window)
-            hosted.buttons.forEach { $0.performClick(nil) }
+            // Which AppKit button does what: macOS 15 backs a bordered button with
+            // one, macOS 26 draws it in SwiftUI, so Review is clicked only on the first.
+            let clicks = hosted.buttons.map { button -> String in
+                let before = (presses.review, presses.stop)
+                button.performClick(nil)
+                return presses.review > before.0 ? "review" : presses.stop > before.1 ? "stop" : "none"
+            }
             strips.append(["pending": pending, "width": hosted.size.width, "height": hosted.size.height,
-                           "appkit_buttons": hosted.buttons.count, "review": presses.review, "stop": presses.stop,
-                           "label": reviewButtonLabel(pending: pending) as Any? ?? NSNull()])
+                           "clicks": clicks, "label": reviewButtonLabel(pending: pending) as Any? ?? NSNull()])
         }
         var rows: [[String: Any]] = []
         for pending in [0, 2] {
@@ -50,9 +56,13 @@ struct ConversationViewProbe {
                                      liveElsewhere: false, continuable: true, continueBlocker: nil)
             let hosted = host(SidebarRow(entry: entry, showApprovals: { presses.badge += 1 }), width: 300)
             windows.append(hosted.window)
-            hosted.buttons.forEach { $0.performClick(nil) }
-            rows.append(["pending": pending, "width": hosted.size.width, "appkit_buttons": hosted.buttons.count,
-                         "badge": presses.badge, "spoken": approvalsWaitingWords(pending)])
+            let clicks = hosted.buttons.map { button -> String in
+                let before = presses.badge
+                button.performClick(nil)
+                return presses.badge > before ? "badge" : "none"
+            }
+            rows.append(["pending": pending, "width": hosted.size.width, "clicks": clicks,
+                         "spoken": approvalsWaitingWords(pending)])
         }
         let result: [String: Any] = ["strips": strips, "rows": rows,
                                      "visible_windows": NSApp.windows.filter(\.isVisible).count]

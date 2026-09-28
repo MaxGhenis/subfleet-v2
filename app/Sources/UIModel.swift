@@ -529,9 +529,10 @@ final class UIModel: ObservableObject {
             return nil
         }
         state.apply(approvals: approvals, conversationID: conversationID)
-        return state.timelines[conversationID]?.turns.values.flatMap(\.pendingApprovals)
-            .first { $0.requestID == card.requestID }?.approvalID
-            ?? approvals.first { $0.state == "pending" && $0.kind == card.kind }?.approval_id
+        // The card joined to one of the daemon's pending approvals, or none: another
+        // pending approval of the same kind is not this one (C-27.5).
+        guard let requestID = card.requestID else { return nil }
+        return state.timelines[conversationID]?.pendingApprovalCards.first { $0.requestID == requestID }?.approvalID
     }
 
     // MARK: Sidebar settings
