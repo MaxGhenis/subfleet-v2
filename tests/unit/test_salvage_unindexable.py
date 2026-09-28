@@ -134,14 +134,14 @@ def test_an_embedded_repository_with_a_commit_is_still_recorded_as_before(reposi
 @pytest.mark.parametrize("name", ["glob*[x]?", "it's", "trailing ", "café", "-dash"])
 def test_a_name_git_would_read_as_a_pattern_is_excluded_literally(repository, name):
     """The exclusion is `:(literal)`: a name with glob characters leaves out only itself,
-    never a sibling it would match as a pattern (`globAx/`)."""
+    never a sibling it would match as a pattern (`globAxy/`)."""
     baseline = git_head(repository)
     empty_repository(repository / "scratch" / name)
-    (repository / "scratch" / "globAx").mkdir()
-    (repository / "scratch" / "globAx" / "kept.txt").write_text("kept\n")
+    (repository / "scratch" / "globAxy").mkdir()
+    (repository / "scratch" / "globAxy" / "kept.txt").write_text("kept\n")
     tree, skipped = snapshot_tree(repository, baseline)
     assert skipped == (f"scratch/{name}/",)
-    assert git(repository, "ls-tree", "-r", "--name-only", tree, "scratch").splitlines() == ["scratch/globAx/kept.txt"]
+    assert git(repository, "ls-tree", "-r", "--name-only", tree, "scratch").splitlines() == ["scratch/globAxy/kept.txt"]
 
 
 def test_from_a_subdirectory_the_whole_checkout_is_snapshot(repository):

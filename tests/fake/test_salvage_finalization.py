@@ -273,8 +273,8 @@ def test_c13_1_a_quarantine_release_records_a_failed_salvage_at_once(state_daemo
         calls.append(1)
         raise SalvageError("git add timed out after 60 s", transient=True)
     monkeypatch.setattr(daemon_module, "salvage", slow)
-    daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
-                               protocol.KillArgs(job_id, confirm_dead=True))
+    stale = daemon.store.get_attempt(attempt["attempt_id"])
+    daemon._resolve_quarantine(stale, protocol.KillArgs(job_id, confirm_dead=True))
     assert calls == [1]
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "lost"
     assert daemon.store.list_leases() == []
@@ -289,6 +289,10 @@ def test_c13_1_a_quarantine_release_records_a_failed_salvage_at_once(state_daemo
     assert released.split("\n")[1:] == [
         "released from quarantine (attempt a1)",
         f"salvage failed: git add timed out after 60 s; the worktree is kept: {workdir}"]
+    # A second resolution that raced the first (both read the attempt while it was
+    # quarantined) reads the receipt and says nothing more.
+    daemon._resolve_quarantine(stale, protocol.KillArgs(job_id, confirm_dead=True))
+    assert calls == [1] and len(job_notices(daemon, job_id)) == 2
 
 
 def test_c13_1_a_quarantine_release_says_what_its_snapshot_left_out(state_daemon, monkeypatch):
