@@ -195,6 +195,29 @@ def test_c6_8_a_snapshot_failure_that_quotes_a_name_that_is_not_utf8_fails_the_j
     assert failed["error"] == error and failed["transient"] is False
 
 
+def test_c6_8_the_full_disk_the_live_daemon_failed_a_job_on_waits_instead(state_daemon, monkeypatch):
+    """Live (daemon.log, 2026-09-22, job 20260922-164440-pb-fixverify-v4): the baseline
+    snapshot's `write-tree` said `fatal: sha1 file '….lock' write error. Out of diskspace`,
+    git's other wording for a full disk, and the job failed at once. It waits (C-6.8), and
+    is admitted on the first pass after the disk has room. Only `write-tree` is faked."""
+    from tests.unit.test_salvage_unindexable import OUT_OF_DISKSPACE, fake_write_tree
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", in_place=True))["job_id"]
+    real_run = subprocess.run
+    fake_write_tree(monkeypatch, OUT_OF_DISKSPACE)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error_type"] == "SalvageError" and record["error"].endswith("write error. Out of diskspace")
+    assert daemon.store.list_notices() == []
+    monkeypatch.setattr(subprocess, "run", real_run)       # the disk has room again
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
 def test_c6_8_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(state_daemon, monkeypatch):
     """`git worktree add` prints a file it could not check out in its own bytes; read as
     strict UTF-8 that raised `UnicodeDecodeError` out of the admission pass on every try.

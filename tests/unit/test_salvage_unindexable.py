@@ -261,9 +261,16 @@ def test_a_ref_lock_another_git_process_holds_is_transient(repository):
 @pytest.mark.parametrize("stderr", [
     b'error: open("Unable to create \'a.lock\': File exists"): Permission denied\nfatal: adding files failed\n',
     b'error: open("x: No space left on device.txt"): Permission denied\nfatal: adding files failed\n',
+    b'error: open("a write error. Out of diskspace"): Permission denied\nfatal: adding files failed\n',
+    # A `hint:` or `warning:` line can end with a path git names (an embedded repository).
+    b"warning: adding embedded git repository: x: No space left on device\n"
+    b"hint: \tgit rm --cached x: No space left on device\n"
+    b"error: 'y/' does not have a commit checked out\nfatal: adding files failed\n",
+    b"warning: adding embedded git repository: a write error. Out of diskspace\nfatal: adding files failed\n",
 ])
 def test_a_file_name_that_quotes_those_words_is_not_read_as_them(repository, monkeypatch, stderr):
-    """git quotes a file name inside its own line; the markers are read only at a line's end."""
+    """git quotes a file name inside its own line; the markers are read only at the end
+    of git's own `error:` and `fatal:` lines."""
     (repository / "new.txt").write_text("work\n")
     fake_add(monkeypatch, 128, stderr)
     with pytest.raises(SalvageError, match="git add failed") as caught:
@@ -288,11 +295,40 @@ def test_a_ref_that_cannot_be_created_for_good_is_not_transient(repository):
     b"fatal: adding files failed\n",
     b"error: file write error: No space left on device\nfatal: adding files failed\n",
     b"fatal: Unable to create '/r/.git/packed-refs.lock': File exists.\n",
+    b"fatal: sha1 file '/r/.git/objects/pack/tmp_pack_x' write error. Out of diskspace\n",
 ])
 def test_a_full_disk_or_a_held_lock_in_add_is_transient(repository, monkeypatch, stderr):
     (repository / "new.txt").write_text("work\n")
     fake_add(monkeypatch, 128, stderr)
     with pytest.raises(SalvageError, match="git add failed") as caught:
+        snapshot_tree(repository, git_head(repository))
+    assert caught.value.transient
+
+
+#: daemon.log, 2026-09-22 (job 20260922-164440-pb-fixverify-v4), as git wrote it.
+OUT_OF_DISKSPACE = (b"fatal: sha1 file '/Users/maxghenis/PolicyEngine/_wk/pb-triage-verify-v4/.git/"
+                    b"subfleet-salvage-d_u32mma/index.lock' write error. Out of diskspace\n")
+
+
+def fake_write_tree(monkeypatch, stderr):
+    """Replace only the snapshot's `write-tree` with a failure; every other git call is real."""
+    real = subprocess.run
+
+    def run(argv, *args, **kwargs):
+        if argv[3:4] == ["write-tree"]:
+            return subprocess.CompletedProcess(argv, 128, b"", stderr)
+        return real(argv, *args, **kwargs)
+    monkeypatch.setattr(salvage_module.subprocess, "run", run)
+
+
+def test_the_full_disk_the_live_daemon_failed_a_job_on_is_transient(repository, monkeypatch):
+    """Live (daemon.log, 2026-09-22): `workspace preparation failed: SalvageError: git
+    write-tree failed: fatal: sha1 file '….lock' write error. Out of diskspace`. That is
+    git's other wording for a full disk (a write that stored nothing), and it was read as a
+    failure no retry clears, so the job failed at once."""
+    (repository / "new.txt").write_text("work\n")
+    fake_write_tree(monkeypatch, OUT_OF_DISKSPACE)
+    with pytest.raises(SalvageError, match="write-tree failed: .* Out of diskspace$") as caught:
         snapshot_tree(repository, git_head(repository))
     assert caught.value.transient
 

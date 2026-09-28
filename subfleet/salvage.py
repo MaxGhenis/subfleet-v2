@@ -33,11 +33,17 @@ TRANSIENT_ERRNOS = frozenset({
 #: git's own words for the same kind of failure (C-13.1): a lock file another
 #: git process holds (a concurrent `gc`, `fetch` or `update-ref` in the same
 #: repository; `cannot lock ref` alone also covers a ref that exists or a
-#: name that conflicts, which no retry changes), and a full disk. Read only
-#: under the C locale (`_git_env`), where git does not translate them, and only
-#: at a line's end, where git puts them, so a file name quoted earlier in a line
-#: is not read as one.
-_TRANSIENT_GIT = re.compile(r"Unable to create '[^\n]*\.lock': File exists\.?$|: No space left on device$", re.M)
+#: name that conflicts, which no retry changes), and a full disk, in both of
+#: git's wordings: `strerror(ENOSPC)`, and `write error. Out of diskspace` for
+#: a write that stored nothing (`csum-file.c`; on 2026-09-22 the daemon failed a
+#: job at once on `git write-tree failed: fatal: sha1 file '….lock' write error.
+#: Out of diskspace`, a failure C-6.8 would have waited out). Read only under
+#: the C locale (`_git_env`), where git does not translate them, only on git's
+#: own `error:` and `fatal:` lines, and only at a line's end, where git puts
+#: them, so a file name quoted earlier in a line, or ending a `hint:` or
+#: `warning:` line (`git rm --cached <path>`), is not read as one.
+_TRANSIENT_GIT = re.compile(r"^(?:error|fatal): [^\n]*(?:Unable to create '[^\n]*\.lock': File exists\.?"
+                            r"|: No space left on device|write error\. Out of diskspace)$", re.M)
 
 
 class SalvageError(RuntimeError):
