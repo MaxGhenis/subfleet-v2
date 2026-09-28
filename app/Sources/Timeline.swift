@@ -18,9 +18,10 @@
 //   `turn.completed` records the outcome and withdraws what is still pending
 //   (the driver withdraws pending requests when a turn ends without an event).
 // - `steer.delivered` (on the host turn, `data.message_id` the steered message,
-//   C-24.9) marks where the provider took a steered message: its bubble is drawn
-//   there, once, while it is steering or steered. `steer.sent`, `steer.missed`
-//   and `steer.refused` change nothing shown; the message's receipts do.
+//   C-24.9) marks where the provider read a steered message: its bubble, drawn in
+//   send order until then, is anchored there, once, and reads "Read".
+//   `steer.missed` says the turn ended before reading it (it runs next);
+//   `steer.sent` and `steer.refused` change nothing shown.
 // - `reset: true` means compacted deltas were missed: the event-derived state is
 //   dropped and the log is read again from 0 (C-25.4).
 //
@@ -121,8 +122,10 @@ struct TurnTimeline: Equatable {
     /// C-24.9: the host this message was steered into (`steered_into`, or its
     /// `state_reason`), while it is steering or steered.
     var steeredInto: String?
-    /// The host whose `steer.delivered` placed this message: the provider has it.
+    /// The host whose `steer.delivered` placed this message: the provider read it.
     var steerDeliveredIn: String?
+    /// The host's `steer.missed`: its turn ended before reading this message.
+    var steerMissed = false
     /// This app journaled a steer of it and the daemon has not answered yet.
     var steerRequested = false
     /// The daemon's refusal of this app's last steer of it (the message stayed queued).
@@ -182,21 +185,46 @@ struct TurnTimeline: Equatable {
         steerDeliveredIn != nil && (messageState == .steering || messageState == .steered || state == "sending")
     }
 
+    /// A steer the provider has not read: asked for, handed over, or back in the
+    /// queue after the turn ended without reading it (it runs next).
+    var isUnreadSteer: Bool {
+        guard steerDeliveredIn == nil else { return false }
+        switch messageState {
+        case .steering: return true
+        case .queued: return steerRequested || missedSteer
+        case nil: return state == "sending" && steerRequested
+        default: return false
+        }
+    }
+
+    /// The turn ended before reading it: `steer-missed:` on its receipt, or the host's `steer.missed`.
+    var missedSteer: Bool { steerMissed || stateReason?.hasPrefix("steer-missed:") == true }
+
+    /// Read by the provider: its `steer.delivered`, or settled `steered`.
+    var isReadSteer: Bool {
+        messageState == .steered || (steerDeliveredIn != nil && (messageState == .steering || state == "sending"))
+    }
+
     /// The status strip's words for where this turn is (design §12).
-    var statusText: String {
+    var statusText: String { statusText(host: nil) }
+
+    /// The words, with a steered message's read state taken from the turn it
+    /// joins (C-24.9; DESIGN.md sections 8 and 9: Claude Code's words).
+    func statusText(host: TurnTimeline?, assistant: String = "Claude") -> String {
         switch messageState {
         case .queued:
-            // C-24.9, design §1: a steer on its way, one that missed the turn, one refused.
-            if steerRequested { return "Steering… it joins at the next step" }
-            if stateReason?.hasPrefix("steer-missed:") == true { return "Runs next: the turn ended before it could take this" }
+            if steerRequested { return TurnTimeline.unreadWords(host: host, assistant: assistant) }
+            if missedSteer { return TurnTimeline.unreadUntilTurnEnds }
             if let refusal = steerRefusal { return "Queued, not steered: " + steerRefusalWords(refusal) }
             return "Queued behind the current turn"
         case .steering:
-            return steerDeliveredIn != nil ? "Added to the running turn" : "Steering… it joins at the next step"
+            if steerDeliveredIn != nil { return TurnTimeline.read }
+            if steerMissed { return TurnTimeline.unreadUntilTurnEnds }
+            return TurnTimeline.unreadWords(host: host, assistant: assistant)
         case .steered:
             // Codex recorded it after the model's last step: nothing answered it.
             return stateReason?.hasPrefix("steered-unanswered:") == true
-                ? "Added after the turn's last step; ask again for a reply" : "Added to the running turn"
+                ? "Read after the turn's last step; ask again for a reply" : TurnTimeline.read
         case .waiting:
             if let reason = stateReason, reason.contains("external-writer") {
                 // C-26.3, D-17: another Claude process holds the session.
@@ -232,9 +260,22 @@ struct TurnTimeline: Equatable {
         case .unknown: return "Not received by the daemon"
         case nil:
             guard state == "sending" else { return state }
-            if steerDeliveredIn != nil { return "Added to the running turn" }
-            return steerRequested ? "Steering… it joins at the next step" : "Sending"
+            if steerDeliveredIn != nil { return TurnTimeline.read }
+            return steerRequested ? TurnTimeline.unreadWords(host: host, assistant: assistant) : "Sending"
         }
+    }
+
+    static let read = "Read"
+    static let unreadUntilTurnEnds = "Unread until the current turn ends."
+
+    /// An unread steer waits for what the running turn is doing: an approval, a
+    /// tool that is running, or else the model's next step.
+    static func unreadWords(host: TurnTimeline?, assistant: String) -> String {
+        if let host, host.messageState == .approvalNeeded || !host.pendingApprovals.isEmpty {
+            return "Unread. \(assistant) needs your approval first."
+        }
+        if host?.runningTool != nil { return "Unread until the current step finishes." }
+        return "Unread until \(assistant)'s next step."
     }
 }
 
@@ -329,6 +370,7 @@ struct Timeline: Equatable {
             turn.diff = nil
             turn.items = []
             turn.steerDeliveredIn = nil
+            turn.steerMissed = false
             turns[id] = turn
         }
         order.removeAll { $0 == Timeline.conversationKey }
@@ -371,8 +413,9 @@ struct Timeline: Equatable {
             trimHistory()
         }
         let data = event.data
-        // A message this event placed in this turn (`steer.delivered`).
+        // A steered message this event says the provider read, or did not (`steer.*`).
         var delivered: String?
+        var missed: String?
         switch event.kind {
         case "status":
             // A new attempt starts its own clock, even after one that never got further.
@@ -514,16 +557,19 @@ struct Timeline: Equatable {
             turn.diff = data["diff"]?.string
         case "steer.delivered":
             // C-24.9: the provider took the steered message at this point of the turn.
-            guard let steered = data["message_id"]?.string, steered != id, steered != Timeline.conversationKey else { break }
+            guard id != Timeline.conversationKey, let steered = data["message_id"]?.string, steered != id,
+                  steered != Timeline.conversationKey else { break }
             let itemID = "steer:\(steered)"
             if !turn.items.contains(where: { $0.id == itemID }) {
                 turn.items.append(TimelineItem(id: itemID, messageID: steered, content: .steered(messageID: steered),
                                                ts: event.ts))
             }
             delivered = steered
-        case "steer.sent", "steer.missed", "steer.refused":
-            // Where the steered message is comes from its own receipts (it is queued
-            // again, with `steer-missed:`, when it missed the turn).
+        case "steer.missed":
+            // The turn ended before reading it: it goes back to the queue and runs next.
+            if id != Timeline.conversationKey, let steered = data["message_id"]?.string, steered != id { missed = steered }
+        case "steer.sent", "steer.refused":
+            // The steered message's receipts say the rest.
             break
         default:
             unknownKinds[event.kind, default: 0] += 1
@@ -532,6 +578,10 @@ struct Timeline: Equatable {
         if let delivered {
             ensureTurn(delivered)
             turns[delivered]?.steerDeliveredIn = id
+        }
+        if let missed, turns[missed]?.steerDeliveredIn == nil {
+            ensureTurn(missed)
+            turns[missed]?.steerMissed = true
         }
     }
 
@@ -797,34 +847,30 @@ struct Timeline: Equatable {
                     out.append(item)
                     continue
                 }
-                guard placed.contains(steered), drawn.insert(steered).inserted, let message = turns[steered],
-                      let person = personItem(message) else { continue }
+                guard placed.contains(steered), turns[steered]?.steerDeliveredIn == id, drawn.insert(steered).inserted,
+                      let message = turns[steered], let person = personItem(message) else { continue }
                 out.append(person)
             }
         }
         return out
     }
 
-    /// Messages drawn inside a host turn rather than in their own place.
+    /// Messages drawn inside a host turn rather than in their own place: at the
+    /// host that last took them (`steerDeliveredIn`, whose words the status line
+    /// shows), and only when that host was sent before them, so the host's bubble
+    /// always comes first and no two messages can hold each other.
     var placedSteers: Set<String> {
+        let place = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
         var out: Set<String> = []
-        for id in order {
+        for (index, id) in order.enumerated() {
             for item in turns[id]?.items ?? [] {
-                if case .steered(let steered) = item.content, turns[steered]?.isPlacedSteer == true { out.insert(steered) }
+                if case .steered(let steered) = item.content, let turn = turns[steered], turn.isPlacedSteer,
+                   turn.steerDeliveredIn == id, (place[steered] ?? -1) > index {
+                    out.insert(steered)
+                }
             }
         }
         return out
-    }
-
-    /// Messages waiting behind the live turn: queued in the daemon, or sent from
-    /// here to queue and not answered yet. A new message cannot be steered past
-    /// them: the daemon steers only the head of the queue (C-24.9, `not-next`).
-    var waitingMessageIDs: [String] {
-        order.filter { id in
-            guard id != Timeline.conversationKey, let turn = turns[id] else { return false }
-            if turn.messageState == .queued { return !turn.steerRequested }
-            return turn.state == "sending" && turn.origin == "person" && !turn.steerRequested
-        }
     }
 
     private func personItem(_ turn: TurnTimeline) -> TimelineItem? {
@@ -849,6 +895,19 @@ struct Timeline: Equatable {
     }
 
     func turn(_ messageID: String) -> TurnTimeline? { turns[messageID] }
+
+    /// A message's status words; a steered one's read state follows the turn it
+    /// joins (the turn it was steered into, or else the live one).
+    func statusText(of messageID: String, assistant: String = "Claude") -> String? {
+        guard let turn = turns[messageID] else { return nil }
+        var host = (turn.steeredInto ?? turn.steerDeliveredIn).flatMap { turns[$0] }
+        if host == nil, let live = liveMessageID, live != messageID { host = turns[live] }
+        return turn.statusText(host: host, assistant: assistant)
+    }
+
+    /// Steers the provider has not read, oldest first: Esc takes back the last one
+    /// (DESIGN.md section 9).
+    var unreadSteers: [String] { order.filter { turns[$0]?.isUnreadSteer == true } }
 
     /// The message a Stop acts on: the newest live one.
     var liveMessageID: String? {

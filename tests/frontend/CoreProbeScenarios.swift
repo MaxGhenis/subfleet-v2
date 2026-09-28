@@ -29,7 +29,9 @@ final class ScriptedProbeTransport: DaemonTransport {
               var answer = next["answer"] as? [String: Any] else {
             throw DaemonClientError.malformed("unexpected scripted operation")
         }
-        if answer["ok"] as? Bool == true { answer["id"] = request["id"] }
+        // A recorded answer is this request's; one the daemon gives before reading a
+        // request (busy, unknown op) keeps its empty id.
+        if answer["ok"] as? Bool == true || !((answer["id"] as? String) ?? "").isEmpty { answer["id"] = request["id"] }
         return try JSONSerialization.data(withJSONObject: answer)
     }
 }
@@ -78,10 +80,12 @@ func project(_ report: OutboxSender.Report) -> [String: Any] {
      "refused": report.refused, "steers": report.steers.map(project)]
 }
 
-func project(_ outcome: ConversationEngine.CancelOutcome) -> [String: Any] {
+func project(_ outcome: ConversationEngine.RecallOutcome) -> [String: Any] {
     switch outcome {
-    case .withdrawn(let receipt): return ["outcome": "withdrawn", "receipt": receipt.map(jsonObject) as Any? ?? NSNull()]
-    case .receipt(let receipt): return ["outcome": "receipt", "receipt": receipt.map(jsonObject) as Any? ?? NSNull()]
+    case .recalled(let text, let staged, let receipt):
+        return ["outcome": "recalled", "text": text, "staged": staged.map(\.sha256),
+                "receipt": receipt.map(jsonObject) as Any? ?? NSNull()]
+    case .tooLate(let receipt): return ["outcome": "too-late", "receipt": receipt.map(jsonObject) as Any? ?? NSNull()]
     case .inFlight: return ["outcome": "in-flight"]
     }
 }
@@ -143,11 +147,11 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                 let steer = try ConversationEngine(client: client, outbox: outbox)
                     .steer(messageID: resolve(step["key"]?.string), conversationID: resolve(step["conversation"]?.string))
                 results.append(["do": action, "steer": project(steer)])
-            case "cancel":
-                // A bubble's Cancel, from the state the app last saw.
+            case "recall":
+                // Esc on an unread steer, from the state the app last saw.
                 let key = resolve(step["key"]?.string)
-                let outcome = try ConversationEngine(client: client, outbox: outbox).cancel(messageID: key,
-                                                                                            state: step["state"]?.string)
+                let outcome = try ConversationEngine(client: client, outbox: outbox).recall(
+                    messageID: key, state: step["state"]?.string, text: step["text"]?.string)
                 results.append(["do": action, "result": project(outcome)])
             case "pump":
                 results.append(["do": action, "report": project(sender.pump())])
@@ -158,6 +162,10 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
             case "begin":
                 // Journal a send as under way without sending it: the app stopped here.
                 _ = try outbox.begin(resolve(step["key"]?.string))
+                results.append(["do": action])
+            case "begin-steer":
+                // Journal a steer as under way without sending it: the app stopped here.
+                _ = try outbox.beginSteer(resolve(step["key"]?.string))
                 results.append(["do": action])
             case "send-then-crash":
                 // Send it, and lose the answer: the daemon has it, the journal says `sending`.
@@ -363,7 +371,9 @@ func runStore(_ data: Data) throws -> [String: Any] {
                                         "warnings": chip.warnings]
                 }
                 stops[messageID] = project(stopAction(for: messageID, state: timeline.turn(messageID)?.state, outboxEntry: nil))
-                statuses[messageID] = timeline.turn(messageID)?.statusText ?? NSNull()
+                statuses[messageID] = timeline.statusText(of: messageID,
+                                                          assistant: conversation.provider == "codex" ? "Codex" : "Claude")
+                    ?? NSNull()
                 steerOffers[messageID] = state.offersSteer(conversationID: id, messageID: messageID)
             }
             items[id] = timeline.items.map { item -> String in
@@ -527,6 +537,9 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         return project(DaemonAvailability.check(client))
     case "watch-loop":
         return try runWatchLoop(socket: arguments[2], journal: arguments[3], turns: Int(arguments[4]) ?? 2)
+    case "steerable":
+        // steerable <texts.json>: whether Return may steer each text (DESIGN.md section 9)
+        return try JSONValue.parse(readFile(arguments[2])).array?.map { steerable(text: $0.string ?? "") } ?? []
     case "live":
         return try runLive(arguments)
     default:

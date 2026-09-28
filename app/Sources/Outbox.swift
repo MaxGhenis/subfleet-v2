@@ -275,7 +275,9 @@ final class Outbox {
                        settings: ConversationSettings, steer: Bool = false) throws -> OutboxEntry {
         try Outbox.checkMessageID(messageID)
         if let existing = entry(messageID) {
-            if steer { try enqueueSteer(conversation: existing.conversation, messageID: messageID) }
+            if steer && !existing.conversation.hasPrefix(Outbox.draftPrefix) {
+                try enqueueSteer(conversation: existing.conversation, messageID: messageID)
+            }
             return existing
         }
         let entry = OutboxEntry(key: messageID, kind: .messageSubmit, order: journal.nextOrder,

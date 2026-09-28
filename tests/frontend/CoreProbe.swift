@@ -181,7 +181,7 @@ func project(_ turn: TurnTimeline) -> [String: Any] {
         "status_text": turn.statusText, "streaming": turn.isStreaming, "pending_approvals": turn.pendingApprovals.count,
         "steered_into": turn.steeredInto as Any? ?? NSNull(), "steer_delivered_in": turn.steerDeliveredIn as Any? ?? NSNull(),
         "steer_requested": turn.steerRequested, "steer_refusal": turn.steerRefusal?.reason as Any? ?? NSNull(),
-        "placed_steer": turn.isPlacedSteer,
+        "placed_steer": turn.isPlacedSteer, "unread_steer": turn.isUnreadSteer, "read_steer": turn.isReadSteer,
     ]
 }
 
@@ -189,12 +189,17 @@ func project(_ timeline: Timeline) -> [String: Any] {
     [
         "cursor": timeline.cursor, "resets": timeline.resets, "order": timeline.order,
         "items": timeline.items.map(project), "turns": Dictionary(uniqueKeysWithValues: timeline.order.compactMap { id in
-            timeline.turn(id).map { (id, project($0)) } }),
+            timeline.turn(id).map { turn in
+                var out = project(turn)
+                // What the status line shows: a steered message's words follow the turn it joins.
+                out["status_text"] = timeline.statusText(of: id) ?? turn.statusText
+                return (id, out)
+            } }),
         "history_before": timeline.historyBefore as Any? ?? NSNull(), "history_complete": timeline.historyComplete,
         "history_added": timeline.historyAddedByLastPage,
         "unknown_kinds": timeline.unknownKinds, "pending_cards": timeline.pendingApprovalCards.map(project),
         "live_message": timeline.liveMessageID as Any? ?? NSNull(),
-        "placed_steers": timeline.placedSteers.sorted(), "waiting": timeline.waitingMessageIDs,
+        "placed_steers": timeline.placedSteers.sorted(), "unread_steers": timeline.unreadSteers,
     ]
 }
 

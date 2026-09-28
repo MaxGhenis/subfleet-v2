@@ -220,6 +220,79 @@ def claude_result(ok: bool = True, subtype: str = "success") -> dict:
             "errors": [], "permission_denials": [], "duration_ms": 5}
 
 
+# --- steer (C-24.9), in the shapes DESIGN.md section 6 fixes ---------------------------
+#
+# Until the daemon serves `message.steer` and the `steering`/`steered` states, these
+# write what it will, through the real store: a message's state and reason and its
+# change row (the store's `set_state` does not know the new states yet), and the steer
+# events the driver puts on the host message's stream. Receipts, change rows and events
+# then come back through the real `_receipt`, `conversation.watch` and
+# `conversation.events` handlers.
+
+STEER_REFUSALS = ("not-queued", "not-next", "no-live-turn", "settings-narrower", "not-steerable")
+
+
+def record_state(harness: ServiceHarness, mid: str, state: str, reason: str | None = None,
+                 served: dict | None = None) -> None:
+    """What `set_state` records for a message moving to `state`: its row and its change row."""
+    with harness.store.transaction() as tx:
+        sets, params = "state=?, state_reason=?, updated_at=?", [state, reason, "2026-09-28T12:00:00.000Z"]
+        if served is not None:
+            sets += ", served_json=?"
+            params.append(json.dumps(served))
+        tx.execute(f"UPDATE messages SET {sets} WHERE message_id=?", (*params, mid))
+        row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (mid,)).fetchone()
+        harness.store._change(tx, row["conversation_id"], mid, state, reason=reason)
+
+
+def record_steer_event(turn: "Attempt", kind: str, steered: str, **data) -> None:
+    """A steer event on the host's stream (`steer.delivered` where the provider took it)."""
+    turn.store.append_events(conversation_id=turn.cid, message_id=turn.mid, attempt_id=turn.attempt_id,
+                             events=[("stdout", f"{kind}:{steered}", 0, kind, {"message_id": steered, **data})],
+                             stdout_offset=turn.offset, stdin_seq=turn.stdin_seq)
+
+
+def steered_into(reason: str | None) -> str | None:
+    for prefix in ("steer:", "steered:", "steered-unanswered:"):
+        if reason and reason.startswith(prefix):
+            return reason[len(prefix):].strip() or None
+    return None
+
+
+class RecordedSteer:
+    """`message.steer` as section 6 fixes it, answered from the real store until the
+    daemon serves it. A queued message becomes `steering` (`steer:<host>`) and the
+    answer is `_receipt`'s with `steered_into`; a repeat answers the same receipt; a
+    refusal code in `refuse` (one per call, in order) is answered instead and the
+    message stays queued. Install as `harness.service.op_message_steer`."""
+
+    def __init__(self, harness: ServiceHarness, host: str, refuse: list[str] | None = None):
+        self.harness, self.host, self.refuse = harness, host, list(refuse or [])
+        self.calls: list[str] = []
+
+    def receipt(self, mid: str) -> dict:
+        out = self.harness.service._receipt(self.harness.store.message(mid))
+        out["steered_into"] = steered_into(out["state_reason"])
+        return out
+
+    def __call__(self, args: dict, peer) -> dict:
+        from subfleet.conversations.store import ConversationError, canonical_uuid
+        mid = canonical_uuid(args["message_id"])
+        self.calls.append(mid)
+        if self.refuse:
+            reason = self.refuse.pop(0)
+            raise ConversationError(reason, f"the message stays queued ({reason})")
+        message = self.harness.store.find_message(mid)
+        if message is None:
+            raise ConversationError("unknown-message", "no such message")
+        if message["state"] in ("steering", "steered"):
+            return self.receipt(mid)
+        if message["state"] != "queued":
+            raise ConversationError("not-queued", f"the message is {message['state']}")
+        record_state(self.harness, mid, "steering", f"steer:{self.host}")
+        return self.receipt(mid)
+
+
 # --- a socket server around the service ---------------------------------------------
 
 

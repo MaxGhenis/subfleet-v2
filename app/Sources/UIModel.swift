@@ -28,6 +28,8 @@ final class UIModel: ObservableObject {
     @Published var changes: [ChangesScope: ChangesLoad] = [:]
     /// A finished turn's changed-file counts, for its status line.
     @Published var turnChanges: [String: DiffStats] = [:]
+    /// Words Esc took back from the running turn, per conversation, for its composer.
+    @Published var composerRecall: [String: ComposerRecall] = [:]
     private var turnChangesAsked: Set<String> = []
 
     let paths: AppPaths
@@ -435,7 +437,8 @@ final class UIModel: ObservableObject {
     }
 
     /// Steer a queued message into the running turn (C-24.9): journaled, then sent.
-    /// A refusal leaves it queued and its status line says why.
+    /// A refusal leaves it queued and its status line says why. The queue tray's
+    /// "Send now" (DESIGN.md sections 7 to 9) calls this.
     func steer(messageID: String, conversationID: String) {
         guard let engine else { return }
         state.requestSteer(conversationID: conversationID, messageID: messageID)
@@ -450,18 +453,33 @@ final class UIModel: ObservableObject {
         }
     }
 
-    /// Cancel a message still waiting: queued, steering, or being sent from here.
-    func cancel(messageID: String, conversationID: String, state messageState: String) {
-        guard let engine else { return }
+    /// Esc while a turn runs (DESIGN.md sections 8 and 9): the latest steer the
+    /// provider has not read comes back to the composer; with none, the turn stops.
+    /// Stop keeps unread steers and queued messages: they run next.
+    func escape(conversationID: String, assistant: String) {
+        guard let engine, let timeline = state.timelines[conversationID] else { return }
+        guard let unread = timeline.unreadSteers.last, let turn = timeline.turn(unread) else {
+            if let live = timeline.liveMessageID {
+                stop(stopAction(for: live, state: timeline.turn(live)?.state, outboxEntry: nil))
+            }
+            return
+        }
+        let (messageState, text) = (turn.state, turn.personText)
         Task {
             do {
-                let outcome = try await onOutbox { try engine.cancel(messageID: messageID, state: messageState) }
-                state.noteSteer(conversationID: conversationID, messageID: messageID, refusal: nil)
+                let outcome = try await onOutbox { try engine.recall(messageID: unread, state: messageState, text: text) }
                 switch outcome {
-                case .withdrawn(let receipt?), .receipt(let receipt?): state.apply(receipt: receipt)
-                case .withdrawn(nil): state.withdrawLocal(conversationID: conversationID, messageID: messageID)
-                case .receipt(nil): break
-                case .inFlight: problem = "That message is being sent; cancel it again in a moment."
+                case .recalled(let words, let staged, let receipt):
+                    state.noteSteer(conversationID: conversationID, messageID: unread, refusal: nil)
+                    if let receipt { state.apply(receipt: receipt) } else {
+                        state.withdrawLocal(conversationID: conversationID, messageID: unread)
+                    }
+                    composerRecall[conversationID] = ComposerRecall(text: words, staged: staged)
+                case .tooLate(let receipt):
+                    if let receipt { state.apply(receipt: receipt) }
+                    problem = "Too late to take it back: \(assistant) has read it."
+                case .inFlight:
+                    problem = "That message is still being sent; press Esc again in a moment."
                 }
             } catch {
                 report(error)
@@ -632,7 +650,7 @@ final class UIModel: ObservableObject {
             case .maskedValuesNeedReview: return "Reveal or confirm the masked values before allowing."
             case .widenNeedsConfirmation(let from, let to): return "Moving from \(from) to \(to) needs your confirmation."
             case .notOffered(let decision): return "\(decision) is not offered for this request."
-            case .steerTooLate: return "Too late to withdraw it: the running turn already has that message."
+            case .steerTooLate: return "Too late to withdraw it: the running turn has read that message."
             }
         }
         return "\(error)"
@@ -651,5 +669,11 @@ final class UIModel: ObservableObject {
         let request = UNNotificationRequest(identifier: intent.id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
+}
+/// Words (and images) taken back from the running turn, for the composer to show again.
+struct ComposerRecall: Equatable, Identifiable {
+    let id = UUID()
+    var text: String
+    var staged: [StagedAttachment]
 }
 #endif

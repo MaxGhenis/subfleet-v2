@@ -406,6 +406,20 @@ struct TimelineRow: View {
     }
 }
 
+/// Read by the provider: a double check, as a messaging app marks it.
+struct ReadMark: View {
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Image(systemName: "checkmark")
+            Image(systemName: "checkmark").offset(x: 4)
+        }
+        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+        .padding(.trailing, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Read")
+    }
+}
+
 struct PersonBubble: View {
     let text: String
     let footer: String?
@@ -429,43 +443,23 @@ struct TurnStatusLine: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            let running = turn.messageState.map { [.waiting, .starting, .running, .approvalNeeded].contains($0) } ?? false
-            // A steer still on its way: asked for, or handed over and not yet taken.
-            let steering = turn.steerDeliveredIn == nil
-                && (turn.messageState == .steering || (turn.steerRequested && turn.messageState != .steered))
-            if turn.messageState == .steering || turn.messageState == .steered || turn.steerRequested
-                || turn.stateReason?.hasPrefix("steer-missed:") == true {
-                Image(systemName: "arrow.turn.down.right").font(.caption).foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
+            let live = turn.messageState.map { [.waiting, .starting, .running, .approvalNeeded].contains($0) } ?? (turn.state == "sending")
+            if turn.isReadSteer {
+                ReadMark()
+            } else if live || turn.isUnreadSteer {
+                ProgressView().controlSize(.mini)
             }
-            if running || steering || turn.state == "sending" { ProgressView().controlSize(.mini) }
-            Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
+            // A steered message reads as Claude Code's does: unread, by what the turn is doing, then Read.
+            Text(model.state.timelines[conversation.conversation_id]?.statusText(
+                of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
+                .font(.caption).foregroundStyle(.secondary)
             if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
                 ServedChipView(chip: chip)
             }
-            if running {
+            if live && !turn.steerRequested {
                 Button("Stop") {
                     model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
                 }.buttonStyle(.link).font(.caption)
-            }
-            // C-24.9, design §1: a queued message can be steered into the running turn or
-            // withdrawn; a steer not yet taken, or a message still being sent, withdrawn.
-            if turn.messageState == .queued,
-               model.state.offersSteer(conversationID: conversation.conversation_id, messageID: turn.messageID) {
-                Button("Steer") { model.steer(messageID: turn.messageID, conversationID: conversation.conversation_id) }
-                    .buttonStyle(.link).font(.caption)
-                    .help("Add it to the running turn at its next step")
-                    .accessibilityLabel("Steer this message into the running turn")
-            }
-            if turn.messageState == .queued || turn.state == "sending"
-                || (turn.messageState == .steering && turn.steerDeliveredIn == nil) {
-                Button("Cancel") {
-                    model.cancel(messageID: turn.messageID, conversationID: conversation.conversation_id, state: turn.state)
-                }
-                .buttonStyle(.link).font(.caption)
-                .help(turn.messageState == .steering ? "Take it back before the running turn takes it"
-                      : "Withdraw this message; it will not run")
-                .accessibilityLabel(turn.messageState == .steering ? "Cancel this steer" : "Cancel this message")
             }
             if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
                 Button {

@@ -169,21 +169,24 @@ func steerPermits(_ permission: String?, into host: SteerHost) -> Bool {
     return mine.rank >= running.rank
 }
 
-/// Whether the composer steers (Return) and queues on Tab: a running turn takes
-/// steers, nothing waits ahead of a new message (the daemon steers only the head
-/// of the queue), and the conversation's permission is not narrower than the turn's.
+/// Whether the composer steers on Return (and queues for later on ⌘Return): a
+/// running turn takes steers and the conversation's permission is not narrower
+/// than the turn's. Messages queued for later do not change it: the steer lane
+/// and the queue are independent, as in Claude Code (DESIGN.md section 8); a
+/// daemon that still steers only the head of its queue answers `not-next`, and
+/// the message stays queued, its status line saying why.
 func composerSteerHost(conversation: Conversation, timeline: Timeline?, capabilities: Capabilities?) -> SteerHost? {
     guard let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities),
-          timeline?.waitingMessageIDs.isEmpty == true,
           steerPermits(conversation.settings.permission, into: host) else { return nil }
     return host
 }
 
-/// Whether a queued message's bubble offers Steer: the person's message at the
-/// head of the queue, not already being steered, that a running turn would take.
+/// Whether a queued message may be steered now ("Send now" on the queue tray,
+/// DESIGN.md sections 7 to 9): the person's message, not already being steered,
+/// that a running turn would take.
 func canSteer(messageID: String, conversation: Conversation, timeline: Timeline?, capabilities: Capabilities?) -> Bool {
     guard let timeline, let turn = timeline.turn(messageID), turn.messageState == .queued, !turn.steerRequested,
-          turn.origin == "person", timeline.waitingMessageIDs.first == messageID,
+          turn.origin == "person",
           let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities)
     else { return false }
     return steerPermits(turn.settings?.permission, into: host)
@@ -195,7 +198,14 @@ func steerSettingsHint(picked: ConversationSettings, host: SteerHost) -> String?
     guard let running = host.settings else { return nil }
     let differs = picked.model != running.model || picked.effort != running.effort || picked.fast != running.fast
         || picked.permission != running.permission
-    return differs ? "Steering uses the running turn's settings; Tab queues with yours" : nil
+    return differs ? "Steering uses the running turn's settings; ⌘⏎ queues with yours" : nil
+}
+
+/// Slash commands and `!` shell input are never steered: they wait for the turn
+/// to end, as in Claude Code (DESIGN.md section 9).
+func steerable(text: String) -> Bool {
+    guard let first = text.first(where: { !$0.isWhitespace }) else { return true }
+    return first != "/" && first != "!"
 }
 
 struct BlockedChoice: Equatable {
@@ -839,25 +849,44 @@ final class ConversationEngine {
         try sender.withdraw(messageID)
     }
 
-    enum CancelOutcome: Equatable {
-        /// Withdrawn before the daemon had it; the tombstone left when it may have been sent.
-        case withdrawn(Receipt?)
-        /// The daemon's answer.
-        case receipt(Receipt?)
+    enum RecallOutcome: Equatable {
+        /// Taken back before the provider read it: its words and images go back to
+        /// the composer. The receipt is the daemon's (`cancelled`), or the tombstone
+        /// or nothing for a message it never had.
+        case recalled(text: String, staged: [StagedAttachment], receipt: Receipt?)
+        /// The provider has it already (or it runs as a turn of its own): nothing changed.
+        case tooLate(Receipt?)
         /// A send is under way; ask again when it has an answer.
         case inFlight
     }
 
-    /// The person's Cancel on a message still waiting (queued, steering, or being
-    /// sent from here): withdrawn through the outbox while the daemon may not have
-    /// it (D-22), else `message.cancel` (C-24.7, C-24.9).
-    func cancel(messageID: String, state: String?) throws -> CancelOutcome {
-        let action = stopAction(for: messageID, state: state, outboxEntry: outbox.entry(messageID))
-        guard case .withdraw = action else { return .receipt(try stop(action)) }
-        switch try withdraw(messageID) {
-        case .withdrawn(let receipt): return .withdrawn(receipt)
-        case .inFlight: return .inFlight
-        case .inDaemon(let receipt): return .receipt(try stop(stopAction(for: messageID, state: receipt.state, outboxEntry: nil)))
+    /// Esc while a turn runs (DESIGN.md sections 8 and 9): take back an unread steer
+    /// so its words return to the composer. Withdrawn through the outbox while the
+    /// daemon may not have it (D-22), else `message.cancel`, which the daemon takes
+    /// only before the steer's frame is written. Never `turn.interrupt`: the running
+    /// turn is another message's. `text` is the words when this app did not send it.
+    func recall(messageID: String, state: String?, text: String?) throws -> RecallOutcome {
+        let entry = outbox.entry(messageID)
+        let words = entry?.message?.text ?? text ?? ""
+        let staged = entry?.message?.staged ?? []
+        switch stopAction(for: messageID, state: state, outboxEntry: entry) {
+        case .withdraw:
+            switch try withdraw(messageID) {
+            case .withdrawn(let receipt): return .recalled(text: words, staged: staged, receipt: receipt)
+            case .inFlight: return .inFlight
+            case .inDaemon(let receipt): return try recall(messageID: messageID, state: receipt.state, text: text)
+            }
+        case .cancel(let id), .cancelSteer(let id):
+            try outbox.withdrawSteer(id)
+            do {
+                let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: id, conversation_id: nil))
+                return receipt.messageState == .cancelled ? .recalled(text: words, staged: staged, receipt: receipt)
+                    : .tooLate(receipt)
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
+                return .tooLate(nil)
+            }
+        case .interrupt, .none:
+            return .tooLate(nil)
         }
     }
 

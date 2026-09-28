@@ -2,7 +2,10 @@
 // a newline, pasted or dropped images are staged for `attachment.add`, and the
 // field stays editable while a turn runs: a message sent then queues behind it.
 // While the running turn takes steers (C-24.9, `steer.v1` for this provider),
-// Return steers the text into it and Tab queues it instead, as the Codex CLI does.
+// Return steers the text into it and ⌘Return queues it for later, as Claude Code
+// does (DESIGN.md sections 8 and 9); `/` commands and `!` shell input still wait
+// for the turn to end. Esc while a turn runs takes back the latest unread steer,
+// or else stops the turn.
 
 #if !SUBFLEET_MODEL_TEST
 import AppKit
@@ -11,21 +14,27 @@ import UniformTypeIdentifiers
 
 final class ComposerNSTextView: NSTextView {
     var onSubmit: () -> Void = {}
-    /// Set only while the composer steers: Tab queues the text instead.
+    /// Set only while the composer steers: ⌘Return queues the text for later.
     var onQueue: (() -> Void)?
+    /// Set only while a turn runs: Esc takes back an unread steer, or stops the turn.
+    var onEscape: (() -> Void)?
     var onImage: (Data) -> Void = { _ in }
 
     override func keyDown(with event: NSEvent) {
         let isReturn = event.keyCode == 36 || event.keyCode == 76
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if isReturn && !modifiers.contains(.shift) && !modifiers.contains(.option) && !hasMarkedText() {
-            onSubmit()
+            if modifiers.contains(.command), let onQueue {
+                onQueue()
+            } else {
+                onSubmit()
+            }
             return
         }
-        // Tab is taken only while a turn takes steers and there is text; otherwise it types a tab.
-        if event.keyCode == 48, modifiers.isDisjoint(with: [.shift, .option, .command, .control]), !hasMarkedText(),
-           let onQueue, !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            onQueue()
+        // Esc belongs to IME composition first (it cancels it), then to the running turn.
+        if event.keyCode == 53, modifiers.isDisjoint(with: [.shift, .option, .command, .control]), !hasMarkedText(),
+           let onEscape {
+            onEscape()
             return
         }
         super.keyDown(with: event)
@@ -73,6 +82,7 @@ struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     var onSubmit: () -> Void
     var onQueue: (() -> Void)? = nil
+    var onEscape: (() -> Void)? = nil
     var onImage: (Data) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -100,6 +110,7 @@ struct ComposerTextView: NSViewRepresentable {
         guard let textView = scroll.documentView as? ComposerNSTextView else { return }
         textView.onSubmit = onSubmit
         textView.onQueue = onQueue
+        textView.onEscape = onEscape
         textView.onImage = onImage
         if textView.string != text { textView.string = text }
     }
@@ -132,7 +143,7 @@ struct ComposerView: View {
         let options = model.state.composerOptions(for: conversation.conversation_id, settings: current)
         let timeline = model.state.timelines[conversation.conversation_id]
         let live = timeline?.liveMessageID
-        // C-24.9: while this is set, Return steers into that turn and Tab queues.
+        // C-24.9: while this is set, Return steers into that turn and ⌘Return queues for later.
         let steerHost = model.state.steerHost(forComposerOf: conversation.conversation_id)
         let empty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && staged.isEmpty
         VStack(alignment: .leading, spacing: 6) {
@@ -153,11 +164,15 @@ struct ComposerView: View {
             }
             ZStack(alignment: .topLeading) {
                 ComposerTextView(text: $text, onSubmit: { submit() },
-                                 onQueue: steerHost == nil ? nil : { submit(queue: true) }, onImage: addImage)
+                                 onQueue: steerHost == nil ? nil : { submit(queue: true) },
+                                 onEscape: live == nil ? nil : {
+                                     model.escape(conversationID: conversation.conversation_id, assistant: assistant)
+                                 },
+                                 onImage: addImage)
                     .frame(height: composerHeight)
                 if text.isEmpty {
-                    Text(steerHost != nil ? "Steer the running turn · Tab to queue"
-                         : live == nil ? "Message \(conversation.provider == "codex" ? "Codex" : "Claude")"
+                    Text(steerHost != nil ? "Steer the running turn · ⌘⏎ queues for later"
+                         : live == nil ? "Message \(assistant)"
                          : "Queue a follow-up while this turn runs")
                         .foregroundStyle(.tertiary).padding(.leading, 9).padding(.top, 6).allowsHitTesting(false)
                 }
@@ -215,23 +230,35 @@ struct ComposerView: View {
                 }
                 Spacer()
                 if let live, let timeline {
-                    Button {
-                        let entry: OutboxEntry? = nil
-                        model.stop(stopAction(for: live, state: timeline.turn(live)?.state, outboxEntry: entry))
-                    } label: { Label("Stop", systemImage: "stop.circle") }
-                        .help("Stop the running turn")
-                }
-                if steerHost != nil {
-                    Button { submit(queue: true) } label: { Label("Queue", systemImage: "text.append") }
-                        .help("Queue it as the next turn, with your settings (Tab)")
-                        .accessibilityLabel("Queue as the next turn")
-                        .disabled(empty)
-                    Button { submit() } label: { Label("Steer", systemImage: "arrow.turn.down.right") }
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .help("Add it to the running turn at its next step (Return)")
+                    if steerHost != nil {
+                        // Claude Code's send button while a turn runs: Steer, with Queue for later and Stop.
+                        Menu {
+                            Button("Queue for later") { submit(queue: true) }
+                                .keyboardShortcut(.return, modifiers: .command)
+                                .disabled(empty)
+                                .help("Queue for later ⌘⏎")
+                                .accessibilityLabel("Queue for later")
+                            Button("Stop") {
+                                model.stop(stopAction(for: live, state: timeline.turn(live)?.state, outboxEntry: nil))
+                            }
+                            .accessibilityLabel("Stop the running turn")
+                        } label: {
+                            Label("Steer", systemImage: "arrow.up.circle.fill")
+                        } primaryAction: {
+                            submit()
+                        }
+                        .fixedSize()
+                        .help("Send ⏎")
                         .accessibilityLabel("Steer the running turn")
-                        .disabled(empty)
-                } else {
+                        .accessibilityHint("Its menu queues the message for later or stops the turn")
+                    } else {
+                        Button {
+                            model.stop(stopAction(for: live, state: timeline.turn(live)?.state, outboxEntry: nil))
+                        } label: { Label("Stop", systemImage: "stop.circle") }
+                            .help("Stop the running turn")
+                    }
+                }
+                if steerHost == nil {
                     Button { submit() } label: { Label("Send", systemImage: "arrow.up.circle.fill") }
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(empty)
@@ -243,6 +270,7 @@ struct ComposerView: View {
         .onAppear(perform: loadDraft)
         .onChange(of: conversation.conversation_id) { _, _ in loadDraft() }
         .onChange(of: text) { _, _ in saveDraft() }
+        .onChange(of: model.composerRecall[conversation.conversation_id]?.id) { _, _ in takeRecall() }
         .alert("Give this conversation more permission?", isPresented: Binding(get: { widenTo != nil },
                                                                                set: { if !$0 { widenTo = nil } })) {
             Button("Allow \(PermissionPolicy(rawValue: widenTo ?? "")?.label ?? "")", role: .destructive) {
@@ -269,18 +297,32 @@ struct ComposerView: View {
         return outgoing
     }
 
+    private var assistant: String { conversation.provider == "codex" ? "Codex" : "Claude" }
+
     /// Send the text: steered into the running turn when the composer steers and
-    /// `queue` is false, else queued as the next turn (C-24.9). A steer the turn
-    /// can no longer take is refused, and the message stays queued.
+    /// `queue` is false, else queued for later, as the next turn (C-24.9). A slash
+    /// command or `!` shell input is never steered. A steer the turn can no longer
+    /// take is refused, and the message stays queued.
     private func submit(queue: Bool = false) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !staged.isEmpty else { return }
-        let steer = !queue && model.state.steerHost(forComposerOf: conversation.conversation_id) != nil
+        let steer = !queue && steerable(text: trimmed)
+            && model.state.steerHost(forComposerOf: conversation.conversation_id) != nil
         model.send(conversationID: conversation.conversation_id, text: trimmed, staged: staged,
                    settings: outgoing(settings ?? conversation.settings), steer: steer)
         text = ""
         staged = []
         model.drafts.delete(conversation.conversation_id)
+    }
+
+    /// Esc took an unread steer back: its words go into the composer ahead of
+    /// anything typed since, and its images are staged again.
+    private func takeRecall() {
+        let key = conversation.conversation_id
+        guard let recall = model.composerRecall[key] else { return }
+        model.composerRecall[key] = nil
+        text = text.isEmpty ? recall.text : recall.text + "\n\n" + text
+        for image in recall.staged where !staged.contains(image) { staged.append(image) }
     }
 
     private func addImage(_ data: Data) {
