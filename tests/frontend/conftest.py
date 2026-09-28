@@ -70,7 +70,8 @@ def state_root(request, prefix: str):
     that uses this directly). Pytest never raises a test's failure into its
     fixtures, so a fixture learns of one only from the call's report
     (`pytest_runtest_makereport` above): a flag set after its `yield` is set
-    whether the test passed or failed. A root that cannot be copied stays where it is.
+    whether the test passed or failed. A skip or xfail raised inside the block is
+    not a failure. A root that cannot be copied stays where it is.
     """
     root = Path(tempfile.mkdtemp(prefix=prefix, dir="/tmp"))
     failed = True
@@ -78,6 +79,9 @@ def state_root(request, prefix: str):
         yield root
         report = getattr(request.node, "rep_call", None)
         failed = report is not None and report.failed
+    except (pytest.skip.Exception, pytest.xfail.Exception):
+        failed = False
+        raise
     finally:
         if failed:
             keep = FAILED / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
