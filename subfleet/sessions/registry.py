@@ -304,7 +304,8 @@ def listing(directory: Path | None = None) -> Listing | None:
     found, unreadable = [], []
     for path in paths:
         row = _row(path)
-        named = int(path.stem) if path.stem.isdigit() else None
+        # ASCII digits only: `"²".isdigit()` is true and `int("²")` raises (review of PR #72).
+        named = int(path.stem) if path.stem.isascii() and path.stem.isdigit() else None
         if row is not None and (named is None or row.pid == named):
             found.append(row)
         elif named is not None:

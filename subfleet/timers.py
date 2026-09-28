@@ -34,13 +34,7 @@ def iso(value):
 
 
 
-#: C-18.1, C-23.44: probe verdicts that take a lane out until its credential is
-#: re-enrolled or its epoch changes; one found by a read beside running attempts
-#: fences the lane (`lane:<id>:slot:fence`) until the cycle publishes it.
-#: `expired-token` is not among them: on a busy lane the running attempts renew the
-#: token themselves, so a read beside them publishes nothing for it (review of PR
-#: #72: publishing it latched a working lane until it drained).
-DEAD_CREDENTIAL = frozenset({'auth-dead', 'revoked', 'auth-revoked', 'no-auth'})
+
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
@@ -346,8 +340,8 @@ class Timers:
         2026-09-27): with no per-lane cap (C-6.4) a lane is seldom idle, and a
         lane never read keeps no fresh reading for the floor and the ranking
         (C-11.3). That read costs no model turn and takes no slot: its holder
-        (`probe:timer:usage:`) holds no lease unless the read finds the
-        credential dead, and `_probe_lane` spends no heal turn under it."""
+        (`probe:timer:usage:`) holds no lease, `_read_lane` spends no heal turn
+        under it, and `_probe_lane` publishes it the moment it is read."""
         holder = 'probe:timer:' + str(uuid4())
         with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
             current = self.store.get_lane(lane.lane_id)
@@ -413,6 +407,30 @@ class Timers:
         return values[0]
 
     def _probe_lane(self, lane):
+        """One lane's probe for the cycle: (lane, result) to publish with the cycle,
+        or None.
+
+        A read beside running attempts (C-18.1) is published here, the moment it is
+        read, not with the cycle (2026-09-28): it holds no slot, so a verdict that
+        takes the lane out (auth-dead, an identity mismatch) must not wait for
+        other lanes' reads while admission can still place work there (review of
+        PR #72: a fence held until the cycle published could be lost to a
+        contended key, a publication error, or an admission probe). A publication
+        that fails leaves the lane as it was before the read, which is where a
+        busy lane stood before busy lanes were read. Its `expired-token` is not
+        published at all: the running attempts renew the token.
+        """
+        found = self._read_lane(lane)
+        if found is None:
+            return None
+        lane, probe, shared = found
+        if not shared:
+            return lane, probe
+        if probe.get('status') != 'expired-token':
+            self._persist(lane, probe)
+        return None
+
+    def _read_lane(self, lane):
         if self.cancel.is_set() or lane.lane_id in self._io_busy:
             return None
         previous = self.metadata.get(lane.lane_id, {})
@@ -476,23 +494,11 @@ class Timers:
                             probe = self._read_probe(adapter, lane, env)
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
-            if shared and probe.get('status') == 'expired-token':
-                return None                 # C-18.1: its attempts renew it; nothing to publish
-            if shared and probe.get('status') in DEAD_CREDENTIAL:
-                # C-23.44: a verdict that takes the lane out is published before
-                # admission may place work there again. The fence is a key of its
-                # own, never contended: `slot:0` may be an admission probe's
-                # (review of PR #72). Admission reads any `probe:` lease on a lane
-                # as a slot block; the cycle releases it with every holder, after
-                # publication.
-                # Held already, it is another probe holder's, which blocks the lane
-                # just as well; `_io_busy` keeps two reads of one lane apart.
-                self.store.acquire_lease(f'lane:{lane.lane_id}:slot:fence', holder)
-            return lane, {**probe, 'probed_at': iso(self.now())}
+            return lane, {**probe, 'probed_at': iso(self.now())}, shared
         except (TimeoutError, OSError) as exc:
-            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
+            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, shared
         except Exception as exc:
-            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
+            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, shared
         finally:
             self._probe_holders[lane.lane_id] = (holder, quarantined)
 

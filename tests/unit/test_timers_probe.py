@@ -195,34 +195,42 @@ def test_a_busy_lane_is_read_beside_its_attempts_without_a_slot(rig, busy):
     assert reservation["purpose"] == "usage" and reservation["holder"].startswith("probe:timer:usage:")
 
 
-@pytest.mark.parametrize("probe_on_slot0", [False, True])
-@pytest.mark.parametrize("status", ["auth-dead", "revoked", "no-auth"])
-def test_a_busy_lane_found_dead_is_fenced_until_its_verdict_is_published(rig, status, probe_on_slot0):
-    """C-23.44: a verdict that takes a lane out is published before admission may
-    place work there again. A busy lane's read fences it with a key of its own,
-    `slot:fence`, since an admission probe may hold `slot:0` (review of PR #72:
-    fencing on `slot:0` failed then and the lane took work before publication);
-    and it spends no heal turn under its attempts."""
+@pytest.mark.parametrize("verdict", ["auth-dead", "identity-mismatch"])
+def test_a_busy_lanes_verdict_is_published_when_read_not_with_the_cycle(rig, verdict):
+    """C-23.44, C-18.1: a busy lane's read holds no slot, so a verdict that takes the
+    lane out is published the moment it is read, while another lane's read is still
+    running (review of PR #72: held until the cycle published, a fence could be lost
+    to a contended key, a publication error or an admission probe, and an identity
+    mismatch was not fenced at all). No lease is taken, and no heal turn is spent."""
+    import threading
     timer, store, _, adapter, enroll = rig
-    lane = enroll()
-    occupy(timer, store, lane, "lease")
-    if probe_on_slot0:
-        store.acquire_lease(f"lane:{lane.lane_id}:slot:0", "probe:admission-fixture")
-    adapter.responses[lane.lane_id] = [{"status": status, "readings": ()}]
+    busy, slow = enroll("codex-1"), enroll("codex-2")
+    occupy(timer, store, busy, "lease")
+    if verdict == "auth-dead":
+        adapter.responses[busy.lane_id] = [{"status": "auth-dead", "readings": ()}]
+    else:
+        adapter.responses[busy.lane_id] = [{"status": "ok", "readings": (), "account_key": "codex:someone-else"}]
+    release, published = threading.Event(), []
+    original = adapter.probe_status
+
+    def probe_status(lane, env):
+        if lane.lane_id == slow.lane_id:
+            # Admission would look now: the busy lane is already out.
+            published.append(store.get_lane(busy.lane_id).enabled)
+            assert release.wait(5)
+        return original(lane, env)
+    adapter.probe_status = probe_status
     turns = []
     timer.turn = lambda *args, **kwargs: turns.append(args)
-    fenced = []
-    original = timer._persist
-
-    def persist(lane, result):
-        fenced.append(store.one("SELECT holder FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:fence",)))
-        original(lane, result)
-    timer._persist = persist
-    timer.probe_cycle()
-    assert fenced and fenced[0]["holder"].startswith("probe:timer:usage:")
-    assert not store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:fence",))
-    assert bool(store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"lane:{lane.lane_id}:slot:0",))) is probe_on_slot0
-    assert turns == []
+    worker = threading.Thread(target=timer.probe_cycle)
+    worker.start()
+    deadline = time.monotonic() + 5
+    while store.get_lane(busy.lane_id).enabled and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert not store.get_lane(busy.lane_id).enabled            # published before the slow lane finished
+    release.set()
+    worker.join(10)
+    assert turns == [] and {row["lease_key"] for row in store.list_leases()} == {f"lane:{busy.lane_id}:slot:1"}
 
 
 def test_a_busy_lane_with_an_expired_token_publishes_nothing(rig):

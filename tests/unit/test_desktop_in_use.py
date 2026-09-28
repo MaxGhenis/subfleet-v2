@@ -165,3 +165,14 @@ def test_a_row_whose_pid_is_not_its_files_is_unknown(tmp_path, pid):
     assert found.rows == () and found.unreadable == (os.getpid(),)
     assert registry.desktop_login_in_use(found.rows, now_ms=NOW_MS, recent_s=1800,
                                          unreadable=len(found.unreadable))[0]
+
+
+def test_a_file_named_by_a_non_ascii_digit_is_not_a_pid(tmp_path):
+    """Review of PR #72: `"²".isdigit()` is true and `int("²")` raises, which stopped
+    every detached admission pass. Such a file names no pid."""
+    directory = tmp_path / "sessions"
+    directory.mkdir()
+    (directory / "².json").write_text("{not json")
+    (directory / "١٢.json").write_text(json.dumps({"pid": 12, "sessionId": "x"}))
+    found = registry.listing(directory)
+    assert found.unreadable == () and [row.session_id for row in found.rows] == ["x"]

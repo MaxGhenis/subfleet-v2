@@ -11,6 +11,8 @@ import threading
 
 import pytest
 
+from tests.caps import capped
+
 
 def test_c6_2_request_id_is_idempotent_and_digest_conflicts_are_code_2(daemon):
     """C-6.2 equal request digests reuse a job; different digests return code 2."""

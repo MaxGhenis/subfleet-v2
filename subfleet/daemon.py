@@ -3137,6 +3137,11 @@ class Daemon:
                 # reserves on; the job is not evaluated a second time before it.
                 self._early_routes[job["job_id"]] = (decision, basis)
                 return approved, desktop
+            # C-10.3: refreshed off the lock, and read inside it as `_route_rows`
+            # reads it, so a probe never runs a turn on the desktop login that
+            # Claude Code began using after the evaluation (review of PR #72).
+            # Before the directory exists, so a store error here leaves none behind.
+            self._desktop_in_use()
             token = os.urandom(12).hex()
             holder = f"probe:{token}"
             directory = self.root / "lanes" / decision.chosen_lane / "probes" / token
@@ -3146,16 +3151,17 @@ class Daemon:
                       "directory": str(directory), "state": "reserved", "created_at": utcnow(),
                       "deadline_at": after(60), "owned_identities": {}}
             reserved = False
-            # C-10.3: refreshed off the lock, and read inside it as `_route_rows`
-            # reads it, so a probe never runs a turn on the desktop login that
-            # Claude Code began using after the evaluation (review of PR #72).
-            self._desktop_in_use()
             try:
                 with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
                     # Selection precedes this transaction. Ownership transfer and
                     # probe admission must serialize on the same current lane row.
                     lane = self.store.get_lane(decision.chosen_lane)
                     if not lane or lane.owner != "v2" or not lane.enabled:
+                        return None, desktop
+                    # C-23.44, C-23.47: a credential a timer's read found revoked or
+                    # unusable since the evaluation is not probed (review of PR #72).
+                    row = self.store.one("SELECT * FROM lanes WHERE lane_id=?", (decision.chosen_lane,))
+                    if row and capacity.credential_latched(self.timers.merge_lane(dict(row))):
                         return None, desktop
                     is_desktop = lane.desktop
                     if lane.provider == "claude" and desktop.decisive:

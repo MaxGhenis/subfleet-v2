@@ -289,3 +289,25 @@ def test_c10_3_c11_4_a_probe_never_starts_on_a_desktop_login_that_became_busy(st
     daemon._admit()
     assert probes == [] and daemon.store.list_attempts(job) == []
     assert not daemon.store.one("SELECT 1 FROM leases WHERE lease_key='lane:claude-4:slot:0'")
+
+
+def test_c23_44_a_probe_never_starts_on_a_credential_found_revoked_after_the_evaluation(state_daemon,
+                                                                                      monkeypatch):
+    """Review of PR #72's plan: a timer's read that latches a lane's credential after
+    the evaluation did not stop an admission probe from starting a model turn on it.
+    The probe reservation reads the latch inside its transaction."""
+    daemon, harness = state_daemon
+    probes = []
+    monkeypatch.setattr(daemon, "_execute_probe", lambda job, lane, model, holder: probes.append(lane.lane_id)
+                        or Outcome(OutcomeClass.OK, "admitted", {"rc": 0, "signal": None}))
+    route = daemon._route
+
+    def then_revoked(job, **options):
+        decision = route(job, **options)
+        daemon.timers.metadata["codex-1"] = {"probe_status": "revoked", "verdict": "auth-revoked"}
+        return decision
+    monkeypatch.setattr(daemon, "_route", then_revoked)
+    job = submit(daemon, harness, "hard", pinned_model="astra", tier="hard")
+    daemon._admit()
+    assert probes == [] and daemon.store.list_attempts(job) == []
+    assert not daemon.store.one("SELECT 1 FROM leases WHERE lease_key='lane:codex-1:slot:0'")
