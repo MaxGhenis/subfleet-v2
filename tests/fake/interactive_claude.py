@@ -175,6 +175,13 @@ class Fake:
             except ValueError:
                 continue
             request = row.get("request") or {}
+            if row.get("type") == "control_request" and request.get("subtype") == "get_settings":
+                # Answered at once, mid-turn too, as 2.1.280 does (C-26.8; observed
+                # 2026-09-28: 77 ms after the message, before the turn's `system init`).
+                self.emit({"type": "control_response", "response": {
+                    "subtype": "success", "request_id": row.get("request_id"),
+                    "response": {"applied": self.applied(), "effective": {}, "sources": {}}}})
+                continue
             if row.get("type") == "control_request" and request.get("subtype") == "interrupt":
                 self.emit({"type": "control_response", "response": {
                     "subtype": "success", "request_id": row.get("request_id"), "response": {}}})
@@ -182,6 +189,21 @@ class Fake:
                 continue
             self.inbox.put(row)
         self.inbox.put(None)
+
+    def applied(self) -> dict:
+        """`get_settings`'s `applied`, from the launch flags: ultracode is on where the
+        settings ask for it at xhigh (or `--effort ultracode`); Haiku applies no effort."""
+        model = served_model(flag(self.argv, "--model"))
+        effort = flag(self.argv, "--effort")
+        try:
+            settings = json.loads(flag(self.argv, "--settings") or "{}")
+        except ValueError:
+            settings = {}
+        ultracode = effort == "ultracode" or (effort == "xhigh" and settings.get("ultracode") is True)
+        if "haiku" in model:
+            effort, ultracode = None, False
+        return {"model": model, "effort": "xhigh" if effort == "ultracode" else effort, "advisor": None,
+                "ultracode": ultracode}
 
     def hook(self, event: str, **fields) -> None:
         """Run the configured command hook for `event`, if there is one."""

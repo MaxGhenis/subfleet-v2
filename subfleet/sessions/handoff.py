@@ -46,9 +46,9 @@ import subprocess
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from ..contracts import Sandbox
+from ..contracts import SCRUB_MAX_CHARS, Sandbox
 from ..protocol import SubmitArgs
 from . import registry, transcripts
 
@@ -62,6 +62,11 @@ MAX_JSON_LINE_CHARS = 4 * 1024 * 1024
 FULL_SCAN_BYTES = 64 * 1024 * 1024
 LAST_SCAN_BYTES = 2 * 1024 * 1024
 PROGRESS_READ_BYTES = 128 * 1024
+# Bound the rules' work (C-23.14). In a longer text only the blocks that can span
+# lines (reminders, private keys, data URIs) are resolved whole, in linear scans;
+# every other rule runs on a head and a tail excerpt of at most EXCERPT_CHARS.
+MAX_SCRUB_CHARS = SCRUB_MAX_CHARS
+EXCERPT_CHARS = MAX_SCRUB_CHARS // 2
 
 # --- the scrub list (C-23.14) -------------------------------------------------
 
@@ -70,6 +75,8 @@ _PEM_RE = re.compile(
     r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----",
     re.DOTALL,
 )
+_PEM_START_RE = re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----")
+_PEM_END_RE = re.compile(r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----")
 _JWT_RE = re.compile(
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\."
     r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
@@ -92,32 +99,35 @@ _LONG_BASE64_RE = re.compile(
     r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{160,}={0,2})(?![A-Za-z0-9+/])"
 )
 _URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)")
-_HEADER_RE = re.compile(r"(?im)^(\s*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
-_SENSITIVE_KEY = (
-    r"(?:(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
+_URL_SCHEME_RE = re.compile(r"[a-z0-9+.-]+", re.IGNORECASE)
+_URL_START_RE = re.compile(r"\b[a-z]", re.IGNORECASE)
+_HEADER_RE = re.compile(r"(?im)^([^\S\n]*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
+_SENSITIVE_WORD = (
+    r"(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
     r"credential|credentials|private[_-]?key|signing[_-]?key|"
     r"secret[_-]?access[_-]?key|access[_-]?key[_-]?id|access[_-]?token|"
-    r"refresh[_-]?token|client[_-]?secret|oauth[_-]?token|auth[_-]?token)|"
+    r"refresh[_-]?token|client[_-]?secret|oauth[_-]?token|auth[_-]?token)"
+)
+_SENSITIVE_KEY = (
+    rf"(?:{_SENSITIVE_WORD}|"
     r"(?:[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*)[_-](?:api[_-]?key|token|secret|"
     r"password|passwd|private[_-]?key|signing[_-]?key))"
 )
-_QUOTED_ASSIGN_RE = re.compile(
-    rf"(?im)(?P<prefix>[\"']?{_SENSITIVE_KEY}[\"']?\s*[:=]\s*)"
-    # An escaped quote inside the value is part of it (`"abc\\"def"`).
-    r"(?P<quote>[\"'])(?P<value>(?:\\.|[^\\\r\n])*?)(?P=quote)"
-)
-#: A credential given as a command-line flag's separate argument
-#: (`mysql --password hunter2`, `--token s3cr3t`); `--flag=value` is an assignment.
-_FLAG_VALUE_RE = re.compile(
-    rf"(?i)(?P<prefix>--{_SENSITIVE_KEY}[ \t]+)(?P<value>[^\s-][^\s]*)"
-)
-_PLAIN_ASSIGN_RE = re.compile(
-    rf"(?im)(?P<prefix>[\"']?{_SENSITIVE_KEY}[\"']?\s*[:=]\s*)"
-    r"(?P<value>[^\s,;\"']+)"
-)
+# Consume each identifier once, including ordinary long names such as a_a_a_.
+# Searching the old optional-prefix expression from every character retried all
+# suffixes of such names. The longest sensitive word is only 17 characters.
+_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9_-]+", re.IGNORECASE)
+_SENSITIVE_SUFFIX_RE = re.compile(_SENSITIVE_WORD + r"\Z", re.IGNORECASE)
+_SENSITIVE_FLAG_RE = re.compile(_SENSITIVE_KEY, re.IGNORECASE)
+_ASSIGN_SEPARATOR_RE = re.compile(r"[\"']?\s*[:=]\s*")
+_PLAIN_VALUE_RE = re.compile(r"[^\s,;\"']+")
+_FLAG_VALUE_RE = re.compile(r"[ \t]+(?P<value>[^\s-][^\s]*)")
+_QUOTE_EVENT_RE = re.compile(r"\\[^\n]|[\"'\r\n]")
 _SYSTEM_REMINDER_RE = re.compile(
     r"<system-reminder>.*?</system-reminder>", re.DOTALL | re.IGNORECASE
 )
+_REMINDER_START_RE = re.compile(r"<system-reminder>", re.IGNORECASE)
+_REMINDER_END_RE = re.compile(r"</system-reminder>", re.IGNORECASE)
 
 #: Tool calls whose RESULT is omitted by pattern rather than redacted (C-23.14).
 #: Suppression beats redaction here because the value a keychain read returns has
@@ -128,26 +138,60 @@ _SYSTEM_REMINDER_RE = re.compile(
 #: on the SECOND line of a Bash command sat behind neither `^` (the rendering
 #: starts with `{`) nor a `;&|` separator, and escaped suppression entirely.
 #: A multi-line script that dumps the environment is not an exotic input.
+_TOOL_FLAGS = re.IGNORECASE | re.DOTALL | re.MULTILINE
+#: `env` itself, bare or by path, where a command word ends.
+_ENV_COMMAND = r"(?:[\w.~-]*/)*env(?=[\s;&|)\"'`]|$)"
 _SENSITIVE_TOOL_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE | re.DOTALL | re.MULTILINE)
+    re.compile(pattern, _TOOL_FLAGS)
     for pattern in (
         r"\bagent-secret\s+(?:get|show)\b",
         r"\bsecurity\s+(?:dump-keychain|find-generic-password|find-internet-password)\b",
         # `printenv` does nothing but print the environment: any mention of the
         # command, bare or by path (`/usr/bin/printenv`), inside an executor's
         # input (`tools.exec_command({cmd: "printenv"})`) or a wrapper's.
-        r"(?<![\w.-])(?:[\w.~-]*/)*printenv(?![\w.-])",
+        # A slash already supplies the basename's left boundary. Matching the
+        # optional path here would retry every suffix of a long ordinary path.
+        r"(?<![\w.-])printenv(?![\w.-])",
         # `env` is also a word, so only where a command starts: a line, after a
-        # separator or backquote, after a wrapper (`sudo -E`, `nice`, `xargs`),
-        # inside `sh -c '...'`, or as a `command`/`cmd` value; bare or by path.
-        r"(?:^[ \t]*|[;&|(`]\s*|\b(?:sudo|doas|nice|nohup|time|command|exec|xargs)\s+(?:-\S+\s+)*"
+        # separator or backquote, after a wrapper (`sudo -E`, `nice`, `xargs`:
+        # `_env_after_wrapper`), inside `sh -c '...'`, or as a `command`/`cmd`
+        # value; bare or by path.
+        r"(?:^[ \t]*|[;&|(`]\s*"
         r"|[\"'`](?:command|cmd)[\"'`]?\s*:\s*[\"'`]|\bcmd\s*:\s*[\"'`]|\s-l?c\s+[\"'])"
-        r"(?:[\w.~-]*/)*env(?=[\s;&|)\"'`]|$)",
+        + _ENV_COMMAND,
         # A `.env` file, also when a separator follows it (`cat .env; true`).
         r"(?:auth\.json|credentials(?:\.json)?|(?:^|[/\s\"'`=<(])\.env"
         r"(?:\.[A-Za-z0-9_-]+)?(?=[\s\"'`;&|)<>]|$))",
     )
 )
+_ENV_WRAPPER_RE = re.compile(r"\b(?:sudo|doas|nice|nohup|time|command|exec|xargs)\s+", _TOOL_FLAGS)
+_ENV_COMMAND_RE = re.compile(_ENV_COMMAND, _TOOL_FLAGS)
+_FLAG_ARG_RE = re.compile(r"-\S+\s+", _TOOL_FLAGS)
+
+
+def _env_after_wrapper(corpus: str) -> bool:
+    """`env` after a wrapper and its flags (`sudo -E -H env`), in one pass.
+
+    This is what `\\b(?:sudo|…)\\s+(?:-\\S+\\s+)*` followed by `_ENV_COMMAND`
+    matched as one pattern, which searched a run of flags again from every
+    wrapper word inside it (`-time -time …`), quadratic in the run. A run is
+    walked once, by the first wrapper before it: a wrapper word within the run
+    would walk the rest of the same run to the same end.
+    """
+    cursor = 0
+    for wrapper in _ENV_WRAPPER_RE.finditer(corpus):
+        if wrapper.start() < cursor:
+            continue
+        at = wrapper.end()
+        while not _ENV_COMMAND_RE.match(corpus, at):
+            flag = _FLAG_ARG_RE.match(corpus, at)
+            if flag is None:
+                break
+            at = flag.end()
+        else:
+            return True
+        cursor = at
+    return False
 
 
 class HandoffError(ValueError):
@@ -171,7 +215,14 @@ class HandoffError(ValueError):
 _PLACEHOLDERS = (REDACTED, "[PRIVATE KEY REDACTED]", "[BASE64 DATA OMITTED]", "[BASE64 OMITTED]")
 #: A run that looks like a secret value rather than a word or a key name: six or
 #: more of `[A-Za-z0-9_-]`, with a letter and a digit.
-_VALUE_RUN_RE = re.compile(r"(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{6,}")
+_VALUE_RUN_RE = re.compile(r"[\w-]{6,}")
+
+
+def _value_runs(text: str) -> set[str]:
+    # The old unanchored lookaheads also retried every suffix of ordinary names.
+    return {run for run in _VALUE_RUN_RE.findall(text)
+            if any(ch.isdecimal() for ch in run)
+            and any("a" <= ch <= "z" or "A" <= ch <= "Z" for ch in run)}
 
 
 def _values_removed(matched: str, out: str) -> int:
@@ -179,51 +230,329 @@ def _values_removed(matched: str, out: str) -> int:
     had: the runs of `matched`, placeholders aside, that `out` no longer holds."""
     for mark in _PLACEHOLDERS:
         matched = matched.replace(mark, " ")
-    kept = set(_VALUE_RUN_RE.findall(out))
-    return len({run for run in _VALUE_RUN_RE.findall(matched) if run not in kept})
+    return len(_value_runs(matched) - _value_runs(out))
 
 
-def scrub_secrets(text: str) -> tuple[str, int]:
+def _linear_sub(pattern: re.Pattern, replacement, text: str) -> str:
+    """Avoid retrying an unmatched delimiter or scheme from every suffix.
+
+    Keep genuine regex matches for the approval masker's grouped replacements.
+    Once an end delimiter exists, the original anchored match scans its block
+    once; without an end, no later opener can match either.
+    """
+    if pattern not in (_PEM_RE, _SYSTEM_REMINDER_RE, _URL_PASSWORD_RE):
+        return pattern.sub(replacement, text)
+
+    def matches():
+        if pattern is _URL_PASSWORD_RE:
+            for token in _URL_SCHEME_RE.finditer(text):
+                start = _URL_START_RE.search(text, token.start(), token.end())
+                if start is not None:
+                    match = pattern.match(text, start.start())
+                    if match is not None:
+                        yield match
+            return
+        opening, closing = ((_PEM_START_RE, _PEM_END_RE) if pattern is _PEM_RE
+                            else (_REMINDER_START_RE, _REMINDER_END_RE))
+        cursor = 0
+        while (start := opening.search(text, cursor)) is not None:
+            end = closing.search(text, start.end())
+            if end is None:
+                return
+            match = pattern.match(text, start.start())
+            assert match is not None
+            yield match
+            cursor = match.end()
+
+    parts: list[str] = []
+    cursor = 0
+    for match in matches():
+        if match.start() < cursor:
+            continue
+        out = replacement(match) if callable(replacement) else match.expand(replacement)
+        parts.extend((text[cursor:match.start()], out))
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _quoted_ends(text: str) -> dict[int, int]:
+    """Index matching quotes once, respecting escapes and line boundaries.
+
+    A failed quoted assignment must not rescan the rest of its line for each
+    later candidate. Unescaped quotes can close the previous quote of their
+    own kind; escaped characters consume both characters, as the old rule did.
+    """
+    ends: dict[int, int] = {}
+    previous: dict[str, int] = {}
+    for match in _QUOTE_EVENT_RE.finditer(text):
+        char = match.group()
+        if len(char) > 1:
+            continue
+        if char in "\r\n":
+            previous.clear()
+        else:
+            if char in previous:
+                ends[previous[char]] = match.start()
+            previous[char] = match.start()
+    return ends
+
+
+def _scrub_named_values(text: str, replace: Callable[[str, str], str],
+                       *, quoted: bool = False, flags: bool = False) -> str:
+    """Replace assignment/flag values in linear scans, preserving rule order."""
+    parts: list[str] = []
+    cursor = 0
+    quote_ends: dict[int, int] | None = None
+    for token in _IDENTIFIER_RE.finditer(text):
+        if token.start() < cursor:
+            continue
+        key = token.group()
+        if not _SENSITIVE_SUFFIX_RE.search(key[-17:]):
+            continue
+        start = token.start()
+        if flags:
+            flag_start = key.rfind("--")
+            if flag_start < 0 or not _SENSITIVE_FLAG_RE.fullmatch(key[flag_start + 2:]):
+                continue
+            start += flag_start
+            value = _FLAG_VALUE_RE.match(text, token.end())
+            if value is None:
+                continue
+            value_start, end = value.start("value"), value.end()
+            out = text[start:value_start] + REDACTED
+        else:
+            separator = _ASSIGN_SEPARATOR_RE.match(text, token.end())
+            if separator is None:
+                continue
+            if start > cursor and text[start - 1] in "\"'":
+                start -= 1
+            value_start = separator.end()
+            if quoted:
+                if value_start == len(text) or text[value_start] not in "\"'":
+                    continue
+                if quote_ends is None:
+                    quote_ends = _quoted_ends(text)
+                closing = quote_ends.get(value_start)
+                if closing is None:
+                    continue
+                end = closing + 1
+                out = text[start:value_start + 1] + REDACTED + text[closing]
+            else:
+                value = _PLAIN_VALUE_RE.match(text, value_start)
+                if value is None:
+                    continue
+                end = value.end()
+                out = text[start:value_start] + REDACTED
+        parts.extend((text[cursor:start], replace(text[start:end], out)))
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def scrub_secrets(text: str, *, strip_reminders: bool = False, whole: bool = False) -> tuple[str, int]:
     """Remove credential values and encoded binary; retain ordinary text. The
     count is of values replaced: one credential two rules match counts once, and
-    a header that held several values (`Cookie: a=...; b=...`) counts each."""
-    total = 0
-    for pattern, replacement in (
-        (_PEM_RE, "[PRIVATE KEY REDACTED]"),
-        (_DATA_URI_RE, "[BASE64 DATA OMITTED]"),
+    a header that held several values (`Cookie: a=...; b=...`) counts each.
+
+    A text longer than MAX_SCRUB_CHARS keeps a scrubbed head and tail with a
+    marker between them (`scrub_bounded`). `whole` scrubs all of it, for a text
+    whose length its caller bounds: the assembled handoff brief, whose section
+    caps policy keeps within the same bound (C-23.36)."""
+    if len(text) > MAX_SCRUB_CHARS and not whole:
+        return scrub_bounded(text, None, strip_reminders=strip_reminders)
+    return _scrub(text, strip_reminders)
+
+
+def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False) -> tuple[str, int]:
+    """`truncate(scrub_secrets(text), limit)`: scrubbed, then bounded to `limit`
+    characters keeping the head and the tail (C-23.14, C-23.36, C-25.5); with
+    `limit` None, not bounded further.
+
+    Within MAX_SCRUB_CHARS that is exactly what it does. A longer text first has
+    the blocks that can span lines resolved over all of it, exactly as the scrub
+    of the whole text resolves them (`_resolve_blocks`: linear scans). If it is
+    still too long, the other rules run only on its head and its tail, each the
+    whole lines within EXCERPT_CHARS, joined by a marker giving the characters
+    left out. Those rules match within a line, except where a key, `Bearer` or
+    separator (`:`, `=`, a key's quote) ends the text before a line break: an
+    excerpt is cut only at a break no such text precedes (`_neutral_break`), so
+    no match spans a cut and each excerpt scrubs exactly as the whole text does
+    there. An excerpt with no such break in reach keeps nothing.
+    """
+    original, count = len(text), 0
+    if original > MAX_SCRUB_CHARS:
+        tally = _Tally()
+        text, strip_reminders = _resolve_blocks(text, strip_reminders, tally), False
+        count = tally.total
+    if len(text) <= MAX_SCRUB_CHARS:
+        scrubbed, found = _scrub(text, strip_reminders)
+        return (scrubbed if limit is None else truncate(scrubbed, limit)), count + found
+    head, head_count = _scrub(text[:_head_cut(text)], False)
+    tail, tail_count = _scrub(text[_tail_cut(text):], False)
+    head, tail, count = head.strip(), tail.strip(), count + head_count + tail_count
+    if limit is not None:
+        usable = limit - len(f"\n… [{original:,} characters omitted] …\n")   # the longest marker
+        if usable <= 0:
+            return (ELIDED[:limit] if limit < len(ELIDED) else ELIDED), count
+        head = head[:int(usable * 0.6)].rstrip()
+        room = usable - len(head)
+        tail = tail[max(0, len(tail) - room):].lstrip() if room > 0 else ""
+    marker = f"\n… [{max(0, original - len(head) - len(tail)):,} characters omitted] …\n"
+    return (head + marker + tail).strip(), count
+
+
+def _identifier_char(char: str) -> bool:
+    """A character of a key as the scrubber reads one (`_IDENTIFIER_RE`, which
+    ignores case, so `ſ` and the Kelvin sign are letters too)."""
+    return _IDENTIFIER_RE.fullmatch(char) is not None
+
+
+def _last_visible(text: str, end: int) -> int:
+    """The position of the last non-whitespace character before `end`, or -1."""
+    at = end - 1
+    while at >= 0 and text[at].isspace():   # `\s` in these patterns is `str.isspace`
+        at -= 1
+    return at
+
+
+def _neutral_break(text: str, visible: int, after: int) -> bool:
+    """Whether a line break can be a cut: no rule could continue a match past
+    it. `visible` is the last visible character before it (-1: none), `after`
+    the first after it (`len(text)`: none). Only these continue past a break,
+    through whitespace that may include it:
+    - a `:` or `=` after a key, its quote and whitespace, to the value;
+    - a key (an identifier with a sensitive ending, which `Authorization`,
+      `Cookie` and `Set-Cookie` headers have), or a key's closing quote
+      (`"password"`), to a `:` or `=` after the break;
+    - `Bearer`, to a token character after the break.
+    A quote or separator after anything else, a key followed by anything else,
+    and a word ending the text are ordinary. No rule's replacement puts a `:`,
+    `=` or token character where the first visible character after a break was
+    anything else, so the text before the rules run decides."""
+    if visible < 0:
+        return True
+    following = text[after:after + 1]
+    last = text[visible]
+    if last in ":=":
+        before = _last_visible(text, visible)   # the separator may follow blank lines
+        if before >= 0 and text[before] in "\"'":
+            before -= 1                         # a quoted key's closing quote
+        return not _key_ends_at(text, before)
+    separator = following in (":", "=")
+    if last in "\"'":
+        return not (separator and _key_ends_at(text, visible - 1))
+    if _key_ends_at(text, visible):
+        return not separator
+    if _last_word(text, visible).lower().endswith("bearer"):
+        return not (following and _BEARER_TOKEN_CHAR_RE.fullmatch(following))
+    return True
+
+
+#: A character `_BEARER_RE` reads as part of a token (it ignores case too).
+_BEARER_TOKEN_CHAR_RE = re.compile(r"(?i)[A-Za-z0-9._~+/-]")
+_WHITESPACE_RUN_RE = re.compile(r"\s*")
+
+
+def _last_word(text: str, end: int) -> str:
+    """The last 17 characters (at most) of the identifier ending at `end`, as
+    `_scrub_named_values` reads a key; "" if none ends there."""
+    if end < 0 or not _identifier_char(text[end]):
+        return ""
+    start = end
+    while start > 0 and end - start < 16 and _identifier_char(text[start - 1]):
+        start -= 1
+    return text[start:end + 1]
+
+
+def _key_ends_at(text: str, end: int) -> bool:
+    """Whether an identifier the scrubber reads as a key ends at `end`."""
+    return bool(_SENSITIVE_SUFFIX_RE.search(_last_word(text, end)))
+
+
+def _head_cut(text: str) -> int:
+    """The end of the head excerpt: the last neutral line break within
+    EXCERPT_CHARS (0 if none). Breaks between the same two visible characters
+    share one verdict, so a refused one is passed over with the rest of them."""
+    end = EXCERPT_CHARS
+    while (newline := text.rfind("\n", 0, end)) >= 0:
+        visible = _last_visible(text, newline + 1)
+        if _neutral_break(text, visible, _WHITESPACE_RUN_RE.match(text, newline + 1).end()):
+            return newline + 1
+        end = visible
+    return 0
+
+
+def _tail_cut(text: str) -> int:
+    """The start of the tail excerpt: the first neutral line break in the last
+    EXCERPT_CHARS (the end of the text if none)."""
+    at = text.find("\n", len(text) - EXCERPT_CHARS - 1)
+    while at >= 0:
+        after = _WHITESPACE_RUN_RE.match(text, at + 1).end()
+        if _neutral_break(text, _last_visible(text, at + 1), after):
+            return at + 1
+        at = text.find("\n", after)
+    return len(text)
+
+
+class _Tally:
+    """The values the rules replace: one credential two rules match counts once,
+    and a header that held several values (`Cookie: a=...; b=...`) counts each."""
+
+    def __init__(self) -> None:
+        self.total = 0
+
+    def __call__(self, matched: str, out: str, *, header: bool = False) -> str:
+        if out == matched:
+            return out
+        # Count a credential matched by an earlier rule only once.
+        earlier = any(mark in matched for mark in _PLACEHOLDERS)
+        if header:
+            self.total += _values_removed(matched, out) or (0 if earlier else 1)
+        else:
+            self.total += 1 if not earlier else min(1, _values_removed(matched, out))
+        return out
+
+
+def _apply_rules(text: str, rules, tally: _Tally) -> str:
+    for pattern, replacement in rules:
+        def replace(match, replacement=replacement, pattern=pattern):
+            matched = match.group(0)
+            out = replacement(match) if callable(replacement) else match.expand(replacement)
+            return tally(matched, out, header=pattern is _HEADER_RE)
+
+        text = _linear_sub(pattern, replace, text)
+    return text
+
+
+def _resolve_blocks(text: str, strip_reminders: bool, tally: _Tally) -> str:
+    """The scrub's first rules, which can match across lines: reminders, private
+    keys, data URIs (wrapped base64). Each is a scan whose work is linear in the
+    text (`_linear_sub`; the data URI pattern has no nested repetition), so a text
+    of any length has them resolved whole, as `_scrub` resolves them. Applied
+    again to what they leave, they change nothing."""
+    if strip_reminders:
+        text = _linear_sub(_SYSTEM_REMINDER_RE, "", text)
+    return _apply_rules(text, ((_PEM_RE, "[PRIVATE KEY REDACTED]"),
+                               (_DATA_URI_RE, "[BASE64 DATA OMITTED]")), tally)
+
+
+def _scrub(text: str, strip_reminders: bool) -> tuple[str, int]:
+    """`scrub_secrets` on a text within its work bound."""
+    tally = _Tally()
+    text = _resolve_blocks(text, strip_reminders, tally)
+    text = _apply_rules(text, (
         (_JWT_RE, REDACTED),
         (_PREFIXED_TOKEN_RE, REDACTED),
         (_BEARER_RE, "Bearer " + REDACTED),
         (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
         (_HEADER_RE, lambda match: match.group(1) + REDACTED),
         (_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),
-        (_QUOTED_ASSIGN_RE,
-         lambda match: (match.group("prefix") + match.group("quote")
-                        + REDACTED + match.group("quote"))),
-        (_PLAIN_ASSIGN_RE, lambda match: match.group("prefix") + REDACTED),
-        (_FLAG_VALUE_RE, lambda match: match.group("prefix") + REDACTED),
-    ):
-        changed = 0
-
-        def replace(match, replacement=replacement, pattern=pattern):
-            nonlocal changed
-            matched = match.group(0)
-            out = replacement(match) if callable(replacement) else match.expand(replacement)
-            if out == matched:
-                return out
-            # A match that holds what an earlier rule put in (`Authorization:
-            # Bearer [REDACTED]` after the bearer rule) is that credential again;
-            # what it removed besides is counted only if it held a value.
-            earlier = any(mark in matched for mark in _PLACEHOLDERS)
-            if pattern is _HEADER_RE:
-                changed += _values_removed(matched, out) or (0 if earlier else 1)
-            else:
-                changed += 1 if not earlier else min(1, _values_removed(matched, out))
-            return out
-
-        text = pattern.sub(replace, text)
-        total += changed
-    return text, total
+    ), tally)
+    text = _scrub_named_values(text, tally, quoted=True)
+    text = _scrub_named_values(text, tally)
+    text = _scrub_named_values(text, tally, flags=True)
+    return text, tally.total
 
 
 #: What a section becomes when the budget left for it is smaller than the marker
@@ -256,9 +585,7 @@ def truncate(text: str, limit: int) -> str:
 
 
 def clean(text: str, limit: int) -> tuple[str, int]:
-    text = _SYSTEM_REMINDER_RE.sub("", text)
-    text, redactions = scrub_secrets(text)
-    return truncate(text, limit), redactions
+    return scrub_bounded(text, limit, strip_reminders=True)
 
 
 def _parse(line: str) -> dict[str, Any] | None:
@@ -319,8 +646,12 @@ def sensitive_tool_call(name: str, value: Any) -> bool:
     """C-23.14: does this tool call read a credential?"""
     if "agent-secret" in name.casefold() or "keychain" in name.casefold():
         return True
-    return any(pattern.search(_tool_corpus(value))
-               for pattern in _SENSITIVE_TOOL_PATTERNS)
+    # Every pattern, and the wrapper walk, is linear in the input, so an input of
+    # any size is classified by what it holds: a large `Write` is not a
+    # credential read, and a large script that runs `env` is one.
+    corpus = _tool_corpus(value)
+    return (any(pattern.search(corpus) for pattern in _SENSITIVE_TOOL_PATTERNS)
+            or _env_after_wrapper(corpus))
 
 
 def _tool_result_text(block: dict[str, Any]) -> str:
@@ -715,8 +1046,10 @@ when necessary and never expose credentials.
 {repository}
 """
     # One last pass over the assembled brief: a section boundary can splice two
-    # halves into a shape no individual section matched.
-    text, final_count = scrub_secrets(text)
+    # halves into a shape no individual section matched. It is matched whole:
+    # policy keeps its section caps within the scrubber's bound (C-23.36), and a
+    # brief over it must not become one excerpt of itself.
+    text, final_count = scrub_secrets(text, whole=True)
     if final_count:
         text = text.replace(
             f"Credential/binary redactions in this brief: {redactions}",
@@ -852,5 +1185,5 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
 __all__ = ["Brief", "Dispatched", "HandoffError", "assemble", "build_brief",
            "canonical_session_id", "clean", "first_task", "handoff", "latest_metadata",
            "looks_binary", "recent_excerpt", "repository_context", "resolve_source",
-           "resolve_workdir", "sandbox_for", "scrub_secrets", "select_segments",
+           "resolve_workdir", "sandbox_for", "scrub_bounded", "scrub_secrets", "select_segments",
            "sensitive_tool_call", "truncate", "workspace_sections"]

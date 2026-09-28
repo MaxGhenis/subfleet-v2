@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
-    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS,
+    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
     Closure, Decision, Exit, Lane, Reading,
 )
@@ -35,6 +35,13 @@ HANDOFF_CAPS: dict[str, int] = {
     "progress": 32_000,
     "repository": 16_000,
 }
+#: The caps of the sections a brief carries (the tool caps bound what `recent`
+#: selects), and room for its header: fixed text, three paths and a session id.
+#: The assembled brief is scrubbed whole once more (C-23.14), so together they
+#: must fit the scrubber's bound, or its final pass would exceed it (C-23.36).
+HANDOFF_BRIEF_SECTIONS = ("original_task", "recent", "progress", "repository")
+HANDOFF_HEADER_CHARS = 16 * 1024
+HANDOFF_BRIEF_MAX_CHARS = SCRUB_MAX_CHARS - HANDOFF_HEADER_CHARS
 
 #: `sessions.*` (C-6.4): the sessions kit's caps, all of them policy data rather
 #: than constants, because a restart storm or a slow host is a tuning problem.
@@ -99,6 +106,13 @@ def turn_cap(conversations: Mapping[str, Any] | None, key: str) -> int | None:
         raise KeyError(key)
     value = (conversations or {}).get(key, CONVERSATION_DEFAULTS[key])
     return None if value is None else int(value)
+
+
+#: `conversations.default_effort` (C-26.8): the effort a turn runs at when its
+#: message names none, per provider. It applies only where the catalog a turn last
+#: reported for the model offers it; a provider set to null keeps its own default,
+#: and `default_effort: null` turns the default off for every provider.
+CONVERSATION_DEFAULT_EFFORT: dict[str, str | None] = {"claude": "ultracode", "codex": None}
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
 #: pruned against separate budgets, so a busy conversation never evicts the
@@ -310,6 +324,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for key, item in caps.items():
         if (not isinstance(item, int) or isinstance(item, bool) or item <= 0):
             fail(f"sessions.handoff_caps.{key}", "must be a positive whole number of characters")
+    brief = sum(caps[key] for key in HANDOFF_BRIEF_SECTIONS)
+    if brief > HANDOFF_BRIEF_MAX_CHARS:
+        fail("sessions.handoff_caps",
+             f"{' + '.join(HANDOFF_BRIEF_SECTIONS)} is {brief:,} characters; the assembled brief is "
+             f"scrubbed whole, so they may total at most {HANDOFF_BRIEF_MAX_CHARS:,}")
     value["sessions"]["handoff_caps"] = caps
 
     # `network` (d260): whether a writable Codex job's shell reaches the network.
@@ -326,6 +345,17 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     # things, and zero only where it means "at once", "never on a timer" or "keep
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
     # days kept after a turn ends). A turn cap may also be null: no cap (C-26.9).
+    # C-26.8: `conversations.default_effort` names an effort, or null, per provider.
+    default_effort = (value.get("conversations") or {}).get("default_effort") if isinstance(
+        value.get("conversations"), dict) else None
+    if default_effort is not None:
+        if not isinstance(default_effort, dict):
+            fail("conversations.default_effort", "must be an object of provider to effort or null")
+        for key, item in default_effort.items():
+            if key not in CONVERSATION_DEFAULT_EFFORT:
+                fail(f"conversations.default_effort.{key}", "is not a provider (claude, codex)")
+            if item is not None and (not isinstance(item, str) or not item or len(item) > 20):
+                fail(f"conversations.default_effort.{key}", "must be an effort name or null")
     for section, defaults, may_be_zero, whole in (
             ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
              {"compact_per_tick", *TURN_CAPS}),

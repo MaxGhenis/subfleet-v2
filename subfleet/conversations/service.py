@@ -30,11 +30,12 @@ from typing import Any
 from .. import protocol
 from ..adapters.base import AdapterError
 from ..contracts import Exit
-from ..policy import CONVERSATION_DEFAULTS
+from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..salvage import SalvageError
+from ..state_files import open_state, read_state
 from . import attachments as attachment_store
-from . import codex_turn, reconcile
+from . import claude_turn, codex_turn, reconcile
 from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
@@ -283,15 +284,36 @@ class ConversationService:
             values = [v for v in seen.get("values") or [] if v != "default"]
             models.append({"short": short, "id": entry["id"], "provider": entry["provider"],
                            "value": values[0] if values else entry["id"], "values": values or [entry["id"]],
-                           "efforts": seen.get("efforts"), "default_effort": entry.get("effort"),
+                           "efforts": (claude_turn.offered_efforts([str(x) for x in seen["efforts"]])
+                                       if entry["provider"] == "claude" and isinstance(seen.get("efforts"), list)
+                                       else seen.get("efforts")),
+                           "default_effort": entry.get("effort"),
+                           "conversation_default_effort": self._default_effort(entry["provider"], entry["id"]),
                            "fast": {"supported": seen.get("fast"),
                                     "billing": "usage credits" if entry["provider"] == "claude" else "plan limits"},
                            "image_input": seen.get("image_input"), "observed_at": seen.get("observed_at")})
         return {"models": models, "source": "policy, and each provider's catalog as a turn last reported it"}
 
+    def _default_effort(self, provider: str, model_id: str) -> str | None:
+        """C-26.8: the effort a turn of `model_id` runs at when its message names
+        none: the policy's `conversations.default_effort` for the provider (ultracode
+        for Claude), where the catalog a turn last reported for the model offers it;
+        None otherwise, which leaves the provider's own default."""
+        section = self.daemon.policy.get("conversations") or {}
+        if "default_effort" in section and section["default_effort"] is None:
+            return None                     # `default_effort: null`: no default for any provider
+        configured = {**CONVERSATION_DEFAULT_EFFORT, **(section.get("default_effort") or {})}
+        effort = configured.get(provider)
+        if not effort:
+            return None
+        levels = (self._catalog_cache().get(provider) or {}).get(model_id, {}).get("efforts") or []
+        offered = claude_turn.offered_efforts([str(x) for x in levels]) if provider == "claude" else list(levels)
+        return effort if effort in offered else None
+
     def _catalog_cache(self) -> dict:
         try:
-            return json.loads(transcripts.read_regular(self.root / "conversations" / "models.json"))
+            with open_state(self.root / "conversations" / "models.json") as stream:
+                return json.load(stream)
         except (OSError, ValueError):
             return {}
 
@@ -825,7 +847,8 @@ class ConversationService:
         self._person(peer, "reading an approval")
         from .redact import mask_approval
         approval = self.store.approval(args["approval_id"])
-        request = json.loads(transcripts.read_regular(approval["request_path"]))
+        request = json.loads(read_state(approval["request_path"], limit=RELAY_FRAME_MAX,
+                                        digest=approval["request_sha256"], private=True))
         masked, spans = mask_approval(request) if not args.get("reveal") else (request, [])
         return {"approval": self._approval_view(approval), "request": masked, "masked": spans,
                 "request_sha256": approval["request_sha256"], "nonce": approval["nonce"]}
@@ -1522,7 +1545,7 @@ class ConversationService:
         """
         path = self.root / "jobs" / job["job_id"] / "manifest.json"
         try:
-            manifest, error = json.loads(path.read_bytes()), None
+            manifest, error = json.loads(read_state(path, limit=16 * 1024 * 1024)), None
         except (OSError, ValueError) as exc:          # missing, unreadable, not JSON
             manifest, error = None, type(exc).__name__
         turn = manifest.get(TURN_MANIFEST_KEY) if isinstance(manifest, dict) else None
@@ -1760,6 +1783,11 @@ class ConversationService:
         provider = conversation["provider"]
         settings = message["settings"]
         short = policy_model(daemon.policy, provider, settings["model"])
+        effort_default = None
+        if not settings.get("effort"):
+            effort_default = self._default_effort(provider, daemon.policy["models"][short]["id"])
+            if effort_default:
+                settings = {**settings, "effort": effort_default}
         images = []
         for sha in message["attachments"]:
             path, media = attachment_store.check(self.store, sha)
@@ -1778,7 +1806,7 @@ class ConversationService:
                 "provider": provider, "text": self.store.message_text(message), "settings": settings,
                 "native_session_id": native, "new_session_id": new_session, "images": images,
                 "cwd": conversation["workspace"], "allow_main": conversation["allow_main"],
-                "affinity_lane": affinity, "digest": message["digest"],
+                "affinity_lane": affinity, "digest": message["digest"], "effort_default": effort_default,
                 "network": bool((self.daemon.policy.get("network") or {}).get("codex_workspace_write", False))}
         exclusions = []
         if message.get("continues"):
@@ -2141,7 +2169,8 @@ def _handoff_id(request_id: str, part: str) -> str:
 
 def _read_json(path: Path) -> dict | None:
     try:
-        return json.loads(transcripts.read_regular(path))
+        with open_state(path) as stream:
+            return json.load(stream)
     except (OSError, ValueError):
         return None
 

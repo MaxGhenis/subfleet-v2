@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -667,6 +668,122 @@ def test_a_credential_given_as_a_flag_or_with_an_escaped_quote_is_scrubbed(line,
 def test_a_flag_without_a_value_on_its_line_is_left_alone(line):
     from subfleet.sessions.handoff import scrub_secrets
     assert scrub_secrets(line) == (line, 0)
+
+
+def _scrubber_probe(script: str) -> dict:
+    """Keep a regressed GIL-holding matcher in an owned, bounded child."""
+    source = (f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r})\n"
+              "from subfleet.sessions.handoff import scrub_secrets\n" + script)
+    result = subprocess.run([sys.executable, "-c", source], capture_output=True,
+                            text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@pytest.mark.parametrize("identifier", ["a_", "a-", "a."])
+def test_scrubber_work_scales_linearly_for_long_ordinary_identifiers(identifier):
+    """C-23.14 / C-25.5: four times the input must not take quadratic CPU."""
+    measured = _scrubber_probe(f"identifier = {identifier!r}\n" + '''
+import json, time
+samples = {}
+for size in (1024, 4096):
+    text = identifier * (size // 2)
+    start = time.thread_time()
+    for _ in range(8):
+        assert scrub_secrets(text) == (text, 0)
+    samples[size] = (time.thread_time() - start) / 8
+print(json.dumps(samples))
+''')
+    assert measured["4096"] < max(measured["1024"], 0.0001) * 8, measured
+
+
+def test_scrubber_keeps_other_python_threads_responsive():
+    """C-23.14 / C-25.5: ordinary text cannot monopolize the daemon's GIL."""
+    measured = _scrubber_probe('''
+import json, threading, time
+ready, stopped = threading.Event(), threading.Event()
+samples = []
+def heartbeat():
+    samples.append(time.process_time())
+    ready.set()
+    while not stopped.wait(0.001):
+        samples.append(time.process_time())
+    samples.append(time.process_time())
+thread = threading.Thread(target=heartbeat)
+thread.start()
+ready.wait()
+try:
+    text = "a_" * 4096
+    assert scrub_secrets(text) == (text, 0)
+finally:
+    stopped.set()
+    thread.join()
+print(json.dumps({"longest_cpu_gap": max(b - a for a, b in zip(samples, samples[1:]))}))
+''')
+    # CPU time excludes host descheduling, which is common in the full suite.
+    assert measured["longest_cpu_gap"] < 0.1, measured
+
+
+@pytest.mark.parametrize("key", [
+    "API_KEY", "many_ordinary_components_client_secret", "mytoken",
+    "secret-access-key", "refresh_token", "access-key-id", "credentials",
+])
+def test_assignment_scanner_retains_sensitive_suffixes_and_escaped_quotes(key):
+    """C-23.14: scanning identifiers preserves the old assignment coverage."""
+    text = f'''ordinary_code(); "{key}" = "abc\\"defghijk"; done()'''
+    scrubbed, count = handoff.scrub_secrets(text)
+    assert scrubbed == f'''ordinary_code(); "{key}" = "[REDACTED]"; done()'''
+    assert count == 1
+
+
+def test_scrubber_bounds_input_before_matching_without_exposing_cut_credentials(monkeypatch):
+    """C-23.14: an oversized block is matched only in line-bounded excerpts, never
+    whole, and a line an excerpt would cut is left out, so a secret is never shown
+    without its context (review of 7da13417, finding 2: whole-block omission had
+    also dropped the head and tail that are safe to keep)."""
+    matched: list[int] = []
+    real = handoff._scrub
+    monkeypatch.setattr(handoff, "_scrub", lambda text, strip: (matched.append(len(text)), real(text, strip))[1])
+    text = 'password="' + "private value " * 25_000 + '"'
+    assert handoff.scrub_secrets(text) == (f"… [{len(text):,} characters omitted] …", 0)
+    lines = "".join(f'line {i}: password="private value {i}"\n' for i in range(12_000))
+    scrubbed, count = handoff.scrub_secrets(lines)
+    assert "private value" not in scrubbed and "characters omitted" in scrubbed and count > 0
+    assert scrubbed.startswith('line 0: password="[REDACTED]"')
+    assert scrubbed.endswith('line 11999: password="[REDACTED]"')
+    assert max(matched) <= handoff.EXCERPT_CHARS and sum(matched) <= handoff.MAX_SCRUB_CHARS
+
+
+@pytest.mark.parametrize("text", [
+    "-----BEGIN PRIVATE KEY-----\n" * 500,
+    "<system-reminder>" * 1000,
+    "\n" * 16_000,
+    "data:a;a;" * 2000,
+], ids=["pem", "reminder", "headers", "data-uri"])
+def test_scrubber_handles_repeated_incomplete_patterns_without_quadratic_retries(text):
+    """C-23.14: failed delimiter/header candidates also have bounded CPU."""
+    measured = _scrubber_probe(f"text = {text!r}\n" + '''
+import json, time
+from subfleet.conversations.redact import scrub
+start = time.thread_time()
+assert scrub_secrets(text) == (text, 0)
+assert scrub(text) == text
+print(json.dumps({"cpu": time.thread_time() - start}))
+''')
+    assert measured["cpu"] < 0.1, measured
+
+
+def test_tool_suppression_scans_long_ordinary_paths_once():
+    """C-23.14: credential-read checks do not retry every path suffix."""
+    measured = _scrubber_probe('''
+import json, time
+from subfleet.sessions.handoff import sensitive_tool_call
+text = "cat " + "a/" * 8192 + "notes.txt"
+start = time.thread_time()
+assert not sensitive_tool_call("Bash", {"command": text})
+print(json.dumps({"cpu": time.thread_time() - start}))
+''')
+    assert measured["cpu"] < 0.1, measured
 
 
 @pytest.mark.parametrize("request_id,given,minted", [

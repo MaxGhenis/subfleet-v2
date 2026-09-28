@@ -447,7 +447,8 @@ def test_without_a_stop_the_message_is_handed_over(relayed, tmp_path):
     runner, clock, server, adir = relayed(recorded=True)
     runner._apply(runner.driver.start())
     answer_up_to_the_message(runner, tmp_path, "claude")
-    assert logged(adir) == ["init", "user-message"] and runner.driver.outcome is None
+    # C-26.8: `get_settings` follows the message this runner sent.
+    assert logged(adir) == ["init", "user-message", "settings"] and runner.driver.outcome is None
 
 
 def _lose_the_answer(runner, *, reached: bool):
@@ -482,7 +483,7 @@ def test_a_stop_after_a_handover_whose_answer_was_lost_is_decided_by_the_relay_l
     clock.now += 100
     runner._send_outbox()
     runner._drain_commands()
-    assert logged(adir) == ["init", "user-message", "interrupt"]
+    assert logged(adir) == ["init", "user-message", "settings", "interrupt"]
     assert runner.driver.outcome is None and not runner.withheld
 
 
@@ -512,4 +513,59 @@ def test_without_a_stop_a_message_whose_answer_was_lost_is_sent_once(relayed, tm
     answer_up_to_the_message(runner, tmp_path, "claude")
     clock.now += 100
     runner._send_outbox()
-    assert logged(adir) == ["init", "user-message"] and runner.outbox == []
+    assert logged(adir) == ["init", "user-message", "settings"] and runner.outbox == []
+
+
+# --- get_settings across the upgrade (C-26.8) --------------------------------------------
+
+
+@pytest.mark.parametrize("earlier,sent", [(False, ["user-message", "settings"]), (True, [])])
+def test_get_settings_follows_only_a_message_this_runner_sent(make_runner, monkeypatch, earlier, sent):
+    """C-26.8: a replayed attempt whose message an earlier runner sent, including one
+    from before `get_settings` existed, is never asked mid-turn; a new one asks right
+    after its message."""
+    from subfleet.conversations.reconcile import SETTINGS_FRAME, USER_FRAME
+    from subfleet.conversations.turn import Frame
+    runner, _, _ = make_runner(Clocks())
+    assert runner.replayed_message is False                    # an empty log: nothing sent before
+    runner.handshaken, runner.replayed_message = True, earlier
+    runner.sent = {USER_FRAME: "written"} if earlier else {}
+    written: list[str] = []
+    monkeypatch.setattr(runner, "_transmit", lambda frame: written.append(frame.tag) or runner.outbox.pop(0) or True)
+    monkeypatch.setattr(runner, "_handover_verdict", lambda: "send")
+    runner.outbox = [Frame(USER_FRAME, "write", "{}\n"), Frame(SETTINGS_FRAME, "write", "{}\n")]
+    runner._send_outbox()
+    assert written == sent and runner.outbox == []
+
+
+def test_a_message_the_handshake_finds_written_is_not_followed_by_get_settings(make_runner, monkeypatch):
+    """C-26.8 (review of b0b3f153, P3): the log read at construction can still show the
+    previous daemon's message frame in flight; the handshake's final read decides."""
+    from subfleet.conversations.reconcile import USER_FRAME
+    runner, _, _ = make_runner(Clocks())
+    assert runner.replayed_message is False
+    monkeypatch.setattr(runner.relay, "status", lambda: None)            # a relay older than version 2
+
+    def load():
+        runner.sent, runner.logged = {"init": "written", USER_FRAME: "written"}, 2
+        return False
+    monkeypatch.setattr(runner, "_load_log", load)
+    assert runner._handshake() is True and runner.replayed_message is True
+
+
+@pytest.mark.parametrize("kind,timed", [("question", False), ("tool", True)])
+def test_a_question_waits_for_its_answer_with_no_limit(make_runner, monkeypatch, kind, timed):
+    """C-26.9 (2026-09-28): only a tool approval starts the approval clock; an agent's
+    question waits for the person however long it takes."""
+    from subfleet.conversations.turn import Approval, Step
+    runner, clock, _ = make_runner(Clocks(approval_wait_s=2))
+    monkeypatch.setattr(runner.store, "add_approval", lambda **kw: None)
+    monkeypatch.setattr(runner.store, "set_state", lambda *a, **kw: None)
+    runner._apply(Step(approvals=[Approval("req-1", kind, {"tool": "AskUserQuestion"}, ("answer", "deny"))]))
+    assert ("req-1" in runner.approval_seen) is timed
+    clock.now += 3600 * 24
+    runner._timers()
+    if timed:
+        assert runner.stop_reason == "approval-timeout" and runner.commands.get_nowait() == ("interrupt",)
+    else:
+        assert runner.stop_reason is None and runner.commands.empty()
