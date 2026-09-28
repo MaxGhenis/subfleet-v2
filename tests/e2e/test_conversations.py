@@ -651,7 +651,8 @@ def test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_cl
     assert time.monotonic() - asked < 6, "SIGINT came on the default clock, not the policy's"
     assert (done["state"], done["state_reason"]) == ("interrupted", "stopped")
     frames = [(r["tag"], r["op"], r["status"]) for r in relay_log(conv, first)]
-    assert frames[2:4] == [("interrupt", "write", "written"), ("signal:int", "signal", "written")]
+    # C-26.8: `get_settings` follows the message (frames 0-2: init, user-message, settings).
+    assert frames[3:5] == [("interrupt", "write", "written"), ("signal:int", "signal", "written")]
     assert frames[-1] == ("close", "close", "written")          # the driver's, after the result
     assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None
     assert conv.attempt(first)["killed_by"] is None                # no containment
@@ -701,7 +702,7 @@ def test_a_claude_turn_on_the_wrong_model_fails_model_mismatch(conv):
     done = conv.until_state(mid, "failed", "complete", "interrupted", "delivery-unknown")
     assert (done["state"], done["state_reason"]) == ("failed", "model-mismatch")
     assert [(r.get("request") or {}).get("subtype") for r in conv.stdin_rows()
-            if r.get("type") == "control_request"] == ["initialize", "interrupt"]
+            if r.get("type") == "control_request"] == ["initialize", "get_settings", "interrupt"]
     final = [e for e in conv.events(cid) if e["kind"] == "turn.completed"][-1]["data"]
     assert final["reason"] == "model-mismatch" and "claude-haiku-4-5-20251001" in final["detail"]
     assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None
