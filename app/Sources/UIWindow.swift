@@ -7,6 +7,10 @@ import SwiftUI
 
 struct MainWindow: View {
     @ObservedObject var model: UIModel
+    /// The ⌘K palette (C-29.12).
+    @ObservedObject var palette: SearchPaletteModel
+    /// C-29.13: every conversation text size follows this scale.
+    @AppStorage(TextScale.defaultsKey) private var textScale = TextScale.actual
     @State private var selection: String?
     @State private var search = ""
     @State private var showNew = false
@@ -27,14 +31,15 @@ struct MainWindow: View {
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "bubble.left.and.bubble.right").font(.largeTitle).foregroundStyle(.secondary)
-                        Text("Choose a conversation or start a new one").foregroundStyle(.secondary)
+                        Text("Choose a conversation or start a new one").readingFont(.body).foregroundStyle(.secondary)
+                        Text("Press ⌘K to search conversations and messages").readingFont(.caption).foregroundStyle(.tertiary)
                         Button("New conversation") { showNew = true }.keyboardShortcut("n")
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 if let problem = model.problem {
                     HStack {
                         Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                        Text(problem).font(.callout).lineLimit(2)
+                        Text(problem).readingFont(.secondary).lineLimit(2)
                         Spacer()
                         Button { model.problem = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
                     }
@@ -62,6 +67,8 @@ struct MainWindow: View {
                     Text("Claude").tag("claude")
                     Text("Codex").tag("codex")
                 }.pickerStyle(.segmented)
+                Button { palette.toggle(model) } label: { Label("Search", systemImage: "magnifyingglass") }
+                    .help("Search conversations and messages (⌘K)")
                 Button { showNew = true } label: { Label("New conversation", systemImage: "square.and.pencil") }
                     .keyboardShortcut("n")
             }
@@ -69,6 +76,10 @@ struct MainWindow: View {
         .sheet(isPresented: $showNew) { NewConversationSheet(model: model, isPresented: $showNew) }
         .onAppear { model.start() }
         .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in showNew = true }
+        .overlay { SearchPaletteOverlay(palette: palette) }
+        .background(TextScaleEqualsShortcut(scale: $textScale))
+        .environment(\.textScale, textScale)
+        .environment(\.searchPalette, palette)
     }
 }
 
@@ -84,9 +95,9 @@ struct LockedSessionView: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "lock").font(.largeTitle).foregroundStyle(.secondary)
-            Text(entry.title).font(.headline).multilineTextAlignment(.center)
-            if !entry.subtitle.isEmpty { Text(entry.subtitle).font(.caption).foregroundStyle(.secondary) }
-            Text(lockedWords(entry)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text(entry.title).readingFont(.subheading).multilineTextAlignment(.center)
+            if !entry.subtitle.isEmpty { Text(entry.subtitle).readingFont(.caption).foregroundStyle(.secondary) }
+            Text(lockedWords(entry)).readingFont(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
         }
         .padding(24)
@@ -120,8 +131,8 @@ struct StatusBanner: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbol).foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).bold()
-                Text(detail).font(.callout).foregroundStyle(.secondary)
+                Text(title).bold().readingFont(.body)
+                Text(detail).readingFont(.secondary).foregroundStyle(.secondary)
             }
             Spacer()
         }
@@ -166,13 +177,13 @@ struct SidebarRow: View {
             ProviderBadge(provider: entry.provider)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(entry.title).lineLimit(1)
+                    Text(entry.title).readingFont(.body).lineLimit(1)
                     if case .native = entry.target {
-                        Image(systemName: "arrow.uturn.right.circle").font(.caption2).foregroundStyle(.secondary)
+                        Image(systemName: "arrow.uturn.right.circle").readingFont(.footnote).foregroundStyle(.secondary)
                             .help("An existing \(entry.provider == "codex" ? "Codex" : "Claude") session; opening it continues it here")
                     }
                 }
-                Text(entry.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(entry.subtitle).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
             if entry.pendingApprovals > 0 {
@@ -236,6 +247,7 @@ struct ConversationView: View {
                 }
             }
             ScrollViewReader { proxy in
+                SearchRevealer(conversationID: conversation.conversation_id, proxy: proxy)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if let timeline, !timeline.historyComplete, timeline.historyPagesLoaded > 0 {
@@ -260,7 +272,7 @@ struct ConversationView: View {
                             .onDisappear { atBottom = false }
                     }
                     .padding(16)
-                    .frame(maxWidth: 900, alignment: .leading)
+                    .readingColumn()
                     .frame(maxWidth: .infinity)
                 }
                 .onChange(of: timeline?.items.last?.id) { _, _ in
@@ -330,8 +342,8 @@ struct ConversationView: View {
         HStack(spacing: 8) {
             ProviderBadge(provider: conversation.provider)
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.state.conversationTitle(conversation)).font(.headline).lineLimit(1)
-                Text(abbreviatedPath(conversation.workspace)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(model.state.conversationTitle(conversation)).readingFont(.subheading).lineLimit(1)
+                Text(abbreviatedPath(conversation.workspace)).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if model.canShowChanges {
@@ -342,11 +354,11 @@ struct ConversationView: View {
                 .help("What this conversation changed in its checkout since its first writable turn")
             }
             Text(PermissionPolicy(rawValue: conversation.settings.permission)?.label ?? conversation.settings.permission)
-                .font(.caption).padding(.horizontal, 6).padding(.vertical, 2)
+                .readingFont(.caption).padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Capsule().fill(Color.secondary.opacity(0.15)))
                 .help("Permission policy")
             if conversation.origin == "native" || conversation.origin == "legacy" {
-                Text(conversation.origin == "legacy" ? "Imported" : "Continued").font(.caption).foregroundStyle(.secondary)
+                Text(conversation.origin == "legacy" ? "Imported" : "Continued").readingFont(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -367,7 +379,7 @@ struct TimelineRow: View {
                 PersonBubble(text: text, footer: nil)
             } else if let tool {
                 Label(tool + (text.isEmpty ? "" : ": " + text), systemImage: "wrench.and.screwdriver")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .readingFont(.caption).foregroundStyle(.secondary).lineLimit(2)
             } else {
                 MarkdownView(text: text)
             }
@@ -385,9 +397,9 @@ struct TimelineRow: View {
             MarkdownView(text: text, streaming: !final)
         case .thinking(let text, let final):
             DisclosureGroup {
-                Text(text).font(.callout).italic().foregroundStyle(.secondary).textSelection(.enabled)
+                Text(text).italic().readingFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled)
             } label: {
-                Label(final ? "Thought" : "Thinking…", systemImage: "brain").font(.caption).foregroundStyle(.secondary)
+                Label(final ? "Thought" : "Thinking…", systemImage: "brain").readingFont(.caption).foregroundStyle(.secondary)
             }
         case .tool(let activity):
             ToolRow(activity: activity)
@@ -396,9 +408,9 @@ struct TimelineRow: View {
         case .error(let message, let kind, let willRetry):
             Label((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""),
                   systemImage: "exclamationmark.triangle")
-                .font(.callout).foregroundStyle(.red)
+                .readingFont(.secondary).foregroundStyle(.red)
         case .notice(let words):
-            Text(words).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+            Text(words).readingFont(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
         }
     }
 }
@@ -406,15 +418,16 @@ struct TimelineRow: View {
 struct PersonBubble: View {
     let text: String
     let footer: String?
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(text).textSelection(.enabled)
-            if let footer { Label(footer, systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
+            Text(text).readingFont(.body).textSelection(.enabled)
+            if let footer { Label(footer, systemImage: "photo").readingFont(.caption).foregroundStyle(.secondary) }
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.14)))
-        .frame(maxWidth: 640, alignment: .trailing)
+        .frame(maxWidth: ReadingStyle.bubbleWidth(scale: scale), alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
@@ -428,14 +441,14 @@ struct TurnStatusLine: View {
         HStack(spacing: 8) {
             let live = turn.messageState.map { [.waiting, .starting, .running, .approvalNeeded].contains($0) } ?? (turn.state == "sending")
             if live { ProgressView().controlSize(.mini) }
-            Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
+            Text(turn.statusText).readingFont(.caption).foregroundStyle(.secondary)
             if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
                 ServedChipView(chip: chip)
             }
             if live {
                 Button("Stop") {
                     model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
-                }.buttonStyle(.link).font(.caption)
+                }.buttonStyle(.link).readingFont(.caption)
             }
             if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
                 Button {
@@ -443,7 +456,7 @@ struct TurnStatusLine: View {
                 } label: {
                     Label(diffStatsWords(stats), systemImage: "plus.forwardslash.minus")
                 }
-                .buttonStyle(.link).font(.caption)
+                .buttonStyle(.link).readingFont(.caption)
                 .help("What this turn changed")
             }
         }
@@ -474,13 +487,13 @@ struct ChangesPane: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline).lineLimit(1)
-                    if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                    Text(title).readingFont(.subheading).lineLimit(1)
+                    if let subtitle { Text(subtitle).readingFont(.caption).foregroundStyle(.secondary).lineLimit(2) }
                 }
                 Spacer()
                 if case .turn = scope {
                     Button("Whole conversation") { model.showChanges(.conversation(conversation.conversation_id)) }
-                        .buttonStyle(.link).font(.caption)
+                        .buttonStyle(.link).readingFont(.caption)
                 }
                 Button { Task { await model.loadChanges(scope) } } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless).help("Compare again")
@@ -525,7 +538,7 @@ struct ChangesPane: View {
                 PaneNote(text: "No changes.", symbol: "checkmark.circle")
             } else {
                 ForEach(diffNotes(result), id: \.self) { note in
-                    Label(note, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                    Label(note, systemImage: "info.circle").readingFont(.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, 10).padding(.top, 6)
                 }
                 List(selection: $selected) {
@@ -535,7 +548,7 @@ struct ChangesPane: View {
                 .frame(minHeight: 80, idealHeight: min(CGFloat(result.files.count) * 24 + 8, 220), maxHeight: 220)
                 .fixedSize(horizontal: false, vertical: true)
                 if selected != nil {
-                    Button("Show every file") { selected = nil }.buttonStyle(.link).font(.caption)
+                    Button("Show every file") { selected = nil }.buttonStyle(.link).readingFont(.caption)
                         .padding(.horizontal, 10).padding(.vertical, 4)
                 }
                 Divider()
@@ -563,7 +576,7 @@ struct PaneNote: View {
 
     var body: some View {
         VStack {
-            Label(text, systemImage: symbol).foregroundStyle(.secondary).padding(14)
+            Label(text, systemImage: symbol).readingFont(.secondary).foregroundStyle(.secondary).padding(14)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -586,7 +599,7 @@ struct DiffFileRow: View {
                 if let removed = file.deletions, removed > 0 { Text("−\(removed)").foregroundStyle(.red) }
             }
         }
-        .font(.system(.caption, design: .monospaced))
+        .readingFont(.caption, design: .monospaced)
     }
 }
 
@@ -634,13 +647,13 @@ struct DiffLinesView: View {
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(sections) { section in
-                        Text(section.path).font(.system(.caption, design: .monospaced).bold())
+                        Text(section.path).readingFont(.caption, weight: .bold, design: .monospaced)
                             .padding(.horizontal, 8).padding(.vertical, 5)
                             .frame(minWidth: width, alignment: .leading)
                             .background(Color.secondary.opacity(0.12))
                         if section.lines.isEmpty {
                             Text(section.binary ? "Binary file: no text to show." : "No line changes (a mode or a rename).")
-                                .font(.caption).foregroundStyle(.secondary).padding(8)
+                                .readingFont(.caption).foregroundStyle(.secondary).padding(8)
                         }
                         ForEach(section.lines) { line in DiffLineRow(line: line, minWidth: width) }
                     }
@@ -657,15 +670,18 @@ struct DiffLinesView: View {
 struct DiffLineRow: View {
     let line: DiffLine
     var minWidth: CGFloat = 520
+    @Environment(\.textScale) private var scale
 
     var body: some View {
+        // Line numbers of five digits fit at every text size.
+        let size = ReadingStyle.caption.pointSize(scale: scale)
         HStack(spacing: 0) {
-            Text(line.old.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundStyle(.tertiary)
-            Text(line.new.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundStyle(.tertiary)
-            Text(marker).frame(width: 18).foregroundStyle(markerColor)
+            Text(line.old.map(String.init) ?? "").frame(width: ceil(size * 3.4), alignment: .trailing).foregroundStyle(.tertiary)
+            Text(line.new.map(String.init) ?? "").frame(width: ceil(size * 3.4), alignment: .trailing).foregroundStyle(.tertiary)
+            Text(marker).frame(width: ceil(size * 1.5)).foregroundStyle(markerColor)
             Text(shown).fixedSize().foregroundStyle(line.kind == .hunk || line.kind == .meta ? Color.secondary : Color.primary)
         }
-        .font(.system(size: 11, design: .monospaced))
+        .readingFont(.caption, design: .monospaced)
         .padding(.trailing, 12)
         .frame(minWidth: minWidth, alignment: .leading)
         .background(background)
@@ -710,10 +726,10 @@ struct LiveTurnStrip: View {
             if let since = turn.statusSince {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text("\(turn.statusText) · \(elapsedWords(from: since, to: context.date))")
-                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        .readingFont(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }
             } else {
-                Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
+                Text(turn.statusText).readingFont(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Stop") {
@@ -736,14 +752,14 @@ struct RunsStrip: View {
                 Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
                 if live.isEmpty {
                     Text("\(runs.count) sub-agent run\(runs.count == 1 ? "" : "s"), none running")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .readingFont(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(live.prefix(3).map(runLine).joined(separator: "   "))
-                        .font(.caption).lineLimit(1).truncationMode(.tail)
-                    if live.count > 3 { Text("+\(live.count - 3)").font(.caption).foregroundStyle(.secondary) }
+                        .readingFont(.caption).lineLimit(1).truncationMode(.tail)
+                    if live.count > 3 { Text("+\(live.count - 3)").readingFont(.caption).foregroundStyle(.secondary) }
                 }
                 Spacer()
-                Button(showAll ? "Hide" : "All runs") { showAll.toggle() }.buttonStyle(.link).font(.caption)
+                Button(showAll ? "Hide" : "All runs") { showAll.toggle() }.buttonStyle(.link).readingFont(.caption)
             }
             .padding(.horizontal, 14).padding(.vertical, 4)
             .popover(isPresented: $showAll, arrowEdge: .bottom) { RunsList(runs: runs) }
@@ -769,11 +785,11 @@ struct RunsList: View {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: runSymbol(run.state)).foregroundStyle(runColor(run.state))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(run.name ?? run.job_id).font(.callout).lineLimit(1)
+                    Text(run.name ?? run.job_id).readingFont(.secondary).lineLimit(1)
                     Text([run.task.map { t in run.tier.map { "\(t) · \($0)" } ?? t }, run.lane_id,
                           run.model_served ?? run.model_requested, run.state]
                         .compactMap { $0 }.joined(separator: "  ·  "))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .help(run.job_id)
@@ -823,10 +839,10 @@ struct ServedChipView: View {
         let parts = [chip.account, chip.model, chip.effort, chip.fast].compactMap { $0 }.filter { !$0.isEmpty }
         HStack(spacing: 4) {
             if !parts.isEmpty {
-                Text(parts.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                Text(parts.joined(separator: " · ")).readingFont(.footnote).foregroundStyle(.secondary)
             }
             ForEach(chip.warnings, id: \.self) { warning in
-                Label(warning, systemImage: "exclamationmark.triangle").font(.caption2).foregroundStyle(.orange)
+                Label(warning, systemImage: "exclamationmark.triangle").readingFont(.footnote).foregroundStyle(.orange)
             }
         }
         .padding(.horizontal, 6).padding(.vertical, 1)
@@ -847,8 +863,8 @@ struct ToolRow: View {
                 case .failed: Image(systemName: "xmark.circle").foregroundStyle(.red)
                 case .unfinished: Image(systemName: "circle.dashed").foregroundStyle(.secondary)
                 }
-                Text(activity.name).font(.caption.bold())
-                Text(activity.summary).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                Text(activity.name).readingFont(.caption, weight: .bold)
+                Text(activity.summary).readingFont(.caption, design: .monospaced).lineLimit(1).truncationMode(.middle)
                     .foregroundStyle(.secondary)
                 Spacer()
                 if activity.preview != nil {
@@ -857,7 +873,7 @@ struct ToolRow: View {
                 }
             }
             if expanded, let preview = activity.preview {
-                Text(preview).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                Text(preview).readingFont(.caption, design: .monospaced).textSelection(.enabled)
                     .padding(6).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.08)))
             }
@@ -875,19 +891,19 @@ struct ApprovalCardView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
-                Text(title).bold()
+                Text(title).bold().readingFont(.body)
                 Spacer()
                 switch card.state {
                 case .pending: Button("Review", action: review).buttonStyle(.borderedProminent)
-                case .answered(let decision): Text(decision.map { "Answered: \($0)" } ?? "Answered").font(.caption)
-                case .withdrawn: Text("Withdrawn").font(.caption).foregroundStyle(.secondary)
+                case .answered(let decision): Text(decision.map { "Answered: \($0)" } ?? "Answered").readingFont(.caption)
+                case .withdrawn: Text("Withdrawn").readingFont(.caption).foregroundStyle(.secondary)
                 }
             }
             if let command = card.display.command ?? card.display.input {
-                Text(command).font(.system(.callout, design: .monospaced)).lineLimit(6).textSelection(.enabled)
+                Text(command).readingFont(.code, design: .monospaced).lineLimit(6).textSelection(.enabled)
             }
             if let reason = card.display.reason ?? card.display.description {
-                Text(reason).font(.caption).foregroundStyle(.secondary)
+                Text(reason).readingFont(.secondary).foregroundStyle(.secondary)
             }
         }
         .padding(10)
@@ -921,12 +937,12 @@ struct ApprovalSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(card.kind == "question" ? "Answer the question" : "Approve this request?").font(.title3.bold())
+            Text(card.kind == "question" ? "Answer the question" : "Approve this request?").readingFont(.heading)
             if let detail {
                 if card.kind == "question" {
                     ForEach(Array(card.questions.enumerated()), id: \.offset) { _, question in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(question.question).bold()
+                            Text(question.question).bold().readingFont(.body)
                             if let options = question.options, !options.isEmpty {
                                 Picker(question.header ?? "Choice", selection: Binding(
                                     get: { answers[question.question] ?? "" },
@@ -939,11 +955,12 @@ struct ApprovalSheet: View {
                             }
                             TextField("Or type an answer", text: Binding(get: { answers[question.question] ?? "" },
                                                                         set: { answers[question.question] = $0 }))
+                                .readingFont(.body)
                         }
                     }
                 } else {
                     ScrollView {
-                        Text(pretty(detail.request)).font(.system(.caption, design: .monospaced))
+                        Text(pretty(detail.request)).readingFont(.caption, design: .monospaced)
                             .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(minHeight: 120, maxHeight: 320)
@@ -952,14 +969,14 @@ struct ApprovalSheet: View {
                     if !detail.masked.isEmpty && !revealed {
                         HStack {
                             Label("\(detail.masked.count) value(s) that look like secrets are masked",
-                                  systemImage: "eye.slash").font(.callout)
+                                  systemImage: "eye.slash").readingFont(.secondary)
                             Spacer()
                             Button("Reveal") { Task { await load(reveal: true) } }
                         }
-                        Toggle("I have reviewed the masked values", isOn: $confirmMasked).font(.callout)
+                        Toggle("I have reviewed the masked values", isOn: $confirmMasked).readingFont(.secondary)
                     }
                 }
-                TextField("Note to the agent (optional)", text: $note)
+                TextField("Note to the agent (optional)", text: $note).readingFont(.body)
                 HStack {
                     Button("Cancel", role: .cancel, action: done).keyboardShortcut(.cancelAction)
                     Spacer()
