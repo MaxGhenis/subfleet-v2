@@ -453,6 +453,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_pick(args: argparse.Namespace) -> int:
     """Permanent v1 path/email output; routing evidence and authority are v2's."""
+    _retire_model(args, "pick", "--model", "model")
     try:
         data = _client(args).call("pick", {"family": args.family, "model": args.model,
             "exclusions": args.exclude, "min_headroom": args.min_headroom})
@@ -511,12 +512,13 @@ def _apply_deprecations(args: argparse.Namespace) -> None:
     _retire_model(args, "run", "-t" if legacy in LEGACY_MODEL_CLASSES and args.m == legacy else "-m")
 
 
-def _retire_model(args: argparse.Namespace, verb: str, flag: str = "-m") -> None:
+def _retire_model(args: argparse.Namespace, verb: str, flag: str = "-m", attr: str = "m") -> None:
     """C-17.2: a retired pin is accepted, noted on stderr, and replaced by its successor."""
-    if args.m in RETIRED_MODELS:
-        replacement = RETIRED_MODELS[args.m]
-        note(f"{PROG} {verb}: {flag} {args.m} is retired; using {replacement}")
-        args.m = replacement
+    value = getattr(args, attr, None)
+    if value in RETIRED_MODELS:
+        replacement = RETIRED_MODELS[value]
+        note(f"{PROG} {verb}: {flag} {value} is retired; using {replacement}")
+        setattr(args, attr, replacement)
 
 
 INBOX_KEEP_S = 7 * 24 * 3600

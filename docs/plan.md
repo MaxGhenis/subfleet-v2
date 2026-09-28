@@ -120,12 +120,15 @@ and `adjudication` are Opus at every tier; `fable` leaves `models`; `fable`,
 `claude-fable-5`, and `claude-fable-5-1` are `retired` aliases of `opus`; and
 `reserve.models` is empty, because a reserve held for a model nothing routes to
 only stops Opus work. Retirement follows Sol's path (C-17.2): `run -m` and `-t`,
-`why -m`, `sessions handoff --to`, `sessions revive --model`, and `gate --peer`
-accept the old name, say so on stderr, and use the successor even under a
-`policy.json` that still lists Fable. `gate --peer opus` is the Claude-family
-peer that `fable` was; a gate opened before the retirement runs its next round
-on Opus and keeps its earlier rounds as recorded. The reserve rule (C-11.7) and
-stranded-capacity ordering (C-23.37) are unchanged and keep their tests against
-an explicit policy that still reserves Fable. Claude accounts still report
-Fable's weekly window; it is recorded under its own id, and a `retired` alias
-never re-labels it as Opus's (the v1 importer used to, through the alias map).
+batch manifests, `why -m`, `pick --model`, `sessions handoff --to`, `sessions
+revive --model`, and `gate --peer` accept the old name, say so on stderr, and use
+the successor even under a `policy.json` that still lists Fable; a revive of a
+session last served on Fable pins Opus under such a policy too. `gate --peer
+opus` is the Claude-family peer that `fable` was; a gate opened before the
+retirement runs its next round on Opus and keeps its earlier rounds as recorded,
+and a round queued on Fable that ran on Opus counts as Opus's. The reserve rule
+(C-11.7) and stranded-capacity ordering (C-23.37) are unchanged and keep their
+tests against an explicit policy that still reserves Fable. Claude accounts still
+report Fable's weekly window; it is recorded under its own id. A `retired` alias
+never re-labels what was recorded: the v1 importer used to map a Fable window,
+cooldown, or run's requested model onto the alias's target, and now keeps it.

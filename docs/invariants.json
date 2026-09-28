@@ -1609,7 +1609,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/policy.py",
   "test_name": "test_retired_model_alias_normalized_before_closure_scope",
-  "notes": "2026-09-02: `fable` pinned Fable 5 while the app ran 5.1. The `retired` map is policy data; the context suffix now lives in the provider model id (C-1.6) and closure scope uses that id (C-9.4). 2026-09-27: a `retired` alias re-targets pins (submissions, retries, picks, revives) but no longer a usage scope: Fable retired onto Opus, and a Fable cooldown or weekly window is still Fable's own bucket, never an Opus closure (`subfleet/importer.py` `_scope_ids`)."
+  "notes": "2026-09-02: `fable` pinned Fable 5 while the app ran 5.1. The `retired` map is policy data; the context suffix now lives in the provider model id (C-1.6) and closure scope uses that id (C-9.4). 2026-09-27: a `retired` alias re-targets pins (submissions, retries, picks, revives) but no longer anything recorded: Fable retired onto Opus, yet a Fable cooldown or weekly window is still Fable's own bucket, never an Opus closure, and an imported Fable run still asked for Fable (`subfleet/importer.py` `_recorded_ids`)."
  },
  {
   "id": 125,

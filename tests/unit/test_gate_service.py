@@ -191,6 +191,81 @@ def test_a_gate_opened_with_a_fable_peer_continues_on_opus(core, tmp_path):
     assert certificate["peer"] == "opus"
 
 
+def queued_before_the_retirement(core, gate_id):
+    """Rewrite a submitted round as one queued on Fable before 2026-09-27. Its job was
+    pinned `fable`; the daemon, now on the shipped policy, dispatched the successor."""
+    service = core._gate_service
+    state = service._load(gate_id)
+    state["peer"] = state["rounds"][-1]["peer"] = "fable"
+    state["rounds"][-1]["requested_model"] = "claude-fable-5-1"
+    service._save(state, "test-legacy-peer")
+    return service
+
+
+def test_a_round_queued_on_fable_that_ran_on_opus_counts_as_opus(core, tmp_path):
+    """C-17.2, C-23.43: the attempt asked for Opus because `fable` resolved to it at
+    dispatch. The round records the model that reviewed, and the gate agrees on Opus."""
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("Queued before the retirement\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, peer="opus")))
+    service = queued_before_the_retirement(core, started["gate_id"])
+    finish(core, started)
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 0
+    state = service._load(started["gate_id"])
+    record = state["rounds"][-1]
+    assert (record["peer"], record["retired_peer"], record["requested_model"]) == \
+        ("opus", "fable", "claude-opus-5-5")
+    assert (state["peer"], state["retired_peer"]) == ("opus", "fable")
+    certificate = json.loads((core.root / "gates" / started["gate_id"] / "certificate.json").read_text())
+    assert certificate["peer"] == "opus"
+
+
+def test_a_round_queued_on_fable_that_ran_on_another_model_still_blocks(core, tmp_path, monkeypatch):
+    """C-23.43: the retirement accepts only the successor; any other model is not a verdict."""
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("Queued before the retirement\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, "--max-rounds", "1", peer="opus")))
+    service = queued_before_the_retirement(core, started["gate_id"])
+    finish(core, started)
+    real = core.store.get_attempt
+    monkeypatch.setattr(core.store, "get_attempt",     # attempts are immutable in the store
+                        lambda attempt_id: {**real(attempt_id), "model_requested": "claude-sonnet-5"})
+    result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert result["code"] == 4 and "requested a different model" in result["message"]
+    state = service._load(started["gate_id"])
+    assert state["rounds"][-1]["peer"] == "fable" and "retired_peer" not in state["rounds"][-1]
+
+
+def test_a_failed_round_preparation_leaves_a_fable_gate_as_it_was(core, tmp_path, monkeypatch):
+    """The peer migration is saved with the prepared round, so a failure before then
+    changes nothing on disk."""
+    from subfleet.gate import service as gate_service
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("First revision\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, peer="opus")))
+    finish(core, started, verdict="changes_requested")
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 3
+    service = core._gate_service
+    legacy = service._load(started["gate_id"])
+    legacy["peer"] = legacy["rounds"][0]["peer"] = "fable"
+    service._save(legacy, "test-legacy-peer")
+    before = service._load(started["gate_id"])
+    plan.write_text("Second revision\n")
+
+    def broken(*args, **kwargs):
+        raise GateError("simulated failure while preparing the round", 4)
+
+    monkeypatch.setattr(gate_service, "prepare", broken)
+    result = dispatch(core, "gate.continue", wire(continued(started["gate_id"], plan)))
+    assert result["code"] == 4 and "simulated failure" in result["message"]
+    after = service._load(started["gate_id"])
+    assert after["peer"] == "fable" and "retired_peer" not in after
+    assert after["rounds"] == before["rounds"]
+
+
 @pytest.mark.parametrize("peer,account", [("opus", "claude-1"), ("fable", "claude-1")])
 def test_claude_peers_accept_account_routing(peer, account):
     """docs/gates.md: account routing is a Claude peer's; a retired Fable peer is still Claude."""

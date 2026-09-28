@@ -250,8 +250,9 @@ class GateService:
             # A gate opened before its peer was retired continues on the successor,
             # which is of the same family; its earlier rounds keep the peer they
             # ran on, and the certificate names the peer of the agreeing round.
+            # Saved with the prepared round below, never on its own, so a failure
+            # before then leaves the gate as it was.
             state.update(peer=current_peer(state["peer"]), retired_peer=state["peer"])
-            self._save(state, "peer-retired")
         stamp = utc_now()
         record = {"number": len(rounds) + 1, "attempt_id": uuid.uuid4().hex,
                   "started_at": stamp, "finished_at": None, "revision": expected,
@@ -361,6 +362,8 @@ class GateService:
             if not job or job["state"] != "succeeded" or job["rc"] != 0:
                 raise GateError(f"peer dispatch exited {job.get('rc') if job else 'without a job'}", 4)
             attempt = self.store.get_attempt(job["accepted_attempt_id"])
+            if attempt:
+                self._retire_round_peer(state, record, attempt)
             if not attempt or attempt["model_requested"] != record["requested_model"]:
                 raise GateError("peer attempt requested a different model", 4)
             evidence = json.loads(attempt.get("evidence_json") or "{}")
@@ -427,6 +430,23 @@ class GateService:
         if retry:
             return self._reserve(state, expected, "", record.get("peer_account"), tuple(record.get("exclude_accounts", [])))
         return self._complete(state) if state["status"] == "agreed" else self._result(state)
+
+    def _retire_round_peer(self, state, record, attempt):
+        """C-17.2: a round submitted on a peer that was retired before it ran.
+
+        The daemon resolves the round's pinned `fable` through the policy's
+        `retired` map when it dispatches, so the attempt asked for Opus. The round
+        then records the model that actually reviewed, and the gate moves to that
+        peer with it; an attempt that asked for any other model still fails.
+        """
+        peer = record.get("peer", state["peer"])
+        successor = current_peer(peer)
+        model = self.daemon.policy["models"].get(successor)
+        if successor == peer or not model or attempt["model_requested"] != model["id"]:
+            return
+        record.update(retired_peer=peer, peer=successor, requested_model=model["id"])
+        if state["peer"] != successor:
+            state.update(retired_peer=state["peer"], peer=successor)
 
     def continue_gate(self, args):
         with self._lock(args.gate_id):

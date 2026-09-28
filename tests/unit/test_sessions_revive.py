@@ -259,17 +259,42 @@ def test_a_retired_pin_revives_on_the_current_id_of_that_tier(world, policy, tmp
     assert daemon.submits[0].pinned_model == "opus"
 
 
-def test_an_older_policy_that_still_lists_fable_cannot_revive_on_it(world, tmp_path):
+@pytest.mark.parametrize("recorded", ["claude-fable-5-1", "claude-fable-5", "fable"])
+def test_an_older_policy_that_still_lists_fable_cannot_revive_on_it(world, tmp_path, recorded):
     """C-17.2, C-23.39: a policy.json written before the retirement still carries a
-    `fable` model; a revive, which runs unattended, must not be the route back to it."""
+    `fable` model and maps `claude-fable-5` onto it; a revive, which runs unattended,
+    must not be the route back to it by any spelling."""
     from tests.fable_reserve import load_fable_reserve_policy
     older = load_fable_reserve_policy(writing_chains=True)
     assert older["models"]["fable"]["id"] == "claude-fable-5-1"
-    cold_session(world, model="claude-fable-5-1")
+    assert older["retired"]["claude-fable-5"] == "fable"
+    cold_session(world, model=recorded)
     daemon = fx.FakeSessions()
     result = attempt(daemon, older, COLD, tmp_path, opt_in=True)
+    assert result.model == "opus" and daemon.submits[0].pinned_model == "opus"
+    assert f"{recorded} is retired; its tier is now opus" in result.reason
+
+
+@pytest.mark.parametrize("typed", ["fable", "claude-fable-5-1", "claude-fable-5"])
+def test_an_operator_model_that_is_retired_is_substituted_by_its_successor(world, tmp_path, typed):
+    """C-17.2, C-23.39: `--model` is free text, so an exact Fable id reaches revive
+    unremapped by the CLI; under an older policy it still pins Opus, and says why."""
+    from tests.fable_reserve import load_fable_reserve_policy
+    older = load_fable_reserve_policy(writing_chains=True)
+    cold_session(world, model="claude-opus-5-5")
+    daemon = fx.FakeSessions()
+    result = attempt(daemon, older, COLD, tmp_path, opt_in=True, model=typed)
     assert result.model == "opus"
-    assert "claude-fable-5-1 is retired; its tier is now opus" in result.reason
+    assert f"operator substituted {typed} for claude-opus-5-5; {typed} is retired, so opus" in result.reason
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("claude-opus-5-5", "claude-opus-5-5"), ("opus", "opus"), ("haiku", "haiku"),
+    ("sol", "astra"), ("unknown-model", "unknown-model"),
+])
+def test_live_model_leaves_current_names_alone(policy, name, expected):
+    """Only retired names change; a current short name or exact id is kept as given."""
+    assert revive.live_model(name, policy) == expected
 
 
 def test_a_session_with_no_recorded_model_is_routed_by_task_and_tier(world, policy, tmp_path):

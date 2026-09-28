@@ -130,8 +130,8 @@ exclusions, and ownership still control eligibility.
 The writing tasks (`authored-prose`, `strategy`, `adjudication`) run on Opus at
 every tier. Retired models stay accepted wherever a model is named: `fable` uses
 Opus (retired 2026-09-27) and `sol` uses Astra, with a note on stderr, for
-`run -m` and `-t`, `why -m`, `sessions handoff --to`, `sessions revive --model`,
-and `gate --peer`. The shipped policy's `retired` map does the same for pins that
+`run -m` and `-t`, batch manifests, `why -m`, `pick --model`, `sessions handoff
+--to`, `sessions revive --model`, and `gate --peer`. The shipped policy's `retired` map does the same for pins that
 arrive another way (queued jobs, retries, and revives of a session last served on
 Fable). Claude accounts still report Fable's own weekly window; it is recorded
 under its own id and routes nothing.

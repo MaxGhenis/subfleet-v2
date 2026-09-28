@@ -7,8 +7,9 @@ remain: the reserve rule (C-11.7), stranded-capacity preference across chains
 (C-23.37), and model-scoped closures. Claude accounts also still report Fable's own
 weekly bucket. So the cases for those rules keep their recorded evidence and run
 against this explicit policy: the shipped one, with Fable restored as a model, its
-older id renamed onto it, and its bucket reserved. It is the shipped file as it stood
-before the retirement.
+older id renamed onto it, and its bucket reserved. By default the writing chains stay
+on Opus, since only the reserve and the scopes matter to these cases; with
+`writing_chains=True` it is the shipped file as it stood before the retirement.
 """
 
 from __future__ import annotations

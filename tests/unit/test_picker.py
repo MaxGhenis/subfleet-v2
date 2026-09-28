@@ -245,3 +245,19 @@ def test_native_api_lane_check_is_silent_for_subscription_and_unknown(tmp_path, 
     (tmp_path / "auth.json").write_text(json.dumps({"tokens": {"account_id": "example"}}))
     assert cli.main(["_api-lane-check", str(tmp_path)]) == 0
     assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("retired,successor,family", [("fable", "opus", "claude"), ("sol", "astra", "codex")])
+def test_cli_pick_model_asks_the_daemon_about_the_successor(monkeypatch, capsys, retired, successor, family):
+    """C-17.2: `pick --model fable` is a person naming a model, so it is remapped like
+    `-m`, even when the daemon's policy still lists Fable."""
+    calls = []
+
+    class Client:
+        def call(self, op, args):
+            calls.append(args["model"])
+            return {"best": None, "ranked": [], "excluded": []}
+    monkeypatch.setattr(cli, "_client", lambda args: Client())
+    assert cli.main(["pick", family, "--model", retired, "--json"]) == 1
+    assert calls == [successor]
+    assert f"pick: --model {retired} is retired; using {successor}" in capsys.readouterr().err

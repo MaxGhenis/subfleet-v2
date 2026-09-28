@@ -262,31 +262,37 @@ def model_for(candidate: Candidate, policy: dict[str, Any],
     better than fable"), a silent tier change is still not revive's to make.
     """
     if override:
-        return override, f"operator substituted {override} for {candidate.model or 'unknown'}"
+        live = live_model(override, policy)
+        why = f"operator substituted {override} for {candidate.model or 'unknown'}"
+        return live, (why if live == override else f"{why}; {override} is retired, so {live}")
     if not candidate.model:
         return None, "the session records no model; routing picks its own"
-    retired = policy.get("retired", {})
-    if candidate.model in retired:
-        # A session last served by a retired pin revives on the current id of
-        # that tier, never on the retired model.
-        return retired[candidate.model], (f"{candidate.model} is retired; its tier "
-                                          f"is now {retired[candidate.model]}")
-    successor = _retired_successor(candidate.model, policy)
-    if successor:
-        # An older policy may still list a model retired from dispatch (C-17.2);
-        # a revive, which runs unattended, must not be the route back to it.
-        return successor, f"{candidate.model} is retired; its tier is now {successor}"
+    live = live_model(candidate.model, policy)
+    if live != candidate.model:
+        # A session last served by a retired pin revives on the current model of
+        # that tier, never on the retired one. That holds under an older policy
+        # that still lists the model too (C-17.2): a revive runs unattended and
+        # must not be the route back to it.
+        return live, f"{candidate.model} is retired; its tier is now {live}"
     return candidate.model, "the session's own recorded model"
 
 
-def _retired_successor(model: str, policy: dict[str, Any]) -> str | None:
-    """The successor of a recorded model (short name or exact id) retired from dispatch."""
-    if model in RETIRED_MODELS:
-        return RETIRED_MODELS[model]
-    for short, entry in (policy.get("models") or {}).items():
-        if short in RETIRED_MODELS and isinstance(entry, dict) and entry.get("id") == model:
-            return RETIRED_MODELS[short]
-    return None
+def live_model(name: str, policy: dict[str, Any]) -> str:
+    """The model a revive may pin for `name` (a short name, exact id, or alias).
+
+    The policy's own `retired` map applies first. Its target, or the short name
+    behind an exact id, is then checked against the code's retirements, so an
+    older policy that still maps `claude-fable-5` to `fable`, or that still
+    carries Fable's id, resolves to Opus. Any other name is returned unchanged.
+    """
+    retired = policy.get("retired") or {}
+    short = retired.get(name)
+    if short is None:
+        short = next((key for key, entry in (policy.get("models") or {}).items()
+                      if isinstance(entry, dict) and entry.get("id") == name), name)
+    if short in RETIRED_MODELS:
+        return RETIRED_MODELS[short]
+    return retired.get(name, name)
 
 
 def submit_args(candidate: Candidate, *, model: str | None, request_id: str,
