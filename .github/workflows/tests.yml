@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   tests:
-    name: Python ${{ matrix.python }} on macOS
+    name: Python ${{ matrix.python }} ${{ matrix.variant }} daemon, live test x15
     runs-on: macos-15
     # The release line's suite (6,228 tests, the desktop workspace's included)
     # took 12 min 22 s on Python 3.12 on 2026-09-27; 15 min cancelled 3.14.
@@ -23,6 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
+        variant: ["fixed", "release-217"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -36,10 +37,14 @@ jobs:
         run: uv build
       - name: Compile native menu bar app without launching
         run: app/build.sh "$RUNNER_TEMP/subfleet-frontend"
-      - name: Unit, fake-provider, process, and end-to-end contracts
-        run: uv run --no-sync pytest -q
+      - name: Put release/217's daemon under this branch's tests
+        if: matrix.variant == 'release-217'
+        run: git fetch --depth=1 origin release/217 && git checkout FETCH_HEAD -- subfleet/ && git status --short
+      - name: Live app test, 15 times
+        run: uv run --no-sync pytest -v -p no:cacheprovider tests/frontend/test_core_live.py
         env:
           SUBFLEET_LIVE: "0"
+          LIVE_REPEAT: "15"
       # The daemon harnesses (tests/e2e, tests/fake, tests/frontend/test_core_live.py)
       # copy a failed test's state root to /tmp/sf-failed/<test>; the live app test adds
       # the probe's checks, exchanges and outbox under probe/.
@@ -47,7 +52,7 @@ jobs:
         if: failure() || cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sf-failed-python-${{ matrix.python }}-attempt-${{ github.run_attempt }}
+          name: sf-failed-python-${{ matrix.python }}-${{ matrix.variant }}-attempt-${{ github.run_attempt }}
           path: /tmp/sf-failed
           if-no-files-found: ignore
           include-hidden-files: true

@@ -91,7 +91,8 @@ def dev_daemon(request, core_probe, tmp_path):
         shutil.rmtree(root, ignore_errors=True)
 
 
-def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daemon):
+@pytest.mark.parametrize("repeat", range(int(os.environ.get("LIVE_REPEAT", "1"))))
+def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daemon, repeat):
     harness, session = dev_daemon
     image = tmp_path / "pixel.png"
     image.write_bytes(PNG)
