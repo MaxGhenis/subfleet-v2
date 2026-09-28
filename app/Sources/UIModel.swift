@@ -136,6 +136,7 @@ final class UIModel: ObservableObject {
         state.apply(watch: page)
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
+        refreshApprovalsIfStale()
         if page.changes.contains(where: { !known.contains($0.conversation_id) }) {
             Task { await refreshList() }
         }
@@ -519,6 +520,20 @@ final class UIModel: ObservableObject {
         } catch {
             report(error)
             return false
+        }
+    }
+
+    /// The daemon counts fewer pending approvals in the focused conversation than
+    /// the timeline shows cards: one ended with no event saying so (C-27.5).
+    /// Read the pending set again, which withdraws the cards it no longer lists.
+    private func refreshApprovalsIfStale() {
+        guard let engine, let id = state.focusedConversationID, let timeline = state.timelines[id],
+              let count = state.pendingApprovals[id], count < timeline.pendingApprovalItems.count else { return }
+        Task {
+            if let approvals = try? await onOutbox({ try engine.approvals(conversationID: id) }) {
+                state.apply(approvals: approvals, conversationID: id)
+                updateBadge()
+            }
         }
     }
 

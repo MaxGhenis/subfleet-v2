@@ -208,9 +208,11 @@ func pageResult(_ result: Timeline.PageResult) -> String {
     }
 }
 
-/// `{"conversation_id", "steps": [{"page"}|{"receipts"}|{"approvals"}|{"history"}|{"local"}|{"elsewhere"}]}`.
-/// After each step the conversation view's `ApprovalFollower` is asked where to
-/// scroll, as the view asks it (`"reveal": true` on a step: the person asked);
+/// `{"conversation_id", "steps": [{"page"}|{"receipts"}|{"approvals"}|{"pending"}|{"history"}|{"local"}|
+/// {"reopen"}|{"elsewhere"}]}`. `approvals` attaches views; `pending` is the daemon's whole pending set,
+/// attached and reconciled as the store does; `reopen` begins a new read, as focusing does. After each
+/// step the conversation view's `ApprovalFollower` is asked where to scroll, as the view asks it:
+/// `"reveal": true` on a step is the person asking, which stands until a row answers it;
 /// `{"elsewhere": true}` shows another conversation in between.
 func runFold(_ data: Data) throws -> [String: Any] {
     let input = try JSONValue.parse(data)
@@ -219,6 +221,7 @@ func runFold(_ data: Data) throws -> [String: Any] {
     var snapshots: [[String: Any]] = []
     var follower = ApprovalFollower()
     var scrolls: [Any] = []
+    var reveal = false
     for step in input["steps"]?.array ?? [] {
         if let page = step["page"] {
             results.append(pageResult(timeline.apply(page: try page.decode(EventsPage.self))))
@@ -228,6 +231,14 @@ func runFold(_ data: Data) throws -> [String: Any] {
         } else if let approvals = step["approvals"] {
             timeline.attach(approvals: try approvals.decode([ApprovalView].self))
             results.append("approvals")
+        } else if let pending = step["pending"] {
+            let views = try pending.decode([ApprovalView].self)
+            timeline.attach(approvals: views)
+            timeline.reconcile(pending: views)
+            results.append("pending")
+        } else if step["reopen"]?.bool == true {
+            timeline.startReading()
+            results.append("reopen")
         } else if let history = step["history"] {
             let asked = timeline.historyBefore
             timeline.apply(history: try history.decode(HistoryPage.self))
@@ -236,8 +247,14 @@ func runFold(_ data: Data) throws -> [String: Any] {
             timeline.addLocal(messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "")
             results.append("local")
         }
-        let shown = step["elsewhere"]?.bool == true ? Timeline(conversationID: timeline.conversationID + "-other") : timeline
-        scrolls.append(follower.target(in: shown, reveal: step["reveal"]?.bool == true) as Any? ?? NSNull())
+        if step["reveal"]?.bool == true { reveal = true }
+        if step["elsewhere"]?.bool == true {
+            var elsewhere = false
+            scrolls.append(follower.target(in: Timeline(conversationID: timeline.conversationID + "-other"),
+                                           reveal: &elsewhere) as Any? ?? NSNull())
+        } else {
+            scrolls.append(follower.target(in: timeline, reveal: &reveal) as Any? ?? NSNull())
+        }
         if step["snapshot"]?.bool == true { snapshots.append(project(timeline)) }
     }
     var out = project(timeline)

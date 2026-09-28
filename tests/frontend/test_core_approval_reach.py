@@ -27,12 +27,14 @@ order with a reference written from the rule above.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 import tempfile
 import uuid
 
 from hypothesis import HealthCheck, event, given, settings, strategies as st
 
+from subfleet.conversations.store import REPAIR_ORIGINS
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness, claude_init
 from tests.frontend.test_core_timeline import claude_approval, items_of, page, replay
@@ -43,7 +45,9 @@ CID = "cv-approval-reach"
 T0 = datetime(2026, 9, 28, 1, 0, tzinfo=timezone.utc)
 WAITING = {"queued", "sending"}
 TERMINAL = {"complete", "failed", "interrupted", "cancelled"}
-REPAIR_ORIGINS = ("unblock-note", "failover")      # subfleet/conversations/store.py
+# A message settled this way has had its attempt's approvals withdrawn (service.py settle).
+SETTLED = TERMINAL | {"delivery-unknown"}
+CONVERSATION_KEY = "(conversation)"
 
 
 def fold(core_probe, steps: list[dict], cid: str = CID) -> dict:
@@ -87,11 +91,15 @@ def ask(log: Log, mid: str, request_id: str, command: str = "rm -f mocktest/*") 
     return f"approval:{mid}:{request_id}"
 
 
-def listed(approval_id: str, mid: str, command: str, created: float) -> dict:
-    """An approval as `approval.list` shows it (pending only)."""
-    return {"approval_id": approval_id, "message_id": mid, "conversation_id": CID, "kind": "tool",
+def listed(approval_id: str, mid: str, command: str, created: float, request_id: str | None = None) -> dict:
+    """An approval as `approval.list` shows it (pending only). A daemon older than
+    C-27.5 sends no `request_id`."""
+    view = {"approval_id": approval_id, "message_id": mid, "conversation_id": CID, "kind": "tool",
             "display": {"tool": "Bash", "input": f"command: {command}"}, "options": ["allow", "deny", "cancel-turn"],
             "created_at": ts(created), "state": "pending"}
+    if request_id is not None:
+        view["request_id"] = request_id
+    return view
 
 
 def history(*texts: str, next_before: int | None = None) -> dict:
@@ -312,21 +320,103 @@ def test_c27_5_opening_waits_for_the_log_then_the_first_history_page(core_probe)
 
 def test_c27_5_a_reset_reads_the_log_again_before_scrolling(core_probe):
     """A reset (C-25.4) drops what the events made and reads the log from 0: rows
-    arrive again above the card, so the view waits until that read reaches the end."""
+    arrive again above the card, so the view waits until that read reaches the end.
+    The person's request stands until then."""
     log = Log()
     log.add("m1", "accepted")
     card = ask(log, "m1", "perm-r")
     first = log.page()
     steps = [{"receipts": [receipt("m1", 1, "approval-needed")]}, first, log.page(),
              {"page": {"events": [], "next": 0, "reset": True, "floor": 1}, "reveal": True},
-             {"page": {"events": first["page"]["events"], "next": 2, "reset": False}, "reveal": True},
-             {"page": {"events": [], "next": 2, "reset": False}, "reveal": True}]
+             {"page": {"events": first["page"]["events"], "next": 2, "reset": False}},
+             {"page": {"events": [], "next": 2, "reset": False}}]
     for step in steps:
         step["snapshot"] = True
     result = fold(core_probe, steps)
     assert result["results"] == ["receipts", "applied:2", "applied:0", "reset", "applied:2", "applied:0"]
     assert [snapshot["caught_up"] for snapshot in result["snapshots"]] == [False, False, True, False, False, True]
     assert result["scrolls"] == [None, None, card, None, None, card]
+
+
+def test_c27_5_opening_again_reads_before_scrolling_and_an_empty_history_page_moves_nothing(core_probe):
+    """Opening a conversation again reads its log from where it stopped, and the
+    next older history page lands above the card: the view waits for the read and
+    brings the card back after that page, but not after a page that added nothing
+    (independent review of fa30c51)."""
+    log = Log()
+    log.add("m1", "accepted")
+    card = ask(log, "m1", "perm-v")
+    visit = [{"receipts": [receipt("m1", 1, "approval-needed")]}, log.page(), log.page()]
+    steps = visit + [{"elsewhere": True}, {"reopen": True}, log.page(), history("older", next_before=40),
+                     history("oldest")]
+    result = fold(core_probe, steps)
+    assert result["scrolls"] == [None, None, card, None, None, card, card, None]
+    quiet = fold(core_probe, visit + [{"elsewhere": True}, {"reopen": True}, log.page(), history()])
+    assert quiet["scrolls"][-1] is None
+
+
+def test_c27_5_two_identical_requests_join_their_own_approvals(core_probe):
+    """One turn asks for `git status` twice; the first is answered, the second
+    waits, and the app opens the conversation afresh. With the request id on the
+    daemon's views each card joins its own approval; from an older daemon, whose
+    views join by display, a card that is not pending lets go of an approval the
+    daemon says is pending, so Review still reaches the waiting one (independent
+    review of fa30c51)."""
+    for request_ids in (True, False):
+        log = Log()
+        log.add("m1", "accepted")
+        ask(log, "m1", "r1", "git status")
+        log.add("m1", "approval.resolved", request_id="r1", decision="allow")
+        waiting = ask(log, "m1", "r2", "git status")
+        view = listed("ap2", "m1", "git status", 3, request_id="r2" if request_ids else None)
+        steps = [{"receipts": [receipt("m1", 1, "approval-needed")]}, {"pending": [view]}, log.page(), log.page(),
+                 {"pending": [view]}]
+        result = fold(core_probe, steps)
+        pending = [item for item in result["items"] if item["id"] in result["pending_items"]]
+        assert len(pending) == 1 and pending[0]["card"]["approval_id"] == "ap2", request_ids
+        assert pending[0]["card"]["request_id"] == "r2", request_ids
+        answered = [item["card"] for item in items_of(result, "m1", "approval") if item["card"]["state"] != "pending"]
+        assert [card["request_id"] for card in answered] == ["r1"], request_ids
+        if request_ids:
+            assert result["pending_items"] == ["approval:m1:ap2"] or result["pending_items"] == [waiting]
+
+
+def test_c27_5_a_view_joins_the_card_of_its_own_request_in_any_order(core_probe):
+    """Two identical requests wait; views that name their request join their own
+    cards whatever order they arrive in, where a join by display pairs them by order."""
+    log = Log()
+    log.add("m1", "accepted")
+    first, second = ask(log, "m1", "r1", "git status"), ask(log, "m1", "r2", "git status")
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]}, log.page(),
+                               {"approvals": [listed("ap2", "m1", "git status", 2, request_id="r2"),
+                                              listed("ap1", "m1", "git status", 1, request_id="r1")]}])
+    cards = {item["id"]: item["card"] for item in items_of(result, "m1", "approval")}
+    assert (cards[first]["approval_id"], cards[second]["approval_id"]) == ("ap1", "ap2")
+
+
+def test_c27_5_a_card_the_daemon_no_longer_lists_is_withdrawn(core_probe):
+    """A turn admitted again, or one whose attempt ended with no event, leaves a
+    card the daemon no longer lists as pending: the next full pending list (a
+    Review, an answer, a watch count below the cards shown) withdraws it."""
+    log = Log()
+    log.add("m1", "accepted")
+    ask(log, "m1", "perm-gone", "rm gone")
+    steps = [{"receipts": [receipt("m1", 1, "waiting")]}, log.page(),
+             {"pending": [listed("ap-gone", "m1", "rm gone", 2, request_id="perm-gone")]}]
+    joined = fold(core_probe, steps)
+    assert joined["review_label"] == "Review"
+    gone = fold(core_probe, steps + [{"pending": []}])
+    assert gone["pending_items"] == [] and gone["review_label"] is None
+    assert items_of(gone, "m1", "approval")[0]["card"]["state"] == "withdrawn"
+
+
+def test_c27_5_a_card_of_a_message_whose_delivery_is_unknown_is_withdrawn(core_probe):
+    """Delivery unknown is settled like an end: its attempt's approvals are gone."""
+    log = Log()
+    log.add("m1", "accepted")
+    ask(log, "m1", "perm-du")
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "delivery-unknown")]}, log.page()])
+    assert result["pending_items"] == [] and result["pinned_turn"] is None
 
 
 # MARK: - Display order
@@ -428,13 +518,16 @@ STATES = ["queued", "waiting", "starting", "running", "approval-needed", "comple
 
 @st.composite
 def timelines(draw):
-    """Steps for a conversation of up to 7 messages: receipts in any order and at
-    any time, events interleaved across messages, approvals known from
-    `approval.list` before or after their events, local messages with no receipt."""
+    """Steps for a conversation of up to 7 messages, and the daemon's pending
+    approvals at the end. Receipts come in any order and at any time, events
+    interleave across messages (a few with no message id), requests repeat a
+    command (identical displays), the daemon's pending set is listed whole at
+    any time, and views carry the request id or, as from an older daemon, not."""
+    request_ids = draw(st.booleans())
     count = draw(st.integers(1, 7))
     mids = [f"m{n}" for n in range(1, count + 1)]
     received = [mid for mid in mids if draw(st.booleans()) or mid == "m1"]
-    receipts = []
+    receipts, final = [], {}
     for index, mid in enumerate(mids):
         if mid not in received:
             continue
@@ -442,55 +535,66 @@ def timelines(draw):
         if index and draw(st.integers(0, 3)) == 0:
             continues, origin = draw(st.sampled_from(mids)), "failover"
         # Live states twice as often, so cards stay pending in more timelines.
-        state = draw(st.sampled_from(STATES + ["running", "approval-needed", "queued"]))
-        receipts.append(receipt(mid, index + 1, state, origin=origin, continues=continues))
-    log, steps, asked, attached = Log(), [], [], []
-    for _ in range(draw(st.integers(0, 14))):
+        final[mid] = draw(st.sampled_from(STATES + ["running", "approval-needed", "queued"]))
+        receipts.append(receipt(mid, index + 1, final[mid], origin=origin, continues=continues))
+    log, steps, truth = Log(), [], {}
+    for _ in range(draw(st.integers(0, 16))):
         mid = draw(st.sampled_from(mids))
-        action = draw(st.sampled_from(["text", "tool", "ask", "ask", "answer", "complete", "accepted",
+        action = draw(st.sampled_from(["text", "tool", "ask", "ask", "answer", "complete", "accepted", "loose",
                                        "page", "page", "receipts", "list", "reveal", "elsewhere", "history"]))
         if action == "text":
             log.add(mid, "text", block=str(len(log.events)), text="words")
+        elif action == "loose":
+            log.add(None, "text", block=str(len(log.events)), text="for the conversation")
         elif action == "tool":
             log.add(mid, "tool.started", id=f"t{len(log.events)}", name="Bash", summary="ls")
         elif action == "ask":
-            request = f"r{len(asked)}"
-            asked.append((mid, request))
-            ask(log, mid, request, command=f"cmd {request}")
-            if draw(st.booleans()):
-                # `approval.list` knows it too, stamped a little before or after the event.
-                attached.append({"approval_id": f"ap-{request}", "message_id": mid, "conversation_id": CID,
-                                 "kind": "tool", "display": {"tool": "Bash", "input": f"command: cmd {request}"},
-                                 "options": ["allow", "deny", "cancel-turn"],
-                                 "created_at": ts(len(log.events) + draw(st.sampled_from([-3, -0.5, 0.5, 3]))),
-                                 "state": "pending"})
-        elif action == "answer" and asked:
-            owner, request = draw(st.sampled_from(asked))
-            log.add(owner, "approval.resolved", request_id=request, decision="allow")
+            request = f"r{len(truth)}"
+            command = draw(st.sampled_from(["git status", "git status", "ls", f"cmd {request}"]))
+            ask(log, mid, request, command=command)
+            truth[f"ap-{request}"] = {"view": listed(f"ap-{request}", mid, command, len(log.events),
+                                                     request_id=request if request_ids else None),
+                                      "request": request, "state": "pending"}
+        elif action == "answer" and truth:
+            approval = truth[draw(st.sampled_from(sorted(truth)))]
+            if approval["state"] == "pending":
+                approval["state"] = "answered"
+                log.add(approval["view"]["message_id"], "approval.resolved", request_id=approval["request"],
+                        decision="allow")
         elif action == "complete":
             log.add(mid, "turn.completed", state="complete")
+            for approval in truth.values():
+                if approval["view"]["message_id"] == mid and approval["state"] == "pending":
+                    approval["state"] = "withdrawn"
         elif action == "accepted":
             log.add(mid, "accepted")
         elif action == "page":
             steps.append(log.page())
         elif action == "receipts" and receipts:
             steps.append({"receipts": draw(st.permutations(receipts))})
-        elif action == "list" and attached:
-            steps.append({"approvals": list(attached)})
+        elif action == "list":
+            steps.append({"pending": [a["view"] for a in truth.values() if a["state"] == "pending"]})
         elif action == "reveal":
             steps.append({"reveal": True})
         elif action == "elsewhere":
             steps.append({"elsewhere": True})
         elif action == "history":
             steps.append(history(f"older {len(steps)}", next_before=draw(st.sampled_from([None, 10]))))
-    # The last page reads the log to its end, as the app's events loop does.
-    steps += [{"receipts": receipts}, log.page(), log.page()]
+    # A settled message's approvals are gone (service.py settle); the rest stay pending.
+    for approval in truth.values():
+        if approval["state"] == "pending" and final.get(approval["view"]["message_id"]) in SETTLED:
+            approval["state"] = "withdrawn"
+    # The last pages read the log to its end, as the app's events loop does; then the
+    # daemon's whole pending set, as a Review or an answer reads it.
+    steps += [{"receipts": receipts}, log.page(), log.page(),
+              {"pending": [a["view"] for a in truth.values() if a["state"] == "pending"]}]
     for mid in mids:
         if mid not in received and draw(st.booleans()):
             steps.insert(draw(st.integers(0, len(steps))), {"local": {"message_id": mid, "text": f"local {mid}"}})
     for step in steps:
         step["snapshot"] = True
-    return steps
+    return {"steps": steps, "request_ids": request_ids,
+            "pending": {id: a for id, a in truth.items() if a["state"] == "pending"}}
 
 
 PROPERTY = settings(max_examples=120, deadline=None, derandomize=True,
@@ -503,15 +607,15 @@ def rows_of(snapshot: dict, mid: str) -> list[str]:
 
 def waits_in_queue(snapshot: dict, mid: str) -> bool:
     turn = snapshot["turns"][mid]
-    return (turn["state"] in WAITING and turn["continues"] is None and turn["first_event"] is None
-            and rows_of(snapshot, mid) in ([], [f"person:{mid}"]))
+    return (mid != CONVERSATION_KEY and turn["state"] in WAITING and turn["continues"] is None
+            and turn["first_event"] is None and rows_of(snapshot, mid) in ([], [f"person:{mid}"]))
 
 
 def reference_display_order(snapshot: dict) -> list[str]:
     """The rule, written again: turns in the order they began (first event); a
     message that never began right after the latest that began among the
-    messages before it; queued messages last, in the order the daemon sends
-    them (`next_dispatchable`: repairs first)."""
+    messages before it; the no-message rows last of those; queued messages last,
+    in the order the daemon sends them (`next_dispatchable`: repairs first)."""
     order, turns = snapshot["order"], snapshot["turns"]
     queue = [mid for mid in order if waits_in_queue(snapshot, mid)]
     waiting = sorted(queue, key=lambda mid: turns[mid]["origin"] not in REPAIR_ORIGINS)
@@ -520,7 +624,9 @@ def reference_display_order(snapshot: dict) -> list[str]:
         if mid in queue:
             continue
         began = turns[mid]["first_event"]
-        if began is not None:
+        if mid == CONVERSATION_KEY:
+            keyed.append(((float("inf"), 1, place), mid))
+        elif began is not None:
             keyed.append(((began, 0, place), mid))
             latest = max(latest, began)
         else:
@@ -531,7 +637,8 @@ def reference_display_order(snapshot: dict) -> list[str]:
 def reference_followed_item(snapshot: dict) -> str | None:
     """The newest row of the turn that began last; before any began, the last
     row above the queue."""
-    begun = [mid for mid, turn in snapshot["turns"].items() if turn["first_event"] is not None]
+    begun = [mid for mid, turn in snapshot["turns"].items()
+             if turn["first_event"] is not None and mid != CONVERSATION_KEY and rows_of(snapshot, mid)]
     if begun:
         return rows_of(snapshot, max(begun, key=lambda mid: snapshot["turns"][mid]["first_event"]))[-1]
     waiting = {mid for mid in snapshot["order"] if waits_in_queue(snapshot, mid)}
@@ -551,10 +658,24 @@ def when(stamp: str | None) -> datetime:
 def check_snapshot(snapshot: dict) -> None:
     pending = snapshot["pending_items"]
     ids = [item["id"] for item in snapshot["items"]]
+    turns, shown = snapshot["turns"], snapshot["display_order"]
     # Every row is shown once (SwiftUI's ForEach needs unique ids), every message once.
     assert len(ids) == len(set(ids))
-    assert sorted(snapshot["display_order"]) == sorted(snapshot["order"])
-    assert snapshot["display_order"] == reference_display_order(snapshot)
+    assert sorted(shown) == sorted(snapshot["order"])
+    # The display rule, as statements...
+    waiting = [mid for mid in snapshot["order"] if waits_in_queue(snapshot, mid)]
+    assert shown[len(shown) - len(waiting):] == sorted(
+        waiting, key=lambda mid: (turns[mid]["origin"] not in REPAIR_ORIGINS, snapshot["order"].index(mid)))
+    begun = [mid for mid in shown if turns[mid]["first_event"] is not None and mid != CONVERSATION_KEY]
+    assert begun == sorted(begun, key=lambda mid: turns[mid]["first_event"])
+    for mid in shown:
+        parent = turns[mid]["continues"]
+        if parent in turns and turns[parent]["first_event"] is not None and parent != mid and (
+                turns[mid]["first_event"] is None or turns[mid]["first_event"] > turns[parent]["first_event"]) \
+                and snapshot["order"].index(parent) < snapshot["order"].index(mid):
+            assert shown.index(parent) < shown.index(mid)       # a continuation under its origin
+    # ...and as the rule written again.
+    assert shown == reference_display_order(snapshot)
     # The strip's Review: exactly while a card waits, counting every one, oldest
     # asked first (a row with no time after those with one; a tie keeps its place).
     rows = pending_rows(snapshot)
@@ -563,72 +684,91 @@ def check_snapshot(snapshot: dict) -> None:
     assert len(pending) == len(set(pending))
     assert snapshot["review_label"] == (None if not pending else "Review" if len(pending) == 1
                                         else f"Review ({len(pending)})")
-    # No card of a message that has ended is pending (C-27.3).
+    # No card of a message the daemon has settled is pending (C-27.3).
     owners = {item["id"]: item["message_id"] for item in snapshot["items"]}
-    assert all(snapshot["turns"][owners[row]]["state"] not in TERMINAL for row in pending)
+    assert all(turns[owners[row]]["state"] not in SETTLED for row in pending)
     # A waiting card always has a strip to carry its Review.
     if pending:
         assert snapshot["pinned_turn"] is not None
-    if snapshot["live_message"] is not None and snapshot["turns"][snapshot["live_message"]]["outcome"] is None:
+    if snapshot["live_message"] is not None and turns[snapshot["live_message"]]["outcome"] is None:
         assert snapshot["pinned_turn"] == snapshot["live_message"]
     # Nothing a turn did sits below a queued message.
-    waiting = [mid for mid in snapshot["order"] if waits_in_queue(snapshot, mid)]
     first_waiting = min((ids.index(f"person:{mid}") for mid in waiting if f"person:{mid}" in ids), default=len(ids))
     assert all(item["message_id"] in waiting for item in snapshot["items"][first_waiting:])
     assert snapshot["followed_item"] == reference_followed_item(snapshot)
 
 
 @PROPERTY
-@given(steps=timelines())
-def test_c27_5_property_the_strip_review_order_and_follow_hold_for_every_timeline(core_probe, steps):
+@given(case=timelines())
+def test_c27_5_property_the_strip_review_order_and_follow_hold_for_every_timeline(core_probe, case):
     """C-27.5 over generated timelines: Review, the strip, display order, the followed row."""
-    result = fold(core_probe, steps)
+    result = fold(core_probe, case["steps"])
     for snapshot in result["snapshots"]:
         check_snapshot(snapshot)
     # What the generated timelines exercised, in the statistics.
     event(f"pending cards at the end: {min(len(result['pending_items']), 3)}")
     event(f"display order differs from sequence order: {result['display_order'] != result['order']}")
     event(f"a queued message below a turn: {any(waits_in_queue(result, m) for m in result['order'])}")
-    event(f"a card withdrawn with its ended turn: {any(i['type'] == 'approval' and i['card']['state'] == 'withdrawn' for i in result['items'])}")
+    event(f"identical requests: {len({json.dumps(a['view']['display']) for a in case['pending'].values()}) < len(case['pending'])}")
 
 
 @PROPERTY
-@given(steps=timelines())
-def test_c27_5_property_each_card_is_scrolled_to_once_and_on_request(core_probe, steps):
+@given(case=timelines())
+def test_c27_5_property_cards_join_the_daemons_pending_approvals(core_probe, case):
+    """After the daemon's whole pending set, the pending cards are its approvals:
+    each once, and, where views carry the request id, each on its own request."""
+    result = fold(core_probe, case["steps"])
+    cards = {item["id"]: item["card"] for item in result["items"] if item["type"] == "approval"}
+    joined = [cards[row]["approval_id"] for row in result["pending_items"]]
+    assert all(joined) and len(joined) == len(set(joined))
+    assert set(joined) == set(case["pending"])
+    if case["request_ids"]:
+        for row in result["pending_items"]:
+            assert cards[row]["request_id"] == case["pending"][cards[row]["approval_id"]]["request"]
+
+
+@PROPERTY
+@given(case=timelines())
+def test_c27_5_property_each_card_is_scrolled_to_once_and_on_request(core_probe, case):
     """C-27.5: the follower's targets, against the rule written again."""
+    steps = case["steps"]
     result = fold(core_probe, steps)
-    conversation, shown, last, pages = None, set(), None, 0
+    conversation, shown, last, pages_at_open, loaded, reveal = None, set(), None, 0, False, False
     for step, snapshot, target in zip(steps, result["snapshots"], result["scrolls"]):
+        reveal = reveal or bool(step.get("reveal"))
         here = "elsewhere" if step.get("elsewhere") else CID
         if here != conversation:
-            conversation, shown, last = here, set(), None
-            pages = 0 if step.get("elsewhere") else snapshot["history_pages"]
+            conversation, shown, last, loaded = here, set(), None, False
+            pages_at_open = 0 if step.get("elsewhere") else snapshot["history_pages"]
         if step.get("elsewhere") or not snapshot["caught_up"]:
             # Another conversation not yet read, or this one still reading: rows may arrive above.
             assert target is None
             continue
         pending = snapshot["pending_items"]
-        expected = (pending[0] if pending else None) if step.get("reveal") else \
+        expected = (pending[0] if pending else None) if reveal else \
             next((row for row in pending if row not in shown), None)
         shown |= set(pending)
-        if expected is None and pages == 0 and snapshot["history_pages"] > 0 and last in pending:
-            expected = last
-        pages = snapshot["history_pages"]
-        last = expected or last
+        if not loaded and snapshot["history_pages"] > pages_at_open:
+            loaded = True
+            if expected is None and snapshot["history_added"] > 0 and last in pending:
+                expected = last
+        if expected:
+            last, reveal = expected, False
         assert target == expected
         assert target is None or target in pending
 
 
 @PROPERTY
-@given(steps=timelines())
-def test_c27_5_property_answering_the_strips_card_reaches_every_pending_card(core_probe, steps):
+@given(case=timelines())
+def test_c27_5_property_answering_the_strips_card_reaches_every_pending_card(core_probe, case):
     """Review opens the oldest card; once it is answered Review opens the next.
-    Following Review alone answers every card that was pending, in order."""
+    Following Review alone answers every approval the daemon holds pending, in order."""
+    steps = case["steps"]
     result = fold(core_probe, steps)
     pending = result["pending_items"]
     cards = {item["id"]: item["card"] for item in result["items"] if item["type"] == "approval"}
     reached = []
-    next_seq = max((event["seq"] for step in steps if "page" in step for event in step["page"]["events"]), default=0)
+    next_seq = max((e["seq"] for step in steps if "page" in step for e in step["page"]["events"]), default=0)
     extra: list[dict] = []
     for _ in range(len(pending) + 1):
         current = fold(core_probe, steps + extra) if extra else result
@@ -636,16 +776,13 @@ def test_c27_5_property_answering_the_strips_card_reaches_every_pending_card(cor
             break
         target = current["pending_items"][0]
         assert current["review_label"] is not None and current["pinned_turn"] is not None
-        reached.append(target)
         card = cards[target]
-        if card["request_id"] is not None:
-            next_seq += 1
-            extra.append({"page": {"events": [{"seq": next_seq, "message_id": target.split(":")[1],
-                                               "kind": "approval.resolved", "ts": ts(next_seq),
-                                               "data": {"request_id": card["request_id"], "decision": "allow"}}],
-                                   "next": next_seq, "reset": False}})
-        else:
-            extra.append({"approvals": [{"approval_id": card["approval_id"], "message_id": target.split(":")[1],
-                                         "conversation_id": CID, "kind": card["kind"], "display": card["display"],
-                                         "options": card["options"], "created_at": ts(0), "state": "answered"}]})
-    assert reached == pending
+        reached.append(card["approval_id"])
+        # The daemon answers the approval the card holds; its event names the request.
+        answered = case["pending"][card["approval_id"]]
+        next_seq += 1
+        extra.append({"page": {"events": [{"seq": next_seq, "message_id": answered["view"]["message_id"],
+                                           "kind": "approval.resolved", "ts": ts(next_seq),
+                                           "data": {"request_id": answered["request"], "decision": "allow"}}],
+                               "next": next_seq, "reset": False}})
+    assert sorted(reached) == sorted(case["pending"]) and len(reached) == len(set(reached))

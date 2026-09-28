@@ -235,6 +235,7 @@ struct ConversationView: View {
 
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
+        let pendingRows = timeline?.pendingApprovalItems ?? []
         VStack(spacing: 0) {
             header
             RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
@@ -271,9 +272,11 @@ struct ConversationView: View {
                 }
                 .onChange(of: timeline?.items.last?.id) { _, _ in
                     // A new last row: followed while the end is on screen, and always
-                    // for the person's own message. Rows 'Load earlier' adds go first
-                    // and change no last row.
-                    let own = timeline?.items.last.map { if case .person = $0.content { return true } else { return false } } ?? false
+                    // for the message the person just sent. Rows 'Load earlier' adds go
+                    // first and change no last row.
+                    let own = timeline?.items.last.map {
+                        if case .person(_, _, let state) = $0.content { return state == "sending" } else { return false }
+                    } ?? false
                     if atBottom || own {
                         withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
@@ -287,7 +290,7 @@ struct ConversationView: View {
                     // A text or thinking block growing in place adds no row.
                     if atBottom { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
-                .onChange(of: approvalKey) { _, _ in followApprovals(proxy) }
+                .onChange(of: approvalKey(timeline, pendingRows)) { _, _ in followApprovals(proxy) }
                 .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
                 .onAppear {
                     proxy.scrollTo("bottom", anchor: .bottom)
@@ -298,8 +301,9 @@ struct ConversationView: View {
             if let timeline, let turn = timeline.pinnedTurn {
                 // The live turn's strip stays in view however far the timeline scrolls,
                 // and with it a Review for every card waiting on the person.
-                LiveTurnStrip(turn: turn, pendingApprovals: timeline.pendingApprovalItems.count, review: reviewOldest,
-                              stop: { model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil)) })
+                let stop = stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil)
+                LiveTurnStrip(turn: turn, pendingApprovals: pendingRows.count, review: reviewOldest,
+                              stop: stop == .none ? nil : { model.stop(stop) })
                     .padding(.horizontal, 14).padding(.top, 6)
             }
             if conversation.live_elsewhere == true {
@@ -365,10 +369,9 @@ struct ConversationView: View {
 
     /// What moves the view to a card: the conversation, whether its log has been
     /// read, its history pages, and its waiting cards.
-    private var approvalKey: [String] {
-        let timeline = model.state.timelines[conversation.conversation_id]
-        return [conversation.conversation_id, timeline?.caughtUp == true ? "read" : "reading",
-                String(timeline?.historyPagesLoaded ?? 0)] + (timeline?.pendingApprovalItems.map(\.id) ?? [])
+    private func approvalKey(_ timeline: Timeline?, _ pending: [TimelineItem]) -> [String] {
+        [conversation.conversation_id, timeline?.caughtUp == true ? "read" : "reading",
+         String(timeline?.historyPagesLoaded ?? 0)] + pending.map(\.id)
     }
 
     /// Brings a waiting card into view: each new one once, when it appears,
@@ -378,9 +381,10 @@ struct ConversationView: View {
     private func followApprovals(_ proxy: ScrollViewProxy) {
         let id = conversation.conversation_id
         guard let timeline = model.state.timelines[id] else { return }
-        let reveal = model.approvalReveal == id
-        guard let target = approvals.target(in: timeline, reveal: reveal) else { return }
-        if reveal { model.approvalReveal = nil }
+        var reveal = model.approvalReveal == id
+        let target = approvals.target(in: timeline, reveal: &reveal)
+        if model.approvalReveal == id && !reveal { model.approvalReveal = nil }
+        guard let target else { return }
         // After this update's own scrolling (to the end, for a row that just
         // arrived), so the view settles on the card.
         DispatchQueue.main.async {
@@ -768,7 +772,9 @@ struct LiveTurnStrip: View {
     /// Cards waiting on the person in this conversation; with none, no Review.
     var pendingApprovals = 0
     var review: () -> Void = {}
-    let stop: () -> Void
+    /// Nil when Stop has nothing to act on (the turn of a waiting card that the
+    /// daemon has already settled).
+    let stop: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -787,7 +793,7 @@ struct LiveTurnStrip: View {
                     .buttonStyle(.borderedProminent).tint(.orange).controlSize(.small)
                     .help("Open the oldest request waiting for your approval")
             }
-            Button("Stop", action: stop).buttonStyle(.link).font(.caption)
+            if let stop { Button("Stop", action: stop).buttonStyle(.link).font(.caption) }
         }
     }
 }

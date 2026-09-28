@@ -29,12 +29,12 @@ struct ConversationViewProbe {
         NSApplication.shared.setActivationPolicy(.prohibited)
         var windows: [NSWindow] = []
         var strips: [[String: Any]] = []
-        for pending in [0, 1, 2, 12] {
+        for (pending, stops) in [(0, true), (1, true), (2, true), (12, true), (1, false)] {
             let presses = Presses()
             // One state for all, so only the Review button changes the room the strip takes.
             let turn = TurnTimeline(messageID: "m7", state: "approval-needed")
             let strip = LiveTurnStrip(turn: turn, pendingApprovals: pending,
-                                      review: { presses.review += 1 }, stop: { presses.stop += 1 })
+                                      review: { presses.review += 1 }, stop: stops ? { presses.stop += 1 } : nil)
             let hosted = host(strip, width: 640)
             windows.append(hosted.window)
             // Which AppKit button does what: macOS 15 backs a bordered button with
@@ -44,7 +44,7 @@ struct ConversationViewProbe {
                 button.performClick(nil)
                 return presses.review > before.0 ? "review" : presses.stop > before.1 ? "stop" : "none"
             }
-            strips.append(["pending": pending, "width": hosted.size.width, "height": hosted.size.height,
+            strips.append(["pending": pending, "stops": stops, "width": hosted.size.width, "height": hosted.size.height,
                            "clicks": clicks, "label": reviewButtonLabel(pending: pending) as Any? ?? NSNull()])
         }
         var rows: [[String: Any]] = []
